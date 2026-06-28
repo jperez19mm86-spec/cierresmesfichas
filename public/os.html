@@ -130,8 +130,65 @@ function editCli(id){
       </div>
       <div id="pb-hist" class="muted"></div>
     </div>
+    <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
     <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>`;
+  loadCliPlat(id);
   loadCliProv(id);
+}
+// ── Plataformas (superagentes) del cliente — asignador con checkboxes ──
+async function loadCliPlat(id){
+  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
+  window._platCxs = cxs;
+  const opts = cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  document.getElementById('cliPlat').innerHTML = `
+    <div class="card">
+      <h2>🛰️ Plataformas (superagentes) <span class="muted">(asigná los GOD/superagentes de este cliente)</span></h2>
+      ${cxs.length ? `
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión / sistema</label><select id="plat-cx">${opts}</select></div>
+        <div style="flex:0"><button class="outline" onclick="loadSupers('${id}')">⤓ Cargar superagentes</button></div>
+      </div>
+      <div id="plat-list" class="muted" style="margin-top:8px">Elegí una conexión y tocá "Cargar superagentes". Aparecen SOLO los superagentes, con tilde.</div>
+      ` : '<div class="empty">No hay conexiones. Cargá una en Config → 🎰 Casino primero.</div>'}
+    </div>`;
+}
+async function loadSupers(id){
+  const cx = val('plat-cx'); if(!cx) return toast('Elegí una conexión');
+  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo superagentes del GOD…';
+  const sr = await api('/api/os/casino/conexiones/'+cx+'/superagentes');
+  if(!sr.ok){ box.innerHTML='<span class="badge err">No se pudieron traer los superagentes (¿conexión OK?)</span>'; return; }
+  const pr = await api('/api/os/paneles?cliente_id='+id);
+  const supers = sr.superagentes||[];
+  const panels = (pr.paneles||[]).filter(p=>p.conexion_id===cx && p.id_usuario);
+  const asignado = new Set(panels.map(p=>String(p.id_usuario)));
+  window._platMap = { cx, id, panels };
+  box.innerHTML = `
+    <div class="muted" style="margin-bottom:6px">${supers.length} superagentes en este GOD. Tildá los de este cliente.</div>
+    <table><thead><tr><th></th><th>Superagente</th><th>ID</th><th class="right">IN (ARS)</th><th class="right">Profit</th></tr></thead><tbody>
+    ${supers.map(s=>`<tr>
+      <td><input type="checkbox" class="plat-chk" data-id="${esc(s.id)}" data-login="${esc(s.login)}" ${asignado.has(String(s.id))?'checked':''}/></td>
+      <td><b>${esc(s.login)}</b></td><td><span class="pill">${esc(s.id)}</span></td>
+      <td class="right">${money(s.in,0)}</td><td class="right">${money(s.profit,0)}</td>
+    </tr>`).join('')||'<tr><td colspan="5" class="empty">Este GOD no devolvió superagentes.</td></tr>'}
+    </tbody></table>
+    <button onclick="saveSupers()" style="margin-top:8px">💾 Guardar selección</button>`;
+}
+async function saveSupers(){
+  const m = window._platMap||{}; if(!m.cx) return;
+  const cxName = (window._platCxs||[]).find(c=>c.id===m.cx); const sistema = cxName?cxName.nombre:'';
+  const checks = [...document.querySelectorAll('.plat-chk')];
+  const checked = checks.filter(c=>c.checked).map(c=>({id:c.dataset.id, login:c.dataset.login}));
+  const checkedIds = new Set(checked.map(c=>String(c.id)));
+  const byNode = {}; m.panels.forEach(p=>{ byNode[String(p.id_usuario)]=p; });
+  let creados=0, borrados=0;
+  for(const s of checked){ if(!byNode[String(s.id)]){
+    await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:m.id, nombre:s.login, sistema, nivel_usuario:'SuperAgente', tipo:'exclusivo', id_usuario:s.id, conexion_id:m.cx, divisas:'ARS'})}); creados++;
+  }}
+  const toDelete = m.panels.filter(p=>!checkedIds.has(String(p.id_usuario)));
+  if(toDelete.length){ if(confirm('Vas a DESVINCULAR '+toDelete.length+' plataforma(s) de este cliente (se borran esos paneles). ¿Seguir?')){
+    for(const p of toDelete){ await api('/api/os/paneles/'+p.id,{method:'DELETE'}); borrados++; }
+  }}
+  toast('Plataformas: +'+creados+(borrados?(' / -'+borrados):'')); loadSupers(m.id);
 }
 async function loadCliProv(id){
   const r = await api('/api/os/clientes/'+id+'/proveedores');

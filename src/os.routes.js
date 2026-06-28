@@ -281,6 +281,12 @@ function mount(app) {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.buscar({ login: req.query.login || '' }); r.ok ? ok(res, { users: r.users }) : err(res, 502, r.error);
   }));
+  // SOLO los superagentes (plataformas que ve el GOD) → para el asignador con checkboxes del cliente
+  app.get('/api/os/casino/conexiones/:id/superagentes', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const r = await cli.superagentes({ from: req.query.from, to: req.query.to, cur: req.query.cur || 'ARS' });
+    r.ok ? ok(res, { superagentes: r.superagentes }) : err(res, 502, r.error);
+  }));
   // profit por proveedor de un usuario (game history agregado)
   app.get('/api/os/casino/conexiones/:id/proveedores/:userId', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');

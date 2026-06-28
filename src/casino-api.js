@@ -30,6 +30,19 @@ function extractPhpsessid(setCookie) {
 }
 
 /**
+ * Nivel jerárquico de un nodo, leído de `additional.group` del raw de area=users.
+ * El casino lo trae como "[Superagente]" | "[Distributor]" | "[Agente]" | ausente (terminal/caja).
+ */
+function nivelDeGroup(additional) {
+  let g = '';
+  try { const a = typeof additional === 'string' ? JSON.parse(additional) : (additional || {}); g = String(a.group || ''); } catch (e) { /* noop */ }
+  if (/super/i.test(g)) return 'SuperAgente';
+  if (/distrib/i.test(g)) return 'Distribuidor';
+  if (/agent/i.test(g)) return 'Agente';
+  return ''; // terminal / caja / jugador
+}
+
+/**
  * makeClient — auth DUAL:
  *   - api_token: { url, token }  → token en el body (sessionless).
  *   - usuario/contraseña: { url, user, password } → login 2-pasos (GET sesión anónima → POST
@@ -100,6 +113,7 @@ function makeClient({ url, token, user, password } = {}) {
       rtp: g(u.rtp), wager: n(u.wager), jackpot: n(u.jackpot), bonus: n(u.bonus),
       online: u.online === '1', terminals: u.terminals || '', game: u.game || '',
       currencies: u.currencies || [],
+      nivel: nivelDeGroup(u.additional), // 'SuperAgente' | 'Distribuidor' | 'Agente' | '' (terminal)
     };
   }
 
@@ -121,6 +135,13 @@ function makeClient({ url, token, user, password } = {}) {
       ok: true,
       nodos: arr.filter((u) => u.id && String(u.login).toLowerCase() !== 'total').map((u) => mapNode(u, cur)),
     };
+  }
+
+  /** Solo los SUPERAGENTES (plataformas que ve el GOD) — para el asignador con checkboxes. */
+  async function superagentes({ from = '', to = '', cur = 'ARS' } = {}) {
+    const r = await nodos({ from, to, cur });
+    if (!r.ok) return r;
+    return { ok: true, superagentes: r.nodos.filter((nodo) => nodo.nivel === 'SuperAgente') };
   }
 
   /** Total propio de UN nodo (su fila dentro del listado flat). */
@@ -283,7 +304,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresMonedas, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresMonedas, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };
