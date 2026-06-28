@@ -96,6 +96,16 @@ db.exec(`
     vigente_hasta TEXT,
     createdAt TEXT
   );
+  /* % de proveedor POR CLIENTE: rige para TODOS los paneles/superagentes de ese cliente.
+     Si no hay fila para (cliente, proveedor) → se usa el % global de proveedores.tarifa_pct. */
+  CREATE TABLE IF NOT EXISTS cliente_proveedores (
+    id TEXT PRIMARY KEY,
+    cliente_id TEXT,
+    proveedor_id TEXT,
+    tarifa_pct TEXT,            -- decimal string (% que se cobra a ESTE cliente por este proveedor)
+    habilitado INTEGER DEFAULT 1,
+    createdAt TEXT
+  );
 
   /* ───── TIPOS DE CAMBIO ───── */
   CREATE TABLE IF NOT EXISTS tc_snapshots (
@@ -185,6 +195,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_paneles_cliente ON paneles(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_part_cliente ON participaciones(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_mov_cliente ON movimientos(cliente_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_clipro ON cliente_proveedores(cliente_id, proveedor_id);
   CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
   CREATE INDEX IF NOT EXISTS idx_cv_entidad ON config_valores(entidad_tipo, entidad_id, campo);
   CREATE INDEX IF NOT EXISTS idx_snap_fecha ON tc_snapshots(fecha);

@@ -129,7 +129,35 @@ function editCli(id){
         <button class="outline" onclick="verPBHist('${id}')">Ver historial</button>
       </div>
       <div id="pb-hist" class="muted"></div>
+    </div>
+    <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>`;
+  loadCliProv(id);
+}
+async function loadCliProv(id){
+  const r = await api('/api/os/clientes/'+id+'/proveedores');
+  const provs = r.proveedores||[];
+  const rows = provs.map(p=>`<tr>
+    <td>${esc(p.nombre||'')}</td>
+    <td><span class="badge ${p.categoria==='extra'?'warn':''}">${esc(p.categoria||'')}</span></td>
+    <td class="muted">${p.tarifa_global!=null?esc(p.tarifa_global)+'%':'—'}</td>
+    <td><input id="cp-${p.proveedor_id}" value="${p.tarifa_cliente!=null?esc(p.tarifa_cliente):''}" placeholder="${p.tarifa_global!=null?esc(p.tarifa_global):'—'}" style="width:90px"/></td>
+    <td class="right" style="white-space:nowrap"><button class="small" onclick="saveCliProv('${id}','${p.proveedor_id}')">💾</button>${p.tarifa_cliente!=null?` <button class="outline small" onclick="delCliProv('${id}','${p.proveedor_id}')">↺ global</button>`:''}</td>
+  </tr>`).join('');
+  document.getElementById('cliProv').innerHTML = `
+    <div class="card">
+      <h2>🎰 % de proveedores <span class="muted">(rige para TODOS los paneles de este cliente)</span></h2>
+      <p class="muted" style="margin-top:-4px">Dejá vacío para usar el % global del catálogo. Lo que pongas acá pisa el global solo para este cliente.</p>
+      <table><thead><tr><th>Proveedor</th><th>Cat.</th><th>Global</th><th>% este cliente</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" class="empty">No hay proveedores en el catálogo. Cargalos primero en la solapa 🏷 Proveedores.</td></tr>'}</tbody></table>
     </div>`;
+}
+async function saveCliProv(id, provId){
+  await api('/api/os/clientes/'+id+'/proveedores',{method:'POST',body:JSON.stringify({proveedor_id:provId, tarifa_pct:val('cp-'+provId)})});
+  toast('Guardado'); loadCliProv(id);
+}
+async function delCliProv(id, provId){
+  await api('/api/os/clientes/'+id+'/proveedores/'+provId,{method:'DELETE'});
+  toast('Volvió al % global'); loadCliProv(id);
 }
 async function saveCli(id){
   await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({

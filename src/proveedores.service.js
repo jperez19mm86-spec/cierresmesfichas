@@ -35,4 +35,21 @@ function calcularPanel(panel_id, base, profitsPorProveedor = {}) {
   return { items, total };
 }
 
-module.exports = { diferencial, calcularPanel };
+/**
+ * Diferencial de todos los proveedores EXTRA para un CLIENTE.
+ * El % del cliente (override → global) rige para todos sus paneles/superagentes.
+ * @param profitsPorProveedor {proveedor_id|nombre: profit} — suma de los paneles del cliente (Fase 3).
+ */
+function calcularCliente(cliente_id, base, profitsPorProveedor = {}) {
+  const items = prov.catalogoParaCliente(cliente_id)
+    .filter((p) => p.categoria === 'extra' && p.habilitado && p.tarifa_efectiva != null)
+    .map((p) => {
+      const profit = profitsPorProveedor[p.proveedor_id] || profitsPorProveedor[p.nombre] || '0';
+      const d = diferencial({ base, tarifa: p.tarifa_efectiva, profitProveedor: profit });
+      return { proveedor_id: p.proveedor_id, proveedor: p.nombre, tarifa: p.tarifa_efectiva, profit, ...d };
+    });
+  const total = money.sum(items.filter((i) => i.cobra).map((i) => i.monto));
+  return { items, total };
+}
+
+module.exports = { diferencial, calcularPanel, calcularCliente };

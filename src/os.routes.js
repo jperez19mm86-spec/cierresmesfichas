@@ -179,6 +179,21 @@ function mount(app) {
     ok(res, provSvc.calcularPanel(req.params.id, String(base), profits || {}));
   }));
 
+  // % de proveedores POR CLIENTE (rige para TODOS sus paneles/superagentes)
+  app.get('/api/os/clientes/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.catalogoParaCliente(req.params.id) }));
+  app.post('/api/os/clientes/:id/proveedores', wrap((req, res) => {
+    const id = proveedores.setClienteProveedor(Object.assign({ cliente_id: req.params.id }, req.body || {}));
+    ok(res, { id });
+  }));
+  app.delete('/api/os/clientes/:id/proveedores/:proveedorId', (req, res) =>
+    proveedores.removeClienteProveedor(req.params.id, req.params.proveedorId) ? ok(res) : err(res, 404, 'no encontrado'));
+  // diferencial del cliente (su % rige en todos los paneles); profits por proveedor por ahora del body
+  app.post('/api/os/clientes/:id/diferencial', wrap((req, res) => {
+    const { base, profits } = req.body || {};
+    if (base === undefined) return err(res, 400, 'base requerido');
+    ok(res, provSvc.calcularCliente(req.params.id, String(base), profits || {}));
+  }));
+
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
   app.post('/api/os/tc/snapshot', wrap(async (_req, res) => {

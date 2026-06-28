@@ -62,4 +62,60 @@ function setPanelProveedor({ panel_id, proveedor_id, tarifa_pct, habilitado }) {
 }
 function removePanelProveedor(id) { return db.prepare('DELETE FROM panel_proveedores WHERE id=?').run(id).changes > 0; }
 
-module.exports = { CATEGORIAS, list, get, create, update, remove, listPorPanel, setPanelProveedor, removePanelProveedor };
+// ── config POR CLIENTE (el % de cada proveedor rige para TODOS los paneles del cliente) ──
+/**
+ * Catálogo COMPLETO de proveedores con el % de ESTE cliente.
+ * item: { proveedor_id, nombre, categoria, codigo, tarifa_global, tarifa_cliente(override|null),
+ *         tarifa_efectiva (cliente si hay, si no global), habilitado }.
+ */
+function catalogoParaCliente(cliente_id) {
+  const ov = {};
+  db.prepare('SELECT * FROM cliente_proveedores WHERE cliente_id=?').all(cliente_id).forEach((r) => { ov[r.proveedor_id] = r; });
+  return list().map((p) => {
+    const o = ov[p.id];
+    const tarifa_cliente = o && o.tarifa_pct != null && o.tarifa_pct !== '' ? o.tarifa_pct : null;
+    return {
+      proveedor_id: p.id, nombre: p.nombre, categoria: p.categoria, codigo: p.codigo || null,
+      tarifa_global: p.tarifa_pct || null,
+      tarifa_cliente,
+      tarifa_efectiva: tarifa_cliente != null ? tarifa_cliente : (p.tarifa_pct || null),
+      habilitado: o ? !!o.habilitado : true,
+    };
+  });
+}
+
+/** % efectivo de un proveedor para un cliente (override del cliente → global del catálogo). */
+function tarifaParaCliente(cliente_id, proveedor_id) {
+  const o = db.prepare('SELECT tarifa_pct FROM cliente_proveedores WHERE cliente_id=? AND proveedor_id=?').get(cliente_id, proveedor_id);
+  if (o && o.tarifa_pct != null && o.tarifa_pct !== '') return o.tarifa_pct;
+  const p = get(proveedor_id);
+  return p ? (p.tarifa_pct || null) : null;
+}
+
+/** Upsert del % de un proveedor para un cliente. Vacío/null = borra el override (vuelve al global). */
+function setClienteProveedor({ cliente_id, proveedor_id, tarifa_pct, habilitado }) {
+  const existing = db.prepare('SELECT id FROM cliente_proveedores WHERE cliente_id=? AND proveedor_id=?').get(cliente_id, proveedor_id);
+  const blank = tarifa_pct === '' || tarifa_pct == null;
+  if (blank && habilitado !== false) { // sin % propio y habilitado → no hace falta override
+    if (existing) db.prepare('DELETE FROM cliente_proveedores WHERE id=?').run(existing.id);
+    return null;
+  }
+  const tarifa = blank ? null : String(money.round(tarifa_pct, 4));
+  if (existing) {
+    db.prepare('UPDATE cliente_proveedores SET tarifa_pct=?, habilitado=? WHERE id=?').run(tarifa, habilitado === false ? 0 : 1, existing.id);
+    return existing.id;
+  }
+  const id = newId('cp');
+  db.prepare('INSERT INTO cliente_proveedores (id,cliente_id,proveedor_id,tarifa_pct,habilitado,createdAt) VALUES (?,?,?,?,?,?)')
+    .run(id, cliente_id, proveedor_id, tarifa, habilitado === false ? 0 : 1, nowISO());
+  return id;
+}
+function removeClienteProveedor(cliente_id, proveedor_id) {
+  return db.prepare('DELETE FROM cliente_proveedores WHERE cliente_id=? AND proveedor_id=?').run(cliente_id, proveedor_id).changes > 0;
+}
+
+module.exports = {
+  CATEGORIAS, list, get, create, update, remove,
+  listPorPanel, setPanelProveedor, removePanelProveedor,
+  catalogoParaCliente, tarifaParaCliente, setClienteProveedor, removeClienteProveedor,
+};
