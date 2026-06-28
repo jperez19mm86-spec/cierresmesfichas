@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Pedir carga</title>
+<style>
+  :root { --bg:#fbf4fa; --bg2:#ffffff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+  .wrap { max-width:480px; margin:0 auto; padding:16px 14px calc(20px + env(safe-area-inset-bottom)); }
+  h1 { font-size:18px; text-align:center; margin:6px 0 2px; }
+  .logo { display:block; width:29%; max-width:100px; height:auto; margin:4px auto 2px; mix-blend-mode:multiply; }
+  .sub { text-align:center; color:var(--muted); font-size:12px; margin-bottom:12px; }
+
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:11px; padding:12px; margin-bottom:10px; }
+  .q { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  .cliname { font-weight:800; color:var(--gold); margin-bottom:9px; font-size:14px; }
+
+  input { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:9px; color:var(--text); padding:11px 13px; font-size:16px; outline:none; }
+  input:focus { border-color:var(--gold); }
+  .btn { background:var(--gold); color:#ffffff; border:none; border-radius:9px; padding:10px 16px; font-weight:800; cursor:pointer; font-size:15px; }
+  .btn:active { transform:scale(.99); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.full { width:100%; padding:12px; font-size:15px; }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .grid.one { grid-template-columns:1fr; }
+  .opt { background:var(--bg3); border:1px solid var(--border); border-radius:9px; padding:10px 8px; text-align:center; cursor:pointer; font-weight:700; font-size:13.5px; color:var(--text); }
+  .opt:active { border-color:var(--gold); }
+  .opt.sel { border-color:var(--gold); background:rgba(196,86,173,.12); color:var(--gold); }
+  .opt .small { display:block; font-size:11px; color:var(--muted); font-weight:600; margin-top:3px; }
+
+  .hidden { display:none; }
+  .msg { padding:14px; border-radius:10px; font-size:15px; text-align:center; }
+  .msg.err { background:rgba(217,83,79,.12); color:var(--red); border:1px solid rgba(217,83,79,.3); }
+  .msg.ok { background:rgba(46,160,67,.12); color:var(--green); border:1px solid rgba(46,160,67,.35); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img src="logo.png" class="logo" alt="Latam Games" />
+  <div class="sub">Ingresá tu código y armá tu pedido</div>
+
+  <!-- Código -->
+  <div class="card">
+    <div class="q">Tu código</div>
+    <div style="display:flex; gap:10px">
+      <input id="codigo" placeholder="Ej: L210" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')buscar()" />
+      <button class="btn" onclick="buscar()" style="flex:0 0 auto">Buscar</button>
+    </div>
+    <div id="codigoMsg" style="margin-top:10px"></div>
+  </div>
+
+  <!-- Usuario -->
+  <div class="card hidden" id="cardCaja">
+    <div class="cliname" id="cliName"></div>
+    <div class="q">¿A qué usuario querés cargar?</div>
+    <div class="grid" id="cajasGrid"></div>
+  </div>
+
+  <!-- Moneda -->
+  <div class="card hidden" id="cardDivisa">
+    <div class="q">¿En qué moneda?</div>
+    <div class="grid" id="divisasGrid"></div>
+  </div>
+
+  <!-- Monto -->
+  <div class="card hidden" id="cardMonto">
+    <div class="q">¿Cuánto querés cargar?</div>
+    <div class="grid" id="montosGrid"></div>
+    <div id="otroWrap" style="margin-top:10px; display:none">
+      <input id="otroMonto" type="number" inputmode="numeric" placeholder="Escribí el monto" oninput="onOtro()" />
+    </div>
+  </div>
+
+  <!-- Confirmar -->
+  <button class="btn full hidden" id="btnPedir" onclick="hacerPedido()" disabled>✅ Hacer el pedido</button>
+  <div id="pedidoMsg" style="margin-top:12px"></div>
+</div>
+
+<script>
+  let _codigo = '', _cajas = [], _selCaja = null, _selDivisa = null, _selMonto = null;
+
+  function fmt(n) { return Number(n).toLocaleString('es-AR'); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  function show(id, on) { document.getElementById(id).classList.toggle('hidden', !on); }
+
+  async function buscar() {
+    const codigo = document.getElementById('codigo').value.trim();
+    const msg = document.getElementById('codigoMsg');
+    if (!codigo) { msg.innerHTML = '<div class="msg err">Escribí tu código.</div>'; return; }
+    msg.innerHTML = '<div class="q">⏳ buscando…</div>';
+    resetSel();
+    try {
+      const r = await fetch('/api/pedir/' + encodeURIComponent(codigo));
+      const d = await r.json();
+      if (!d.ok) { msg.innerHTML = `<div class="msg err">${esc(d.error || 'No encontrado')}</div>`; return; }
+      _codigo = d.cliente.codigo; _cajas = d.cajas || [];
+      msg.innerHTML = '';
+      document.getElementById('cliName').textContent = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
+      if (!_cajas.length) { document.getElementById('cajasGrid').innerHTML = '<div class="q">Sin usuarios cargados.</div>'; show('cardCaja', true); return; }
+      document.getElementById('cajasGrid').className = 'grid' + (_cajas.length === 1 ? ' one' : '');
+      document.getElementById('cajasGrid').innerHTML = _cajas.map(k =>
+        `<div class="opt" data-id="${k.id}" onclick="pickCaja('${k.id}',this)">${esc(k.usuario)}</div>`).join('');
+      show('cardCaja', true);
+    } catch (e) { msg.innerHTML = `<div class="msg err">Error: ${esc(e.message)}</div>`; }
+  }
+
+  function pickCaja(id, el) {
+    _selCaja = _cajas.find(k => k.id === id); _selDivisa = null; _selMonto = null;
+    document.querySelectorAll('#cajasGrid .opt').forEach(x => x.classList.toggle('sel', x === el));
+    // reset monto + ocultar hasta elegir moneda
+    show('cardMonto', false); show('btnPedir', false);
+    const divisas = (_selCaja.divisas && _selCaja.divisas.length) ? _selCaja.divisas : ['ARS'];
+    document.getElementById('divisasGrid').className = 'grid' + (divisas.length === 1 ? ' one' : '');
+    document.getElementById('divisasGrid').innerHTML = divisas.map(d =>
+      `<div class="opt" data-d="${esc(d)}" onclick="pickDivisa('${esc(d)}',this)">${esc(d)}</div>`).join('');
+    show('cardDivisa', true);
+    if (divisas.length === 1) { // una sola moneda → seleccionarla sola y mostrar monto
+      pickDivisa(divisas[0], document.querySelector('#divisasGrid .opt'));
+    }
+    updateBtn();
+  }
+
+  function pickDivisa(d, el) {
+    _selDivisa = d; _selMonto = null;
+    document.querySelectorAll('#divisasGrid .opt').forEach(x => x.classList.toggle('sel', x.getAttribute('data-d') === d));
+    // Los montos rápidos (500k/1M/5M/10M) son valores en PESOS → solo para ARS.
+    // En otras monedas se muestra SOLO "OTRO" (monto manual).
+    const esArs = String(d).toUpperCase() === 'ARS';
+    const montos = esArs ? (_selCaja.montosRapidos || []) : [];
+    const mg = document.getElementById('montosGrid');
+    mg.className = 'grid' + (esArs ? '' : ' one');
+    mg.innerHTML =
+      montos.map(m => `<div class="opt" data-m="${m}" onclick="pickMonto(${m})">$ ${fmt(m)}</div>`).join('') +
+      `<div class="opt" id="optOtro" onclick="toggleOtro()">OTRO<span class="small">monto manual</span></div>`;
+    document.getElementById('otroWrap').style.display = 'none';
+    document.getElementById('otroMonto').value = '';
+    show('cardMonto', true); show('btnPedir', true);
+    if (!esArs) toggleOtro(); // moneda != ARS → abrir directo el monto manual
+    updateBtn();
+  }
+
+  function pickMonto(m) {
+    _selMonto = Number(m);
+    document.querySelectorAll('#montosGrid .opt').forEach(x => x.classList.toggle('sel', x.dataset.m === String(m)));
+    document.getElementById('otroWrap').style.display = 'none';
+    updateBtn();
+  }
+  function toggleOtro() {
+    _selMonto = null;
+    document.querySelectorAll('#montosGrid .opt').forEach(x => x.classList.remove('sel'));
+    document.getElementById('optOtro').classList.add('sel');
+    document.getElementById('otroWrap').style.display = 'block';
+    document.getElementById('otroMonto').focus();
+    updateBtn();
+  }
+  function onOtro() { const v = Number(document.getElementById('otroMonto').value); _selMonto = v > 0 ? v : null; updateBtn(); }
+
+  function updateBtn() {
+    const ok = _selCaja && _selDivisa && _selMonto > 0;
+    const btn = document.getElementById('btnPedir');
+    btn.disabled = !ok;
+    btn.textContent = ok ? `✅ Pedir ${_selDivisa} $ ${fmt(_selMonto)}` : '✅ Hacer el pedido';
+  }
+
+  async function hacerPedido() {
+    if (!_selCaja || !_selDivisa || !(_selMonto > 0)) return;
+    const btn = document.getElementById('btnPedir'); const msg = document.getElementById('pedidoMsg');
+    btn.disabled = true; msg.innerHTML = '<div class="q">⏳ enviando pedido…</div>';
+    try {
+      const r = await fetch('/api/pedir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: _codigo, cajaId: _selCaja.id, divisa: _selDivisa, monto: _selMonto }) });
+      const d = await r.json();
+      if (d.ok) {
+        msg.innerHTML = `<div class="msg ok">✅ <strong>Pedido enviado</strong><br/>${esc(d.pedido.divisa || _selDivisa)} $ ${fmt(d.pedido.monto)} para <strong>${esc(d.pedido.cajaUsuario)}</strong>.<br/>Te lo van a cargar en breve.</div>`;
+        ['cardCaja', 'cardDivisa', 'cardMonto', 'btnPedir'].forEach(i => show(i, false));
+        setTimeout(() => { document.getElementById('codigo').value = ''; document.getElementById('codigo').focus(); msg.innerHTML = ''; resetSel(); }, 5000);
+      } else { msg.innerHTML = `<div class="msg err">${esc(d.error || 'No se pudo enviar')}</div>`; btn.disabled = false; }
+    } catch (e) { msg.innerHTML = `<div class="msg err">Error: ${esc(e.message)}</div>`; btn.disabled = false; }
+  }
+
+  function resetSel() {
+    _selCaja = null; _selDivisa = null; _selMonto = null;
+    ['cardCaja', 'cardDivisa', 'cardMonto', 'btnPedir'].forEach(i => show(i, false));
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Dependencias
+node_modules/
+
+# IMPORTANTE: data/ guarda los sistemas CON CONTRASEÑAS en claro.
+# NUNCA se sube a GitHub.
+data/
+
+# Variables de entorno locales
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# dumps de backup con contraseñas en claro — NUNCA commitear
+restore-dump.json
+*-backup-*.json

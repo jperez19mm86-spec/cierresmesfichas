@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LATAM Games OS</title>
+<style>
+  :root { --bg:#fbf4fa; --bg2:#fff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; --blue:#3b7fe0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; }
+  header { background:var(--bg2); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  header h1 { font-size:16px; margin:0; } header h1 small { color:var(--muted); font-weight:400; }
+  .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
+  .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
+  .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
+  main { max-width:1000px; margin:0 auto; padding:18px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  label { display:block; font-size:11px; color:var(--muted); margin:0 0 3px; text-transform:uppercase; letter-spacing:.03em; }
+  input, select { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:14px; outline:none; }
+  input:focus,select:focus { border-color:var(--gold); }
+  button { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px; font-weight:700; cursor:pointer; font-size:13px; }
+  button.outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  button.danger { background:transparent; border:1px solid var(--red); color:var(--red); }
+  button.small { padding:5px 9px; font-size:12px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1; min-width:120px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge.ok { background:rgba(46,160,67,.15); color:var(--green); }
+  .badge.warn { background:rgba(196,86,173,.14); color:var(--gold); }
+  .badge.err { background:rgba(217,83,79,.15); color:var(--red); }
+  .muted { color:var(--muted); font-size:12px; }
+  .empty { color:var(--muted); text-align:center; padding:20px; }
+  .right { text-align:right; }
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:50; }
+  .toast.show { opacity:1; }
+  .pill { font-family:monospace; background:var(--bg); padding:1px 6px; border-radius:5px; }
+  hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎰 LATAM Games <small>OS — núcleo comercial</small></h1>
+  <div style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center">
+    <a href="/" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">↩ Operativo</button></a>
+    <button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>
+  </div>
+</header>
+<nav class="nav" id="nav"></nav>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+// ───────── helpers ─────────
+const TABS = [
+  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
+  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'],
+  ['reportes','📈 Reportes'], ['config','⚙ Config'],
+];
+let _tab = 'clientes';
+let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'socios';
+let _cxSel = '', _cxNodos = [];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+async function api(path, opts={}){
+  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  if(r.status===401){ location.href='/login'; return {ok:false}; }
+  let b={}; try{ b=await r.json(); }catch(e){}
+  if(!b.ok && b.error) toast('⚠ '+b.error);
+  return b;
+}
+function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
+
+function renderNav(){
+  document.getElementById('nav').innerHTML = TABS.map(([k,l])=>
+    `<button class="navbtn ${k===_tab?'active':''}" onclick="go('${k}')">${l}</button>`).join('');
+}
+function go(t){ _tab=t; renderNav(); VIEWS[t](); }
+
+// ───────── CLIENTES ─────────
+const VIEWS = {}, CFG = {};
+VIEWS.clientes = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
+  const d = await api('/api/os/clientes'); _clientes = d.clientes||[];
+  main.innerHTML = `
+    <div class="card">
+      <h2>Clientes <span class="muted">(${_clientes.length})</span></h2>
+      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>USDT/Aj.</th><th>Prov.</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
+      ${_clientes.map(c=>`<tr>
+        <td><span class="pill">${esc(c.codigo)}</span></td>
+        <td>${esc(c.nombre||'')}</td>
+        <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
+        <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class=badge.warn>—</span>'}</td>
+        <td class="muted">${c.mezcla_pago_usdt?esc(c.mezcla_pago_usdt)+'%':'—'} / ${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
+        <td>${c.paga_proveedores?'sí':'no'}</td>
+        <td class="right"><b>${money(c.deuda?c.deuda.total:0)}</b></td>
+        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button></td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes. Cargalos en el panel Operativo o importá la lista.</td></tr>'}
+      </tbody></table>
+    </div>
+    <div id="cliEdit"></div>`;
+};
+function editCli(id){
+  const c = _clientes.find(x=>x.id===id); if(!c) return;
+  document.getElementById('cliEdit').innerHTML = `
+    <div class="card">
+      <h2>✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
+      <div class="row">
+        <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
+        <div><label>Mezcla pago USDT %</label><input id="e-mez" value="${esc(c.mezcla_pago_usdt||'')}" placeholder="80"/></div>
+        <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
+        <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
+        <div style="flex:0"><label>Permite deuda</label><select id="e-pd"><option value="0" ${!c.permite_deuda?'selected':''}>no</option><option value="1" ${c.permite_deuda?'selected':''}>sí</option></select></div>
+        <button onclick="saveCli('${id}')">💾 Guardar</button>
+      </div>
+      <hr/>
+      <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
+      <div class="row">
+        <div><label>Valor %</label><input id="pb-val" value="${esc(c.precio_base_pct||'')}" placeholder="11"/></div>
+        <div style="flex:0"><label>Tipo</label><select id="pb-tipo"><option value="vigencia">vigencia (desde fecha)</option><option value="correccion">corrección (retroactivo)</option></select></div>
+        <div><label>Vigente desde</label><input id="pb-desde" type="date"/></div>
+        <button onclick="savePB('${id}')">Aplicar</button>
+        <button class="outline" onclick="verPBHist('${id}')">Ver historial</button>
+      </div>
+      <div id="pb-hist" class="muted"></div>
+    </div>`;
+}
+async function saveCli(id){
+  await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
+    estado:val('e-estado'), mezcla_pago_usdt:val('e-mez'), ajuste_usdt_pct:val('e-aj'),
+    paga_proveedores:val('e-pp')==='1', permite_deuda:val('e-pd')==='1' })});
+  toast('Guardado'); VIEWS.clientes();
+}
+async function savePB(id){
+  const b={valor:val('pb-val'), tipo_cambio:val('pb-tipo'), vigente_desde:val('pb-desde')};
+  if(b.tipo_cambio==='vigencia' && !b.vigente_desde) return toast('Poné la fecha de vigencia');
+  const r=await api('/api/os/clientes/'+id+'/precio-base',{method:'PUT',body:JSON.stringify(b)});
+  if(r.ok){ toast('Precio base: '+r.precio_base_pct+'%'); VIEWS.clientes(); }
+}
+async function verPBHist(id){
+  const r=await api('/api/os/clientes/'+id+'/precio-base/historial');
+  document.getElementById('pb-hist').innerHTML = '<hr/>'+(r.historial||[]).map(h=>`• ${esc(h.valor)}% — desde ${esc(h.vigente_desde)} ${h.vigente_hasta?('hasta '+esc(h.vigente_hasta)):'(vigente)'}`).join('<br/>') || 'sin historial';
+}
+async function showPerfil(id){
+  const main=document.getElementById('main'); main.innerHTML='<div class="card"><div class="empty">Cargando perfil… (trayendo meses del casino)</div></div>';
+  const r=await api('/api/os/clientes/'+id+'/perfil?meses=6');
+  if(!r.ok){ main.innerHTML='<div class="card"><div class="empty">Error cargando el perfil</div></div>'; return; }
+  const c=r.cliente, d=r.deuda||{}, hp=(r.historial_pct||[]);
+  main.innerHTML = `
+    <div class="card">
+      <div class="row" style="align-items:center"><button class="outline small" onclick="VIEWS.clientes()">← Volver</button>
+        <h2 style="margin:0 0 0 10px">👤 ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2></div>
+      <div class="row" style="align-items:stretch; margin-top:10px">
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Estado</label><div style="font-size:18px;font-weight:800">${esc(c.estado||'')}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Base actual</label><div style="font-size:18px;font-weight:800">${r.base_actual!=null?esc(r.base_actual)+'%':'—'}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (USDT)</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Paneles linkeados</label><div style="font-size:18px;font-weight:800">${c.paneles||0}</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📊 Resumen mensual</h2>
+      <div class="muted" style="margin-bottom:6px">Cargas (fichas) y profit <b>reales del casino</b> · fee (beneficio) = base% × cargas · pagos registrados en el sistema.</div>
+      <table><thead><tr><th>Mes</th><th class="right">Base</th><th class="right">Cargas (fichas)</th><th class="right">Fee (beneficio)</th><th class="right">Pagó (USDT)</th><th class="right">Profit casino</th></tr></thead><tbody>
+      ${(r.meses||[]).map(m=>`<tr><td><b>${esc(m.mes)}</b></td><td class="right">${esc(m.base)}%</td><td class="right">${money(m.cargas,0)}</td><td class="right"><b>${money(m.fee,0)}</b></td><td class="right">${money(m.pagos,2)}</td><td class="right">${money(m.profit,0)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Sin datos (¿el cliente tiene paneles linkeados?).</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="card">
+      <h2>📜 Historial de % (precio base)</h2>
+      <div class="muted" style="margin-bottom:6px">Cada cambio de % queda registrado (vigencia o corrección). De acá en adelante se acumula solo.</div>
+      ${hp.length?('<table><thead><tr><th>%</th><th>Desde</th><th>Hasta</th></tr></thead><tbody>'+hp.map(h=>`<tr><td><b>${esc(h.valor)}%</b></td><td>${esc(h.vigente_desde)}</td><td>${h.vigente_hasta?esc(h.vigente_hasta):'<span class="badge ok">vigente</span>'}</td></tr>`).join('')+'</tbody></table>'):'<div class="empty">Sin cambios de % todavía. Cambiá el precio base (✎ en Clientes) y queda el registro acá.</div>'}
+    </div>`;
+}
+
+// ───────── CONFIG ▸ SOCIOS ─────────
+CFG.socios = async () => {
+  const d = await api('/api/os/personas'); _personas=d.personas||[];
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>🤝 Socios (personas)</h2>
+      <div class="muted" style="margin-bottom:8px">Quiénes reciben participación del profit LATAM (Ale, Henry, Carlos…). El % de cada uno se define en Participaciones.</div>
+      <div class="row"><div><label>Nombre</label><input id="np" placeholder="Ale"/></div><button onclick="addPersona()">Agregar</button></div>
+      <hr/>
+      ${_personas.map(p=>`<div class="row" style="align-items:center"><div style="flex:1">${esc(p.nombre)} ${p.activo?'':'<span class="badge err">inactivo</span>'}</div><button class="danger small" onclick="delPersona('${p.id}')">🗑</button></div>`).join('') || '<div class="empty">Sin socios.</div>'}
+    </div>`;
+};
+async function addPersona(){ if(!val('np'))return; await api('/api/os/personas',{method:'POST',body:JSON.stringify({nombre:val('np')})}); CFG.socios(); }
+async function delPersona(id){ if(!confirm('¿Eliminar socio?'))return; await api('/api/os/personas/'+id,{method:'DELETE'}); CFG.socios(); }
+
+// ───────── PANELES ─────────
+VIEWS.paneles = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[]; window._cxs=cxs;
+  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
+  const cxOpts = '<option value="">— sin linkear —</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  const cxName=(id)=>{ const c=cxs.find(x=>x.id===id); return c?c.nombre:''; };
+  const d = await api('/api/os/paneles'); _paneles=d.paneles||[];
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>➕ Panel</h2>
+      <div class="row">
+        <div><label>Cliente</label><select id="pn-cli">${cliOpts}</select></div>
+        <div><label>Nombre</label><input id="pn-nombre" placeholder="Ganamos"/></div>
+        <div style="flex:0"><label>Sistema</label><select id="pn-sis"><option>Casino</option><option>Europa</option></select></div>
+        <div style="flex:0"><label>Nivel</label><select id="pn-niv"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
+        <div style="flex:0"><label>Tipo</label><select id="pn-tipo"><option>exclusivo</option><option>franquicia</option></select></div>
+        <div><label>Divisas</label><input id="pn-div" placeholder="ARS"/></div>
+      </div>
+      <div class="row" style="margin-top:8px; align-items:flex-end">
+        <div><label>Conexión casino</label><select id="pn-cx">${cxOpts}</select></div>
+        <div><label>ID nodo (casino)</label><input id="pn-idu" placeholder="186350"/></div>
+        <div style="flex:0"><button class="outline" onclick="buscarNodo()">🔎 buscar por login</button></div>
+        <div style="flex:0"><button onclick="addPanel()">Agregar panel</button></div>
+      </div>
+    </div>
+    <div class="card"><h2>Paneles (${_paneles.length})</h2>
+      <table><thead><tr><th>Nombre</th><th>Cliente</th><th>Sistema</th><th>Nivel</th><th>Casino (nodo)</th><th></th></tr></thead><tbody>
+      ${_paneles.map(p=>{ const c=_clientes.find(x=>x.id===p.cliente_id); const linked=p.conexion_id&&p.id_usuario;
+        return `<tr><td><b>${esc(p.nombre)}</b></td><td>${c?esc(c.codigo):'—'}</td><td>${esc(p.sistema)}</td><td>${esc(p.nivel_usuario)}</td>
+          <td>${linked?('<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'):'<span class="badge warn">sin linkear</span>'}</td>
+          <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="empty">Sin paneles.</td></tr>'}
+      </tbody></table>
+    </div>`;
+};
+async function addPanel(){
+  if(!val('pn-nombre'))return toast('Poné un nombre');
+  await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:val('pn-cli'),nombre:val('pn-nombre'),sistema:val('pn-sis'),nivel_usuario:val('pn-niv'),tipo:val('pn-tipo'),id_usuario:val('pn-idu'),divisas:val('pn-div'),conexion_id:val('pn-cx')})});
+  toast('Panel creado'); VIEWS.paneles();
+}
+async function buscarNodo(){
+  const cid=val('pn-cx'); if(!cid)return toast('Elegí una conexión casino primero');
+  const login=prompt('Buscar nodo por login del casino:'); if(!login)return;
+  const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login));
+  if(!r.ok||!r.users||!r.users.length)return toast('No se encontró "'+login+'"');
+  document.getElementById('pn-idu').value=r.users[0].id; toast('Encontrado: '+r.users[0].login+' → id '+r.users[0].id);
+}
+async function linkPanel(id){
+  const cxs=window._cxs||[]; if(!cxs.length)return toast('Agregá una conexión en Config → Casino');
+  let cid=cxs[0].id;
+  if(cxs.length>1){ const pick=prompt('¿Qué conexión?\n'+cxs.map((c,i)=>i+': '+c.nombre).join('\n'),'0'); if(pick===null)return; cid=(cxs[Number(pick)]||cxs[0]).id; }
+  let nodeId=prompt('ID del nodo del casino (vacío = buscar por login):',''); if(nodeId===null)return;
+  if(!nodeId){ const login=prompt('Login del casino a buscar:'); if(!login)return; const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login)); if(!r.ok||!r.users||!r.users.length)return toast('No se encontró'); nodeId=r.users[0].id; }
+  const u=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({conexion_id:cid,id_usuario:nodeId})});
+  if(u.ok)toast('Panel linkeado al nodo '+nodeId); VIEWS.paneles();
+}
+async function delPanel(id){ if(!confirm('¿Eliminar panel?'))return; await api('/api/os/paneles/'+id,{method:'DELETE'}); VIEWS.paneles(); }
+
+// ───────── CONFIG ▸ PARTICIPACIONES ─────────
+CFG.participaciones = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  { const d=await api('/api/os/personas'); _personas=d.personas||[]; }
+  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>📊 Participaciones (reparto del profit LATAM)</h2>
+      <div class="row"><div><label>Cliente</label><select id="pa-cli" onchange="loadParts()">${cliOpts}</select></div>
+      <div><label>Vigente desde</label><input id="pa-desde" type="date"/></div></div>
+      <hr/>
+      <div id="pa-box" class="muted">Elegí un cliente…</div>
+    </div>`;
+  if(_clientes.length) loadParts();
+};
+async function loadParts(){
+  const cli = val('pa-cli'); if(!cli) return;
+  const r = await api('/api/os/participaciones?cliente_id='+cli);
+  const vig = (r.efectivo&&r.efectivo.items)||[];
+  const rows = _personas.map(p=>{
+    const cur = vig.find(v=>v.persona_id===p.id);
+    return `<div class="row" style="align-items:center"><div style="flex:1">${esc(p.nombre)}</div><div style="flex:0;width:120px"><input id="part-${p.id}" type="number" value="${cur?esc(cur.porcentaje):''}" placeholder="0" oninput="sumaParts()"/></div><div style="flex:0">%</div></div>`;
+  }).join('');
+  document.getElementById('pa-box').innerHTML = `
+    <div class="muted">Scope actual: <b>${esc(r.efectivo?r.efectivo.scope:'—')}</b>. Debe sumar 100%.</div>
+    ${rows || 'No hay socios cargados (pestaña Socios).'}
+    <div class="row" style="margin-top:8px"><div style="flex:1">Total: <b id="pa-suma">0</b>%</div><button onclick="saveParts()">💾 Guardar reparto</button></div>`;
+  sumaParts();
+}
+function sumaParts(){
+  let s=0; _personas.forEach(p=>{ const el=document.getElementById('part-'+p.id); if(el&&el.value) s+=Number(el.value); });
+  const el=document.getElementById('pa-suma'); if(el){ el.textContent=s; el.style.color = s===100?'var(--green)':'var(--red)'; }
+}
+async function saveParts(){
+  const items = _personas.map(p=>({persona_id:p.id, porcentaje:val('part-'+p.id)||'0'})).filter(i=>Number(i.porcentaje)>0);
+  const r = await api('/api/os/participaciones',{method:'POST',body:JSON.stringify({cliente_id:val('pa-cli'), items, vigente_desde:val('pa-desde')||undefined})});
+  if(r.ok) toast('Reparto guardado ✓');
+}
+
+// ───────── PROVEEDORES ─────────
+let _provCat = []; // catálogo de proveedores del casino (gamesSystem) cargado en memoria
+VIEWS.proveedores = async () => {
+  const d = await api('/api/os/proveedores'); _proveedores=d.proveedores||[];
+  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
+  const cxOpts = cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')||'<option value="">(sin conexión)</option>';
+  const provOpts = _provCat.length
+    ? ('<option value="">— elegí proveedor —</option>'+_provCat.map(p=>`<option value="${esc(p.code)}" data-label="${esc(p.label)}">${esc(p.label)}${p.sub?'':' (agregador)'}</option>`).join(''))
+    : '<option value="">(cargá los proveedores del casino →)</option>';
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>➕ Proveedor</h2>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión casino</label><select id="pr-cx">${cxOpts}</select></div>
+        <div style="flex:0"><button class="outline" onclick="cargarProvCat()">⤓ Cargar proveedores del casino</button></div>
+      </div>
+      <div class="row" style="margin-top:8px; align-items:flex-end">
+        <div style="flex:2"><label>Proveedor</label><select id="pr-sel">${provOpts}</select></div>
+        <div style="flex:0"><label>Categoría</label><select id="pr-cat"><option>extra</option><option>incluido</option><option>interno</option></select></div>
+        <div style="flex:0"><label>% al cliente</label><input id="pr-tarifa" style="width:90px" placeholder="17"/></div>
+        <button onclick="addProv()">Agregar</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Elegí la conexión → cargá los proveedores reales del casino → agregá los que cobrás con su % (tarifa). El % por cliente/panel se afina luego.</div>
+    </div>
+    <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
+      <table><thead><tr><th>Nombre</th><th>Categoría</th><th class="right">% al cliente</th><th></th></tr></thead><tbody>
+      ${_proveedores.map(p=>`<tr>
+        <td><b>${esc(p.nombre)}</b>${p.codigo?(' <span class="muted">'+esc(p.codigo)+'</span>'):''}</td>
+        <td><select id="pv-cat-${p.id}"><option ${p.categoria==='extra'?'selected':''}>extra</option><option ${p.categoria==='incluido'?'selected':''}>incluido</option><option ${p.categoria==='interno'?'selected':''}>interno</option></select></td>
+        <td class="right"><input id="pv-tar-${p.id}" value="${esc(p.tarifa_pct||'')}" style="width:80px" placeholder="—"></td>
+        <td class="right" style="white-space:nowrap"><button class="small" onclick="saveProv('${p.id}')">💾</button> <button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
+      </tr>`).join('') || '<tr><td colspan="4" class="empty">Sin proveedores. Cargá del casino arriba 👆</td></tr>'}
+      </tbody></table>
+      <div class="muted">Diferencial = (tarifa − base)% sobre el profit real del proveedor (lo calcula el sistema con la data del casino).</div>
+    </div>`;
+};
+async function cargarProvCat(){
+  const cid=val('pr-cx'); if(!cid)return toast('Elegí una conexión');
+  toast('Cargando proveedores del casino…');
+  const r=await api('/api/os/casino/conexiones/'+cid+'/catalogo-proveedores');
+  if(!r.ok)return toast('Error: '+(r.error||''));
+  _provCat=r.proveedores||[]; toast(_provCat.length+' proveedores cargados'); VIEWS.proveedores();
+}
+async function addProv(){
+  const sel=document.getElementById('pr-sel'); const code=sel?sel.value:'';
+  let nombre=''; if(sel&&sel.selectedOptions[0]) nombre=sel.selectedOptions[0].getAttribute('data-label')||sel.selectedOptions[0].textContent;
+  if(!nombre)return toast('Elegí un proveedor (cargá del casino primero)');
+  await api('/api/os/proveedores',{method:'POST',body:JSON.stringify({nombre, codigo:code, categoria:val('pr-cat'), tarifa_pct:val('pr-tarifa')})});
+  toast('Proveedor agregado'); VIEWS.proveedores();
+}
+async function saveProv(id){
+  await api('/api/os/proveedores/'+id,{method:'PUT',body:JSON.stringify({categoria:val('pv-cat-'+id), tarifa_pct:val('pv-tar-'+id)})});
+  toast('Guardado'); VIEWS.proveedores();
+}
+async function delProv(id){ if(!confirm('¿Eliminar?'))return; await api('/api/os/proveedores/'+id,{method:'DELETE'}); VIEWS.proveedores(); }
+
+// ───────── TIPOS DE CAMBIO ─────────
+VIEWS.tc = async () => {
+  const snaps = (await api('/api/os/tc/snapshots')).snapshots||[];
+  const meses = (await api('/api/os/tc/meses')).meses||[];
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>Tipo de cambio ARS/USDT</h2>
+      <div class="row"><button onclick="snapNow()">📸 Snapshot ahora (Binance/criptoya)</button>
+      <button class="outline" onclick="tcAhora()">Ver TC actual</button><div id="tc-now" class="muted" style="align-self:center"></div></div>
+      <div class="muted">El cron toma un snapshot automático todos los días 18:00. El promedio del mes = TC Cliente.</div>
+    </div>
+    <div class="card"><h2>Cierre mensual (TC)</h2>
+      <table><thead><tr><th>Mes</th><th>TC Cliente (prom)</th><th>TC Proveedor (factura)</th><th>Diferencia</th><th>Cerrado</th><th></th></tr></thead><tbody>
+      ${meses.map(m=>`<tr><td>${esc(m.mes)}</td><td>${m.tc_cliente?money(m.tc_cliente,2):'—'}</td><td>${m.tc_proveedor_ext?money(m.tc_proveedor_ext,2):'<input id="tcp-'+m.mes+'" placeholder="factura" style="width:110px">'}</td><td>${m.diferencia_tc?money(m.diferencia_tc,2):'—'}</td><td>${m.cerrado?'✅':'—'}</td><td>${m.tc_proveedor_ext?'':'<button class="small" onclick="setTcProv(\''+m.mes+'\')">Guardar</button>'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin meses todavía. Tomá un snapshot.</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="card"><h2>Snapshots recientes (${snaps.length})</h2>
+      <table><thead><tr><th>Fecha</th><th>Hora</th><th>TC</th><th>Fuente</th></tr></thead><tbody>
+      ${snaps.slice(0,30).map(s=>`<tr><td>${esc(s.fecha)}</td><td>${esc(s.hora)}</td><td>${money(s.tc_ars_usdt,2)}</td><td class="muted">${esc(s.fuente)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Sin snapshots.</td></tr>'}
+      </tbody></table>
+    </div>`;
+};
+async function snapNow(){ const r=await api('/api/os/tc/snapshot',{method:'POST'}); if(r.ok) toast('Snapshot: '+r.snapshot.tc_ars_usdt); VIEWS.tc(); }
+async function tcAhora(){ const r=await api('/api/os/tc/ahora'); document.getElementById('tc-now').textContent = r.tc?('TC '+money(r.tc,2)+' ('+(r.vivo?'vivo':'snapshot')+')'):'sin TC'; }
+async function setTcProv(mes){ const v=val('tcp-'+mes); if(!v)return; await api('/api/os/tc/mes/'+mes,{method:'PUT',body:JSON.stringify({tc_proveedor_ext:v})}); toast('Mes cerrado'); VIEWS.tc(); }
+
+// ───────── MOVIMIENTOS ─────────
+VIEWS.movimientos = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  if(!_paneles.length){ const d=await api('/api/os/paneles'); _paneles=d.paneles||[]; }
+  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
+  const movs = (await api('/api/os/movimientos')).movimientos||[];
+  document.getElementById('main').innerHTML = `
+    <div class="card"><h2>💰 Registrar carga (comercial)</h2>
+      <div class="row">
+        <div><label>Cliente</label><select id="mc-cli" onchange="mcPaneles()">${cliOpts}</select></div>
+        <div><label>Panel</label><select id="mc-pan"></select></div>
+        <div><label>Carga (ARS)</label><input id="mc-carga" type="number" placeholder="20000000"/></div>
+        <div><label>TC (opcional)</label><input id="mc-tc" placeholder="auto"/></div>
+        <button onclick="regCarga()">Registrar + avisar</button>
+      </div>
+      <div class="muted">Calcula fee = base% × carga, equivalente USDT, suma a la deuda y manda el aviso de Telegram.</div>
+    </div>
+    <div class="card"><h2>💳 Registrar pago</h2>
+      <div class="row">
+        <div><label>Cliente</label><select id="mp-cli">${cliOpts}</select></div>
+        <div><label>Monto (USDT)</label><input id="mp-monto" type="number" placeholder="1000"/></div>
+        <button onclick="regPago()">Registrar pago</button>
+      </div>
+    </div>
+    <div class="card"><h2>Movimientos (${movs.length})</h2>
+      <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th class="right">ARS</th><th class="right">USDT</th><th>TC</th></tr></thead><tbody>
+      ${movs.slice(0,50).map(m=>{ const c=_clientes.find(x=>x.id===m.cliente_id);
+        return `<tr><td class="muted">${esc((m.fecha||'').slice(0,16).replace('T',' '))}</td><td><span class="badge ${m.tipo==='pago'?'ok':'warn'}">${esc(m.tipo)}</span></td><td>${c?esc(c.codigo):'—'}</td><td class="right">${m.monto_ars?money(m.monto_ars,0):''}</td><td class="right"><b>${m.monto_usdt?money(m.monto_usdt,2):''}</b></td><td class="muted">${m.tc_momento?money(m.tc_momento,0):''}</td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="empty">Sin movimientos.</td></tr>'}
+      </tbody></table>
+    </div>`;
+  mcPaneles();
+};
+function mcPaneles(){
+  const cli=val('mc-cli'); const opts=_paneles.filter(p=>p.cliente_id===cli).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  const sel=document.getElementById('mc-pan'); if(sel) sel.innerHTML = opts||'<option value="">(sin paneles)</option>';
+}
+async function regCarga(){
+  const r=await api('/api/os/movimientos/carga',{method:'POST',body:JSON.stringify({cliente_id:val('mc-cli'),panel_id:val('mc-pan'),carga:val('mc-carga'),tc:val('mc-tc')||undefined})});
+  if(r.ok) toast('Carga: fee '+money(r.equivUsdt,2)+' USDT — deuda '+money(r.deuda.total,2));
+  VIEWS.movimientos();
+}
+async function regPago(){
+  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:val('mp-cli'),monto_usdt:val('mp-monto')})});
+  if(r.ok) toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT');
+  VIEWS.movimientos();
+}
+
+// ───────── REPARTO (split empresa/LATAM/socios) ─────────
+VIEWS.reparto = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  const mes = _repMes || new Date().toISOString().slice(0,7);
+  const d = await api('/api/os/reportes/distribucion?mes='+mes);
+  const cliCod = (id)=>{ const c=_clientes.find(x=>x.id===id); return c?c.codigo:(id||'—'); };
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>💰 Distribución del profit <span class="muted">(USDT, en vivo)</span>
+        <input type="month" id="rep-mes" value="${esc(d.mes||mes)}" onchange="reloadDist()" style="width:auto;display:inline-block;margin-left:8px"></h2>
+      <div class="row" style="align-items:stretch">
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>🏢 Empresa</label><div style="font-size:24px;font-weight:800">${money(d.empresa)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>🤝 LATAM (socios)</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(d.latam)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Σ Profit total</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
+      </div>
+      ${Number(d.sin_split||0)>0?`<div class="muted" style="margin-top:8px">⚠ ${money(d.sin_split)} USDT en cargas con base &lt;8% (caso individual — definir a mano).</div>`:''}
+      <h2 style="margin-top:16px">Por socio (dentro de LATAM)</h2>
+      <table><thead><tr><th>Socio</th><th class="right">USDT</th></tr></thead><tbody>
+      ${(d.socios||[]).map(s=>`<tr><td>${esc(s.nombre)}</td><td class="right"><b>${money(s.monto)}</b></td></tr>`).join('') || '<tr><td colspan="2" class="empty">Sin cargas este mes.</td></tr>'}
+      </tbody></table>
+      <h2 style="margin-top:16px">Por cliente</h2>
+      <table><thead><tr><th>Cliente</th><th class="right">Empresa</th><th class="right">LATAM</th><th class="right">Fee total</th></tr></thead><tbody>
+      ${(d.clientes||[]).map(c=>`<tr><td><span class="pill">${esc(cliCod(c.cliente_id))}</span></td><td class="right">${money(c.empresa)}</td><td class="right">${money(c.latam)}</td><td class="right"><b>${money(c.fee)}</b></td></tr>`).join('') || '<tr><td colspan="4" class="empty">—</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="card"><div class="muted">⚙ La tabla de Split (qué % va a empresa y a LATAM por cada % base) se configura en la pestaña <b>Config</b>.</div></div>`;
+};
+function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
+
+// ───────── CONFIG (hub: socios · participaciones · split) ─────────
+function renderCfgHeader(){
+  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['casino','🎰 Casino']];
+  return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
+    subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
+    `</div></div><div id="cfg-body"></div>`;
+}
+VIEWS.config = () => { document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[_cfgSub]||CFG.socios)(); };
+function cfgSub(s){ _cfgSub=s; document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[s]||CFG.socios)(); }
+
+// ───────── CONFIG ▸ TABLA SPLIT ─────────
+CFG.split = async () => {
+  const sb = (await api('/api/os/split-base')).split_base||[];
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card">
+      <h2>⚖ Tabla Split — Empresa / LATAM por % base</h2>
+      <div class="muted" style="margin-bottom:10px">Por cada <b>% base</b> que paga un cliente, cuánto queda para la <b>empresa</b> y cuánto para <b>LATAM</b> (que luego se reparte entre socios según Participaciones). Ej: un cliente al 15% usa la fila <b>15</b>. Todo editable — agregá o borrá las filas que quieras.</div>
+      <table><thead><tr><th>Base %</th><th>Empresa %</th><th>LATAM %</th><th>Notas</th><th></th></tr></thead><tbody>
+      ${sb.map(r=>`<tr>
+        <td><b>${esc(r.pct_base)}</b></td>
+        <td><input id="sb-emp-${esc(r.pct_base)}" value="${esc(r.pct_empresa)}" style="width:80px" placeholder="—"></td>
+        <td><input id="sb-lat-${esc(r.pct_base)}" value="${esc(r.pct_latam)}" style="width:80px" placeholder="—"></td>
+        <td><input id="sb-not-${esc(r.pct_base)}" value="${esc(r.notas||'')}"></td>
+        <td class="right" style="white-space:nowrap"><button class="small" onclick="saveSplit('${esc(r.pct_base)}')">💾</button> <button class="danger small" onclick="delSplit('${esc(r.pct_base)}')">🗑</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="empty">Sin filas. Agregá la primera abajo.</td></tr>'}
+      </tbody></table>
+      <hr/>
+      <h2>➕ Agregar entrada</h2>
+      <div class="row">
+        <div style="flex:0;width:120px"><label>Base %</label><input id="ns-base" placeholder="16"/></div>
+        <div style="flex:0;width:120px"><label>Empresa %</label><input id="ns-emp" placeholder="8"/></div>
+        <div style="flex:0;width:120px"><label>LATAM %</label><input id="ns-lat" placeholder="8"/></div>
+        <div><label>Notas (opcional)</label><input id="ns-not" placeholder=""/></div>
+        <button onclick="addSplit()">Agregar</button>
+      </div>
+      <div class="muted">Podés cargar cualquier % base (16, 20, lo que sea). Empresa + LATAM deberían sumar el base.</div>
+    </div>`;
+};
+async function saveSplit(pct){
+  const r = await api('/api/os/split-base/'+encodeURIComponent(pct),{method:'PUT',body:JSON.stringify({
+    pct_empresa:val('sb-emp-'+pct), pct_latam:val('sb-lat-'+pct), notas:val('sb-not-'+pct) })});
+  if(r.ok) toast('Split '+pct+'% guardado'); CFG.split();
+}
+async function addSplit(){
+  const base=val('ns-base'); if(!base) return toast('Poné el % base');
+  const r=await api('/api/os/split-base/'+encodeURIComponent(base),{method:'PUT',body:JSON.stringify({pct_empresa:val('ns-emp'),pct_latam:val('ns-lat'),notas:val('ns-not')})});
+  if(r.ok) toast('Entrada '+base+'% agregada'); CFG.split();
+}
+async function delSplit(pct){
+  if(!confirm('¿Borrar la entrada '+pct+'% de la tabla?'))return;
+  const r=await api('/api/os/split-base/'+encodeURIComponent(pct),{method:'DELETE'});
+  if(r.ok) toast('Borrada'); CFG.split();
+}
+
+// ───────── CONFIG ▸ CASINO (conexiones + explorador de nodos) ─────────
+CFG.casino = async () => {
+  const cx = (await api('/api/os/casino/conexiones')).conexiones||[];
+  if(!_cxSel && cx[0]) _cxSel = cx[0].id;
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>🎰 Conexiones al casino</h2>
+      <div class="muted" style="margin-bottom:8px">Conexión por <b>api_token</b> (se guarda cifrado). Soporta varias (multi-master). El token de dev es solo para mapear; la app real usará su cuenta.</div>
+      <table><thead><tr><th>Nombre</th><th>URL</th><th>Auth</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${cx.map(c=>`<tr><td><b>${esc(c.nombre)}</b>${c.usuario?(' <span class="muted">('+esc(c.usuario)+')</span>'):''}</td><td class="muted">${esc(c.url)}</td><td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">user/pass</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin conexiones. Agregá una abajo.</td></tr>'}
+      </tbody></table>
+      <div id="cx-test" class="muted" style="margin-top:6px"></div>
+      <hr/>
+      <div class="muted" style="margin-bottom:6px">Auth: poné el <b>API token</b> <u>o</u> el <b>usuario + contraseña</b> (lo que tenga la cuenta).</div>
+      <div class="row">
+        <div><label>Nombre</label><input id="cx-nombre" placeholder="463.life"/></div>
+        <div><label>URL del panel</label><input id="cx-url" placeholder="admin.463.life"/></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div><label>API token (opción A)</label><input id="cx-token" type="password" placeholder="token…"/></div>
+        <div><label>Usuario (opción B)</label><input id="cx-user" placeholder="463.life"/></div>
+        <div><label>Contraseña (opción B)</label><input id="cx-pass" type="password" placeholder="••••••"/></div>
+        <button onclick="addConex()">Agregar</button>
+      </div>
+    </div>
+    <div class="card"><h2>🌳 Explorador de nodos</h2>
+      <div class="muted" style="margin-bottom:8px">Distribuidores / Agentes / Cajas con su <b>IN (carga)</b>, OUT, Profit y RTP reales. Tocá "▸ hijos" para drillear.</div>
+      <div class="row">
+        <div><label>Conexión</label><select id="cx-sel">${cx.map(c=>`<option value="${c.id}" ${c.id===_cxSel?'selected':''}>${esc(c.nombre)}</option>`).join('')||'<option value="">(ninguna)</option>'}</select></div>
+        <div><label>Desde</label><input id="cx-from" type="date"/></div>
+        <div><label>Hasta</label><input id="cx-to" type="date"/></div>
+        <div><label>Buscar</label><input id="cx-q" placeholder="login o id…" oninput="renderNodos()"/></div>
+        <button onclick="explorar()">Cargar nodos</button>
+      </div>
+      <div id="cx-nodos" class="muted" style="margin-top:10px">Elegí conexión y tocá "Cargar nodos".</div>
+    </div>`;
+};
+async function addConex(){ if(!val('cx-url'))return toast('URL requerida'); if(!val('cx-token') && !(val('cx-user')&&val('cx-pass')))return toast('Poné token O usuario+contraseña'); const r=await api('/api/os/casino/conexiones',{method:'POST',body:JSON.stringify({nombre:val('cx-nombre'),url:val('cx-url'),token:val('cx-token'),usuario:val('cx-user'),password:val('cx-pass')})}); if(r.ok)toast('Conexión agregada'); CFG.casino(); }
+async function delConex(id){ if(!confirm('¿Borrar conexión?'))return; await api('/api/os/casino/conexiones/'+id,{method:'DELETE'}); CFG.casino(); }
+async function testConex(id){ const el=document.getElementById('cx-test'); el.innerHTML='⏳ probando…'; const r=await api('/api/os/casino/conexiones/'+id+'/test',{method:'POST'}); el.innerHTML = r.ok? `<span class="badge ok">✓ OK</span> ${esc(r.login||'')} — ARS ${money((r.balances&&r.balances.ARS)||0,0)}` : `<span class="badge err">✗ ${esc(r.error||'falló')}</span>`; }
+function _cxRange(){ const f=val('cx-from'),t=val('cx-to'); const p=[]; if(f)p.push('from='+encodeURIComponent(f+' 00:00:00')); if(t)p.push('to='+encodeURIComponent(t+' 23:59:59')); return p.join('&'); }
+async function explorar(){
+  _cxSel = val('cx-sel'); if(!_cxSel)return toast('Elegí una conexión');
+  const box=document.getElementById('cx-nodos'); box.innerHTML='⏳ cargando nodos…';
+  const qs=_cxRange();
+  const r=await api('/api/os/casino/conexiones/'+_cxSel+'/nodos'+(qs?('?'+qs):''));
+  if(!r.ok){ box.innerHTML='<span class="badge err">Error cargando nodos</span>'; return; }
+  _cxNodos=r.nodos||[]; renderNodos();
+}
+async function drillNodo(id){
+  const box=document.getElementById('cx-nodos'); box.innerHTML='⏳ cargando hijos de '+esc(id)+'…';
+  const qs='id='+encodeURIComponent(id)+(_cxRange()?('&'+_cxRange()):'');
+  const r=await api('/api/os/casino/conexiones/'+_cxSel+'/nodos?'+qs);
+  if(r.ok){ _cxNodos=r.nodos||[]; const q=document.getElementById('cx-q'); if(q)q.value=''; renderNodos(); }
+}
+function renderNodos(){
+  const box=document.getElementById('cx-nodos'); if(!box)return;
+  const q=(val('cx-q')||'').toLowerCase();
+  let a=_cxNodos; if(q) a=a.filter(n=>String(n.login).toLowerCase().includes(q)||String(n.id).includes(q));
+  box.innerHTML = `<div class="muted" style="margin-bottom:6px">${a.length} nodos${q?' (filtrados)':''}</div>
+    <table><thead><tr><th>ID</th><th>Login</th><th class="right">IN (carga)</th><th class="right">OUT</th><th class="right">Profit</th><th>RTP</th><th></th></tr></thead><tbody>
+    ${a.slice(0,200).map(n=>`<tr><td><span class="pill">${esc(n.id)}</span></td><td><b>${esc(n.login)}</b> ${n.online?'<span style="color:var(--green)">●</span>':''}</td><td class="right">${money(n.in,0)}</td><td class="right">${money(n.out,0)}</td><td class="right"><b>${money(n.profit,0)}</b></td><td>${esc(n.rtp||'')}</td><td class="right"><button class="outline small" onclick="drillNodo('${esc(n.id)}')">▸ hijos</button></td></tr>`).join('')}
+    </tbody></table>${a.length>200?('<div class="muted">(mostrando 200 de '+a.length+')</div>'):''}`;
+}
+
+// ───────── FACTURACIÓN (datos reales del casino) ─────────
+VIEWS.facturacion = async () => {
+  const mes = new Date().toISOString().slice(0,7);
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <h2>🧾 Facturación <span class="muted">(datos reales del casino)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Trae el <b>IN (carga)</b> y <b>profit</b> reales de cada panel <b>linkeado a un nodo</b>, y calcula el <b>fee = base% × carga</b>. Linkeá los paneles en la pestaña Paneles.</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}"></div>
+        <div><label>Desde (opcional)</label><input type="date" id="fac-from"></div>
+        <div><label>Hasta (opcional)</label><input type="date" id="fac-to"></div>
+        <div style="flex:0"><button onclick="calcularFac()">Calcular</button></div>
+      </div>
+      <div id="fac-out" class="muted" style="margin-top:12px">Tocá "Calcular".</div>
+    </div>`;
+};
+async function calcularFac(){
+  const out=document.getElementById('fac-out'); out.innerHTML='⏳ trayendo datos del casino…';
+  let qs='mes='+encodeURIComponent(val('fac-mes')); const f=val('fac-from'),t=val('fac-to');
+  if(f)qs+='&from='+encodeURIComponent(f+' 00:00:00'); if(t)qs+='&to='+encodeURIComponent(t+' 23:59:59');
+  const r=await api('/api/os/facturacion?'+qs);
+  if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
+  const T=r.totales||{};
+  out.innerHTML = `
+    <div class="row" style="align-items:stretch">
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Carga total (IN)</label><div style="font-size:20px;font-weight:800">${money(T.in,0)}</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Fee a cobrar (ARS)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">${money(T.fee_ars,0)}</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Fee (USDT)</label><div style="font-size:20px;font-weight:800">${T.fee_usdt!=null?money(T.fee_usdt,2):'—'}</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Profit casino</label><div style="font-size:20px;font-weight:800">${money(T.profit,0)}</div></div>
+    </div>
+    ${r.tc?('<div class="muted" style="margin:8px 0">TC usado: '+money(r.tc,2)+' ARS/USDT</div>'):'<div class="muted" style="margin:8px 0">⚠ sin TC cargado → fee USDT no calculado. Tomá un snapshot en 💱 Tipos de cambio.</div>'}
+    <table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Carga (IN)</th><th class="right">Fee ARS</th><th class="right">Fee USDT</th><th class="right">Profit</th></tr></thead><tbody>
+    ${(r.clientes||[]).map(c=>`<tr><td><span class="pill">${esc(c.codigo)}</span> ${esc(c.nombre||'')}</td><td class="right">${c.paneles&&c.paneles[0]?esc(c.paneles[0].base):''}%</td><td class="right">${money(c.in,0)}</td><td class="right"><b>${money(c.fee_ars,0)}</b></td><td class="right">${c.fee_usdt!=null?money(c.fee_usdt,2):'—'}</td><td class="right">${money(c.profit,0)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Ningún cliente con paneles linkeados. Linkeá paneles a nodos del casino en la pestaña Paneles.</td></tr>'}
+    </tbody></table>
+    ${(r.errores&&r.errores.length)?('<div class="muted" style="color:var(--red);margin-top:6px">⚠ '+r.errores.map(esc).join('<br>')+'</div>'):''}`;
+}
+
+// ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────
+VIEWS.reportes = async () => {
+  const cxs=(await api('/api/os/casino/conexiones')).conexiones||[];
+  const cxOpts=cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')||'<option value="">(sin conexión)</option>';
+  const hoy=new Date().toISOString().slice(0,10);
+  document.getElementById('main').innerHTML=`
+    <div class="card">
+      <h2>🗓 Reporte Diario <span class="muted">(data real del casino)</span></h2>
+      <div class="muted" style="margin-bottom:8px">IN/OUT/Profit/RTP por <b>superagente</b> o <b>distribuidor</b> de la cuenta (ej. la cuenta GOD que ve todos los super admins).</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión / sistema</label><select id="rd-cx">${cxOpts}</select></div>
+        <div style="flex:0"><label>Agrupar por</label><select id="rd-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div><label>Desde</label><input type="date" id="rd-from" value="${hoy}"></div>
+        <div><label>Hasta</label><input type="date" id="rd-to" value="${hoy}"></div>
+        <button onclick="genReporte()">Generar</button>
+      </div>
+      <div id="rd-out" class="muted" style="margin-top:12px">Elegí conexión y tocá "Generar".</div>
+    </div>
+    <div class="card">
+      <h2>🗓 Reporte Mensual <span class="muted">(matriz estilo Alexa)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Días × superagente × (IN/OUT/Profit) + Total + RTP — corre el reporte de cada día del mes. Puede tardar ~30–60s.</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión / sistema</label><select id="rm-cx">${cxOpts}</select></div>
+        <div style="flex:0"><label>Agrupar por</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}"></div>
+        <button onclick="genMatriz()">Generar matriz</button>
+        <div style="flex:0 0 auto"><label>Ver completo</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:170px"><option value="__all__">— generá primero —</option></select></div>
+        <button class="outline" id="rm-csv" onclick="descargarMatrizCSV()" disabled>⬇ CSV</button>
+      </div>
+      <div id="rm-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
+    </div>
+    <div class="card">
+      <h2>🏷 Reporte de Proveedores <span class="muted">(profit/bet/win/RTP por proveedor — multimoneda)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Por <b>proveedor</b> en el mes (on_bets). <b>General</b> = toda la plataforma; <b>Por superagente</b> = abierto por cuenta. Corre una consulta por cada moneda elegida (puede tardar).</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión / plataforma</label><select id="pr-cx">${cxOpts}</select></div>
+        <div style="flex:0"><label>Vista</label><select id="pr-vista"><option value="general">General (toda la plataforma)</option><option value="superagent">Por superagente</option></select></div>
+        <div><label>Mes</label><input type="month" id="pr-mes" value="${new Date().toISOString().slice(0,7)}"></div>
+        <button onclick="genProveedores()">Generar</button>
+        <div style="flex:1 1 150px;min-width:130px"><label>Buscar proveedor</label><input id="pr-q" placeholder="🔍 filtrar…" oninput="renderProv()" autocomplete="off"></div>
+        <button class="outline" id="pr-csv" onclick="descargarProvCSV()" disabled>⬇ CSV</button>
+      </div>
+      <div style="margin-top:8px"><label class="muted">Monedas</label>
+        <div id="pr-curs" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;align-items:center">${['ARS','BRL','CLP','DOP','EUR','MXN','PEN','USD','UYU','VEF'].map(c=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" class="pr-cur" value="${c}" ${c==='ARS'?'checked':''} style="width:auto;margin:0"> ${c}</label>`).join('')}
+          <a onclick="prCurs(true)" style="cursor:pointer;text-decoration:underline;font-size:12px">todas</a>
+          <a onclick="prCurs(false)" style="cursor:pointer;text-decoration:underline;font-size:12px">ninguna</a>
+        </div>
+      </div>
+      <div id="pr-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
+    </div>`;
+};
+async function genReporte(){
+  const cid=val('rd-cx'); if(!cid)return toast('Elegí una conexión');
+  const out=document.getElementById('rd-out'); out.innerHTML='⏳ generando reporte (consultando el casino)…';
+  const f=val('rd-from'),t=val('rd-to');
+  const qs='group='+val('rd-nivel')+(f?'&from='+encodeURIComponent(f+' 00:00:00'):'')+(t?'&to='+encodeURIComponent(t+' 23:59:59'):'');
+  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte?'+qs);
+  if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
+  const fil=r.filas||[]; const sum=(k)=>fil.reduce((a,x)=>a+Number(x[k]||0),0);
+  const lbl=r.groupBy==='distributor'?'distribuidores':'superagentes';
+  out.innerHTML=`
+    <div class="muted" style="margin-bottom:6px">${fil.length} ${lbl}</div>
+    <table><thead><tr><th>ID</th><th>Login</th><th class="right">IN (depósito)</th><th class="right">OUT (retiro)</th><th class="right">Profit</th><th class="right">RTP</th></tr></thead><tbody>
+    ${fil.map(x=>`<tr><td><span class="pill">${esc(x.id)}</span></td><td><b>${esc(x.login)}</b></td><td class="right">${money(x.in,0)}</td><td class="right">${money(x.out,0)}</td><td class="right"><b>${money(x.profit,0)}</b></td><td class="right">${esc(x.rtp)}%</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Sin datos en el período.</td></tr>'}
+    ${fil.length?`<tr style="border-top:2px solid var(--gold)"><td colspan="2"><b>TOTAL</b></td><td class="right"><b>${money(sum('in'),0)}</b></td><td class="right"><b>${money(sum('out'),0)}</b></td><td class="right"><b>${money(sum('profit'),0)}</b></td><td></td></tr>`:''}
+    </tbody></table>`;
+}
+
+let _matrizData=null, _rmView=null;
+async function genMatriz(){
+  const cid=val('rm-cx'); if(!cid)return toast('Elegí una conexión');
+  const out=document.getElementById('rm-out'); out.innerHTML='⏳ generando matriz mensual (corriendo el reporte de cada día… ~30-60s)…';
+  document.getElementById('rm-csv').disabled=true;
+  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-mensual?mes='+val('rm-mes')+'&group='+val('rm-nivel'));
+  if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
+  _matrizData=r;
+  const sel=document.getElementById('rm-sa');
+  if(sel){
+    const lvl=(r.group==='distributor')?'distribuidores':'superagentes';
+    const sa=(r.superagentes||[]).slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+    sel.innerHTML='<option value="__all__">Todos ('+(r.superagentes||[]).length+' '+lvl+')</option>'+sa.map(s=>`<option value="${esc(s.id)}">${esc(s.login)}</option>`).join('');
+    sel.disabled=!sa.length;
+  }
+  renderRM();
+  document.getElementById('rm-csv').disabled=false;
+}
+// Filtra la matriz mensual al superagente elegido (o todos) y la re-dibuja SIN reconsultar el casino.
+function renderRM(){
+  const out=document.getElementById('rm-out'); if(!out||!_matrizData)return;
+  const sel=val('rm-sa');
+  let sa=_matrizData.superagentes||[];
+  if(sel&&sel!=='__all__') sa=sa.filter(s=>String(s.id)===sel);
+  _rmView={...(_matrizData),superagentes:sa};
+  out.innerHTML=renderMatriz(_rmView);
+}
+// ───────── REPORTE DE PROVEEDORES (general/por-superagente, multimoneda) ─────────
+let _provData=null;
+function prCurs(on){ document.querySelectorAll('.pr-cur').forEach(c=>{ c.checked=on; }); }
+function prSelectedCurs(){ return [...document.querySelectorAll('.pr-cur:checked')].map(c=>c.value); }
+async function genProveedores(){
+  const cid=val('pr-cx'); if(!cid)return toast('Elegí una conexión');
+  const curs=prSelectedCurs(); if(!curs.length)return toast('Elegí al menos una moneda');
+  const view=val('pr-vista')||'general';
+  const mes=val('pr-mes')||new Date().toISOString().slice(0,7);
+  const [y,m]=mes.split('-').map(Number); const last=new Date(y,m,0).getDate();
+  const from=mes+'-01 00:00:00', to=mes+'-'+String(last).padStart(2,'0')+' 23:59:59';
+  const out=document.getElementById('pr-out'); out.innerHTML='⏳ generando reporte en '+curs.length+' moneda(s) — una consulta por moneda, puede tardar varios minutos…';
+  document.getElementById('pr-csv').disabled=true;
+  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-proveedores?view='+view+'&currencies='+encodeURIComponent(curs.join(','))+'&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to));
+  if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
+  _provData=r;
+  renderProv();
+  document.getElementById('pr-csv').disabled=!Object.values(r.monedas||{}).some(m=>m.ok&&m.filas&&m.filas.length);
+}
+function renderProv(){
+  const out=document.getElementById('pr-out'); if(!out||!_provData)return;
+  const q=(val('pr-q')||'').toLowerCase();
+  const view=_provData.view, monedas=_provData.monedas||{};
+  const f=(n)=>money(n,0);
+  const match=(x)=>!q||[x.provider,x.label,x.vendor,x.saLogin].some(s=>String(s).toLowerCase().includes(q));
+  let html='';
+  for(const cur of Object.keys(monedas)){
+    const md=monedas[cur];
+    if(!md.ok){ html+=`<div style="margin-top:12px"><b>💱 ${cur}</b> <span class="badge err">${esc(md.error||'error')}</span></div>`; continue; }
+    const filas=(md.filas||[]).filter(match);
+    if(!filas.length) continue;
+    html+=`<div style="margin-top:14px;font-weight:800">💱 ${cur} <span class="muted" style="font-weight:400">— ${filas.length} filas</span></div>`;
+    html+=(view==='superagent')?renderProvBySa(filas,f):renderProvGeneral(filas,f);
+  }
+  out.innerHTML=html||'<div class="empty">Sin datos en las monedas elegidas'+(q?' (con ese filtro)':'')+'.</div>';
+}
+function renderProvGeneral(filas,f){
+  const rows=filas.slice().sort((a,b)=>b.profit-a.profit); let bet=0,win=0,prof=0;
+  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Bet</th><th class="right">Win</th><th class="right">Profit</th><th class="right">RTP</th></tr></thead><tbody>';
+  rows.forEach(x=>{ bet+=x.bet;win+=x.win;prof+=x.profit; const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right">${f(x.bet)}</td><td class="right">${f(x.win)}</td><td class="right" style="${pc}">${f(x.profit)}</td><td class="right">${(Number(x.rtp)||0).toFixed(2)}%</td></tr>`; });
+  const rtp=bet?(win/bet*100):0;
+  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="3">TOTAL</td><td class="right">${f(bet)}</td><td class="right">${f(win)}</td><td class="right">${f(prof)}</td><td class="right">${rtp.toFixed(2)}%</td></tr>`;
+  return h+'</tbody></table>';
+}
+function renderProvBySa(filas,f){
+  const bySa={}; filas.forEach(x=>{ const k=x.saLogin||x.saId||'(sin cuenta)'; (bySa[k]=bySa[k]||[]).push(x); });
+  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Cuenta</th><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Profit</th></tr></thead><tbody>';
+  let gtot=0;
+  Object.keys(bySa).sort().forEach(sa=>{
+    const rows=bySa[sa].slice().sort((a,b)=>b.profit-a.profit); let sub=0;
+    rows.forEach((x,i)=>{ sub+=x.profit;gtot+=x.profit; const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${i===0?'<b>'+esc(sa)+'</b>':''}</td><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right" style="${pc}">${f(x.profit)}</td></tr>`; });
+    h+=`<tr style="border-top:1px solid var(--border);font-weight:700"><td colspan="4">Subtotal ${esc(sa)}</td><td class="right">${f(sub)}</td></tr>`;
+  });
+  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="4">TOTAL</td><td class="right">${f(gtot)}</td></tr>`;
+  return h+'</tbody></table>';
+}
+function descargarProvCSV(){
+  if(!_provData||!_provData.monedas)return;
+  const view=_provData.view; const q=(s)=>'"'+String(s).replace(/"/g,'""')+'"';
+  const header=view==='superagent'?['Moneda','Cuenta','Sistema','Proveedor','Vendor','Profit']:['Moneda','Sistema','Proveedor','Vendor','Bet','Win','Profit','RTP'];
+  const rows=[header.map(q).join(',')];
+  for(const cur of Object.keys(_provData.monedas)){
+    const md=_provData.monedas[cur]; if(!md.ok)continue;
+    (md.filas||[]).forEach(x=>{ const b=view==='superagent'?[cur,x.saLogin,x.provider,x.label,x.vendor,x.profit]:[cur,x.provider,x.label,x.vendor,x.bet,x.win,x.profit,x.rtp]; rows.push(b.map(q).join(',')); });
+  }
+  const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='proveedores-'+(val('pr-mes')||'')+'.csv';a.click();
+}
+function renderMatriz(r){
+  const sa=r.superagentes||[], dias=r.dias||[]; if(!sa.length) return '<div class="empty">Sin datos en el mes.</div>';
+  const f=(n)=>money(n,0); const bl='border-left:2px solid var(--border)';
+  let h='<table style="font-size:12px;white-space:nowrap"><thead>';
+  h+='<tr><th rowspan="2">Fecha</th>'+sa.map(s=>`<th colspan="3" style="text-align:center;${bl}">${esc(s.login)}</th>`).join('')+'</tr>';
+  h+='<tr>'+sa.map(()=>`<th class="right" style="${bl}">IN</th><th class="right">OUT</th><th class="right">Profit</th>`).join('')+'</tr></thead><tbody>';
+  dias.forEach(d=>{ h+='<tr><td>'+esc(d)+'</td>'+sa.map(s=>{const c=(r.matriz[d]||{})[s.id]||{in:0,out:0,profit:0};const pc=c.profit<0?'color:var(--red);':'';return `<td class="right" style="${bl}">${f(c.in)}</td><td class="right">${f(c.out)}</td><td class="right" style="${pc}">${f(c.profit)}</td>`;}).join('')+'</tr>'; });
+  h+='<tr style="border-top:2px solid var(--gold);font-weight:800"><td>TOTAL</td>'+sa.map(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};return `<td class="right" style="${bl}">${f(t.in)}</td><td class="right">${f(t.out)}</td><td class="right">${f(t.profit)}</td>`;}).join('')+'</tr>';
+  h+='<tr class="muted"><td>RTP</td>'+sa.map(s=>{const t=r.totales[s.id]||{};return `<td class="right" colspan="3" style="${bl}">${(t.rtp||0).toFixed(2)}%</td>`;}).join('')+'</tr>';
+  h+='</tbody></table>';
+  if(r.errores&&r.errores.length) h+='<div class="muted" style="color:var(--red);margin-top:6px">⚠ '+r.errores.length+' día(s) con error</div>';
+  return h;
+}
+function descargarMatrizCSV(){
+  const r=_rmView||_matrizData; if(!r)return; const sa=r.superagentes, dias=r.dias;
+  const q=(s)=>'"'+String(s).replace(/"/g,'""')+'"';
+  const rows=[['Fecha'].concat(sa.flatMap(s=>[s.login+' IN',s.login+' OUT',s.login+' Profit'])).map(q).join(',')];
+  dias.forEach(d=>{const row=[d];sa.forEach(s=>{const c=(r.matriz[d]||{})[s.id]||{in:0,out:0,profit:0};row.push(c.in,c.out,c.profit);});rows.push(row.map(q).join(','));});
+  const tot=['TOTAL'];sa.forEach(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};tot.push(t.in,t.out,t.profit);});rows.push(tot.map(q).join(','));
+  const rtp=['RTP'];sa.forEach(s=>{const t=r.totales[s.id]||{};rtp.push((t.rtp||0).toFixed(2)+'%','','');});rows.push(rtp.map(q).join(','));
+  const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reporte-mensual-'+r.mes+'.csv';a.click();
+}
+// Trae lo guardado (una conexión o TODAS) y lo cachea en _acData; el render/búsqueda es client-side.
+async function verAcumulado(){
+  const cid=val('ac-cx'); const out=document.getElementById('ac-out'); if(!out)return;
+  _acData=null; _acView=null; const b0=document.getElementById('ac-csv'); if(b0) b0.disabled=true;
+  if(!cid){ out.innerHTML='<div class="empty">Elegí una conexión.</div>'; return; }
+  _acMes=val('ac-mes'); out.innerHTML='⏳ cargando lo guardado…';
+  const url = cid==='__all__'
+    ? '/api/os/casino/acumulado-todos?mes='+val('ac-mes')+'&group='+val('ac-nivel')
+    : '/api/os/casino/conexiones/'+cid+'/acumulado?mes='+val('ac-mes')+'&group='+val('ac-nivel');
+  const r=await api(url);
+  if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
+  _acData=r;
+  const b=document.getElementById('ac-csv'); if(b) b.disabled=!(r.dias&&r.dias.length);
+  renderAcumulado();
+}
+// Filtra los superagentes ya cargados por el buscador y re-dibuja la matriz SIN reconsultar.
+function renderAcumulado(){
+  const out=document.getElementById('ac-out'); if(!out)return;
+  const cnt=document.getElementById('ac-count');
+  if(!_acData){ if(cnt)cnt.textContent=''; return; }
+  const q=(val('ac-q')||'').toLowerCase();
+  const all=_acData.superagentes||[];
+  const sa=q?all.filter(s=>String(s.login).toLowerCase().includes(q)||String(s.id).includes(q)):all;
+  _acView={...(_acData),superagentes:sa};
+  if(cnt) cnt.textContent = all.length ? (q?('Mostrando '+sa.length+' de '+all.length+' superagentes'):(all.length+' superagentes')) : '';
+  if(!_acData.dias||!_acData.dias.length){ out.innerHTML='<div class="empty">Todavía no hay días guardados para este mes. Usá "Backfill mes" para traerlos del casino, o esperá a que el cron capture cada noche.</div>'; return; }
+  if(!sa.length){ out.innerHTML='<div class="empty">Ningún superagente coincide con "'+esc(val('ac-q'))+'".</div>'; return; }
+  out.innerHTML=renderMatriz(_acView);
+}
+function descargarAcumuladoCSV(){
+  const r=_acView||_acData; if(!r||!r.superagentes)return; const sa=r.superagentes, dias=r.dias||[];
+  const q=(s)=>'"'+String(s).replace(/"/g,'""')+'"';
+  const rows=[['Fecha'].concat(sa.flatMap(s=>[s.login+' IN',s.login+' OUT',s.login+' Profit'])).map(q).join(',')];
+  dias.forEach(d=>{const row=[d];sa.forEach(s=>{const c=(r.matriz[d]||{})[s.id]||{in:0,out:0,profit:0};row.push(c.in,c.out,c.profit);});rows.push(row.map(q).join(','));});
+  const tot=['TOTAL'];sa.forEach(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};tot.push(t.in,t.out,t.profit);});rows.push(tot.map(q).join(','));
+  const rtp=['RTP'];sa.forEach(s=>{const t=r.totales[s.id]||{};rtp.push((t.rtp||0).toFixed(2)+'%','','');});rows.push(rtp.map(q).join(','));
+  const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='acumulado-'+(r.mes||'')+'.csv';a.click();
+}
+async function capturarHoy(){
+  const cid=val('ac-cx'); if(!cid)return toast('Elegí una conexión');
+  if(cid==='__all__'){
+    toast('Capturando hoy en todas las conexiones…');
+    const r=await api('/api/os/casino/capturar-hoy-todos?group='+val('ac-nivel'),{method:'POST'});
+    if(r.ok) toast('✓ Capturado hoy en '+r.capturados+'/'+((r.conexiones||[]).length)+' conexiones');
+    return verAcumulado();
+  }
+  toast('Capturando el día de hoy…');
+  const r=await api('/api/os/casino/conexiones/'+cid+'/capturar?group='+val('ac-nivel'),{method:'POST'});
+  if(r.ok) toast('✓ Capturado hoy ('+r.filas+' superagentes)'); verAcumulado();
+}
+async function backfillMes(){
+  const cid=val('ac-cx'); if(!cid)return toast('Elegí una conexión');
+  if(cid==='__all__'){
+    if(!confirm('¿Traer del casino TODOS los días del mes '+val('ac-mes')+' de TODAS las conexiones? Puede tardar varios minutos.'))return;
+    const out=document.getElementById('ac-out'); out.innerHTML='⏳ trayendo el mes completo de todas las conexiones… (puede tardar varios minutos)';
+    const r=await api('/api/os/casino/capturar-mes-todos?mes='+val('ac-mes')+'&group='+val('ac-nivel'),{method:'POST'});
+    if(r.ok){ const cs=r.conexiones||[]; const tot=cs.reduce((a,c)=>a+(c.capturados||0),0); toast('✓ Backfill: '+tot+' días en '+cs.length+' conexiones'); }
+    else toast('Error: '+(r.error||''));
+    return verAcumulado();
+  }
+  if(!confirm('¿Traer del casino TODOS los días del mes '+val('ac-mes')+' y guardarlos? Puede tardar ~30-60s.'))return;
+  const out=document.getElementById('ac-out'); out.innerHTML='⏳ trayendo el mes completo del casino y guardándolo (~30-60s)…';
+  const r=await api('/api/os/casino/conexiones/'+cid+'/capturar-mes?mes='+val('ac-mes')+'&group='+val('ac-nivel'),{method:'POST'});
+  if(r.ok) toast('✓ Backfill: '+r.capturados+' días guardados'+((r.errores&&r.errores.length)?(' ('+r.errores.length+' con error)'):''));
+  else toast('Error: '+(r.error||''));
+  verAcumulado();
+}
+// ───────── ACUMULADO (solapa propia, siempre visible, filtro mes por mes) ─────────
+let _acMes='', _acData=null, _acView=null, _acCxs=[];
+VIEWS.acumulado = async () => {
+  const cxs=(await api('/api/os/casino/conexiones')).conexiones||[]; _acCxs=cxs;
+  const cxOpts='<option value="__all__">🌐 Todas (todos los GOD)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  const mes=_acMes||new Date().toISOString().slice(0,7);
+  document.getElementById('main').innerHTML=`
+    <div class="card">
+      <h2>📒 Reporte Acumulado <span class="muted">(se llena solo, día a día)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Lo guardado en la base — el cron captura el día anterior cada noche. "Todas" junta todos los GOD; buscá un tenant sin reconsultar. Mes por mes con ◀ ▶.</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Conexión / sistema</label><select id="ac-cx" onchange="verAcumulado()">${cxOpts}</select></div>
+        <div style="flex:0"><label>Agrupar por</label><select id="ac-nivel" onchange="verAcumulado()"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div style="flex:0 0 auto"><label>Mes</label><div style="display:flex;gap:6px;align-items:center"><button class="outline small" onclick="acMes(-1)" style="flex:0 0 auto">◀</button><input type="month" id="ac-mes" value="${mes}" onchange="verAcumulado()" style="width:150px;flex:0 0 auto"><button class="outline small" onclick="acMes(1)" style="flex:0 0 auto">▶</button></div></div>
+        <div style="flex:1 1 180px;min-width:150px"><label>Buscar tenant / superagente</label><input id="ac-q" placeholder="🔍 filtrar por login…" oninput="renderAcumulado()" autocomplete="off"></div>
+        <button class="outline" onclick="capturarHoy()">＋ Capturar hoy</button>
+        <button class="outline" onclick="backfillMes()">⤓ Backfill mes</button>
+        <button class="outline" id="ac-csv" onclick="descargarAcumuladoCSV()" disabled>⬇ CSV</button>
+      </div>
+      <div class="muted" style="margin-top:10px"><span id="ac-count"></span></div>
+      <div id="ac-out" class="muted" style="margin-top:6px; overflow-x:auto">Cargando…</div>
+    </div>`;
+  if(cxs.length) verAcumulado(); else document.getElementById('ac-out').innerHTML='<div class="empty">Agregá una conexión en Config → 🎰 Casino primero.</div>';
+};
+function acMes(delta){ const el=document.getElementById('ac-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} el.value=y+'-'+String(m).padStart(2,'0'); _acMes=el.value; verAcumulado(); }
+function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+// init
+renderNav(); go('acumulado');
+</script>
+</body>
+</html>
