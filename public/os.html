@@ -135,60 +135,77 @@ function editCli(id){
   loadCliPlat(id);
   loadCliProv(id);
 }
-// ── Plataformas (superagentes) del cliente — asignador con checkboxes ──
+// ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
 async function loadCliPlat(id){
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   window._platCxs = cxs;
   const opts = cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   document.getElementById('cliPlat').innerHTML = `
     <div class="card">
-      <h2>🛰️ Plataformas (superagentes) <span class="muted">(asigná los GOD/superagentes de este cliente)</span></h2>
+      <h2>🛰️ Plataformas / cuentas <span class="muted">(asigná las cuentas de este cliente, al nivel que sea)</span></h2>
       ${cxs.length ? `
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión / sistema</label><select id="plat-cx">${opts}</select></div>
-        <div style="flex:0"><button class="outline" onclick="loadSupers('${id}')">⤓ Cargar superagentes</button></div>
+        <div style="flex:0"><button class="outline" onclick="loadAccts('${id}')">⤓ Cargar cuentas</button></div>
       </div>
-      <div id="plat-list" class="muted" style="margin-top:8px">Elegí una conexión y tocá "Cargar superagentes". Aparecen SOLO los superagentes, con tilde.</div>
+      <div id="plat-list" class="muted" style="margin-top:8px">Elegí una conexión y tocá "Cargar cuentas". Filtrás por nivel (lo que esa cuenta vea: superagente, distribuidor, master…) + buscador, y tildás las de este cliente.</div>
       ` : '<div class="empty">No hay conexiones. Cargá una en Config → 🎰 Casino primero.</div>'}
     </div>`;
 }
-async function loadSupers(id){
+async function loadAccts(id){
   const cx = val('plat-cx'); if(!cx) return toast('Elegí una conexión');
-  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo superagentes del GOD…';
-  const sr = await api('/api/os/casino/conexiones/'+cx+'/superagentes');
-  if(!sr.ok){ box.innerHTML='<span class="badge err">No se pudieron traer los superagentes (¿conexión OK?)</span>'; return; }
+  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo cuentas del GOD… (si la cuenta ve mucho, puede tardar)';
+  const nr = await api('/api/os/casino/conexiones/'+cx+'/nodos');
+  if(!nr.ok){ box.innerHTML='<span class="badge err">No se pudieron traer las cuentas (¿conexión OK?)</span>'; return; }
   const pr = await api('/api/os/paneles?cliente_id='+id);
-  const supers = sr.superagentes||[];
+  const nodos = nr.nodos||[];
   const panels = (pr.paneles||[]).filter(p=>p.conexion_id===cx && p.id_usuario);
-  const asignado = new Set(panels.map(p=>String(p.id_usuario)));
-  window._platMap = { cx, id, panels };
+  const nodeById = {}; nodos.forEach(n=>{ nodeById[String(n.id)]=n; });
+  const tally={}; nodos.forEach(n=>{ const k=n.nivel||'Terminal/Caja'; tally[k]=(tally[k]||0)+1; });
+  const niveles = Object.keys(tally).sort((a,b)=>tally[a]-tally[b]); // el nivel más alto (menos nodos) primero
+  const def = niveles.find(k=>k!=='Terminal/Caja') || niveles[0] || '';
+  window._accState = { cx, id, nodeById, panels, sel: new Set(panels.map(p=>String(p.id_usuario))) };
   box.innerHTML = `
-    <div class="muted" style="margin-bottom:6px">${supers.length} superagentes en este GOD. Tildá los de este cliente.</div>
-    <table><thead><tr><th></th><th>Superagente</th><th>ID</th><th class="right">IN (ARS)</th><th class="right">Profit</th></tr></thead><tbody>
-    ${supers.map(s=>`<tr>
-      <td><input type="checkbox" class="plat-chk" data-id="${esc(s.id)}" data-login="${esc(s.login)}" ${asignado.has(String(s.id))?'checked':''}/></td>
-      <td><b>${esc(s.login)}</b></td><td><span class="pill">${esc(s.id)}</span></td>
-      <td class="right">${money(s.in,0)}</td><td class="right">${money(s.profit,0)}</td>
-    </tr>`).join('')||'<tr><td colspan="5" class="empty">Este GOD no devolvió superagentes.</td></tr>'}
-    </tbody></table>
-    <button onclick="saveSupers()" style="margin-top:8px">💾 Guardar selección</button>`;
+    <div class="row" style="align-items:flex-end; margin-bottom:6px">
+      <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="renderAccts()">${niveles.map(k=>`<option value="${esc(k)}" ${k===def?'selected':''}>${esc(k)} (${tally[k]})</option>`).join('')}</select></div>
+      <div><label>Buscar (login)</label><input id="acc-q" oninput="renderAccts()" placeholder="filtrar por login…"/></div>
+      <div style="flex:0"><button onclick="saveAccts()">💾 Guardar selección</button></div>
+    </div>
+    <div id="acc-rows"></div>`;
+  renderAccts();
 }
-async function saveSupers(){
-  const m = window._platMap||{}; if(!m.cx) return;
-  const cxName = (window._platCxs||[]).find(c=>c.id===m.cx); const sistema = cxName?cxName.nombre:'';
-  const checks = [...document.querySelectorAll('.plat-chk')];
-  const checked = checks.filter(c=>c.checked).map(c=>({id:c.dataset.id, login:c.dataset.login}));
-  const checkedIds = new Set(checked.map(c=>String(c.id)));
-  const byNode = {}; m.panels.forEach(p=>{ byNode[String(p.id_usuario)]=p; });
+function renderAccts(){
+  const st = window._accState; if(!st) return;
+  const niv = val('acc-niv'); const q = (val('acc-q')||'').toLowerCase();
+  let list = Object.values(st.nodeById).filter(n=>(n.nivel||'Terminal/Caja')===niv);
+  if(q) list = list.filter(n=>String(n.login).toLowerCase().includes(q));
+  list.sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+  const CAP=400, shown=list.slice(0,CAP);
+  document.getElementById('acc-rows').innerHTML = `
+    <div class="muted" style="margin-bottom:4px">${list.length} cuentas en "${esc(niv)}"${list.length>CAP?(' · muestro '+CAP+', refiná con el buscador'):''} · seleccionadas (todos los niveles): ${st.sel.size}</div>
+    <table><thead><tr><th></th><th>Cuenta</th><th>ID</th><th class="right">IN (ARS)</th><th class="right">Profit</th></tr></thead><tbody>
+    ${shown.map(n=>`<tr>
+      <td><input type="checkbox" class="acc-chk" onchange="toggleAcct('${esc(String(n.id))}',this.checked)" ${st.sel.has(String(n.id))?'checked':''}/></td>
+      <td><b>${esc(n.login)}</b></td><td><span class="pill">${esc(n.id)}</span></td>
+      <td class="right">${money(n.in,0)}</td><td class="right">${money(n.profit,0)}</td>
+    </tr>`).join('')||'<tr><td colspan="5" class="empty">No hay cuentas en este nivel/búsqueda.</td></tr>'}
+    </tbody></table>`;
+}
+function toggleAcct(nodeId, checked){ const st=window._accState; if(!st)return; if(checked) st.sel.add(String(nodeId)); else st.sel.delete(String(nodeId)); }
+async function saveAccts(){
+  const st = window._accState; if(!st) return;
+  const cxName = (window._platCxs||[]).find(c=>c.id===st.cx); const sistema = cxName?cxName.nombre:'';
+  const origIds = new Set(st.panels.map(p=>String(p.id_usuario)));
+  const toCreate = [...st.sel].filter(idd=>!origIds.has(idd));
+  const toDelete = st.panels.filter(p=>!st.sel.has(String(p.id_usuario)));
   let creados=0, borrados=0;
-  for(const s of checked){ if(!byNode[String(s.id)]){
-    await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:m.id, nombre:s.login, sistema, nivel_usuario:'SuperAgente', tipo:'exclusivo', id_usuario:s.id, conexion_id:m.cx, divisas:'ARS'})}); creados++;
-  }}
-  const toDelete = m.panels.filter(p=>!checkedIds.has(String(p.id_usuario)));
-  if(toDelete.length){ if(confirm('Vas a DESVINCULAR '+toDelete.length+' plataforma(s) de este cliente (se borran esos paneles). ¿Seguir?')){
+  for(const idd of toCreate){ const n=st.nodeById[idd]; if(!n)continue;
+    await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:st.id, nombre:n.login, sistema, nivel_usuario:(n.nivel||''), tipo:'exclusivo', id_usuario:n.id, conexion_id:st.cx, divisas:'ARS'})}); creados++;
+  }
+  if(toDelete.length){ if(confirm('Vas a DESVINCULAR '+toDelete.length+' cuenta(s) de este cliente (se borran esos paneles). ¿Seguir?')){
     for(const p of toDelete){ await api('/api/os/paneles/'+p.id,{method:'DELETE'}); borrados++; }
   }}
-  toast('Plataformas: +'+creados+(borrados?(' / -'+borrados):'')); loadSupers(m.id);
+  toast('Cuentas: +'+creados+(borrados?(' / -'+borrados):'')); loadAccts(st.id);
 }
 async function loadCliProv(id){
   const r = await api('/api/os/clientes/'+id+'/proveedores');

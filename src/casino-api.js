@@ -36,10 +36,13 @@ function extractPhpsessid(setCookie) {
 function nivelDeGroup(additional) {
   let g = '';
   try { const a = typeof additional === 'string' ? JSON.parse(additional) : (additional || {}); g = String(a.group || ''); } catch (e) { /* noop */ }
+  g = g.replace(/^\[+|\]+$/g, '').trim(); // "[Superagente]" -> "Superagente"
   if (/super/i.test(g)) return 'SuperAgente';
   if (/distrib/i.test(g)) return 'Distribuidor';
   if (/agent/i.test(g)) return 'Agente';
-  return ''; // terminal / caja / jugador
+  // Cualquier OTRO nivel que la cuenta exponga (ej. master/GOD desde la cuenta de Alexa, por
+  // encima de TitanGOD) se devuelve tal cual para que el asignador lo ofrezca como filtro.
+  return g; // '' = terminal / caja / jugador (sin group)
 }
 
 /**
