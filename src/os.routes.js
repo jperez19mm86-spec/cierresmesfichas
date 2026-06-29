@@ -372,41 +372,12 @@ function mount(app) {
   // REPORTE MENSUAL "matriz estilo Alexa": días × superagente × {in,out,profit} + totales + RTP.
   // Corre el reporte diario por cada día del mes (login 1 vez, batches de 5).
   app.get('/api/os/casino/conexiones/:id/reporte-mensual', wrap(async (req, res) => {
-    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const mes = req.query.mes || mesTZ();
+    // Lee de la DB (reporte_diario), igual que el Acumulado — el motor de reportes del casino
+    // (reporte()→reportstable) está muerto. Para poblar/actualizar usar "Backfill mes" en el Acumulado
+    // (o esperar el cron nocturno, que ahora auto-completa el mes).
     const group = req.query.group || 'superagent';
-    const cur = req.query.cur || 'ARS';
-    const [y, m] = mes.split('-').map(Number);
-    const lastDay = new Date(y, m, 0).getDate();
-    const hoy = fechaTZ();
-    const dias = [];
-    for (let d = 1; d <= lastDay; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= hoy) dias.push(ds); }
-    await cli.test(); // login 1 vez (las reporte() reusan la cookie)
-    const porDia = {};
-    const runDay = (d) => cli.reporte({ groupBy: group, from: `${d} 00:00:00`, to: `${d} 23:59:59`, currency: cur }).then((r) => ({ d, r })).catch((e) => ({ d, r: { ok: false, error: e.message } }));
-    const CONC = 3;
-    let errDias = [];
-    for (let i = 0; i < dias.length; i += CONC) {
-      const rs = await Promise.all(dias.slice(i, i + CONC).map(runDay));
-      rs.forEach(({ d, r }) => { if (r.ok) porDia[d] = r.filas; else errDias.push(d); });
-    }
-    // reintento secuencial de los días que fallaron (timeouts transitorios del casino)
-    const errores = [];
-    for (const d of errDias) { const { r } = await runDay(d); if (r.ok) porDia[d] = r.filas; else { porDia[d] = []; errores.push(d + ': ' + r.error); } }
-    const saMap = {};
-    Object.values(porDia).forEach((fs) => fs.forEach((f) => { saMap[f.id] = f.login; }));
-    const superagentes = Object.keys(saMap).map((id) => ({ id, login: saMap[id] }));
-    const matriz = {}; const totales = {};
-    superagentes.forEach((s) => { totales[s.id] = { in: 0, out: 0, profit: 0 }; });
-    dias.forEach((d) => {
-      matriz[d] = {};
-      (porDia[d] || []).forEach((f) => {
-        matriz[d][f.id] = { in: f.in, out: f.out, profit: f.profit };
-        totales[f.id].in += f.in; totales[f.id].out += f.out; totales[f.id].profit += f.profit;
-      });
-    });
-    Object.keys(totales).forEach((id) => { const t = totales[id]; t.rtp = t.in ? (t.out / t.in * 100) : 0; });
-    ok(res, { mes, group, dias, superagentes, matriz, totales, errores });
+    const mes = req.query.mes || mesTZ();
+    ok(res, { ...reporteDiarioStore.getMatriz(req.params.id, group, mes), errores: [] });
   }));
 
   // ───────── ACUMULADO (solapa que se llena día a día — datos GUARDADOS) ─────────

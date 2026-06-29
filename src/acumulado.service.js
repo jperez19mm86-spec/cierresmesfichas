@@ -32,14 +32,14 @@ async function captureDia(conexion_id, dia, group = 'superagent') {
 /** Backfill: captura SOLO los días FALTANTES del mes (saltea los ya guardados), SECUENCIAL (las cuentas
  *  GOD grandes ven decenas de miles de nodos y el casino throttlea si se pide en paralelo), por LOTES
  *  de `maxPorLlamada` para que el request HTTP no se corte. Devuelve `faltan` (re-llamar hasta 0). */
-async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada = 8) {
+async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada = 8, hasta = null) {
   const cli = casinoConex.client(conexion_id);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
   const [y, m] = mes.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
-  const hoy = fechaTZ();
+  const tope = hasta || fechaTZ(); // no capturar más allá de este día (el cron pasa "ayer" para no fijar HOY parcial)
   const todos = [];
-  for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= hoy) todos.push(ds); }
+  for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= tope) todos.push(ds); }
   const yaG = new Set((store.getMatriz(conexion_id, group, mes).dias) || []);
   const faltantes = todos.filter((d) => !yaG.has(d));
   const lote = faltantes.slice(0, maxPorLlamada);
@@ -53,25 +53,51 @@ async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada 
   return { ok: true, capturados: okc, faltan: faltantes.length - okc, total: todos.length, ya_tenia: yaG.size };
 }
 
-/** Cron: a la hora H captura el DÍA ANTERIOR (completo) de todas las conexiones activas. */
+/** Backfill server-side de un mes hasta completarlo (loop de lotes con tope de seguridad). */
+async function backfillMesCompleto(conexion_id, mes, group, hasta = null, maxLotes = 25) {
+  let total = 0;
+  for (let i = 0; i < maxLotes; i++) {
+    let r;
+    try { r = await captureMes(conexion_id, mes, group, 8, hasta); } catch (e) { break; }
+    if (!r.ok) break;
+    total += r.capturados || 0;
+    if ((r.faltan || 0) === 0) break;       // mes completo
+    if ((r.capturados || 0) === 0) break;    // no avanzó (días erroran) → reintenta mañana
+  }
+  return total;
+}
+
+/** Cron nocturno: AUTO-COMPLETA el mes y se auto-sana. A la hora H, por cada conexión activa y nivel:
+ *  (1) finaliza AYER (overwrite, por si quedó parcial), (2) rellena los días VIEJOS faltantes del mes
+ *  (self-heal: si el server estuvo caído o un día falló, se completa solo — ya no quedan huecos),
+ *  (3) los primeros días del mes, cierra el mes anterior. Server-side: NO depende de una pestaña abierta. */
 let _last = null;
+const CRON_GROUPS = (process.env.ACUM_CRON_GROUPS || 'superagent').split(',').map((s) => s.trim()).filter(Boolean);
 function startCron() {
   const H = Number(process.env.ACUM_CRON_HOUR || '1');
   setInterval(async () => {
     try {
       const day = fechaTZ();
-      if (horaNum() === H && _last !== day) {
-        _last = day;
-        const ayer = fechaTZ(new Date(Date.now() - 86400000));
-        for (const cx of casinoConex.list()) {
-          if (!cx.activa) continue;
-          try { const r = await captureDia(cx.id, ayer, 'superagent'); console.log(`[Acum] ${cx.nombre} ${ayer} → ${r.ok ? r.filas + ' filas' : 'ERR ' + r.error}`); }
-          catch (e) { console.warn('[Acum]', cx.nombre, e.message); }
+      if (horaNum() !== H || _last === day) return;
+      _last = day;
+      const ayer = fechaTZ(new Date(Date.now() - 86400000));
+      const mesAct = day.slice(0, 7);
+      const mesPrev = ayer.slice(0, 7);
+      const diaNum = Number(day.slice(8, 10));
+      for (const cx of casinoConex.list()) {
+        if (!cx.activa) continue;
+        for (const g of CRON_GROUPS) {
+          try {
+            await captureDia(cx.id, ayer, g);                            // 1) finalizar AYER (overwrite)
+            const n = await backfillMesCompleto(cx.id, mesAct, g, ayer); // 2) sanar días viejos faltantes
+            if (diaNum <= 3 && mesPrev !== mesAct) await backfillMesCompleto(cx.id, mesPrev, g); // 3) cierre mes anterior
+            console.log(`[Acum] ${cx.nombre} ${mesAct}/${g} → ayer ok, +${n} días sanados`);
+          } catch (e) { console.warn('[Acum]', cx.nombre, g, e.message); }
         }
       }
     } catch (e) { console.warn('[Acum] cron error:', e.message); }
   }, 5 * 60 * 1000);
-  console.log(`[Acum] cron diario activo (captura el día anterior a las ${H}:00 ${TZ})`);
+  console.log(`[Acum] cron auto-completa el mes a las ${H}:00 ${TZ} (grupos: ${CRON_GROUPS.join(',')})`);
 }
 
-module.exports = { captureDia, captureMes, startCron };
+module.exports = { captureDia, captureMes, backfillMesCompleto, startCron };
