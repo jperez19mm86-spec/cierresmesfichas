@@ -27,6 +27,18 @@ const ok = (res, extra = {}) => res.json(Object.assign({ ok: true }, extra));
 const err = (res, code, msg) => res.status(code).json({ ok: false, error: msg });
 const wrap = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { err(res, 400, e.message); } };
 
+// Cache del árbol de nodos por conexión (algunas cuentas GOD ven decenas de miles de nodos y
+// el pull al casino tarda ~20s). Se cachea unos minutos para que cambiar de nivel sea instantáneo.
+const _nodosCache = {};
+async function _nodosCacheados(cli, key, from, to, cur) {
+  const e = _nodosCache[key];
+  if (e && e.exp > Date.now()) return e.nodos;
+  const r = await cli.nodos({ from, to, cur });
+  if (!r.ok) throw new Error(r.error || 'no se pudieron traer los nodos');
+  _nodosCache[key] = { nodos: r.nodos, exp: Date.now() + 180000 }; // 3 min
+  return r.nodos;
+}
+
 /** Base % efectivo de un panel: override del panel (si no hereda) o el del cliente. */
 function basePctEfectivo(cliente, panel, fecha = fechaTZ()) {
   if (panel && panel.usa_config_cliente === false) {
@@ -286,6 +298,20 @@ function mount(app) {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.superagentes({ from: req.query.from, to: req.query.to, cur: req.query.cur || 'ARS' });
     r.ok ? ok(res, { superagentes: r.superagentes }) : err(res, 502, r.error);
+  }));
+  // Nodos POR NIVEL (cacheado) — para el asignador level-flexible SIN bajar el árbol entero (cuentas
+  // GOD ven decenas de miles). Devuelve el tally de niveles + SOLO los nodos del nivel pedido (cap 2000).
+  app.get('/api/os/casino/conexiones/:id/nodos-nivel', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const from = req.query.from || '', to = req.query.to || '', cur = req.query.cur || 'ARS';
+    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}`, from, to, cur);
+    const niveles = {};
+    nodos.forEach((n) => { const k = n.nivel || 'Terminal/Caja'; niveles[k] = (niveles[k] || 0) + 1; });
+    const orden = Object.keys(niveles).sort((a, b) => niveles[a] - niveles[b]); // top (menos nodos) primero
+    const nivel = req.query.nivel || orden.find((k) => k !== 'Terminal/Caja') || orden[0] || '';
+    const filtrados = nodos.filter((n) => (n.nivel || 'Terminal/Caja') === nivel);
+    const CAP = 2000;
+    ok(res, { niveles, nivel, total: filtrados.length, truncado: filtrados.length > CAP, nodos: filtrados.slice(0, CAP) });
   }));
   // profit por proveedor de un usuario (game history agregado)
   app.get('/api/os/casino/conexiones/:id/proveedores/:userId', wrap(async (req, res) => {

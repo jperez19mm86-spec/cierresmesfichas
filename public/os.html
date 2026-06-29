@@ -154,35 +154,39 @@ async function loadCliPlat(id){
 }
 async function loadAccts(id){
   const cx = val('plat-cx'); if(!cx) return toast('Elegí una conexión');
-  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo cuentas del GOD… (si la cuenta ve mucho, puede tardar)';
-  const nr = await api('/api/os/casino/conexiones/'+cx+'/nodos');
-  if(!nr.ok){ box.innerHTML='<span class="badge err">No se pudieron traer las cuentas (¿conexión OK?)</span>'; return; }
+  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo cuentas… la 1ra vez puede tardar ~20-30s si la cuenta ve muchas (después es instantáneo)';
   const pr = await api('/api/os/paneles?cliente_id='+id);
-  const nodos = nr.nodos||[];
   const panels = (pr.paneles||[]).filter(p=>p.conexion_id===cx && p.id_usuario);
-  const nodeById = {}; nodos.forEach(n=>{ nodeById[String(n.id)]=n; });
-  const tally={}; nodos.forEach(n=>{ const k=n.nivel||'Terminal/Caja'; tally[k]=(tally[k]||0)+1; });
-  const niveles = Object.keys(tally).sort((a,b)=>tally[a]-tally[b]); // el nivel más alto (menos nodos) primero
-  const def = niveles.find(k=>k!=='Terminal/Caja') || niveles[0] || '';
-  window._accState = { cx, id, nodeById, panels, sel: new Set(panels.map(p=>String(p.id_usuario))) };
+  const r = await api('/api/os/casino/conexiones/'+cx+'/nodos-nivel'); // default = nivel más alto, SOLO ese nivel (server cachea el árbol)
+  if(!r.ok){ box.innerHTML='<span class="badge err">No se pudieron traer las cuentas (¿conexión OK?)</span>'; return; }
+  window._accState = { cx, id, panels, sel: new Set(panels.map(p=>String(p.id_usuario))), nodeById:{}, niveles:r.niveles||{}, nivel:r.nivel, current:[], truncado:false };
+  _mergeNivel(r);
+  const niveles = Object.keys(r.niveles||{}).sort((a,b)=>r.niveles[a]-r.niveles[b]); // el nivel más alto (menos nodos) primero
   box.innerHTML = `
     <div class="row" style="align-items:flex-end; margin-bottom:6px">
-      <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="renderAccts()">${niveles.map(k=>`<option value="${esc(k)}" ${k===def?'selected':''}>${esc(k)} (${tally[k]})</option>`).join('')}</select></div>
+      <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="changeNivel()">${niveles.map(k=>`<option value="${esc(k)}" ${k===r.nivel?'selected':''}>${esc(k)} (${r.niveles[k]})</option>`).join('')}</select></div>
       <div><label>Buscar (login)</label><input id="acc-q" oninput="renderAccts()" placeholder="filtrar por login…"/></div>
       <div style="flex:0"><button onclick="saveAccts()">💾 Guardar selección</button></div>
     </div>
     <div id="acc-rows"></div>`;
   renderAccts();
 }
+function _mergeNivel(r){ const st=window._accState; if(!st)return; (r.nodos||[]).forEach(n=>{ st.nodeById[String(n.id)]=n; }); st.current=r.nodos||[]; st.nivel=r.nivel; st.truncado=!!r.truncado; }
+async function changeNivel(){
+  const st=window._accState; if(!st)return; const niv=val('acc-niv');
+  const rows=document.getElementById('acc-rows'); rows.innerHTML='⏳ cargando nivel…';
+  const r=await api('/api/os/casino/conexiones/'+st.cx+'/nodos-nivel?nivel='+encodeURIComponent(niv));
+  if(r.ok){ _mergeNivel(r); renderAccts(); } else rows.innerHTML='<span class="badge err">error trayendo el nivel</span>';
+}
 function renderAccts(){
   const st = window._accState; if(!st) return;
-  const niv = val('acc-niv'); const q = (val('acc-q')||'').toLowerCase();
-  let list = Object.values(st.nodeById).filter(n=>(n.nivel||'Terminal/Caja')===niv);
+  const q = (val('acc-q')||'').toLowerCase();
+  let list = st.current||[];
   if(q) list = list.filter(n=>String(n.login).toLowerCase().includes(q));
   list.sort((a,b)=>String(a.login).localeCompare(String(b.login)));
   const CAP=400, shown=list.slice(0,CAP);
   document.getElementById('acc-rows').innerHTML = `
-    <div class="muted" style="margin-bottom:4px">${list.length} cuentas en "${esc(niv)}"${list.length>CAP?(' · muestro '+CAP+', refiná con el buscador'):''} · seleccionadas (todos los niveles): ${st.sel.size}</div>
+    <div class="muted" style="margin-bottom:4px">${list.length} cuentas en "${esc(st.nivel)}"${(st.truncado||list.length>CAP)?(' · muestro hasta '+CAP+', refiná con el buscador'):''} · seleccionadas (todos los niveles): ${st.sel.size}</div>
     <table><thead><tr><th></th><th>Cuenta</th><th>ID</th><th class="right">IN (ARS)</th><th class="right">Profit</th></tr></thead><tbody>
     ${shown.map(n=>`<tr>
       <td><input type="checkbox" class="acc-chk" onchange="toggleAcct('${esc(String(n.id))}',this.checked)" ${st.sel.has(String(n.id))?'checked':''}/></td>
