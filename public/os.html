@@ -567,8 +567,37 @@ VIEWS.reparto = async () => {
       ${(d.clientes||[]).map(c=>`<tr><td><span class="pill">${esc(cliCod(c.cliente_id))}</span></td><td class="right">${money(c.empresa)}</td><td class="right">${money(c.latam)}</td><td class="right"><b>${money(c.fee)}</b></td></tr>`).join('') || '<tr><td colspan="4" class="empty">—</td></tr>'}
       </tbody></table>
     </div>
+    <div class="card" style="border:1px dashed var(--gold)">
+      <h2>🧪 Simulador de venta de fichas <span class="muted">(ejemplo prepago — no afecta datos reales)</span></h2>
+      <div class="muted" style="margin-bottom:8px">El % se cobra sobre la <b>venta de fichas</b> (compra prepaga), no sobre el uso de los jugadores. Probá un monto y mirá cómo se reparte.</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Cliente</label><select id="sim-cli" onchange="simularVenta()">${_clientes.map(c=>`<option value="${esc(c.id)}">${esc(c.codigo)}</option>`).join('')}</select></div>
+        <div><label>Venta de fichas (prepago)</label><input id="sim-monto" type="number" value="50000000" oninput="simularVenta()" style="width:200px"></div>
+      </div>
+      <div id="sim-out" class="muted" style="margin-top:12px">…</div>
+    </div>
     <div class="card"><div class="muted">⚙ La tabla de Split (qué % va a empresa y a LATAM por cada % base) se configura en la pestaña <b>Config</b>.</div></div>`;
+  simularVenta();
 };
+async function simularVenta(){
+  const cid=val('sim-cli'), monto=val('sim-monto'); const out=document.getElementById('sim-out'); if(!out)return;
+  if(!cid||!monto){ out.textContent='Elegí cliente y monto.'; return; }
+  const mes=_repMes||new Date().toISOString().slice(0,7);
+  const r=await api('/api/os/reportes/simular-venta?cliente_id='+encodeURIComponent(cid)+'&monto='+encodeURIComponent(monto)+'&mes='+mes);
+  if(!r.ok){ out.innerHTML='<span class="badge err">'+esc(r.error||'')+'</span>'; return; }
+  const socios=(r.socios||[]).map(s=>`<tr><td>${esc(s.nombre)} <span class="muted">(${esc(s.porcentaje)}%)</span></td><td class="right"><b>${money(s.monto)}</b> USDT</td></tr>`).join('')||'<tr><td colspan="2" class="empty">Sin participaciones cargadas para este cliente.</td></tr>';
+  out.innerHTML=`
+    <div class="muted">Base del cliente: <b>${esc(r.base)}%</b> · TC ${money(r.tc)} ARS/USDT${r.sin_split?' · <span style="color:var(--gold)">base &lt;8% → caso individual (sin split)</span>':''}</div>
+    <table style="margin-top:8px"><tbody>
+      <tr><td>💵 Venta de fichas (prepago)</td><td class="right"><b>${money(r.venta)}</b> fichas</td></tr>
+      <tr style="border-top:1px solid var(--bg3)"><td>🧾 Fee = ${esc(r.base)}% × venta</td><td class="right"><b>${money(r.fee_ars)}</b> ARS = <b style="color:var(--gold)">${money(r.fee_usdt)}</b> USDT</td></tr>
+      ${!r.sin_split?`
+      <tr><td>🏢 Empresa (${esc(r.pct_empresa)}%)</td><td class="right"><b>${money(r.empresa_usdt)}</b> USDT</td></tr>
+      <tr><td>🤝 LATAM (${esc(r.pct_latam)}%)</td><td class="right"><b>${money(r.latam_usdt)}</b> USDT</td></tr>`:''}
+    </tbody></table>
+    ${!r.sin_split?`<h2 style="margin-top:14px;font-size:15px">🤝 Reparto LATAM por socio</h2><table><tbody>${socios}</tbody></table>`:''}
+    <div class="muted" style="margin-top:10px">✓ Empresa + LATAM = Fee. El fee sale de la <b>venta</b>, usen o no las fichas (prepago).</div>`;
+}
 function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
