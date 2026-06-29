@@ -69,6 +69,14 @@ function mount(app) {
     }));
     ok(res, { clientes: list });
   });
+  // ALTA de cliente desde el OS (código + nombre). Los campos comerciales se editan luego.
+  app.post('/api/os/clientes', wrap((req, res) => {
+    const codigo = String((req.body && req.body.codigo) || '').trim();
+    const nombre = String((req.body && req.body.nombre) || '').trim();
+    if (!codigo) return err(res, 400, 'falta el código del cliente');
+    const c = clientes.createCliente({ codigo, nombreVisible: nombre || codigo, nombre });
+    ok(res, { cliente: c });
+  }));
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const c = clientes.updateComercial(req.params.id, req.body || {});
     if (!c) return err(res, 404, 'cliente no encontrado'); ok(res, { cliente: c });

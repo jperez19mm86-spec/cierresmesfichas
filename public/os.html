@@ -90,6 +90,15 @@ VIEWS.clientes = async () => {
   const d = await api('/api/os/clientes'); _clientes = d.clientes||[];
   main.innerHTML = `
     <div class="card">
+      <h2>➕ Nuevo cliente</h2>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0"><label>Código</label><input id="nc-cod" placeholder="Titan" style="width:160px"/></div>
+        <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
+        <button onclick="nuevoCliente()">Crear cliente</button>
+      </div>
+      <div class="muted" style="margin-top:4px">Después con el ✎ le ponés % base, proveedores y le asignás las plataformas.</div>
+    </div>
+    <div class="card">
       <h2>Clientes <span class="muted">(${_clientes.length})</span></h2>
       <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>USDT/Aj.</th><th>Prov.</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
       ${_clientes.map(c=>`<tr>
@@ -101,11 +110,16 @@ VIEWS.clientes = async () => {
         <td>${c.paga_proveedores?'sí':'no'}</td>
         <td class="right"><b>${money(c.deuda?c.deuda.total:0)}</b></td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button></td>
-      </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes. Cargalos en el panel Operativo o importá la lista.</td></tr>'}
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
     <div id="cliEdit"></div>`;
 };
+async function nuevoCliente(){
+  const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
+  const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
+  if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
+}
 function editCli(id){
   const c = _clientes.find(x=>x.id===id); if(!c) return;
   document.getElementById('cliEdit').innerHTML = `
@@ -166,6 +180,7 @@ async function loadAccts(id){
     <div class="row" style="align-items:flex-end; margin-bottom:6px">
       <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="changeNivel()">${niveles.map(k=>`<option value="${esc(k)}" ${k===r.nivel?'selected':''}>${esc(k)} (${r.niveles[k]})</option>`).join('')}</select></div>
       <div><label>Buscar (login)</label><input id="acc-q" oninput="renderAccts()" placeholder="filtrar por login…"/></div>
+      <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="acc-act" checked onchange="renderAccts()"/> ocultar sin actividad</label></div>
       <div style="flex:0"><button onclick="saveAccts()">💾 Guardar selección</button></div>
     </div>
     <div id="acc-rows"></div>`;
@@ -182,6 +197,7 @@ function renderAccts(){
   const st = window._accState; if(!st) return;
   const q = (val('acc-q')||'').toLowerCase();
   let list = st.current||[];
+  if((document.getElementById('acc-act')||{}).checked) list = list.filter(n=>!(Number(n.in||0)===0 && Number(n.out||0)===0 && Number(n.profit||0)===0));
   if(q) list = list.filter(n=>String(n.login).toLowerCase().includes(q));
   list.sort((a,b)=>String(a.login).localeCompare(String(b.login)));
   const CAP=400, shown=list.slice(0,CAP);
