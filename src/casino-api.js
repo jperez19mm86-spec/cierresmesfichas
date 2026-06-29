@@ -239,12 +239,14 @@ function makeClient({ url, token, user, password } = {}) {
   /**
    * REPORTE DIARIO (in/out/profit/rtp por nodo). groupBy: 'superagent' | 'distributor' | 'agent'.
    */
-  async function reporte({ groupBy = 'superagent', from = '', to = '', currency = 'ARS' } = {}) {
+  async function reporte({ groupBy = 'superagent', from = '', to = '', currency = 'ARS', activeTemplate = '' } = {}) {
     const r = await _runReport((b) => {
       b.append('statistic_type', 'on_money'); b.append('conversion_type', 'current_currency');
       b.append('reports_user_group_by', groupBy); b.append('reports_base_group_by', '');
-      ['id', 'login', 'information', 'in', 'out', 'profit', 'rtp'].forEach((f) => b.append('reports_group_fields[]', f));
+      // Campos EXACTOS de la captura del browser (sin 'information', que rompía el motor).
+      ['id', 'login', 'in', 'out', 'profit', 'rtp'].forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
+      if (activeTemplate) b.append('active_template', String(activeTemplate));
     });
     if (!r.ok) return r;
     const filas = r.raw.filter((x) => x && x.id).map((x) => ({

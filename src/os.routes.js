@@ -346,7 +346,7 @@ function mount(app) {
   // REPORTE DIARIO agrupado por superagent/distributor (reports → reportstable)
   app.get('/api/os/casino/conexiones/:id/reporte', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const r = await cli.reporte({ groupBy: req.query.group || 'superagent', from: req.query.from, to: req.query.to, currency: req.query.cur || 'ARS' });
+    const r = await cli.reporte({ groupBy: req.query.group || 'superagent', from: req.query.from, to: req.query.to, currency: req.query.cur || 'ARS', activeTemplate: req.query.template || '' });
     r.ok ? ok(res, { groupBy: r.groupBy, filas: r.filas }) : err(res, 502, r.error);
   }));
 
