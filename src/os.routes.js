@@ -493,43 +493,54 @@ function mount(app) {
     }
     ok(res, { mes, tc_mes: tcStore.getMes(mes), clientes: Object.values(porCliente), _nota: 'IN/OUT/Profit/RTP requieren la API del panel (Fase 3/5)' });
   });
-  // DISTRIBUCIÓN del profit (empresa / LATAM / socios) EN TIEMPO REAL, según las cargas del período.
+  // DISTRIBUCIÓN del profit (empresa / LATAM / socios) según las cargas REALES del casino del período.
+  // Pivot: usa las cargas guardadas del Acumulado (reporte_diario) por panel — antes dependía de
+  // movimientos 'carga' manuales (por eso salía vacío en pruebas). fee = base% × carga, split por la
+  // tabla Split, y LATAM se reparte entre socios por las participaciones vigentes.
   app.get('/api/os/reportes/distribucion', (req, res) => {
     const mes = req.query.mes || mesTZ();
-    const cargas = movs.list({ mes, tipo: 'carga' });
+    const fecha = `${mes}-15`; // fecha media del mes para vigencias (base + participaciones)
     const nombres = {}; require('./personas-store').list().forEach((p) => { nombres[p.id] = p.nombre; });
+    const tcMes = tcStore.getMes(mes);
+    const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || '1';
+    const GRP_DE_NIVEL = { SuperAgente: 'superagent', Distribuidor: 'distributor', Agente: 'agent' };
+    const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
     let empresa = '0', latam = '0', sinSplit = '0';
     const porSocio = {}, porCliente = {};
-    for (const m of cargas) {
-      const carga = m.monto_ars || '0';
-      const base = m.base_pct_aplicado;
-      const tc = (m.tc_momento && money.isPos(m.tc_momento)) ? m.tc_momento : '1';
-      const feeUsdt = m.monto_usdt || money.div(money.pct(carga, base || '0'), tc);
-      const k = m.cliente_id || '—';
-      porCliente[k] = porCliente[k] || { cliente_id: k, empresa: '0', latam: '0', fee: '0' };
-      porCliente[k].fee = money.add(porCliente[k].fee, feeUsdt);
-      const el = splitSvc.empresaLatam(base, carga);
-      if (!el.ok) { sinSplit = money.add(sinSplit, feeUsdt); continue; } // base <8 = caso individual
-      const empUsdt = money.div(el.empresa, tc);
-      const latUsdt = money.div(el.latam, tc);
-      empresa = money.add(empresa, empUsdt);
-      latam = money.add(latam, latUsdt);
-      porCliente[k].empresa = money.add(porCliente[k].empresa, empUsdt);
-      porCliente[k].latam = money.add(porCliente[k].latam, latUsdt);
-      const fecha = (m.fecha || '').slice(0, 10) || fechaTZ();
-      const rep = participaciones.repartoEfectivo(m.cliente_id, m.panel_id, fecha);
-      splitSvc.distribuirLatam(latUsdt, rep.items).forEach((d) => {
-        porSocio[d.persona_id] = money.add(porSocio[d.persona_id] || '0', d.monto);
-      });
+    for (const c of clientes.list().clientes) {
+      for (const p of linked.filter((x) => x.cliente_id === c.id)) {
+        // carga REAL del panel desde el acumulado guardado (sumar el `in` del mes)
+        const key = [{ conexion_id: p.conexion_id, grp: GRP_DE_NIVEL[p.nivel_usuario] || 'superagent', sa_id: String(p.id_usuario) }];
+        let carga = '0';
+        reporteDiarioStore.filasPanelesMes(key, mes).forEach((r) => { carga = money.add(carga, r.in_amt || '0'); });
+        if (!money.isPos(carga)) continue;
+        const base = basePctEfectivo(c, p, fecha) || '0';
+        const feeUsdt = money.div(money.pct(carga, base), tc);
+        const k = c.id;
+        porCliente[k] = porCliente[k] || { cliente_id: k, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, empresa: '0', latam: '0', fee: '0' };
+        porCliente[k].fee = money.add(porCliente[k].fee, feeUsdt);
+        const el = splitSvc.empresaLatam(base, carga);
+        if (!el.ok) { sinSplit = money.add(sinSplit, feeUsdt); continue; } // base <8 = caso individual
+        const empUsdt = money.div(el.empresa, tc);
+        const latUsdt = money.div(el.latam, tc);
+        empresa = money.add(empresa, empUsdt);
+        latam = money.add(latam, latUsdt);
+        porCliente[k].empresa = money.add(porCliente[k].empresa, empUsdt);
+        porCliente[k].latam = money.add(porCliente[k].latam, latUsdt);
+        const rep = participaciones.repartoEfectivo(c.id, p.id, fecha);
+        splitSvc.distribuirLatam(latUsdt, rep.items).forEach((d) => {
+          porSocio[d.persona_id] = money.add(porSocio[d.persona_id] || '0', d.monto);
+        });
+      }
     }
     const socios = Object.keys(porSocio).map((id) => ({ persona_id: id, nombre: nombres[id] || id, monto: money.round(porSocio[id], 2) }))
       .sort((a, b) => Number(b.monto) - Number(a.monto));
-    const clientes = Object.values(porCliente).map((c) => ({ cliente_id: c.cliente_id, empresa: money.round(c.empresa, 2), latam: money.round(c.latam, 2), fee: money.round(c.fee, 2) }));
+    const clientesArr = Object.values(porCliente).map((c) => ({ cliente_id: c.cliente_id, codigo: c.codigo, nombre: c.nombre, empresa: money.round(c.empresa, 2), latam: money.round(c.latam, 2), fee: money.round(c.fee, 2) }));
     ok(res, {
-      mes, empresa: money.round(empresa, 2), latam: money.round(latam, 2),
+      mes, tc, empresa: money.round(empresa, 2), latam: money.round(latam, 2),
       total: money.round(money.add(empresa, latam), 2), sin_split: money.round(sinSplit, 2),
-      socios, clientes,
-      _nota: 'En USDT, calculado de las cargas del mes. "sin_split" = cargas con base <8% (caso individual).',
+      socios, clientes: clientesArr,
+      _nota: 'En USDT, de las cargas REALES del casino (acumulado guardado) del mes. Requiere base% del cliente + tabla Split. "sin_split" = base <8% (caso individual). Si falta data, backfilleá el mes en Acumulado.',
     });
   });
 
