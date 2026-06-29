@@ -109,7 +109,7 @@ VIEWS.clientes = async () => {
         <td class="muted">${c.mezcla_pago_usdt?esc(c.mezcla_pago_usdt)+'%':'—'} / ${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
         <td>${c.paga_proveedores?'sí':'no'}</td>
         <td class="right"><b>${money(c.deuda?c.deuda.total:0)}</b></td>
-        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button></td>
+        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
@@ -119,6 +119,11 @@ async function nuevoCliente(){
   const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
   if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
+}
+async function borrarCliente(id, codigo){
+  if(!confirm('¿Borrar el cliente "'+codigo+'"?\n\nEsto borra TAMBIÉN sus plataformas/paneles, % de proveedores, participaciones y movimientos. No se puede deshacer.')) return;
+  const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
+  if(r.ok){ toast('Cliente borrado'); VIEWS.clientes(); }
 }
 function editCli(id){
   const c = _clientes.find(x=>x.id===id); if(!c) return;

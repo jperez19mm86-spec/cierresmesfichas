@@ -20,6 +20,7 @@ const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
+const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ } = require('./lib/fechas');
 
@@ -77,6 +78,16 @@ function mount(app) {
     const c = clientes.createCliente({ codigo, nombreVisible: nombre || codigo, nombre });
     ok(res, { cliente: c });
   }));
+  // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
+  app.delete('/api/os/clientes/:id', (req, res) => {
+    const id = req.params.id;
+    paneles.list({ cliente_id: id }).forEach((p) => paneles.remove(p.id));
+    db.prepare('DELETE FROM cliente_proveedores WHERE cliente_id=?').run(id);
+    db.prepare('DELETE FROM participaciones WHERE cliente_id=?').run(id);
+    db.prepare("DELETE FROM config_valores WHERE entidad_tipo='cliente' AND entidad_id=?").run(id);
+    db.prepare('DELETE FROM movimientos WHERE cliente_id=?').run(id);
+    clientes.removeCliente(id) ? ok(res) : err(res, 404, 'cliente no encontrado');
+  });
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const c = clientes.updateComercial(req.params.id, req.body || {});
     if (!c) return err(res, 404, 'cliente no encontrado'); ok(res, { cliente: c });
