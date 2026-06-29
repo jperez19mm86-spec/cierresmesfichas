@@ -275,7 +275,7 @@ async function verPBHist(id){
   document.getElementById('pb-hist').innerHTML = '<hr/>'+(r.historial||[]).map(h=>`• ${esc(h.valor)}% — desde ${esc(h.vigente_desde)} ${h.vigente_hasta?('hasta '+esc(h.vigente_hasta)):'(vigente)'}`).join('<br/>') || 'sin historial';
 }
 async function showPerfil(id){
-  const main=document.getElementById('main'); main.innerHTML='<div class="card"><div class="empty">Cargando perfil… (trayendo meses del casino)</div></div>';
+  const main=document.getElementById('main'); main.innerHTML='<div class="card"><div class="empty">Cargando perfil…</div></div>';
   const r=await api('/api/os/clientes/'+id+'/perfil?meses=6');
   if(!r.ok){ main.innerHTML='<div class="card"><div class="empty">Error cargando el perfil</div></div>'; return; }
   const c=r.cliente, d=r.deuda||{}, hp=(r.historial_pct||[]);

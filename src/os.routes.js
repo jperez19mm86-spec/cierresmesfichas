@@ -116,20 +116,14 @@ function mount(app) {
     const mesesList = [];
     let [y, m] = mesTZ().split('-').map(Number);
     for (let i = 0; i < nMeses; i++) { mesesList.push(`${y}-${String(m).padStart(2, '0')}`); m--; if (m < 1) { m = 12; y--; } }
+    // Cargas/profit del acumulado GUARDADO (no consulta el casino en vivo → instantáneo; el cron lo mantiene al día).
+    // Para meses sin backfill aparece 0 — backfillear ese mes en el Acumulado para poblarlo.
+    const GRP_DE_NIVEL = { SuperAgente: 'superagent', Distribuidor: 'distributor', Agente: 'agent' };
+    const panelKeys = cPaneles.map((p) => ({ conexion_id: p.conexion_id, grp: GRP_DE_NIVEL[p.nivel_usuario] || 'superagent', sa_id: String(p.id_usuario) }));
     const filas = [];
     for (const mes of mesesList) {
-      const [yy, mm] = mes.split('-').map(Number);
-      const lastDay = new Date(yy, mm, 0).getDate();
-      const from = `${mes}-01 00:00:00`;
-      const to = (mes === mesTZ()) ? `${fechaTZ()} 23:59:59` : `${mes}-${String(lastDay).padStart(2, '0')} 23:59:59`;
       let cargas = '0', profit = '0';
-      const byConn = {}; cPaneles.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
-      for (const cid of Object.keys(byConn)) {
-        const cliApi = casinoConex.client(cid); if (!cliApi) continue;
-        const r = await cliApi.nodos({ from, to }); if (!r.ok) continue;
-        const mp = {}; r.nodos.forEach((n) => { mp[String(n.id)] = n; });
-        byConn[cid].forEach((p) => { const n = mp[String(p.id_usuario)]; if (n) { cargas = money.add(cargas, n.in || '0'); profit = money.add(profit, n.profit || '0'); } });
-      }
+      reporteDiarioStore.filasPanelesMes(panelKeys, mes).forEach((r) => { cargas = money.add(cargas, r.in_amt || '0'); profit = money.add(profit, r.profit || '0'); });
       const baseMes = historial.getVigente('cliente', c.id, 'precio_base_pct', `${mes}-15`) || baseActual || '0';
       const fee = money.pct(cargas, baseMes);
       const pagos = money.sum(movs.list({ cliente_id: c.id, tipo: 'pago', mes }).map((mv) => mv.monto_usdt || '0'));

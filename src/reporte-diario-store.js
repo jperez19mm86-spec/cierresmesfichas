@@ -46,4 +46,21 @@ function fechasCapturadas(conexion_id, grp) {
   return db.prepare('SELECT DISTINCT fecha FROM reporte_diario WHERE conexion_id=? AND grp=? ORDER BY fecha').all(conexion_id, grp).map((r) => r.fecha);
 }
 
-module.exports = { upsertDia, getMatriz, getMatrizTodos, fechasCapturadas };
+/** Filas guardadas de un mes para un set de paneles {conexion_id, grp, sa_id}. Para el Perfil del cliente
+ *  (lee del acumulado en vez de consultar el casino en vivo → instantáneo). Devuelve [{sa_id,in_amt,out_amt,profit}]. */
+function filasPanelesMes(keys, mes) {
+  if (!keys || !keys.length) return [];
+  const byCG = {};
+  keys.forEach((k) => { const kk = k.conexion_id + '|' + (k.grp || 'superagent'); (byCG[kk] = byCG[kk] || []).push(String(k.sa_id)); });
+  const out = [];
+  for (const kk of Object.keys(byCG)) {
+    const [cid, grp] = kk.split('|');
+    const ids = [...new Set(byCG[kk])];
+    const ph = ids.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT sa_id, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND sa_id IN (${ph})`).all(cid, grp, mes, ...ids);
+    out.push(...rows);
+  }
+  return out;
+}
+
+module.exports = { upsertDia, getMatriz, getMatrizTodos, fechasCapturadas, filasPanelesMes };
