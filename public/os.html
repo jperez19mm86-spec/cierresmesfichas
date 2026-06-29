@@ -966,19 +966,32 @@ async function capturarHoy(){
 }
 async function backfillMes(){
   const cid=val('ac-cx'); if(!cid)return toast('Elegí una conexión');
+  const mes=val('ac-mes'), niv=val('ac-nivel'), out=document.getElementById('ac-out');
+  // Backfill RESILIENTE: el server captura los días FALTANTES de a lotes (secuencial, sin throttlear);
+  // acá loopeamos hasta que falten=0. Para cuentas grandes (Europa, 64k cuentas/día) tarda varios minutos.
   if(cid==='__all__'){
-    if(!confirm('¿Traer del casino TODOS los días del mes '+val('ac-mes')+' de TODAS las conexiones? Puede tardar varios minutos.'))return;
-    const out=document.getElementById('ac-out'); out.innerHTML='⏳ trayendo el mes completo de todas las conexiones… (puede tardar varios minutos)';
-    const r=await api('/api/os/casino/capturar-mes-todos?mes='+val('ac-mes')+'&group='+val('ac-nivel'),{method:'POST'});
-    if(r.ok){ const cs=r.conexiones||[]; const tot=cs.reduce((a,c)=>a+(c.capturados||0),0); toast('✓ Backfill: '+tot+' días en '+cs.length+' conexiones'); }
-    else toast('Error: '+(r.error||''));
-    return verAcumulado();
+    if(!confirm('¿Traer del casino los días faltantes del mes '+mes+' de TODAS las conexiones? Puede tardar varios minutos — se va llenando solo.'))return;
+    let cap=0, faltan=1, vacios=0;
+    while(faltan>0){
+      out.innerHTML='⏳ trayendo días faltantes de todas las conexiones… ('+cap+' nuevos guardados)';
+      const r=await api('/api/os/casino/capturar-mes-todos?mes='+mes+'&group='+niv,{method:'POST'});
+      if(!r.ok){ toast('Error: '+(r.error||'')); break; }
+      const cs=r.conexiones||[]; const c=cs.reduce((a,x)=>a+(x.capturados||0),0); const f=cs.reduce((a,x)=>a+(x.faltan||0),0);
+      cap+=c; faltan=f;
+      if(c===0){ if(++vacios>=2){ if(f>0)toast('Quedan '+f+' días que el casino no devolvió ahora. Probá de nuevo en un rato.'); break; } } else vacios=0;
+    }
+    toast('✓ Backfill: '+cap+' días nuevos'); return verAcumulado();
   }
-  if(!confirm('¿Traer del casino TODOS los días del mes '+val('ac-mes')+' y guardarlos? Puede tardar ~30-60s.'))return;
-  const out=document.getElementById('ac-out'); out.innerHTML='⏳ trayendo el mes completo del casino y guardándolo (~30-60s)…';
-  const r=await api('/api/os/casino/conexiones/'+cid+'/capturar-mes?mes='+val('ac-mes')+'&group='+val('ac-nivel'),{method:'POST'});
-  if(r.ok) toast('✓ Backfill: '+r.capturados+' días guardados'+((r.errores&&r.errores.length)?(' ('+r.errores.length+' con error)'):''));
-  else toast('Error: '+(r.error||''));
+  if(!confirm('¿Traer del casino los días faltantes del mes '+mes+'? Para cuentas grandes (Europa) puede tardar varios minutos — se va llenando solo.'))return;
+  let cap=0, faltan=1, vacios=0;
+  while(faltan>0){
+    out.innerHTML='⏳ trayendo días faltantes del casino… ('+cap+' nuevos, faltan ~'+faltan+')';
+    const r=await api('/api/os/casino/conexiones/'+cid+'/capturar-mes?mes='+mes+'&group='+niv,{method:'POST'});
+    if(!r.ok){ toast('Error: '+(r.error||'')); break; }
+    cap+=r.capturados||0; faltan=r.faltan||0;
+    if((r.capturados||0)===0){ if(++vacios>=2){ if(faltan>0)toast('Quedan '+faltan+' días que el casino no devolvió ahora. Probá de nuevo en un rato.'); break; } } else vacios=0;
+  }
+  toast('✓ Backfill: '+cap+' días nuevos guardados');
   verAcumulado();
 }
 // ───────── ACUMULADO (solapa propia, siempre visible, filtro mes por mes) ─────────

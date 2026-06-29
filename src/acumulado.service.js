@@ -29,26 +29,28 @@ async function captureDia(conexion_id, dia, group = 'superagent') {
   return { ok: true, dia, filas: filas.length };
 }
 
-/** Backfill: captura todos los días (hasta hoy) de un mes (batches de 3 + reintento). */
-async function captureMes(conexion_id, mes, group = 'superagent') {
+/** Backfill: captura SOLO los días FALTANTES del mes (saltea los ya guardados), SECUENCIAL (las cuentas
+ *  GOD grandes ven decenas de miles de nodos y el casino throttlea si se pide en paralelo), por LOTES
+ *  de `maxPorLlamada` para que el request HTTP no se corte. Devuelve `faltan` (re-llamar hasta 0). */
+async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada = 8) {
   const cli = casinoConex.client(conexion_id);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
   const [y, m] = mes.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
   const hoy = fechaTZ();
-  const dias = [];
-  for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= hoy) dias.push(ds); }
+  const todos = [];
+  for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= hoy) todos.push(ds); }
+  const yaG = new Set((store.getMatriz(conexion_id, group, mes).dias) || []);
+  const faltantes = todos.filter((d) => !yaG.has(d));
+  const lote = faltantes.slice(0, maxPorLlamada);
+  if (!lote.length) return { ok: true, capturados: 0, faltan: 0, total: todos.length, ya_tenia: yaG.size };
   await cli.test(); // login 1 vez
-  // nodos() puede traer DECENAS DE MILES de nodos por día (cuentas GOD grandes) → de a 2 en paralelo, no 3.
-  const run = (d) => cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59` }).then((r) => ({ d, r })).catch((e) => ({ d, r: { ok: false, error: e.message } }));
-  const guardar = (d, r) => store.upsertDia(conexion_id, d, group, _filasDesdeNodos(r.nodos, group));
-  let okc = 0; let err = [];
-  for (let i = 0; i < dias.length; i += 2) {
-    const rs = await Promise.all(dias.slice(i, i + 2).map(run));
-    rs.forEach(({ d, r }) => { if (r.ok) { guardar(d, r); okc++; } else err.push(d); });
+  let okc = 0;
+  for (const d of lote) { // SECUENCIAL — no throttlear el casino con cuentas grandes
+    try { const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59` }); if (r.ok) { store.upsertDia(conexion_id, d, group, _filasDesdeNodos(r.nodos, group)); okc++; } }
+    catch (e) { /* el día queda como faltante para el próximo lote */ }
   }
-  for (const d of err.slice()) { const { r } = await run(d); if (r.ok) { guardar(d, r); okc++; err = err.filter((x) => x !== d); } }
-  return { ok: true, capturados: okc, errores: err };
+  return { ok: true, capturados: okc, faltan: faltantes.length - okc, total: todos.length, ya_tenia: yaG.size };
 }
 
 /** Cron: a la hora H captura el DÍA ANTERIOR (completo) de todas las conexiones activas. */

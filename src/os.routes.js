@@ -449,7 +449,7 @@ function mount(app) {
     const mes = req.query.mes || (req.body && req.body.mes) || mesTZ();
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const r = await acumSvc.captureMes(req.params.id, mes, group);
-    r.ok ? ok(res, { capturados: r.capturados, errores: r.errores }) : err(res, 502, r.error);
+    r.ok ? ok(res, { capturados: r.capturados, faltan: r.faltan, total: r.total, ya_tenia: r.ya_tenia }) : err(res, 502, r.error);
   }));
 
   // ───────── PANEL ↔ CASINO (stats reales por nodo linkeado) ─────────
