@@ -211,7 +211,8 @@ function makeClient({ url, token, user, password } = {}) {
     const b = new URLSearchParams();
     append(b);
     if (!useSession) b.append('api_token', token);
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
+    const refer = `${base}/index.php?act=admin&area=reports`;
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
     let page;
     try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
@@ -225,7 +226,7 @@ function makeClient({ url, token, user, password } = {}) {
     let path = '/index.php?act=admin&' + m[0].replace(/&amp;/g, '&');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
     let data;
-    try { data = await axios.get(`${base}${path}`, { headers: { 'User-Agent': UA, Accept: 'application/json', ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); }
+    try { data = await axios.get(`${base}${path}`, { headers: { 'User-Agent': UA, Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); }
     catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
     const d = data.data;
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
