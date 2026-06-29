@@ -346,8 +346,13 @@ function mount(app) {
   // REPORTE DIARIO agrupado por superagent/distributor (reports → reportstable)
   app.get('/api/os/casino/conexiones/:id/reporte', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const r = await cli.reporte({ groupBy: req.query.group || 'superagent', from: req.query.from, to: req.query.to, currency: req.query.cur || 'ARS', activeTemplate: req.query.template || '' });
-    r.ok ? ok(res, { groupBy: r.groupBy, filas: r.filas }) : err(res, 502, r.error);
+    // Pivot a nodos() (VIVO) — el flujo reporte()→reportstable está roto del lado del casino.
+    const group = req.query.group || 'superagent';
+    const nivel = group === 'distributor' ? 'Distribuidor' : group === 'agent' ? 'Agente' : 'SuperAgente';
+    const from = req.query.from || '', to = req.query.to || '', cur = req.query.cur || 'ARS';
+    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}`, from, to, cur);
+    const filas = nodos.filter((n) => n.nivel === nivel).map((n) => ({ id: n.id, login: n.login, in: n.in, out: n.out, profit: n.profit, rtp: n.rtp }));
+    ok(res, { groupBy: group, filas });
   }));
 
   // REPORTE DE PROVEEDORES: profit/bet/win/rtp por proveedor, en UNA o VARIAS monedas, vista
