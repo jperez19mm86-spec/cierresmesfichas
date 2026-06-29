@@ -87,4 +87,26 @@ function counts() {
   };
 }
 
-module.exports = { create, get, setEstado, list, counts, seed: save, FILE };
+/** VENTAS DE FICHAS de un mes = pedidos CARGADOS (compra prepaga) agrupados por código de cliente.
+ *  Esta es la BASE real de facturación (el % se cobra sobre lo vendido, no sobre el `in` de jugadores).
+ *  Devuelve { [codigo]: { monto, count, porUserId:{userId:monto}, porDivisa:{divisa:monto} } }.
+ *  La fecha del mes se toma de resueltoAt (cuándo se cargó) y si falta, createdAt. */
+function ventasCargadasMes(mes) {
+  const arr = load().pedidos.filter((p) => p.estado === 'cargado');
+  const out = {};
+  for (const p of arr) {
+    const f = String(p.resueltoAt || p.createdAt || '').slice(0, 7);
+    if (mes && f !== mes) continue;
+    const cod = String(p.codigo || '—');
+    const o = out[cod] = out[cod] || { monto: 0, count: 0, porUserId: {}, porDivisa: {} };
+    const m = Number(p.monto) || 0;
+    o.monto += m; o.count += 1;
+    const uid = String(p.userId || '');
+    o.porUserId[uid] = (o.porUserId[uid] || 0) + m;
+    const dv = p.divisa || 'ARS';
+    o.porDivisa[dv] = (o.porDivisa[dv] || 0) + m;
+  }
+  return out;
+}
+
+module.exports = { create, get, setEstado, list, counts, ventasCargadasMes, seed: save, FILE };

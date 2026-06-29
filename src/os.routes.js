@@ -20,6 +20,7 @@ const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
+const pedidosStore = require('./pedidos-store');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ } = require('./lib/fechas');
@@ -493,87 +494,71 @@ function mount(app) {
     }
     ok(res, { mes, tc_mes: tcStore.getMes(mes), clientes: Object.values(porCliente), _nota: 'IN/OUT/Profit/RTP requieren la API del panel (Fase 3/5)' });
   });
-  // DISTRIBUCIÓN del profit (empresa / LATAM / socios) según las cargas REALES del casino del período.
-  // Pivot: usa las cargas guardadas del Acumulado (reporte_diario) por panel — antes dependía de
-  // movimientos 'carga' manuales (por eso salía vacío en pruebas). fee = base% × carga, split por la
-  // tabla Split, y LATAM se reparte entre socios por las participaciones vigentes.
+  // DISTRIBUCIÓN del profit (empresa / LATAM / socios) según las VENTAS DE FICHAS reales del mes.
+  // Fuente = pedidos CARGADOS (compra prepaga) por cliente. fee = base% × ventas; split por la tabla
+  // Split; LATAM se reparte entre socios por las participaciones vigentes. En el live, los pedidos
+  // reales llenan esto solos; el % se cobra sobre lo VENDIDO, no sobre el `in` de jugadores.
   app.get('/api/os/reportes/distribucion', (req, res) => {
     const mes = req.query.mes || mesTZ();
     const fecha = `${mes}-15`; // fecha media del mes para vigencias (base + participaciones)
-    const nombres = {}; require('./personas-store').list().forEach((p) => { nombres[p.id] = p.nombre; });
+    const nombres = {}; personas.list().forEach((p) => { nombres[p.id] = p.nombre; });
     const tcMes = tcStore.getMes(mes);
     const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || '1';
-    const GRP_DE_NIVEL = { SuperAgente: 'superagent', Distribuidor: 'distributor', Agente: 'agent' };
-    const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
-    let empresa = '0', latam = '0', sinSplit = '0';
+    const ventas = pedidosStore.ventasCargadasMes(mes); // { codigo: { monto, ... } }
+    let empresa = '0', latam = '0', sinSplit = '0', totVentas = '0';
     const porSocio = {}, porCliente = {};
     for (const c of clientes.list().clientes) {
-      for (const p of linked.filter((x) => x.cliente_id === c.id)) {
-        // carga REAL del panel desde el acumulado guardado (sumar el `in` del mes)
-        const key = [{ conexion_id: p.conexion_id, grp: GRP_DE_NIVEL[p.nivel_usuario] || 'superagent', sa_id: String(p.id_usuario) }];
-        let carga = '0';
-        reporteDiarioStore.filasPanelesMes(key, mes).forEach((r) => { carga = money.add(carga, r.in_amt || '0'); });
-        if (!money.isPos(carga)) continue;
-        const base = basePctEfectivo(c, p, fecha) || '0';
-        const feeUsdt = money.div(money.pct(carga, base), tc);
-        const k = c.id;
-        porCliente[k] = porCliente[k] || { cliente_id: k, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, empresa: '0', latam: '0', fee: '0' };
-        porCliente[k].fee = money.add(porCliente[k].fee, feeUsdt);
-        const el = splitSvc.empresaLatam(base, carga);
-        if (!el.ok) { sinSplit = money.add(sinSplit, feeUsdt); continue; } // base <8 = caso individual
-        const empUsdt = money.div(el.empresa, tc);
-        const latUsdt = money.div(el.latam, tc);
-        empresa = money.add(empresa, empUsdt);
-        latam = money.add(latam, latUsdt);
-        porCliente[k].empresa = money.add(porCliente[k].empresa, empUsdt);
-        porCliente[k].latam = money.add(porCliente[k].latam, latUsdt);
-        const rep = participaciones.repartoEfectivo(c.id, p.id, fecha);
-        splitSvc.distribuirLatam(latUsdt, rep.items).forEach((d) => {
-          porSocio[d.persona_id] = money.add(porSocio[d.persona_id] || '0', d.monto);
-        });
-      }
+      const vc = ventas[c.codigo];
+      const carga = vc ? String(vc.monto) : '0';
+      if (!money.isPos(carga)) continue;
+      totVentas = money.add(totVentas, carga);
+      const base = basePctEfectivo(c, null, fecha) || '0';
+      const feeUsdt = money.div(money.pct(carga, base), tc);
+      const k = c.id;
+      porCliente[k] = { cliente_id: k, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, ventas: money.round(carga, 2), base, empresa: '0', latam: '0', fee: money.round(feeUsdt, 2) };
+      const el = splitSvc.empresaLatam(base, carga);
+      if (!el.ok) { sinSplit = money.add(sinSplit, feeUsdt); continue; } // base <8 = caso individual
+      const empUsdt = money.div(el.empresa, tc);
+      const latUsdt = money.div(el.latam, tc);
+      empresa = money.add(empresa, empUsdt);
+      latam = money.add(latam, latUsdt);
+      porCliente[k].empresa = money.round(empUsdt, 2);
+      porCliente[k].latam = money.round(latUsdt, 2);
+      const rep = participaciones.repartoEfectivo(c.id, null, fecha);
+      splitSvc.distribuirLatam(latUsdt, rep.items).forEach((d) => {
+        porSocio[d.persona_id] = money.add(porSocio[d.persona_id] || '0', d.monto);
+      });
     }
     const socios = Object.keys(porSocio).map((id) => ({ persona_id: id, nombre: nombres[id] || id, monto: money.round(porSocio[id], 2) }))
       .sort((a, b) => Number(b.monto) - Number(a.monto));
-    const clientesArr = Object.values(porCliente).map((c) => ({ cliente_id: c.cliente_id, codigo: c.codigo, nombre: c.nombre, empresa: money.round(c.empresa, 2), latam: money.round(c.latam, 2), fee: money.round(c.fee, 2) }));
+    const clientesArr = Object.values(porCliente);
     ok(res, {
-      mes, tc, empresa: money.round(empresa, 2), latam: money.round(latam, 2),
+      mes, tc, ventas_total: money.round(totVentas, 2),
+      empresa: money.round(empresa, 2), latam: money.round(latam, 2),
       total: money.round(money.add(empresa, latam), 2), sin_split: money.round(sinSplit, 2),
       socios, clientes: clientesArr,
-      _nota: 'En USDT, de las cargas REALES del casino (acumulado guardado) del mes. Requiere base% del cliente + tabla Split. "sin_split" = base <8% (caso individual). Si falta data, backfilleá el mes en Acumulado.',
+      _nota: 'En USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. fee = base% × ventas. "sin_split" = base <8% (caso individual).',
     });
   });
 
-  // SIMULADOR read-only: dada una VENTA de fichas (prepago) ficticia, muestra fee + split empresa/LATAM
-  // + reparto por socio, con la MISMA matemática real (splitSvc + participaciones). NO escribe nada.
-  app.get('/api/os/reportes/simular-venta', (req, res) => {
-    const c = clientes.get(req.query.cliente_id); if (!c) return err(res, 404, 'cliente no encontrado');
-    const mes = req.query.mes || mesTZ();
-    const fecha = `${mes}-15`;
-    const venta = String(req.query.monto || '0');
-    const base = basePctEfectivo(c, null, fecha) || '0';
-    const tcMes = tcStore.getMes(mes);
-    const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || '1';
-    const feeArs = money.pct(venta, base);
-    const el = splitSvc.empresaLatam(base, venta);
-    const nombres = {}; require('./personas-store').list().forEach((p) => { nombres[p.id] = p.nombre; });
-    let empresaArs = '0', latamArs = '0', socios = [];
-    if (el.ok) {
-      empresaArs = el.empresa; latamArs = el.latam;
-      const rep = participaciones.repartoEfectivo(c.id, null, fecha);
-      const latamUsdt = money.div(latamArs, tc);
-      socios = splitSvc.distribuirLatam(latamUsdt, rep.items).map((d) => ({ persona_id: d.persona_id, nombre: nombres[d.persona_id] || d.persona_id, porcentaje: d.porcentaje, monto: money.round(d.monto, 2) }));
+  // DEV/DEMO: sembrar VENTAS de prueba = pedidos 'cargado' directo en la DB (NO toca el casino, no hace
+  // carga real). Para ver Facturación/Reparto con datos en pruebas; en el live ya están los pedidos reales.
+  // body: { items:[{codigo, monto, userId?, cajaUsuario?, sistema?, divisa?}], reset?:bool }
+  app.post('/api/os/_dev/seed-ventas', wrap((req, res) => {
+    const body = req.body || {};
+    if (body.reset) pedidosStore.seed({ pedidos: [] }); // limpia todos (env de pruebas, sin pedidos reales)
+    const items = body.items || [];
+    const ids = [];
+    for (const it of items) {
+      const p = pedidosStore.create({
+        codigo: it.codigo, clienteNombre: it.clienteNombre || it.codigo, monto: it.monto,
+        userId: it.userId || '', cajaUsuario: it.cajaUsuario || '', sistema: it.sistema || '', divisa: it.divisa || 'ARS',
+      });
+      pedidosStore.setEstado(p.id, 'cargado', {}); // marca cargado SIN llamar al casino (es siembra)
+      ids.push(p.id);
     }
-    ok(res, {
-      cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible },
-      mes, venta: money.round(venta, 2), base, tc,
-      fee_ars: money.round(feeArs, 2), fee_usdt: money.round(money.div(feeArs, tc), 2),
-      empresa_usdt: money.round(money.div(empresaArs, tc), 2), latam_usdt: money.round(money.div(latamArs, tc), 2),
-      pct_empresa: el.ok ? el.pct_empresa : null, pct_latam: el.ok ? el.pct_latam : null,
-      socios, sin_split: !el.ok,
-      _nota: 'SIMULACIÓN read-only (venta de fichas ficticia, no escribe). fee = base% × venta; split por tabla Split; LATAM repartido por participaciones.',
-    });
-  });
+    ok(res, { creados: ids.length, ids, _nota: 'Pedidos de prueba marcados "cargado" sin tocar el casino (siembra DB).' });
+  }));
 
   // Diario: STUB (depende de la API del panel)
   app.get('/api/os/reportes/diario', (req, res) => ok(res, {
