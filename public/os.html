@@ -934,9 +934,10 @@ function renderAcumulado(){
   if(!_acData){ if(cnt)cnt.textContent=''; return; }
   const q=(val('ac-q')||'').toLowerCase();
   const all=_acData.superagentes||[];
-  const sa=q?all.filter(s=>String(s.login).toLowerCase().includes(q)||String(s.id).includes(q)):all;
+  let sa=q?all.filter(s=>String(s.login).toLowerCase().includes(q)||String(s.id).includes(q)):all;
+  if((document.getElementById('ac-no0')||{}).checked) sa=sa.filter(s=>{ const t=_acData.totales[s.id]||{}; return !(Number(t.in||0)===0 && Number(t.out||0)===0 && Number(t.profit||0)===0); });
   _acView={...(_acData),superagentes:sa};
-  if(cnt) cnt.textContent = all.length ? (q?('Mostrando '+sa.length+' de '+all.length+' superagentes'):(all.length+' superagentes')) : '';
+  if(cnt) cnt.textContent = all.length ? ((q||(document.getElementById('ac-no0')||{}).checked)?('Mostrando '+sa.length+' de '+all.length+' superagentes'):(all.length+' superagentes')) : '';
   if(!_acData.dias||!_acData.dias.length){ out.innerHTML='<div class="empty">Todavía no hay días guardados para este mes. Usá "Backfill mes" para traerlos del casino, o esperá a que el cron capture cada noche.</div>'; return; }
   if(!sa.length){ out.innerHTML='<div class="empty">Ningún superagente coincide con "'+esc(val('ac-q'))+'".</div>'; return; }
   out.innerHTML=renderMatriz(_acView);
@@ -995,6 +996,7 @@ VIEWS.acumulado = async () => {
         <div style="flex:0"><label>Agrupar por</label><select id="ac-nivel" onchange="verAcumulado()"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
         <div style="flex:0 0 auto"><label>Mes</label><div style="display:flex;gap:6px;align-items:center"><button class="outline small" onclick="acMes(-1)" style="flex:0 0 auto">◀</button><input type="month" id="ac-mes" value="${mes}" onchange="verAcumulado()" style="width:150px;flex:0 0 auto"><button class="outline small" onclick="acMes(1)" style="flex:0 0 auto">▶</button></div></div>
         <div style="flex:1 1 180px;min-width:150px"><label>Buscar tenant / superagente</label><input id="ac-q" placeholder="🔍 filtrar por login…" oninput="renderAcumulado()" autocomplete="off"></div>
+        <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ac-no0" onchange="renderAcumulado()"/> ocultar en 0</label></div>
         <button class="outline" onclick="capturarHoy()">＋ Capturar hoy</button>
         <button class="outline" onclick="backfillMes()">⤓ Backfill mes</button>
         <button class="outline" id="ac-csv" onclick="descargarAcumuladoCSV()" disabled>⬇ CSV</button>
