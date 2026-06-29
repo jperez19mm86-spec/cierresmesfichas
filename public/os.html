@@ -741,6 +741,7 @@ VIEWS.reportes = async () => {
         <div><label>Desde</label><input type="date" id="rd-from" value="${hoy}"></div>
         <div><label>Hasta</label><input type="date" id="rd-to" value="${hoy}"></div>
         <button onclick="genReporte()">Generar</button>
+        <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="rd-no0" onchange="renderRD()"/> ocultar en 0</label></div>
       </div>
       <div id="rd-out" class="muted" style="margin-top:12px">Elegí conexión y tocá "Generar".</div>
     </div>
@@ -777,19 +778,28 @@ VIEWS.reportes = async () => {
       <div id="pr-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
     </div>`;
 };
+let _rdData=null;
 async function genReporte(){
   const cid=val('rd-cx'); if(!cid)return toast('Elegí una conexión');
   const out=document.getElementById('rd-out'); out.innerHTML='⏳ generando reporte (consultando el casino)…';
   const f=val('rd-from'),t=val('rd-to');
   const qs='group='+val('rd-nivel')+(f?'&from='+encodeURIComponent(f+' 00:00:00'):'')+(t?'&to='+encodeURIComponent(t+' 23:59:59'):'');
   const r=await api('/api/os/casino/conexiones/'+cid+'/reporte?'+qs);
-  if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
-  const fil=r.filas||[]; const sum=(k)=>fil.reduce((a,x)=>a+Number(x[k]||0),0);
-  const lbl=r.groupBy==='distributor'?'distribuidores':'superagentes';
+  if(!r.ok){ _rdData=null; out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
+  _rdData=r; renderRD();
+}
+function renderRD(){
+  const out=document.getElementById('rd-out'); if(!out||!_rdData)return;
+  const no0=document.getElementById('rd-no0')&&document.getElementById('rd-no0').checked;
+  const total=(_rdData.filas||[]).length;
+  // "ocultar en 0": saca filas con IN, OUT y Profit todos en 0 (sin actividad)
+  let fil=(_rdData.filas||[]).filter(x=>!no0||!(Number(x.in||0)===0&&Number(x.out||0)===0&&Number(x.profit||0)===0));
+  const sum=(k)=>fil.reduce((a,x)=>a+Number(x[k]||0),0);
+  const lbl=_rdData.groupBy==='distributor'?'distribuidores':'superagentes';
   out.innerHTML=`
-    <div class="muted" style="margin-bottom:6px">${fil.length} ${lbl}</div>
+    <div class="muted" style="margin-bottom:6px">${fil.length} ${lbl}${(no0&&total>fil.length)?` <span style="color:var(--gold)">(${total-fil.length} en 0 ocultos)</span>`:''}</div>
     <table><thead><tr><th>ID</th><th>Login</th><th class="right">IN (depósito)</th><th class="right">OUT (retiro)</th><th class="right">Profit</th><th class="right">RTP</th></tr></thead><tbody>
-    ${fil.map(x=>`<tr><td><span class="pill">${esc(x.id)}</span></td><td><b>${esc(x.login)}</b></td><td class="right">${money(x.in,0)}</td><td class="right">${money(x.out,0)}</td><td class="right"><b>${money(x.profit,0)}</b></td><td class="right">${esc(x.rtp)}%</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Sin datos en el período.</td></tr>'}
+    ${fil.map(x=>`<tr><td><span class="pill">${esc(x.id)}</span></td><td><b>${esc(x.login)}</b></td><td class="right">${money(x.in,0)}</td><td class="right">${money(x.out,0)}</td><td class="right"><b>${money(x.profit,0)}</b></td><td class="right">${esc(x.rtp)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Sin datos en el período.</td></tr>'}
     ${fil.length?`<tr style="border-top:2px solid var(--gold)"><td colspan="2"><b>TOTAL</b></td><td class="right"><b>${money(sum('in'),0)}</b></td><td class="right"><b>${money(sum('out'),0)}</b></td><td class="right"><b>${money(sum('profit'),0)}</b></td><td></td></tr>`:''}
     </tbody></table>`;
 }
