@@ -293,8 +293,11 @@ function mount(app) {
   // listar nodos: sin id = root (todos, c/total); ?id= = subárbol de ese nodo
   app.get('/api/os/casino/conexiones/:id/nodos', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const r = await cli.nodos({ from: req.query.from, to: req.query.to, id: req.query.id, cur: req.query.cur || 'ARS' });
-    r.ok ? ok(res, { nodos: r.nodos }) : err(res, 502, r.error);
+    const extra = {}; Object.keys(req.query).forEach((k) => { if (k.startsWith('flt_')) extra[k.slice(4)] = req.query[k]; }); // prueba de filtros server-side
+    const r = await cli.nodos({ from: req.query.from, to: req.query.to, id: req.query.id, cur: req.query.cur || 'ARS', extra });
+    if (!r.ok) return err(res, 502, r.error);
+    if (req.query.tally) { const niv = {}; r.nodos.forEach((n) => { const k = n.nivel || 'Terminal/Caja'; niv[k] = (niv[k] || 0) + 1; }); return ok(res, { count: r.nodos.length, niveles: niv }); }
+    ok(res, { nodos: r.nodos });
   }));
   // total propio de un nodo
   app.get('/api/os/casino/conexiones/:id/nodo/:nodeId', wrap(async (req, res) => {

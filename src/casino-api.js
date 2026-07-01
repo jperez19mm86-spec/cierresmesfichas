@@ -124,12 +124,13 @@ function makeClient({ url, token, user, password } = {}) {
    * Lista nodos: sin `id` = todos (root, flat, cada uno con su total); con `id` = subárbol de ese nodo.
    * Requiere show_users=1 (clave) + el array de monedas. Período por from/to.
    */
-  async function nodos({ from = '', to = '', id = null, cur = 'ARS' } = {}) {
+  async function nodos({ from = '', to = '', id = null, cur = 'ARS', extra = {} } = {}) {
     // OJO: NADA de interval=month → ese param hace que el casino IGNORE from/to y devuelva
     // siempre el mes actual. Sin interval, from/to scopea el período correctamente (verificado).
+    // `extra` = params extra p/ probar filtros server-side del casino (pisa los defaults).
     const body = {
       from, to, show_users: '1', provider: 'all',
-      deleted_users: 'undelete', inactive_users: 'all', ...curBody(),
+      deleted_users: 'undelete', inactive_users: 'all', ...curBody(), ...extra,
     };
     const r = await apiCall('users', body, id ? { id: String(id) } : {});
     if (!r.ok) return r;
