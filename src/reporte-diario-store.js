@@ -45,9 +45,11 @@ function getMatriz(conexion_id, grp, mes, moneda = 'ARS') {
   return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(conexion_id, grp, mes) };
 }
 
-/** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes, en `moneda`. */
+/** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes, en `moneda`.
+ *  Clave compuesta conexion:sa_id → NO colisionan ids de nodo entre sistemas (Europa/Casino). */
 function getMatrizTodos(grp, mes, moneda = 'ARS') {
-  const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda);
+  const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda)
+    .map((r) => ({ ...r, sa_id: `${r.conexion_id}:${r.sa_id}` }));
   return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(null, grp, mes) };
 }
 

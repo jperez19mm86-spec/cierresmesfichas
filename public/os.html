@@ -730,7 +730,7 @@ VIEWS.reportes = async () => {
       <h2>🗓 Reporte Mensual <span class="muted">(matriz estilo Alexa)</span></h2>
       <div class="muted" style="margin-bottom:8px">Días × (IN/OUT/Profit) + Total + RTP de UN superagente. Lee lo guardado del mes (Acumulado). <b>Cargá el mes → buscá un superagente → ves su mes completo</b> (sin cargar la grilla de todos).</div>
       <div class="row" style="align-items:flex-end; gap:6px">
-        <div style="flex:0 0 140px"><label>Conexión</label><select id="rm-cx" style="width:100%">${cxOpts}</select></div>
+        <div style="flex:0 0 140px"><label>Conexión</label><select id="rm-cx" style="width:100%"><option value="__all__">🌐 Todas</option>${cxOpts}</select></div>
         <div style="flex:0"><label>Agrupar</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
         <div style="flex:0"><label>Moneda</label><select id="rm-cur" onchange="genMatriz()" style="min-width:62px"><option value="ARS">ARS</option></select></div>
         <div style="flex:0 0 120px"><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}" style="width:100%"></div>
@@ -793,7 +793,9 @@ async function genMatriz(){
   const out=document.getElementById('rm-out'); out.innerHTML='⏳ cargando el mes guardado…';
   document.getElementById('rm-csv').disabled=true;
   const moneda=val('rm-cur')||'ARS';
-  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-mensual?mes='+val('rm-mes')+'&group='+val('rm-nivel')+'&moneda='+encodeURIComponent(moneda));
+  const qs='mes='+val('rm-mes')+'&group='+val('rm-nivel')+'&moneda='+encodeURIComponent(moneda);
+  const url = cid==='__all__' ? ('/api/os/casino/acumulado-todos?'+qs) : ('/api/os/casino/conexiones/'+cid+'/reporte-mensual?'+qs);
+  const r=await api(url);
   if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
   _matrizData=r;
   fillRmCur();
