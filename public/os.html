@@ -729,14 +729,14 @@ VIEWS.reportes = async () => {
     <div class="card">
       <h2>🗓 Reporte Mensual <span class="muted">(matriz estilo Alexa)</span></h2>
       <div class="muted" style="margin-bottom:8px">Días × (IN/OUT/Profit) + Total + RTP de UN superagente. Lee lo guardado del mes (Acumulado). <b>Cargá el mes → buscá un superagente → ves su mes completo</b> (sin cargar la grilla de todos).</div>
-      <div class="row" style="align-items:flex-end">
-        <div><label>Conexión / sistema</label><select id="rm-cx">${cxOpts}</select></div>
-        <div style="flex:0"><label>Agrupar por</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
-        <div style="flex:0"><label>Moneda</label><select id="rm-cur" onchange="genMatriz()" style="min-width:80px"><option value="ARS">ARS</option></select></div>
-        <div><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}"></div>
+      <div class="row" style="align-items:flex-end; gap:6px">
+        <div style="flex:0 0 140px"><label>Conexión</label><select id="rm-cx" style="width:100%">${cxOpts}</select></div>
+        <div style="flex:0"><label>Agrupar</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div style="flex:0"><label>Moneda</label><select id="rm-cur" onchange="genMatriz()" style="min-width:62px"><option value="ARS">ARS</option></select></div>
+        <div style="flex:0 0 120px"><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}" style="width:100%"></div>
         <button onclick="genMatriz()">Cargar mes</button>
-        <div style="flex:1 1 160px;min-width:150px"><label>Buscar superagente</label><input id="rm-q" placeholder="🔍 filtrar…" oninput="fillRmSa()" disabled autocomplete="off"></div>
-        <div style="flex:0 0 auto"><label>Ver</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:180px"><option value="">— cargá el mes —</option></select></div>
+        <div style="flex:0 0 140px"><label>Buscar superagente</label><input id="rm-q" placeholder="🔍 filtrar…" oninput="fillRmSa()" disabled autocomplete="off" style="width:100%"></div>
+        <div style="flex:0"><label>Ver</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:135px;max-width:165px"><option value="">— cargá —</option></select></div>
         <button class="outline" id="rm-csv" onclick="descargarMatrizCSV()" disabled>⬇ CSV</button>
       </div>
       <div id="rm-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
