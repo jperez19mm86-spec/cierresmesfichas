@@ -89,7 +89,7 @@ function makeClient({ url, token, user, password } = {}) {
     const params = new URLSearchParams(useSession ? { ...body } : { ...body, api_token: token });
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
     try {
-      const r = await axios.post(`${base}/index.php?${qs}`, params.toString(), { headers, timeout: 40000, validateStatus: () => true, maxRedirects: 0 });
+      const r = await axios.post(`${base}/index.php?${qs}`, params.toString(), { headers, timeout: Number(process.env.CASINO_TIMEOUT_MS) || 120000, validateStatus: () => true, maxRedirects: 0 });
       const data = r.data;
       if (data && typeof data === 'object') {
         if (data.noMain || data.redirect === 'login') {
