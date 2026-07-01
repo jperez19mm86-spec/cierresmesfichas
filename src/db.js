@@ -178,6 +178,7 @@ db.exec(`
     conexion_id TEXT, fecha TEXT, grp TEXT,
     sa_id TEXT, login TEXT,
     in_amt TEXT, out_amt TEXT, profit TEXT,
+    moneda TEXT DEFAULT 'ARS',
     captured_at TEXT
   );
 
@@ -199,7 +200,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_mov_fecha ON movimientos(fecha);
   CREATE INDEX IF NOT EXISTS idx_cv_entidad ON config_valores(entidad_tipo, entidad_id, campo);
   CREATE INDEX IF NOT EXISTS idx_snap_fecha ON tc_snapshots(fecha);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_repdia ON reporte_diario(conexion_id, fecha, grp, sa_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_repdia ON reporte_diario(conexion_id, fecha, grp, sa_id, moneda);
   CREATE INDEX IF NOT EXISTS idx_repdia_mes ON reporte_diario(conexion_id, grp, fecha);
 `);
 
@@ -233,5 +234,10 @@ ensureColumns('casino_conexiones', { usuario: 'TEXT', password: 'TEXT' });
 
 // Proveedores: % que se cobra al cliente + código del gamesSystem (para importar del casino).
 ensureColumns('proveedores', { tarifa_pct: 'TEXT', codigo: 'TEXT' });
+
+// Reporte diario MULTI-MONEDA: columna moneda + índice único que la incluye (misma cuenta/día en varias monedas).
+ensureColumns('reporte_diario', { moneda: "TEXT DEFAULT 'ARS'" });
+db.exec('DROP INDEX IF EXISTS idx_repdia');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_repdia ON reporte_diario(conexion_id, fecha, grp, sa_id, moneda)');
 
 module.exports = { db, DB_PATH, ensureColumns };

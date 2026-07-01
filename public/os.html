@@ -732,6 +732,7 @@ VIEWS.reportes = async () => {
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión / sistema</label><select id="rm-cx">${cxOpts}</select></div>
         <div style="flex:0"><label>Agrupar por</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div style="flex:0"><label>Moneda</label><select id="rm-cur" onchange="genMatriz()" style="min-width:80px"><option value="ARS">ARS</option></select></div>
         <div><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}"></div>
         <button onclick="genMatriz()">Cargar mes</button>
         <div style="flex:1 1 160px;min-width:150px"><label>Buscar superagente</label><input id="rm-q" placeholder="🔍 filtrar…" oninput="fillRmSa()" disabled autocomplete="off"></div>
@@ -791,13 +792,23 @@ async function genMatriz(){
   const cid=val('rm-cx'); if(!cid)return toast('Elegí una conexión');
   const out=document.getElementById('rm-out'); out.innerHTML='⏳ cargando el mes guardado…';
   document.getElementById('rm-csv').disabled=true;
-  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-mensual?mes='+val('rm-mes')+'&group='+val('rm-nivel'));
+  const moneda=val('rm-cur')||'ARS';
+  const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-mensual?mes='+val('rm-mes')+'&group='+val('rm-nivel')+'&moneda='+encodeURIComponent(moneda));
   if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
   _matrizData=r;
-  const q=document.getElementById('rm-q'); if(q){ q.disabled=false; q.value=''; }
+  fillRmCur();
+  const q=document.getElementById('rm-q'); if(q) q.disabled=false;
   fillRmSa();
   renderRM();
   document.getElementById('rm-csv').disabled=false;
+}
+// Puebla el dropdown de monedas DISPONIBLES (las que tienen data guardada ese mes).
+function fillRmCur(){
+  const sel=document.getElementById('rm-cur'); if(!sel||!_matrizData)return;
+  const monedas=(_matrizData.monedas&&_matrizData.monedas.length)?_matrizData.monedas:['ARS'];
+  const prev=sel.value||'ARS';
+  sel.innerHTML=monedas.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  sel.value=monedas.includes(prev)?prev:(monedas.includes('ARS')?'ARS':monedas[0]);
 }
 // Puebla el dropdown de superagentes filtrado por el buscador (rm-q), sin reconsultar.
 function fillRmSa(){

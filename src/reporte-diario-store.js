@@ -8,13 +8,13 @@ const { nowISO } = require('./lib/fechas');
 
 const newId = () => 'rd_' + crypto.randomBytes(6).toString('hex');
 
-// reemplaza las filas de un día (idempotente: re-capturar actualiza)
-const upsertTx = db.transaction((conexion_id, fecha, grp, filas) => {
-  db.prepare('DELETE FROM reporte_diario WHERE conexion_id=? AND fecha=? AND grp=?').run(conexion_id, fecha, grp);
-  const ins = db.prepare('INSERT INTO reporte_diario (id,conexion_id,fecha,grp,sa_id,login,in_amt,out_amt,profit,captured_at) VALUES (?,?,?,?,?,?,?,?,?,?)');
-  (filas || []).forEach((f) => ins.run(newId(), conexion_id, fecha, grp, String(f.id), f.login || '', String(f.in || 0), String(f.out || 0), String(f.profit || 0), nowISO()));
+// reemplaza las filas de un día PARA UNA MONEDA (idempotente: re-capturar actualiza esa moneda)
+const upsertTx = db.transaction((conexion_id, fecha, grp, moneda, filas) => {
+  db.prepare('DELETE FROM reporte_diario WHERE conexion_id=? AND fecha=? AND grp=? AND moneda=?').run(conexion_id, fecha, grp, moneda);
+  const ins = db.prepare('INSERT INTO reporte_diario (id,conexion_id,fecha,grp,sa_id,login,in_amt,out_amt,profit,moneda,captured_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  (filas || []).forEach((f) => ins.run(newId(), conexion_id, fecha, grp, String(f.id), f.login || '', String(f.in || 0), String(f.out || 0), String(f.profit || 0), moneda, nowISO()));
 });
-function upsertDia(conexion_id, fecha, grp, filas) { upsertTx(conexion_id, fecha, grp, filas); }
+function upsertDia(conexion_id, fecha, grp, moneda, filas) { upsertTx(conexion_id, fecha, grp, moneda, filas); }
 
 /** Arma la matriz {dias, superagentes, matriz, totales} desde un set de filas. */
 function build(rows, grp, mes) {
@@ -30,16 +30,25 @@ function build(rows, grp, mes) {
   return { mes, group: grp, dias: [...dias].sort(), superagentes, matriz, totales };
 }
 
-/** Matriz acumulada de UNA conexión (días × superagente) + totales + RTP, desde lo GUARDADO. */
-function getMatriz(conexion_id, grp, mes) {
-  const rows = db.prepare('SELECT * FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? ORDER BY fecha ASC, login ASC').all(conexion_id, grp, mes);
-  return build(rows, grp, mes);
+/** Monedas con data guardada en el mes (para el dropdown "monedas disponibles"). */
+function monedasDisponibles(conexion_id, grp, mes) {
+  const q = conexion_id
+    ? db.prepare("SELECT DISTINCT moneda FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? ORDER BY moneda").all(conexion_id, grp, mes)
+    : db.prepare("SELECT DISTINCT moneda FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? ORDER BY moneda").all(grp, mes);
+  const m = q.map((r) => r.moneda || 'ARS');
+  return m.length ? m : ['ARS'];
 }
 
-/** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes. */
-function getMatrizTodos(grp, mes) {
-  const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? ORDER BY fecha ASC, login ASC').all(grp, mes);
-  return build(rows, grp, mes);
+/** Matriz acumulada de UNA conexión (días × superagente) + totales + RTP, desde lo GUARDADO, en `moneda`. */
+function getMatriz(conexion_id, grp, mes, moneda = 'ARS') {
+  const rows = db.prepare('SELECT * FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(conexion_id, grp, mes, moneda);
+  return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(conexion_id, grp, mes) };
+}
+
+/** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes, en `moneda`. */
+function getMatrizTodos(grp, mes, moneda = 'ARS') {
+  const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda);
+  return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(null, grp, mes) };
 }
 
 function fechasCapturadas(conexion_id, grp) {
@@ -48,7 +57,7 @@ function fechasCapturadas(conexion_id, grp) {
 
 /** Filas guardadas de un mes para un set de paneles {conexion_id, grp, sa_id}. Para el Perfil del cliente
  *  (lee del acumulado en vez de consultar el casino en vivo → instantáneo). Devuelve [{sa_id,in_amt,out_amt,profit}]. */
-function filasPanelesMes(keys, mes) {
+function filasPanelesMes(keys, mes, moneda = 'ARS') {
   if (!keys || !keys.length) return [];
   const byCG = {};
   keys.forEach((k) => { const kk = k.conexion_id + '|' + (k.grp || 'superagent'); (byCG[kk] = byCG[kk] || []).push(String(k.sa_id)); });
@@ -57,10 +66,10 @@ function filasPanelesMes(keys, mes) {
     const [cid, grp] = kk.split('|');
     const ids = [...new Set(byCG[kk])];
     const ph = ids.map(() => '?').join(',');
-    const rows = db.prepare(`SELECT sa_id, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND sa_id IN (${ph})`).all(cid, grp, mes, ...ids);
+    const rows = db.prepare(`SELECT sa_id, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND moneda=? AND sa_id IN (${ph})`).all(cid, grp, mes, moneda, ...ids);
     out.push(...rows);
   }
   return out;
 }
 
-module.exports = { upsertDia, getMatriz, getMatrizTodos, fechasCapturadas, filasPanelesMes };
+module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes };

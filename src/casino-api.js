@@ -107,10 +107,10 @@ function makeClient({ url, token, user, password } = {}) {
   function curBody() { const o = {}; CURRENCIES.forEach((c) => { o[`currencies[${c}]`] = '1'; }); return o; }
 
   /** Normaliza una fila de usuario del casino a un objeto limpio (valores en la moneda `cur`). */
-  function mapNode(u, cur = 'ARS') {
+  function mapNode(u, cur = 'ARS', multiMoneda = false) {
     const g = (x) => (x && typeof x === 'object') ? (x[cur] !== undefined ? x[cur] : '') : (x == null ? '' : x);
     const n = (x) => String(g(x)).replace(/,/g, ''); // numérico LIMPIO (sin separadores de miles → math directo)
-    return {
+    const node = {
       id: String(u.id), login: u.login || '', name: u.name || '',
       balance: n(u.balances), in: n(u.in), out: n(u.out), profit: n(u.profit),
       rtp: g(u.rtp), wager: n(u.wager), jackpot: n(u.jackpot), bonus: n(u.bonus),
@@ -118,13 +118,24 @@ function makeClient({ url, token, user, password } = {}) {
       currencies: u.currencies || [],
       nivel: nivelDeGroup(u.additional), // 'SuperAgente' | 'Distribuidor' | 'Agente' | '' (terminal)
     };
+    if (multiMoneda) {
+      // montos por CADA moneda con actividad (la misma respuesta trae todas; solo guardamos las != 0).
+      const nc = (x, c) => String((x && typeof x === 'object') ? (x[c] !== undefined ? x[c] : '') : (x == null ? '' : x)).replace(/,/g, '');
+      const m = {};
+      CURRENCIES.forEach((c) => {
+        const iin = nc(u.in, c), oout = nc(u.out, c), prof = nc(u.profit, c);
+        if (Number(iin) !== 0 || Number(oout) !== 0 || Number(prof) !== 0) m[c] = { in: iin, out: oout, profit: prof };
+      });
+      node.montos = m;
+    }
+    return node;
   }
 
   /**
    * Lista nodos: sin `id` = todos (root, flat, cada uno con su total); con `id` = subárbol de ese nodo.
    * Requiere show_users=1 (clave) + el array de monedas. Período por from/to.
    */
-  async function nodos({ from = '', to = '', id = null, cur = 'ARS', soloActivos = false, extra = {} } = {}) {
+  async function nodos({ from = '', to = '', id = null, cur = 'ARS', soloActivos = false, multiMoneda = false, extra = {} } = {}) {
     // OJO: NADA de interval=month → ese param hace que el casino IGNORE from/to y devuelva
     // siempre el mes actual. Sin interval, from/to scopea el período correctamente (verificado).
     // soloActivos → inactive_users=active: el casino filtra SERVER-SIDE y devuelve SOLO los nodos
@@ -139,7 +150,7 @@ function makeClient({ url, token, user, password } = {}) {
     const arr = (r.data && r.data.users) || [];
     return {
       ok: true,
-      nodos: arr.filter((u) => u.id && String(u.login).toLowerCase() !== 'total').map((u) => mapNode(u, cur)),
+      nodos: arr.filter((u) => u.id && String(u.login).toLowerCase() !== 'total').map((u) => mapNode(u, cur, multiMoneda)),
     };
   }
 

@@ -377,17 +377,17 @@ function mount(app) {
     // (o esperar el cron nocturno, que ahora auto-completa el mes).
     const group = req.query.group || 'superagent';
     const mes = req.query.mes || mesTZ();
-    ok(res, { ...reporteDiarioStore.getMatriz(req.params.id, group, mes), errores: [] });
+    ok(res, { ...reporteDiarioStore.getMatriz(req.params.id, group, mes, req.query.moneda || 'ARS'), errores: [] });
   }));
 
   // ───────── ACUMULADO (solapa que se llena día a día — datos GUARDADOS) ─────────
   // Ver el acumulado del mes (rápido, desde la DB; no consulta el casino).
   app.get('/api/os/casino/conexiones/:id/acumulado', (req, res) => {
-    ok(res, reporteDiarioStore.getMatriz(req.params.id, req.query.group || 'superagent', req.query.mes || mesTZ()));
+    ok(res, reporteDiarioStore.getMatriz(req.params.id, req.query.group || 'superagent', req.query.mes || mesTZ(), req.query.moneda || 'ARS'));
   });
   // Ver el acumulado del mes de TODAS las conexiones juntas (todos los GOD en simultáneo).
   app.get('/api/os/casino/acumulado-todos', (req, res) => {
-    ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesTZ()));
+    ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesTZ(), req.query.moneda || 'ARS'));
   });
   // Capturar HOY (o un día) en TODAS las conexiones activas a la vez.
   app.post('/api/os/casino/capturar-hoy-todos', wrap(async (req, res) => {
@@ -424,7 +424,8 @@ function mount(app) {
   app.post('/api/os/casino/conexiones/:id/capturar-mes', wrap(async (req, res) => {
     const mes = req.query.mes || (req.body && req.body.mes) || mesTZ();
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
-    const r = await acumSvc.captureMes(req.params.id, mes, group);
+    const force = req.query.force === '1' || !!(req.body && req.body.force); // re-captura todos los días (multi-moneda)
+    const r = await acumSvc.captureMes(req.params.id, mes, group, 8, null, force);
     r.ok ? ok(res, { capturados: r.capturados, faltan: r.faltan, total: r.total, ya_tenia: r.ya_tenia }) : err(res, 502, r.error);
   }));
 

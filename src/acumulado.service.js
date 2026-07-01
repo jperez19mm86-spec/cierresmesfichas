@@ -11,28 +11,36 @@ const NIVEL_DE_GROUP = { superagent: 'SuperAgente', distributor: 'Distribuidor',
 
 /** Arma las filas del acumulado (IN/OUT/Profit por nodo del nivel) desde la lista plana de nodos().
  * Pivot: usamos nodos() (area=users, VIVO) en vez de reporte()→reportstable (motor roto del casino). */
-function _filasDesdeNodos(nodos, group) {
+/** Arma las filas del acumulado POR MONEDA: { moneda: [{id,login,in,out,profit}] } desde nodos(multiMoneda).
+ *  Cada nodo trae `montos` (in/out/profit por cada moneda con actividad). */
+function _filasPorMonedaDesdeNodos(nodos, group) {
   const nivel = NIVEL_DE_GROUP[group] || 'SuperAgente';
-  return nodos.filter((n) => n.nivel === nivel).map((n) => ({
-    id: n.id, login: n.login, in: n.in, out: n.out, profit: n.profit, rtp: n.rtp, count_in: 0, count_out: 0,
-  }));
+  const porMoneda = {};
+  for (const n of nodos.filter((x) => x.nivel === nivel)) {
+    const montos = n.montos || {};
+    for (const cur of Object.keys(montos)) {
+      const m = montos[cur];
+      (porMoneda[cur] = porMoneda[cur] || []).push({ id: n.id, login: n.login, in: m.in, out: m.out, profit: m.profit });
+    }
+  }
+  return porMoneda;
 }
 
-/** Captura UN día de una conexión y lo guarda. */
+/** Captura UN día de una conexión y lo guarda (TODAS las monedas con actividad). */
 async function captureDia(conexion_id, dia, group = 'superagent') {
   const cli = casinoConex.client(conexion_id);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
-  const r = await cli.nodos({ from: `${dia} 00:00:00`, to: `${dia} 23:59:59`, soloActivos: true });
+  const r = await cli.nodos({ from: `${dia} 00:00:00`, to: `${dia} 23:59:59`, soloActivos: true, multiMoneda: true });
   if (!r.ok) return r;
-  const filas = _filasDesdeNodos(r.nodos, group);
-  store.upsertDia(conexion_id, dia, group, filas);
-  return { ok: true, dia, filas: filas.length };
+  const pm = _filasPorMonedaDesdeNodos(r.nodos, group);
+  for (const cur of Object.keys(pm)) store.upsertDia(conexion_id, dia, group, cur, pm[cur]);
+  return { ok: true, dia, filas: (pm.ARS || []).length, monedas: Object.keys(pm) };
 }
 
 /** Backfill: captura SOLO los días FALTANTES del mes (saltea los ya guardados), SECUENCIAL (las cuentas
  *  GOD grandes ven decenas de miles de nodos y el casino throttlea si se pide en paralelo), por LOTES
  *  de `maxPorLlamada` para que el request HTTP no se corte. Devuelve `faltan` (re-llamar hasta 0). */
-async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada = 8, hasta = null) {
+async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada = 8, hasta = null, force = false) {
   const cli = casinoConex.client(conexion_id);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
   const [y, m] = mes.split('-').map(Number);
@@ -40,15 +48,18 @@ async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada 
   const tope = hasta || fechaTZ(); // no capturar más allá de este día (el cron pasa "ayer" para no fijar HOY parcial)
   const todos = [];
   for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= tope) todos.push(ds); }
-  const yaG = new Set((store.getMatriz(conexion_id, group, mes).dias) || []);
+  // force → re-captura TODOS los días (para re-backfill multi-moneda sobre días que ya tienen ARS).
+  const yaG = force ? new Set() : new Set((store.getMatriz(conexion_id, group, mes).dias) || []);
   const faltantes = todos.filter((d) => !yaG.has(d));
   const lote = faltantes.slice(0, maxPorLlamada);
   if (!lote.length) return { ok: true, capturados: 0, faltan: 0, total: todos.length, ya_tenia: yaG.size };
   await cli.test(); // login 1 vez
   let okc = 0;
   for (const d of lote) { // SECUENCIAL — no throttlear el casino con cuentas grandes
-    try { const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59`, soloActivos: true }); if (r.ok) { store.upsertDia(conexion_id, d, group, _filasDesdeNodos(r.nodos, group)); okc++; } }
-    catch (e) { /* el día queda como faltante para el próximo lote */ }
+    try {
+      const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59`, soloActivos: true, multiMoneda: true });
+      if (r.ok) { const pm = _filasPorMonedaDesdeNodos(r.nodos, group); for (const cur of Object.keys(pm)) store.upsertDia(conexion_id, d, group, cur, pm[cur]); okc++; }
+    } catch (e) { /* el día queda como faltante para el próximo lote */ }
   }
   return { ok: true, capturados: okc, faltan: faltantes.length - okc, total: todos.length, ya_tenia: yaG.size };
 }
