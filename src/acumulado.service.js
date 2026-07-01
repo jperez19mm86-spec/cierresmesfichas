@@ -22,7 +22,7 @@ function _filasDesdeNodos(nodos, group) {
 async function captureDia(conexion_id, dia, group = 'superagent') {
   const cli = casinoConex.client(conexion_id);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
-  const r = await cli.nodos({ from: `${dia} 00:00:00`, to: `${dia} 23:59:59` });
+  const r = await cli.nodos({ from: `${dia} 00:00:00`, to: `${dia} 23:59:59`, soloActivos: true });
   if (!r.ok) return r;
   const filas = _filasDesdeNodos(r.nodos, group);
   store.upsertDia(conexion_id, dia, group, filas);
@@ -47,7 +47,7 @@ async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada 
   await cli.test(); // login 1 vez
   let okc = 0;
   for (const d of lote) { // SECUENCIAL — no throttlear el casino con cuentas grandes
-    try { const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59` }); if (r.ok) { store.upsertDia(conexion_id, d, group, _filasDesdeNodos(r.nodos, group)); okc++; } }
+    try { const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59`, soloActivos: true }); if (r.ok) { store.upsertDia(conexion_id, d, group, _filasDesdeNodos(r.nodos, group)); okc++; } }
     catch (e) { /* el día queda como faltante para el próximo lote */ }
   }
   return { ok: true, capturados: okc, faltan: faltantes.length - okc, total: todos.length, ya_tenia: yaG.size };

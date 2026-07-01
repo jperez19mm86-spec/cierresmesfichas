@@ -32,10 +32,10 @@ const wrap = (fn) => async (req, res) => { try { await fn(req, res); } catch (e)
 // Cache del árbol de nodos por conexión (algunas cuentas GOD ven decenas de miles de nodos y
 // el pull al casino tarda ~20s). Se cachea unos minutos para que cambiar de nivel sea instantáneo.
 const _nodosCache = {};
-async function _nodosCacheados(cli, key, from, to, cur) {
+async function _nodosCacheados(cli, key, from, to, cur, soloActivos = false) {
   const e = _nodosCache[key];
   if (e && e.exp > Date.now()) return e.nodos;
-  const r = await cli.nodos({ from, to, cur });
+  const r = await cli.nodos({ from, to, cur, soloActivos });
   if (!r.ok) throw new Error(r.error || 'no se pudieron traer los nodos');
   _nodosCache[key] = { nodos: r.nodos, exp: Date.now() + 180000 }; // 3 min
   return r.nodos;
@@ -321,14 +321,15 @@ function mount(app) {
   app.get('/api/os/casino/conexiones/:id/nodos-nivel', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const from = req.query.from || '', to = req.query.to || '', cur = req.query.cur || 'ARS';
-    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}`, from, to, cur);
+    const soloActivos = req.query.activos !== '0'; // default: SOLO activos (filtro server-side del casino, sin ruido). ?activos=0 = todos
+    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}|${soloActivos ? 'act' : 'all'}`, from, to, cur, soloActivos);
     const niveles = {};
     nodos.forEach((n) => { const k = n.nivel || 'Terminal/Caja'; niveles[k] = (niveles[k] || 0) + 1; });
     const orden = Object.keys(niveles).sort((a, b) => niveles[a] - niveles[b]); // top (menos nodos) primero
     const nivel = req.query.nivel || orden.find((k) => k !== 'Terminal/Caja') || orden[0] || '';
     const filtrados = nodos.filter((n) => (n.nivel || 'Terminal/Caja') === nivel);
     const CAP = 2000;
-    ok(res, { niveles, nivel, total: filtrados.length, truncado: filtrados.length > CAP, nodos: filtrados.slice(0, CAP) });
+    ok(res, { niveles, nivel, soloActivos, total: filtrados.length, truncado: filtrados.length > CAP, nodos: filtrados.slice(0, CAP) });
   }));
   // profit por proveedor de un usuario (game history agregado)
   app.get('/api/os/casino/conexiones/:id/proveedores/:userId', wrap(async (req, res) => {
@@ -348,9 +349,10 @@ function mount(app) {
     const group = req.query.group || 'superagent';
     const nivel = group === 'distributor' ? 'Distribuidor' : group === 'agent' ? 'Agente' : 'SuperAgente';
     const from = req.query.from || '', to = req.query.to || '', cur = req.query.cur || 'ARS';
-    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}`, from, to, cur);
+    const soloActivos = req.query.activos !== '0'; // default: SOLO activos (filtro server-side, sin ruido). ?activos=0 = todos
+    const nodos = await _nodosCacheados(cli, `${req.params.id}|${from}|${to}|${cur}|${soloActivos ? 'act' : 'all'}`, from, to, cur, soloActivos);
     const filas = nodos.filter((n) => n.nivel === nivel).map((n) => ({ id: n.id, login: n.login, in: n.in, out: n.out, profit: n.profit, rtp: n.rtp }));
-    ok(res, { groupBy: group, filas });
+    ok(res, { groupBy: group, filas, soloActivos });
   }));
 
   // REPORTE DE PROVEEDORES: profit/bet/win/rtp por proveedor, en UNA o VARIAS monedas, vista
@@ -448,7 +450,7 @@ function mount(app) {
     const nodeMap = {}; const errores = [];
     for (const cid of Object.keys(byConn)) {
       const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
-      const r = await cli.nodos({ from, to });
+      const r = await cli.nodos({ from, to, soloActivos: true }); // solo activos (mismo total, mucho más rápido)
       if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
       const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
     }

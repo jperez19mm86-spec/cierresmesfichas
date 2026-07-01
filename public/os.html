@@ -171,12 +171,14 @@ async function loadCliPlat(id){
       ` : '<div class="empty">No hay conexiones. Cargá una en Config → 🎰 Casino primero.</div>'}
     </div>`;
 }
+let _platInact=false; // asignador: incluir inactivos (server-side ?activos=0). Default false = solo activos.
+function toggleInact(c){ _platInact=c; const st=window._accState; if(st) loadAccts(st.id); }
 async function loadAccts(id){
   const cx = val('plat-cx'); if(!cx) return toast('Elegí una conexión');
   const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo cuentas… la 1ra vez puede tardar ~20-30s si la cuenta ve muchas (después es instantáneo)';
   const pr = await api('/api/os/paneles?cliente_id='+id);
   const panels = (pr.paneles||[]).filter(p=>p.conexion_id===cx && p.id_usuario);
-  const r = await api('/api/os/casino/conexiones/'+cx+'/nodos-nivel'); // default = nivel más alto, SOLO ese nivel (server cachea el árbol)
+  const r = await api('/api/os/casino/conexiones/'+cx+'/nodos-nivel?activos='+(_platInact?'0':'1')); // solo activos (server-side) salvo que se pidan inactivos
   if(!r.ok){ box.innerHTML='<span class="badge err">No se pudieron traer las cuentas (¿conexión OK?)</span>'; return; }
   window._accState = { cx, id, panels, sel: new Set(panels.map(p=>String(p.id_usuario))), nodeById:{}, niveles:r.niveles||{}, nivel:r.nivel, current:[], truncado:false };
   _mergeNivel(r);
@@ -185,7 +187,7 @@ async function loadAccts(id){
     <div class="row" style="align-items:flex-end; margin-bottom:6px">
       <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="changeNivel()">${niveles.map(k=>`<option value="${esc(k)}" ${k===r.nivel?'selected':''}>${esc(k)} (${r.niveles[k]})</option>`).join('')}</select></div>
       <div><label>Buscar (login)</label><input id="acc-q" oninput="renderAccts()" placeholder="filtrar por login…"/></div>
-      <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="acc-act" checked onchange="renderAccts()"/> ocultar sin actividad</label></div>
+      <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="acc-inact" ${_platInact?'checked':''} onchange="toggleInact(this.checked)"/> incluir inactivos</label></div>
       <div style="flex:0"><button onclick="saveAccts()">💾 Guardar selección</button></div>
     </div>
     <div id="acc-rows"></div>`;
@@ -195,14 +197,13 @@ function _mergeNivel(r){ const st=window._accState; if(!st)return; (r.nodos||[])
 async function changeNivel(){
   const st=window._accState; if(!st)return; const niv=val('acc-niv');
   const rows=document.getElementById('acc-rows'); rows.innerHTML='⏳ cargando nivel…';
-  const r=await api('/api/os/casino/conexiones/'+st.cx+'/nodos-nivel?nivel='+encodeURIComponent(niv));
+  const r=await api('/api/os/casino/conexiones/'+st.cx+'/nodos-nivel?activos='+(_platInact?'0':'1')+'&nivel='+encodeURIComponent(niv));
   if(r.ok){ _mergeNivel(r); renderAccts(); } else rows.innerHTML='<span class="badge err">error trayendo el nivel</span>';
 }
 function renderAccts(){
   const st = window._accState; if(!st) return;
   const q = (val('acc-q')||'').toLowerCase();
   let list = st.current||[];
-  if((document.getElementById('acc-act')||{}).checked) list = list.filter(n=>!(Number(n.in||0)===0 && Number(n.out||0)===0 && Number(n.profit||0)===0));
   if(q) list = list.filter(n=>String(n.login).toLowerCase().includes(q));
   list.sort((a,b)=>String(a.login).localeCompare(String(b.login)));
   const CAP=400, shown=list.slice(0,CAP);

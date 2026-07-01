@@ -124,13 +124,15 @@ function makeClient({ url, token, user, password } = {}) {
    * Lista nodos: sin `id` = todos (root, flat, cada uno con su total); con `id` = subárbol de ese nodo.
    * Requiere show_users=1 (clave) + el array de monedas. Período por from/to.
    */
-  async function nodos({ from = '', to = '', id = null, cur = 'ARS', extra = {} } = {}) {
+  async function nodos({ from = '', to = '', id = null, cur = 'ARS', soloActivos = false, extra = {} } = {}) {
     // OJO: NADA de interval=month → ese param hace que el casino IGNORE from/to y devuelva
     // siempre el mes actual. Sin interval, from/to scopea el período correctamente (verificado).
-    // `extra` = params extra p/ probar filtros server-side del casino (pisa los defaults).
+    // soloActivos → inactive_users=active: el casino filtra SERVER-SIDE y devuelve SOLO los nodos
+    // activos (verificado: MISMO total IN que 'all', 98% menos nodos → sin ruido y mucho más rápido).
+    // `extra` pisa cualquier default (para casos especiales / pruebas de params).
     const body = {
       from, to, show_users: '1', provider: 'all',
-      deleted_users: 'undelete', inactive_users: 'all', ...curBody(), ...extra,
+      deleted_users: 'undelete', inactive_users: soloActivos ? 'active' : 'all', ...curBody(), ...extra,
     };
     const r = await apiCall('users', body, id ? { id: String(id) } : {});
     if (!r.ok) return r;
@@ -142,8 +144,8 @@ function makeClient({ url, token, user, password } = {}) {
   }
 
   /** Solo los SUPERAGENTES (plataformas que ve el GOD) — para el asignador con checkboxes. */
-  async function superagentes({ from = '', to = '', cur = 'ARS' } = {}) {
-    const r = await nodos({ from, to, cur });
+  async function superagentes({ from = '', to = '', cur = 'ARS', soloActivos = true } = {}) {
+    const r = await nodos({ from, to, cur, soloActivos });
     if (!r.ok) return r;
     return { ok: true, superagentes: r.nodos.filter((nodo) => nodo.nivel === 'SuperAgente') };
   }
