@@ -728,13 +728,14 @@ VIEWS.reportes = async () => {
     </div>
     <div class="card">
       <h2>🗓 Reporte Mensual <span class="muted">(matriz estilo Alexa)</span></h2>
-      <div class="muted" style="margin-bottom:8px">Días × superagente × (IN/OUT/Profit) + Total + RTP — corre el reporte de cada día del mes. Puede tardar ~30–60s.</div>
+      <div class="muted" style="margin-bottom:8px">Días × (IN/OUT/Profit) + Total + RTP de UN superagente. Lee lo guardado del mes (Acumulado). <b>Cargá el mes → buscá un superagente → ves su mes completo</b> (sin cargar la grilla de todos).</div>
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión / sistema</label><select id="rm-cx">${cxOpts}</select></div>
         <div style="flex:0"><label>Agrupar por</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
         <div><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}"></div>
-        <button onclick="genMatriz()">Generar matriz</button>
-        <div style="flex:0 0 auto"><label>Ver completo</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:170px"><option value="__all__">— generá primero —</option></select></div>
+        <button onclick="genMatriz()">Cargar mes</button>
+        <div style="flex:1 1 160px;min-width:150px"><label>Buscar superagente</label><input id="rm-q" placeholder="🔍 filtrar…" oninput="fillRmSa()" disabled autocomplete="off"></div>
+        <div style="flex:0 0 auto"><label>Ver</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:180px"><option value="">— cargá el mes —</option></select></div>
         <button class="outline" id="rm-csv" onclick="descargarMatrizCSV()" disabled>⬇ CSV</button>
       </div>
       <div id="rm-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
@@ -788,27 +789,35 @@ function renderRD(){
 let _matrizData=null, _rmView=null;
 async function genMatriz(){
   const cid=val('rm-cx'); if(!cid)return toast('Elegí una conexión');
-  const out=document.getElementById('rm-out'); out.innerHTML='⏳ generando matriz mensual (corriendo el reporte de cada día… ~30-60s)…';
+  const out=document.getElementById('rm-out'); out.innerHTML='⏳ cargando el mes guardado…';
   document.getElementById('rm-csv').disabled=true;
   const r=await api('/api/os/casino/conexiones/'+cid+'/reporte-mensual?mes='+val('rm-mes')+'&group='+val('rm-nivel'));
   if(!r.ok){ out.innerHTML='<span class="badge err">Error: '+esc(r.error||'')+'</span>'; return; }
   _matrizData=r;
-  const sel=document.getElementById('rm-sa');
-  if(sel){
-    const lvl=(r.group==='distributor')?'distribuidores':'superagentes';
-    const sa=(r.superagentes||[]).slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
-    sel.innerHTML='<option value="__all__">Todos ('+(r.superagentes||[]).length+' '+lvl+')</option>'+sa.map(s=>`<option value="${esc(s.id)}">${esc(s.login)}</option>`).join('');
-    sel.disabled=!sa.length;
-  }
+  const q=document.getElementById('rm-q'); if(q){ q.disabled=false; q.value=''; }
+  fillRmSa();
   renderRM();
   document.getElementById('rm-csv').disabled=false;
 }
-// Filtra la matriz mensual al superagente elegido (o todos) y la re-dibuja SIN reconsultar el casino.
+// Puebla el dropdown de superagentes filtrado por el buscador (rm-q), sin reconsultar.
+function fillRmSa(){
+  const sel=document.getElementById('rm-sa'); if(!sel||!_matrizData)return;
+  const q=(val('rm-q')||'').toLowerCase();
+  const all=(_matrizData.superagentes||[]).slice().sort((a,b)=>String(a.login).localeCompare(String(b.login)));
+  const sa=all.filter(s=>!q||String(s.login).toLowerCase().includes(q));
+  const prev=sel.value;
+  sel.innerHTML='<option value="">— elegí un superagente —</option><option value="__all__">Todos ('+all.length+')</option>'
+    +sa.map(s=>`<option value="${esc(s.id)}">${esc(s.login)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===prev)) sel.value=prev;
+  sel.disabled=!all.length;
+}
+// Muestra el mes del superagente elegido (o todos). Default: pide elegir uno — NO carga la grilla completa.
 function renderRM(){
   const out=document.getElementById('rm-out'); if(!out||!_matrizData)return;
   const sel=val('rm-sa');
+  if(!sel){ _rmView=null; out.innerHTML='<div class="empty">Buscá y elegí un superagente arriba para ver su mes completo.</div>'; return; }
   let sa=_matrizData.superagentes||[];
-  if(sel&&sel!=='__all__') sa=sa.filter(s=>String(s.id)===sel);
+  if(sel!=='__all__') sa=sa.filter(s=>String(s.id)===sel);
   _rmView={...(_matrizData),superagentes:sa};
   out.innerHTML=renderMatriz(_rmView);
 }
