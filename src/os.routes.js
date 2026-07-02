@@ -21,6 +21,7 @@ const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
 const pedidosStore = require('./pedidos-store');
+const cierreStore = require('./cierre-store');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ } = require('./lib/fechas');
@@ -235,6 +236,22 @@ function mount(app) {
       proveedores: entries.map((e) => ({ code: e.codigo, label: e.nombre, sub: true })),
     });
   }));
+  // ───────── CIERRE DE MES (matriz % proveedor×cliente, réplica editable de la planilla) ─────────
+  app.get('/api/os/cierre/matriz', (_req, res) => ok(res, cierreStore.getMatriz()));
+  app.get('/api/os/cierre/tc', (_req, res) => ok(res, cierreStore.getTC()));
+  app.post('/api/os/cierre/celda', wrap((req, res) => {
+    const { proveedor, cliente, pct } = req.body || {};
+    ok(res, { guardado: cierreStore.setCelda(proveedor, cliente, pct) });
+  }));
+  app.post('/api/os/cierre/base', wrap((req, res) => ok(res, { guardado: cierreStore.setBase((req.body || {}).proveedor, (req.body || {}).base_pct) })));
+  app.post('/api/os/cierre/descuento', wrap((req, res) => ok(res, { guardado: cierreStore.setDescuento((req.body || {}).cliente, (req.body || {}).descuento) })));
+  app.post('/api/os/cierre/proveedor', wrap((req, res) => ok(res, { nombre: cierreStore.addProveedor((req.body || {}).nombre, (req.body || {}).base_pct) })));
+  app.delete('/api/os/cierre/proveedor/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeProveedor(req.params.nombre) }));
+  app.post('/api/os/cierre/cliente', wrap((req, res) => ok(res, { nombre: cierreStore.addCliente((req.body || {}).nombre, (req.body || {}).descuento) })));
+  app.delete('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeCliente(req.params.nombre) }));
+  app.post('/api/os/cierre/tc', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setTC(b.moneda, b.mes, b.tasa) }); }));
+  app.post('/api/os/cierre/importar', wrap((req, res) => ok(res, cierreStore.importar(req.body || {}))));
+
   app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
   app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {
     const id = proveedores.setPanelProveedor(Object.assign({ panel_id: req.params.id }, req.body || {}));

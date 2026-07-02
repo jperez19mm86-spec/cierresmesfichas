@@ -192,6 +192,28 @@ db.exec(`
     createdAt TEXT, ord INTEGER
   );
 
+  /* ───── CIERRE DE MES (réplica EDITABLE de la planilla de Alexa) ─────
+     Matriz proveedor × cliente de %, + base por proveedor, + descuento por cliente, + TC mensual.
+     Keyeada por NOMBRE (igual que la planilla) para duplicarla fiel; se cruza con catálogo/paneles al calcular. */
+  CREATE TABLE IF NOT EXISTS cierre_proveedor (
+    nombre TEXT PRIMARY KEY,   -- "MARCA VENDOR" (ej "EGT DIGITAL SZ")
+    base_pct TEXT,             -- columna "%" base de la planilla (costo/rate mínimo)
+    ord INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS cierre_cliente (
+    nombre TEXT PRIMARY KEY,   -- ej "Titan"
+    descuento TEXT,            -- 1_Cliente (% que se resta al %proveedor)
+    ord INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS cierre_pct (
+    proveedor TEXT, cliente TEXT, pct TEXT,   -- celda de la matriz
+    PRIMARY KEY (proveedor, cliente)
+  );
+  CREATE TABLE IF NOT EXISTS cierre_tc (
+    moneda TEXT, mes TEXT, tasa TEXT,         -- Exchange Rate (moneda × mes → USDT)
+    PRIMARY KEY (moneda, mes)
+  );
+
   /* índices útiles */
   CREATE INDEX IF NOT EXISTS idx_paneles_cliente ON paneles(cliente_id);
   CREATE INDEX IF NOT EXISTS idx_part_cliente ON participaciones(cliente_id);
