@@ -379,7 +379,8 @@ function mount(app) {
   // SOLO los superagentes (plataformas que ve el GOD) → para el asignador con checkboxes del cliente
   app.get('/api/os/casino/conexiones/:id/superagentes', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const r = await cli.superagentes({ from: req.query.from, to: req.query.to, cur: req.query.cur || 'ARS' });
+    const soloActivos = req.query.activos !== '0'; // ?activos=0 → TODOS (incluye inactivos), p/ matchear SA_Cliente completo
+    const r = await cli.superagentes({ from: req.query.from, to: req.query.to, cur: req.query.cur || 'ARS', soloActivos });
     r.ok ? ok(res, { superagentes: r.superagentes }) : err(res, 502, r.error);
   }));
   // Nodos POR NIVEL (cacheado) — para el asignador level-flexible SIN bajar el árbol entero (cuentas
