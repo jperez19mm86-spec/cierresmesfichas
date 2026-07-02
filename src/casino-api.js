@@ -225,6 +225,9 @@ function makeClient({ url, token, user, password } = {}) {
     if (!token && !useSession) return { ok: false, error: 'sin credenciales' };
     const refer = `${base}/index.php?act=admin&area=reports`;
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
+    // Paso 0: NAVEGAR a la página de reportes (GET) como hace el browser — inicializa el estado del motor en
+    // la sesión. Sin esto el POST devolvía un id de contexto "trabado" (el user-id) que reportstable rechaza.
+    try { await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), { headers: { 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); } catch (e) { /* seguir */ }
     // Paso PREVIO: setear los filtros en la sesión del reporte (POST save_filter). Descubierto en el DevTools:
     // el reporte de proveedores necesita el filtro profit>  para no ahogar al motor ("Unknown error" sin él).
     for (const f of filtros) {
@@ -258,7 +261,7 @@ function makeClient({ url, token, user, password } = {}) {
     catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
     const d = data.data;
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 300).replace(/\s+/g, ' ') } };
+    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 160).replace(/\s+/g, ' '), postTitle: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '(sin title)', postLen: html.length } };
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
