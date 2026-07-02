@@ -46,7 +46,7 @@ function remove(id) { return db.prepare('DELETE FROM proveedores WHERE id=?').ru
  */
 function importarCatalogo(entries) {
   const existentesSet = new Set(
-    db.prepare('SELECT codigo FROM proveedores WHERE codigo IS NOT NULL AND codigo<>""').all().map((r) => r.codigo)
+    db.prepare("SELECT codigo FROM proveedores WHERE codigo IS NOT NULL AND codigo<>''").all().map((r) => r.codigo)
   );
   let creados = 0, existentes = 0;
   const tx = db.transaction((list) => {
