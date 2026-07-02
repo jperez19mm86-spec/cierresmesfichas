@@ -352,7 +352,7 @@ function makeClient({ url, token, user, password } = {}) {
       }
       filas = Object.values(acc).map((a) => ({ ...a, rtp: a.bet ? Number((a.win / a.bet * 100).toFixed(2)) : 0 }));
     }
-    return { ok: true, from, to, currency, general, filas, _raw0: r.raw[0] || null };
+    return { ok: true, from, to, currency, general, filas };
   }
 
   /**
@@ -365,7 +365,7 @@ function makeClient({ url, token, user, password } = {}) {
     const monedas = {};
     for (const cur of list) {
       const r = await reporteProveedores({ from, to, currency: cur, userGroupBy, activeTemplate });
-      monedas[cur] = r.ok ? { ok: true, filas: r.filas, _raw0: r._raw0 } : { ok: false, error: r.error, debug: r.debug };
+      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error, debug: r.debug };
     }
     return { ok: true, from, to, monedas };
   }
