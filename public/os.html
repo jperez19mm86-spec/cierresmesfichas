@@ -233,11 +233,28 @@ async function saveAccts(){
   }}
   toast('Cuentas: +'+creados+(borrados?(' / -'+borrados):'')); loadAccts(st.id);
 }
-function loadCliProv(id){
-  // El costo de proveedores es GLOBAL (igual para todos) → ya no se configura por cliente.
+// % de proveedores DE ESTE CLIENTE = su columna en la matriz del Cierre de Mes (misma data, se editan mutuamente).
+async function loadCliProv(id){
   const el=document.getElementById('cliProv'); if(!el)return;
-  el.innerHTML = `<div class="card"><h2>🎰 Proveedores</h2><p class="muted">El costo de proveedores es un <b>gasto fijo, igual para TODOS los clientes</b> — se configura una sola vez en la solapa <b>🏷 Proveedores</b>. Ya no se define por cliente.</p></div>`;
+  const c=_clientes.find(x=>x.id===id); const nombre=c?(c.nombre||c.codigo):'';
+  const d=await api('/api/os/cierre/cliente/'+encodeURIComponent(nombre));
+  const provs=d.proveedores||[], celdas=d.celdas||{};
+  const con=provs.filter(p=>celdas[p.nombre]!=null&&celdas[p.nombre]!=='').length;
+  const rows=provs.map(p=>{const v=celdas[p.nombre]; return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td>${esc(p.nombre)}</td><td class="muted right">${esc(p.base_pct==null?'—':p.base_pct)}</td><td class="right"><input class="cie-c" style="width:64px" data-prov="${esc(p.nombre)}" value="${v==null?'':esc(v)}" placeholder="—" onchange="cliProvCell(this,'${esc(nombre)}')"></td></tr>`;}).join('');
+  el.innerHTML = `<div class="card"><h2>🎰 % de proveedores de este cliente</h2>
+    <p class="muted">El % que se le cobra a <b>${esc(nombre)}</b> por cada proveedor (su columna en el <b>🧮 Cierre de Mes</b> — editás acá o allá, es lo mismo). El % neto = <b>este % − descuento</b>. ${d.existe?'':'<b>⚠ Este cliente todavía no es columna de la matriz; se crea al guardar el primer %.</b>'} <b>${con}</b> con % cargado de ${provs.length}.</p>
+    <div class="row" style="align-items:flex-end;gap:10px">
+      <div style="flex:0"><label>Descuento (1_Cliente) %</label><input id="cliprov-desc" style="width:100px" value="${esc(d.descuento==null?'':d.descuento)}" placeholder="—" onchange="cliProvDesc(this,'${esc(nombre)}')"></div>
+      <div style="flex:1"><label>🔎 Buscar proveedor</label><input id="cliprov-q" oninput="filtCliProv()" placeholder="ej: PRAGMATIC"></div>
+    </div>
+    <style>.clipt input:focus{outline:1px solid var(--gold)}.clipt .cie-ok{background:rgba(0,180,80,.25)}</style>
+    <div style="overflow:auto;max-height:52vh;margin-top:8px">
+      ${provs.length?`<table class="clipt"><thead><tr><th>Proveedor</th><th class="right">% base</th><th class="right">% ${esc(nombre)}</th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">La matriz del Cierre está vacía. Importá la planilla en 🧮 Cierre de Mes.</div>'}
+    </div></div>`;
 }
+async function cliProvCell(inp,nombre){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:inp.dataset.prov,cliente:nombre,pct:inp.value})}); if(r.ok){inp.classList.add('cie-ok');setTimeout(()=>inp.classList.remove('cie-ok'),350);} }
+async function cliProvDesc(inp,nombre){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:nombre,descuento:inp.value})}); if(r.ok)toast('Descuento guardado'); }
+function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.querySelectorAll('.clipt tbody tr').forEach(tr=>{tr.style.display=(tr.dataset.prov||'').includes(q)?'':'none';}); }
 async function saveCli(id){
   await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
     estado:val('e-estado'), mezcla_pago_usdt:val('e-mez'), ajuste_usdt_pct:val('e-aj'),

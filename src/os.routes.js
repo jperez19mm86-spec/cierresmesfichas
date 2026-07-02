@@ -78,6 +78,7 @@ function mount(app) {
     const nombre = String((req.body && req.body.nombre) || '').trim();
     if (!codigo) return err(res, 400, 'falta el código del cliente');
     const c = clientes.createCliente({ codigo, nombreVisible: nombre || codigo, nombre });
+    cierreStore.addCliente(c.nombre || c.nombreVisible || codigo); // → aparece como columna en la matriz del Cierre
     ok(res, { cliente: c });
   }));
   // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
@@ -252,6 +253,7 @@ function mount(app) {
   app.post('/api/os/cierre/tc', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setTC(b.moneda, b.mes, b.tasa) }); }));
   app.post('/api/os/cierre/importar', wrap((req, res) => ok(res, cierreStore.importar(req.body || {}))));
   // vinculación proveedor del casino ↔ matriz
+  app.get('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, cierreStore.getClienteColumna(req.params.nombre)));
   app.get('/api/os/cierre/links', (_req, res) => ok(res, cierreStore.getLinks()));
   app.post('/api/os/cierre/link', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setLink(b.casino, b.matriz) }); }));
   app.post('/api/os/cierre/auto-vincular', wrap((_req, res) => ok(res, cierreStore.autoVincular())));

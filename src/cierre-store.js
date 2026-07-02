@@ -89,6 +89,16 @@ function setTC(moneda, mes, tasa) {
   return true;
 }
 
+/** Columna de UN cliente: su descuento + el % de cada proveedor de la matriz (para editar desde el cliente). */
+function getClienteColumna(nombre) {
+  const n = clean(nombre); if (!n) return { nombre: null, existe: false, descuento: null, proveedores: [], celdas: {} };
+  const cli = db.prepare('SELECT nombre, descuento FROM cierre_cliente WHERE nombre=?').get(n);
+  const proveedores = db.prepare('SELECT nombre, base_pct FROM cierre_proveedor ORDER BY ord ASC, nombre ASC').all();
+  const celdas = {};
+  db.prepare('SELECT proveedor, pct FROM cierre_pct WHERE cliente=?').all(n).forEach((r) => { celdas[r.proveedor] = r.pct; });
+  return { nombre: n, existe: !!cli, descuento: cli ? cli.descuento : null, proveedores, celdas };
+}
+
 // ── VINCULACIÓN proveedor del casino ↔ proveedor de la matriz ──
 // El casino trae "MARCA VENDOR" (ej "RUBYPLAY XG"); la matriz de Alexa usa otro vendor (ej "RUBYPLAY OP").
 // Vinculamos cada proveedor del casino (= catálogo, codigo "label|vendor") a una fila de la matriz.
@@ -180,5 +190,5 @@ function importar(payload = {}) {
 module.exports = {
   getMatriz, setCelda, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, getTC, setTC, importar,
-  getLinks, setLink, autoVincular,
+  getLinks, setLink, autoVincular, getClienteColumna,
 };
