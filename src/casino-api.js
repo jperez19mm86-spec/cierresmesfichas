@@ -274,7 +274,7 @@ function makeClient({ url, token, user, password } = {}) {
       if (t < 4) await new Promise((r) => setTimeout(r, 2500));
     }
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 120).replace(/\s+/g, ' '), postTitle: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '(sin title)', postLen: html.length, cookies: Object.keys(jar), todasRs: [...new Set(html.match(/reportstable[^"'\s\\)]{0,90}/g) || [])].slice(0, 14) } };
+    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' ') } };
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
