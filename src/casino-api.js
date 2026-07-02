@@ -246,7 +246,7 @@ function makeClient({ url, token, user, password } = {}) {
     if (!m) {
       // La página de reports volvió sin la tabla → suele ser la sesión caída (login redirect). Re-login y 1 reintento.
       if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, opts, false); }
-      return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)' };
+      return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)', debug: { pageSnippet: html.slice(0, 300).replace(/\s+/g, ' ') } };
     }
     let path = '/index.php?act=admin&' + m[0].replace(/&amp;/g, '&');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
@@ -255,7 +255,7 @@ function makeClient({ url, token, user, password } = {}) {
     catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
     const d = data.data;
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)' };
+    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsUrl: m[0], rsStatus: data.status, rsSnippet: d.slice(0, 300).replace(/\s+/g, ' ') } };
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
@@ -322,7 +322,7 @@ function makeClient({ url, token, user, password } = {}) {
     const monedas = {};
     for (const cur of list) {
       const r = await reporteProveedores({ from, to, currency: cur, userGroupBy, activeTemplate });
-      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error };
+      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error, debug: r.debug };
     }
     return { ok: true, from, to, monedas };
   }
