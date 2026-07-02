@@ -159,11 +159,36 @@ function mount(app) {
     }));
     ok(res, { paneles: list });
   });
-  app.post('/api/os/paneles', wrap((req, res) => ok(res, { panel: paneles.create(req.body || {}) })));
+  // Espeja un panel del OS → CAJA operativa (para /pedir y las cargas de fichas). Idempotente por (userId, sistema).
+  const _espejarCaja = (p) => {
+    if (!p || !p.cliente_id || !p.id_usuario) return false;
+    const c = clientes.get(p.cliente_id); if (!c) return false;
+    if ((c.cajas || []).some((k) => String(k.userId) === String(p.id_usuario) && (k.sistema || '') === (p.sistema || ''))) return false;
+    clientes.addCaja(p.cliente_id, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
+    return true;
+  };
+  app.post('/api/os/paneles', wrap((req, res) => { const panel = paneles.create(req.body || {}); _espejarCaja(panel); ok(res, { panel }); }));
   app.put('/api/os/paneles/:id', wrap((req, res) => {
-    const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); ok(res, { panel: p });
+    const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); _espejarCaja(p); ok(res, { panel: p });
   }));
-  app.delete('/api/os/paneles/:id', (req, res) => paneles.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
+  app.delete('/api/os/paneles/:id', (req, res) => {
+    const p = paneles.get(req.params.id);
+    const borrado = paneles.remove(req.params.id);
+    if (borrado && p && p.cliente_id && p.id_usuario) { // remover la caja espejo
+      const c = clientes.get(p.cliente_id);
+      const k = c && (c.cajas || []).find((x) => String(x.userId) === String(p.id_usuario) && (x.sistema || '') === (p.sistema || ''));
+      if (k) clientes.removeCaja(p.cliente_id, k.id);
+    }
+    borrado ? ok(res) : err(res, 404, 'no encontrado');
+  });
+  // Sincroniza TODOS los paneles del OS → cajas operativas (one-shot; puebla lo ya cargado). Idempotente.
+  app.post('/api/os/paneles/sync-cajas', wrap((_req, res) => {
+    let creadas = 0, ya = 0;
+    for (const c of clientes.list().clientes) {
+      for (const p of paneles.list({ cliente_id: c.id })) { if (!p.id_usuario) continue; _espejarCaja(p) ? creadas++ : ya++; }
+    }
+    ok(res, { creadas, ya });
+  }));
   app.put('/api/os/paneles/:id/precio-base', wrap((req, res) => {
     const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};
     const v = historial.setValor('panel', req.params.id, 'precio_base_pct', { valor, tipo_cambio, vigente_desde, notas });
