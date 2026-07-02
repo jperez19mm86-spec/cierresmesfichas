@@ -219,14 +219,25 @@ function makeClient({ url, token, user, password } = {}) {
    * IMPORTANTE: si el motor de reportes del casino está caído/ocupado devuelve una PÁGINA HTML de error
    * (no JSON) — lo detectamos y devolvemos ok:false en vez de tragárnoslo como tabla vacía (falla silenciosa).
    */
-  async function _runReport(append, _retry = true) {
+  async function _runReport(append, opts = {}, _retry = true) {
+    const { filtros = [] } = opts;
     if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
     if (!token && !useSession) return { ok: false, error: 'sin credenciales' };
+    const refer = `${base}/index.php?act=admin&area=reports`;
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
+    // Paso PREVIO: setear los filtros en la sesión del reporte (POST save_filter). Descubierto en el DevTools:
+    // el reporte de proveedores necesita el filtro profit>  para no ahogar al motor ("Unknown error" sin él).
+    for (const f of filtros) {
+      const fb = new URLSearchParams();
+      fb.append('column_name', String(f.column_name)); fb.append('condition', String(f.condition));
+      fb.append('value', f.value == null ? '' : String(f.value)); fb.append('save_filter', '');
+      if (!useSession) fb.append('api_token', token);
+      try { await axios.post(`${base}/index.php?act=admin&area=reports`, fb.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
+      catch (e) { /* si el filtro falla, seguimos igual con el reporte */ }
+    }
     const b = new URLSearchParams();
     append(b);
     if (!useSession) b.append('api_token', token);
-    const refer = `${base}/index.php?act=admin&area=reports`;
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
     let page;
     try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
@@ -234,7 +245,7 @@ function makeClient({ url, token, user, password } = {}) {
     const m = html.match(/area=reportstable[^"']*/);
     if (!m) {
       // La página de reports volvió sin la tabla → suele ser la sesión caída (login redirect). Re-login y 1 reintento.
-      if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, false); }
+      if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, opts, false); }
       return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)' };
     }
     let path = '/index.php?act=admin&' + m[0].replace(/&amp;/g, '&');
@@ -279,7 +290,7 @@ function makeClient({ url, token, user, password } = {}) {
    *     vendor = código corto (ej "SL2"), profit = ganancia de ese proveedor.
    * `activeTemplate` opcional = id de un template guardado en el casino, por si la cuenta lo requiere.
    */
-  async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '' } = {}) {
+  async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
     const general = !userGroupBy; // userGroupBy='' = GENERAL (toda la plataforma, sin abrir por cuenta)
     const fields = general
       ? ['provider', 'label', 'vendor', 'bet', 'win', 'profit', 'rtp']      // vista general (captura del user)
@@ -291,7 +302,7 @@ function makeClient({ url, token, user, password } = {}) {
       fields.forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    });
+    }, { filtros });
     if (!r.ok) return r;
     const filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
