@@ -224,25 +224,30 @@ function makeClient({ url, token, user, password } = {}) {
     if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
     if (!token && !useSession) return { ok: false, error: 'sin credenciales' };
     const refer = `${base}/index.php?act=admin&area=reports`;
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
-    // Paso 0: NAVEGAR a la página de reportes (GET) como hace el browser — inicializa el estado del motor en
-    // la sesión. Sin esto el POST devolvía un id de contexto "trabado" (el user-id) que reportstable rechaza.
-    try { await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), { headers: { 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); } catch (e) { /* seguir */ }
-    // Paso PREVIO: setear los filtros en la sesión del reporte (POST save_filter). Descubierto en el DevTools:
-    // el reporte de proveedores necesita el filtro profit>  para no ahogar al motor ("Unknown error" sin él).
+    // Cookies ACUMULADAS del flujo — el motor puede rotar/agregar cookies entre el POST y el reportstable
+    // (el browser las actualiza solo; nosotros usábamos una cookie FIJA del login → sesión desincronizada).
+    const jar = {};
+    if (useSession && sessionCookie) sessionCookie.split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) jar[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+    const cookieHdr = () => Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const absorb = (resp) => { const sc = resp && resp.headers && resp.headers['set-cookie']; if (Array.isArray(sc)) sc.forEach((c) => { const kv = c.split(';')[0]; const i = kv.indexOf('='); if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1).trim(); }); };
+    const hGet = () => ({ 'User-Agent': UA, ...(useSession ? { Cookie: cookieHdr() } : {}) });
+    const hForm = () => ({ ...hGet(), 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', Referer: refer });
+    // Paso 0: NAVEGAR (GET) como el browser — inicializa el estado del motor + captura cookies.
+    try { const g = await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), { headers: hGet(), timeout: 60000, validateStatus: () => true }); absorb(g); } catch (e) { /* seguir */ }
+    // Paso PREVIO: filtros (save_filter) — profit> para no ahogar al motor.
     for (const f of filtros) {
       const fb = new URLSearchParams();
       fb.append('column_name', String(f.column_name)); fb.append('condition', String(f.condition));
       fb.append('value', f.value == null ? '' : String(f.value)); fb.append('save_filter', '');
       if (!useSession) fb.append('api_token', token);
-      try { await axios.post(`${base}/index.php?act=admin&area=reports`, fb.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
+      try { const rf = await axios.post(`${base}/index.php?act=admin&area=reports`, fb.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(rf); }
       catch (e) { /* si el filtro falla, seguimos igual con el reporte */ }
     }
     const b = new URLSearchParams();
     append(b);
     if (!useSession) b.append('api_token', token);
     let page;
-    try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
+    try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(page); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
     const html = String(page.data || '');
     // BUG HISTÓRICO ("Unknown error" por semanas): la página embebe VARIAS URLs de reportstable. La 1ra es la
@@ -257,17 +262,16 @@ function makeClient({ url, token, user, password } = {}) {
     }
     let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
-    const rsHeaders = { 'User-Agent': UA, Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
     let data, d;
     for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
-      try { data = await axios.get(`${base}${path}`, { headers: rsHeaders, timeout: 60000, validateStatus: () => true }); }
+      try { data = await axios.get(`${base}${path}`, { headers: { ...hGet(), Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer }, timeout: 60000, validateStatus: () => true }); absorb(data); }
       catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
       d = data.data;
       if (typeof d !== 'string') break;
       if (t < 4) await new Promise((r) => setTimeout(r, 2500));
     }
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 120).replace(/\s+/g, ' '), postTitle: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '(sin title)', postLen: html.length, todasRs: [...new Set(html.match(/reportstable[^"'\s\\)]{0,90}/g) || [])].slice(0, 14) } };
+    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 120).replace(/\s+/g, ' '), postTitle: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '(sin title)', postLen: html.length, cookies: Object.keys(jar), todasRs: [...new Set(html.match(/reportstable[^"'\s\\)]{0,90}/g) || [])].slice(0, 14) } };
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
