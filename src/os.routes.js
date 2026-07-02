@@ -132,9 +132,15 @@ function mount(app) {
       const pagos = money.sum(movs.list({ cliente_id: c.id, tipo: 'pago', mes }).map((mv) => mv.monto_usdt || '0'));
       filas.push({ mes, base: baseMes, cargas: money.round(cargas, 2), fee: money.round(fee, 2), pagos: money.round(pagos, 2), profit: money.round(profit, 2) });
     }
+    // Lista de plataformas (superagentes/paneles) del cliente → control de que estén todas.
+    const plataformas = paneles.list({ cliente_id: c.id }).map((p) => ({
+      id: p.id, nombre: p.nombre || p.usuario || '', usuario: p.usuario || '',
+      sistema: p.sistema || '', nivel: p.nivel_usuario || '', id_usuario: p.id_usuario || '',
+      conectada: !!(p.conexion_id && p.id_usuario),
+    })).sort((a, b) => (a.sistema + a.usuario).localeCompare(b.sistema + b.usuario));
     ok(res, {
       cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado, paneles: cPaneles.length },
-      base_actual: baseActual, deuda, historial_pct: histPct, auditoria_pct: auditPct, meses: filas,
+      base_actual: baseActual, deuda, historial_pct: histPct, auditoria_pct: auditPct, meses: filas, plataformas,
     });
   }));
 

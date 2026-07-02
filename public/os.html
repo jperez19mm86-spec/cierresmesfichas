@@ -276,6 +276,8 @@ async function showPerfil(id){
   const r=await api('/api/os/clientes/'+id+'/perfil?meses=6');
   if(!r.ok){ main.innerHTML='<div class="card"><div class="empty">Error cargando el perfil</div></div>'; return; }
   const c=r.cliente, d=r.deuda||{}, hp=(r.historial_pct||[]);
+  const plats=r.plataformas||[]; const porSis={}; plats.forEach(p=>{const s=p.sistema||'?';porSis[s]=(porSis[s]||0)+1;});
+  const sisResumen=Object.entries(porSis).map(([s,n])=>`<span class="badge">${esc(s)}: ${n}</span>`).join(' ');
   main.innerHTML = `
     <div class="card">
       <div class="row" style="align-items:center"><button class="outline small" onclick="VIEWS.clientes()">← Volver</button>
@@ -286,6 +288,13 @@ async function showPerfil(id){
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (USDT)</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Paneles linkeados</label><div style="font-size:18px;font-weight:800">${c.paneles||0}</div></div>
       </div>
+    </div>
+    <div class="card">
+      <h2>🛰️ Plataformas conectadas (${plats.length})</h2>
+      <div class="muted" style="margin-bottom:6px">Todos los superagentes/cuentas linkeados a este cliente. ${sisResumen||''} — así controlás que estén todas; si falta alguna, agregala en <b>✎ (Clientes) → 🛰️ Plataformas</b>.</div>
+      ${plats.length?`<table><thead><tr><th>Usuario</th><th>Sistema</th><th>Nivel</th><th>Estado</th></tr></thead><tbody>
+      ${plats.map(p=>`<tr><td><b>${esc(p.usuario||p.nombre)}</b></td><td>${esc(p.sistema||'—')}</td><td class="muted">${esc(p.nivel||'')}</td><td>${p.conectada?'<span class="badge ok">conectada</span>':'<span class="badge warn">incompleta</span>'}</td></tr>`).join('')}
+      </tbody></table>`:'<div class="empty">Sin plataformas linkeadas. Asignalas en ✎ (Clientes) → 🛰️ Plataformas.</div>'}
     </div>
     <div class="card">
       <h2>📊 Resumen mensual</h2>
