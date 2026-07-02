@@ -329,11 +329,22 @@ function makeClient({ url, token, user, password } = {}) {
       if (activeTemplate) b.append('active_template', String(activeTemplate));
     }, { filtros });
     if (!r.ok) return r;
-    const filas = r.raw.map((x) => ({
+    let filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
       provider: x.provider || '', label: x.label || '', vendor: x.vendor || '',
       bet: numC(x.bet), win: numC(x.win), profit: numC(x.profit), rtp: numC(x.rtp),
     })).filter((x) => x.provider || x.label || x.bet || x.win || x.profit);
+    if (general) {
+      // Vista GENERAL = 1 fila POR PROVEEDOR. Algunos motores/templates traen filas por (superagente × proveedor)
+      // → agregamos nosotros por proveedor (robusto, independiente del estado del template del casino). RTP = win/bet.
+      const acc = {};
+      for (const f of filas) {
+        const k = `${f.provider}|${f.label}|${f.vendor}`;
+        const a = acc[k] || (acc[k] = { saId: '', saLogin: '', provider: f.provider, label: f.label, vendor: f.vendor, bet: 0, win: 0, profit: 0 });
+        a.bet += f.bet; a.win += f.win; a.profit += f.profit;
+      }
+      filas = Object.values(acc).map((a) => ({ ...a, rtp: a.bet ? Number((a.win / a.bet * 100).toFixed(2)) : 0 }));
+    }
     return { ok: true, from, to, currency, general, filas };
   }
 
