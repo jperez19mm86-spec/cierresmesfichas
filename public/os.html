@@ -415,6 +415,10 @@ async function saveParts(){
 let _provCat = []; // catálogo de proveedores del casino (gamesSystem) cargado en memoria
 VIEWS.proveedores = async () => {
   const d = await api('/api/os/proveedores'); _proveedores=d.proveedores||[];
+  // vínculo a la matriz del Cierre → mostrar el % (base) que le corresponde a cada proveedor linkeado
+  const _lk = await api('/api/os/cierre/links'); const _mx = await api('/api/os/cierre/matriz');
+  const _linkMap={}; (_lk.rows||[]).forEach(r=>{_linkMap[r.casino]={m:r.matriz||((r.estado==='exacto'||r.estado==='sugerido')?r.sugerido:null), est:r.estado};});
+  const _baseMap={}; (_mx.proveedores||[]).forEach(pp=>{_baseMap[pp.nombre]=pp.base_pct;});
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   const cxOpts = '<option value="todas">🌐 Todas (Europa + Casino)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provOpts = _provCat.length
@@ -437,14 +441,18 @@ VIEWS.proveedores = async () => {
       </div>
     </div>
     <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
-      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>Categoría</th><th class="right">% costo</th><th></th></tr></thead><tbody>
-      ${_proveedores.map(p=>{const vend=(p.codigo||'').includes('|')?p.codigo.slice(p.codigo.lastIndexOf('|')+1):'';return `<tr>
+      <div class="muted" style="margin-bottom:6px">La columna <b>🔗 Matriz (% base)</b> muestra a qué fila de la matriz del <b>🧮 Cierre</b> está vinculado cada proveedor y su % base. Los vínculos se editan en <b>Cierre → 🔗 Vincular proveedores</b>.</div>
+      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>🔗 Matriz (% base)</th><th>Categoría</th><th class="right">% costo</th><th></th></tr></thead><tbody>
+      ${_proveedores.map(p=>{const vend=(p.codigo||'').includes('|')?p.codigo.slice(p.codigo.lastIndexOf('|')+1):'';
+        const casino=(p.nombre+' '+vend).trim(); const lk=_linkMap[casino]; const mp=lk&&lk.m; const base=mp?_baseMap[mp]:null;
+        return `<tr>
         <td><b>${esc(p.nombre)}</b></td>
         <td class="muted">${esc(vend||'—')}</td>
+        <td style="font-size:11.5px">${mp? esc(mp)+' <b style="color:var(--gold)">'+(base==null?'—':esc(base)+'%')+'</b>' : '<span style="opacity:.45">sin vincular</span>'}</td>
         <td><select id="pv-cat-${p.id}"><option ${p.categoria==='extra'?'selected':''}>extra</option><option ${p.categoria==='incluido'?'selected':''}>incluido</option><option ${p.categoria==='interno'?'selected':''}>interno</option></select></td>
         <td class="right"><input id="pv-tar-${p.id}" value="${esc(p.tarifa_pct||'')}" style="width:80px" placeholder="—"></td>
         <td class="right" style="white-space:nowrap"><button class="small" onclick="saveProv('${p.id}')">💾</button> <button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
-      </tr>`}).join('') || '<tr><td colspan="5" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
+      </tr>`}).join('') || '<tr><td colspan="6" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
       </tbody></table>
       <div class="muted">El <b>% costo</b> es el gasto fijo de cada proveedor — <b>igual para todos los clientes</b>. Es un costo de la empresa, no un cargo al cliente (lo que se le cobra al cliente lo maneja el base% sobre las ventas de fichas).</div>
     </div>`;
