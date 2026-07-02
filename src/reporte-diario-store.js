@@ -16,19 +16,23 @@ const upsertTx = db.transaction((conexion_id, fecha, grp, moneda, filas) => {
 });
 function upsertDia(conexion_id, fecha, grp, moneda, filas) { upsertTx(conexion_id, fecha, grp, moneda, filas); }
 
-/** Arma la matriz {dias, superagentes, matriz, totales} desde un set de filas. */
-function build(rows, grp, mes) {
+/** Arma la matriz {dias, superagentes, matriz, totales} desde un set de filas.
+ *  multiMoneda=true → una columna por (superagente × moneda) [NO se pueden sumar monedas distintas]. */
+function build(rows, grp, mes, multiMoneda = false) {
   const saMap = {}, matriz = {}, totales = {}, dias = new Set();
+  const keyOf = (r) => (multiMoneda ? `${r.sa_id}${r.moneda || 'ARS'}` : r.sa_id);
   for (const r of rows) {
-    saMap[r.sa_id] = r.login; dias.add(r.fecha);
-    (matriz[r.fecha] = matriz[r.fecha] || {})[r.sa_id] = { in: Number(r.in_amt) || 0, out: Number(r.out_amt) || 0, profit: Number(r.profit) || 0 };
+    const k = keyOf(r);
+    saMap[k] = { login: r.login, moneda: r.moneda || 'ARS' }; dias.add(r.fecha);
+    (matriz[r.fecha] = matriz[r.fecha] || {})[k] = { in: Number(r.in_amt) || 0, out: Number(r.out_amt) || 0, profit: Number(r.profit) || 0 };
   }
-  const superagentes = Object.keys(saMap).map((id) => ({ id, login: saMap[id] }));
+  const superagentes = Object.keys(saMap).map((id) => ({ id, login: saMap[id].login, moneda: saMap[id].moneda }));
   superagentes.forEach((s) => { totales[s.id] = { in: 0, out: 0, profit: 0 }; });
-  for (const r of rows) { const t = totales[r.sa_id]; t.in += Number(r.in_amt) || 0; t.out += Number(r.out_amt) || 0; t.profit += Number(r.profit) || 0; }
+  for (const r of rows) { const t = totales[keyOf(r)]; t.in += Number(r.in_amt) || 0; t.out += Number(r.out_amt) || 0; t.profit += Number(r.profit) || 0; }
   Object.keys(totales).forEach((id) => { const t = totales[id]; t.rtp = t.in ? (t.out / t.in * 100) : 0; });
   return { mes, group: grp, dias: [...dias].sort(), superagentes, matriz, totales };
 }
+const _esMulti = (moneda) => !moneda || moneda === 'TODAS' || moneda === '__all__';
 
 /** Monedas con data guardada en el mes (para el dropdown "monedas disponibles"). */
 function monedasDisponibles(conexion_id, grp, mes) {
@@ -39,10 +43,14 @@ function monedasDisponibles(conexion_id, grp, mes) {
   return m.length ? m : ['ARS'];
 }
 
-/** Matriz acumulada de UNA conexión (días × superagente) + totales + RTP, desde lo GUARDADO, en `moneda`. */
+/** Matriz acumulada de UNA conexión (días × superagente) + totales + RTP, desde lo GUARDADO, en `moneda`.
+ *  moneda vacío/'TODAS' → todas las monedas (una columna por superagente×moneda). */
 function getMatriz(conexion_id, grp, mes, moneda = 'ARS') {
-  const rows = db.prepare('SELECT * FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(conexion_id, grp, mes, moneda);
-  return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(conexion_id, grp, mes) };
+  const multi = _esMulti(moneda);
+  const rows = multi
+    ? db.prepare('SELECT * FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? ORDER BY fecha ASC, login ASC, moneda ASC').all(conexion_id, grp, mes)
+    : db.prepare('SELECT * FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(conexion_id, grp, mes, moneda);
+  return { ...build(rows, grp, mes, multi), moneda: multi ? 'TODAS' : moneda, monedas: monedasDisponibles(conexion_id, grp, mes) };
 }
 
 /** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes, en `moneda`.
@@ -51,10 +59,12 @@ function getMatriz(conexion_id, grp, mes, moneda = 'ARS') {
  *  recreadas) traen los mismos superagentes → aparecían DUPLICADOS. */
 function getMatrizTodos(grp, mes, moneda = 'ARS') {
   const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
-  const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda)
-    .filter((r) => validas.has(r.conexion_id))
-    .map((r) => ({ ...r, sa_id: `${r.conexion_id}:${r.sa_id}` }));
-  return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(null, grp, mes) };
+  const multi = _esMulti(moneda);
+  const base = multi
+    ? db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? ORDER BY fecha ASC, login ASC, moneda ASC').all(grp, mes)
+    : db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda);
+  const rows = base.filter((r) => validas.has(r.conexion_id)).map((r) => ({ ...r, sa_id: `${r.conexion_id}:${r.sa_id}` }));
+  return { ...build(rows, grp, mes, multi), moneda: multi ? 'TODAS' : moneda, monedas: monedasDisponibles(null, grp, mes) };
 }
 
 /** Borra las filas del acumulado de conexiones que YA NO existen (huérfanas de IDs viejos). */

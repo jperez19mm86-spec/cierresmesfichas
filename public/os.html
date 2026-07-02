@@ -1071,8 +1071,10 @@ function descargarProvCSV(){
 function renderMatriz(r){
   const sa=r.superagentes||[], dias=r.dias||[]; if(!sa.length) return '<div class="empty">Sin datos en el mes.</div>';
   const f=(n)=>money(n,0); const bl='border-left:2px solid var(--border)';
+  const multi=(r.moneda==='TODAS'); // multi-moneda → mostrar la moneda al lado del login
+  const hdr=(s)=>esc(s.login)+(multi&&s.moneda?' <span style="font-weight:400;opacity:.65">('+esc(s.moneda)+')</span>':'');
   let h='<table style="font-size:12px;white-space:nowrap"><thead>';
-  h+='<tr><th rowspan="2">Fecha</th>'+sa.map(s=>`<th colspan="3" style="text-align:center;${bl}">${esc(s.login)}</th>`).join('')+'</tr>';
+  h+='<tr><th rowspan="2">Fecha</th>'+sa.map(s=>`<th colspan="3" style="text-align:center;${bl}">${hdr(s)}</th>`).join('')+'</tr>';
   h+='<tr>'+sa.map(()=>`<th class="right" style="${bl}">IN</th><th class="right">OUT</th><th class="right">Profit</th>`).join('')+'</tr></thead><tbody>';
   dias.forEach(d=>{ h+='<tr><td>'+esc(d)+'</td>'+sa.map(s=>{const c=(r.matriz[d]||{})[s.id]||{in:0,out:0,profit:0};const pc=c.profit<0?'color:var(--red);':'';return `<td class="right" style="${bl}">${f(c.in)}</td><td class="right">${f(c.out)}</td><td class="right" style="${pc}">${f(c.profit)}</td>`;}).join('')+'</tr>'; });
   h+='<tr style="border-top:2px solid var(--gold);font-weight:800"><td>TOTAL</td>'+sa.map(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};return `<td class="right" style="${bl}">${f(t.in)}</td><td class="right">${f(t.out)}</td><td class="right">${f(t.profit)}</td>`;}).join('')+'</tr>';
@@ -1097,14 +1099,22 @@ async function verAcumulado(){
   _acData=null; _acView=null; const b0=document.getElementById('ac-csv'); if(b0) b0.disabled=true;
   if(!cid){ out.innerHTML='<div class="empty">Elegí una conexión.</div>'; return; }
   _acMes=val('ac-mes'); out.innerHTML='⏳ cargando lo guardado…';
+  const cur='&moneda='+encodeURIComponent(val('ac-cur')||'TODAS');
   const url = cid==='__all__'
-    ? '/api/os/casino/acumulado-todos?mes='+val('ac-mes')+'&group='+val('ac-nivel')
-    : '/api/os/casino/conexiones/'+cid+'/acumulado?mes='+val('ac-mes')+'&group='+val('ac-nivel');
+    ? '/api/os/casino/acumulado-todos?mes='+val('ac-mes')+'&group='+val('ac-nivel')+cur
+    : '/api/os/casino/conexiones/'+cid+'/acumulado?mes='+val('ac-mes')+'&group='+val('ac-nivel')+cur;
   const r=await api(url);
   if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
-  _acData=r;
+  _acData=r; fillAcCur();
   const b=document.getElementById('ac-csv'); if(b) b.disabled=!(r.dias&&r.dias.length);
   renderAcumulado();
+}
+// Puebla el dropdown de monedas del Acumulado con las disponibles ese mes (+ "Todas").
+function fillAcCur(){
+  const sel=document.getElementById('ac-cur'); if(!sel)return; const prev=sel.value||'TODAS';
+  const monedas=(_acData&&_acData.monedas&&_acData.monedas.length)?_acData.monedas:['ARS'];
+  sel.innerHTML='<option value="TODAS">🌐 Todas</option>'+monedas.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  sel.value=(prev==='TODAS'||monedas.includes(prev))?prev:'TODAS';
 }
 // Filtra los superagentes ya cargados por el buscador y re-dibuja la matriz SIN reconsultar.
 function renderAcumulado(){
@@ -1124,7 +1134,8 @@ function renderAcumulado(){
 function descargarAcumuladoCSV(){
   const r=_acView||_acData; if(!r||!r.superagentes)return; const sa=r.superagentes, dias=r.dias||[];
   const q=(s)=>'"'+String(s).replace(/"/g,'""')+'"';
-  const rows=[['Fecha'].concat(sa.flatMap(s=>[s.login+' IN',s.login+' OUT',s.login+' Profit'])).map(q).join(',')];
+  const multi=(r.moneda==='TODAS'); const lbl=(s)=>s.login+(multi&&s.moneda?' ('+s.moneda+')':'');
+  const rows=[['Fecha'].concat(sa.flatMap(s=>[lbl(s)+' IN',lbl(s)+' OUT',lbl(s)+' Profit'])).map(q).join(',')];
   dias.forEach(d=>{const row=[d];sa.forEach(s=>{const c=(r.matriz[d]||{})[s.id]||{in:0,out:0,profit:0};row.push(c.in,c.out,c.profit);});rows.push(row.map(q).join(','));});
   const tot=['TOTAL'];sa.forEach(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};tot.push(t.in,t.out,t.profit);});rows.push(tot.map(q).join(','));
   const rtp=['RTP'];sa.forEach(s=>{const t=r.totales[s.id]||{};rtp.push((t.rtp||0).toFixed(2)+'%','','');});rows.push(rtp.map(q).join(','));
@@ -1186,6 +1197,7 @@ VIEWS.acumulado = async () => {
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión / sistema</label><select id="ac-cx" onchange="verAcumulado()">${cxOpts}</select></div>
         <div style="flex:0"><label>Agrupar por</label><select id="ac-nivel" onchange="verAcumulado()"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
+        <div style="flex:0"><label>Moneda</label><select id="ac-cur" onchange="verAcumulado()" style="min-width:92px"><option value="TODAS">🌐 Todas</option></select></div>
         <div style="flex:0 0 auto"><label>Mes</label><div style="display:flex;gap:6px;align-items:center"><button class="outline small" onclick="acMes(-1)" style="flex:0 0 auto">◀</button><input type="month" id="ac-mes" value="${mes}" onchange="verAcumulado()" style="width:150px;flex:0 0 auto"><button class="outline small" onclick="acMes(1)" style="flex:0 0 auto">▶</button></div></div>
         <div style="flex:1 1 180px;min-width:150px"><label>Buscar tenant / superagente</label><input id="ac-q" placeholder="🔍 filtrar por login…" oninput="renderAcumulado()" autocomplete="off"></div>
         <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ac-no0" onchange="renderAcumulado()"/> ocultar en 0</label></div>
