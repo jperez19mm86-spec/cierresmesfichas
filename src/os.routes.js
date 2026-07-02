@@ -360,7 +360,7 @@ function mount(app) {
   // ?view=general|superagent  ?currencies=ARS,USD,BRL  ?from=&to=  ?template=
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
-    const ug = req.query.view === 'superagent' ? 'superagent' : ''; // default: general
+    const ug = req.query.ug != null ? req.query.ug : (req.query.view === 'superagent' ? 'superagent' : ''); // ?ug= override p/ probar valores
     const curs = String(req.query.currencies || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
     const r = await cli.reporteProveedoresMonedas({
       from: req.query.from, to: req.query.to, currencies: curs,
