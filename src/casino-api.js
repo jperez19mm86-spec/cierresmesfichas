@@ -245,16 +245,17 @@ function makeClient({ url, token, user, password } = {}) {
     try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers, timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
     const html = String(page.data || '');
-    // BUG HISTÓRICO: el HTML embebe la URL de la tabla con response=xlsx (botón "exportar Excel") y el regex
-    // viejo la agarraba → el casino devolvía "Unknown error"/página Error. Extraemos SOLO el id y forzamos
-    // response=js (JSON). El motor de reportes NO estaba muerto: le pedíamos el formato equivocado.
-    const idM = html.match(/area=reportstable&(?:amp;)?id=(\d+)/);
-    if (!idM) {
+    // BUG HISTÓRICO ("Unknown error" por semanas): la página embebe VARIAS URLs de reportstable. La 1ra es la
+    // del botón "exportar Excel" (response=xlsx) → devuelve página Error. La BUENA (la tabla AJAX) tiene
+    // response=js + safe_content=1 + from + to. Usamos ESA tal cual (no la reconstruimos). El motor SÍ anda.
+    const allRs = html.match(/area=reportstable[^"'\s\\]*/g) || [];
+    const rsUrl = allRs.find((u) => /response=js/.test(u)) || allRs[0];
+    if (!rsUrl) {
       // La página de reports volvió sin la tabla → suele ser la sesión caída (login redirect). Re-login y 1 reintento.
       if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, opts, false); }
       return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)', debug: { pageSnippet: html.slice(0, 300).replace(/\s+/g, ' ') } };
     }
-    let path = `/index.php?act=admin&area=reportstable&id=${idM[1]}&response=js`;
+    let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
     let data;
     try { data = await axios.get(`${base}${path}`, { headers: { 'User-Agent': UA, Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); }
