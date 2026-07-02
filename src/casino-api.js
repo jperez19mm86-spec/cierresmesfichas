@@ -257,10 +257,15 @@ function makeClient({ url, token, user, password } = {}) {
     }
     let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
-    let data;
-    try { data = await axios.get(`${base}${path}`, { headers: { 'User-Agent': UA, Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) }, timeout: 60000, validateStatus: () => true }); }
-    catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
-    const d = data.data;
+    const rsHeaders = { 'User-Agent': UA, Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
+    let data, d;
+    for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
+      try { data = await axios.get(`${base}${path}`, { headers: rsHeaders, timeout: 60000, validateStatus: () => true }); }
+      catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
+      d = data.data;
+      if (typeof d !== 'string') break;
+      if (t < 4) await new Promise((r) => setTimeout(r, 2500));
+    }
     // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
     if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsPath: path, rsStatus: data.status, rsSnippet: d.slice(0, 120).replace(/\s+/g, ' '), postTitle: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '(sin title)', postLen: html.length, todasRs: [...new Set(html.match(/reportstable[^"'\s\\)]{0,90}/g) || [])].slice(0, 14) } };
     const raw = Array.isArray(d) ? d
