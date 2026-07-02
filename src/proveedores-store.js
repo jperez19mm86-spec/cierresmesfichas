@@ -42,14 +42,19 @@ function remove(id) { return db.prepare('DELETE FROM proveedores WHERE id=?').ru
  * Alta MASIVA desde el REPORTE de proveedores (los que aparecen en el cierre del mes).
  * entries = [{ codigo, nombre }] YA deduplicados. Upsert por `codigo`: si ya existe NO lo toca
  * (preserva su % costo y categoría); si es nuevo lo crea con categoría 'extra' y % vacío.
- * Devuelve { creados, existentes }.
+ * opts.limpiarSinCosto = borra primero las entradas del reporte (codigo con '|') SIN % costo, para
+ * refrescar la identidad/nombres sin dejar huérfanos (las que tienen costo se preservan siempre).
+ * Devuelve { creados, existentes, eliminados }.
  */
-function importarCatalogo(entries) {
-  const existentesSet = new Set(
-    db.prepare("SELECT codigo FROM proveedores WHERE codigo IS NOT NULL AND codigo<>''").all().map((r) => r.codigo)
-  );
-  let creados = 0, existentes = 0;
+function importarCatalogo(entries, opts = {}) {
+  let creados = 0, existentes = 0, eliminados = 0;
   const tx = db.transaction((list) => {
+    if (opts.limpiarSinCosto) {
+      eliminados = db.prepare("DELETE FROM proveedores WHERE codigo LIKE '%|%' AND (tarifa_pct IS NULL OR tarifa_pct='')").run().changes;
+    }
+    const existentesSet = new Set(
+      db.prepare("SELECT codigo FROM proveedores WHERE codigo IS NOT NULL AND codigo<>''").all().map((r) => r.codigo)
+    );
     for (const e of list) {
       const codigo = String(e.codigo || '').trim();
       if (!codigo) continue;
@@ -59,7 +64,7 @@ function importarCatalogo(entries) {
     }
   });
   tx(entries || []);
-  return { creados, existentes };
+  return { creados, existentes, eliminados };
 }
 
 // ── config por panel ──

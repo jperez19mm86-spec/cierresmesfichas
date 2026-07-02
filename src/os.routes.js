@@ -204,7 +204,7 @@ function mount(app) {
     const conns = casinoConex.list();
     const ids = conexion === 'todas' ? conns.filter((c) => c.activa).map((c) => c.id) : [conexion];
     if (!ids.length) return err(res, 400, 'No hay conexiones de casino activas para importar.');
-    const seen = new Map(); // codigo(provider|label|vendor) → nombre(label)
+    const seen = new Map(); // codigo(label|vendor) → nombre(label) — identidad = PROVEEDOR + VENDOR
     const porConexion = [];
     for (const id of ids) {
       const cx = conns.find((c) => c.id === id);
@@ -215,9 +215,11 @@ function mount(app) {
         const r = await cli.reporteProveedores({ from, to, currency: cur, userGroupBy: '' }); // vista GENERAL (agrega por proveedor)
         if (!r.ok) { errs.push(cur + ': ' + r.error); continue; }
         for (const f of (r.filas || [])) {
-          const codigo = [f.provider, f.label, f.vendor].map((s) => String(s == null ? '' : s).trim()).join('|');
-          if (!codigo.replace(/[|\s]/g, '')) continue; // fila sin datos (todo vacío / solo pipes)
-          const nombre = String(f.label || f.vendor || f.provider || '').trim() || codigo;
+          const label = String(f.label == null ? '' : f.label).trim();   // PROVEEDOR (la marca)
+          const vendor = String(f.vendor == null ? '' : f.vendor).trim(); // VENDOR
+          const codigo = `${label}|${vendor}`; // identidad = PROVEEDOR + VENDOR (sin el "Sistema"/provider)
+          if (!codigo.replace(/[|\s]/g, '')) continue; // fila sin datos
+          const nombre = label || vendor || String(f.provider == null ? '' : f.provider).trim() || codigo;
           if (!seen.has(codigo)) seen.set(codigo, nombre);
           filas++;
         }
@@ -225,7 +227,8 @@ function mount(app) {
       porConexion.push({ id, nombre: cx && cx.nombre, ok: errs.length === 0, filas, error: errs.join('; ') || undefined });
     }
     const entries = [...seen.entries()].map(([codigo, nombre]) => ({ codigo, nombre }));
-    const stats = proveedores.importarCatalogo(entries);
+    // 'todas' = refresco total → limpia entradas del reporte sin % costo (identidad vieja / ya no aparecen)
+    const stats = proveedores.importarCatalogo(entries, { limpiarSinCosto: conexion === 'todas' });
     ok(res, {
       from, to, ...stats, total: entries.length, porConexion,
       // para el dropdown de alta manual (shape {code,label,sub} que ya usa el front)

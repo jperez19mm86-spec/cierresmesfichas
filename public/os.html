@@ -420,13 +420,14 @@ VIEWS.proveedores = async () => {
       </div>
     </div>
     <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
-      <table><thead><tr><th>Nombre</th><th>Categoría</th><th class="right">% costo</th><th></th></tr></thead><tbody>
-      ${_proveedores.map(p=>`<tr>
-        <td><b>${esc(p.nombre)}</b>${p.codigo?(' <span class="muted">'+esc(p.codigo)+'</span>'):''}</td>
+      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>Categoría</th><th class="right">% costo</th><th></th></tr></thead><tbody>
+      ${_proveedores.map(p=>{const vend=(p.codigo||'').includes('|')?p.codigo.slice(p.codigo.lastIndexOf('|')+1):'';return `<tr>
+        <td><b>${esc(p.nombre)}</b></td>
+        <td class="muted">${esc(vend||'—')}</td>
         <td><select id="pv-cat-${p.id}"><option ${p.categoria==='extra'?'selected':''}>extra</option><option ${p.categoria==='incluido'?'selected':''}>incluido</option><option ${p.categoria==='interno'?'selected':''}>interno</option></select></td>
         <td class="right"><input id="pv-tar-${p.id}" value="${esc(p.tarifa_pct||'')}" style="width:80px" placeholder="—"></td>
         <td class="right" style="white-space:nowrap"><button class="small" onclick="saveProv('${p.id}')">💾</button> <button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
-      </tr>`).join('') || '<tr><td colspan="4" class="empty">Sin proveedores. Cargá del casino arriba 👆</td></tr>'}
+      </tr>`}).join('') || '<tr><td colspan="5" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
       </tbody></table>
       <div class="muted">El <b>% costo</b> es el gasto fijo de cada proveedor — <b>igual para todos los clientes</b>. Es un costo de la empresa, no un cargo al cliente (lo que se le cobra al cliente lo maneja el base% sobre las ventas de fichas).</div>
     </div>`;
@@ -447,7 +448,7 @@ async function importarProvReporte(){
   if(!r.ok)return toast('Error: '+(r.error||''));
   _provCat=r.proveedores||[];
   const errs=(r.porConexion||[]).filter(c=>!c.ok);
-  toast(`${r.creados} nuevos · ${r.existentes} ya estaban · ${r.total} en el reporte`+(errs.length?` — ⚠ ${errs.map(e=>(e.nombre||e.id)+': '+e.error).join(' / ')}`:''));
+  toast(`${r.creados} nuevos · ${r.existentes} ya estaban${r.eliminados?` · ${r.eliminados} limpiados`:''} · ${r.total} en el reporte`+(errs.length?` — ⚠ ${errs.map(e=>(e.nombre||e.id)+': '+e.error).join(' / ')}`:''));
   VIEWS.proveedores();
 }
 async function addProv(){
