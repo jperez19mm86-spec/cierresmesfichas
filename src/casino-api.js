@@ -238,8 +238,14 @@ function makeClient({ url, token, user, password } = {}) {
     const absorb = (resp) => { const sc = resp && resp.headers && resp.headers['set-cookie']; if (Array.isArray(sc)) sc.forEach((c) => { const kv = c.split(';')[0]; const i = kv.indexOf('='); if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1).trim(); }); };
     const hGet = () => ({ 'User-Agent': UA, ...(useSession ? { Cookie: cookieHdr() } : {}) });
     const hForm = () => ({ ...hGet(), 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', Referer: refer });
-    // Paso 0: NAVEGAR (GET) como el browser — inicializa el estado del motor + captura cookies.
-    try { const g = await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), { headers: hGet(), timeout: 60000, validateStatus: () => true }); absorb(g); } catch (e) { /* seguir */ }
+    // Paso 0: NAVEGAR (GET) como el browser — inicializa el estado del motor + captura cookies + DESCUBRE el
+    // active_template seleccionado (el "Borrador" del usuario, que define el group_by por-superagente de ESE casino).
+    let gHtml = '';
+    try { const g = await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), { headers: hGet(), timeout: 60000, validateStatus: () => true }); absorb(g); gHtml = String(g.data || ''); } catch (e) { /* seguir */ }
+    const tplM = gHtml.match(/name=["']?active_template["']?[^>]*value=["'](\d+)/i)
+      || gHtml.match(/<option[^>]*value=["'](\d+)["'][^>]*\bselected/i)
+      || gHtml.match(/active_template["']?\s*[:=]\s*["']?(\d+)/);
+    const autoTpl = tplM ? tplM[1] : '';
     // Paso PREVIO: filtros (save_filter) — profit> para no ahogar al motor.
     for (const f of filtros) {
       const fb = new URLSearchParams();
@@ -251,6 +257,7 @@ function makeClient({ url, token, user, password } = {}) {
     }
     const b = new URLSearchParams();
     append(b);
+    if (!b.has('active_template') && autoTpl) b.append('active_template', autoTpl); // template seleccionado del usuario (auto)
     if (!useSession) b.append('api_token', token);
     let page;
     try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(page); }
