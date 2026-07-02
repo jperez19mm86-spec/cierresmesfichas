@@ -464,12 +464,38 @@ async function saveProv(id){
 }
 async function delProv(id){ if(!confirm('¿Eliminar?'))return; await api('/api/os/proveedores/'+id,{method:'DELETE'}); VIEWS.proveedores(); }
 
-// ───────── CIERRE DE MES (matriz % proveedor×cliente, réplica editable de la planilla de Alexa) ─────────
-let _cieData = {proveedores:[],clientes:[],celdas:{}};
-VIEWS.cierre = async () => {
+// ───────── CIERRE DE MES (réplica editable de la planilla de Alexa: matriz % + vinculación + TC) ─────────
+let _cieSub = 'matriz', _cieData = {proveedores:[],clientes:[],celdas:{}};
+const CIE_STYLE = `<style>
+    .ciet{border-collapse:separate;border-spacing:0;font-size:12px}
+    .ciet th,.ciet td{border:1px solid var(--border);padding:2px 4px;text-align:center;background:var(--bg)}
+    .ciet thead th{position:sticky;top:0;z-index:3;background:var(--bg2);white-space:nowrap;vertical-align:top}
+    .ciet td.cie-p,.ciet th.cie-h0{position:sticky;left:0;z-index:2;background:var(--bg2);text-align:left;white-space:nowrap;min-width:170px;font-weight:700}
+    .ciet thead th.cie-h0{z-index:4}
+    .ciet input{width:46px;border:none;background:transparent;color:var(--text);text-align:center;font-size:12px;padding:2px}
+    .ciet input.cie-d{width:52px;color:var(--muted)}
+    .ciet input.cie-lk{width:170px;text-align:left}
+    .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
+    .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
+    .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}.cie-x:hover{opacity:1}
+    .cie-badge{font-size:10.5px;padding:1px 6px;border-radius:8px;font-weight:700}
+    .cie-b-ok{background:rgba(0,160,70,.2);color:#0a4}.cie-b-ex{background:rgba(40,110,220,.18);color:#48f}
+    .cie-b-sug{background:rgba(210,160,0,.2);color:#c90}.cie-b-no{background:rgba(140,140,140,.2);color:var(--muted)}
+  </style>`;
+VIEWS.cierre = () => {
+  const subs = [['matriz','🧮 Matriz %'],['vincular','🔗 Vincular proveedores'],['tc','💱 Tipos de cambio (mensual)']];
+  document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
+    </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
+  ({matriz:cieMatriz, vincular:cieVincular, tc:cieTC}[_cieSub]||cieMatriz)();
+};
+function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
+function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+
+// ── sub-vista MATRIZ % ──
+async function cieMatriz(){
   const m = await api('/api/os/cierre/matriz'); _cieData = {proveedores:m.proveedores||[], clientes:m.clientes||[], celdas:m.celdas||{}};
   const provs=_cieData.proveedores, clis=_cieData.clientes, celdas=_cieData.celdas;
-  const cells = provs.length*clis.length;
   const head = ['<th class="cie-h0">Proveedor</th>','<th class="cie-hb">% base</th>']
     .concat(clis.map(c=>`<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`)).join('');
   const body = provs.map(p=>{
@@ -478,22 +504,8 @@ VIEWS.cierre = async () => {
     return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)}</td>`+
       `<td><input class="cie-b" data-prov="${esc(p.nombre)}" value="${esc(p.base_pct==null?'':p.base_pct)}" onchange="cieBase(this)"></td>`+tds+`</tr>`;
   }).join('');
-  document.getElementById('main').innerHTML = `
-  <style>
-    .ciet{border-collapse:separate;border-spacing:0;font-size:12px}
-    .ciet th,.ciet td{border:1px solid var(--border);padding:2px 4px;text-align:center;background:var(--bg)}
-    .ciet thead th{position:sticky;top:0;z-index:3;background:var(--bg2);white-space:nowrap;vertical-align:top}
-    .ciet td.cie-p,.ciet th.cie-h0{position:sticky;left:0;z-index:2;background:var(--bg2);text-align:left;white-space:nowrap;min-width:170px;font-weight:700}
-    .ciet thead th.cie-h0{z-index:4}
-    .ciet input{width:46px;border:none;background:transparent;color:var(--text);text-align:center;font-size:12px;padding:2px}
-    .ciet input.cie-d{width:52px;color:var(--muted)}
-    .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
-    .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
-    .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}
-    .cie-x:hover{opacity:1}
-  </style>
-  <div class="card"><h2>🧮 Cierre de Mes — Matriz de %</h2>
-    <div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = el rate mínimo/costo; <b>desc</b> (bajo cada cliente) = su descuento (1_Cliente). El % neto del cierre = <b>%celda − descuento</b>. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes (${cells.toLocaleString('es-AR')} celdas).</div>
+  document.getElementById('cie-body').innerHTML = `
+  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo; <b>desc</b> (bajo cada cliente) = su descuento (1_Cliente). % neto del cierre = <b>%celda − descuento</b>. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes.</div>
     <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:160px"><label>🔎 Buscar proveedor</label><input id="cie-q" oninput="filtCie()" placeholder="ej: PRAGMATIC"></div>
       <div style="flex:0"><label>➕ Proveedor (Marca Vendor)</label><input id="cie-np" placeholder="ej: NETENT OP" style="width:180px"></div>
@@ -502,20 +514,70 @@ VIEWS.cierre = async () => {
       <div style="flex:0"><button class="small" onclick="addCieCli()">Columna</button></div>
     </div>
   </div>
-  <div class="card" style="overflow:auto;max-height:76vh;padding:6px" id="cie-wrap">
-    ${provs.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
-      : '<div class="empty">Matriz vacía. Importá la planilla de Alexa (o agregá proveedores/clientes arriba).</div>'}
+  <div class="card" style="overflow:auto;max-height:74vh;padding:6px">
+    ${provs.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Matriz vacía.</div>'}
   </div>`;
-};
-function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+}
 async function cieCell(el){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,cliente:el.dataset.cli,pct:el.value})}); if(r.ok)_cieFlash(el); }
 async function cieBase(el){ const r=await api('/api/os/cierre/base',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,base_pct:el.value})}); if(r.ok)_cieFlash(el); }
 async function cieDesc(el){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:el.dataset.cli,descuento:el.value})}); if(r.ok)_cieFlash(el); }
-async function addCieProv(){ const n=val('cie-np').trim(); if(!n)return toast('Poné el nombre (Marca Vendor)'); await api('/api/os/cierre/proveedor',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Fila agregada'); VIEWS.cierre(); }
-async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); VIEWS.cierre(); }
-async function delCieProv(n){ if(!confirm('¿Quitar el proveedor "'+n+'" y sus %?'))return; await api('/api/os/cierre/proveedor/'+encodeURIComponent(n),{method:'DELETE'}); VIEWS.cierre(); }
-async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?'))return; await api('/api/os/cierre/cliente/'+encodeURIComponent(n),{method:'DELETE'}); VIEWS.cierre(); }
+async function addCieProv(){ const n=val('cie-np').trim(); if(!n)return toast('Poné el nombre (Marca Vendor)'); await api('/api/os/cierre/proveedor',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Fila agregada'); cieMatriz(); }
+async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); cieMatriz(); }
+async function delCieProv(n){ if(!confirm('¿Quitar el proveedor "'+n+'" y sus %?'))return; await api('/api/os/cierre/proveedor/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
+async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?'))return; await api('/api/os/cierre/cliente/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
 function filtCie(){ const q=(val('cie-q')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display = tr.dataset.prov.includes(q)?'':'none'; }); }
+
+// ── sub-vista VINCULAR proveedores del casino ↔ matriz ──
+const _CIE_BADGE = {vinculado:['cie-b-ok','✔ manual'], exacto:['cie-b-ex','= exacto'], sugerido:['cie-b-sug','≈ por marca'], ambiguo:['cie-b-sug','? elegí'], sin_match:['cie-b-no','sin match']};
+async function cieVincular(){
+  const d = await api('/api/os/cierre/links'); const rows=d.rows||[], matriz=d.matriz||[];
+  const n=x=>rows.filter(r=>r.estado===x).length;
+  const dl = `<datalist id="cie-mlist">${matriz.map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`;
+  const trs = rows.map(r=>{const [bc,bl]=_CIE_BADGE[r.estado]||_CIE_BADGE.sin_match; const cur=r.matriz||(r.estado==='exacto'||r.estado==='sugerido'?r.sugerido:'')||'';
+    return `<tr data-casino="${esc(r.casino.toLowerCase())}"><td class="cie-p">${esc(r.casino)}</td>`+
+      `<td><input class="cie-lk" list="cie-mlist" data-casino="${esc(r.casino)}" value="${esc(cur)}" placeholder="(elegir de la matriz)" onchange="cieSetLink(this)"></td>`+
+      `<td><span class="cie-badge ${bc}">${bl}</span></td></tr>`;}).join('');
+  document.getElementById('cie-body').innerHTML = `${dl}
+  <div class="card"><div class="muted">Vinculá cada proveedor que sale del <b>casino</b> (Marca&nbsp;Vendor, ej "RUBYPLAY XG") con su fila en la <b>matriz de %</b> de Alexa (ej "RUBYPLAY OP"). Al calcular el cierre, el profit de cada proveedor usa el % de la fila vinculada. <b>Auto-vincular</b> resuelve los match exactos + los únicos por marca; el resto se elige a mano.</div>
+    <div class="row" style="margin-top:8px;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="small" onclick="cieAuto()">🪄 Auto-vincular</button>
+      <span class="cie-badge cie-b-ok">${n('vinculado')} manual</span> <span class="cie-badge cie-b-ex">${n('exacto')} exacto</span>
+      <span class="cie-badge cie-b-sug">${n('sugerido')+n('ambiguo')} a revisar</span> <span class="cie-badge cie-b-no">${n('sin_match')} sin match</span>
+      <div style="flex:1;min-width:150px"><input id="cie-lq" oninput="filtLk()" placeholder="🔎 buscar proveedor casino"></div>
+    </div>
+  </div>
+  <div class="card" style="overflow:auto;max-height:72vh;padding:6px">
+    ${rows.length? `<table class="ciet"><thead><tr><th class="cie-h0">Proveedor del casino</th><th>→ Matriz de %</th><th>Estado</th></tr></thead><tbody>${trs}</tbody></table>` : '<div class="empty">No hay proveedores en el catálogo. Importalos en la solapa 🏷 Proveedores.</div>'}
+  </div>`;
+}
+async function cieSetLink(el){ const r=await api('/api/os/cierre/link',{method:'POST',body:JSON.stringify({casino:el.dataset.casino,matriz:el.value})}); if(r.ok){_cieFlash(el); const badge=el.closest('tr').querySelector('.cie-badge'); if(badge&&el.value.trim()){badge.className='cie-badge cie-b-ok';badge.textContent='✔ manual';}} }
+async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{method:'POST'}); if(r.ok)toast(`Vinculados: ${r.exactos} exactos + ${r.porMarca} por marca`); cieVincular(); }
+function filtLk(){ const q=(val('cie-lq')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display=(tr.dataset.casino||'').includes(q)?'':'none'; }); }
+
+// ── sub-vista TIPOS DE CAMBIO (moneda × mes, se llena mensual) ──
+async function cieTC(){
+  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], meses=d.meses||[], tasas=d.tasas||{};
+  const head = ['<th class="cie-h0">Moneda</th>'].concat(meses.map(me=>`<th>${esc(me)}</th>`)).join('');
+  const body = monedas.map(mon=>{
+    const tds = meses.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
+    return `<tr><td class="cie-p">${esc(mon)}</td>${tds}</tr>`;
+  }).join('');
+  document.getElementById('cie-body').innerHTML = `
+  <div class="card"><div class="muted">Tipo de cambio a USDT por <b>moneda × mes</b>. <b>Se llena todos los meses</b> (los valores cambian según la moneda). Al calcular el cierre, el profit de cada proveedor se convierte con la tasa de su moneda en ese mes. Se guarda solo. <b>${monedas.length}</b> monedas × <b>${meses.length}</b> meses.</div>
+    <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
+      <div style="flex:0"><label>➕ Mes</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
+      <div style="flex:0"><button class="small" onclick="cieAddMes()">Columna</button></div>
+      <div style="flex:0"><label>➕ Moneda</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
+      <div style="flex:0"><button class="small" onclick="cieAddMon()">Fila</button></div>
+    </div>
+  </div>
+  <div class="card" style="overflow:auto;max-height:74vh;padding:6px">
+    ${monedas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
+  </div>`;
+}
+async function cieSetTC(el){ const r=await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:el.dataset.mon,mes:el.dataset.mes,tasa:el.value})}); if(r.ok)_cieFlash(el); }
+async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast('Poné el mes'); const mon=(await api('/api/os/cierre/tc')).monedas||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon[0]||'USD',mes:me,tasa:'1'})}); toast('Mes agregado'); cieTC(); }
+async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); cieTC(); }
 
 // ───────── TIPOS DE CAMBIO ─────────
 VIEWS.tc = async () => {

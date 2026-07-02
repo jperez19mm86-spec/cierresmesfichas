@@ -213,6 +213,11 @@ db.exec(`
     moneda TEXT, mes TEXT, tasa TEXT,         -- Exchange Rate (moneda × mes → USDT)
     PRIMARY KEY (moneda, mes)
   );
+  CREATE TABLE IF NOT EXISTS cierre_link (
+    casino TEXT PRIMARY KEY,   -- proveedor que sale del casino "MARCA VENDOR" (ej "RUBYPLAY XG")
+    matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")
+    origen TEXT                -- exacto | marca | manual (cómo se vinculó)
+  );
 
   /* índices útiles */
   CREATE INDEX IF NOT EXISTS idx_paneles_cliente ON paneles(cliente_id);

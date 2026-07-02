@@ -251,6 +251,10 @@ function mount(app) {
   app.delete('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeCliente(req.params.nombre) }));
   app.post('/api/os/cierre/tc', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setTC(b.moneda, b.mes, b.tasa) }); }));
   app.post('/api/os/cierre/importar', wrap((req, res) => ok(res, cierreStore.importar(req.body || {}))));
+  // vinculación proveedor del casino ↔ matriz
+  app.get('/api/os/cierre/links', (_req, res) => ok(res, cierreStore.getLinks()));
+  app.post('/api/os/cierre/link', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setLink(b.casino, b.matriz) }); }));
+  app.post('/api/os/cierre/auto-vincular', wrap((_req, res) => ok(res, cierreStore.autoVincular())));
 
   app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
   app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {

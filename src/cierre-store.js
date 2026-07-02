@@ -89,6 +89,64 @@ function setTC(moneda, mes, tasa) {
   return true;
 }
 
+// ── VINCULACIÓN proveedor del casino ↔ proveedor de la matriz ──
+// El casino trae "MARCA VENDOR" (ej "RUBYPLAY XG"); la matriz de Alexa usa otro vendor (ej "RUBYPLAY OP").
+// Vinculamos cada proveedor del casino (= catálogo, codigo "label|vendor") a una fila de la matriz.
+function _casinoProvs() {
+  return db.prepare("SELECT nombre, codigo FROM proveedores WHERE codigo LIKE '%|%' ORDER BY nombre").all()
+    .map((p) => { const vendor = p.codigo.slice(p.codigo.lastIndexOf('|') + 1); return { casino: `${p.nombre} ${vendor}`.trim(), marca: p.nombre, vendor }; });
+}
+function _porMarca() {
+  const map = {};
+  for (const r of db.prepare('SELECT nombre FROM cierre_proveedor').all()) {
+    const marca = r.nombre.split(' ').slice(0, -1).join(' ') || r.nombre;
+    (map[marca] = map[marca] || []).push(r.nombre);
+  }
+  return map;
+}
+/** Devuelve cada proveedor del casino con su vínculo actual + sugerencia + estado, y la lista de la matriz. */
+function getLinks() {
+  const matrizProvs = db.prepare('SELECT nombre FROM cierre_proveedor ORDER BY nombre').all().map((r) => r.nombre);
+  const matrizSet = new Set(matrizProvs);
+  const porMarca = _porMarca();
+  const links = {}; db.prepare('SELECT casino, matriz, origen FROM cierre_link').all().forEach((r) => { links[r.casino] = r; });
+  const rows = _casinoProvs().map((p) => {
+    const l = links[p.casino];
+    let matriz = l ? l.matriz : null, origen = l ? l.origen : null, sugerido = null, estado;
+    if (matriz) estado = 'vinculado';
+    else if (matrizSet.has(p.casino)) { sugerido = p.casino; estado = 'exacto'; }
+    else { const c = porMarca[p.marca]; if (c && c.length === 1) { sugerido = c[0]; estado = 'sugerido'; } else if (c && c.length > 1) { estado = 'ambiguo'; } else estado = 'sin_match'; }
+    return { ...p, matriz, origen, sugerido, estado, opciones: porMarca[p.marca] || [] };
+  });
+  return { rows, matriz: matrizProvs };
+}
+function setLink(casino, matriz) {
+  const c = clean(casino); if (!c) return false;
+  const m = clean(matriz);
+  if (m == null) { db.prepare('DELETE FROM cierre_link WHERE casino=?').run(c); return true; }
+  db.prepare("INSERT INTO cierre_link (casino,matriz,origen) VALUES (?,?,'manual') ON CONFLICT(casino) DO UPDATE SET matriz=excluded.matriz, origen='manual'").run(c, m);
+  return true;
+}
+/** Auto-vincula: match EXACTO (seguro) + match único por MARCA (sugerido). No pisa vínculos manuales. */
+function autoVincular() {
+  const matrizProvs = db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre);
+  const matrizSet = new Set(matrizProvs);
+  const porMarca = _porMarca();
+  const yaLink = new Set(db.prepare("SELECT casino FROM cierre_link WHERE origen='manual'").all().map((r) => r.casino));
+  let exactos = 0, porMarcaN = 0;
+  const tx = db.transaction(() => {
+    for (const p of _casinoProvs()) {
+      if (yaLink.has(p.casino)) continue; // no pisar manuales
+      let m = null, o = null;
+      if (matrizSet.has(p.casino)) { m = p.casino; o = 'exacto'; exactos++; }
+      else { const c = porMarca[p.marca]; if (c && c.length === 1) { m = c[0]; o = 'marca'; porMarcaN++; } }
+      if (m) db.prepare("INSERT INTO cierre_link (casino,matriz,origen) VALUES (?,?,?) ON CONFLICT(casino) DO UPDATE SET matriz=excluded.matriz, origen=excluded.origen").run(p.casino, m, o);
+    }
+  });
+  tx();
+  return { exactos, porMarca: porMarcaN };
+}
+
 /**
  * Seed masivo (duplicar la planilla). payload = { proveedores:[{nombre,base_pct}], clientes:[{nombre,descuento}],
  * celdas:[{proveedor,cliente,pct}], tc:[{moneda,mes,tasa}], reset:bool }.
@@ -122,4 +180,5 @@ function importar(payload = {}) {
 module.exports = {
   getMatriz, setCelda, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, getTC, setTC, importar,
+  getLinks, setLink, autoVincular,
 };
