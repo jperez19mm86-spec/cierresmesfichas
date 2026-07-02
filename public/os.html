@@ -742,7 +742,7 @@ VIEWS.reportes = async () => {
       <div id="rm-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
     </div>
     <div class="card">
-      <h2>🏷 Reporte de Proveedores <span class="muted">(profit/bet/win/RTP por proveedor — multimoneda)</span></h2>
+      <h2>🏷 Reporte de Proveedores <span class="muted">(profit por proveedor — multimoneda)</span></h2>
       <div class="muted" style="margin-bottom:8px">Por <b>proveedor</b> en el mes (on_bets). <b>General</b> = toda la plataforma; <b>Por superagente</b> = abierto por cuenta. Corre una consulta por cada moneda elegida (puede tardar).</div>
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión / plataforma</label><select id="pr-cx">${cxOpts}</select></div>
@@ -871,11 +871,10 @@ function renderProv(){
   out.innerHTML=html||'<div class="empty">Sin datos en las monedas elegidas'+(q?' (con ese filtro)':'')+'.</div>';
 }
 function renderProvGeneral(filas,f){
-  const rows=filas.slice().sort((a,b)=>b.profit-a.profit); let bet=0,win=0,prof=0;
-  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Bet</th><th class="right">Win</th><th class="right">Profit</th><th class="right">RTP</th></tr></thead><tbody>';
-  rows.forEach(x=>{ bet+=x.bet;win+=x.win;prof+=x.profit; const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right">${f(x.bet)}</td><td class="right">${f(x.win)}</td><td class="right" style="${pc}">${f(x.profit)}</td><td class="right">${(Number(x.rtp)||0).toFixed(2)}%</td></tr>`; });
-  const rtp=bet?(win/bet*100):0;
-  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="3">TOTAL</td><td class="right">${f(bet)}</td><td class="right">${f(win)}</td><td class="right">${f(prof)}</td><td class="right">${rtp.toFixed(2)}%</td></tr>`;
+  const rows=filas.slice().sort((a,b)=>b.profit-a.profit); let prof=0;
+  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Profit</th></tr></thead><tbody>';
+  rows.forEach(x=>{ prof+=x.profit; const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right" style="${pc}">${f(x.profit)}</td></tr>`; });
+  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="3">TOTAL</td><td class="right">${f(prof)}</td></tr>`;
   return h+'</tbody></table>';
 }
 function renderProvBySa(filas,f){
@@ -893,11 +892,11 @@ function renderProvBySa(filas,f){
 function descargarProvCSV(){
   if(!_provData||!_provData.monedas)return;
   const view=_provData.view; const q=(s)=>'"'+String(s).replace(/"/g,'""')+'"';
-  const header=view==='superagent'?['Moneda','Cuenta','Sistema','Proveedor','Vendor','Profit']:['Moneda','Sistema','Proveedor','Vendor','Bet','Win','Profit','RTP'];
+  const header=view==='superagent'?['Moneda','Cuenta','Sistema','Proveedor','Vendor','Profit']:['Moneda','Sistema','Proveedor','Vendor','Profit'];
   const rows=[header.map(q).join(',')];
   for(const cur of Object.keys(_provData.monedas)){
     const md=_provData.monedas[cur]; if(!md.ok)continue;
-    (md.filas||[]).forEach(x=>{ const b=view==='superagent'?[cur,x.saLogin,x.provider,x.label,x.vendor,x.profit]:[cur,x.provider,x.label,x.vendor,x.bet,x.win,x.profit,x.rtp]; rows.push(b.map(q).join(',')); });
+    (md.filas||[]).forEach(x=>{ const b=view==='superagent'?[cur,x.saLogin,x.provider,x.label,x.vendor,x.profit]:[cur,x.provider,x.label,x.vendor,x.profit]; rows.push(b.map(q).join(',')); });
   }
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='proveedores-'+(val('pr-mes')||'')+'.csv';a.click();
