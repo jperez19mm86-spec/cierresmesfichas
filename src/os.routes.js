@@ -487,6 +487,8 @@ function mount(app) {
   app.get('/api/os/casino/acumulado-todos', (req, res) => {
     ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesTZ(), req.query.moneda || 'ARS'));
   });
+  // Limpia el acumulado de conexiones que ya no existen (IDs viejos) → saca superagentes duplicados.
+  app.post('/api/os/casino/acumulado/limpiar-huerfanos', wrap((_req, res) => ok(res, { borradas: reporteDiarioStore.limpiarHuerfanos() })));
   // Capturar HOY (o un día) en TODAS las conexiones activas a la vez.
   app.post('/api/os/casino/capturar-hoy-todos', wrap(async (req, res) => {
     const dia = req.query.dia || (req.body && req.body.dia) || fechaTZ();

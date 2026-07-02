@@ -46,11 +46,21 @@ function getMatriz(conexion_id, grp, mes, moneda = 'ARS') {
 }
 
 /** Matriz acumulada de TODAS las conexiones (todos los GOD juntos) para el mes, en `moneda`.
- *  Clave compuesta conexion:sa_id → NO colisionan ids de nodo entre sistemas (Europa/Casino). */
+ *  Clave compuesta conexion:sa_id → NO colisionan ids de nodo entre sistemas (Europa/Casino).
+ *  Filtra SOLO conexiones REGISTRADAS (casino_conexiones): las huérfanas (IDs viejos de conexiones
+ *  recreadas) traen los mismos superagentes → aparecían DUPLICADOS. */
 function getMatrizTodos(grp, mes, moneda = 'ARS') {
+  const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
   const rows = db.prepare('SELECT * FROM reporte_diario WHERE grp=? AND substr(fecha,1,7)=? AND moneda=? ORDER BY fecha ASC, login ASC').all(grp, mes, moneda)
+    .filter((r) => validas.has(r.conexion_id))
     .map((r) => ({ ...r, sa_id: `${r.conexion_id}:${r.sa_id}` }));
   return { ...build(rows, grp, mes), moneda, monedas: monedasDisponibles(null, grp, mes) };
+}
+
+/** Borra las filas del acumulado de conexiones que YA NO existen (huérfanas de IDs viejos). */
+function limpiarHuerfanos() {
+  if (!db.prepare('SELECT COUNT(*) c FROM casino_conexiones').get().c) return 0; // sin conexiones → NO borrar (NOT IN vacío borraría todo)
+  return db.prepare('DELETE FROM reporte_diario WHERE conexion_id NOT IN (SELECT id FROM casino_conexiones)').run().changes;
 }
 
 function fechasCapturadas(conexion_id, grp) {
@@ -74,4 +84,4 @@ function filasPanelesMes(keys, mes, moneda = 'ARS') {
   return out;
 }
 
-module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes };
+module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes, limpiarHuerfanos };
