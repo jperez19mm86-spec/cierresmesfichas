@@ -878,15 +878,18 @@ function renderProvGeneral(filas,f){
   return h+'</tbody></table>';
 }
 function renderProvBySa(filas,f){
+  // 1 SECCIÓN por superagente: encabezado con el nombre + sus proveedores + subtotal. Superagentes ordenados
+  // por profit (los que más generan, primero). Separado por cuenta, como se ve en el casino.
   const bySa={}; filas.forEach(x=>{ const k=x.saLogin||x.saId||'(sin cuenta)'; (bySa[k]=bySa[k]||[]).push(x); });
-  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Cuenta</th><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Profit</th></tr></thead><tbody>';
+  const orden=Object.keys(bySa).map(sa=>({sa,sub:bySa[sa].reduce((a,x)=>a+x.profit,0)})).sort((a,b)=>b.sub-a.sub);
+  let h='<table style="font-size:12px;white-space:nowrap"><thead><tr><th>Sistema</th><th>Proveedor</th><th>Vendor</th><th class="right">Profit</th></tr></thead><tbody>';
   let gtot=0;
-  Object.keys(bySa).sort().forEach(sa=>{
-    const rows=bySa[sa].slice().sort((a,b)=>b.profit-a.profit); let sub=0;
-    rows.forEach((x,i)=>{ sub+=x.profit;gtot+=x.profit; const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${i===0?'<b>'+esc(sa)+'</b>':''}</td><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right" style="${pc}">${f(x.profit)}</td></tr>`; });
-    h+=`<tr style="border-top:1px solid var(--border);font-weight:700"><td colspan="4">Subtotal ${esc(sa)}</td><td class="right">${f(sub)}</td></tr>`;
+  orden.forEach(({sa,sub})=>{
+    gtot+=sub;
+    h+=`<tr style="background:var(--bg3)"><td colspan="3" style="font-weight:800;padding:7px 8px">👤 ${esc(sa)}</td><td class="right" style="font-weight:800;padding:7px 8px">${f(sub)}</td></tr>`;
+    bySa[sa].slice().sort((a,b)=>b.profit-a.profit).forEach(x=>{ const pc=x.profit<0?'color:var(--red);':''; h+=`<tr><td>${esc(x.provider)}</td><td>${esc(x.label)}</td><td>${esc(x.vendor)}</td><td class="right" style="${pc}">${f(x.profit)}</td></tr>`; });
   });
-  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="4">TOTAL</td><td class="right">${f(gtot)}</td></tr>`;
+  h+=`<tr style="border-top:2px solid var(--gold);font-weight:800"><td colspan="3">TOTAL</td><td class="right">${f(gtot)}</td></tr>`;
   return h+'</tbody></table>';
 }
 function descargarProvCSV(){
