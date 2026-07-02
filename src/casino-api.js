@@ -328,7 +328,7 @@ function makeClient({ url, token, user, password } = {}) {
       provider: x.provider || '', label: x.label || '', vendor: x.vendor || '',
       bet: numC(x.bet), win: numC(x.win), profit: numC(x.profit), rtp: numC(x.rtp),
     })).filter((x) => x.provider || x.label || x.bet || x.win || x.profit);
-    return { ok: true, from, to, currency, general, filas };
+    return { ok: true, from, to, currency, general, filas, _raw0: r.raw[0] || null };
   }
 
   /**
@@ -341,7 +341,7 @@ function makeClient({ url, token, user, password } = {}) {
     const monedas = {};
     for (const cur of list) {
       const r = await reporteProveedores({ from, to, currency: cur, userGroupBy, activeTemplate });
-      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error, debug: r.debug };
+      monedas[cur] = r.ok ? { ok: true, filas: r.filas, _raw0: r._raw0 } : { ok: false, error: r.error, debug: r.debug };
     }
     return { ok: true, from, to, monedas };
   }
