@@ -261,6 +261,9 @@ function makeClient({ url, token, user, password } = {}) {
       return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)', debug: { pageSnippet: html.slice(0, 300).replace(/\s+/g, ' ') } };
     }
     let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
+    // CLAVE (bug de semanas): la tabla AJAX AGREGA paginación al GET (sort/order/offset/limit). SIN esos params
+    // el reportstable devuelve página de Error — NO era el id (7164043 era correcto). limit alto = traer TODO.
+    if (!/[?&]limit=/.test(path)) path += '&sort=provider&order=desc&offset=0&limit=100000';
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
     let data, d;
     for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
