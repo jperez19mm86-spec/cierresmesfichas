@@ -38,6 +38,30 @@ function update(id, patch) {
 }
 function remove(id) { return db.prepare('DELETE FROM proveedores WHERE id=?').run(id).changes > 0; }
 
+/**
+ * Alta MASIVA desde el REPORTE de proveedores (los que aparecen en el cierre del mes).
+ * entries = [{ codigo, nombre }] YA deduplicados. Upsert por `codigo`: si ya existe NO lo toca
+ * (preserva su % costo y categoría); si es nuevo lo crea con categoría 'extra' y % vacío.
+ * Devuelve { creados, existentes }.
+ */
+function importarCatalogo(entries) {
+  const existentesSet = new Set(
+    db.prepare('SELECT codigo FROM proveedores WHERE codigo IS NOT NULL AND codigo<>""').all().map((r) => r.codigo)
+  );
+  let creados = 0, existentes = 0;
+  const tx = db.transaction((list) => {
+    for (const e of list) {
+      const codigo = String(e.codigo || '').trim();
+      if (!codigo) continue;
+      if (existentesSet.has(codigo)) { existentes++; continue; }
+      create({ nombre: e.nombre, codigo, categoria: 'extra' }); // tarifa_pct queda vacío
+      existentesSet.add(codigo); creados++;
+    }
+  });
+  tx(entries || []);
+  return { creados, existentes };
+}
+
 // ── config por panel ──
 function listPorPanel(panel_id) {
   return db.prepare(`
@@ -115,7 +139,7 @@ function removeClienteProveedor(cliente_id, proveedor_id) {
 }
 
 module.exports = {
-  CATEGORIAS, list, get, create, update, remove,
+  CATEGORIAS, list, get, create, update, remove, importarCatalogo,
   listPorPanel, setPanelProveedor, removePanelProveedor,
   catalogoParaCliente, tarifaParaCliente, setClienteProveedor, removeClienteProveedor,
 };

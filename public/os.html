@@ -399,7 +399,7 @@ let _provCat = []; // catálogo de proveedores del casino (gamesSystem) cargado 
 VIEWS.proveedores = async () => {
   const d = await api('/api/os/proveedores'); _proveedores=d.proveedores||[];
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
-  const cxOpts = cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')||'<option value="">(sin conexión)</option>';
+  const cxOpts = '<option value="todas">🌐 Todas (Europa + Casino)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provOpts = _provCat.length
     ? ('<option value="">— elegí proveedor —</option>'+_provCat.map(p=>`<option value="${esc(p.code)}" data-label="${esc(p.label)}">${esc(p.label)}${p.sub?'':' (agregador)'}</option>`).join(''))
     : '<option value="">(cargá los proveedores del casino →)</option>';
@@ -407,15 +407,17 @@ VIEWS.proveedores = async () => {
     <div class="card"><h2>➕ Proveedor</h2>
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión casino</label><select id="pr-cx">${cxOpts}</select></div>
-        <div style="flex:0"><button class="outline" onclick="cargarProvCat()">⤓ Cargar proveedores del casino</button></div>
+        <div style="flex:0"><label>Desde</label><input id="pr-from" type="date" style="width:150px"/></div>
+        <div style="flex:0"><label>Hasta</label><input id="pr-to" type="date" style="width:150px"/></div>
+        <div style="flex:0"><button class="outline" onclick="importarProvReporte()">⤓ Importar del reporte</button></div>
       </div>
+      <div class="muted" style="margin-top:6px">Trae los proveedores <b>tal como aparecen en el Reporte de Proveedores</b> (unión de las conexiones — la misma marca en Europa y Casino cuenta una sola vez). Después completá el <b>% de costo</b> de cada uno. Es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.</div>
       <div class="row" style="margin-top:8px; align-items:flex-end">
-        <div style="flex:2"><label>Proveedor</label><select id="pr-sel">${provOpts}</select></div>
+        <div style="flex:2"><label>Agregar uno manual</label><select id="pr-sel">${provOpts}</select></div>
         <div style="flex:0"><label>Categoría</label><select id="pr-cat"><option>extra</option><option>incluido</option><option>interno</option></select></div>
         <div style="flex:0"><label>% costo</label><input id="pr-tarifa" style="width:90px" placeholder="17"/></div>
         <button onclick="addProv()">Agregar</button>
       </div>
-      <div class="muted" style="margin-top:6px">Elegí la conexión → cargá los proveedores reales del casino → agregá los que usás con su <b>% de costo</b> (lo que se paga por el proveedor). Es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.</div>
     </div>
     <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
       <table><thead><tr><th>Nombre</th><th>Categoría</th><th class="right">% costo</th><th></th></tr></thead><tbody>
@@ -428,13 +430,25 @@ VIEWS.proveedores = async () => {
       </tbody></table>
       <div class="muted">El <b>% costo</b> es el gasto fijo de cada proveedor — <b>igual para todos los clientes</b>. Es un costo de la empresa, no un cargo al cliente (lo que se le cobra al cliente lo maneja el base% sobre las ventas de fichas).</div>
     </div>`;
+  // fechas por defecto: últimos 45 días (rango amplio para no perder ningún proveedor del reporte)
+  const _iso=(d)=>d.toISOString().slice(0,10); const _to=new Date();
+  const eF=document.getElementById('pr-from'), eT=document.getElementById('pr-to');
+  if(eT&&!eT.value) eT.value=_iso(_to);
+  if(eF&&!eF.value) eF.value=_iso(new Date(_to.getTime()-45*864e5));
 };
-async function cargarProvCat(){
-  const cid=val('pr-cx'); if(!cid)return toast('Elegí una conexión');
-  toast('Cargando proveedores del casino…');
-  const r=await api('/api/os/casino/conexiones/'+cid+'/catalogo-proveedores');
+async function importarProvReporte(){
+  const cid=val('pr-cx')||'todas';
+  const from=val('pr-from'), to=val('pr-to');
+  toast('Importando proveedores del reporte…');
+  const body={ conexion:cid };
+  if(from) body.from=from+' 00:00:00';
+  if(to) body.to=to+' 23:59:59';
+  const r=await api('/api/os/proveedores/importar-reporte',{method:'POST',body:JSON.stringify(body)});
   if(!r.ok)return toast('Error: '+(r.error||''));
-  _provCat=r.proveedores||[]; toast(_provCat.length+' proveedores cargados'); VIEWS.proveedores();
+  _provCat=r.proveedores||[];
+  const errs=(r.porConexion||[]).filter(c=>!c.ok);
+  toast(`${r.creados} nuevos · ${r.existentes} ya estaban · ${r.total} en el reporte`+(errs.length?` — ⚠ ${errs.map(e=>(e.nombre||e.id)+': '+e.error).join(' / ')}`:''));
+  VIEWS.proveedores();
 }
 async function addProv(){
   const sel=document.getElementById('pr-sel'); const code=sel?sel.value:'';

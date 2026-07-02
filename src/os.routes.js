@@ -192,6 +192,46 @@ function mount(app) {
     const p = proveedores.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); ok(res, { proveedor: p });
   }));
   app.delete('/api/os/proveedores/:id', (req, res) => proveedores.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
+  // Importar el catálogo desde el REPORTE de proveedores (los que aparecen en el cierre): 1 entrada
+  // por (provider|label|vendor). ?conexion=<id>|todas (default todas) — UNIÓN de conexiones activas,
+  // dedupe por codigo (misma marca en Europa y Casino = 1 sola). No pisa los que ya tienen % costo.
+  app.post('/api/os/proveedores/importar-reporte', wrap(async (req, res) => {
+    const q = Object.assign({}, req.query, req.body || {});
+    const conexion = q.conexion || 'todas';
+    const to = q.to || (fechaTZ() + ' 23:59:59');
+    const from = q.from || (fechaTZ(new Date(Date.now() - 45 * 864e5)) + ' 00:00:00'); // default: últimos 45 días
+    const curs = String(q.currencies || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const conns = casinoConex.list();
+    const ids = conexion === 'todas' ? conns.filter((c) => c.activa).map((c) => c.id) : [conexion];
+    if (!ids.length) return err(res, 400, 'No hay conexiones de casino activas para importar.');
+    const seen = new Map(); // codigo(provider|label|vendor) → nombre(label)
+    const porConexion = [];
+    for (const id of ids) {
+      const cx = conns.find((c) => c.id === id);
+      const cli = casinoConex.client(id);
+      if (!cli) { porConexion.push({ id, nombre: cx && cx.nombre, ok: false, error: 'conexión no encontrada' }); continue; }
+      const errs = []; let filas = 0;
+      for (const cur of curs) {
+        const r = await cli.reporteProveedores({ from, to, currency: cur, userGroupBy: '' }); // vista GENERAL (agrega por proveedor)
+        if (!r.ok) { errs.push(cur + ': ' + r.error); continue; }
+        for (const f of (r.filas || [])) {
+          const codigo = [f.provider, f.label, f.vendor].map((s) => String(s == null ? '' : s).trim()).join('|');
+          if (!codigo.replace(/[|\s]/g, '')) continue; // fila sin datos (todo vacío / solo pipes)
+          const nombre = String(f.label || f.vendor || f.provider || '').trim() || codigo;
+          if (!seen.has(codigo)) seen.set(codigo, nombre);
+          filas++;
+        }
+      }
+      porConexion.push({ id, nombre: cx && cx.nombre, ok: errs.length === 0, filas, error: errs.join('; ') || undefined });
+    }
+    const entries = [...seen.entries()].map(([codigo, nombre]) => ({ codigo, nombre }));
+    const stats = proveedores.importarCatalogo(entries);
+    ok(res, {
+      from, to, ...stats, total: entries.length, porConexion,
+      // para el dropdown de alta manual (shape {code,label,sub} que ya usa el front)
+      proveedores: entries.map((e) => ({ code: e.codigo, label: e.nombre, sub: true })),
+    });
+  }));
   app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
   app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {
     const id = proveedores.setPanelProveedor(Object.assign({ panel_id: req.params.id }, req.body || {}));
