@@ -135,7 +135,9 @@ function makeClient({ url, token, user, password } = {}) {
    * Lista nodos: sin `id` = todos (root, flat, cada uno con su total); con `id` = subárbol de ese nodo.
    * Requiere show_users=1 (clave) + el array de monedas. Período por from/to.
    */
-  async function nodos({ from = '', to = '', id = null, cur = 'ARS', soloActivos = false, multiMoneda = false, extra = {} } = {}) {
+  async function nodos({ from = '', to = '', id = null, cur = 'ARS', soloActivos = false, multiMoneda = false, currencies = null, extra = {} } = {}) {
+    // currencies = subset a pedir (ej ['ARS']); null = todas. (Prueba: ¿pedir menos monedas acelera la query?)
+    const curB = (currencies && currencies.length) ? Object.fromEntries(currencies.map((c) => [`currencies[${c}]`, '1'])) : curBody();
     // OJO: NADA de interval=month → ese param hace que el casino IGNORE from/to y devuelva
     // siempre el mes actual. Sin interval, from/to scopea el período correctamente (verificado).
     // soloActivos → inactive_users=active: el casino filtra SERVER-SIDE y devuelve SOLO los nodos
@@ -143,7 +145,7 @@ function makeClient({ url, token, user, password } = {}) {
     // `extra` pisa cualquier default (para casos especiales / pruebas de params).
     const body = {
       from, to, show_users: '1', provider: 'all',
-      deleted_users: 'undelete', inactive_users: soloActivos ? 'active' : 'all', ...curBody(), ...extra,
+      deleted_users: 'undelete', inactive_users: soloActivos ? 'active' : 'all', ...curB, ...extra,
     };
     const r = await apiCall('users', body, id ? { id: String(id) } : {});
     if (!r.ok) return r;
