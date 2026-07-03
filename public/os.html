@@ -1142,15 +1142,11 @@ function descargarAcumuladoCSV(){
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='acumulado-'+(r.mes||'')+'.csv';a.click();
 }
-// Ayer en horario ARG (día ANTERIOR completo — hoy está en movimiento, no sirve).
-function ayerART(){
-  const s=new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'}); // YYYY-MM-DD hoy ARG
-  const [y,m,d]=s.split('-').map(Number); const dt=new Date(Date.UTC(y,m-1,d)); dt.setUTCDate(dt.getUTCDate()-1);
-  return dt.toISOString().slice(0,10);
-}
+// Ayer en UTC (el casino corta los días en UTC+0). Día ANTERIOR completo — hoy está en movimiento.
+function ayerUTC(){ const dt=new Date(); dt.setUTCDate(dt.getUTCDate()-1); return dt.toISOString().slice(0,10); }
 async function capturarAyer(){
   const cid=val('ac-cx'); if(!cid)return toast('Elegí una conexión');
-  const dia=ayerART();
+  const dia=ayerUTC();
   if(cid==='__all__'){
     toast('Capturando ayer ('+dia+') en todas las conexiones…');
     const r=await api('/api/os/casino/capturar-hoy-todos?group='+val('ac-nivel')+'&dia='+dia,{method:'POST'});

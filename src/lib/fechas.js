@@ -22,4 +22,9 @@ const mesTZ = (d = new Date()) => { const p = partsTZ(d); return `${p.year}-${p.
 const mesDe = (fecha) => String(fecha || '').slice(0, 7); // 'YYYY-MM' de una fecha/datetime
 const horaNum = (d = new Date()) => { const p = partsTZ(d); return Number(p.hour); };
 
-module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum };
+// ── UTC (+0) — el CASINO opera en UTC: los días/meses del acumulado se cortan en UTC ──
+const fechaUTC = (d = new Date()) => d.toISOString().slice(0, 10); // 'YYYY-MM-DD' en UTC
+const mesUTC = (d = new Date()) => d.toISOString().slice(0, 7);    // 'YYYY-MM' en UTC
+const ayerUTC = () => fechaUTC(new Date(Date.now() - 86400000));   // día anterior COMPLETO (UTC)
+
+module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum, fechaUTC, mesUTC, ayerUTC };

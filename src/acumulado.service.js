@@ -4,7 +4,7 @@
  */
 const casinoConex = require('./casino-conexiones-store');
 const store = require('./reporte-diario-store');
-const { fechaTZ, horaNum, TZ } = require('./lib/fechas');
+const { fechaTZ, horaNum, TZ, fechaUTC, ayerUTC } = require('./lib/fechas');
 
 // El nivel del nodo según el "group" del acumulado.
 const NIVEL_DE_GROUP = { superagent: 'SuperAgente', distributor: 'Distribuidor', agent: 'Agente' };
@@ -45,7 +45,7 @@ async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada 
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
   const [y, m] = mes.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
-  const tope = hasta || fechaTZ(); // no capturar más allá de este día (el cron pasa "ayer" para no fijar HOY parcial)
+  const tope = hasta || fechaUTC(); // no capturar más allá de este día UTC (el casino corta días en UTC; hoy está parcial)
   const todos = [];
   for (let d = 1; d <= last; d++) { const ds = `${mes}-${String(d).padStart(2, '0')}`; if (ds <= tope) todos.push(ds); }
   // force → re-captura TODOS los días (para re-backfill multi-moneda sobre días que ya tienen ARS).
@@ -88,10 +88,10 @@ function startCron() {
   const H = Number(process.env.ACUM_CRON_HOUR || '1');
   setInterval(async () => {
     try {
-      const day = fechaTZ();
-      if (horaNum() !== H || _last === day) return;
+      const day = fechaUTC(); // día UTC (el casino corta en UTC)
+      if (horaNum() !== H || _last === day) return; // se dispara a la hora H (ARG); captura el día UTC anterior
       _last = day;
-      const ayer = fechaTZ(new Date(Date.now() - 86400000));
+      const ayer = ayerUTC();
       const mesAct = day.slice(0, 7);
       const mesPrev = ayer.slice(0, 7);
       const diaNum = Number(day.slice(8, 10));

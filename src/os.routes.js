@@ -24,7 +24,7 @@ const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const { db } = require('./db');
 const money = require('./lib/money');
-const { fechaTZ, mesTZ } = require('./lib/fechas');
+const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
 
 const ok = (res, extra = {}) => res.json(Object.assign({ ok: true }, extra));
 const err = (res, code, msg) => res.status(code).json({ ok: false, error: msg });
@@ -476,24 +476,24 @@ function mount(app) {
     // (reporte()→reportstable) está muerto. Para poblar/actualizar usar "Backfill mes" en el Acumulado
     // (o esperar el cron nocturno, que ahora auto-completa el mes).
     const group = req.query.group || 'superagent';
-    const mes = req.query.mes || mesTZ();
+    const mes = req.query.mes || mesUTC(); // acumulado = datos del casino (UTC)
     ok(res, { ...reporteDiarioStore.getMatriz(req.params.id, group, mes, req.query.moneda || 'ARS'), errores: [] });
   }));
 
   // ───────── ACUMULADO (solapa que se llena día a día — datos GUARDADOS) ─────────
   // Ver el acumulado del mes (rápido, desde la DB; no consulta el casino).
   app.get('/api/os/casino/conexiones/:id/acumulado', (req, res) => {
-    ok(res, reporteDiarioStore.getMatriz(req.params.id, req.query.group || 'superagent', req.query.mes || mesTZ(), req.query.moneda || 'ARS'));
+    ok(res, reporteDiarioStore.getMatriz(req.params.id, req.query.group || 'superagent', req.query.mes || mesUTC(), req.query.moneda || 'ARS'));
   });
   // Ver el acumulado del mes de TODAS las conexiones juntas (todos los GOD en simultáneo).
   app.get('/api/os/casino/acumulado-todos', (req, res) => {
-    ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesTZ(), req.query.moneda || 'ARS'));
+    ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesUTC(), req.query.moneda || 'ARS'));
   });
   // Limpia el acumulado de conexiones que ya no existen (IDs viejos) → saca superagentes duplicados.
   app.post('/api/os/casino/acumulado/limpiar-huerfanos', wrap((_req, res) => ok(res, { borradas: reporteDiarioStore.limpiarHuerfanos() })));
   // Capturar HOY (o un día) en TODAS las conexiones activas a la vez.
   app.post('/api/os/casino/capturar-hoy-todos', wrap(async (req, res) => {
-    const dia = req.query.dia || (req.body && req.body.dia) || fechaTZ();
+    const dia = req.query.dia || (req.body && req.body.dia) || fechaUTC(); // casino corta días en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const out = [];
     for (const cx of casinoConex.list()) {
@@ -505,7 +505,7 @@ function mount(app) {
   }));
   // Backfill de TODAS las conexiones activas a la vez (secuencial por conexión).
   app.post('/api/os/casino/capturar-mes-todos', wrap(async (req, res) => {
-    const mes = req.query.mes || (req.body && req.body.mes) || mesTZ();
+    const mes = req.query.mes || (req.body && req.body.mes) || mesUTC(); // casino corta meses en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const out = [];
     for (const cx of casinoConex.list()) {
@@ -517,14 +517,14 @@ function mount(app) {
   }));
   // Capturar UN día (manual) y guardarlo en el acumulado.
   app.post('/api/os/casino/conexiones/:id/capturar', wrap(async (req, res) => {
-    const dia = req.query.dia || (req.body && req.body.dia) || fechaTZ();
+    const dia = req.query.dia || (req.body && req.body.dia) || fechaUTC(); // casino corta días en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const r = await acumSvc.captureDia(req.params.id, dia, group);
     r.ok ? ok(res, { dia: r.dia, filas: r.filas }) : err(res, 502, r.error);
   }));
   // Backfill: capturar todos los días del mes (hasta hoy) y guardarlos.
   app.post('/api/os/casino/conexiones/:id/capturar-mes', wrap(async (req, res) => {
-    const mes = req.query.mes || (req.body && req.body.mes) || mesTZ();
+    const mes = req.query.mes || (req.body && req.body.mes) || mesUTC(); // casino corta meses en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const force = req.query.force === '1' || !!(req.body && req.body.force); // re-captura todos los días (multi-moneda)
     const r = await acumSvc.captureMes(req.params.id, mes, group, 8, null, force);
