@@ -99,6 +99,23 @@ function getClienteColumna(nombre) {
   return { nombre: n, existe: !!cli, descuento: cli ? cli.descuento : null, proveedores, celdas };
 }
 
+/** Agrega a la matriz TODOS los proveedores del casino (catálogo Casino+Europa) que falten,
+ *  como fila nueva SIN % base ni celdas → así el 100% de los del casino figura en el Cierre. */
+function agregarFaltantesDeCatalogo() {
+  const enMatriz = new Set(db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre));
+  let agregados = 0; const seen = new Set();
+  const tx = db.transaction(() => {
+    for (const p of _casinoProvs()) { // [{casino:'MARCA VENDOR', marca, vendor}] del catálogo
+      const n = p.casino;
+      if (!n || enMatriz.has(n) || seen.has(n)) continue;
+      addProveedor(n, null); // fila nueva, sin % base
+      seen.add(n); agregados++;
+    }
+  });
+  tx();
+  return { agregados, total_matriz: db.prepare('SELECT COUNT(*) n FROM cierre_proveedor').get().n };
+}
+
 // ── VINCULACIÓN proveedor del casino ↔ proveedor de la matriz ──
 // El casino trae "MARCA VENDOR" (ej "RUBYPLAY XG"); la matriz de Alexa usa otro vendor (ej "RUBYPLAY OP").
 // Vinculamos cada proveedor del casino (= catálogo, codigo "label|vendor") a una fila de la matriz.
@@ -190,5 +207,5 @@ function importar(payload = {}) {
 module.exports = {
   getMatriz, setCelda, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, getTC, setTC, importar,
-  getLinks, setLink, autoVincular, getClienteColumna,
+  getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo,
 };

@@ -288,6 +288,8 @@ function mount(app) {
   app.get('/api/os/cierre/links', (_req, res) => ok(res, cierreStore.getLinks()));
   app.post('/api/os/cierre/link', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setLink(b.casino, b.matriz) }); }));
   app.post('/api/os/cierre/auto-vincular', wrap((_req, res) => ok(res, cierreStore.autoVincular())));
+  // Agrega a la matriz TODOS los proveedores del casino que falten (fila sin % base).
+  app.post('/api/os/cierre/agregar-faltantes', wrap((_req, res) => ok(res, cierreStore.agregarFaltantesDeCatalogo())));
 
   app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
   app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {

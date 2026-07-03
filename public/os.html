@@ -544,6 +544,7 @@ async function cieMatriz(){
       <div style="flex:1;min-width:160px"><label>🔎 Buscar proveedor</label><input id="cie-q" oninput="filtCie()" placeholder="ej: PRAGMATIC"></div>
       <div style="flex:0"><label>➕ Proveedor (Marca Vendor)</label><input id="cie-np" placeholder="ej: NETENT OP" style="width:180px"></div>
       <div style="flex:0"><button class="small" onclick="addCieProv()">Fila</button></div>
+      <div style="flex:0"><button class="small outline" onclick="cieAgregarFaltantes()" title="Agrega todos los proveedores del casino (Casino+Europa) que falten, sin %">➕ Faltantes del casino</button></div>
       <div style="flex:0"><label>➕ Cliente</label><input id="cie-nc" placeholder="nombre" style="width:140px"></div>
       <div style="flex:0"><button class="small" onclick="addCieCli()">Columna</button></div>
     </div>
@@ -556,6 +557,7 @@ async function cieCell(el){ const r=await api('/api/os/cierre/celda',{method:'PO
 async function cieBase(el){ const r=await api('/api/os/cierre/base',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,base_pct:el.value})}); if(r.ok)_cieFlash(el); }
 async function cieDesc(el){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:el.dataset.cli,descuento:el.value})}); if(r.ok)_cieFlash(el); }
 async function addCieProv(){ const n=val('cie-np').trim(); if(!n)return toast('Poné el nombre (Marca Vendor)'); await api('/api/os/cierre/proveedor',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Fila agregada'); cieMatriz(); }
+async function cieAgregarFaltantes(){ if(!confirm('¿Agregar a la matriz todos los proveedores del casino (Casino+Europa) que falten? Se agregan como fila SIN % — para completar a mano.'))return; const r=await api('/api/os/cierre/agregar-faltantes',{method:'POST'}); if(r.ok)toast(`${r.agregados} agregados · ${r.total_matriz} proveedores en la matriz`); cieMatriz(); }
 async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); cieMatriz(); }
 async function delCieProv(n){ if(!confirm('¿Quitar el proveedor "'+n+'" y sus %?'))return; await api('/api/os/cierre/proveedor/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
 async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?'))return; await api('/api/os/cierre/cliente/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
