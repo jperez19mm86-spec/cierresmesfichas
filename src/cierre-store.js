@@ -99,6 +99,21 @@ function getClienteColumna(nombre) {
   return { nombre: n, existe: !!cli, descuento: cli ? cli.descuento : null, proveedores, celdas };
 }
 
+/** Para todo proveedor cuyo VENDOR sea SL o XG: pone en cada celda el DESCUENTO de ese cliente
+ *  (→ %neto = %celda − descuento = 0). Sobrescribe lo que hubiera. vendors = ['SL','XG'] por default. */
+function igualarVendorsADescuento(vendors = ['SL', 'XG']) {
+  const set = new Set(vendors.map((s) => String(s).toUpperCase()));
+  const provs = db.prepare('SELECT nombre FROM cierre_proveedor').all()
+    .map((r) => r.nombre).filter((n) => set.has(String(n).split(' ').pop().toUpperCase()));
+  const clientes = db.prepare('SELECT nombre, descuento FROM cierre_cliente').all();
+  let celdas = 0;
+  const tx = db.transaction(() => {
+    for (const prov of provs) for (const c of clientes) { setCelda(prov, c.nombre, c.descuento); celdas++; }
+  });
+  tx();
+  return { proveedores: provs.length, clientes: clientes.length, celdas, vendors: [...set] };
+}
+
 /** Agrega a la matriz TODOS los proveedores del casino (catálogo Casino+Europa) que falten,
  *  como fila nueva SIN % base ni celdas → así el 100% de los del casino figura en el Cierre. */
 function agregarFaltantesDeCatalogo() {
@@ -207,5 +222,5 @@ function importar(payload = {}) {
 module.exports = {
   getMatriz, setCelda, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, getTC, setTC, importar,
-  getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo,
+  getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,
 };

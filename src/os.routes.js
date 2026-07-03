@@ -290,6 +290,11 @@ function mount(app) {
   app.post('/api/os/cierre/auto-vincular', wrap((_req, res) => ok(res, cierreStore.autoVincular())));
   // Agrega a la matriz TODOS los proveedores del casino que falten (fila sin % base).
   app.post('/api/os/cierre/agregar-faltantes', wrap((_req, res) => ok(res, cierreStore.agregarFaltantesDeCatalogo())));
+  // Vendors SL/XG (o los que se pasen) → celda = descuento del cliente (%neto 0). ?vendors=SL,XG
+  app.post('/api/os/cierre/vendors-a-descuento', wrap((req, res) => {
+    const vendors = req.query.vendors ? String(req.query.vendors).split(',').map((s) => s.trim()).filter(Boolean) : ['SL', 'XG'];
+    ok(res, cierreStore.igualarVendorsADescuento(vendors));
+  }));
 
   app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
   app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {
