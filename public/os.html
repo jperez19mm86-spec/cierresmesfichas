@@ -444,28 +444,25 @@ VIEWS.proveedores = async () => {
       <div class="muted" style="margin-top:6px">Trae los proveedores <b>tal como aparecen en el Reporte de Proveedores</b> (unión de las conexiones — la misma marca en Europa y Casino cuenta una sola vez). Después completá el <b>% de costo</b> de cada uno. Es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.</div>
       <div class="row" style="margin-top:8px; align-items:flex-end">
         <div style="flex:2"><label>Agregar uno manual</label><select id="pr-sel">${provOpts}</select></div>
-        <div style="flex:0"><label>Categoría</label><select id="pr-cat"><option>extra</option><option>incluido</option><option>interno</option></select></div>
-        <div style="flex:0"><label>% costo</label><input id="pr-tarifa" style="width:90px" placeholder="17"/></div>
         <button onclick="addProv()">Agregar</button>
       </div>
     </div>
     <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
       <div class="muted" style="margin-bottom:6px">El <b>% costo</b> es el <b>% base de la matriz</b> del proveedor vinculado. Si lo editás acá, <b>cambia también en el 🧮 Cierre de Mes</b> (es la misma data). Los que dicen "sin vincular" se conectan en <b>Cierre → 🔗 Vincular proveedores</b>.</div>
-      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>🔗 Matriz</th><th>Categoría</th><th class="right">% costo <span class="muted" style="font-weight:400">(= % base matriz)</span></th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>🔗 Matriz</th><th class="right">% costo <span class="muted" style="font-weight:400">(= % base matriz)</span></th><th></th></tr></thead><tbody>
       ${_proveedores.map(p=>{const vend=(p.codigo||'').includes('|')?p.codigo.slice(p.codigo.lastIndexOf('|')+1):'';
         const casino=(p.nombre+' '+vend).trim(); const lk=_linkMap[casino]; const mp=lk&&lk.m; const base=mp?_baseMap[mp]:null;
         return `<tr>
         <td><b>${esc(p.nombre)}</b></td>
         <td class="muted">${esc(vend||'—')}</td>
         <td style="font-size:11.5px">${mp? esc(mp) : '<span style="opacity:.45">sin vincular</span>'}</td>
-        <td><select id="pv-cat-${p.id}"><option ${p.categoria==='extra'?'selected':''}>extra</option><option ${p.categoria==='incluido'?'selected':''}>incluido</option><option ${p.categoria==='interno'?'selected':''}>interno</option></select></td>
         <td class="right">${mp
           ? `<input value="${base==null?'':esc(base)}" data-matriz="${esc(mp)}" style="width:80px" placeholder="—" title="% base de ${esc(mp)} en la matriz del Cierre" onchange="saveCostoMatriz(this)">`
           : `<input disabled style="width:80px;opacity:.5" placeholder="vinculá primero" title="Vinculá el proveedor a la matriz (Cierre → 🔗 Vincular) para poder poner su %">`}</td>
-        <td class="right" style="white-space:nowrap"><button class="small" onclick="saveProv('${p.id}')">💾</button> <button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
-      </tr>`}).join('') || '<tr><td colspan="6" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
+        <td class="right" style="white-space:nowrap"><button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
+      </tr>`}).join('') || '<tr><td colspan="5" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
       </tbody></table>
-      <div class="muted">El <b>% costo</b> = el <b>% base</b> del proveedor en la matriz del Cierre (el rate/costo del proveedor). Editarlo acá o en 🧮 Cierre de Mes es lo mismo. El 💾 guarda solo la categoría.</div>
+      <div class="muted">El <b>% costo</b> = el <b>% base</b> del proveedor en la matriz del Cierre (el rate/costo del proveedor). Editarlo acá o en 🧮 Cierre de Mes es lo mismo — se guarda solo al salir de la casilla.</div>
     </div>`;
   // fechas por defecto: últimos 45 días (rango amplio para no perder ningún proveedor del reporte)
   const _iso=(d)=>d.toISOString().slice(0,10); const _to=new Date();
@@ -491,12 +488,8 @@ async function addProv(){
   const sel=document.getElementById('pr-sel'); const code=sel?sel.value:'';
   let nombre=''; if(sel&&sel.selectedOptions[0]) nombre=sel.selectedOptions[0].getAttribute('data-label')||sel.selectedOptions[0].textContent;
   if(!nombre)return toast('Elegí un proveedor (cargá del casino primero)');
-  await api('/api/os/proveedores',{method:'POST',body:JSON.stringify({nombre, codigo:code, categoria:val('pr-cat'), tarifa_pct:val('pr-tarifa')})});
+  await api('/api/os/proveedores',{method:'POST',body:JSON.stringify({nombre, codigo:code})});
   toast('Proveedor agregado'); VIEWS.proveedores();
-}
-async function saveProv(id){
-  await api('/api/os/proveedores/'+id,{method:'PUT',body:JSON.stringify({categoria:val('pv-cat-'+id)})});
-  toast('Categoría guardada'); VIEWS.proveedores();
 }
 // El % costo del catálogo = % base del proveedor en la matriz del Cierre → guardar acá lo cambia allá también.
 async function saveCostoMatriz(el){
