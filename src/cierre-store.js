@@ -137,24 +137,24 @@ function setLink(casino, matriz) {
   db.prepare("INSERT INTO cierre_link (casino,matriz,origen) VALUES (?,?,'manual') ON CONFLICT(casino) DO UPDATE SET matriz=excluded.matriz, origen='manual'").run(c, m);
   return true;
 }
-/** Auto-vincula: match EXACTO (seguro) + match único por MARCA (sugerido). No pisa vínculos manuales. */
+/** Auto-vincula SOLO match EXACTO (Marca+Vendor idéntico). El resto queda para hacerlo A MANO.
+ *  Saca los vínculos viejos "por marca" (no exactos, no manuales) → vuelven a "sin vincular". */
 function autoVincular() {
-  const matrizProvs = db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre);
-  const matrizSet = new Set(matrizProvs);
-  const porMarca = _porMarca();
-  const yaLink = new Set(db.prepare("SELECT casino FROM cierre_link WHERE origen='manual'").all().map((r) => r.casino));
-  let exactos = 0, porMarcaN = 0;
+  const matrizSet = new Set(db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre));
+  const manuales = new Set(db.prepare("SELECT casino FROM cierre_link WHERE origen='manual'").all().map((r) => r.casino));
+  let exactos = 0, quitados = 0;
   const tx = db.transaction(() => {
+    quitados = db.prepare("DELETE FROM cierre_link WHERE origen='marca'").run().changes; // los aproximados van a mano
     for (const p of _casinoProvs()) {
-      if (yaLink.has(p.casino)) continue; // no pisar manuales
-      let m = null, o = null;
-      if (matrizSet.has(p.casino)) { m = p.casino; o = 'exacto'; exactos++; }
-      else { const c = porMarca[p.marca]; if (c && c.length === 1) { m = c[0]; o = 'marca'; porMarcaN++; } }
-      if (m) db.prepare("INSERT INTO cierre_link (casino,matriz,origen) VALUES (?,?,?) ON CONFLICT(casino) DO UPDATE SET matriz=excluded.matriz, origen=excluded.origen").run(p.casino, m, o);
+      if (manuales.has(p.casino)) continue; // no pisar los hechos a mano
+      if (matrizSet.has(p.casino)) {
+        db.prepare("INSERT INTO cierre_link (casino,matriz,origen) VALUES (?,?,'exacto') ON CONFLICT(casino) DO UPDATE SET matriz=excluded.matriz, origen='exacto'").run(p.casino, p.casino);
+        exactos++;
+      }
     }
   });
   tx();
-  return { exactos, porMarca: porMarcaN };
+  return { exactos, quitados, porMarca: 0 };
 }
 
 /**

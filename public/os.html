@@ -426,7 +426,7 @@ VIEWS.proveedores = async () => {
   const d = await api('/api/os/proveedores'); _proveedores=d.proveedores||[];
   // vínculo a la matriz del Cierre → mostrar el % (base) que le corresponde a cada proveedor linkeado
   const _lk = await api('/api/os/cierre/links'); const _mx = await api('/api/os/cierre/matriz');
-  const _linkMap={}; (_lk.rows||[]).forEach(r=>{_linkMap[r.casino]={m:r.matriz||((r.estado==='exacto'||r.estado==='sugerido')?r.sugerido:null), est:r.estado};});
+  const _linkMap={}; (_lk.rows||[]).forEach(r=>{_linkMap[r.casino]={m:r.matriz||null, est:r.estado};}); // SOLO vínculos reales → los no-vinculados quedan "sin vincular" (% a mano)
   const _baseMap={}; (_mx.proveedores||[]).forEach(pp=>{_baseMap[pp.nombre]=pp.base_pct;});
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   const cxOpts = '<option value="todas">🌐 Todas (Europa + Casino)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
@@ -562,17 +562,18 @@ async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?')
 function filtCie(){ const q=(val('cie-q')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display = tr.dataset.prov.includes(q)?'':'none'; }); }
 
 // ── sub-vista VINCULAR proveedores del casino ↔ matriz ──
-const _CIE_BADGE = {vinculado:['cie-b-ok','✔ manual'], exacto:['cie-b-ex','= exacto'], sugerido:['cie-b-sug','≈ por marca'], ambiguo:['cie-b-sug','? elegí'], sin_match:['cie-b-no','sin match']};
+const _CIE_BADGE = {vinculado:['cie-b-ok','✔ manual'], exacto:['cie-b-ex','= exacto'], sugerido:['cie-b-sug','≈ marca (a mano)'], ambiguo:['cie-b-sug','? a mano'], sin_match:['cie-b-no','sin match']};
 async function cieVincular(){
   const d = await api('/api/os/cierre/links'); const rows=d.rows||[], matriz=d.matriz||[];
   const n=x=>rows.filter(r=>r.estado===x).length;
   const dl = `<datalist id="cie-mlist">${matriz.map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`;
-  const trs = rows.map(r=>{const [bc,bl]=_CIE_BADGE[r.estado]||_CIE_BADGE.sin_match; const cur=r.matriz||(r.estado==='exacto'||r.estado==='sugerido'?r.sugerido:'')||'';
+  const trs = rows.map(r=>{const [bc,bl]=_CIE_BADGE[r.estado]||_CIE_BADGE.sin_match; const cur=r.matriz||''; // SOLO vínculos reales (los exactos); el resto va a mano
+    const ph=r.sugerido?('sug: '+r.sugerido):'(elegir de la matriz)';
     return `<tr data-casino="${esc(r.casino.toLowerCase())}"><td class="cie-p">${esc(r.casino)}</td>`+
-      `<td><input class="cie-lk" list="cie-mlist" data-casino="${esc(r.casino)}" value="${esc(cur)}" placeholder="(elegir de la matriz)" onchange="cieSetLink(this)"></td>`+
+      `<td><input class="cie-lk" list="cie-mlist" data-casino="${esc(r.casino)}" value="${esc(cur)}" placeholder="${esc(ph)}" onchange="cieSetLink(this)"></td>`+
       `<td><span class="cie-badge ${bc}">${bl}</span></td></tr>`;}).join('');
   document.getElementById('cie-body').innerHTML = `${dl}
-  <div class="card"><div class="muted">Vinculá cada proveedor que sale del <b>casino</b> (Marca&nbsp;Vendor, ej "RUBYPLAY XG") con su fila en la <b>matriz de %</b> de Alexa (ej "RUBYPLAY OP"). Al calcular el cierre, el profit de cada proveedor usa el % de la fila vinculada. <b>Auto-vincular</b> resuelve los match exactos + los únicos por marca; el resto se elige a mano.</div>
+  <div class="card"><div class="muted">Vinculá cada proveedor que sale del <b>casino</b> (Marca&nbsp;Vendor, ej "RUBYPLAY XG") con su fila en la <b>matriz de %</b> de Alexa (ej "RUBYPLAY OP"). Al calcular el cierre, el profit de cada proveedor usa el % de la fila vinculada. <b>Auto-vincular</b> vincula <b>SOLO los match EXACTOS</b> (Marca+Vendor idéntico); los aproximados (por marca) quedan como sugerencia para <b>elegir a mano</b>.</div>
     <div class="row" style="margin-top:8px;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="small" onclick="cieAuto()">🪄 Auto-vincular</button>
       <span class="cie-badge cie-b-ok">${n('vinculado')} manual</span> <span class="cie-badge cie-b-ex">${n('exacto')} exacto</span>
@@ -585,7 +586,7 @@ async function cieVincular(){
   </div>`;
 }
 async function cieSetLink(el){ const r=await api('/api/os/cierre/link',{method:'POST',body:JSON.stringify({casino:el.dataset.casino,matriz:el.value})}); if(r.ok){_cieFlash(el); const badge=el.closest('tr').querySelector('.cie-badge'); if(badge&&el.value.trim()){badge.className='cie-badge cie-b-ok';badge.textContent='✔ manual';}} }
-async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{method:'POST'}); if(r.ok)toast(`Vinculados: ${r.exactos} exactos + ${r.porMarca} por marca`); cieVincular(); }
+async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{method:'POST'}); if(r.ok)toast(`${r.exactos} exactos vinculados`+(r.quitados?` · ${r.quitados} por-marca desvinculados (a mano)`:'')); cieVincular(); }
 function filtLk(){ const q=(val('cie-lq')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display=(tr.dataset.casino||'').includes(q)?'':'none'; }); }
 
 // ── sub-vista TIPOS DE CAMBIO (moneda × mes, se llena mensual) ──
