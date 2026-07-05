@@ -8,7 +8,8 @@
  *
  * Pedido = {
  *   id, codigo, clienteNombre, cajaId, cajaUsuario, sistema, userId, divisa, monto,
- *   estado: 'pendiente'|'cargado'|'rechazado', createdAt, resueltoAt, newBalance, error
+ *   estado: 'pendiente'|'cargado'|'rechazado'|'anulado', createdAt, resueltoAt, newBalance, error
+ *   ('anulado' = una carga que se revirtió: se retiró el monto del casino, ej. carga a usuario equivocado)
  * }
  * Se guarda en data/pedidos.json (gitignored).
  */
@@ -69,6 +70,27 @@ function setEstado(id, estado, extra = {}) {
   return p;
 }
 
+/** LOCK atómico para anular: si el pedido está 'cargado' lo pasa a 'anulando' y lo devuelve; si no, null.
+ *  Es SINCRÓNICO (better-sqlite3) → corre entero sin interleave → previene doble-retiro concurrente.
+ *  NO toca resueltoAt/newBalance (así el rollback preserva los datos de la carga original). */
+function tomarParaAnular(id) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p || p.estado !== 'cargado') return null;
+  p.estado = 'anulando';
+  save(data);
+  return { ...p };
+}
+/** Rollback del lock: 'anulando' → 'cargado' (si el retiro en el casino no se hizo). Preserva los datos. */
+function revertirAnulando(id) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p || p.estado !== 'anulando') return null;
+  p.estado = 'cargado';
+  save(data);
+  return p;
+}
+
 /** Lista con filtros opcionales: { estado, codigo }. */
 function list(filters = {}) {
   let arr = load().pedidos;
@@ -83,6 +105,8 @@ function counts() {
     pendientes: arr.filter((p) => p.estado === 'pendiente').length,
     cargados: arr.filter((p) => p.estado === 'cargado').length,
     rechazados: arr.filter((p) => p.estado === 'rechazado').length,
+    anulados: arr.filter((p) => p.estado === 'anulado').length,
+    anulando: arr.filter((p) => p.estado === 'anulando').length,
     total: arr.length,
   };
 }
@@ -109,4 +133,4 @@ function ventasCargadasMes(mes) {
   return out;
 }
 
-module.exports = { create, get, setEstado, list, counts, ventasCargadasMes, seed: save, FILE };
+module.exports = { create, get, setEstado, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, seed: save, FILE };

@@ -67,6 +67,7 @@
   table.hist th { color:var(--muted); font-size:11px; text-transform:uppercase; }
   .estado-cargado { color:var(--green); font-weight:700; }
   .estado-rechazado { color:var(--red); font-weight:700; }
+  .estado-anulado { color:var(--gold,#c90); font-weight:700; }
   textarea { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 11px; font-size: 13px; outline: none; resize: vertical; }
   textarea:focus { border-color: var(--gold); }
   /* clientes */
@@ -642,6 +643,7 @@
 
   // ═══════════ PEDIDOS + HISTORIAL (admin) ═══════════
   let _pedidos = [];
+  let _hist = [];
   function fmtDate(s) { return s ? new Date(s).toLocaleString('es-AR') : ''; }
 
   async function refreshPedBadge() {
@@ -660,7 +662,7 @@
     if (!body || !body.ok) { box.innerHTML = '<div class="empty">Error cargando pedidos</div>'; return; }
     _pedidos = body.pedidos;
     const c = body.counts;
-    document.getElementById('pedCount').textContent = `· ${c.pendientes} pendientes · ${c.cargados} cargados · ${c.rechazados} rechazados`;
+    document.getElementById('pedCount').textContent = `· ${c.pendientes} pendientes · ${c.cargados} cargados · ${c.rechazados} rechazados${c.anulados ? ' · ' + c.anulados + ' anulados' : ''}`;
     refreshPedBadge();
     if (!_pedidos.length) { box.innerHTML = '<div class="empty">No hay pedidos pendientes. 🎉</div>'; return; }
     box.innerHTML = _pedidos.map((p) => `
@@ -707,16 +709,35 @@
     const list = body.pedidos;
     document.getElementById('histCount').textContent = '· ' + list.length + (f ? (' de ' + f) : ' movimientos');
     if (!list.length) { box.innerHTML = '<div class="empty">' + (f ? ('Sin movimientos para "' + esc(f) + '".') : 'Sin historial todavía.') + '</div>'; return; }
+    _hist = list;
     box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>' +
-      list.map((p) => `<tr>
+      list.map((p) => {
+        const estLbl = p.estado === 'cargado' ? '✓ cargado' : (p.estado === 'anulado' ? '↩ anulado' : (p.estado === 'anulando' ? '⏳ anulando…' : '✗ rechazado'));
+        let det;
+        if (p.estado === 'cargado') det = (p.newBalance != null ? ('bal: ' + esc(String(p.newBalance))) : '');
+        else if (p.estado === 'anulado') det = 'fichas retiradas' + (p.newBalance != null ? (' · bal: ' + esc(String(p.newBalance))) : '');
+        else if (p.estado === 'anulando') det = 'retirando fichas…';
+        else det = esc(p.error || '');
+        const anular = p.estado === 'cargado' ? ` <button class="danger small" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado">↩ Anular</button>` : '';
+        return `<tr>
         <td data-label="Fecha">${fmtDate(p.resueltoAt || p.createdAt)}</td>
         <td data-label="Cliente"><b>${esc(p.clienteNombre)}</b> <span class="meta">${esc(p.codigo)}</span></td>
         <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code></td>
         <td data-label="Sistema">${esc(p.sistema)}</td>
         <td data-label="Monto"><strong>${esc(p.divisa)}</strong> $ ${money(p.monto)}</td>
-        <td data-label="Estado" class="estado-${p.estado}">${p.estado === 'cargado' ? '✓ cargado' : '✗ rechazado'}</td>
-        <td data-label="Detalle" class="meta">${p.estado === 'cargado' ? (p.newBalance != null ? ('bal: ' + esc(String(p.newBalance))) : '') : esc(p.error || '')}</td>
-      </tr>`).join('') + '</tbody></table>';
+        <td data-label="Estado" class="estado-${p.estado}">${estLbl}</td>
+        <td data-label="Detalle" class="meta">${det}${anular}</td>
+      </tr>`; }).join('') + '</tbody></table>';
+  }
+  async function anularPedido(id) {
+    const p = (_hist || []).find((x) => x.id === id) || {};
+    if (!confirm(`¿ANULAR esta carga?\n\nVa a RETIRAR ${p.divisa || ''} $${money(p.monto || 0)} de la caja "${p.cajaUsuario || ''}" (${p.sistema || ''}) en el casino.\n\n⚠️ Se sacan fichas REALES. Usalo solo si la carga fue a un usuario EQUIVOCADO y las fichas siguen ahí.`)) return;
+    // Deshabilitar el botón YA (antes del await) para que un doble-click no dispare dos retiros.
+    const btn = document.querySelector(`button[onclick="anularPedido('${id}')"]`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+    const { body: d } = await api(`/api/pedidos/${id}/anular`, { method: 'POST' });
+    if (d && d.ok) { alert('✓ Anulado — fichas retiradas. Nuevo balance del casino: ' + (d.newBalance != null ? d.newBalance : '—')); loadHistorial(); }
+    else { alert('✗ No se pudo anular: ' + ((d && d.error) || 'error') + ((d && d.detail) ? ('\n\n' + d.detail) : '')); if (btn) { btn.disabled = false; btn.textContent = '↩ Anular'; } }
   }
 
   // cerrar sesión

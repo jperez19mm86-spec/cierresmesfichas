@@ -437,7 +437,47 @@ app.post('/api/pedidos/:id/rechazar', (req, res) => {
   res.json({ ok: true, pedido: upd });
 });
 
-// Historial: resueltos (cargado/rechazado), filtrable por código.
+// ANULAR una carga ya hecha (ej. petición a un usuario EQUIVOCADO): RETIRA (operation=out) exactamente
+// el mismo monto que se cargó y deja el pedido en 'anulado'. Solo aplica a un pedido 'cargado'.
+// Es plata: si el casino no confirma el retiro (ej. el usuario ya usó las fichas → saldo insuficiente),
+// NO cambia el estado y devuelve el error.
+app.post('/api/pedidos/:id/anular', async (req, res) => {
+  const p0 = pedidos.get(req.params.id);
+  if (!p0) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
+  if (p0.estado !== 'cargado') return res.status(400).json({ ok: false, error: `solo se anula una carga hecha ("cargado"); este está "${p0.estado}"` });
+
+  // Validaciones que NO mutan (antes de tomar el lock).
+  const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p0.sistema).toLowerCase());
+  if (!sys) return res.status(400).json({ ok: false, error: `Sistema "${p0.sistema}" no configurado (🔌 Sistemas)` });
+  if (!sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p0.sistema}" sin contraseña guardada` });
+  if (!p0.userId) return res.status(400).json({ ok: false, error: 'La caja no tiene user_id del casino' });
+
+  // LOCK ATÓMICO (cargado → anulando): previene doble-retiro por doble-click / requests concurrentes.
+  const p = pedidos.tomarParaAnular(req.params.id);
+  if (!p) return res.status(409).json({ ok: false, error: 'ese pedido ya se está anulando (o cambió de estado)' });
+
+  try {
+    const t = await casino.testConnection(sys.url, sys.user, sys.password);
+    if (!t.ok || !t.sessionCookie) {
+      pedidos.revertirAnulando(p.id); // no se retiró nada → volver a 'cargado' para reintentar
+      return res.status(502).json({ ok: false, error: `No se pudo autenticar al sistema "${p.sistema}" — revisá sus credenciales en 🔌 Sistemas.` });
+    }
+    const r = await casino.loadChips(sys.url, t.sessionCookie, p.userId, p.monto, p.divisa, 'out'); // RETIRA el mismo monto
+    if (r.ok) {
+      const upd = pedidos.setEstado(p.id, 'anulado', { newBalance: r.newBalance, error: null });
+      console.log(`[Pedido] ANULADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
+      sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget)
+      return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });
+    }
+    pedidos.revertirAnulando(p.id); // el casino NO confirmó el retiro (ej. saldo insuficiente) → rollback
+    return res.status(502).json({ ok: false, error: r.error || 'el casino no confirmó el retiro', detail: r.snippet });
+  } catch (e) {
+    pedidos.revertirAnulando(p.id); // error de red/excepción → rollback (no se confirmó el retiro)
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Historial: resueltos (cargado/rechazado/anulado), filtrable por código.
 app.get('/api/historial', (req, res) => {
   const all = pedidos.list({ codigo: req.query.codigo });
   const hist = all.filter((p) => p.estado !== 'pendiente');
