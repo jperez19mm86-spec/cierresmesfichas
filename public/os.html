@@ -127,6 +127,7 @@ async function borrarCliente(id, codigo){
 }
 function editCli(id){
   const c = _clientes.find(x=>x.id===id); if(!c) return;
+  const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
   document.getElementById('cliEdit').innerHTML = `
     <div class="card">
       <h2>✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
@@ -149,10 +150,31 @@ function editCli(id){
       </div>
       <div id="pb-hist" class="muted"></div>
     </div>
+    <div class="card">
+      <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
+      <div class="row">
+        <div><label>Divisa de fichas</label><select id="e-divisa"><option value="">—</option></select></div>
+        <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','CVU (ARS)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}</select></div>
+        <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
+      </div>
+      <div class="row" style="margin-top:6px;align-items:flex-end">
+        <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}</select></div>
+        <div><label>TC a aplicar</label><select id="e-tcap" onchange="toggleTcProv()"><option value="">—</option>${opt(c.tc_aplicar,'tiempo_real','Tiempo real')}${opt(c.tc_aplicar,'promedio','Promedio mensual')}${opt(c.tc_aplicar,'proveedor','TC de proveedor')}</select></div>
+        <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
+        <button onclick="saveCli('${id}')">💾 Guardar</button>
+      </div>
+      <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro.</div>
+    </div>
     <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
     <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>`;
+  fillDivisaSelect(c.divisa_fichas);
   loadCliPlat(id);
   loadCliProv(id);
+}
+function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
+async function fillDivisaSelect(cur){
+  const d=await api('/api/os/divisas?activas=1'); const sel=document.getElementById('e-divisa'); if(!sel)return;
+  sel.innerHTML='<option value="">—</option>'+((d.divisas)||[]).map(x=>`<option value="${esc(x.codigo)}" ${cur===x.codigo?'selected':''}>${esc(x.codigo)}${x.nombre?' — '+esc(x.nombre):''}</option>`).join('');
 }
 // ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
 async function loadCliPlat(id){
@@ -258,7 +280,9 @@ function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.q
 async function saveCli(id){
   await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
     estado:val('e-estado'), mezcla_pago_usdt:val('e-mez'), ajuste_usdt_pct:val('e-aj'),
-    paga_proveedores:val('e-pp')==='1', permite_deuda:val('e-pd')==='1' })});
+    paga_proveedores:val('e-pp')==='1', permite_deuda:val('e-pd')==='1',
+    divisa_fichas:val('e-divisa'), moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
+    disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov') })});
   toast('Guardado'); VIEWS.clientes();
 }
 async function savePB(id){
@@ -721,7 +745,7 @@ function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
 function renderCfgHeader(){
-  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['casino','🎰 Casino']];
+  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
@@ -772,6 +796,52 @@ async function delSplit(pct){
   const r=await api('/api/os/split-base/'+encodeURIComponent(pct),{method:'DELETE'});
   if(r.ok) toast('Borrada'); CFG.split();
 }
+
+// ───────── CONFIG ▸ DIVISAS (catálogo editable v3.0) ─────────
+CFG.divisas = async () => {
+  const d=(await api('/api/os/divisas')).divisas||[];
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>💱 Catálogo de divisas</h2>
+      <div class="muted" style="margin-bottom:8px">Las divisas que puede tener un cliente en <b>"Divisa de fichas"</b>. Editable — agregá o dá de baja sin tocar código; solo las <b>activas</b> aparecen en la ficha del cliente.</div>
+      <div class="row" style="align-items:flex-end;gap:8px">
+        <div style="flex:0"><label>Código</label><input id="dv-cod" placeholder="ej: BOB" style="width:100px"></div>
+        <div style="flex:1"><label>Nombre</label><input id="dv-nom" placeholder="ej: Boliviano"></div>
+        <button class="small" onclick="addDivisa()">Agregar</button>
+      </div>
+      <table style="margin-top:10px"><thead><tr><th>Código</th><th>Nombre</th><th>Activa</th><th></th></tr></thead><tbody>
+      ${d.map(x=>`<tr>
+        <td><b>${esc(x.codigo)}</b></td>
+        <td class="muted">${esc(x.nombre||'—')}</td>
+        <td><label style="cursor:pointer;white-space:nowrap"><input type="checkbox" ${x.activa?'checked':''} onchange="toggleDivisa('${esc(x.codigo)}',this.checked)"> ${x.activa?'activa':'inactiva'}</label></td>
+        <td class="right"><button class="danger small" onclick="delDivisa('${esc(x.codigo)}')">🗑</button></td>
+      </tr>`).join('')||'<tr><td colspan="4" class="empty">Sin divisas.</td></tr>'}
+      </tbody></table>
+    </div>`;
+};
+async function addDivisa(){ const cod=val('dv-cod').trim(); if(!cod)return toast('Poné el código'); await api('/api/os/divisas',{method:'POST',body:JSON.stringify({codigo:cod,nombre:val('dv-nom'),activa:true})}); toast('Divisa agregada'); CFG.divisas(); }
+async function toggleDivisa(cod,activa){ await api('/api/os/divisas/'+encodeURIComponent(cod)+'/activa',{method:'PUT',body:JSON.stringify({activa})}); CFG.divisas(); }
+async function delDivisa(cod){ if(!confirm('¿Borrar la divisa "'+cod+'"?'))return; await api('/api/os/divisas/'+encodeURIComponent(cod),{method:'DELETE'}); CFG.divisas(); }
+
+// ───────── CONFIG ▸ MEDIOS DE PAGO (global v3.0: CVU + USDT + notas) ─────────
+CFG.pagos = async () => {
+  const p=(await api('/api/os/config/pagos')).pagos||{};
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>💳 Medios de pago (global)</h2>
+      <div class="muted" style="margin-bottom:8px">Un solo lugar para todos los clientes. Cuando un cliente elige CVU o USDT, el sistema le muestra estos datos + la nota/advertencia.</div>
+      <h3 style="margin:6px 0">CVU (ARS)</h3>
+      <div><label>CVU vigente</label><input id="pg-cvu" value="${esc(p.cvuVigente||'')}" placeholder="0000003100010000000000" style="width:100%;max-width:420px"></div>
+      <div style="margin-top:6px"><label>Nota / advertencia CVU</label><textarea id="pg-cvunota" rows="2" style="width:100%;max-width:560px" placeholder="ej: mínimo $X por transferencia · solo desde cuenta a nombre del titular registrado">${esc(p.cvuNota||'')}</textarea></div>
+      <hr/>
+      <h3 style="margin:6px 0">USDT</h3>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:2"><label>Dirección USDT vigente</label><input id="pg-usdt" value="${esc(p.usdtAddress||'')}" placeholder="Txxxxxxxx…"></div>
+        <div style="flex:0"><label>Red</label><input id="pg-red" value="${esc(p.usdtRed||'')}" placeholder="TRC20" style="width:110px"></div>
+      </div>
+      <div style="margin-top:6px"><label>Nota / advertencia USDT</label><textarea id="pg-usdtnota" rows="2" style="width:100%;max-width:560px" placeholder="ej: transferir SOLO por la misma red (TRC20) — otra red pierde los fondos">${esc(p.usdtNota||'')}</textarea></div>
+      <div style="margin-top:12px"><button onclick="savePagos()">💾 Guardar</button></div>
+    </div>`;
+};
+async function savePagos(){ await api('/api/os/config/pagos',{method:'PUT',body:JSON.stringify({cvuVigente:val('pg-cvu'),cvuNota:document.getElementById('pg-cvunota').value,usdtAddress:val('pg-usdt'),usdtRed:val('pg-red'),usdtNota:document.getElementById('pg-usdtnota').value})}); toast('Guardado'); }
 
 // ───────── CONFIG ▸ CASINO (conexiones + explorador de nodos) ─────────
 CFG.casino = async () => {

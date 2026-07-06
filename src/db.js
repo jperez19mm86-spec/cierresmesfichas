@@ -218,6 +218,13 @@ db.exec(`
     matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")
     origen TEXT                -- exacto | marca | manual (cómo se vinculó)
   );
+  /* ───── CATÁLOGO DE DIVISAS (v3.0) — editable, NO enum en código ───── */
+  CREATE TABLE IF NOT EXISTS divisas (
+    codigo TEXT PRIMARY KEY,    -- ARS, MXN, UYU, PYG, USD…
+    nombre TEXT,                -- "Peso argentino"
+    activa INTEGER DEFAULT 1,
+    ord INTEGER
+  );
 
   /* índices útiles */
   CREATE INDEX IF NOT EXISTS idx_paneles_cliente ON paneles(cliente_id);
@@ -248,9 +255,16 @@ ensureColumns('clientes', {
   estado: "TEXT DEFAULT 'activo'",        // activo | inactivo | suspendido
   paga_proveedores: 'INTEGER DEFAULT 0',
   permite_deuda: 'INTEGER DEFAULT 0',
-  mezcla_pago_usdt: 'TEXT',               // decimal string %
+  mezcla_pago_usdt: 'TEXT',               // decimal string % (proporción USDT por defecto)
   ajuste_usdt_pct: 'TEXT',                // decimal string %
   fecha_alta: 'TEXT',
+  // ── v3.0 ficha de cliente ──
+  divisa_fichas: 'TEXT',                  // código de divisa (del catálogo `divisas`)
+  moneda_cobro: 'TEXT',                   // usdt | cvu | variable
+  momento_pago: 'TEXT',                   // anticipado | acumulado | invoice
+  disparador: 'TEXT',                     // carga_deuda | pago_carga
+  tc_aplicar: 'TEXT',                     // tiempo_real | promedio | proveedor
+  tc_proveedor: 'TEXT',                   // TC manual del proveedor (si tc_aplicar=proveedor)
 });
 
 // Cada PANEL puede linkearse a un nodo del casino (qué conexión + qué id de usuario del casino).

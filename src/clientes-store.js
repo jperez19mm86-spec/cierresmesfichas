@@ -30,6 +30,13 @@ function load() {
       mezcla_pago_usdt: r.mezcla_pago_usdt || null,
       ajuste_usdt_pct: r.ajuste_usdt_pct || null,
       fecha_alta: r.fecha_alta || r.createdAt || null,
+      // v3.0 ficha de cliente
+      divisa_fichas: r.divisa_fichas || null,
+      moneda_cobro: r.moneda_cobro || null,
+      momento_pago: r.momento_pago || null,
+      disparador: r.disparador || null,
+      tc_aplicar: r.tc_aplicar || null,
+      tc_proveedor: r.tc_proveedor || null,
     };
   });
   return { clientes };
@@ -38,17 +45,19 @@ function load() {
 const _saveTx = db.transaction((data) => {
   db.prepare('DELETE FROM clientes').run();
   const ins = db.prepare(`INSERT INTO clientes
-    (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta)
-    VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa)`);
+    (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
+     divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor)
+    VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
+     @dfi,@mco,@mpa,@dis,@tca,@tcp)`);
+  const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
     telegram: JSON.stringify(c.telegram || { chatId: '', enabled: false }),
     cajas: JSON.stringify(c.cajas || []), ord: i,
     nombre: c.nombre || c.nombreVisible || '', estado: c.estado || 'activo',
     pp: c.paga_proveedores ? 1 : 0, pd: c.permite_deuda ? 1 : 0,
-    mez: c.mezcla_pago_usdt != null && c.mezcla_pago_usdt !== '' ? String(c.mezcla_pago_usdt) : null,
-    aj: c.ajuste_usdt_pct != null && c.ajuste_usdt_pct !== '' ? String(c.ajuste_usdt_pct) : null,
-    fa: c.fecha_alta || c.createdAt || null,
+    mez: nn(c.mezcla_pago_usdt), aj: nn(c.ajuste_usdt_pct), fa: c.fecha_alta || c.createdAt || null,
+    dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
   }));
 });
 function save(data) { _saveTx(data); }
@@ -116,6 +125,10 @@ function updateComercial(id, patch) {
   if (patch.permite_deuda !== undefined) c.permite_deuda = !!patch.permite_deuda;
   if (patch.mezcla_pago_usdt !== undefined) c.mezcla_pago_usdt = patch.mezcla_pago_usdt === '' ? null : String(patch.mezcla_pago_usdt);
   if (patch.ajuste_usdt_pct !== undefined) c.ajuste_usdt_pct = patch.ajuste_usdt_pct === '' ? null : String(patch.ajuste_usdt_pct);
+  // ── v3.0 ficha de cliente ──
+  ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor'].forEach((k) => {
+    if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
+  });
   save(data); return c;
 }
 

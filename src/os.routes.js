@@ -22,6 +22,8 @@ const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
 const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
+const divisasStore = require('./divisas-store');
+const configStore = require('./config-store');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -64,14 +66,29 @@ function mount(app) {
   app.get('/api/os/clientes', (_req, res) => {
     const list = clientes.list().clientes.map((c) => ({
       id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado,
-      paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda,
+      telegram: c.telegram, paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda,
       mezcla_pago_usdt: c.mezcla_pago_usdt, ajuste_usdt_pct: c.ajuste_usdt_pct,
+      // v3.0 ficha
+      divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
+      disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
       deuda: deudaSvc.cuentaCorriente(c.id),
     }));
     ok(res, { clientes: list });
   });
+
+  // ───────── CATÁLOGO DE DIVISAS (v3.0) ─────────
+  app.get('/api/os/divisas', (req, res) => ok(res, { divisas: req.query.activas === '1' ? divisasStore.listActivas() : divisasStore.list() }));
+  app.post('/api/os/divisas', wrap((req, res) => { const b = req.body || {}; ok(res, { divisa: divisasStore.upsert({ codigo: b.codigo, nombre: b.nombre, activa: b.activa }) }); }));
+  app.put('/api/os/divisas/:codigo/activa', wrap((req, res) => ok(res, { ok: divisasStore.setActiva(req.params.codigo, !!(req.body && req.body.activa)) })));
+  app.delete('/api/os/divisas/:codigo', (req, res) => divisasStore.remove(req.params.codigo) ? ok(res) : err(res, 404, 'no encontrada'));
+
+  // ───────── MEDIOS DE PAGO GLOBALES (v3.0): CVU + dirección USDT + notas ─────────
+  const PAGOS_KEYS = ['cvuVigente', 'cvuNota', 'usdtAddress', 'usdtRed', 'usdtNota'];
+  app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
+  app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
+
   // ALTA de cliente desde el OS (código + nombre). Los campos comerciales se editan luego.
   app.post('/api/os/clientes', wrap((req, res) => {
     const codigo = String((req.body && req.body.codigo) || '').trim();
