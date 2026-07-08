@@ -100,13 +100,13 @@ VIEWS.clientes = async () => {
     </div>
     <div class="card">
       <h2>Clientes <span class="muted">(${_clientes.length})</span></h2>
-      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>USDT/Aj.</th><th>Prov.</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
       ${_clientes.map(c=>`<tr>
         <td><span class="pill">${esc(c.codigo)}</span></td>
         <td>${esc(c.nombre||'')}</td>
         <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
         <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class=badge.warn>—</span>'}</td>
-        <td class="muted">${c.mezcla_pago_usdt?esc(c.mezcla_pago_usdt)+'%':'—'} / ${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
+        <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
         <td>${c.paga_proveedores?'sí':'no'}</td>
         <td class="right"><b>${money(c.deuda?c.deuda.total:0)}</b></td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
@@ -133,10 +133,8 @@ function editCli(id){
       <h2>✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
       <div class="row">
         <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label>Mezcla pago USDT %</label><input id="e-mez" value="${esc(c.mezcla_pago_usdt||'')}" placeholder="80"/></div>
         <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
         <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
-        <div style="flex:0"><label>Permite deuda</label><select id="e-pd"><option value="0" ${!c.permite_deuda?'selected':''}>no</option><option value="1" ${c.permite_deuda?'selected':''}>sí</option></select></div>
         <button onclick="saveCli('${id}')">💾 Guardar</button>
       </div>
       <hr/>
@@ -152,8 +150,8 @@ function editCli(id){
     </div>
     <div class="card">
       <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
-      <div class="row">
-        <div><label>Divisa de fichas</label><select id="e-divisa"><option value="">—</option></select></div>
+      <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
+      <div class="row" style="margin-top:6px">
         <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','CVU (ARS)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}</select></div>
         <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
       </div>
@@ -167,14 +165,17 @@ function editCli(id){
     </div>
     <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
     <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>`;
-  fillDivisaSelect(c.divisa_fichas);
+  fillDivisas(c.divisa_fichas);
   loadCliPlat(id);
   loadCliProv(id);
 }
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
-async function fillDivisaSelect(cur){
-  const d=await api('/api/os/divisas?activas=1'); const sel=document.getElementById('e-divisa'); if(!sel)return;
-  sel.innerHTML='<option value="">—</option>'+((d.divisas)||[]).map(x=>`<option value="${esc(x.codigo)}" ${cur===x.codigo?'selected':''}>${esc(x.codigo)}${x.nombre?' — '+esc(x.nombre):''}</option>`).join('');
+async function fillDivisas(curCsv){
+  const d=await api('/api/os/divisas?activas=1'); const box=document.getElementById('e-divisas'); if(!box)return;
+  const sel=new Set(String(curCsv||'').split(/[,\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean));
+  const arr=(d.divisas)||[];
+  box.innerHTML = arr.length ? arr.map(x=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="e-div" value="${esc(x.codigo)}" ${sel.has(x.codigo)?'checked':''}> ${esc(x.codigo)}${x.nombre?' <span class="muted" style="font-size:11px">'+esc(x.nombre)+'</span>':''}</label>`).join('')
+    : '<span class="muted">Sin divisas activas — agregá en ⚙ Config → 💱 Divisas.</span>';
 }
 // ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
 async function loadCliPlat(id){
@@ -278,10 +279,10 @@ async function cliProvCell(inp,nombre){ const r=await api('/api/os/cierre/celda'
 async function cliProvDesc(inp,nombre){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:nombre,descuento:inp.value})}); if(r.ok)toast('Descuento guardado'); }
 function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.querySelectorAll('.clipt tbody tr').forEach(tr=>{tr.style.display=(tr.dataset.prov||'').includes(q)?'':'none';}); }
 async function saveCli(id){
+  const divisas=[...document.querySelectorAll('#e-divisas input.e-div:checked')].map(x=>x.value).join(',');
   await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
-    estado:val('e-estado'), mezcla_pago_usdt:val('e-mez'), ajuste_usdt_pct:val('e-aj'),
-    paga_proveedores:val('e-pp')==='1', permite_deuda:val('e-pd')==='1',
-    divisa_fichas:val('e-divisa'), moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
+    estado:val('e-estado'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
+    divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov') })});
   toast('Guardado'); VIEWS.clientes();
 }
