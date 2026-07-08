@@ -125,49 +125,71 @@ async function borrarCliente(id, codigo){
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
   if(r.ok){ toast('Cliente borrado'); VIEWS.clientes(); }
 }
+let _cliDirty=false, _cliModalId=null;
 function editCli(id){
   const c = _clientes.find(x=>x.id===id); if(!c) return;
   const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
+  _cliDirty=false; _cliModalId=id;
   document.getElementById('cliEdit').innerHTML = `
-    <div class="card">
-      <h2>✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
-      <div class="row">
-        <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
-        <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
-        <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
-        <button onclick="saveCli('${id}')">💾 Guardar</button>
+  <style>
+    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;z-index:1000;padding:22px 12px;overflow:auto}
+    .modal-dlg{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;max-width:980px;width:100%;box-shadow:0 14px 44px rgba(0,0,0,.35);max-height:92vh;display:flex;flex-direction:column}
+    .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2,#fff);border-radius:12px 12px 0 0;z-index:2}
+    .modal-body{overflow:auto;padding:10px 14px}
+  </style>
+  <div class="modal-ov" onclick="if(event.target===this)closeCliModal()">
+    <div class="modal-dlg">
+      <div class="modal-head">
+        <h2 style="margin:0">✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
+        <div style="display:flex;gap:8px;flex:0 0 auto"><button onclick="saveCli('${id}')">💾 Guardar</button><button class="outline" onclick="closeCliModal()">Salir ✕</button></div>
       </div>
-      <hr/>
-      <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
-      <div class="row">
-        <div><label>Valor %</label><input id="pb-val" value="${esc(c.precio_base_pct||'')}" placeholder="11"/></div>
-        <div style="flex:0"><label>Tipo</label><select id="pb-tipo"><option value="vigencia">vigencia (desde fecha)</option><option value="correccion">corrección (retroactivo)</option></select></div>
-        <div><label>Vigente desde</label><input id="pb-desde" type="date"/></div>
-        <button onclick="savePB('${id}')">Aplicar</button>
-        <button class="outline" onclick="verPBHist('${id}')">Ver historial</button>
+      <div class="modal-body" oninput="_cliDirty=true" onchange="_cliDirty=true">
+        <div class="card">
+          <div class="row">
+            <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
+            <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
+            <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
+          </div>
+          <hr/>
+          <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
+          <div class="row">
+            <div><label>Valor %</label><input id="pb-val" value="${esc(c.precio_base_pct||'')}" placeholder="11"/></div>
+            <div style="flex:0"><label>Tipo</label><select id="pb-tipo"><option value="vigencia">vigencia (desde fecha)</option><option value="correccion">corrección (retroactivo)</option></select></div>
+            <div><label>Vigente desde</label><input id="pb-desde" type="date"/></div>
+            <button onclick="savePB('${id}')">Aplicar</button>
+            <button class="outline" onclick="verPBHist('${id}')">Ver historial</button>
+          </div>
+          <div id="pb-hist" class="muted"></div>
+        </div>
+        <div class="card">
+          <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
+          <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
+          <div class="row" style="margin-top:6px">
+            <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','CVU (ARS)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}</select></div>
+            <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
+          </div>
+          <div class="row" style="margin-top:6px;align-items:flex-end">
+            <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}</select></div>
+            <div><label>TC a aplicar</label><select id="e-tcap" onchange="toggleTcProv()"><option value="">—</option>${opt(c.tc_aplicar,'tiempo_real','Tiempo real')}${opt(c.tc_aplicar,'promedio','Promedio mensual')}${opt(c.tc_aplicar,'proveedor','TC de proveedor')}</select></div>
+            <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
+          </div>
+          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro.</div>
+        </div>
+        <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
+        <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>
       </div>
-      <div id="pb-hist" class="muted"></div>
     </div>
-    <div class="card">
-      <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
-      <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
-      <div class="row" style="margin-top:6px">
-        <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','CVU (ARS)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}</select></div>
-        <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
-      </div>
-      <div class="row" style="margin-top:6px;align-items:flex-end">
-        <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}</select></div>
-        <div><label>TC a aplicar</label><select id="e-tcap" onchange="toggleTcProv()"><option value="">—</option>${opt(c.tc_aplicar,'tiempo_real','Tiempo real')}${opt(c.tc_aplicar,'promedio','Promedio mensual')}${opt(c.tc_aplicar,'proveedor','TC de proveedor')}</select></div>
-        <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
-        <button onclick="saveCli('${id}')">💾 Guardar</button>
-      </div>
-      <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro.</div>
-    </div>
-    <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
-    <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>`;
+  </div>`;
   fillDivisas(c.divisa_fichas);
   loadCliPlat(id);
   loadCliProv(id);
+}
+// Cierra el modal. Si hay cambios sin guardar, pregunta si guardar o salir sin guardar.
+function closeCliModal(){
+  if(_cliDirty){
+    if(confirm('Tenés cambios sin guardar.\n\nAceptar = GUARDAR y salir\nCancelar = salir SIN guardar')){ saveCli(_cliModalId); return; }
+  }
+  const e=document.getElementById('cliEdit'); if(e) e.innerHTML='';
 }
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
 async function fillDivisas(curCsv){
