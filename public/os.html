@@ -174,7 +174,7 @@ async function fillDivisas(curCsv){
   const d=await api('/api/os/divisas?activas=1'); const box=document.getElementById('e-divisas'); if(!box)return;
   const sel=new Set(String(curCsv||'').split(/[,\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean));
   const arr=(d.divisas)||[];
-  box.innerHTML = arr.length ? arr.map(x=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="e-div" value="${esc(x.codigo)}" ${sel.has(x.codigo)?'checked':''}> ${esc(x.codigo)}${x.nombre?' <span class="muted" style="font-size:11px">'+esc(x.nombre)+'</span>':''}</label>`).join('')
+  box.innerHTML = arr.length ? arr.map(x=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap" title="${esc(x.nombre||'')}"><input type="checkbox" class="e-div" value="${esc(x.codigo)}" ${sel.has(x.codigo)?'checked':''}> ${esc(x.codigo)}</label>`).join('')
     : '<span class="muted">Sin divisas activas — agregá en ⚙ Config → 💱 Divisas.</span>';
 }
 // ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
