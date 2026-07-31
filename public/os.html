@@ -797,11 +797,83 @@ function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
 function renderCfgHeader(){
-  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino']];
+  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
 }
+// ───────── Importar la planilla "BASE DE DATOS CLIENTES" ─────────
+// Siempre: previsualizar → revisar → importar. El botón de importar recién se habilita
+// después de previsualizar, y manda el hash de ESA previsualización.
+let _impPlan = null;
+CFG.importar = () => {
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card">
+      <h2>📥 Importar planilla de clientes</h2>
+      <div class="muted" style="margin-bottom:10px">Trae la ficha de los clientes y sus paneles (con las divisas de cada uno) desde la planilla de Google. <b>Nunca escribe sin que veas antes qué va a cambiar.</b></div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1"><label>ID de la planilla</label><input id="imp-id" value="1VQDqpACnxPRGFYPrEUsefhCiGspnJRqfEcG_UEyrfXE"/></div>
+      </div>
+      <div class="row" style="margin-top:8px;align-items:center;gap:18px">
+        <label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="imp-base" style="width:auto"/> importar también el <b>% base</b></label>
+        <label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="imp-tg" style="width:auto"/> importar los <b>ID de Telegram</b></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="outline" onclick="impPrever()">👁 Previsualizar</button>
+        <button class="outline" onclick="impSnapshot()">⤓ Bajar respaldo</button>
+        <button id="imp-go" disabled onclick="impAplicar()">📥 Importar</button>
+      </div>
+      <div id="imp-out" style="margin-top:14px"></div>
+    </div>`;
+};
+async function impPrever(){
+  const out=document.getElementById('imp-out'); out.innerHTML='<div class="empty">Leyendo la planilla…</div>';
+  document.getElementById('imp-go').disabled=true; _impPlan=null;
+  const r=await api('/api/os/import/sheet',{method:'POST',body:JSON.stringify({dryRun:true,sheetId:val('imp-id'),incluirBasePct:document.getElementById('imp-base').checked,incluirTelegram:document.getElementById('imp-tg').checked})});
+  if(!r||!r.ok){ out.innerHTML='<span class="badge err">'+esc((r&&r.error)||'no se pudo leer la planilla')+'</span>'; return; }
+  _impPlan=r.plan; const p=r.plan;
+  const filas=(t,arr,f)=>arr.length?('<details style="margin-top:6px"><summary style="cursor:pointer">'+t+' ('+arr.length+')</summary><div class="muted" style="padding:6px 0 0 14px;line-height:1.7">'+arr.map(f).join('<br>')+'</div></details>'):'';
+  out.innerHTML=`
+    <div class="row" style="gap:22px;flex-wrap:wrap">
+      <div><b style="font-size:20px">${p.clientes.crear.length}</b><div class="muted">clientes nuevos</div></div>
+      <div><b style="font-size:20px">${p.clientes.actualizar.length}</b><div class="muted">clientes a actualizar</div></div>
+      <div><b style="font-size:20px">${p.paneles.crear.length}</b><div class="muted">paneles nuevos</div></div>
+      <div><b style="font-size:20px">${p.paneles.actualizar.length}</b><div class="muted">paneles a actualizar</div></div>
+      <div><b style="font-size:20px">${p.altaDivisas.length}</b><div class="muted">divisas a dar de alta</div></div>
+    </div>
+    ${p.avisos.length?('<div style="margin-top:10px"><span class="badge warn">Revisar</span><div class="muted" style="margin-top:4px;line-height:1.7">'+p.avisos.map(esc).join('<br>')+'</div></div>'):''}
+    ${filas('Clientes nuevos',p.clientes.crear,c=>'• <b>'+esc(c.nombre)+'</b>')}
+    ${filas('Clientes que cambian',p.clientes.actualizar,c=>'• <b>'+esc(c.nombre)+'</b>: '+esc(Object.keys(c.campos).join(', ')))}
+    ${filas('Paneles nuevos',p.paneles.crear,x=>'• '+esc(x.nombre)+' <span class="muted">('+esc(x.sistema)+' · '+esc(x.id_usuario)+' · '+(x.divisas.join(' ')||'sin divisas')+')</span>')}
+    ${filas('Paneles que cambian',p.paneles.actualizar,x=>'• '+esc(x.datos.nombre)+' <span class="muted">('+x.dif.join(', ')+')</span>')}
+    ${filas('Divisas a dar de alta',p.altaDivisas,d=>'• '+esc(d))}
+    ${p.paneles.sinDivisas.length?filas('⚠ Paneles SIN divisas (hay que completarlos a mano)',p.paneles.sinDivisas,d=>'• '+esc(d)):''}
+    <div class="muted" style="margin-top:10px">Los paneles entran <b>sin conexión de casino</b>: después hay que linkearlos para que entren en la facturación.</div>`;
+  document.getElementById('imp-go').disabled=false;
+  toast('Previsualización lista — revisá antes de importar');
+}
+async function impSnapshot(){
+  const r=await api('/api/os/import/snapshot');
+  if(!r||!r.ok) return toast('✗ no se pudo bajar el respaldo');
+  const blob=new Blob([JSON.stringify(r.snapshot,null,1)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='respaldo-os-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('Respaldo descargado');
+}
+async function impAplicar(){
+  if(!_impPlan) return toast('Primero previsualizá');
+  const p=_impPlan;
+  if(!confirm(`¿Importar la planilla?\n\n• ${p.clientes.crear.length} clientes nuevos\n• ${p.clientes.actualizar.length} clientes actualizados\n• ${p.paneles.crear.length} paneles nuevos\n• ${p.altaDivisas.length} divisas nuevas\n\nNo se tocan las deudas ni el historial de precios. Bajate el respaldo antes si querés poder deshacer.`)) return;
+  const btn=document.getElementById('imp-go'); btn.disabled=true; btn.textContent='Importando…';
+  const r=await api('/api/os/import/sheet',{method:'POST',body:JSON.stringify({dryRun:false,confirmHash:p.hash,sheetId:val('imp-id'),incluirBasePct:document.getElementById('imp-base').checked,incluirTelegram:document.getElementById('imp-tg').checked})});
+  btn.textContent='📥 Importar';
+  if(!r||!r.ok){ btn.disabled=false; return toast('✗ '+((r&&r.error)||'no se pudo importar')); }
+  const x=r.resultado;
+  toast(`Importado: ${x.creados} clientes nuevos, ${x.actualizados} actualizados, ${x.panelesCreados} paneles`);
+  _impPlan=null; impPrever();
+}
+
 VIEWS.config = () => { document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[_cfgSub]||CFG.socios)(); };
 function cfgSub(s){ _cfgSub=s; document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[s]||CFG.socios)(); }
 

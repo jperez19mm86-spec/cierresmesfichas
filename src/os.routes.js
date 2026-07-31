@@ -24,6 +24,7 @@ const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
+const importSheet = require('./import-sheet.service');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -361,6 +362,25 @@ function mount(app) {
   app.get('/api/os/movimientos', (req, res) => ok(res, { movimientos: movs.list({ cliente_id: req.query.cliente_id, tipo: req.query.tipo, mes: req.query.mes }) }));
   app.post('/api/os/movimientos', wrap((req, res) => ok(res, { movimiento: movs.create(req.body || {}) })));
   app.delete('/api/os/movimientos/:id', (req, res) => movs.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
+
+  // ───────── IMPORTAR LA PLANILLA "BASE DE DATOS CLIENTES" (v3.0) ─────────
+  // Flujo obligado: previsualizar → revisar → aplicar con el hash de esa previsualización.
+  // Nada se escribe sin haber mirado antes qué cambia, y siempre queda el snapshot para deshacer.
+  app.get('/api/os/import/snapshot', (_req, res) => ok(res, { snapshot: importSheet.snapshot() }));
+
+  app.post('/api/os/import/sheet', wrap(async (req, res) => {
+    const { sheetId, dryRun, confirmHash, incluirBasePct, incluirTelegram } = req.body || {};
+    const opts = { sheetId: sheetId || importSheet.SHEET_ID_DEFAULT, incluirBasePct: !!incluirBasePct, incluirTelegram: !!incluirTelegram };
+    if (dryRun !== false) return ok(res, { plan: await importSheet.planificar(opts) });
+    const r = await importSheet.aplicar({ ...opts, confirmHash, historial });
+    ok(res, { resultado: r });
+  }));
+
+  app.post('/api/os/import/rollback', wrap((req, res) => {
+    const { snapshot, force } = req.body || {};
+    if (!force) return err(res, 400, 'para deshacer hay que mandar force:true');
+    ok(res, { restaurado: importSheet.restaurar(snapshot) });
+  }));
 
   // SALDO ANTERIOR (v3.0): la deuda que el cliente ya traía antes de que el sistema empiece a
   // facturar. La cuenta corriente se arma SOLO con movimientos (deuda.service.js), así que la
