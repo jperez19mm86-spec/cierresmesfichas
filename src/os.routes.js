@@ -71,6 +71,9 @@ function mount(app) {
       // v3.0 ficha
       divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
       disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
+      // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
+      mover_balance: c.mover_balance, saldo_inicial: c.saldo_inicial,
+      saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
       deuda: deudaSvc.cuentaCorriente(c.id),
@@ -358,6 +361,37 @@ function mount(app) {
   app.get('/api/os/movimientos', (req, res) => ok(res, { movimientos: movs.list({ cliente_id: req.query.cliente_id, tipo: req.query.tipo, mes: req.query.mes }) }));
   app.post('/api/os/movimientos', wrap((req, res) => ok(res, { movimiento: movs.create(req.body || {}) })));
   app.delete('/api/os/movimientos/:id', (req, res) => movs.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
+
+  // SALDO ANTERIOR (v3.0): la deuda que el cliente ya traía antes de que el sistema empiece a
+  // facturar. La cuenta corriente se arma SOLO con movimientos (deuda.service.js), así que la
+  // columna `saldo_inicial` por sí sola no suma nada: hay que materializarla como un movimiento
+  // de tipo 'ajuste'. Guardamos su id para poder REEMPLAZARLO (no duplicarlo) si se re-aplica.
+  app.post('/api/os/clientes/:id/saldo-inicial', wrap(async (req, res) => {
+    const cli = clientes.get(req.params.id); if (!cli) return err(res, 404, 'cliente no encontrado');
+    const { monto, divisa, tc } = req.body || {};
+    const div = String(divisa || '').toUpperCase();
+    if (!money.isPos(monto)) return err(res, 400, 'monto inválido');
+    if (!div) return err(res, 400, 'falta la divisa del saldo anterior');
+
+    let tcUsado = null, montoUsdt;
+    if (div === 'USDT') {
+      montoUsdt = money.round(monto, 6); // ya está en USDT: no se convierte
+    } else {
+      tcUsado = tc;
+      if (!tcUsado) { const t = await tcSvc.tcAhora(); tcUsado = t.tc; }
+      if (!money.isPos(tcUsado)) return err(res, 400, 'no hay TC disponible para convertir a USDT (pasá tc)');
+      montoUsdt = money.round(money.div(monto, tcUsado), 6);
+    }
+
+    // Idempotente: si ya había un saldo anterior aplicado, se borra ese movimiento y se crea el nuevo.
+    if (cli.saldo_inicial_mov_id) movs.remove(cli.saldo_inicial_mov_id);
+    const movimiento = movs.create({
+      cliente_id: cli.id, tipo: 'ajuste', monto_ars: div === 'ARS' ? monto : null, monto_usdt: montoUsdt,
+      tc_momento: tcUsado, divisa: div, notas: 'saldo anterior (deuda previa al sistema)',
+    });
+    clientes.updateComercial(cli.id, { saldo_inicial: String(monto), saldo_inicial_divisa: div, saldo_inicial_mov_id: movimiento.id });
+    ok(res, { movimiento_id: movimiento.id, monto_usdt: montoUsdt, tc: tcUsado, deuda: deudaSvc.cuentaCorriente(cli.id) });
+  }));
 
   // carga COMERCIAL: calcula base→fee→USDT, registra movimiento, deuda y avisa por Telegram
   app.post('/api/os/movimientos/carga', wrap(async (req, res) => {

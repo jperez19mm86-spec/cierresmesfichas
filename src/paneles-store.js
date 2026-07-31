@@ -22,9 +22,13 @@ function obj(r) {
     montosRapidos: parseJson(r.montosRapidos, []),
   };
 }
+// Guard de formato: un código de divisa son 3-4 letras (ARS, USDT). El split de abajo parte también
+// por ESPACIO, así que una celda mal tipeada como "AR,S BRL" o "PEN. PYG" generaría tokens basura
+// ('AR', 'S', 'PEN.') que después aparecen en el catálogo y en los selectores. Se descartan.
+const ES_DIVISA = /^[A-Z]{3,4}$/;
 function normDivisas(v) {
-  if (Array.isArray(v)) return v.map((s) => String(s).trim().toUpperCase()).filter(Boolean);
-  return String(v || '').split(/[,;\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const arr = Array.isArray(v) ? v : String(v || '').split(/[,;\s]+/);
+  return arr.map((s) => String(s).trim().toUpperCase()).filter((s) => ES_DIVISA.test(s));
 }
 
 function list(filters = {}) {
@@ -39,8 +43,10 @@ function create(d) {
   const id = newId();
   const ord = db.prepare('SELECT COUNT(*) c FROM paneles').get().c;
   const nivel = NIVELES.includes(d.nivel_usuario) ? d.nivel_usuario : 'Agente';
-  let divisas = normDivisas(d.divisas);
-  if (nivel !== 'SuperAgente' && divisas.length > 1) divisas = [divisas[0]]; // regla: solo SuperAgente multi-divisa
+  // Las divisas habilitadas las define el panel REAL del proveedor, no su nivel: hay Distribuidores
+  // con 17 monedas. Antes se recortaba a la primera si el nivel no era SuperAgente, lo que borraba
+  // en silencio el resto (y se volvía a disparar al linkear la conexión, que hace un update).
+  const divisas = normDivisas(d.divisas);
   db.prepare(`INSERT INTO paneles
       (id,cliente_id,nombre,sistema,tipo,nivel_usuario,id_usuario,usa_config_cliente,divisas,usuario,montosRapidos,notas,conexion_id,createdAt,ord)
       VALUES (@id,@cli,@nombre,@sistema,@tipo,@nivel,@idu,@ucc,@div,@usuario,@montos,@notas,@cxid,@ca,@ord)`).run({
@@ -57,8 +63,9 @@ function update(id, patch) {
   const p = get(id); if (!p) return null;
   const f = (k, def) => (patch[k] !== undefined ? patch[k] : def);
   const nivel = NIVELES.includes(f('nivel_usuario', p.nivel_usuario)) ? f('nivel_usuario', p.nivel_usuario) : p.nivel_usuario;
-  let divisas = patch.divisas !== undefined ? normDivisas(patch.divisas) : p.divisas;
-  if (nivel !== 'SuperAgente' && divisas.length > 1) divisas = [divisas[0]];
+  // Igual que en create(): NO recortar por nivel. Clave acá porque linkPanel() hace un update
+  // con solo {conexion_id, id_usuario} y el recorte borraba las divisas ya cargadas.
+  const divisas = patch.divisas !== undefined ? normDivisas(patch.divisas) : p.divisas;
   db.prepare(`UPDATE paneles SET cliente_id=@cli,nombre=@nombre,sistema=@sistema,tipo=@tipo,nivel_usuario=@nivel,
       id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid WHERE id=@id`).run({
     id, cli: f('cliente_id', p.cliente_id), nombre: String(f('nombre', p.nombre)).trim(), sistema: f('sistema', p.sistema),

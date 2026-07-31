@@ -260,11 +260,16 @@ ensureColumns('clientes', {
   fecha_alta: 'TEXT',
   // ── v3.0 ficha de cliente ──
   divisa_fichas: 'TEXT',                  // código de divisa (del catálogo `divisas`)
-  moneda_cobro: 'TEXT',                   // usdt | cvu | variable
+  moneda_cobro: 'TEXT',                   // usdt | cvu (=ARS) | variable | no_aplica (no se le cobra)
   momento_pago: 'TEXT',                   // anticipado | acumulado | invoice
-  disparador: 'TEXT',                     // carga_deuda | pago_carga
-  tc_aplicar: 'TEXT',                     // tiempo_real | promedio | proveedor
+  disparador: 'TEXT',                     // carga_deuda | pago_carga | variable (el cliente elige por operación)
+  tc_aplicar: 'TEXT',                     // tiempo_real | promedio | proveedor | trader (TC que pasa el trader, por mes)
   tc_proveedor: 'TEXT',                   // TC manual del proveedor (si tc_aplicar=proveedor)
+  // ── v3.0 §7-10 (planilla "BASE DE DATOS CLIENTES") ──
+  mover_balance: 'INTEGER DEFAULT 0',     // permiso: mover fichas entre paneles PROPIOS, misma divisa
+  saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
+  saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo
+  saldo_inicial_mov_id: 'TEXT',           // id del movimiento 'ajuste' que lo materializa (re-aplicable/reversible)
 });
 
 // Cada PANEL puede linkearse a un nodo del casino (qué conexión + qué id de usuario del casino).

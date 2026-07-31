@@ -165,15 +165,30 @@ function editCli(id){
           <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
-            <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','CVU (ARS)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}</select></div>
+            <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
             <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
           </div>
           <div class="row" style="margin-top:6px;align-items:flex-end">
-            <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}</select></div>
-            <div><label>TC a aplicar</label><select id="e-tcap" onchange="toggleTcProv()"><option value="">—</option>${opt(c.tc_aplicar,'tiempo_real','Tiempo real')}${opt(c.tc_aplicar,'promedio','Promedio mensual')}${opt(c.tc_aplicar,'proveedor','TC de proveedor')}</select></div>
+            <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}${opt(c.disparador,'variable','Variable (el cliente elige)')}</select></div>
+            <div><label>TC a aplicar</label><select id="e-tcap" onchange="toggleTcProv()"><option value="">—</option>${opt(c.tc_aplicar,'tiempo_real','Tiempo real')}${opt(c.tc_aplicar,'promedio','Promedio mensual')}${opt(c.tc_aplicar,'trader','Trader (el del mes)')}${opt(c.tc_aplicar,'proveedor','TC de proveedor')}</select></div>
             <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
           </div>
-          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro.</div>
+          <div class="row" style="margin-top:6px">
+            <div style="flex:0"><label>Mover balance</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Permite al cliente pasar fichas de un panel suyo a otro, en la misma divisa.</div>
+          </div>
+          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro. <b>Trader</b> = el TC que te pasa tu trader ese mes.</div>
+        </div>
+        <div class="card">
+          <h2>💰 Saldo anterior <span class="muted">(deuda previa al sistema)</span></h2>
+          <div class="row" style="align-items:flex-end">
+            <div><label>Monto</label><input id="e-saldoini" value="${esc(c.saldo_inicial||'')}" placeholder="ej 1500"/></div>
+            <div style="flex:0"><label>Divisa</label><select id="e-saldoini-div"><option value="">—</option>${['USDT','ARS'].map(d=>opt(c.saldo_inicial_divisa,d,d)).join('')}</select></div>
+            <button class="outline" onclick="aplicarSaldoIni('${id}')">↳ Aplicar a la cuenta</button>
+          </div>
+          <div id="e-saldoini-msg" class="muted" style="margin-top:6px">${c.saldo_inicial_mov_id
+            ? '✔ Ya está aplicado a la cuenta corriente. Si cambiás el monto, volvé a tocar "Aplicar" (reemplaza el anterior, no lo suma dos veces).'
+            : 'Se suma como <b>“saldo anterior”</b> al total de la factura del mes. Guardá el monto y después tocá “Aplicar a la cuenta”.'}</div>
         </div>
         <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
         <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>
@@ -302,11 +317,25 @@ async function cliProvDesc(inp,nombre){ const r=await api('/api/os/cierre/descue
 function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.querySelectorAll('.clipt tbody tr').forEach(tr=>{tr.style.display=(tr.dataset.prov||'').includes(q)?'':'none';}); }
 async function saveCli(id){
   const divisas=[...document.querySelectorAll('#e-divisas input.e-div:checked')].map(x=>x.value).join(',');
-  await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
+  const r=await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
     estado:val('e-estado'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
-    disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov') })});
-  toast('Guardado'); VIEWS.clientes();
+    disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
+    mover_balance:val('e-mover')==='1', saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
+  // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
+  if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
+  _cliDirty=false; toast('Guardado'); VIEWS.clientes();
+}
+// Materializa el saldo anterior como un movimiento de ajuste (es lo que la cuenta corriente suma).
+// Re-aplicar reemplaza el anterior en vez de duplicarlo.
+async function aplicarSaldoIni(id){
+  const monto=val('e-saldoini'), div=val('e-saldoini-div');
+  if(!monto) return toast('Poné el monto del saldo anterior');
+  if(!div) return toast('Elegí la divisa del saldo anterior');
+  if(!confirm(`¿Aplicar ${div} ${monto} como SALDO ANTERIOR?\n\nSe suma al total que el cliente debe. Si ya habías aplicado uno, este lo reemplaza.`)) return;
+  const r=await api('/api/os/clientes/'+id+'/saldo-inicial',{method:'POST',body:JSON.stringify({monto,divisa:div})});
+  if(r&&r.ok){ toast('Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); VIEWS.clientes(); }
+  else toast('✗ '+((r&&r.error)||'no se pudo aplicar'));
 }
 async function savePB(id){
   const b={valor:val('pb-val'), tipo_cambio:val('pb-tipo'), vigente_desde:val('pb-desde')};

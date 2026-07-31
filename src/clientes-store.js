@@ -37,6 +37,12 @@ function load() {
       disparador: r.disparador || null,
       tc_aplicar: r.tc_aplicar || null,
       tc_proveedor: r.tc_proveedor || null,
+      // v3.0 §7-10 (planilla). OJO: si un campo falta ACÁ, save() lo reinserta como null
+      // aunque esté bien en el INSTERT → se borra solo al guardar cualquier otro cliente.
+      mover_balance: !!r.mover_balance,
+      saldo_inicial: r.saldo_inicial || null,
+      saldo_inicial_divisa: r.saldo_inicial_divisa || null,
+      saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
     };
   });
   return { clientes };
@@ -46,9 +52,11 @@ const _saveTx = db.transaction((data) => {
   db.prepare('DELETE FROM clientes').run();
   const ins = db.prepare(`INSERT INTO clientes
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
-     divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor)
+     divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
+     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
-     @dfi,@mco,@mpa,@dis,@tca,@tcp)`);
+     @dfi,@mco,@mpa,@dis,@tca,@tcp,
+     @mb,@sini,@sdiv,@smov)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -58,6 +66,7 @@ const _saveTx = db.transaction((data) => {
     pp: c.paga_proveedores ? 1 : 0, pd: c.permite_deuda ? 1 : 0,
     mez: nn(c.mezcla_pago_usdt), aj: nn(c.ajuste_usdt_pct), fa: c.fecha_alta || c.createdAt || null,
     dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
+    mb: c.mover_balance ? 1 : 0, sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
   }));
 });
 function save(data) { _saveTx(data); }
@@ -94,6 +103,7 @@ function createCliente({ codigo, nombreVisible, nombre }) {
     createdAt: new Date().toISOString(), telegram: { chatId: '', enabled: false }, cajas: [],
     nombre: nom, estado: 'activo', paga_proveedores: false, permite_deuda: false,
     mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: new Date().toISOString().slice(0, 10),
+    mover_balance: false, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
   };
   data.clientes.push(cliente); save(data); return cliente;
 }
@@ -126,9 +136,11 @@ function updateComercial(id, patch) {
   if (patch.mezcla_pago_usdt !== undefined) c.mezcla_pago_usdt = patch.mezcla_pago_usdt === '' ? null : String(patch.mezcla_pago_usdt);
   if (patch.ajuste_usdt_pct !== undefined) c.ajuste_usdt_pct = patch.ajuste_usdt_pct === '' ? null : String(patch.ajuste_usdt_pct);
   // ── v3.0 ficha de cliente ──
-  ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor'].forEach((k) => {
+  ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor',
+    'saldo_inicial', 'saldo_inicial_divisa', 'saldo_inicial_mov_id'].forEach((k) => {
     if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
   });
+  if (patch.mover_balance !== undefined) c.mover_balance = !!patch.mover_balance;
   save(data); return c;
 }
 
