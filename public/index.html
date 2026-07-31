@@ -646,6 +646,24 @@
   let _hist = [];
   function fmtDate(s) { return s ? new Date(s).toLocaleString('es-AR') : ''; }
 
+  // ─── Ventana para anular (desde la carga) ───
+  // El servidor manda cuánto dura la ventana y su hora actual; guardamos el desfase con el reloj
+  // de esta PC para que el countdown sea el REAL del servidor (que es quien acepta o rechaza).
+  let _anularWindowMs = 5 * 60 * 1000;
+  let _skewMs = 0;
+  function srvNow() { return Date.now() - _skewMs; }
+  function mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+  // Cada segundo baja el contador de los botones visibles y BORRA los que vencieron.
+  function _tickAnular() {
+    const now = srvNow();
+    document.querySelectorAll('button[data-anular-hasta]').forEach((b) => {
+      const quedan = Number(b.dataset.anularHasta) - now;
+      if (quedan <= 0) { b.remove(); return; }
+      if (!b.disabled) b.textContent = '↩ Anular (' + mmss(quedan) + ')';
+    });
+  }
+  setInterval(_tickAnular, 1000);
+
   async function refreshPedBadge() {
     try {
       const { body } = await api('/api/pedidos?estado=pendiente');
@@ -706,6 +724,8 @@
     box.innerHTML = '<div class="empty">Cargando…</div>';
     const { body } = await api('/api/historial' + (f ? ('?codigo=' + encodeURIComponent(f)) : ''));
     if (!body || !body.ok) { box.innerHTML = '<div class="empty">Error</div>'; return; }
+    if (body.anularWindowMs) _anularWindowMs = body.anularWindowMs;
+    if (body.serverNow) { const t = Date.parse(body.serverNow); if (Number.isFinite(t)) _skewMs = Date.now() - t; }
     const list = body.pedidos;
     document.getElementById('histCount').textContent = '· ' + list.length + (f ? (' de ' + f) : ' movimientos');
     if (!list.length) { box.innerHTML = '<div class="empty">' + (f ? ('Sin movimientos para "' + esc(f) + '".') : 'Sin historial todavía.') + '</div>'; return; }
@@ -718,7 +738,15 @@
         else if (p.estado === 'anulado') det = 'fichas retiradas' + (p.newBalance != null ? (' · bal: ' + esc(String(p.newBalance))) : '');
         else if (p.estado === 'anulando') det = 'retirando fichas…';
         else det = esc(p.error || '');
-        const anular = p.estado === 'cargado' ? ` <button class="danger small" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado">↩ Anular</button>` : '';
+        // El botón de anular SOLO se dibuja si la carga está dentro de la ventana; después desaparece
+        // (igual que el backend, que rechaza). El countdown lo va bajando _tickAnular().
+        let anular = '';
+        if (p.estado === 'cargado') {
+          const tCarga = Date.parse(p.resueltoAt || '');
+          const vence = Number.isFinite(tCarga) ? tCarga + _anularWindowMs : 0;
+          const quedan = vence - srvNow();
+          if (quedan > 0) anular = ` <button class="danger small" data-anular-hasta="${vence}" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado. Solo durante los primeros ${Math.round(_anularWindowMs / 60000)} min.">↩ Anular (${mmss(quedan)})</button>`;
+        }
         return `<tr>
         <td data-label="Fecha">${fmtDate(p.resueltoAt || p.createdAt)}</td>
         <td data-label="Cliente"><b>${esc(p.clienteNombre)}</b> <span class="meta">${esc(p.codigo)}</span></td>

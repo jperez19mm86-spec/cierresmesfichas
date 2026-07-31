@@ -437,6 +437,11 @@ app.post('/api/pedidos/:id/rechazar', (req, res) => {
   res.json({ ok: true, pedido: upd });
 });
 
+// Ventana durante la cual se puede anular una carga (desde que se cargó). Pasada, el botón
+// desaparece del panel y el endpoint rechaza: anular sirve para deshacer un error reciente.
+// Debe coincidir con la del operativo (fichas-live), que es la fuente de verdad de este flujo.
+const ANULAR_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+
 // ANULAR una carga ya hecha (ej. petición a un usuario EQUIVOCADO): RETIRA (operation=out) exactamente
 // el mismo monto que se cargó y deja el pedido en 'anulado'. Solo aplica a un pedido 'cargado'.
 // Es plata: si el casino no confirma el retiro (ej. el usuario ya usó las fichas → saldo insuficiente),
@@ -445,6 +450,22 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
   const p0 = pedidos.get(req.params.id);
   if (!p0) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
   if (p0.estado !== 'cargado') return res.status(400).json({ ok: false, error: `solo se anula una carga hecha ("cargado"); este está "${p0.estado}"` });
+
+  // VENTANA (fail-closed): anular es para corregir un error RECIÉN cometido, no perpetuo.
+  // Se valida acá (no solo ocultando el botón) para que no se pueda anular una carga vieja
+  // reusando la request. Sin marca de tiempo de la carga → NO se anula.
+  const tCarga = p0.resueltoAt ? Date.parse(p0.resueltoAt) : NaN;
+  if (!Number.isFinite(tCarga)) {
+    return res.status(400).json({ ok: false, error: 'esta carga no tiene fecha registrada — no se puede anular desde el panel (retirá las fichas manualmente en el casino).' });
+  }
+  const pasados = Date.now() - tCarga;
+  if (pasados > ANULAR_WINDOW_MS) {
+    const mins = Math.floor(pasados / 60000);
+    return res.status(400).json({
+      ok: false,
+      error: `venció la ventana para anular (${Math.round(ANULAR_WINDOW_MS / 60000)} min desde la carga; pasaron ${mins} min). Si igual hay que devolver las fichas, retiralas manualmente en el casino.`,
+    });
+  }
 
   // Validaciones que NO mutan (antes de tomar el lock).
   const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p0.sistema).toLowerCase());
@@ -481,7 +502,9 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
 app.get('/api/historial', (req, res) => {
   const all = pedidos.list({ codigo: req.query.codigo });
   const hist = all.filter((p) => p.estado !== 'pendiente');
-  res.json({ ok: true, pedidos: hist });
+  // serverNow + anularWindowMs: el panel calcula con la hora del SERVIDOR (no la de la PC del
+  // operador, que puede estar desfasada) cuánto queda de la ventana para anular.
+  res.json({ ok: true, pedidos: hist, anularWindowMs: ANULAR_WINDOW_MS, serverNow: new Date().toISOString() });
 });
 
 // ─────────────── Frontend estático ───────────────
