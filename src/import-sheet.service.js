@@ -19,6 +19,7 @@
 const clientes = require('./clientes-store');
 const paneles = require('./paneles-store');
 const divisasStore = require('./divisas-store');
+const casinoConex = require('./casino-conexiones-store');
 const { db } = require('./db');
 const crypto = require('crypto');
 
@@ -98,6 +99,7 @@ const siNo = (v) => (vacio(v) ? undefined : /^s[ií]$/i.test(norm(v)));
  * Divisas de un panel. La celda se corrige ANTES de partirla: hay dos errores de tipeo conocidos
  * ("AR,S BRL" es un ARS + BRL con la S corrida, y "PEN. PYG" son dos separadas por punto).
  * VEF y VES se dejan como divisas distintas (son dos billeteras reales del panel).
+ * Si la celda viene vacía se asume ARS (decisión del dueño): un panel sin divisas no se puede operar.
  */
 function parseDivisas(celda) {
   const limpio = norm(celda).replace(/AR,\s*S\s+BRL/gi, 'ARS, BRL').replace(/PEN\.\s*PYG/gi, 'PEN, PYG');
@@ -108,7 +110,7 @@ function parseDivisas(celda) {
     if (!ES_DIVISA.test(d) || vistas.has(d)) continue;
     vistas.add(d); out.push(d);
   }
-  return out;
+  return out.length ? out : ['ARS'];
 }
 
 // ───────────────────────── lectura de las dos hojas ─────────────────────────
@@ -152,6 +154,7 @@ function leerPaneles(filas) {
       id_usuario: idUsuario,
       nivel_usuario: norm(f[5]),
       divisas: parseDivisas(f[6]),
+      divisasAsumidas: vacio(f[6]), // la planilla no traía ninguna → se asumió ARS
     };
     // correcciones puntuales que nos pasó el dueño
     const porLogin = FIX_PANEL_POR_LOGIN[key(login)];
@@ -226,6 +229,13 @@ async function planificar({ sheetId = SHEET_ID_DEFAULT, incluirBasePct = false, 
   const porIdUsuario = new Map();
   for (const p of actualesPan) if (p.id_usuario) porIdUsuario.set(String(p.id_usuario), p);
 
+  // Auto-link a la conexión del casino: la planilla dice de qué sistema es cada panel
+  // ("Casino"/"Europa") y las conexiones registradas se llaman igual. Sin esto los paneles
+  // entran sueltos y quedan fuera de la facturación y del acumulado.
+  const conexPorNombre = new Map();
+  for (const cx of casinoConex.list()) conexPorNombre.set(key(cx.nombre), cx);
+  const sinConexion = new Set();
+
   const crearPaneles = [];
   const actualizarPaneles = [];
   const sinCambio = [];
@@ -241,12 +251,15 @@ async function planificar({ sheetId = SHEET_ID_DEFAULT, incluirBasePct = false, 
     const seVaACrear = !cli && crearClientes.some((n) => key(n.nombre) === key(s.cliente));
     if (!cli && !seVaACrear) { avisos.push(`panel "${s.nombre}" (${s.id_usuario}): el cliente "${s.cliente}" no está en el OS ni en la planilla de clientes`); continue; }
     s.divisas.forEach((d) => divisasNuevas.add(d));
-    if (!s.divisas.length) sinDivisas.push(s.nombre);
+    if (s.divisasAsumidas) sinDivisas.push(s.nombre); // la planilla no las traía: quedan en ARS
     const nivel = nivelValido(s.nivel_usuario);
     const existente = porIdUsuario.get(s.id_usuario);
+    const cx = conexPorNombre.get(key(s.sistema));
+    if (!cx) sinConexion.add(s.sistema || '(sin sistema)');
     const datos = {
       cliente_id: cli ? cli.id : null, clienteNombre: s.cliente, nombre: s.nombre, sistema: s.sistema,
       nivel_usuario: nivel, id_usuario: s.id_usuario, divisas: s.divisas, usuario: s.nombre,
+      conexion_id: cx ? cx.id : (existente ? existente.conexion_id : null),
     };
     if (!existente) { crearPaneles.push(datos); continue; }
     const dif = [];
@@ -254,18 +267,21 @@ async function planificar({ sheetId = SHEET_ID_DEFAULT, incluirBasePct = false, 
     if ((existente.divisas || []).join(',') !== s.divisas.join(',')) dif.push('divisas');
     if (cli && existente.cliente_id !== cli.id) dif.push('cliente');
     if (existente.nivel_usuario !== nivel) dif.push('nivel');
+    if (datos.conexion_id && existente.conexion_id !== datos.conexion_id) dif.push('conexión');
     if (dif.length) actualizarPaneles.push({ id: existente.id, datos, dif });
     else sinCambio.push(s.nombre);
   }
 
   const catalogo = new Set(divisasStore.list().map((d) => d.codigo));
   const altaDivisas = [...divisasNuevas].filter((d) => !catalogo.has(d)).sort();
+  for (const s of sinConexion) avisos.push(`no hay una conexión de casino llamada "${s}" — esos paneles entran sin linkear`);
+  const linkeados = [...crearPaneles, ...actualizarPaneles.map((u) => u.datos)].filter((d) => d.conexion_id).length;
 
   return {
     hash,
     sheetId,
     clientes: { enPlanilla: sheetClientes.length, crear: crearClientes, actualizar: cambiosCliente },
-    paneles: { enPlanilla: sheetPaneles.length, crear: crearPaneles, actualizar: actualizarPaneles, sinCambio: sinCambio.length, sinDivisas },
+    paneles: { enPlanilla: sheetPaneles.length, crear: crearPaneles, actualizar: actualizarPaneles, sinCambio: sinCambio.length, sinDivisas, linkeados },
     altaDivisas,
     avisos,
     opciones: { incluirBasePct, incluirTelegram },
