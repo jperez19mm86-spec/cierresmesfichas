@@ -372,7 +372,17 @@ async function aplicar({ sheetId = SHEET_ID_DEFAULT, confirmHash, incluirBasePct
       const cli = data.clientes.find((x) => x.id === p.cliente_id) || porNombre.get(key(p.clienteNombre || ''));
       paneles.create({ ...p, cliente_id: (cli && cli.id) || p.cliente_id });
     }
-    for (const u of plan.paneles.actualizar) paneles.update(u.id, u.datos);
+    // Igual que arriba: si el panel pasa a un cliente que se crea en ESTA misma corrida, su id
+    // recién existe ahora. Sin esto el update mandaba cliente_id null y DESVINCULABA el panel.
+    for (const u of plan.paneles.actualizar) {
+      const d = { ...u.datos };
+      if (!d.cliente_id) {
+        const cli = porNombre.get(key(d.clienteNombre || ''));
+        if (cli) d.cliente_id = cli.id;
+        else delete d.cliente_id; // sin cliente resuelto: NO tocar el que ya tenía
+      }
+      paneles.update(u.id, d);
+    }
   });
   tx();
 
