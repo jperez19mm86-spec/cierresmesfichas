@@ -23,6 +23,7 @@
 const paneles = require('./paneles-store');
 const clientes = require('./clientes-store');
 const cierre = require('./cierre-store');
+const cierreMes = require('./cierre-mes.service');
 const casinoConex = require('./casino-conexiones-store');
 const money = require('./lib/money');
 const { db } = require('./db');
@@ -61,12 +62,23 @@ function tcDe(moneda, iso) {
   return null;
 }
 
-/** El % de proveedor que le corresponde a ESE cliente (la celda de la matriz). */
-function pctsDelCliente(nombreCliente) {
-  const col = cierre.getClienteColumna(nombreCliente);
+/**
+ * El % de proveedor que le corresponde a ESE cliente, CON LOS PRECIOS DE ESE MES.
+ * Si el mes está congelado se usa su foto; si no, la matriz viva. Sin esto, cambiar un precio hoy
+ * cambiaría lo que calcula un mes ya facturado.
+ */
+function pctsDelCliente(nombreCliente, mes) {
+  const p = cierreMes.preciosDe(mes);
   const out = {};
-  for (const [prov, pct] of Object.entries(col.celdas || {})) if (pct != null && pct !== '') out[K(prov)] = pct;
-  return { celdas: out, existe: col.existe, proveedores: col.proveedores || [] };
+  for (const [prov, fila] of Object.entries(p.celdas || {})) {
+    const pct = fila && fila[nombreCliente];
+    if (pct != null && pct !== '') out[K(prov)] = pct;
+  }
+  return {
+    celdas: out,
+    congelado: p.congelado, congeladoEn: p.congeladoEn,
+    proveedores: Object.entries(p.costo).map(([nombre, base_pct]) => ({ nombre, base_pct })),
+  };
 }
 
 /** Traduce el nombre de proveedor del casino al de la matriz (cierre_link). */
@@ -115,7 +127,7 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
   }
 
-  const { celdas, proveedores } = pctsDelCliente(cli.nombre);
+  const { celdas, proveedores, congelado, congeladoEn } = pctsDelCliente(cli.nombre, mes);
   const costoDe = {}; proveedores.forEach((p) => { costoDe[K(p.nombre)] = p.base_pct; });
   const traducir = traductor();
   const { from, to } = rango(mes);
@@ -200,6 +212,7 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
   return {
     ok: true,
     cliente: cli.nombre, clienteId: cli.id, mes, mesNombre: mesCierre(mes), from, to,
+    congelado, congeladoEn,
     base, baseConfirmada: !!guardada, confirmadoAt: guardada ? guardada.confirmadoAt : null,
     modo,
     negativos: [...negativos.values()],

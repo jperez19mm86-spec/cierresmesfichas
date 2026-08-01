@@ -230,6 +230,11 @@ db.exec(`
     cliente TEXT, mes TEXT, base_pct TEXT, confirmadoAt TEXT,
     PRIMARY KEY (cliente, mes)
   );
+  /* Foto de la matriz de UN mes. Los precios cambian (costo del proveedor y % del cliente), y sin
+     esto tocar un precio hoy cambiaba lo que calculaba para cualquier mes ya facturado. */
+  CREATE TABLE IF NOT EXISTS cierre_mes_snapshot (
+    mes TEXT PRIMARY KEY, datos TEXT, createdAt TEXT, notas TEXT
+  );
   CREATE TABLE IF NOT EXISTS cierre_link (
     casino TEXT PRIMARY KEY,   -- proveedor que sale del casino "MARCA VENDOR" (ej "RUBYPLAY XG")
     matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")

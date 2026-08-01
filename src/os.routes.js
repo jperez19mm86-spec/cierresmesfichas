@@ -25,6 +25,7 @@ const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
+const cierreMesSvc = require('./cierre-mes.service');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const importSheet = require('./import-sheet.service');
@@ -389,6 +390,24 @@ function mount(app) {
     if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');
     ok(res, { mes: tcStore.setTcProveedor(req.params.mes, tc_proveedor_ext) });
   }));
+
+  // ───────── CONGELAR LA MATRIZ DE UN MES ─────────
+  // Los precios cambian (costo del proveedor y % del cliente). Sin congelar, tocar un precio hoy
+  // cambia lo que calcula un mes YA FACTURADO y deja de poder auditarse.
+  app.get('/api/os/cierre/meses-congelados', (_req, res) => ok(res, { meses: cierreMesSvc.listar() }));
+  app.get('/api/os/cierre/mes/:mes/congelado', (req, res) => {
+    const g = cierreMesSvc.get(req.params.mes);
+    ok(res, { congelado: !!g, mes: req.params.mes, createdAt: g ? g.createdAt : null, notas: g ? g.notas : null, proveedores: g ? (g.proveedores || []).length : 0 });
+  });
+  app.post('/api/os/cierre/mes/:mes/congelar', wrap((req, res) => {
+    const b = req.body || {};
+    const r = cierreMesSvc.congelar(req.params.mes, { notas: b.notas, matriz: b.matriz || null, pisar: !!b.pisar });
+    r.ok ? ok(res, r) : err(res, r.yaExiste ? 409 : 400, r.error);
+  }));
+  app.delete('/api/os/cierre/mes/:mes/congelar', (req, res) => {
+    const r = cierreMesSvc.descongelar(req.params.mes);
+    r.ok ? ok(res, r) : err(res, 404, 'ese mes no estaba congelado');
+  });
 
   // ───────── §9 PROVEEDORES EXTERNOS ─────────
   // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
