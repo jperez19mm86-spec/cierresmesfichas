@@ -16,6 +16,7 @@ const splitSvc = require('./split.service');
 const provSvc = require('./proveedores.service');
 const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
+const tcDivisas = require('./tc-divisas.service');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
@@ -57,6 +58,7 @@ function basePctEfectivo(cliente, panel, fecha = fechaTZ()) {
 function mount(app) {
   splitBase.seedIfEmpty();
   tcSvc.startScheduler();
+  tcDivisas.startScheduler();
   acumSvc.startCron();
 
   // Panel del OS (HTML estático, detrás del gate de auth)
@@ -360,6 +362,25 @@ function mount(app) {
   }));
   app.get('/api/os/tc/snapshots', (req, res) => ok(res, { snapshots: tcStore.listSnapshots(req.query.mes) }));
   app.get('/api/os/tc/meses', (_req, res) => ok(res, { meses: tcStore.listMeses() }));
+
+  // ── TC del resto de las divisas (ARS sale de Binance, arriba) ──
+  // Snapshot diario automático; acá se puede forzar y consultar el promedio del mes.
+  app.post('/api/os/tc/divisas/snapshot', wrap(async (req, res) => {
+    const r = await tcDivisas.snapshotHoy(req.body && req.body.fecha);
+    r.ok ? ok(res, { fecha: r.fecha, divisas: r.divisas }) : err(res, 502, r.error);
+  }));
+  app.get('/api/os/tc/divisas/promedios', (req, res) => {
+    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const lista = tcDivisas.promediosMes(mes);
+    // ARS no sale de esta fuente: se toma el promedio de los snapshots de Binance
+    const ars = tcStore.promedioMes(mes);
+    if (ars) lista.unshift({ divisa: 'ARS', dias: tcStore.listSnapshots(mes).length, promedio: ars, fuente: 'binance/criptoya' });
+    ok(res, { mes, promedios: lista });
+  });
+  app.get('/api/os/tc/divisas/dias', (req, res) => {
+    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    ok(res, { mes, dias: tcDivisas.listDias(mes, req.query.divisa) });
+  });
   app.put('/api/os/tc/mes/:mes', wrap((req, res) => {
     const { tc_proveedor_ext } = req.body || {};
     if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');

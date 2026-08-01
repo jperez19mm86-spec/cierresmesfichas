@@ -116,6 +116,17 @@ db.exec(`
     fuente TEXT,
     createdAt TEXT
   );
+  -- Snapshot diario del resto de las divisas (ARS va aparte, en tc_snapshots, porque sale de
+  -- Binance/criptoya). Una fila por (fecha, divisa): al cerrar el mes se promedia.
+  CREATE TABLE IF NOT EXISTS tc_divisa_snapshots (
+    fecha TEXT,                   -- YYYY-MM-DD
+    divisa TEXT,                  -- código (PYG, BRL, …)
+    tasa TEXT,                    -- decimal string: cuántas unidades por 1 USDT
+    fuente TEXT,
+    createdAt TEXT,
+    PRIMARY KEY (fecha, divisa)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tcdiv_mes ON tc_divisa_snapshots(substr(fecha,1,7), divisa);
   CREATE TABLE IF NOT EXISTS tc_mes (
     mes TEXT PRIMARY KEY,         -- YYYY-MM
     tc_cliente TEXT,            -- promedio snapshots (auto)
