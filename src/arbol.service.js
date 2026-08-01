@@ -52,12 +52,19 @@ function escalaDe(entrada) {
   return entrada ? entrada.cadena.slice(0, -1) : [];
 }
 
-/** Baja el árbol de UNA conexión. Devuelve { ok, idx, total } */
-async function arbolDe(conexionId) {
+/**
+ * Baja el árbol de UNA conexión. Devuelve { ok, idx, total }
+ * `verBorrados` trae también las cuentas borradas (el árbol pasa de ~62k a ~178k nodos y tarda
+ * el doble): solo sirve para diagnosticar por qué falta un panel, no para operar.
+ */
+async function arbolDe(conexionId, { verBorrados = false } = {}) {
   const cli = casinoConex.client(conexionId);
   if (!cli) return { ok: false, error: 'conexión no encontrada' };
-  // activos=false → también los inactivos, si no faltarían paneles que igual hay que cargar
-  const r = await cli.nodos({ cur: 'ARS', soloActivos: false, currencies: ['ARS'] });
+  // soloActivos=false → también los inactivos, si no faltarían paneles que igual hay que cargar
+  const r = await cli.nodos({
+    cur: 'ARS', soloActivos: false, currencies: ['ARS'],
+    ...(verBorrados ? { extra: { deleted_users: 'delete' } } : {}),
+  });
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, idx: armar(r.nodos || []), total: (r.nodos || []).length };
 }
@@ -91,6 +98,19 @@ async function sincronizar({ soloConexion = null } = {}) {
         escala: escalaDe(e),
       });
       res.resueltos++;
+    }
+
+    // Los que no aparecieron: averiguar si están BORRADOS en el casino o si directamente no
+    // existen. La diferencia importa — a una cuenta borrada no se le pueden cargar fichas, así
+    // que el panel está muerto y hay que sacarlo, no arreglarle el id.
+    const faltantes = res.sinEncontrar.filter((f) => String(f.sistema || '').toLowerCase() === String(cx.nombre || '').toLowerCase() && !f.diagnostico);
+    if (faltantes.length) {
+      const b = await arbolDe(cx.id, { verBorrados: true });
+      for (const f of faltantes) {
+        const e = b.ok ? b.idx.get(f.id_usuario) : null;
+        f.diagnostico = !b.ok ? 'no se pudo verificar' : (e ? 'BORRADO en el casino' : 'no existe con ese id');
+        if (e) f.login_casino = e.nodo.login;
+      }
     }
   }
   return { ok: true, ...res };
