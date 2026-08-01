@@ -294,7 +294,7 @@ ensureColumns('clientes', {
   // vendedor_id: a qué vendedor pertenece ESTE cliente (null = cliente directo).
   //   Los clientes chicos se registran por separado y se agrupan por acá: agrupar siempre se
   //   puede, desagregar no. Al vendedor se le muestra el total de SUS clientes a precio real.
-  es_vendedor: 'INTEGER DEFAULT 0',
+  es_vendedor: 'INTEGER DEFAULT 0', externos_modo: 'TEXT',
   vendedor_id: 'TEXT',
   saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
   saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo

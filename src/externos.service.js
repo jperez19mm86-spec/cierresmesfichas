@@ -121,8 +121,12 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
   const { from, to } = rango(mes);
   const mios = paneles.list().filter((p) => p.cliente_id === cli.id);
 
+  // Cómo se lee la celda de la matriz para ESTE cliente.
+  const modo = cli.es_vendedor ? 'vendedor' : (cli.externos_modo || 'total');
+
   const filas = [];            // una por panel+proveedor+divisa
   const sinVincular = new Map();
+  const negativos = new Map(); // proveedor con % MENOR que la base → generaría negativo
   const avisos = [];
   const cache = new Map();
 
@@ -155,8 +159,19 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
         }
         const pct = celdas[K(nombreMatriz)];
         if (pct == null) continue;                              // el cliente no tiene ese proveedor
-        const dif = money.sub(pct, base);
+        // La celda de la matriz se lee DISTINTO según el cliente (regla del dueño):
+        //   · vendedor  → paga el PRECIO REAL del proveedor, sin importar la celda
+        //   · adicional → la celda YA ES lo que se le suma (Oscar, Luis, Marcelo, JJ…)
+        //   · total     → la celda es el precio final y se le resta su % base (Titan, Juan…)
+        const costoProv = costoDe[K(nombreMatriz)];
+        const dif = modo === 'vendedor' ? (costoProv ?? '0')
+          : modo === 'adicional' ? pct
+            : money.sub(pct, base);
         const cobra = money.cmp(dif, '0') > 0;
+        // Aviso: un cliente que hoy trabaja al 7% no puede tener un proveedor en 6 → daría negativo.
+        if (modo === 'total' && money.cmp(pct, base) < 0) {
+          negativos.set(nombreMatriz, { proveedor: nombreMatriz, pct, base });
+        }
         const monto = cobra ? money.round(money.pct(profit, dif), 2) : '0';
         filas.push({
           panel: panel.nombre, panel_id: panel.id, nivel: panel.nivel_usuario, sistema: panel.sistema,
@@ -186,6 +201,8 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
     ok: true,
     cliente: cli.nombre, clienteId: cli.id, mes, mesNombre: mesCierre(mes), from, to,
     base, baseConfirmada: !!guardada, confirmadoAt: guardada ? guardada.confirmadoAt : null,
+    modo,
+    negativos: [...negativos.values()],
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
