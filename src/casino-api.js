@@ -259,6 +259,16 @@ function makeClient({ url, token, user, password } = {}) {
     }
     const b = new URLSearchParams();
     append(b);
+    // 🔑 EL MOTOR EXIGE FECHA **CON HORA** (`YYYY-MM-DD HH:MM:SS`). Con la fecha pelada la descarta
+    // en silencio y usa HOY — verificado: pidiendo julio armaba `from=2026-08-01 00:00:00&
+    // to=2026-08-01 23:59:59`. Por eso todos los rangos devolvían lo mismo (siempre el día de hoy).
+    const conHora = (v, fin) => {
+      const s = String(v == null ? '' : v).trim();
+      if (!s || /\d{2}:\d{2}:\d{2}/.test(s)) return s;
+      return `${s} ${fin ? '23:59:59' : '00:00:00'}`;
+    };
+    if (b.has('from')) b.set('from', conHora(b.get('from'), false));
+    if (b.has('to')) b.set('to', conHora(b.get('to'), true));
     if (!b.has('active_template') && autoTpl) b.append('active_template', autoTpl); // template seleccionado del usuario (auto)
     if (!useSession) b.append('api_token', token);
     let page;
@@ -291,8 +301,9 @@ function makeClient({ url, token, user, password } = {}) {
       : (new RegExp(`[?&]${k}=`).test(p)
         ? p.replace(new RegExp(`([?&]${k}=)[^&]*`), `$1${encodeURIComponent(v)}`)
         : `${p}&${k}=${encodeURIComponent(v)}`));
-    path = pisar(path, 'from', opts.from);
-    path = pisar(path, 'to', opts.to);
+    // La URL de la tabla también lleva las fechas, y también con hora.
+    path = pisar(path, 'from', conHora(opts.from, false));
+    path = pisar(path, 'to', conHora(opts.to, true));
     // CLAVE (bug de semanas): la tabla AJAX AGREGA paginación al GET (sort/order/offset/limit). SIN esos params
     // el reportstable devuelve página de Error — NO era el id (7164043 era correcto). limit alto = traer TODO.
     if (!/[?&]limit=/.test(path)) path += '&sort=provider&order=desc&offset=0&limit=100000';
