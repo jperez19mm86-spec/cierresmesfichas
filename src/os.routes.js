@@ -24,6 +24,7 @@ const reporteDiarioStore = require('./reporte-diario-store');
 const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
+const externosSvc = require('./externos.service');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const importSheet = require('./import-sheet.service');
@@ -387,6 +388,50 @@ function mount(app) {
     const { tc_proveedor_ext } = req.body || {};
     if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');
     ok(res, { mes: tcStore.setTcProveedor(req.params.mes, tc_proveedor_ext) });
+  }));
+
+  // ───────── §9 PROVEEDORES EXTERNOS ─────────
+  // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
+  app.get('/api/os/externos/:cliente', wrap(async (req, res) => {
+    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const r = await externosSvc.reporte({ clienteNombre: req.params.cliente, mes, basePct: req.query.base });
+    // 409 + faltaBase → el front pregunta "este cliente trabaja al X%, ¿es correcto?" antes de calcular
+    if (!r.ok) return res.status(r.faltaBase ? 409 : 404).json({ ok: false, error: r.error, faltaBase: !!r.faltaBase });
+    ok(res, r);
+  }));
+  // El % base con el que trabajó ESE mes (se confirma antes de calcular; no toca el histórico).
+  app.get('/api/os/externos/:cliente/base', (req, res) => {
+    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const g = externosSvc.baseGuardada(req.params.cliente, mes);
+    const cli = clientes.list().clientes.find((c) => String(c.nombre).toLowerCase() === String(req.params.cliente).toLowerCase());
+    ok(res, {
+      mes, confirmada: !!g,
+      base: g ? g.base_pct : (cli && cli.precio_base_pct != null ? String(cli.precio_base_pct) : null),
+      confirmadoAt: g ? g.confirmadoAt : null,
+      deLaFicha: cli && cli.precio_base_pct != null ? String(cli.precio_base_pct) : null,
+    });
+  });
+  app.post('/api/os/externos/:cliente/base', wrap((req, res) => {
+    const { mes, base_pct } = req.body || {};
+    if (!mes) return err(res, 400, 'falta mes');
+    if (base_pct === undefined || base_pct === null || base_pct === '') return err(res, 400, 'falta base_pct');
+    ok(res, { confirmada: externosSvc.confirmarBase(req.params.cliente, mes, base_pct) });
+  }));
+  // Resumen de TODOS los clientes del mes (para ver el total y quién falta confirmar).
+  app.get('/api/os/externos', wrap(async (req, res) => {
+    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const soloVendedor = req.query.vendedor || null;
+    const lista = clientes.list().clientes
+      .filter((c) => !soloVendedor || String(c.vendedor_id) === String(soloVendedor))
+      .map((c) => {
+        const g = externosSvc.baseGuardada(c.nombre, mes);
+        return {
+          cliente: c.nombre, id: c.id, esVendedor: !!c.es_vendedor, vendedor_id: c.vendedor_id || null,
+          base: g ? g.base_pct : (c.precio_base_pct != null ? String(c.precio_base_pct) : null),
+          confirmada: !!g, margenExtra: c.margen_externos_pct ?? null,
+        };
+      });
+    ok(res, { mes, clientes: lista });
   }));
 
   // ───────── MOVIMIENTOS ─────────

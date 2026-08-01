@@ -224,6 +224,12 @@ db.exec(`
     moneda TEXT, mes TEXT, tasa TEXT,         -- Exchange Rate (moneda × mes → USDT)
     PRIMARY KEY (moneda, mes)
   );
+  /* §9 — el % base de un cliente CAMBIA de un mes a otro (un mes 6%, otro 7%) pero su costo de
+     proveedores casi nunca. Se confirma por mes y NO se toca el histórico hacia atrás. */
+  CREATE TABLE IF NOT EXISTS externos_base_mes (
+    cliente TEXT, mes TEXT, base_pct TEXT, confirmadoAt TEXT,
+    PRIMARY KEY (cliente, mes)
+  );
   CREATE TABLE IF NOT EXISTS cierre_link (
     casino TEXT PRIMARY KEY,   -- proveedor que sale del casino "MARCA VENDOR" (ej "RUBYPLAY XG")
     matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")
