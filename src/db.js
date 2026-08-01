@@ -282,6 +282,14 @@ ensureColumns('clientes', {
   // proveedor". Se usa cuando ese proveedor NO tiene un precio propio en la matriz (típico de
   // un cliente nuevo: "cobrale +3 los externos"). Si la matriz tiene precio, manda la matriz.
   margen_externos_pct: 'TEXT',
+  // ── v3.0 §11: vendedores ──
+  // es_vendedor: revende a sus propios sub-clientes (Alexa, Sarah, Carlos, Henry, Julian, David).
+  //   Su % base es 0 y sólo se le factura el diferencial de proveedores externos.
+  // vendedor_id: a qué vendedor pertenece ESTE cliente (null = cliente directo).
+  //   Los clientes chicos se registran por separado y se agrupan por acá: agrupar siempre se
+  //   puede, desagregar no. Al vendedor se le muestra el total de SUS clientes a precio real.
+  es_vendedor: 'INTEGER DEFAULT 0',
+  vendedor_id: 'TEXT',
   saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
   saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo
   saldo_inicial_mov_id: 'TEXT',           // id del movimiento 'ajuste' que lo materializa (re-aplicable/reversible)

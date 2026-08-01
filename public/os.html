@@ -150,6 +150,13 @@ function editCli(id){
             <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
             <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
           </div>
+          <div class="row" style="margin-top:6px">
+            <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
+            <div><label>Su vendedor</label><select id="e-vend"><option value="">— cliente directo —</option>${
+              _clientes.filter(v=>v.es_vendedor&&v.id!==id).map(v=>`<option value="${v.id}" ${c.vendedor_id===v.id?'selected':''}>${esc(v.nombre)}</option>`).join('')
+            }</select></div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Un <b>vendedor</b> revende a sus propios clientes: va al 0% y sólo paga proveedores externos. A los clientes chicos asignales su vendedor acá.</div>
+          </div>
           <hr/>
           <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
           <div class="row">
@@ -326,6 +333,7 @@ async function saveCli(id){
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
     mover_balance:val('e-mover')==='1', margen_externos_pct:val('e-mext'),
+    es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'),
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }

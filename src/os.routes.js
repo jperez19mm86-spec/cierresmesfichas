@@ -75,7 +75,8 @@ function mount(app) {
       divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
       disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
       // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
-      mover_balance: c.mover_balance, margen_externos_pct: c.margen_externos_pct, saldo_inicial: c.saldo_inicial,
+      mover_balance: c.mover_balance, margen_externos_pct: c.margen_externos_pct,
+      es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, saldo_inicial: c.saldo_inicial,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
