@@ -20,7 +20,30 @@ function obj(r) {
     usa_config_cliente: !!r.usa_config_cliente,
     divisas: parseJson(r.divisas, []),
     montosRapidos: parseJson(r.montosRapidos, []),
+    escala: parseJson(r.escala, []),
   };
+}
+
+/**
+ * Guarda la jerarquía que resolvió arbol.service.js contra el casino.
+ * Es un UPDATE acotado a propósito: NO pasa por update(), que reescribe todas las columnas y
+ * pisaría divisas/montos/notas con lo que tenga en memoria quien lo llame.
+ */
+function setJerarquia(id, { nivel, padre, superagente, escala }) {
+  const p = get(id); if (!p) return null;
+  db.prepare(`UPDATE paneles SET nivel_usuario=@nivel, padre_id=@pid, padre_login=@plogin,
+      padre_nivel=@pnivel, sa_id=@said, sa_login=@salogin, escala=@escala, arbol_at=@at WHERE id=@id`).run({
+    id,
+    nivel: NIVELES.includes(nivel) ? nivel : p.nivel_usuario,
+    pid: padre ? String(padre.id) : null,
+    plogin: padre ? String(padre.login || '') : null,
+    pnivel: padre ? String(padre.nivel || '') : null,
+    said: superagente ? String(superagente.id) : null,
+    salogin: superagente ? String(superagente.login || '') : null,
+    escala: JSON.stringify(escala || []),
+    at: new Date().toISOString(),
+  });
+  return get(id);
 }
 // Guard de formato: un código de divisa son 3-4 letras (ARS, USDT). El split de abajo parte también
 // por ESPACIO, así que una celda mal tipeada como "AR,S BRL" o "PEN. PYG" generaría tokens basura
@@ -79,4 +102,4 @@ function update(id, patch) {
 }
 function remove(id) { return db.prepare('DELETE FROM paneles WHERE id=?').run(id).changes > 0; }
 
-module.exports = { list, get, create, update, remove, NIVELES };
+module.exports = { list, get, create, update, remove, setJerarquia, NIVELES };

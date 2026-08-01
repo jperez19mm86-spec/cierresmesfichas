@@ -298,6 +298,16 @@ ensureColumns('clientes', {
 // Cada PANEL puede linkearse a un nodo del casino (qué conexión + qué id de usuario del casino).
 ensureColumns('paneles', { conexion_id: 'TEXT' });
 
+// Jerarquía REAL del panel en el casino (SuperAgente → Distribuidor → Agente). Hace falta para
+// cargar: las fichas se bajan nivel por nivel, así que hay que saber por qué padres pasar.
+// Lo resuelve arbol.service.js contra el árbol del casino; no se carga a mano.
+ensureColumns('paneles', {
+  padre_id: 'TEXT', padre_login: 'TEXT', padre_nivel: 'TEXT',
+  sa_id: 'TEXT', sa_login: 'TEXT',
+  escala: 'TEXT',        // JSON [{id,login,nivel}] desde el SuperAgente hasta el padre directo
+  arbol_at: 'TEXT',      // cuándo se resolvió (para saber si está vieja)
+});
+
 // Conexiones: auth dual (token O usuario/contraseña, ambos cifrados).
 ensureColumns('casino_conexiones', { usuario: 'TEXT', password: 'TEXT' });
 

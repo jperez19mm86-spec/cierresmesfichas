@@ -23,6 +23,7 @@ const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
 const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
+const arbolSvc = require('./arbol.service');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const importSheet = require('./import-sheet.service');
@@ -506,6 +507,28 @@ function mount(app) {
     if (req.query.tally) { const niv = {}; r.nodos.forEach((n) => { const k = n.nivel || 'Terminal/Caja'; niv[k] = (niv[k] || 0) + 1; }); return ok(res, { count: r.nodos.length, niveles: niv }); }
     ok(res, { nodos: r.nodos });
   }));
+  // ───────── JERARQUÍA (para cargar hay que bajar las fichas por los padres) ─────────
+  // Resuelve contra el casino el nivel real de CADA panel y por qué padres hay que pasar.
+  // Tarda ~2 min: baja el árbol completo de cada conexión (decenas de miles de nodos).
+  app.post('/api/os/casino/arbol/sync', wrap(async (req, res) => {
+    const r = await arbolSvc.sincronizar({ soloConexion: (req.body || {}).conexion_id || null });
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+  // La escala de UN panel: por dónde pasan las fichas, de arriba hacia abajo.
+  app.get('/api/os/paneles/:id/escala', (req, res) => {
+    const p = paneles.get(req.params.id);
+    if (!p) return err(res, 404, 'panel no encontrado');
+    const pasos = [...(p.escala || []), { id: String(p.id_usuario), login: p.usuario || p.nombre, nivel: p.nivel_usuario, destino: true }];
+    ok(res, {
+      panel: { id: p.id, nombre: p.nombre, sistema: p.sistema, id_usuario: String(p.id_usuario), nivel: p.nivel_usuario },
+      resueltoEn: p.arbol_at || null,
+      superagente: p.sa_id ? { id: p.sa_id, login: p.sa_login } : null,
+      padre: p.padre_id ? { id: p.padre_id, login: p.padre_login, nivel: p.padre_nivel } : null,
+      pasos,                       // el recorrido completo, el último es el panel destino
+      saltos: pasos.length - 1,    // cuántas transferencias hay que hacer
+    });
+  });
+
   // total propio de un nodo
   app.get('/api/os/casino/conexiones/:id/nodo/:nodeId', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
