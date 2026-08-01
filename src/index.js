@@ -398,6 +398,7 @@ app.get('/api/pedidos/:id/cascada', (req, res) => {
     resuelto: plan.resuelto,                    // false = el panel no tiene la jerarquía sincronizada
     pasos: p.cascada && p.cascada.length === plan.pasos.length ? p.cascada : plan.pasos,
     trabadoEn: p.trabadoEn || null,
+    bloqueo: plan.bloqueo,        // un padre sin la divisa del pedido → no se puede cargar
     aviso: plan.resuelto ? null : 'Este panel no tiene la jerarquía resuelta: se va a cargar directo, sin pasar por los padres. Sincronizá el árbol en el OS.',
   });
 });
@@ -441,9 +442,12 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     // eslabón de arriba hacia abajo justo antes de usarlo. Los padres terminan como estaban y solo
     // el destino queda con el monto. Si ya hubo un intento a medias, se RETOMA (no repite pasos).
     const plan = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
+    // Si un padre no tiene la divisa del pedido, se avisa ANTES de mover nada.
+    if (plan.bloqueo) return res.status(400).json({ ok: false, error: plan.bloqueo, bloqueo: true, sinLaDivisa: plan.sinLaDivisa });
     const pasos = (p.cascada && p.cascada.length === plan.pasos.length) ? p.cascada : plan.pasos;
     const r = await cascada.ejecutar({
       url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, pasos,
+      serie: `${p.sistema}|${plan.superagenteId}`,   // una cascada a la vez por superagente
       log: (m) => console.log(m),
     });
     if (!r.ok) {

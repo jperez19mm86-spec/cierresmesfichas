@@ -40,7 +40,12 @@ function armar(nodos) {
       nivel: A_NIVEL_OS(n.nivel || 'Caja'),
       nivelCasino: n.nivel || '',
       padre: padre ? { id: String(padre.id), login: padre.login, nivel: A_NIVEL_OS(padre.nivel) } : null,
-      cadena: [...previa, { id: String(n.id), login: n.login, nivel: A_NIVEL_OS(n.nivel || 'Caja') }],
+      // `divisas` va en cada eslabón porque el saldo del padre es POR DIVISA: si el SuperAgente
+      // no tiene habilitada la moneda del pedido, la cascada no puede pasar por ahí.
+      cadena: [...previa, {
+        id: String(n.id), login: n.login, nivel: A_NIVEL_OS(n.nivel || 'Caja'),
+        divisas: (n.currencies || []).map((c) => String(c).toUpperCase()),
+      }],
     });
     if (r > 0) abiertos.push(n); // una caja no tiene hijos
   }

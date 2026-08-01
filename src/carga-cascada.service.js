@@ -33,6 +33,7 @@ function panelDe(sistema, userId) {
 function pasosDe({ sistema, userId, monto, divisa, cajaUsuario }) {
   const panel = panelDe(sistema, userId);
   const escala = (panel && panel.escala) || [];
+  const div = String(divisa || 'ARS').toUpperCase();
   const pasos = escala.map((x) => ({
     id: String(x.id), login: x.login, nivel: x.nivel, padre: true, estado: 'pendiente',
   }));
@@ -40,12 +41,38 @@ function pasosDe({ sistema, userId, monto, divisa, cajaUsuario }) {
     id: String(userId), login: (panel && (panel.usuario || panel.nombre)) || cajaUsuario || String(userId),
     nivel: (panel && panel.nivel_usuario) || '', destino: true, estado: 'pendiente',
   });
+
+  // El saldo del padre es POR DIVISA: si un padre no tiene habilitada la moneda del pedido, la
+  // cascada no puede pasar por ahí y hay que habilitarla en el casino. Se avisa ANTES de mover
+  // nada, con el nombre del nodo, en vez de fallar a mitad de camino con un error del casino.
+  // Si de un eslabón no sabemos las divisas (dato viejo o incompleto) NO se bloquea: se intenta,
+  // igual que antes — bloquear por falta de dato frenaría cargas que hoy funcionan.
+  const sinLaDivisa = escala.filter((x) => Array.isArray(x.divisas) && x.divisas.length && !x.divisas.includes(div));
+  const bloqueo = sinLaDivisa.length
+    ? `"${sinLaDivisa[0].login}" (${sinLaDivisa[0].nivel}) no tiene ${div} habilitada — hay que habilitársela en el casino para poder bajarle fichas en esa moneda a este panel. Tiene: ${sinLaDivisa[0].divisas.join(', ')}`
+    : null;
+
   return {
     panel,
     resuelto: !!(panel && panel.arbol_at),
-    monto: Number(monto), divisa: String(divisa || 'ARS'),
+    monto: Number(monto), divisa: div,
+    superagenteId: escala.length ? String(escala[0].id) : String(userId),
+    bloqueo, sinLaDivisa,
     pasos,
   };
+}
+
+// ── Una cascada a la vez por superagente ──
+// 9 superagentes están compartidos por varios clientes (GanamosBot-SA por 12). Dos cascadas
+// simultáneas sobre el mismo nodo se pisarían el saldo intermedio, así que se serializan.
+const colas = new Map();
+function enFila(clave, fn) {
+  const previa = colas.get(clave) || Promise.resolve();
+  const propia = previa.then(fn, fn);                 // corre igual si la anterior falló
+  const silenciosa = propia.catch(() => {});          // la cola NUNCA queda rechazada
+  colas.set(clave, silenciosa);
+  silenciosa.then(() => { if (colas.get(clave) === silenciosa) colas.delete(clave); });
+  return propia;
 }
 
 /**
@@ -53,7 +80,13 @@ function pasosDe({ sistema, userId, monto, divisa, cajaUsuario }) {
  * volver a intentar sin cargar dos veces.
  * @returns { ok, pasos, trabadoEn, error, newBalance }  — newBalance es el del destino.
  */
-async function ejecutar({ url, sessionCookie, monto, divisa, pasos, log }) {
+async function ejecutar({ url, sessionCookie, monto, divisa, pasos, log, serie }) {
+  // Serializada por superagente: dos cascadas a la vez sobre el mismo nodo se pisan el saldo.
+  if (serie) return enFila(serie, () => _ejecutar({ url, sessionCookie, monto, divisa, pasos, log }));
+  return _ejecutar({ url, sessionCookie, monto, divisa, pasos, log });
+}
+
+async function _ejecutar({ url, sessionCookie, monto, divisa, pasos, log }) {
   const hechos = pasos.map((p) => ({ ...p }));
   for (const paso of hechos) {
     if (paso.estado === 'ok') continue;                      // ya se hizo en un intento anterior
