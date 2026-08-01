@@ -16,6 +16,7 @@ const cors = require('cors');
 const path = require('path');
 const store = require('./systems-store');
 const casino = require('./casino-client');
+const cascada = require('./carga-cascada.service');
 const clientes = require('./clientes-store');
 const pedidos = require('./pedidos-store');
 const config = require('./config-store');
@@ -387,6 +388,39 @@ app.get('/api/pedidos', (req, res) => {
 });
 
 // Aceptar y CARGAR: loguea al sistema de la caja (usuario/contraseña → sesión) y ejecuta la carga real.
+// Por dónde van a pasar las fichas (para mostrarlo ANTES de cargar).
+app.get('/api/pedidos/:id/cascada', (req, res) => {
+  const p = pedidos.get(req.params.id);
+  if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
+  const plan = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
+  res.json({
+    ok: true, monto: p.monto, divisa: p.divisa,
+    resuelto: plan.resuelto,                    // false = el panel no tiene la jerarquía sincronizada
+    pasos: p.cascada && p.cascada.length === plan.pasos.length ? p.cascada : plan.pasos,
+    trabadoEn: p.trabadoEn || null,
+    aviso: plan.resuelto ? null : 'Este panel no tiene la jerarquía resuelta: se va a cargar directo, sin pasar por los padres. Sincronizá el árbol en el OS.',
+  });
+});
+
+// Devolver hacia arriba las fichas que quedaron trabadas a mitad de una cascada.
+// Es explícito a propósito: no se dispara solo.
+app.post('/api/pedidos/:id/devolver-trabadas', async (req, res) => {
+  const p = pedidos.get(req.params.id);
+  if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
+  if (!p.trabadoEn) return res.status(400).json({ ok: false, error: 'este pedido no tiene fichas trabadas' });
+  if (p.estado !== 'pendiente') return res.status(400).json({ ok: false, error: `el pedido está "${p.estado}"` });
+  const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p.sistema).toLowerCase());
+  if (!sys || !sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p.sistema}" no configurado` });
+  const t = await casino.testConnection(sys.url, sys.user, sys.password);
+  if (!t.ok || !t.sessionCookie) return res.status(502).json({ ok: false, error: `No se pudo autenticar a "${p.sistema}"` });
+  const r = await cascada.devolver({ url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, paso: p.trabadoEn });
+  if (!r.ok) return res.status(502).json({ ok: false, error: r.error });
+  // se devolvieron: la cascada vuelve a cero para poder empezar de nuevo limpio
+  console.log(`[Cascada] DEVUELTAS ${p.divisa} ${p.monto} desde ${p.trabadoEn.login} (pedido ${p.id})`);
+  pedidos.setCascada(p.id, [], null);
+  res.json({ ok: true, newBalance: r.newBalance, devueltoDe: p.trabadoEn.login });
+});
+
 app.post('/api/pedidos/:id/cargar', async (req, res) => {
   const p = pedidos.get(req.params.id);
   if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
@@ -403,9 +437,29 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     if (!t.ok || !t.sessionCookie) {
       return res.status(502).json({ ok: false, error: `No se pudo autenticar al sistema "${p.sistema}" — revisá su usuario/contraseña en 🔌 Sistemas (probá "Probar conexión").` });
     }
-    const r = await casino.loadChips(sys.url, t.sessionCookie, p.userId, p.monto, p.divisa, 'in');
+    // CASCADA: cargar un Distribuidor/Agente le saca las fichas a su padre, así que se funde cada
+    // eslabón de arriba hacia abajo justo antes de usarlo. Los padres terminan como estaban y solo
+    // el destino queda con el monto. Si ya hubo un intento a medias, se RETOMA (no repite pasos).
+    const plan = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
+    const pasos = (p.cascada && p.cascada.length === plan.pasos.length) ? p.cascada : plan.pasos;
+    const r = await cascada.ejecutar({
+      url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, pasos,
+      log: (m) => console.log(m),
+    });
+    if (!r.ok) {
+      // Fail-closed: el pedido queda 'pendiente' con lo ya movido anotado. Volver a apretar
+      // "Cargar" retoma desde el paso que falló; nada se carga dos veces.
+      pedidos.setCascada(p.id, r.pasos, r.trabadoEn);
+      return res.status(502).json({
+        ok: false, error: r.error || 'la carga falló',
+        cascada: r.pasos, trabadoEn: r.trabadoEn,
+        detalle: r.trabadoEn
+          ? `Quedaron ${p.divisa} ${p.monto} en "${r.trabadoEn.login}" (${r.trabadoEn.nivel}). Volvé a apretar Cargar para retomar, o devolvelas para arriba.`
+          : 'No se movió nada.',
+      });
+    }
     if (r.ok) {
-      const upd = pedidos.setEstado(p.id, 'cargado', { newBalance: r.newBalance, error: null });
+      const upd = pedidos.setEstado(p.id, 'cargado', { newBalance: r.newBalance, error: null, cascada: r.pasos, trabadoEn: null });
       console.log(`[Pedido] CARGADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
       sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget, no bloquea)
       // Aviso por Telegram al grupo del cliente (si está configurado) — fire-and-forget, no bloquea.

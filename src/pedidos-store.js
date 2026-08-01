@@ -66,6 +66,22 @@ function setEstado(id, estado, extra = {}) {
   p.resueltoAt = new Date().toISOString();
   if (extra.newBalance !== undefined) p.newBalance = extra.newBalance;
   if (extra.error !== undefined) p.error = extra.error;
+  if (extra.cascada !== undefined) p.cascada = extra.cascada;
+  if (extra.trabadoEn !== undefined) p.trabadoEn = extra.trabadoEn;
+  save(data);
+  return p;
+}
+
+/**
+ * Guarda el avance de la cascada SIN tocar el estado: el pedido sigue 'pendiente' para poder
+ * RETOMARLO. Es lo que permite que volver a apretar "Cargar" no repita los pasos ya hechos.
+ */
+function setCascada(id, cascada, trabadoEn) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p) return null;
+  p.cascada = cascada;
+  p.trabadoEn = trabadoEn || null;
   save(data);
   return p;
 }
@@ -133,4 +149,4 @@ function ventasCargadasMes(mes) {
   return out;
 }
 
-module.exports = { create, get, setEstado, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, seed: save, FILE };
+module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, seed: save, FILE };
