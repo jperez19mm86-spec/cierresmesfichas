@@ -642,8 +642,8 @@ function mount(app) {
     const curs = String(req.query.currencies || req.query.cur || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
     const monedas = {};
     for (const cur of curs) {
-      const r = await cli.reporteProveedoresNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur });
-      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error };
+      const r = await cli.reporteProveedoresNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur, debug: req.query.debug === '1' });
+      monedas[cur] = r.ok ? { ok: true, filas: r.filas, debug: r.debug } : { ok: false, error: r.error };
     }
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));

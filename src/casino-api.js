@@ -310,7 +310,9 @@ function makeClient({ url, token, user, password } = {}) {
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
-    return { ok: true, raw };
+    // Para diagnosticar el filtro de fechas: con qué params queda realmente la URL de la tabla.
+    const debug = opts.debug ? { path: path.replace(/api_token=[^&]*/, 'api_token=***'), urls: allRs.length } : undefined;
+    return { ok: true, raw, debug };
   }
 
   /**
@@ -351,7 +353,7 @@ function makeClient({ url, token, user, password } = {}) {
    *
    * Devuelve las mismas filas que reporteProveedores: {saId, saLogin, provider, label, vendor, bet, win, profit}.
    */
-  async function reporteProveedoresNodo({ nodoId, from = '', to = '', currency = 'ARS', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
+  async function reporteProveedoresNodo({ nodoId, from = '', to = '', currency = 'ARS', activeTemplate = '', debug = false, filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
     if (!nodoId) return { ok: false, error: 'falta nodoId' };
     const r = await _runReport((b) => {
       b.append('statistic_type', 'on_bets'); b.append('conversion_type', 'current_currency');
@@ -359,7 +361,7 @@ function makeClient({ url, token, user, password } = {}) {
       ['id', 'login', 'provider', 'label', 'vendor', 'profit'].forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    }, { filtros, nodoId, from, to });
+    }, { filtros, nodoId, from, to, debug });
     if (!r.ok) return r;
     const filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
@@ -367,7 +369,7 @@ function makeClient({ url, token, user, password } = {}) {
       provider: x.provider || '', label: x.label || '', vendor: x.vendor || '',
       bet: numC(x.bet), win: numC(x.win), profit: numC(x.profit),
     })).filter((x) => x.provider || x.label || x.bet || x.win || x.profit);
-    return { ok: true, nodoId: String(nodoId), from, to, currency, filas };
+    return { ok: true, nodoId: String(nodoId), from, to, currency, filas, debug: r.debug };
   }
 
   async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
