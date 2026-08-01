@@ -284,6 +284,15 @@ function makeClient({ url, token, user, password } = {}) {
         ? path.replace(/([?&]id=)[^&]*/, `$1${encodeURIComponent(opts.nodoId)}`)
         : path + '&id=' + encodeURIComponent(opts.nodoId);
     }
+    // ⚠️ Lo mismo con las FECHAS: el motor embebe en esa URL las del estado de la página, NO las que
+    // mandamos en el POST. Sin pisarlas, el reporte devuelve SIEMPRE el mismo período — verificado:
+    // un día, un mes y dos años daban las mismas 53 filas y el mismo profit.
+    const pisar = (p, k, v) => ((v === '' || v == null) ? p
+      : (new RegExp(`[?&]${k}=`).test(p)
+        ? p.replace(new RegExp(`([?&]${k}=)[^&]*`), `$1${encodeURIComponent(v)}`)
+        : `${p}&${k}=${encodeURIComponent(v)}`));
+    path = pisar(path, 'from', opts.from);
+    path = pisar(path, 'to', opts.to);
     // CLAVE (bug de semanas): la tabla AJAX AGREGA paginación al GET (sort/order/offset/limit). SIN esos params
     // el reportstable devuelve página de Error — NO era el id (7164043 era correcto). limit alto = traer TODO.
     if (!/[?&]limit=/.test(path)) path += '&sort=provider&order=desc&offset=0&limit=100000';
@@ -350,7 +359,7 @@ function makeClient({ url, token, user, password } = {}) {
       ['id', 'login', 'provider', 'label', 'vendor', 'profit'].forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    }, { filtros, nodoId });
+    }, { filtros, nodoId, from, to });
     if (!r.ok) return r;
     const filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
@@ -373,7 +382,7 @@ function makeClient({ url, token, user, password } = {}) {
       fields.forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    }, { filtros });
+    }, { filtros, from, to });
     if (!r.ok) return r;
     let filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
