@@ -311,7 +311,12 @@ function makeClient({ url, token, user, password } = {}) {
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
     // Para diagnosticar el filtro de fechas: con qué params queda realmente la URL de la tabla.
-    const debug = opts.debug ? { path: path.replace(/api_token=[^&]*/, 'api_token=***'), urls: allRs.length } : undefined;
+    const debug = opts.debug ? {
+      path: path.replace(/api_token=[^&]*/, 'api_token=***'),
+      original: rsUrl,                        // la que armó el MOTOR, antes de que pisemos id/from/to
+      todas: allRs.slice(0, 3),
+      urls: allRs.length,
+    } : undefined;
     return { ok: true, raw, debug };
   }
 
