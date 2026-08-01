@@ -276,6 +276,14 @@ function makeClient({ url, token, user, password } = {}) {
       return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)', debug: { pageSnippet: html.slice(0, 300).replace(/\s+/g, ' ') } };
     }
     let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
+    // El `id=` que embebe el motor es el del usuario LOGUEADO (el GOD), y el reporte sale de su árbol.
+    // Reemplazándolo por el id de otro nodo se obtiene el reporte DE ESE NODO — es la única forma de
+    // abrir un DISTRIBUIDOR, porque agrupar por 'distributor' no desglosa (devuelve el total).
+    if (opts.nodoId) {
+      path = /[?&]id=/.test(path)
+        ? path.replace(/([?&]id=)[^&]*/, `$1${encodeURIComponent(opts.nodoId)}`)
+        : path + '&id=' + encodeURIComponent(opts.nodoId);
+    }
     // CLAVE (bug de semanas): la tabla AJAX AGREGA paginación al GET (sort/order/offset/limit). SIN esos params
     // el reportstable devuelve página de Error — NO era el id (7164043 era correcto). limit alto = traer TODO.
     if (!/[?&]limit=/.test(path)) path += '&sort=provider&order=desc&offset=0&limit=100000';
@@ -324,6 +332,35 @@ function makeClient({ url, token, user, password } = {}) {
    *     vendor = código corto (ej "SL2"), profit = ganancia de ese proveedor.
    * `activeTemplate` opcional = id de un template guardado en el casino, por si la cuenta lo requiere.
    */
+  /**
+   * REPORTE DE PROVEEDORES DE UN NODO PUNTUAL (por ejemplo un DISTRIBUIDOR).
+   *
+   * Por qué existe: agrupar por 'distributor' NO desglosa — el casino devuelve el total sin abrir por
+   * cuenta (el campo id vuelve vacío). La forma de abrir un distribuidor es pedir el reporte "parado"
+   * en ese nodo: es el mismo pedido, cambiando el `id` de la URL de la tabla por el del nodo.
+   * Config del reporte (la que usa el panel): reports_base_group_by=users + reports_group_by=terminal.
+   *
+   * Devuelve las mismas filas que reporteProveedores: {saId, saLogin, provider, label, vendor, bet, win, profit}.
+   */
+  async function reporteProveedoresNodo({ nodoId, from = '', to = '', currency = 'ARS', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
+    if (!nodoId) return { ok: false, error: 'falta nodoId' };
+    const r = await _runReport((b) => {
+      b.append('statistic_type', 'on_bets'); b.append('conversion_type', 'current_currency');
+      b.append('reports_base_group_by', 'users'); b.append('reports_group_by', 'terminal');
+      ['id', 'login', 'provider', 'label', 'vendor', 'profit'].forEach((f) => b.append('reports_group_fields[]', f));
+      b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
+      if (activeTemplate) b.append('active_template', String(activeTemplate));
+    }, { filtros, nodoId });
+    if (!r.ok) return r;
+    const filas = r.raw.map((x) => ({
+      saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
+      superagent: x.superagent == null ? null : String(x.superagent),
+      provider: x.provider || '', label: x.label || '', vendor: x.vendor || '',
+      bet: numC(x.bet), win: numC(x.win), profit: numC(x.profit),
+    })).filter((x) => x.provider || x.label || x.bet || x.win || x.profit);
+    return { ok: true, nodoId: String(nodoId), from, to, currency, filas };
+  }
+
   async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
     const general = !userGroupBy; // userGroupBy='' = GENERAL (toda la plataforma, sin abrir por cuenta)
     const fields = general
@@ -380,7 +417,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresMonedas, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };

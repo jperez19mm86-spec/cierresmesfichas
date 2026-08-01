@@ -544,6 +544,20 @@ function mount(app) {
   // REPORTE DE PROVEEDORES: profit/bet/win/rtp por proveedor, en UNA o VARIAS monedas, vista
   // 'general' (toda la plataforma) o 'superagent'. on_bets + reports_group_by=provider_label.
   // ?view=general|superagent  ?currencies=ARS,USD,BRL  ?from=&to=  ?template=
+  // Reporte de proveedores DE UN NODO puntual (típicamente un DISTRIBUIDOR, que el agrupamiento
+  // por 'distributor' no desglosa). ?nodo=<id de usuario del casino>
+  app.get('/api/os/casino/conexiones/:id/reporte-proveedores-nodo', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    if (!req.query.nodo) return err(res, 400, 'falta ?nodo=<id de usuario del casino>');
+    const curs = String(req.query.currencies || req.query.cur || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const monedas = {};
+    for (const cur of curs) {
+      const r = await cli.reporteProveedoresNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur });
+      monedas[cur] = r.ok ? { ok: true, filas: r.filas } : { ok: false, error: r.error };
+    }
+    ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
+  }));
+
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const ug = req.query.ug != null ? req.query.ug : (req.query.view === 'superagent' ? 'superagent' : ''); // ?ug= override p/ probar valores
