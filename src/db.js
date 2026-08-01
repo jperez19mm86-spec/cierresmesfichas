@@ -267,6 +267,10 @@ ensureColumns('clientes', {
   tc_proveedor: 'TEXT',                   // TC manual del proveedor (si tc_aplicar=proveedor)
   // ── v3.0 §7-10 (planilla "BASE DE DATOS CLIENTES") ──
   mover_balance: 'INTEGER DEFAULT 0',     // permiso: mover fichas entre paneles PROPIOS, misma divisa
+  // Margen genérico de proveedores externos: "a este cliente cobrale +N sobre el COSTO del
+  // proveedor". Se usa cuando ese proveedor NO tiene un precio propio en la matriz (típico de
+  // un cliente nuevo: "cobrale +3 los externos"). Si la matriz tiene precio, manda la matriz.
+  margen_externos_pct: 'TEXT',
   saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
   saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo
   saldo_inicial_mov_id: 'TEXT',           // id del movimiento 'ajuste' que lo materializa (re-aplicable/reversible)

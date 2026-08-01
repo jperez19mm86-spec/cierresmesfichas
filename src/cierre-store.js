@@ -219,8 +219,23 @@ function importar(payload = {}) {
   };
 }
 
+/**
+ * Escribe muchas celdas de una (mantenimiento de precios: poner los SL2/SZ en 0, aplicar un tope,
+ * copiar la lista de un cliente a otro…). Una sola transacción: o entran todas o ninguna.
+ * cambios = [{ proveedor, cliente, pct }]  (pct '' o null borra la celda)
+ */
+const _lote = db.transaction((cambios) => {
+  let n = 0;
+  for (const c of cambios) if (setCelda(c.proveedor, c.cliente, c.pct)) n++;
+  return n;
+});
+function setCeldas(cambios) {
+  if (!Array.isArray(cambios) || !cambios.length) return 0;
+  return _lote(cambios);
+}
+
 module.exports = {
-  getMatriz, setCelda, addProveedor, setBase, removeProveedor,
+  getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,
 };

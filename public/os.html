@@ -177,6 +177,10 @@ function editCli(id){
             <div style="flex:0"><label>Mover balance</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Permite al cliente pasar fichas de un panel suyo a otro, en la misma divisa.</div>
           </div>
+          <div class="row" style="margin-top:6px">
+            <div style="flex:0"><label>Externos: cobrar +</label><input id="e-mext" value="${esc(c.margen_externos_pct||'')}" placeholder="ej 3" style="width:90px"/></div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Puntos sobre el <b>costo</b> del proveedor, para los que no tengan precio propio en la matriz. Ej: <b>3</b> = a un proveedor que te cuesta 5 se le cobra 8. Dejalo vacío si todos sus precios están cargados a mano.</div>
+          </div>
           <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro. <b>Trader</b> = el TC que te pasa tu trader ese mes.</div>
         </div>
         <div class="card">
@@ -321,7 +325,8 @@ async function saveCli(id){
     estado:val('e-estado'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
-    mover_balance:val('e-mover')==='1', saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
+    mover_balance:val('e-mover')==='1', margen_externos_pct:val('e-mext'),
+    saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
   _cliDirty=false; toast('Guardado'); VIEWS.clientes();

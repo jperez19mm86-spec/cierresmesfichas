@@ -73,7 +73,7 @@ function mount(app) {
       divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
       disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
       // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
-      mover_balance: c.mover_balance, saldo_inicial: c.saldo_inicial,
+      mover_balance: c.mover_balance, margen_externos_pct: c.margen_externos_pct, saldo_inicial: c.saldo_inicial,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
@@ -295,6 +295,14 @@ function mount(app) {
   app.post('/api/os/cierre/celda', wrap((req, res) => {
     const { proveedor, cliente, pct } = req.body || {};
     ok(res, { guardado: cierreStore.setCelda(proveedor, cliente, pct) });
+  }));
+  // Mantenimiento de precios en lote (SL2/SZ a 0, tope, copiar la lista de un cliente a otro…).
+  // Una sola transacción; devuelve cuántas celdas se escribieron.
+  app.post('/api/os/cierre/celdas-lote', wrap((req, res) => {
+    const cambios = (req.body || {}).cambios;
+    if (!Array.isArray(cambios)) return err(res, 400, 'falta el arreglo "cambios"');
+    if (cambios.length > 20000) return err(res, 400, 'demasiados cambios en una sola llamada');
+    ok(res, { escritas: cierreStore.setCeldas(cambios) });
   }));
   app.post('/api/os/cierre/base', wrap((req, res) => ok(res, { guardado: cierreStore.setBase((req.body || {}).proveedor, (req.body || {}).base_pct) })));
   app.post('/api/os/cierre/descuento', wrap((req, res) => ok(res, { guardado: cierreStore.setDescuento((req.body || {}).cliente, (req.body || {}).descuento) })));
