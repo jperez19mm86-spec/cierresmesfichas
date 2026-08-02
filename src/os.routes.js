@@ -13,7 +13,6 @@ const tcStore = require('./tc-store');
 const movs = require('./movimientos-store');
 const historial = require('./historial');
 const splitSvc = require('./split.service');
-const provSvc = require('./proveedores.service');
 const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
@@ -26,6 +25,7 @@ const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
+const revision = require('./revision.service');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
@@ -138,6 +138,8 @@ function mount(app) {
   }));
   // Chequeo de coherencia: columnas de la matriz sin cliente, y clientes sin columna.
   app.get('/api/os/cierre/coherencia', (_req, res) => ok(res, cierreStore.inconsistencias()));
+  // 🩺 TODO lo que puede hacer que un mes salga con un número equivocado, en una sola respuesta.
+  app.get('/api/os/revision', (req, res) => ok(res, revision.revisar(req.query.mes)));
   // precio base con vigencia/corrección
   app.put('/api/os/clientes/:id/precio-base', wrap((req, res) => {
     const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};
@@ -347,33 +349,11 @@ function mount(app) {
     ok(res, cierreStore.igualarVendorsADescuento(vendors));
   }));
 
-  app.get('/api/os/paneles/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.listPorPanel(req.params.id) }));
-  app.post('/api/os/paneles/:id/proveedores', wrap((req, res) => {
-    const id = proveedores.setPanelProveedor(Object.assign({ panel_id: req.params.id }, req.body || {}));
-    ok(res, { id });
-  }));
-  app.delete('/api/os/panel-proveedores/:id', (req, res) => proveedores.removePanelProveedor(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
-  // diferencial: profits por proveedor vienen del body (AGUJERO: futura API del panel)
-  app.post('/api/os/paneles/:id/diferencial', wrap((req, res) => {
-    const { base, profits } = req.body || {};
-    if (base === undefined) return err(res, 400, 'base requerido');
-    ok(res, provSvc.calcularPanel(req.params.id, String(base), profits || {}));
-  }));
-
-  // % de proveedores POR CLIENTE (rige para TODOS sus paneles/superagentes)
-  app.get('/api/os/clientes/:id/proveedores', (req, res) => ok(res, { proveedores: proveedores.catalogoParaCliente(req.params.id) }));
-  app.post('/api/os/clientes/:id/proveedores', wrap((req, res) => {
-    const id = proveedores.setClienteProveedor(Object.assign({ cliente_id: req.params.id }, req.body || {}));
-    ok(res, { id });
-  }));
-  app.delete('/api/os/clientes/:id/proveedores/:proveedorId', (req, res) =>
-    proveedores.removeClienteProveedor(req.params.id, req.params.proveedorId) ? ok(res) : err(res, 404, 'no encontrado'));
-  // diferencial del cliente (su % rige en todos los paneles); profits por proveedor por ahora del body
-  app.post('/api/os/clientes/:id/diferencial', wrap((req, res) => {
-    const { base, profits } = req.body || {};
-    if (base === undefined) return err(res, 400, 'base requerido');
-    ok(res, provSvc.calcularCliente(req.params.id, String(base), profits || {}));
-  }));
+  // El % de proveedor POR CLIENTE vive en la MATRIZ del Cierre (cierre_pct), que es la que usa
+  // Proveedores externos. Acá vivía un SEGUNDO motor que calculaba lo mismo con otros porcentajes,
+  // leyendo tablas propias (cliente_proveedores / panel_proveedores). No lo llamaba ninguna pantalla
+  // y tener dos respuestas para la misma pregunta es justo lo que hay que evitar, así que se fue.
+  // Las tablas quedan en la base por si hay que mirarlas, pero ya no las lee nadie.
 
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));

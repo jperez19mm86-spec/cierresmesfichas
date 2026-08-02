@@ -56,7 +56,7 @@
 <script>
 // ───────── helpers ─────────
 const TABS = [
-  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
+  ['revision','🩺 Revisión'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
   ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'],
   ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
@@ -509,6 +509,38 @@ async function saveParts(){
   if(r.ok) toast('Reparto guardado ✓');
 }
 
+
+// ───────── 🩺 REVISIÓN ─────────
+// Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
+// Antes había que acordarse de mirar en cinco pantallas distintas.
+let _revMes = new Date().toISOString().slice(0,7);
+VIEWS.revision = async () => {
+  document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Revisando…</div></div>';
+  const r = await api('/api/os/revision?mes='+encodeURIComponent(_revMes));
+  const items = r.items||[];
+  const fila = (i) => {
+    const grave = i.nivel==='grave';
+    const col = grave?'var(--red)':'var(--gold)';
+    const lista = (i.afectados||[]).slice(0,25).map(esc).join(' · ');
+    const mas = (i.afectados||[]).length>25 ? ' <span class="muted">y '+(i.afectados.length-25)+' más</span>' : '';
+    return '<div class="card" style="margin:8px 0;border-left:3px solid '+col+'">'
+      + '<div style="display:flex;gap:8px;align-items:center"><span class="pill" style="background:'+col+';color:#000;font-weight:700">'+(grave?'GRAVE':'aviso')+'</span><b>'+esc(i.titulo)+'</b></div>'
+      + '<div style="margin-top:4px">'+esc(i.detalle)+'</div>'
+      + '<div class="muted" style="margin-top:4px;font-size:12px">'+lista+mas+'</div>'
+      + '<div class="muted" style="margin-top:6px">📍 Se arregla en: <b>'+esc(i.donde)+'</b></div></div>';
+  };
+  const cab = '<div class="card"><h2>🩺 Revisión de '+esc(r.mes||_revMes)+'</h2>'
+    + '<div class="muted">Todo lo que puede hacer que este mes salga con un número equivocado. No corrige nada: te dice qué mirar y dónde.</div>'
+    + '<div class="row" style="margin-top:8px;align-items:flex-end">'
+    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;VIEWS.revision()"></div>'
+    + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Graves</label><div style="font-size:22px;font-weight:800;color:'+(r.graves?'var(--red)':'#3c9')+'">'+(r.graves||0)+'</div></div>'
+    + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Avisos</label><div style="font-size:22px;font-weight:800">'+(r.avisos||0)+'</div></div>'
+    + '</div></div>';
+  const cuerpo = r.limpio
+    ? '<div class="card" style="border-left:3px solid #3c9"><b>✅ Sin problemas detectados en este mes.</b><div class="muted">Todos los clientes tienen % base, todas las monedas tienen tipo de cambio y todos los paneles están vinculados.</div></div>'
+    : items.map(fila).join('');
+  document.getElementById('main').innerHTML = cab + cuerpo;
+};
 // ───────── PROVEEDORES ─────────
 let _provCat = []; // catálogo de proveedores del casino (gamesSystem) cargado en memoria
 VIEWS.proveedores = async () => {
