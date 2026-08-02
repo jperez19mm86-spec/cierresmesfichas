@@ -604,6 +604,13 @@ const CIE_STYLE = `<style>
     .cie-badge{font-size:10.5px;padding:1px 6px;border-radius:8px;font-weight:700}
     .cie-b-ok{background:rgba(0,160,70,.2);color:#0a4}.cie-b-ex{background:rgba(40,110,220,.18);color:#48f}
     .cie-b-sug{background:rgba(210,160,0,.2);color:#c90}.cie-b-no{background:rgba(140,140,140,.2);color:var(--muted)}
+    /* VENDEDORES: no son clientes, pagan el costo real. Van al final, en otro color, y su celda
+       se marca si NO coincide con el % base (que es lo único que deberían tener). */
+    .cie-hv{background:rgba(40,110,220,.14) !important;border-left:2px solid rgba(40,110,220,.5)}
+    .cie-tv{background:rgba(40,110,220,.06)}
+    .cie-tv:first-of-type{border-left:2px solid rgba(40,110,220,.35)}
+    .cie-tag{font-size:9px;background:rgba(40,110,220,.28);color:#48f;padding:1px 4px;border-radius:6px;vertical-align:middle}
+    .cie-raro{background:rgba(210,160,0,.22) !important;outline:1px solid rgba(210,160,0,.55)}
   </style>`;
 VIEWS.cierre = () => {
   const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Proveedores externos'],['vincular','🔗 Vincular proveedores'],['tc','💱 Tipos de cambio (mensual)']];
@@ -731,19 +738,42 @@ function extCSV() {
 }
 
 // ── sub-vista MATRIZ % ──
+let _cieVerVend = false;   // los vendedores se ocultan por defecto: su celda es SIEMPRE el costo
+function cieToggleVend(){ _cieVerVend = !_cieVerVend; cieMatriz(); }
 async function cieMatriz(){
   const m = await api('/api/os/cierre/matriz'); _cieData = {proveedores:m.proveedores||[], clientes:m.clientes||[], celdas:m.celdas||{}};
-  const provs=_cieData.proveedores, clis=_cieData.clientes, celdas=_cieData.celdas;
-  const head = ['<th class="cie-h0">Proveedor</th>','<th class="cie-hb">% base</th>']
-    .concat(clis.map(c=>`<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`)).join('');
+  const provs=_cieData.proveedores, celdas=_cieData.celdas;
+  // Quién es vendedor sale de la ficha del cliente, no de la matriz.
+  const fichas = (await api('/api/os/clientes')).clientes||[];
+  const esVend = new Set(fichas.filter(c=>c.es_vendedor).map(c=>String(c.nombre).toLowerCase()));
+  const todos = _cieData.clientes;
+  const soloCli = todos.filter(c=>!esVend.has(String(c.nombre).toLowerCase()));
+  const soloVen = todos.filter(c=> esVend.has(String(c.nombre).toLowerCase()));
+  // Clientes primero, vendedores agrupados al final (y ocultables): no se mezclan.
+  const clis = _cieVerVend ? soloCli.concat(soloVen) : soloCli;
+  const th = (c)=>{const v=esVend.has(String(c.nombre).toLowerCase());
+    return `<th class="${v?'cie-hv':''}">${esc(c.nombre)}${v?' <span class="cie-tag">vend</span>':''} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`;};
+  const head = ['<th class="cie-h0">Proveedor</th>','<th class="cie-hb">% base</th>'].concat(clis.map(th)).join('');
+  let fuera = 0;
   const body = provs.map(p=>{
     const row = celdas[p.nombre]||{};
-    const tds = clis.map(c=>{const v=row[c.nombre]; return `<td><input class="cie-c" data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;}).join('');
+    const tds = clis.map(c=>{
+      const v=row[c.nombre];
+      const vend = esVend.has(String(c.nombre).toLowerCase());
+      // El vendedor paga el COSTO: si su celda no coincide, es un dato a revisar.
+      const raro = vend && v!=null && v!=='' && p.base_pct!=null && String(v)!==String(p.base_pct);
+      if(raro) fuera++;
+      return `<td class="${vend?'cie-tv':''}"><input class="cie-c${raro?' cie-raro':''}" ${raro?`title="El vendedor paga el costo (${esc(p.base_pct)}), acá dice ${esc(v)}"`:''} data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;
+    }).join('');
     return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)}</td>`+
       `<td><input class="cie-b" data-prov="${esc(p.nombre)}" value="${esc(p.base_pct==null?'':p.base_pct)}" onchange="cieBase(this)"></td>`+tds+`</tr>`;
   }).join('');
   document.getElementById('cie-body').innerHTML = `
-  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo; <b>desc</b> (bajo cada cliente) = su descuento (1_Cliente). % neto del cierre = <b>%celda − descuento</b>. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes.</div>
+  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${soloCli.length}</b> clientes${_cieVerVend?` + <b>${soloVen.length}</b> vendedores`:''}.</div>
+    <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="small ${_cieVerVend?'':'outline'}" onclick="cieToggleVend()">${_cieVerVend?'🙈 Ocultar':'👁 Mostrar'} vendedores (${soloVen.length})</button>
+      <span class="muted" style="font-size:12px">Los <b>vendedores</b> no se cobran como cliente: pagan el <b>costo real</b> del proveedor, así que su columna es siempre igual al <b>% base</b>. Van al final y en otro color.${fuera?` <b style="color:#c90">${fuera} celdas de vendedor no coinciden con el costo</b> — están marcadas.`:''}</span>
+    </div>
     <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:160px"><label>🔎 Buscar proveedor</label><input id="cie-q" oninput="filtCie()" placeholder="ej: PRAGMATIC"></div>
       <div style="flex:0"><label>➕ Proveedor (Marca Vendor)</label><input id="cie-np" placeholder="ej: NETENT OP" style="width:180px"></div>
