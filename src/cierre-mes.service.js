@@ -33,7 +33,10 @@ function congelar(mes, { notas = '', matriz = null, pisar = false } = {}) {
   if (!m) return { ok: false, error: 'falta el mes' };
   if (!pisar && get(m)) return { ok: false, error: `${m} ya está congelado — usá pisar:true si querés reemplazarlo`, yaExiste: true };
   const datos = matriz || cierre.getMatriz();
-  const payload = JSON.stringify({ proveedores: datos.proveedores || [], celdas: datos.celdas || {}, clientes: datos.clientes || [] });
+  // Los VÍNCULOS casino→matriz también se congelan: si después se agregan proveedores, un nombre
+  // del casino podría resolverse distinto y el mes ya cerrado cambiaría de número.
+  const links = db.prepare('SELECT casino, matriz FROM cierre_link').all();
+  const payload = JSON.stringify({ proveedores: datos.proveedores || [], celdas: datos.celdas || {}, clientes: datos.clientes || [], links });
   db.prepare(`INSERT INTO cierre_mes_snapshot (mes,datos,createdAt,notas) VALUES (?,?,?,?)
               ON CONFLICT(mes) DO UPDATE SET datos=excluded.datos, createdAt=excluded.createdAt, notas=excluded.notas`)
     .run(m, payload, new Date().toISOString(), String(notas || ''));
@@ -55,7 +58,7 @@ function preciosDe(mes) {
   const datos = snap || cierre.getMatriz();
   const costo = {};
   (datos.proveedores || []).forEach((p) => { costo[p.nombre] = p.base_pct; });
-  return { congelado: !!snap, congeladoEn: snap ? snap.createdAt : null, costo, celdas: datos.celdas || {} };
+  return { congelado: !!snap, congeladoEn: snap ? snap.createdAt : null, costo, celdas: datos.celdas || {}, links: snap ? (snap.links || null) : null };
 }
 
 module.exports = { get, listar, congelar, descongelar, preciosDe };

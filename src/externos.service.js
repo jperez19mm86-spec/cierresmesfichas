@@ -83,10 +83,16 @@ function pctsDelCliente(nombreCliente, mes) {
 }
 
 /** Traduce el nombre de proveedor del casino al de la matriz (cierre_link). */
-function traductor() {
+function traductor(precios) {
+  // Los nombres válidos y los vínculos salen DEL MES: si están congelados se usan esos. Si no,
+  // agregar un proveedor hoy haría que un nombre del casino se resuelva distinto y un mes ya
+  // cerrado cambiaría de número (pasó: Titan junio se movió de 7.150 a 6.628).
   const links = {};
-  db.prepare('SELECT casino, matriz FROM cierre_link').all().forEach((r) => { if (r.matriz) links[K(r.casino)] = r.matriz; });
-  const dela = new Set(db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => K(r.nombre)));
+  const fuenteLinks = (precios && precios.links) || db.prepare('SELECT casino, matriz FROM cierre_link').all();
+  fuenteLinks.forEach((r) => { if (r.matriz) links[K(r.casino)] = r.matriz; });
+  const nombres = (precios && precios.costo) ? Object.keys(precios.costo)
+    : db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre);
+  const dela = new Set(nombres.map((n) => K(n)));
   return (fila) => {
     const marca = String(fila.label || fila.provider || '').trim();
     const vendor = String(fila.vendor || '').trim();
@@ -131,7 +137,7 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
 
   const { celdas, proveedores, congelado, congeladoEn } = pctsDelCliente(cli.nombre, mes);
   const costoDe = {}; proveedores.forEach((p) => { costoDe[K(p.nombre)] = p.base_pct; });
-  const traducir = traductor();
+  const traducir = traductor(cierreMes.preciosDe(mes));
   const { from, to } = rango(mes);
   const mios = paneles.list().filter((p) => p.cliente_id === cli.id);
 
