@@ -329,8 +329,14 @@ function makeClient({ url, token, user, password } = {}) {
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
-    // Si volvieron exactamente tantas filas como el tope, es que el tope cortó: el resto no está.
-    // Un reporte truncado en silencio es lo peor que puede pasar acá, porque el total parece bueno.
+    // ⚠️ TRUNCADO. El motor devuelve `total` = cuántas filas hay EN TOTAL, aparte de las que mandó.
+    // Si mandó menos, el resto no está y el número sale corto. Antes esto no se miraba: con el
+    // límite de la pantalla en 1000 y 1949 filas de verdad, faltaba casi la mitad de la plata y el
+    // total parecía correcto.
+    const totalDicho = (d && typeof d === 'object' && !Array.isArray(d) && d.total != null) ? Number(d.total) : null;
+    if (Number.isFinite(totalDicho) && totalDicho > raw.length) {
+      return { ok: false, error: `el casino dice que hay ${totalDicho} filas y mandó ${raw.length}: el reporte viene cortado, faltan datos.` };
+    }
     if (raw.length >= LIMITE) {
       return { ok: false, error: `el reporte trajo ${raw.length} filas y ese es el tope: faltan datos. Achicá el período o pedilo por partes.` };
     }
