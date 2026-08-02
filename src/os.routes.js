@@ -958,8 +958,13 @@ function mount(app) {
   // carga real). Para ver Facturación/Reparto con datos en pruebas; en el live ya están los pedidos reales.
   // body: { items:[{codigo, monto, userId?, cajaUsuario?, sistema?, divisa?}], reset?:bool }
   app.post('/api/os/_dev/seed-ventas', wrap((req, res) => {
+    // seed-ventas sólo en desarrollo: con reset:true hace DELETE FROM pedidos, y los pedidos son
+    // la base de lo que se le cobra a cada cliente. En producción no existe.
+    if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production') {
+      return err(res, 403, 'seed-ventas está deshabilitado en producción: borraría pedidos reales');
+    }
     const body = req.body || {};
-    if (body.reset) pedidosStore.seed({ pedidos: [] }); // limpia todos (env de pruebas, sin pedidos reales)
+    if (body.reset) pedidosStore.seed({ pedidos: [] }); // limpia todos (solo entorno de pruebas)
     const items = body.items || [];
     const ids = [];
     for (const it of items) {

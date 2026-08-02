@@ -22,6 +22,9 @@ function cuentaCorriente(cliente_id) {
       case 'bonificacion': bonif = money.add(bonif, u); break;   // baja deuda
       case 'proveedor_extra': proveedores = money.add(proveedores, u); break;
       case 'pago': pagos = money.add(pagos, u); break;
+      // 'correccion' es un tipo válido y se puede grabar, pero no movía el saldo: quedaba
+      // registrada y no corregía nada. Suma como una carga (positiva o negativa).
+      case 'correccion': fichas = money.add(fichas, u); break;
       default: break;
     }
   }

@@ -42,6 +42,9 @@ function load() {
       mover_balance: !!r.mover_balance,
       margen_externos_pct: r.margen_externos_pct || null,
       es_vendedor: !!r.es_vendedor,
+      // ⚠️ El store guarda con DELETE + INSERT: si load() no trae una columna, el próximo
+      // guardado de CUALQUIER cliente la deja en NULL para todos. Pasó con externos_modo.
+      externos_modo: r.externos_modo || null,
       vendedor_id: r.vendedor_id || null,
       saldo_inicial: r.saldo_inicial || null,
       saldo_inicial_divisa: r.saldo_inicial_divisa || null,
