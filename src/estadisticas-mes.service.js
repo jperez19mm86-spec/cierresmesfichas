@@ -148,13 +148,13 @@ function _guardar(t, filasIn) {
   return tx();
 }
 
-function _marcar(t, { estado, filas = 0, nodos = 0, error = null, segundos = 0 }) {
-  db.prepare(`INSERT INTO estad_captura (id, conexion_id, mes, divisa, grupo, estado, filas, nodos, error, segundos, capturado_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?)
+function _marcar(t, { estado, filas = 0, nodos = 0, error = null, segundos = 0, modo = null }) {
+  db.prepare(`INSERT INTO estad_captura (id, conexion_id, mes, divisa, grupo, estado, filas, nodos, error, segundos, capturado_at, modo)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(id) DO UPDATE SET estado=excluded.estado, filas=excluded.filas, nodos=excluded.nodos,
-                error=excluded.error, segundos=excluded.segundos, capturado_at=excluded.capturado_at`)
+                error=excluded.error, segundos=excluded.segundos, capturado_at=excluded.capturado_at, modo=excluded.modo`)
     .run(claveDe(t), t.conexion_id, t.mes, t.divisa, t.grupo,
-      estado, filas, nodos, error, segundos, nowISO());
+      estado, filas, nodos, error, segundos, nowISO(), modo);
 }
 
 /** La clave de una consulta. Las sueltas llevan el nodo: son una foto por panel, no por conexión. */
@@ -247,13 +247,13 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
       if (!r.ok) {
-        _marcar(t, { estado: 'error', error: r.error, segundos: seg });
+        _marcar(t, { estado: 'error', error: r.error, segundos: seg, modo: modo.ok ? modo.valor : null });
         hechos.push({ ...t, estado: 'error', error: r.error, segundos: seg });
       } else {
         const filas = r.filas || [];
         const n = _guardar(t, filas);
         const nodos = new Set(filas.map((f) => K(f.saId)).filter(Boolean)).size;
-        _marcar(t, { estado: 'ok', filas: n, nodos, segundos: seg });
+        _marcar(t, { estado: 'ok', filas: n, nodos, segundos: seg, modo: modo.ok ? modo.valor : null });
         hechos.push({ ...t, estado: 'ok', filas: n, nodos, segundos: seg });
       }
       if (onPaso) onPaso(hechos[hechos.length - 1]);
@@ -304,12 +304,16 @@ function estado(mes) {
       divisa: p.divisa, grupo: p.grupo, nodo: p.nodo || null, panel: p.panel || null,
       estado: c ? c.estado : 'falta', filas: c ? c.filas : 0, nodos: c ? c.nodos : 0,
       error: c ? c.error : null, segundos: c ? c.segundos : null, capturado_at: c ? c.capturado_at : null,
+      modo: c ? c.modo : null,
     };
   });
   const listas = filas.filter((f) => f.estado === 'ok').length;
+  // ⚠️ Un mes sacado mitad en un modo y mitad en otro NO es comparable: el modo cambia los números
+  // (mismo nodo y mes: superagente 480.187,11 vs dealer 480.378,36). Se avisa, no se corrige solo.
+  const modos = [...new Set(filas.filter((f) => f.estado === 'ok' && f.modo).map((f) => f.modo))];
   const conError = filas.filter((f) => f.estado === 'error');
   return {
-    mes: m, total: filas.length, listas, faltan: filas.filter((f) => f.estado === 'falta').length,
+    mes: m, total: filas.length, listas, modos, modosMezclados: modos.length > 1, faltan: filas.filter((f) => f.estado === 'falta').length,
     conError: conError.length, completa: listas === filas.length && filas.length > 0,
     filasGuardadas: db.prepare('SELECT COUNT(*) c FROM estad_mes WHERE mes=?').get(m).c,
     detalle: filas,

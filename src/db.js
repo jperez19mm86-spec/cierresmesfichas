@@ -359,6 +359,11 @@ ensureColumns('proveedores', { tarifa_pct: 'TEXT', codigo: 'TEXT' });
 
 // Reporte diario MULTI-MONEDA: columna moneda + índice único que la incluye (misma cuenta/día en varias monedas).
 ensureColumns('reporte_diario', { moneda: "TEXT DEFAULT 'ARS'" });
+// El MODO con el que el casino estaba agrupando cuando se sacó la foto. Cambia los números:
+// verificado sobre el mismo nodo y mes, superagente dio 480.187,11 y dealer 480.378,36 — la vista
+// de superagente venía incompleta. Sin guardarlo, un mes con las dos mitades sacadas en modos
+// distintos parecería consistente.
+ensureColumns('estad_captura', { modo: 'TEXT' });
 db.exec('DROP INDEX IF EXISTS idx_repdia');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_repdia ON reporte_diario(conexion_id, fecha, grp, sa_id, moneda)');
 
