@@ -606,14 +606,99 @@ const CIE_STYLE = `<style>
     .cie-b-sug{background:rgba(210,160,0,.2);color:#c90}.cie-b-no{background:rgba(140,140,140,.2);color:var(--muted)}
   </style>`;
 VIEWS.cierre = () => {
-  const subs = [['matriz','🧮 Matriz %'],['vincular','🔗 Vincular proveedores'],['tc','💱 Tipos de cambio (mensual)']];
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Proveedores externos'],['vincular','🔗 Vincular proveedores'],['tc','💱 Tipos de cambio (mensual)']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, vincular:cieVincular, tc:cieTC}[_cieSub]||cieMatriz)();
+  ({matriz:cieMatriz, externos:cieExternos, vincular:cieVincular, tc:cieTC}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+
+
+// ── sub-vista §9 PROVEEDORES EXTERNOS ──
+// Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
+let _extCli = '', _extMes = new Date().toISOString().slice(0, 7), _extData = null;
+async function cieExternos() {
+  const cont = document.getElementById('cie-body');
+  const cs = (await api('/api/os/clientes')).clientes || [];
+  const lista = cs.slice().sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+  if (!_extCli && lista.length) _extCli = lista[0].nombre;
+  const cong = (await api('/api/os/cierre/meses-congelados')).meses || [];
+  const estaCong = cong.some(x => x.mes === _extMes);
+  cont.innerHTML = '<div class="card"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">'
+    + '<div><label class="muted">Cliente</label><br><select id="ext-cli" onchange="_extCli=this.value;_extData=null;cieExternos()">'
+    + lista.map(c => '<option value="' + esc(c.nombre) + '"' + (c.nombre === _extCli ? ' selected' : '') + '>' + esc(c.nombre) + (c.es_vendedor ? ' · vendedor' : '') + '</option>').join('')
+    + '</select></div>'
+    + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
+    + '<button onclick="extCalcular()">Calcular</button>'
+    + '<span class="muted" style="margin-left:auto">' + (estaCong ? '🧊 mes congelado: usa los precios de ese mes' : '⚠ mes NO congelado: usa los precios de hoy') + '</span>'
+    + '</div></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
+  if (_extData) extPintar();
+}
+async function extCalcular() {
+  const b = document.getElementById('ext-body');
+  b.innerHTML = '<div class="muted" style="padding:20px">Consultando el casino, panel por panel…</div>';
+  const r = await api('/api/os/externos/' + encodeURIComponent(_extCli) + '?mes=' + _extMes);
+  if (!r.ok && r.faltaBase) {
+    // El % base cambia de un mes a otro: se confirma ANTES de calcular y no toca el histórico.
+    const g = await api('/api/os/externos/' + encodeURIComponent(_extCli) + '/base?mes=' + _extMes);
+    b.innerHTML = '<div class="card"><b>Falta confirmar el % base</b>'
+      + '<div class="muted" style="margin:8px 0">' + esc(r.error || '') + '</div>'
+      + '<div style="display:flex;gap:8px;align-items:end"><div><label class="muted">% base de ' + esc(_extCli) + ' para ' + _extMes + '</label><br>'
+      + '<input id="ext-base" value="' + esc(g.base || '') + '" style="width:90px"></div>'
+      + '<button onclick="extConfirmarBase()">Confirmar y calcular</button></div></div>';
+    return;
+  }
+  if (!r.ok) { b.innerHTML = '<div class="card" style="color:#e55">' + esc(r.error || 'error') + '</div>'; return; }
+  _extData = r; extPintar();
+}
+async function extConfirmarBase() {
+  const v = val('ext-base').trim();
+  if (!v) return toast('Poné el %');
+  if (!confirm('¿' + _extCli + ' trabaja al ' + v + '% en ' + _extMes + '?\n\nSe guarda SOLO para ese mes; los anteriores no se tocan.')) return;
+  await api('/api/os/externos/' + encodeURIComponent(_extCli) + '/base', { method: 'POST', body: JSON.stringify({ mes: _extMes, base_pct: v }) });
+  extCalcular();
+}
+function extPintar() {
+  const d = _extData, b = document.getElementById('ext-body');
+  const n = x => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  const avisos = [];
+  if (!d.congelado) avisos.push('Este mes <b>no está congelado</b>: se calcula con los precios de HOY. Si ya lo facturaste, congelalo para poder reproducirlo.');
+  if ((d.negativos || []).length) avisos.push('<b>' + d.negativos.length + ' proveedores por debajo del ' + esc(d.base) + '%</b> de ' + esc(d.cliente) + ': ' + d.negativos.slice(0, 4).map(x => esc(x.proveedor) + ' (' + esc(x.pct) + ')').join(', ') + (d.negativos.length > 4 ? '…' : '') + ' — no se cobran, el diferencial nunca queda negativo.');
+  if ((d.sinVincular || []).length) avisos.push('<b>' + d.sinVincular.length + ' proveedores del casino sin vincular</b> a la matriz: su ganancia NO se está cobrando. Vinculalos en 🔗 Vincular proveedores.');
+  (d.avisos || []).forEach(a => avisos.push(esc(a)));
+  const cab = '<div class="card" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+    + '<div><div class="muted">Total a cobrar</div><div style="font-size:26px;font-weight:700">' + n(d.totalUsdt) + ' <span class="muted" style="font-size:14px">USDT</span></div></div>'
+    + '<div><div class="muted">% base</div><div style="font-size:18px">' + esc(d.base) + '%' + (d.baseConfirmada ? ' <span class="muted" style="font-size:12px">confirmado</span>' : ' <span style="color:#c90;font-size:12px">sin confirmar</span>') + '</div></div>'
+    + '<div><div class="muted">Su celda se lee</div><div>' + (d.modo === 'vendedor' ? 'como el <b>costo real</b>' : d.modo === 'adicional' ? 'como lo que <b>se suma</b>' : 'menos su <b>% base</b>') + '</div></div>'
+    + '<div><div class="muted">Paneles / filas</div><div>' + (d.paneles || []).length + ' · ' + d.cobrables + ' de ' + d.revisados + ' se cobran</div></div>'
+    + '<button class="outline small" style="margin-left:auto" onclick="extCSV()">⬇ Exportar</button></div>';
+  const alerta = avisos.length ? '<div class="card" style="border-left:3px solid #c90"><ul style="margin:0;padding-left:18px">' + avisos.map(a => '<li>' + a + '</li>').join('') + '</ul></div>' : '';
+  const paneles = (d.paneles || []).map(p => '<div class="card">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline"><b>' + esc(p.panel) + '</b>'
+    + '<span class="muted">' + esc(p.nivel || '') + ' · ' + esc(p.divisa) + '</span><b>' + n(p.usdt) + ' USDT</b></div>'
+    + '<table class="small" style="width:100%;margin-top:8px"><thead><tr>'
+    + '<th style="text-align:left">Proveedor</th><th style="text-align:right">Ganancia</th><th style="text-align:right">% extra</th>'
+    + '<th style="text-align:right">Monto</th><th style="text-align:right">Tasa</th><th style="text-align:right">USDT</th></tr></thead><tbody>'
+    + p.items.filter(i => i.cobra).map(i => '<tr><td>' + esc(i.proveedor) + '</td><td style="text-align:right">' + n(i.profit) + '</td>'
+      + '<td style="text-align:right">' + esc(i.dif) + '%</td><td style="text-align:right">' + n(i.monto) + '</td>'
+      + '<td style="text-align:right">' + esc(i.tasa || '—') + '</td><td style="text-align:right"><b>' + n(i.usdt) + '</b></td></tr>').join('')
+    + '</tbody></table></div>').join('');
+  b.innerHTML = cab + alerta + paneles;
+}
+function extCSV() {
+  const d = _extData; if (!d) return;
+  const filas = [['Cliente', 'Mes', 'Panel', 'Nivel', 'Divisa', 'Proveedor', 'Ganancia', '% extra', 'Monto', 'Tasa', 'USDT']];
+  (d.paneles || []).forEach(p => p.items.filter(i => i.cobra).forEach(i => filas.push([d.cliente, d.mes, p.panel, p.nivel, i.divisa, i.proveedor, i.profit, i.dif, i.monto, i.tasa, i.usdt])));
+  filas.push([]);
+  filas.push(['', '', '', '', '', '', '', '', '', 'TOTAL USDT', d.totalUsdt]);
+  const csv = filas.map(f => f.map(x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'externos_' + d.cliente + '_' + d.mes + '.csv';
+  a.click();
+}
 
 // ── sub-vista MATRIZ % ──
 async function cieMatriz(){
