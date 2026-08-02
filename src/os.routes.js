@@ -28,6 +28,7 @@ const tcUnico = require('./tc-unico.service');
 const revision = require('./revision.service');
 const estadMes = require('./estadisticas-mes.service');
 const comprobantes = require('./comprobantes-store');
+const emision = require('./emision.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -907,14 +908,17 @@ function mount(app) {
   // El casino se sigue trayendo AL LADO, como control: si los dos números se separan mucho, o falta
   // cargar pedidos o hubo cargas por fuera. Pero si el casino no responde, se factura igual —
   // antes una caída del casino dejaba sin facturar.
-  app.get('/api/os/facturacion', wrap(async (req, res) => {
-    const mes = req.query.mes || mesTZ();
-    const from = req.query.from || `${mes}-01 00:00:00`;
+  // EL CÁLCULO DE LA FACTURACIÓN, en una función: lo usan la pantalla y la emisión a la deuda.
+  // Si cada una lo calculara por su lado, el número que se muestra y el que se cobra podrían
+  // separarse — que es exactamente lo que veníamos de arreglar en todo lo demás.
+  async function _facturacionDe(mes, opciones = {}) {
+    opciones = opciones || {};
+    const from = opciones.from || `${mes}-01 00:00:00`;
     // El 'hasta' sale del MES elegido, no de hoy: si no, facturar un mes cerrado suma todo lo que
     // pasó después (pedir junio en agosto traía junio+julio+agosto en una sola línea, rotulada 'Junio').
     const _ultDia = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
-    const to = req.query.to || `${mes}-${String(_ultDia).padStart(2, '0')} 23:59:59`;
-    const conControl = req.query.control !== '0';
+    const to = opciones.to || `${mes}-${String(_ultDia).padStart(2, '0')} 23:59:59`;
+    const conControl = opciones.control !== false;
 
     // 1) LA BASE DE COBRO: los pedidos cargados del mes, por cliente y por moneda.
     const ventas = pedidosStore.ventasDelMes(mes);
@@ -1010,7 +1014,7 @@ function mount(app) {
     }
 
     out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
-    ok(res, {
+    return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? 'casino' : 'apagado',
       sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos,
@@ -1021,9 +1025,37 @@ function mount(app) {
         dif_pct: money.isPos(totCasino) ? money.round(money.mul(money.div(money.sub(totVend, totCasino), totCasino), '100'), 1) : null,
       },
       clientes: out, errores,
-    });
+    };
+  }
+
+  app.get('/api/os/facturacion', wrap(async (req, res) => {
+    ok(res, await _facturacionDe(req.query.mes || mesTZ(), {
+      from: req.query.from, to: req.query.to,
+      control: req.query.control !== '0',
+    }));
   }));
 
+
+  // ───────── PASAR LO FACTURADO A LA DEUDA ─────────
+  // Emitir es EXPLÍCITO y no se puede duplicar: hay un índice único en la base sobre
+  // (cliente, origen, mes). Volver a emitir el mismo mes no agrega nada.
+  app.get('/api/os/emision/:mes', (req, res) => ok(res, emision.emitido(req.params.mes)));
+  app.post('/api/os/emision/facturacion', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    // el mismo cálculo que muestra la pantalla, para que no puedan diferir
+    const fac = await _facturacionDe(mes, { control: false });
+    const lineas = (fac.clientes || []).filter((c) => !c.sinBase).map((c) => ({
+      cliente_id: c.cliente_id, monto_usdt: c.fee_usdt, base_pct: c.base,
+      notas: `Fichas ${mes} · ${c.base}% sobre ${c.vendido_usdt} USDT vendidos`,
+    }));
+    const r = emision.emitir({ mes, origen: 'facturacion', lineas });
+    if (!r.ok) return err(res, 400, r.error);
+    ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos });
+  }));
+  app.delete('/api/os/emision/:origen/:mes', (req, res) => {
+    const r = emision.anular({ mes: req.params.mes, origen: req.params.origen });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  });
   // ───────── REPORTES ─────────
   // Mensual (parcial, real): arma desde movimientos + tc_mes. Lo que falta (IN/OUT/RTP/profit) = API del panel.
   app.get('/api/os/reportes/mensual', (req, res) => {

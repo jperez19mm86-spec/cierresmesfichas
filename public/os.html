@@ -561,6 +561,24 @@ async function fotoSacar(refrescar){
   VIEWS.foto();
 }
 
+
+async function facEmitir() {
+  const mes = val('fac-mes');
+  if (!confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nGenera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
+  toast('Emitiendo…');
+  const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes }) });
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (r.yaEstaban ? ' · ' + r.yaEstaban + ' ya estaban' : '') + (r.enCero ? ' · ' + r.enCero + ' en cero (no se emiten)' : ''));
+  facturar();
+}
+async function facAnular() {
+  const mes = val('fac-mes');
+  if (!confirm('¿Anular la emisión de ' + mes + '?\n\nBorra SOLO los movimientos que generó esa emisión. Lo cargado a mano no se toca.')) return;
+  const r = await api('/api/os/emision/facturacion/' + encodeURIComponent(mes), { method: 'DELETE' });
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  toast(r.borrados + ' movimientos borrados · ' + money(r.total,2) + ' USDT');
+  facturar();
+}
 // ───────── 🧾 COMPROBANTES DE PAGO ─────────
 // Los sube el cliente desde la pantalla pública y quedan PENDIENTES. Aprobar genera el
 // movimiento de pago, que es lo único que baja la deuda. Por eso el monto que se acredita se
@@ -1416,8 +1434,18 @@ async function calcularFac(){
   if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
   const T=r.totales||{};
   const dif=(x)=>x==null?'':('<span style="color:'+(Math.abs(Number(x))>10?'var(--gold)':'inherit')+'">'+(Number(x)>0?'+':'')+x+'%</span>');
+  const em = await api('/api/os/emision/' + encodeURIComponent(r.mes));
+  const emF = (em.porOrigen || {}).facturacion || null;
   out.innerHTML = 
-    '<div class="row" style="align-items:stretch">'
+    (emF
+      ? '<div class="card" style="background:#0f2a1a;border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
+        + '<div class="muted" style="margin-top:4px">' + emF.cantidad + ' cliente(s) · <b>' + money(emF.total,2) + ' USDT</b> · emitido el ' + esc(String(emF.desde||'').slice(0,16).replace('T',' ')) + '</div>'
+        + '<div class="muted" style="margin-top:4px">Volver a emitir no duplica nada. Si cambiaron los datos, anulá la emisión y emitila de nuevo.</div>'
+        + '<button class="danger small" style="margin-top:8px" onclick="facAnular()">↩ Anular la emisión</button></div>'
+      : '<div class="card" style="background:var(--bg3);margin:0 0 10px"><b>Todavía no se pasó a la deuda</b>'
+        + '<div class="muted" style="margin-top:4px">Emitir genera un movimiento por cliente y le suma el fee a su cuenta corriente. Los que no tienen % base quedan afuera.</div>'
+        + '<button style="margin-top:8px" onclick="facEmitir()">💸 Emitir a la deuda</button></div>')
+    + '<div class="row" style="align-items:stretch">'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Vendido (USDT)</label><div style="font-size:20px;font-weight:800">'+money(T.vendido_usdt,2)+'</div><div class="muted" style="font-size:11px">pedidos cargados</div></div>'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>A cobrar (USDT)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">'+money(T.fee_usdt,2)+'</div><div class="muted" style="font-size:11px">% base × vendido</div></div>'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Casino (control)</label><div style="font-size:20px;font-weight:800;opacity:.75">'+money(T.casino_usdt,2)+'</div><div class="muted" style="font-size:11px">'+(T.dif_pct!=null?('difiere '+dif(T.dif_pct)):'sin datos')+'</div></div>'
