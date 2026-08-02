@@ -26,6 +26,10 @@ const PUBLIC = [
   /^\/api\/logout\/?$/,
   /^\/pedir\/?$/,
   /^\/api\/pedir(\/|$)/,
+  // Avisar un pago es parte de la vista cliente: entra con su código y sube el comprobante.
+  // Solo puede CREAR uno, y queda pendiente — aprobarlo (que es lo que mueve la deuda) exige
+  // estar adentro del panel.
+  /^\/api\/comprobante\/?$/,
   /^\/logo\.png$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.

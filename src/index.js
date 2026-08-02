@@ -177,6 +177,7 @@ app.get('/api/clientes', (_req, res) => {
 });
 
 const clientesCascada = require('./clientes-cascada');
+const comprobantes = require('./comprobantes-store');
 
 app.post('/api/clientes', (req, res) => {
   const { codigo, nombreVisible } = req.body || {};
@@ -358,9 +359,16 @@ app.post('/api/_restore', (req, res) => {
 app.get('/api/pedir/:codigo', (req, res) => {
   const cli = clientes.getByCodigo(req.params.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
+  // Los datos para pagar y, sobre todo, los AVISOS: fuera del rango o en la red equivocada la
+  // plata se pierde y no se recupera, así que el cliente los tiene que ver antes de transferir.
+  const cfg = (k) => String(config.getCfg(k) || '');
   res.json({
     ok: true,
     cliente: { codigo: cli.codigo, nombreVisible: cli.nombreVisible },
+    pago: {
+      ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), min: cfg('arsMin'), max: cfg('arsMax'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
+      usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
+    },
     // NO exponer "sistema" al cliente (Casino/Europa = control interno). Sí las divisas (el cliente elige).
     cajas: (cli.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, divisas: (k.divisas && k.divisas.length) ? k.divisas : ['ARS'], montosRapidos: k.montosRapidos || [] })),
   });
@@ -388,6 +396,41 @@ app.post('/api/pedir', (req, res) => {
   res.json({ ok: true, pedido: { id: pedido.id, cajaUsuario: pedido.cajaUsuario, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado } });
 });
 
+// El cliente AVISA UN PAGO: declara cuánto transfirió y adjunta la captura.
+// Queda pendiente. No toca la deuda: eso se hace al aprobarlo desde el panel.
+app.post('/api/comprobante', async (req, res) => {
+  const b = req.body || {};
+  const cli = clientes.getByCodigo(b.codigo);
+  if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
+  const r = comprobantes.crear({
+    codigo: cli.codigo, clienteNombre: cli.nombreVisible,
+    via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas: b.notas,
+    archivo: b.archivo || null,
+  });
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  const c = r.comprobante;
+  console.log(`[Comprobante] ${cli.codigo}/${cli.nombreVisible} avisó un pago ${c.via.toUpperCase()} ${c.monto}`);
+
+  // Aviso al grupo del camino que usó: ARS y USDT van a grupos distintos.
+  const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
+  const tok = config.getTelegramToken();
+  let aviso = null;
+  if (tok && chat) {
+    const txt = [
+      `🧾 <b>Pago avisado</b> — ${c.via === 'usdt' ? 'USDT' : 'ARS'}`,
+      `Cliente: <b>${cli.nombreVisible || cli.codigo}</b> (${cli.codigo})`,
+      `Monto declarado: <b>${c.monto} ${c.divisa}</b>`,
+      c.referencia ? `Referencia: <code>${c.referencia}</code>` : null,
+      c.notas ? `Nota: ${c.notas}` : null,
+      c.archivo_bytes ? `📎 Adjuntó comprobante` : '⚠️ SIN comprobante adjunto',
+      '',
+      'Queda <b>pendiente</b> hasta que se apruebe en el panel.',
+    ].filter(Boolean).join('\n');
+    try { aviso = await telegram.sendMessage(tok, chat, txt); }
+    catch (e) { aviso = { ok: false, error: String((e && e.message) || e) }; }
+  }
+  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa }, aviso });
+});
 // ─────────────── PEDIDOS — panel admin ───────────────
 
 app.get('/api/pedidos', (req, res) => {

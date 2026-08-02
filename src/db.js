@@ -219,6 +219,26 @@ db.exec(`
     capturado_at TEXT
   );
 
+
+  /* ───── COMPROBANTES DE PAGO que suben los clientes ─────
+     El adjunto va EN LA BASE (que ya vive en el volumen): así el comprobante y su registro no se
+     pueden separar. Queda 'pendiente' hasta que alguien lo mira: acreditar un pago porque el
+     cliente subió una imagen sería confiar en la imagen. */
+  CREATE TABLE IF NOT EXISTS comprobantes (
+    id TEXT PRIMARY KEY,
+    codigo TEXT, cliente_nombre TEXT,
+    via TEXT,                     -- 'ars' | 'usdt'
+    monto TEXT, divisa TEXT,
+    referencia TEXT,              -- nro de operación / hash de la transacción
+    notas TEXT,
+    estado TEXT,                  -- 'pendiente' | 'aprobado' | 'rechazado'
+    archivo_nombre TEXT, archivo_tipo TEXT, archivo_bytes INTEGER, archivo_datos TEXT,
+    creado_at TEXT, resuelto_at TEXT, resuelto_por TEXT, motivo TEXT,
+    movimiento_id TEXT            -- el movimiento de pago que se generó al aprobarlo
+  );
+  CREATE INDEX IF NOT EXISTS ix_comprobantes_estado ON comprobantes (estado, creado_at);
+  CREATE INDEX IF NOT EXISTS ix_comprobantes_codigo ON comprobantes (codigo);
+
   /* ───── CONEXIONES AL CASINO (api_token, genérico/multi-master) ───── */
   CREATE TABLE IF NOT EXISTS casino_conexiones (
     id TEXT PRIMARY KEY,

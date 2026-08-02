@@ -27,6 +27,7 @@ const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const revision = require('./revision.service');
 const estadMes = require('./estadisticas-mes.service');
+const comprobantes = require('./comprobantes-store');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -100,7 +101,14 @@ function mount(app) {
   app.delete('/api/os/divisas/:codigo', (req, res) => divisasStore.remove(req.params.codigo) ? ok(res) : err(res, 404, 'no encontrada'));
 
   // ───────── MEDIOS DE PAGO GLOBALES (v3.0): CVU + dirección USDT + notas ─────────
-  const PAGOS_KEYS = ['cvuVigente', 'cvuNota', 'usdtAddress', 'usdtRed', 'usdtNota'];
+  // Los datos con los que el cliente paga, y los avisos de seguridad que tiene que leer ANTES de
+  // transferir. Los avisos no son decorativos: fuera del rango o en la red equivocada, la plata
+  // se pierde y no se recupera.
+  const PAGOS_KEYS = [
+    'cvuVigente', 'cvuTitular', 'cvuNota', 'arsMin', 'arsMax', 'arsAviso',
+    'usdtAddress', 'usdtRed', 'usdtNota', 'usdtAviso',
+    'tgChatArs', 'tgChatUsdt',   // a qué grupo de Telegram avisa cada camino
+  ];
   app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
   app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
 
@@ -367,6 +375,44 @@ function mount(app) {
   // Las tablas quedan en la base por si hay que mirarlas, pero ya no las lee nadie.
 
 
+
+  // ───────── 🧾 COMPROBANTES DE PAGO ─────────
+  // Los sube el cliente desde la pantalla pública. Quedan PENDIENTES: aprobar es a mano, porque
+  // acreditar un pago porque alguien subió una imagen sería confiar en la imagen.
+  app.get('/api/os/comprobantes', (req, res) => ok(res, {
+    cuentas: comprobantes.cuentas(),
+    comprobantes: comprobantes.list({ estado: req.query.estado, codigo: req.query.codigo }),
+  }));
+  app.get('/api/os/comprobantes/:id/archivo', (req, res) => {
+    const c = comprobantes.get(req.params.id, true);
+    if (!c || !c.archivo_datos) return err(res, 404, 'ese comprobante no tiene archivo');
+    res.setHeader('Content-Type', c.archivo_tipo || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${(c.archivo_nombre || 'comprobante').replace(/[^\w.\-]/g, '_')}"`);
+    res.send(Buffer.from(c.archivo_datos, 'base64'));
+  });
+  // Aprobar → registra el PAGO (que es lo único que mueve la deuda). Rechazar → solo queda el motivo.
+  app.post('/api/os/comprobantes/:id/resolver', wrap(async (req, res) => {
+    const b = req.body || {};
+    const c = comprobantes.get(req.params.id);
+    if (!c) return err(res, 404, 'no existe ese comprobante');
+    if (c.estado !== 'pendiente') return err(res, 409, `ya estaba ${c.estado}`);
+    if (b.estado === 'rechazado') {
+      const r = comprobantes.resolver(req.params.id, { estado: 'rechazado', por: 'panel', motivo: b.motivo });
+      return r.ok ? ok(res, r) : err(res, 400, r.error);
+    }
+    if (b.estado !== 'aprobado') return err(res, 400, "estado inválido: 'aprobado' o 'rechazado'");
+    // El monto que se acredita es el que CONFIRMA el panel, no el que declaró el cliente.
+    const montoUsdt = b.monto_usdt != null ? String(b.monto_usdt) : null;
+    if (!money.isPos(montoUsdt)) return err(res, 400, 'poné cuántos USDT se acreditan');
+    // getByCodigo resuelve también los códigos VIEJOS (codigosAlias): si un cliente se renombró,
+    // su comprobante viejo tiene que seguir encontrándolo.
+    const cli = clientes.getByCodigo(c.codigo);
+    if (!cli) return err(res, 404, `el código ${c.codigo} ya no corresponde a ningún cliente`);
+    const mov = movs.create({ cliente_id: cli.id, tipo: 'pago', monto_usdt: montoUsdt, fecha: b.fecha, notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
+    const r = comprobantes.resolver(req.params.id, { estado: 'aprobado', por: 'panel', motivo: b.motivo, movimiento_id: mov.id });
+    if (!r.ok) return err(res, 400, r.error);
+    ok(res, { ...r, movimiento: mov, deuda: deudaSvc.cuentaCorriente(cli.id) });
+  }));
   // ───────── 📸 LA FOTO DEL MES ─────────
   // Un mes cerrado ya no cambia: se le pregunta al casino UNA vez y después todos los reportes
   // salen de la base. Antes cada reporte eran 525 consultas en vivo; ahora son 180, una vez al mes.
