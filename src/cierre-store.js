@@ -63,11 +63,50 @@ function setDescuento(nombre, descuento) {
   db.prepare('INSERT INTO cierre_cliente (nombre,descuento,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET descuento=excluded.descuento').run(n, clean(descuento), _nextOrd('cierre_cliente'));
   return true;
 }
+/**
+ * Renombrar un cliente tiene que ARRASTRAR su columna. La matriz se referencia por NOMBRE, así
+ * que sin esto el cliente queda con la columna huérfana y PIERDE todos sus % sin avisar.
+ * Lo mismo con el % base confirmado de cada mes.
+ */
+function renombrarCliente(viejo, nuevo) {
+  const a = clean(viejo), b = clean(nuevo);
+  if (!a || !b || a === b) return { movidas: 0 };
+  const tx = db.transaction(() => {
+    // si ya existe una columna con el nombre nuevo, se fusiona: gana lo que ya tenía el nuevo
+    const yaEsta = db.prepare('SELECT nombre FROM cierre_cliente WHERE nombre=?').get(b);
+    if (yaEsta) {
+      db.prepare('DELETE FROM cierre_pct WHERE cliente=? AND proveedor IN (SELECT proveedor FROM cierre_pct WHERE cliente=?)').run(a, b);
+      db.prepare('UPDATE cierre_pct SET cliente=? WHERE cliente=?').run(b, a);
+      db.prepare('DELETE FROM cierre_cliente WHERE nombre=?').run(a);
+    } else {
+      db.prepare('UPDATE cierre_cliente SET nombre=? WHERE nombre=?').run(b, a);
+      db.prepare('UPDATE cierre_pct SET cliente=? WHERE cliente=?').run(b, a);
+    }
+    db.prepare('UPDATE externos_base_mes SET cliente=? WHERE cliente=?').run(b, a);
+  });
+  tx();
+  return { movidas: db.prepare('SELECT COUNT(*) c FROM cierre_pct WHERE cliente=?').get(b).c };
+}
+
+/** Columnas de la matriz que ya no corresponden a ningún cliente (y clientes sin columna). */
+function inconsistencias() {
+  const cols = db.prepare('SELECT nombre FROM cierre_cliente').all().map((r) => r.nombre);
+  const cls = db.prepare('SELECT nombre, nombreVisible FROM clientes').all()
+    .map((r) => String(r.nombre || r.nombreVisible || '').trim().toLowerCase()).filter(Boolean);
+  const set = new Set(cls);
+  const huerfanas = cols.filter((n) => !set.has(String(n).trim().toLowerCase()))
+    .map((n) => ({ nombre: n, celdas: db.prepare('SELECT COUNT(*) c FROM cierre_pct WHERE cliente=?').get(n).c }));
+  const nomCols = new Set(cols.map((n) => String(n).trim().toLowerCase()));
+  const sinColumna = [...new Set(cls)].filter((n) => !nomCols.has(n));
+  return { huerfanas, sinColumna, columnas: cols.length, clientes: set.size };
+}
+
 function removeCliente(nombre) {
   const n = clean(nombre); if (!n) return false;
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM cierre_pct WHERE cliente=?').run(n);
     db.prepare('DELETE FROM cierre_cliente WHERE nombre=?').run(n);
+    db.prepare('DELETE FROM externos_base_mes WHERE cliente=?').run(n);
   }); tx();
   return true;
 }
@@ -236,6 +275,6 @@ function setCeldas(cambios) {
 
 module.exports = {
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
-  addCliente, setDescuento, removeCliente, getTC, setTC, importar,
+  addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,
 };
