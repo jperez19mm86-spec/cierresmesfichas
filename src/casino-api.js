@@ -306,7 +306,15 @@ function makeClient({ url, token, user, password } = {}) {
     path = pisar(path, 'to', conHora(opts.to, true));
     // CLAVE (bug de semanas): la tabla AJAX AGREGA paginación al GET (sort/order/offset/limit). SIN esos params
     // el reportstable devuelve página de Error — NO era el id (7164043 era correcto). limit alto = traer TODO.
-    if (!/[?&]limit=/.test(path)) path += '&sort=provider&order=desc&offset=0&limit=100000';
+    //
+    // ⚠️ Y HAY QUE PISARLO, no sólo agregarlo si falta: la página embebe el límite que tenga puesto
+    // el usuario en la pantalla del casino. Si ahí quedó "1000" y el reporte tiene 2000 filas, nos
+    // volvían 1000 y el resto desaparecía SIN AVISAR — media plata de menos y el número parecía bueno.
+    const LIMITE = 100000;
+    if (!/[?&]offset=/.test(path)) path += '&offset=0';
+    if (!/[?&]sort=/.test(path)) path += '&sort=provider&order=desc';
+    path = pisar(path, 'limit', String(LIMITE));
+    path = pisar(path, 'offset', '0');
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
     let data, d;
     for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
@@ -321,6 +329,11 @@ function makeClient({ url, token, user, password } = {}) {
     const raw = Array.isArray(d) ? d
       : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
     if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
+    // Si volvieron exactamente tantas filas como el tope, es que el tope cortó: el resto no está.
+    // Un reporte truncado en silencio es lo peor que puede pasar acá, porque el total parece bueno.
+    if (raw.length >= LIMITE) {
+      return { ok: false, error: `el reporte trajo ${raw.length} filas y ese es el tope: faltan datos. Achicá el período o pedilo por partes.` };
+    }
     // Para diagnosticar el filtro de fechas: con qué params queda realmente la URL de la tabla.
     const debug = opts.debug ? {
       path: path.replace(/api_token=[^&]*/, 'api_token=***'),
