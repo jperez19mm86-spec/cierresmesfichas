@@ -177,11 +177,19 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // Cada panel × divisa es UNA consulta al casino, y son independientes entre sí. Hacerlas EN FILA
   // era lo que hacía que un cliente con 9 paneles multidivisa (26 consultas, hasta 2 min cada una)
   // nunca terminara: la conexión se cortaba antes y el reporte no se podía sacar (pasó con Oscar).
+  // ⚠️ UNA SOLA SESIÓN POR CONEXIÓN, Y LAS CONSULTAS DE ESA CONEXIÓN EN FILA.
+  // El motor de reportes del casino tiene ESTADO por sesión (guarda el filtro y el template antes de
+  // pedir la tabla) y además el casino tira abajo la sesión anterior cuando el mismo usuario vuelve a
+  // entrar. Mandarle varias consultas a la vez sobre la misma conexión hace que se pisen: probado
+  // contra producción, 14 de 26 consultas volvieron con "sesión inválida" y el reporte dio 0.
+  // Lo que SÍ se puede hacer en paralelo es una conexión contra otra: son casinos distintos.
+  const clientePorCx = new Map();     // una sesión por conexión, reusada para todas sus consultas
   const trabajos = [];
   for (const panel of mios) {
     const cx = casinoConex.list().find((c) => c.id === panel.conexion_id) || casinoConex.list().find((c) => K(c.nombre) === K(panel.sistema));
     if (!cx) { avisos.push(`${panel.nombre}: sin conexión de casino, no se pudo consultar`); continue; }
-    const cliCx = casinoConex.client(cx.id);
+    if (!clientePorCx.has(cx.id)) clientePorCx.set(cx.id, casinoConex.client(cx.id));
+    const cliCx = clientePorCx.get(cx.id);
     if (!cliCx) { avisos.push(`${panel.nombre}: la conexión "${cx.nombre}" no responde`); continue; }
     // Un SuperAgente puede tener varias divisas; de un Distribuidor/Agente para abajo hay UNA sola.
     const divisas = (panel.divisas || []).length ? panel.divisas : ['ARS'];
@@ -191,21 +199,32 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // ── 2) traerlas de a varias a la vez ──────────────────────────────────────
   // El caché primero: un mes cerrado ya no cambia. Lo que falte se le pide al casino con varios
   // pedidos en paralelo, pero acotados: si se le mandan las 26 juntas el casino empieza a fallar.
-  const CONCURRENCIA = Number(process.env.EXTERNOS_CONCURRENCIA) || 5;
-  // Tope de tiempo: si el casino está lento y no llegamos, se devuelve lo que se junto en vez de
-  // cortar la conexión y perder todo. Lo que ya se trajo queda en el caché, así que volver a
-  // calcular sigue desde donde quedó en vez de empezar de cero.
+  // Tope de tiempo: si el casino está lento y no llegamos, se devuelve lo que se juntó en vez de
+  // cortar la conexión y perder todo. Lo traído queda en el caché, así que volver a calcular sigue
+  // desde donde quedó en lugar de empezar de cero.
   const PRESUPUESTO_MS = Number(process.env.EXTERNOS_PRESUPUESTO_MS) || 150000;
   const vence = Date.now() + PRESUPUESTO_MS;
   const resultados = new Array(trabajos.length);
-  let siguiente = 0; let sinTiempo = 0;
-  async function obrero() {
-    for (;;) {
-      const i = siguiente++;
-      if (i >= trabajos.length) return;
+  let sinTiempo = 0;
+
+  // Todo lo que se resuelve con el caché, primero y sin tocar el casino.
+  const pendientes = [];
+  trabajos.forEach((t, i) => {
+    const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
+    if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; }
+    else pendientes.push(i);
+  });
+
+  // Lo que falta: agrupado POR CONEXIÓN. Dentro de cada una, una por vez; entre conexiones, a la par.
+  const porCx = new Map();
+  pendientes.forEach((i) => {
+    const k = trabajos[i].cxId;
+    if (!porCx.has(k)) porCx.set(k, []);
+    porCx.get(k).push(i);
+  });
+  await Promise.all([...porCx.values()].map(async (indices) => {
+    for (const i of indices) {
       const t = trabajos[i];
-      const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
-      if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; continue; }
       if (Date.now() > vence) { resultados[i] = { ok: false, error: 'no llegó a consultarse (se acabó el tiempo)', porTiempo: true }; sinTiempo++; continue; }
       try {
         const r = await t.cliCx.reporteProveedoresNodo({ nodoId: t.panel.id_usuario, from, to, currency: t.divisa });
@@ -215,8 +234,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
         resultados[i] = { ok: false, error: String((e && e.message) || e) };
       }
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, trabajos.length) }, obrero));
+  }));
   if (sinTiempo) {
     avisos.push(`⚠ quedaron ${sinTiempo} de ${trabajos.length} consultas sin hacer: el casino está lento. Lo que ya se trajo quedó guardado — apretá Calcular de nuevo y sigue desde ahí. El total de abajo está INCOMPLETO.`);
   }
