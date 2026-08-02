@@ -620,11 +620,12 @@ const CIE_STYLE = `<style>
     .cie-raro{background:rgba(210,160,0,.22) !important;outline:1px solid rgba(210,160,0,.55)}
   </style>`;
 VIEWS.cierre = () => {
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Proveedores externos'],['vincular','🔗 Vincular proveedores'],['tc','💱 Tipos de cambio (mensual)']];
+  // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Proveedores externos'],['vincular','🔗 Vincular proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, externos:cieExternos, vincular:cieVincular, tc:cieTC}[_cieSub]||cieMatriz)();
+  ({matriz:cieMatriz, externos:cieExternos, vincular:cieVincular}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
@@ -881,39 +882,50 @@ async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{meth
 function filtLk(){ const q=(val('cie-lq')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display=(tr.dataset.casino||'').includes(q)?'':'none'; }); }
 
 // ── sub-vista TIPOS DE CAMBIO (moneda × mes, se llena mensual) ──
-async function cieTC(){
-  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], meses=d.meses||[], tasas=d.tasas||{};
-  const head = ['<th class="cie-h0">Moneda</th>'].concat(meses.map(me=>`<th>${esc(me)}</th>`)).join('');
-  const body = monedas.map(mon=>{
-    const tds = meses.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
-    return `<tr><td class="cie-p">${esc(mon)}</td>${tds}</tr>`;
-  }).join('');
-  document.getElementById('cie-body').innerHTML = `
-  <div class="card"><div class="muted">Tipo de cambio a USDT por <b>moneda × mes</b>. <b>Se llena todos los meses</b> (los valores cambian según la moneda). Al calcular el cierre, el profit de cada proveedor se convierte con la tasa de su moneda en ese mes. Se guarda solo. <b>${monedas.length}</b> monedas × <b>${meses.length}</b> meses.</div>
-    <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
-      <div style="flex:0"><label>➕ Mes</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
-      <div style="flex:0"><button class="small" onclick="cieAddMes()">Columna</button></div>
-      <div style="flex:0"><label>➕ Moneda</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
-      <div style="flex:0"><button class="small" onclick="cieAddMon()">Fila</button></div>
-    </div>
-  </div>
-  <div class="card" style="overflow:auto;max-height:74vh;padding:6px">
-    ${monedas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
-  </div>`;
-}
 async function cieSetTC(el){ const r=await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:el.dataset.mon,mes:el.dataset.mes,tasa:el.value})}); if(r.ok)_cieFlash(el); }
-async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast('Poné el mes'); const mon=(await api('/api/os/cierre/tc')).monedas||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon[0]||'USD',mes:me,tasa:'1'})}); toast('Mes agregado'); cieTC(); }
-async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); cieTC(); }
+async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast('Poné el mes'); const mon=(await api('/api/os/cierre/tc')).monedas||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon[0]||'USD',mes:me,tasa:'1'})}); toast('Mes agregado'); VIEWS.tc(); }
+async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); VIEWS.tc(); }
 
 // ───────── TIPOS DE CAMBIO ─────────
+let _tcMes = new Date().toISOString().slice(0,7);
 VIEWS.tc = async () => {
   const snaps = (await api('/api/os/tc/snapshots')).snapshots||[];
   const meses = (await api('/api/os/tc/meses')).meses||[];
-  document.getElementById('main').innerHTML = `
-    <div class="card"><h2>Tipo de cambio ARS/USDT</h2>
+  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], mesesCie=d.meses||[], tasas=d.tasas||{};
+  const uso = await api('/api/os/tc/del-mes?mes='+encodeURIComponent(_tcMes));
+  const head = ['<th class="cie-h0">Moneda</th>'].concat(mesesCie.map(me=>`<th>${esc(me)}</th>`)).join('');
+  const body = monedas.map(mon=>{
+    const tds = mesesCie.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
+    return `<tr><td class="cie-p">${esc(mon)}</td>${tds}</tr>`;
+  }).join('');
+  const disc = uso.discrepancias||[];
+  document.getElementById('main').innerHTML = CIE_STYLE + `
+    <div class="card"><h2>El TC que se está usando</h2>
+      <div class="muted">Este es el número con el que Facturación, Reparto y Proveedores externos pasan todo a USDT. Manda el <b>cargado a mano</b> para el mes; si no hay, el <b>promedio automático</b>; para ARS, el histórico.</div>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:0"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>ARS / USDT en ${esc(_tcMes)}</label>
+          <div style="font-size:20px;font-weight:800">${uso.ars&&uso.ars.valor?money(uso.ars.valor,2):'— sin cargar'}</div>
+          <div class="muted" style="font-size:11px">${esc((uso.ars&&uso.ars.fuente)||'')}</div></div>
+      </div>
+      ${disc.length?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0 0"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal abajo: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:8px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
+    </div>
+    <div class="card"><h2>Cargado a mano (moneda × mes)</h2>
+      <div class="muted">Es el que <b>manda</b>. Al calcular el cierre, la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes. Se guarda solo. <b>${monedas.length}</b> monedas × <b>${mesesCie.length}</b> meses.</div>
+      <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div style="flex:0"><label>➕ Mes</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
+        <div style="flex:0"><button class="small" onclick="cieAddMes()">Columna</button></div>
+        <div style="flex:0"><label>➕ Moneda</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
+        <div style="flex:0"><button class="small" onclick="cieAddMon()">Fila</button></div>
+      </div>
+      <div style="overflow:auto;max-height:50vh;margin-top:8px">
+        ${monedas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
+      </div>
+    </div>
+    <div class="card"><h2>Automático ARS/USDT</h2>
       <div class="row"><button onclick="snapNow()">📸 Snapshot ahora (Binance/criptoya)</button>
       <button class="outline" onclick="tcAhora()">Ver TC actual</button><div id="tc-now" class="muted" style="align-self:center"></div></div>
-      <div class="muted">El cron toma un snapshot automático todos los días 18:00. El promedio del mes = TC Cliente.</div>
+      <div class="muted">El cron toma un snapshot automático todos los días 18:00. El promedio del mes es el TC Cliente.</div>
     </div>
     <div class="card"><h2>Cierre mensual (TC)</h2>
       <table><thead><tr><th>Mes</th><th>TC Cliente (prom)</th><th>TC Proveedor (factura)</th><th>Diferencia</th><th>Cerrado</th><th></th></tr></thead><tbody>
@@ -1274,7 +1286,8 @@ async function calcularFac(){
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Fee (USDT)</label><div style="font-size:20px;font-weight:800">${T.fee_usdt!=null?money(T.fee_usdt,2):'—'}</div></div>
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Profit casino</label><div style="font-size:20px;font-weight:800">${money(T.profit,0)}</div></div>
     </div>
-    ${r.tc?('<div class="muted" style="margin:8px 0">TC usado: '+money(r.tc,2)+' ARS/USDT</div>'):'<div class="muted" style="margin:8px 0">⚠ sin TC cargado → fee USDT no calculado. Tomá un snapshot en 💱 Tipos de cambio.</div>'}
+    ${r.tc?('<div class="muted" style="margin:8px 0">TC usado: <b>'+money(r.tc,2)+'</b> ARS/USDT <span style="opacity:.7">('+esc(r.tcFuente||'')+')</span></div>'):'<div class="muted" style="margin:8px 0">⚠ sin TC cargado → fee USDT no calculado. Tomá un snapshot en 💱 Tipos de cambio.</div>'}
+    ${(r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b> ('+esc(r.tcFuente||'')+'). Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'% de diferencia)').join(' · ')+'</div><div class="muted" style="margin-top:4px">Corregí el que esté mal en 💱 Tipos de cambio antes de cobrar.</div></div>'):''}
     ${(r.sinBase&&r.sinBase.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van facturados al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div><div class="muted" style="margin-top:4px">Cargales el precio en la ficha del cliente (con vigencia) antes de cobrar.</div></div>'):''}
     <table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Carga (IN)</th><th class="right">Fee ARS</th><th class="right">Fee USDT</th><th class="right">Profit</th></tr></thead><tbody>
     ${(r.clientes||[]).map(c=>{const p0=c.paneles&&c.paneles[0]||{};const fu=p0.baseFuente||'';const mal=fu==='SIN CARGAR';

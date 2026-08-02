@@ -16,7 +16,7 @@
  *   · % del proveedor para el cliente → la MATRIZ del cierre (`cierre_pct`), que es la planilla.
  *   · % base del cliente              → se CONFIRMA por mes (cambia: un mes 6%, otro 7%).
  *   · ganancias por proveedor y panel → el casino (`reporteProveedoresNodo`).
- *   · TC del mes                      → `cierre_tc`.
+ *   · TC del mes                      → `tc-unico.service`, el mismo que usa Facturación.
  *
  * ⚠️ Los nombres de proveedor del casino NO son los de la matriz: se traducen con `cierre_link`.
  */
@@ -27,6 +27,7 @@ const cierreMes = require('./cierre-mes.service');
 const historial = require('./historial');
 const cache = require('./ganancias-cache');
 const casinoConex = require('./casino-conexiones-store');
+const tcUnico = require('./tc-unico.service');
 const money = require('./lib/money');
 const { db } = require('./db');
 
@@ -50,18 +51,9 @@ function rango(iso) {
  * (Julio_2026, ABRIL_2026, Enero_26…). USD y USDT valen 1 aunque no estén cargados.
  */
 function tcDe(moneda, iso) {
-  const M = String(moneda || '').toUpperCase();
-  if (M === 'USD' || M === 'USDT') return '1';
-  const tc = cierre.getTC();
-  const buscado = K(mesCierre(iso));
-  const corto = buscado.replace(/_20/, '_');            // julio_2026 → julio_26
-  const fila = tc.tasas[M] || tc.tasas[M.toUpperCase()];
-  if (!fila) return null;
-  for (const [mes, tasa] of Object.entries(fila)) {
-    const k = K(mes);
-    if (k === buscado || k === corto) return tasa;
-  }
-  return null;
+  // Antes esto leía SOLO la tabla del cierre, mientras Facturación leía otra: la misma factura
+  // podía salir con dos tipos de cambio distintos. Ahora las tres pantallas preguntan lo mismo.
+  return tcUnico.tcDelMes(moneda, iso).valor;
 }
 
 /**

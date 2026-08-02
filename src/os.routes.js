@@ -25,6 +25,7 @@ const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
+const tcUnico = require('./tc-unico.service');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
@@ -381,6 +382,12 @@ function mount(app) {
   }));
   app.get('/api/os/tc/snapshots', (req, res) => ok(res, { snapshots: tcStore.listSnapshots(req.query.mes) }));
   app.get('/api/os/tc/meses', (_req, res) => ok(res, { meses: tcStore.listMeses() }));
+  // EL tipo de cambio de un mes, resuelto con la regla única + dónde las fuentes no coinciden.
+  app.get('/api/os/tc/del-mes', (req, res) => {
+    const mes = req.query.mes || mesTZ();
+    if (req.query.divisa) return ok(res, tcUnico.tcDelMes(req.query.divisa, mes));
+    ok(res, { mes, ars: tcUnico.tcDelMes('ARS', mes), discrepancias: tcUnico.discrepancias(mes) });
+  });
 
   // ── TC del resto de las divisas (ARS sale de Binance, arriba) ──
   // Snapshot diario automático; acá se puede forzar y consultar el promedio del mes.
@@ -568,9 +575,16 @@ function mount(app) {
     const base = basePctEfectivo(cli, pan, String(fecha || mesTZ()).slice(0, 7));
     if (base == null) return err(res, 400, 'el cliente/panel no tiene precio base configurado (cargalo con vigencia)');
     if (!money.isPos(carga)) return err(res, 400, 'carga inválida');
+    // ⚠ el TC tiene que ser el de LA DIVISA de la carga. Antes se usaba siempre el del peso
+    // argentino, así que un fee en pesos uruguayos salía ~30 veces más chico sin que se notara.
+    const _div = String(divisa || 'ARS').toUpperCase();
     let tcUsado = tc;
-    if (!tcUsado) { const t = await tcSvc.tcAhora(); tcUsado = t.tc; }
-    if (!money.isPos(tcUsado)) return err(res, 400, 'no hay TC disponible (cargá un snapshot o pasá tc)');
+    if (!tcUsado) {
+      const t = tcUnico.tcDelMes(_div, String(fecha || mesTZ()).slice(0, 7));
+      tcUsado = t.valor;
+      if (!tcUsado && _div === 'ARS') { const viv = await tcSvc.tcAhora(); tcUsado = viv.tc; } // el vivo, solo para ARS
+    }
+    if (!money.isPos(tcUsado)) return err(res, 400, `no hay tipo de cambio para ${_div} en ese mes — cargalo en 💱 Tipos de cambio`);
     const montoDivisa = money.pct(carga, base);           // fee en ARS
     const equivUsdt = money.round(money.div(montoDivisa, tcUsado), 6); // fee en USDT = deuda generada
     const movimiento = movs.create({
@@ -821,8 +835,8 @@ function mount(app) {
       if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
       const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
     }
-    const tcMes = tcStore.getMes(mes);
-    const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || null;
+    const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Externos y Reparto
+    const tc = _tc.valor;
     const out = []; let totIn = '0', totProfit = '0', totFee = '0';
     const sinBase = new Set();  // clientes sin % cargado: se informan en vez de facturarlos al 0%
     for (const c of clientes.list().clientes) {
@@ -849,7 +863,7 @@ function mount(app) {
       totIn = money.add(totIn, cIn); totProfit = money.add(totProfit, cProfit); totFee = money.add(totFee, cFee);
     }
     ok(res, {
-      mes, from, to, tc, sinBase: [...sinBase],
+      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, sinBase: [...sinBase],
       totales: { in: money.round(totIn, 2), profit: money.round(totProfit, 2), fee_ars: money.round(totFee, 2), fee_usdt: tc ? money.round(money.div(totFee, tc), 2) : null },
       clientes: out, errores,
     });
@@ -878,8 +892,8 @@ function mount(app) {
     const mes = req.query.mes || mesTZ();
     const fecha = `${mes}-15`; // fecha media del mes para vigencias (base + participaciones)
     const nombres = {}; personas.list().forEach((p) => { nombres[p.id] = p.nombre; });
-    const tcMes = tcStore.getMes(mes);
-    const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || '1';
+    const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Facturación y Externos
+    const tc = _tc.valor || '1';
     const ventas = pedidosStore.ventasCargadasMes(mes); // { codigo: { monto, ... } }
     let empresa = '0', latam = '0', sinSplit = '0', totVentas = '0';
     const porSocio = {}, porCliente = {};
