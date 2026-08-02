@@ -50,13 +50,14 @@ async function _nodosCacheados(cli, key, from, to, cur, soloActivos = false) {
   return r.nodos;
 }
 
-/** Base % efectivo de un panel: override del panel (si no hereda) o el del cliente. */
-function basePctEfectivo(cliente, panel, fecha = fechaTZ()) {
-  if (panel && panel.usa_config_cliente === false) {
-    const ov = historial.getVigente('panel', panel.id, 'precio_base_pct', fecha);
-    if (ov != null) return ov;
-  }
-  return historial.getVigente('cliente', cliente.id, 'precio_base_pct', fecha);
+/**
+ * Base % efectivo de un cliente/panel PARA UN MES.
+ * Es un atajo a `externosSvc.baseDelMes`, que es la única función que resuelve este número en todo
+ * el sistema. Antes cada pantalla lo hacía a su manera y el mismo cliente-mes daba tres resultados.
+ * Siempre hay que pasarle el mes que se está facturando; si no, factura con el % de hoy.
+ */
+function basePctEfectivo(cliente, panel, mes = mesTZ()) {
+  return externosSvc.baseDelMes(cliente, mes, panel).valor;
 }
 
 function mount(app) {
@@ -168,7 +169,7 @@ function mount(app) {
     for (const mes of mesesList) {
       let cargas = '0', profit = '0';
       reporteDiarioStore.filasPanelesMes(panelKeys, mes).forEach((r) => { cargas = money.add(cargas, r.in_amt || '0'); profit = money.add(profit, r.profit || '0'); });
-      const baseMes = historial.getVigente('cliente', c.id, 'precio_base_pct', `${mes}-15`) || baseActual || '0';
+      const baseMes = externosSvc.baseDelMes(c, mes).valor || baseActual || '0';
       const fee = money.pct(cargas, baseMes);
       const pagos = money.sum(movs.list({ cliente_id: c.id, tipo: 'pago', mes }).map((mv) => mv.monto_usdt || '0'));
       filas.push({ mes, base: baseMes, cargas: money.round(cargas, 2), fee: money.round(fee, 2), pagos: money.round(pagos, 2), profit: money.round(profit, 2) });
@@ -471,9 +472,11 @@ function mount(app) {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
     const g = externosSvc.baseGuardada(req.params.cliente, mes);
     const cli = clientes.list().clientes.find((c) => String(c.nombre).toLowerCase() === String(req.params.cliente).toLowerCase());
-    const vig = cli ? historial.getVigente('cliente', cli.id, 'precio_base_pct') : null;
+    // el sugerido sale de la misma función que usan Facturación, Reparto y Perfil
+    const r = cli ? externosSvc.baseDelMes(cli, mes) : { valor: null, fuente: 'SIN CARGAR' };
+    const vig = r.valor;
     ok(res, {
-      mes, confirmada: !!g,
+      mes, confirmada: !!g, baseFuente: r.fuente,
       base: g ? g.base_pct : (vig != null ? String(vig) : null),
       confirmadoAt: g ? g.confirmadoAt : null,
       deLaFicha: vig != null ? String(vig) : null,
@@ -562,7 +565,7 @@ function mount(app) {
     const { cliente_id, panel_id, carga, divisa, tc, fecha } = req.body || {};
     const cli = clientes.get(cliente_id); if (!cli) return err(res, 404, 'cliente no encontrado');
     const pan = panel_id ? paneles.get(panel_id) : null;
-    const base = basePctEfectivo(cli, pan);
+    const base = basePctEfectivo(cli, pan, String(fecha || mesTZ()).slice(0, 7));
     if (base == null) return err(res, 400, 'el cliente/panel no tiene precio base configurado (cargalo con vigencia)');
     if (!money.isPos(carga)) return err(res, 400, 'carga inválida');
     let tcUsado = tc;
@@ -821,6 +824,7 @@ function mount(app) {
     const tcMes = tcStore.getMes(mes);
     const tc = (tcMes && tcMes.tc_cliente) || tcStore.ultimoTC() || null;
     const out = []; let totIn = '0', totProfit = '0', totFee = '0';
+    const sinBase = new Set();  // clientes sin % cargado: se informan en vez de facturarlos al 0%
     for (const c of clientes.list().clientes) {
       const cps = linked.filter((p) => p.cliente_id === c.id);
       if (!cps.length) continue;
@@ -829,10 +833,13 @@ function mount(app) {
         const node = (nodeMap[p.conexion_id] || {})[String(p.id_usuario)];
         const inAmt = node ? node.in : '0';
         const profit = node ? node.profit : '0';
-        const base = basePctEfectivo(c, p) || '0';
+        // el % del MES que se está facturando (no el de hoy) y avisando si el cliente no tiene
+        const r = externosSvc.baseDelMes(c, mes, p);
+        const base = r.valor || '0';
+        if (r.valor == null) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
         const fee = money.pct(inAmt, base);
         cIn = money.add(cIn, inAmt); cProfit = money.add(cProfit, profit); cFee = money.add(cFee, fee);
-        panelRows.push({ panel: p.nombre, nodo: p.id_usuario, base, in: money.round(inAmt, 2), profit: money.round(profit, 2), fee: money.round(fee, 2), encontrado: !!node });
+        panelRows.push({ panel: p.nombre, nodo: p.id_usuario, base, baseFuente: r.fuente, in: money.round(inAmt, 2), profit: money.round(profit, 2), fee: money.round(fee, 2), encontrado: !!node });
       }
       out.push({
         cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
@@ -842,7 +849,7 @@ function mount(app) {
       totIn = money.add(totIn, cIn); totProfit = money.add(totProfit, cProfit); totFee = money.add(totFee, cFee);
     }
     ok(res, {
-      mes, from, to, tc,
+      mes, from, to, tc, sinBase: [...sinBase],
       totales: { in: money.round(totIn, 2), profit: money.round(totProfit, 2), fee_ars: money.round(totFee, 2), fee_usdt: tc ? money.round(money.div(totFee, tc), 2) : null },
       clientes: out, errores,
     });
@@ -881,7 +888,7 @@ function mount(app) {
       const carga = vc ? String(vc.monto) : '0';
       if (!money.isPos(carga)) continue;
       totVentas = money.add(totVentas, carga);
-      const base = basePctEfectivo(c, null, fecha) || '0';
+      const base = externosSvc.baseDelMes(c, mes).valor || '0';
       const feeUsdt = money.div(money.pct(carga, base), tc);
       const k = c.id;
       porCliente[k] = { cliente_id: k, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, ventas: money.round(carga, 2), base, empresa: '0', latam: '0', fee: money.round(feeUsdt, 2) };

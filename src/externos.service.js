@@ -121,6 +121,34 @@ function confirmarBase(cliente, mes, base_pct) {
 }
 
 /**
+ * ⭐ EL % BASE DE UN CLIENTE PARA UN MES — UNA SOLA FORMA DE RESOLVERLO.
+ *
+ * Antes cada pantalla lo hacía distinto y el mismo cliente-mes daba tres números:
+ *   · Facturación lo pedía SIN fecha → usaba el de HOY (facturar junio en agosto aplicaba agosto)
+ *   · Perfil y Reparto usaban el vigente al día 15 del mes
+ *   · Proveedores externos usaba el confirmado a mano, en una tabla aparte
+ * Es el número por el que se multiplica todo lo que se cobra, así que ahora hay una sola regla:
+ *   1) el CONFIRMADO para ese mes (gana siempre: es una decisión explícita del dueño)
+ *   2) el vigente en el historial al CIERRE de ese mes
+ *   3) si el panel tiene precio propio, ese pisa al del cliente
+ * Devuelve también de DÓNDE salió, para poder mostrarlo y que nadie tenga que adivinar.
+ */
+function baseDelMes(cliente, mes, panel = null) {
+  const m = String(mes || '').slice(0, 7);
+  const g = baseGuardada(cliente.nombre, m);
+  if (g && g.base_pct != null && g.base_pct !== '') return { valor: String(g.base_pct), fuente: 'confirmado', mes: m };
+  const { to } = rango(m);                       // el vigente al cierre del mes, no el de hoy
+  if (panel && panel.usa_config_cliente === false) {
+    const ov = historial.getVigente('panel', panel.id, 'precio_base_pct', to);
+    if (ov != null && ov !== '') return { valor: String(ov), fuente: 'precio propio del panel', mes: m };
+  }
+  const v = historial.getVigente('cliente', cliente.id, 'precio_base_pct', to);
+  return v != null && v !== ''
+    ? { valor: String(v), fuente: 'vigente en el mes', mes: m }
+    : { valor: null, fuente: 'SIN CARGAR', mes: m };
+}
+
+/**
  * El reporte de un cliente para un mes.
  * @returns { cliente, mes, base, baseConfirmada, paneles[], totales, sinVincular[], avisos[] }
  */
@@ -130,8 +158,9 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
 
   // % base: el que mandan, si no el confirmado del mes, si no el de la ficha del cliente
   const guardada = baseGuardada(cli.nombre, mes);
-  const deLaFicha = historial.getVigente('cliente', cli.id, 'precio_base_pct');
-  const base = basePct != null ? String(basePct) : (guardada ? guardada.base_pct : (deLaFicha != null ? String(deLaFicha) : null));
+  const res = baseDelMes(cli, mes);
+  const base = basePct != null ? String(basePct) : res.valor;
+  const baseFuente = basePct != null ? 'a mano' : res.fuente;
   if (base == null) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
   }
@@ -225,7 +254,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   return {
     ok: true,
     cliente: cli.nombre, clienteId: cli.id, mes, mesNombre: mesCierre(mes), from, to,
-    congelado, congeladoEn,
+    congelado, congeladoEn, baseFuente,
     base, baseConfirmada: !!guardada, confirmadoAt: guardada ? guardada.confirmadoAt : null,
     modo,
     negativos: [...negativos.values()],
@@ -241,4 +270,4 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   };
 }
 
-module.exports = { reporte, baseGuardada, confirmarBase, tcDe, mesCierre, rango };
+module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango };
