@@ -1052,6 +1052,27 @@ function mount(app) {
     if (!r.ok) return err(res, 400, r.error);
     ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos });
   }));
+  // Lo mismo para Proveedores externos. Va como 'proveedor_extra', que en la cuenta corriente es
+  // una columna aparte de las fichas: son dos conceptos y conviene verlos separados.
+  app.post('/api/os/emision/externos', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    const lineas = []; const fallaron = []; const sinBase = [];
+    for (const c of clientes.list().clientes) {
+      if (c.es_vendedor) continue;                 // el vendedor paga al costo, no lleva diferencial
+      let r;
+      try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes }); }
+      catch (e) { fallaron.push({ cliente: c.nombre, error: String((e && e.message) || e) }); continue; }
+      if (!r.ok) { (r.faltaBase ? sinBase : fallaron).push({ cliente: c.nombre, error: r.error }); continue; }
+      // Un reporte INCOMPLETO no se emite: cobraría de menos y parecería correcto.
+      if (r.incompleto) { fallaron.push({ cliente: c.nombre, error: `la foto del mes está incompleta (faltan ${r.sinTiempo} consultas)` }); continue; }
+      if (!money.isPos(r.totalUsdt)) continue;
+      lineas.push({ cliente_id: c.id, monto_usdt: r.totalUsdt, base_pct: r.base, notas: `Proveedores externos ${mes} · base ${r.base}%` });
+    }
+    const out = emision.emitir({ mes, origen: 'externos', lineas });
+    if (!out.ok) return err(res, 400, out.error);
+    ok(res, { ...out, sinBase, fallaron });
+  }));
+
   app.delete('/api/os/emision/:origen/:mes', (req, res) => {
     const r = emision.anular({ mes: req.params.mes, origen: req.params.origen });
     r.ok ? ok(res, r) : err(res, 400, r.error);
