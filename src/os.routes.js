@@ -737,6 +737,15 @@ function mount(app) {
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
 
+  // SONDA: corre el reporte con parámetros crudos. Solo para investigar cómo pedirle al casino que
+  // abra por distribuidor; no lo usa ningún cálculo.
+  app.post('/api/os/casino/conexiones/:id/sonda-reporte', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const b = req.body || {};
+    const r = await cli.sondaReporte({ from: b.from, to: b.to, nodoId: b.nodo || null, campos: b.campos || null, params: b.params || {} });
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+
   // Las plantillas de reporte guardadas en el casino: la agrupación sale de ahí, no de un parámetro.
   app.get('/api/os/casino/conexiones/:id/plantillas', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');

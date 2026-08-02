@@ -450,6 +450,33 @@ function makeClient({ url, token, user, password } = {}) {
   }
 
   /**
+   * SONDA: corre el reporte con los parámetros crudos que se le pasen.
+   *
+   * Existe para poder averiguar qué combinación hace que el casino abra el reporte POR DISTRIBUIDOR.
+   * Ya se descartaron dos candidatos con evidencia: `reports_user_group_by` se ignora (ocho valores
+   * distintos devuelven exactamente las mismas 979 filas y 39 nodos) y la plantilla tampoco cambia
+   * nada (Draft y Default dan idéntico). El que queda es `reports_group_by` / `reports_base_group_by`.
+   *
+   * No se usa en ningún cálculo: es solo para investigar.
+   */
+  async function sondaReporte({ from = '', to = '', nodoId = null, campos = null, params = {}, filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
+    const r = await _runReport((b) => {
+      b.append('statistic_type', 'on_bets');
+      b.append('conversion_type', 'current_currency');
+      Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) b.append(k, String(v)); });
+      (campos || ['id', 'login', 'provider', 'label', 'vendor', 'profit']).forEach((f) => b.append('reports_group_fields[]', f));
+      b.append('from', from); b.append('to', to); b.append('save_template_name', '');
+    }, { filtros, nodoId, from, to });
+    if (!r.ok) return r;
+    const filas = r.raw.map((x) => ({
+      id: String(x.id == null ? '' : x.id), login: x.login || '',
+      provider: x.provider || '', label: x.label || '', vendor: x.vendor || '',
+      profit: x.profit == null ? '' : x.profit,
+    }));
+    return { ok: true, filas, columnas: r.raw[0] ? Object.keys(r.raw[0]) : [] };
+  }
+
+  /**
    * Las PLANTILLAS de reporte guardadas en el casino.
    *
    * El motor no tiene un parámetro para decir "agrupame por distribuidor": la agrupación sale de la
@@ -498,7 +525,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, sondaReporte, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };
