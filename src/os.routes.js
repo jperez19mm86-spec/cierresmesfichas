@@ -737,6 +737,13 @@ function mount(app) {
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
 
+  // Las plantillas de reporte guardadas en el casino: la agrupación sale de ahí, no de un parámetro.
+  app.get('/api/os/casino/conexiones/:id/plantillas', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const r = await cli.plantillas();
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const ug = req.query.ug != null ? req.query.ug : (req.query.view === 'superagent' ? 'superagent' : ''); // ?ug= override p/ probar valores

@@ -449,6 +449,47 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, from, to, monedas };
   }
 
+  /**
+   * Las PLANTILLAS de reporte guardadas en el casino.
+   *
+   * El motor no tiene un parámetro para decir "agrupame por distribuidor": la agrupación sale de la
+   * plantilla que el usuario tenga guardada y seleccionada en la pantalla de reportes. Probado: pedir
+   * el reporte con ocho valores distintos de `reports_user_group_by` devuelve EXACTAMENTE lo mismo
+   * (979 filas, 39 nodos, los mismos ids) — el parámetro se ignora.
+   *
+   * Por eso hace falta saber qué plantillas hay y cuál es la que abre por distribuidor: esa se pasa
+   * como `active_template` y el reporte sale con esa forma.
+   */
+  async function plantillas() {
+    if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
+    const refer = `${base}/index.php?act=admin&area=reports`;
+    const jar = {};
+    if (useSession && sessionCookie) sessionCookie.split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) jar[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+    const cookieHdr = () => Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    let html = '';
+    try {
+      const g = await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`),
+        { headers: { 'User-Agent': UA, ...(useSession ? { Cookie: cookieHdr() } : {}) }, timeout: 60000, validateStatus: () => true });
+      html = String(g.data || '');
+    } catch (e) { return { ok: false, error: 'no se pudo abrir la pantalla de reportes: ' + e.message }; }
+    if (!html) return { ok: false, error: 'la pantalla de reportes vino vacía (¿sesión caída?)' };
+
+    // el <select> de plantillas: cada opción es una forma de reporte guardada
+    const opciones = [];
+    const re = /<option[^>]*value=["'](\d+)["']([^>]*)>([\s\S]*?)<\/option>/gi;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const nombre = m[3].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      if (!nombre) continue;
+      opciones.push({ id: m[1], nombre, seleccionada: /\bselected\b/i.test(m[2]) });
+    }
+    // deduplicar por id, quedándose con el primero
+    const vistos = new Set();
+    const lista = opciones.filter((o) => (vistos.has(o.id) ? false : (vistos.add(o.id), true)));
+    const act = html.match(/name=["']?active_template["']?[^>]*value=["'](\d+)/i);
+    return { ok: true, activa: act ? act[1] : (lista.find((o) => o.seleccionada) || {}).id || null, plantillas: lista };
+  }
+
   /** Test de conexión: trae login + balances de la cuenta. */
   async function test() {
     const r = await apiCall('info', {});
@@ -457,7 +498,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };
