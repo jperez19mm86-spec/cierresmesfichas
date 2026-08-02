@@ -482,10 +482,18 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
   if (!sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p.sistema}" sin contraseña guardada` });
   if (!p.userId) return res.status(400).json({ ok: false, error: 'La caja no tiene user_id (ID del casino) — completalo en 👥 Clientes' });
 
+  // 🔒 SE TOMA EL PEDIDO ANTES DE TOCAR EL CASINO. El camino completo tarda decenas de segundos
+  // (login + un loadChips por eslabón) y hasta ahora el pedido seguía en 'pendiente' todo ese rato:
+  // apretar dos veces cargaba las fichas DOS VECES y se facturaba una sola.
+  const tomado = pedidos.tomarParaCargar(p.id);
+  if (!tomado) return res.status(409).json({ ok: false, error: 'ese pedido ya se está cargando en este momento' });
+  const soltar = () => { try { pedidos.soltarCarga(p.id); } catch (e) { console.warn('[Pedido] no se pudo soltar el lock:', e.message); } };
+
   try {
     // Pre-verificar la sesión (login + area=info): evita intentar cargar con sesión no autenticada.
     const t = await casino.testConnection(sys.url, sys.user, sys.password);
     if (!t.ok || !t.sessionCookie) {
+      soltar();
       return res.status(502).json({ ok: false, error: `No se pudo autenticar al sistema "${p.sistema}" — revisá su usuario/contraseña en 🔌 Sistemas (probá "Probar conexión").` });
     }
     // CASCADA: cargar un Distribuidor/Agente le saca las fichas a su padre, así que se funde cada
@@ -493,7 +501,7 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     // el destino queda con el monto. Si ya hubo un intento a medias, se RETOMA (no repite pasos).
     const plan = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
     // Si un padre no tiene la divisa del pedido, se avisa ANTES de mover nada.
-    if (plan.bloqueo) return res.status(400).json({ ok: false, error: plan.bloqueo, bloqueo: true, sinLaDivisa: plan.sinLaDivisa });
+    if (plan.bloqueo) { soltar(); return res.status(400).json({ ok: false, error: plan.bloqueo, bloqueo: true, sinLaDivisa: plan.sinLaDivisa }); }
     const pasos = (p.cascada && p.cascada.length === plan.pasos.length) ? p.cascada : plan.pasos;
     const r = await cascada.ejecutar({
       url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, pasos,
@@ -503,7 +511,10 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     if (!r.ok) {
       // Fail-closed: el pedido queda 'pendiente' con lo ya movido anotado. Volver a apretar
       // "Cargar" retoma desde el paso que falló; nada se carga dos veces.
+      // vuelve a 'pendiente' CON lo ya movido anotado: apretar Cargar de nuevo retoma desde el
+      // paso que falló, no repite los que salieron bien.
       pedidos.setCascada(p.id, r.pasos, r.trabadoEn);
+      soltar();
       return res.status(502).json({
         ok: false, error: r.error || 'la carga falló',
         cascada: r.pasos, trabadoEn: r.trabadoEn,
@@ -530,8 +541,10 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
       return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });
     }
     // Falla la carga: dejar 'pendiente' para reintentar, devolver el error del casino.
+    soltar();
     return res.status(502).json({ ok: false, error: r.error || 'la carga falló', detail: r.snippet });
   } catch (e) {
+    soltar();
     res.status(500).json({ ok: false, error: e.message });
   }
 });

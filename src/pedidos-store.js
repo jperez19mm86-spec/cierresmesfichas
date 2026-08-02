@@ -97,6 +97,40 @@ function tomarParaAnular(id) {
   save(data);
   return { ...p };
 }
+/**
+ * 🔒 LOCK DE CARGA: 'pendiente' → 'cargando', de una sola vez.
+ *
+ * Sin esto, apretar "Cargar" dos veces cargaba las fichas DOS VECES y se facturaba una sola: la
+ * ruta chequeaba `estado !== 'pendiente'` pero recién lo marcaba 'cargado' AL FINAL, y el camino
+ * completo tarda decenas de segundos (login al casino + un loadChips por eslabón de la cascada).
+ * En todo ese rato el pedido seguía en 'pendiente' y una segunda request pasaba el mismo chequeo.
+ * Con los pedidos como base de cobro la fuga es muda: hay UN pedido, se cobra UNA vez, y el casino
+ * recibió el monto dos veces.
+ *
+ * Devuelve null si ya lo tomó otro. Es sincrónico (load/save de un JSON, sin await en el medio),
+ * así que entre el chequeo y el guardado no se puede colar nadie.
+ */
+function tomarParaCargar(id) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p || p.estado !== 'pendiente') return null;
+  p.estado = 'cargando';
+  p.tomadoAt = new Date().toISOString();
+  save(data);
+  return { ...p };
+}
+
+/** Rollback del lock de carga: 'cargando' → 'pendiente'. Preserva lo ya movido en la cascada. */
+function soltarCarga(id) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p || p.estado !== 'cargando') return null;
+  p.estado = 'pendiente';
+  p.tomadoAt = null;
+  save(data);
+  return { ...p };
+}
+
 /** Rollback del lock: 'anulando' → 'cargado' (si el retiro en el casino no se hizo). Preserva los datos. */
 function revertirAnulando(id) {
   const data = load();
@@ -205,4 +239,4 @@ function remove(id) {
   return { ok: true, pedido: p };
 }
 
-module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
+module.exports = { create, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
