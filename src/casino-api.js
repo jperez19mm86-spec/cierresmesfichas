@@ -310,35 +310,48 @@ function makeClient({ url, token, user, password } = {}) {
     // ⚠️ Y HAY QUE PISARLO, no sólo agregarlo si falta: la página embebe el límite que tenga puesto
     // el usuario en la pantalla del casino. Si ahí quedó "1000" y el reporte tiene 2000 filas, nos
     // volvían 1000 y el resto desaparecía SIN AVISAR — media plata de menos y el número parecía bueno.
-    const LIMITE = 100000;
-    if (!/[?&]offset=/.test(path)) path += '&offset=0';
+    // SE PAGINA, no se pide todo de una. Pedir `limit=100000` no garantiza nada: el motor puede
+    // recortar la página del lado del servidor y nosotros nos quedaríamos con lo que quiera mandar,
+    // sin enterarnos. La pantalla del casino usa páginas de 1000 (`offset=0&limit=1000`, después
+    // `offset=1000&limit=1000`), así que se hace igual: página por página hasta juntar el total.
+    //
+    // El motor devuelve `total` = cuántas filas hay DE VERDAD. Con el límite en 1000 y 1949 reales
+    // faltaba casi la mitad de la plata y el número parecía correcto. Ahora, si al terminar no
+    // juntamos ese total, el reporte FALLA en vez de devolver algo corto.
+    const PAGINA = Number(process.env.CASINO_REPORT_PAGINA) || 1000;
+    const MAX_PAGINAS = 300;                       // 300.000 filas: freno por si algo se va de mano
     if (!/[?&]sort=/.test(path)) path += '&sort=provider&order=desc';
-    path = pisar(path, 'limit', String(LIMITE));
-    path = pisar(path, 'offset', '0');
+    if (!/[?&]offset=/.test(path)) path += '&offset=0';
+    if (!/[?&]limit=/.test(path)) path += `&limit=${PAGINA}`;
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
-    let data, d;
-    for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
-      try { data = await axios.get(`${base}${path}`, { headers: { ...hGet(), Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer }, timeout: 60000, validateStatus: () => true }); absorb(data); }
-      catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
-      d = data.data;
-      if (typeof d !== 'string') break;
-      if (t < 4) await new Promise((r) => setTimeout(r, 2500));
+
+    const raw = [];
+    let totalDicho = null;
+    let paginas = 0;
+    for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+      const p = pisar(pisar(path, 'limit', String(PAGINA)), 'offset', String(pagina * PAGINA));
+      let data, d;
+      for (let t = 0; t < 5; t++) { // el reporte puede generarse ASYNC → si vuelve string (no listo), esperamos y reintentamos
+        try { data = await axios.get(`${base}${p}`, { headers: { ...hGet(), Accept: 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest', Referer: refer }, timeout: 60000, validateStatus: () => true }); absorb(data); }
+        catch (e) { return { ok: false, error: 'reportstable: ' + e.message }; }
+        d = data.data;
+        if (typeof d !== 'string') break;
+        if (t < 4) await new Promise((r) => setTimeout(r, 2500));
+      }
+      // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
+      if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' ') } };
+      const trozo = Array.isArray(d) ? d
+        : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
+      if (!Array.isArray(trozo)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
+      paginas++;
+      raw.push(...trozo);
+      if (totalDicho == null && d && typeof d === 'object' && !Array.isArray(d) && d.total != null) totalDicho = Number(d.total);
+      if (!trozo.length) break;                                            // no vino nada más
+      if (Number.isFinite(totalDicho) && raw.length >= totalDicho) break;   // ya está todo
+      if (!Number.isFinite(totalDicho) && trozo.length < PAGINA) break;     // sin total: página incompleta = última
     }
-    // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-    if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' ') } };
-    const raw = Array.isArray(d) ? d
-      : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
-    if (!Array.isArray(raw)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
-    // ⚠️ TRUNCADO. El motor devuelve `total` = cuántas filas hay EN TOTAL, aparte de las que mandó.
-    // Si mandó menos, el resto no está y el número sale corto. Antes esto no se miraba: con el
-    // límite de la pantalla en 1000 y 1949 filas de verdad, faltaba casi la mitad de la plata y el
-    // total parecía correcto.
-    const totalDicho = (d && typeof d === 'object' && !Array.isArray(d) && d.total != null) ? Number(d.total) : null;
-    if (Number.isFinite(totalDicho) && totalDicho > raw.length) {
-      return { ok: false, error: `el casino dice que hay ${totalDicho} filas y mandó ${raw.length}: el reporte viene cortado, faltan datos.` };
-    }
-    if (raw.length >= LIMITE) {
-      return { ok: false, error: `el reporte trajo ${raw.length} filas y ese es el tope: faltan datos. Achicá el período o pedilo por partes.` };
+    if (Number.isFinite(totalDicho) && raw.length < totalDicho) {
+      return { ok: false, error: `el casino dice que hay ${totalDicho} filas y se juntaron ${raw.length} en ${paginas} páginas: el reporte viene cortado.` };
     }
     // Para diagnosticar el filtro de fechas: con qué params queda realmente la URL de la tabla.
     const debug = opts.debug ? {
@@ -346,8 +359,9 @@ function makeClient({ url, token, user, password } = {}) {
       original: rsUrl,                        // la que armó el MOTOR, antes de que pisemos id/from/to
       todas: allRs.slice(0, 3),
       urls: allRs.length,
+      paginas, total: totalDicho, filas: raw.length,
     } : undefined;
-    return { ok: true, raw, debug };
+    return { ok: true, raw, paginas, total: totalDicho, debug };
   }
 
   /**
