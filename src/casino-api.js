@@ -470,6 +470,58 @@ function makeClient({ url, token, user, password } = {}) {
   }
 
   /**
+   * Los SELECTORES de la pantalla de reportes del casino, con su `name` y sus opciones.
+   *
+   * El nombre del campo que controla la agrupación ("Group by = Dealer") está en el HTML de la
+   * página: es el atributo `name` de ese <select>, y los valores son los `value` de sus <option>.
+   * Sacarlo de acá evita tener que ir a buscarlo a mano en las herramientas del navegador.
+   */
+  async function camposDeReportes() {
+    if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
+    const refer = `${base}/index.php?act=admin&area=reports`;
+    const jar = {};
+    if (useSession && sessionCookie) sessionCookie.split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) jar[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+    let html = '';
+    try {
+      const g = await axios.get(refer + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`), {
+        headers: { 'User-Agent': UA, ...(useSession ? { Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ') } : {}) },
+        timeout: 60000, validateStatus: () => true,
+      });
+      html = String(g.data || '');
+    } catch (e) { return { ok: false, error: 'no se pudo abrir la pantalla de reportes: ' + e.message }; }
+    if (!html) return { ok: false, error: 'la pantalla de reportes vino vacía (¿sesión caída?)' };
+
+    const limpiar = (s) => s.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    const selects = [];
+    const reSel = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
+    let m;
+    while ((m = reSel.exec(html)) !== null) {
+      const attrs = m[1];
+      const nombre = (attrs.match(/\bname=["']([^"']+)["']/i) || [])[1] || null;
+      const id = (attrs.match(/\bid=["']([^"']+)["']/i) || [])[1] || null;
+      const opciones = [];
+      const reOpt = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+      let o;
+      while ((o = reOpt.exec(m[2])) !== null) {
+        opciones.push({
+          value: (o[1].match(/\bvalue=["']([^"']*)["']/i) || [])[1] ?? '',
+          texto: limpiar(o[2]),
+          seleccionada: /\bselected\b/i.test(o[1]),
+        });
+      }
+      selects.push({ name: nombre, id, opciones });
+    }
+    // los campos ocultos también: ahí suele viajar el estado del reporte
+    const ocultos = [];
+    const reHid = /<input\b([^>]*type=["']hidden["'][^>]*)>/gi;
+    while ((m = reHid.exec(html)) !== null) {
+      const nombre = (m[1].match(/\bname=["']([^"']+)["']/i) || [])[1];
+      if (nombre) ocultos.push({ name: nombre, value: (m[1].match(/\bvalue=["']([^"']*)["']/i) || [])[1] ?? '' });
+    }
+    return { ok: true, selects, ocultos, bytes: html.length };
+  }
+
+  /**
    * SONDA CRUDA: manda un POST a cualquier `area` del casino con los params que se le pasen, usando
    * la sesión ya abierta. Sirve para reproducir exactamente lo que hace la pantalla del casino
    * cuando se cambia una opción (por ejemplo "Group by = Dealer", que NO se aplica por
@@ -565,7 +617,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, sondaReporte, sondaCruda, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };

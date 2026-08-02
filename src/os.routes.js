@@ -737,6 +737,14 @@ function mount(app) {
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
 
+  // Los selectores de la pantalla de reportes del casino, con su name y sus opciones: ahí está el
+  // nombre del campo que controla la agrupación (Group by = Dealer).
+  app.get('/api/os/casino/conexiones/:id/campos-reportes', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const r = await cli.camposDeReportes();
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+
   // SONDA CRUDA: POST a cualquier área del casino con la sesión ya abierta. Para reproducir lo que
   // hace la pantalla del casino al cambiar una opción. No la usa ningún cálculo.
   app.post('/api/os/casino/conexiones/:id/sonda-cruda', wrap(async (req, res) => {
