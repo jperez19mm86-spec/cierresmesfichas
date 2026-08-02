@@ -101,7 +101,49 @@ function revisar(mes) {
       '🧮 Cierre de Mes → 🔗 Vincular proveedores', sinVinc.slice(0, 40));
   }
 
-  // 7) CAMPOS VIEJOS QUE NO USA NADIE PERO TIENEN VALOR CARGADO
+  // 7) LA MISMA CUENTA ANOTADA EN DOS LADOS: `cajas` (operativo) y `paneles` (comercial)
+  const dobles = [];
+  for (const c of cs) {
+    const cajas = (c.cajas || []).map((k) => String(k.usuario || '').trim().toLowerCase()).filter(Boolean);
+    if (!cajas.length) continue;
+    const pans = paneles.list({ cliente_id: c.id }).map((p) => String(p.usuario || '').trim().toLowerCase()).filter(Boolean);
+    const soloEnCajas = cajas.filter((u) => !pans.includes(u));
+    const soloEnPaneles = pans.filter((u) => !cajas.includes(u));
+    if (soloEnCajas.length || soloEnPaneles.length) {
+      dobles.push(`${c.nombre || c.codigo}: ${soloEnCajas.length ? `solo en cajas → ${soloEnCajas.join(', ')}` : ''}${(soloEnCajas.length && soloEnPaneles.length) ? ' · ' : ''}${soloEnPaneles.length ? `solo en paneles → ${soloEnPaneles.join(', ')}` : ''}`);
+    }
+  }
+  if (dobles.length) {
+    push(AVISO, `${dobles.length} cliente(s) con las cuentas anotadas distinto en Cajas y en Paneles`,
+      'La misma cuenta del casino se anota en dos lugares. Lo que se factura sale de Paneles: lo que esté solo en Cajas no se le cobra a nadie.',
+      'Paneles (comercial) y Clientes → Cajas (operativo)', dobles);
+  }
+
+  // 8) LO QUE DICE EL CASINO vs LO QUE DICEN LOS PEDIDOS
+  // Son dos números distintos por diseño (uno es lo que el casino registró, el otro lo que se vendió
+  // por el sistema de pedidos), pero si se separan mucho es que algo no se cargó donde correspondía.
+  try {
+    const pedidos = require('./pedidos-store').ventasCargadasMes(m);
+    const desvios = [];
+    for (const c of noVendedores) {
+      const vendido = Number((pedidos[c.codigo] || {}).monto || 0);
+      if (!vendido) continue;
+      const keys = paneles.list({ cliente_id: c.id }).filter((p) => p.conexion_id && p.id_usuario)
+        .map((p) => ({ conexion_id: p.conexion_id, grp: 'superagent', sa_id: String(p.id_usuario) }));
+      const casino = require('./reporte-diario-store').filasPanelesMes(keys, m)
+        .reduce((s, r) => s + Number(r.in_amt || 0), 0);
+      if (!casino) continue;
+      const dif = Math.abs(casino - vendido) / Math.max(casino, vendido);
+      if (dif > 0.1) desvios.push(`${c.nombre || c.codigo}: casino ${Math.round(casino).toLocaleString('es-AR')} vs pedidos ${Math.round(vendido).toLocaleString('es-AR')} (${Math.round(dif * 100)}%)`);
+    }
+    if (desvios.length) {
+      push(AVISO, `${desvios.length} cliente(s) donde el casino y los pedidos no dan lo mismo`,
+        'Se factura por lo que dice el CASINO. Si la diferencia es grande, o falta cargar pedidos o hay cargas hechas por fuera del sistema.',
+        '🧾 Facturación (casino) vs 💰 Reparto (pedidos)', desvios);
+    }
+  } catch { /* si falta el acumulado del mes, este chequeo simplemente no aplica */ }
+
+  // 9) CAMPOS VIEJOS QUE NO USA NADIE PERO TIENEN VALOR CARGADO
   const conMargen = cs.filter((c) => c.margen_externos_pct != null && c.margen_externos_pct !== '')
     .map((c) => `${c.nombre || c.codigo}: +${c.margen_externos_pct}%`);
   if (conMargen.length) {

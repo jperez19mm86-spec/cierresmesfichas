@@ -169,7 +169,8 @@ function editCli(id){
           <div id="pb-hist" class="muted"></div>
         </div>
         <div class="card">
-          <h2>🧾 Ficha de cobro <span class="muted">(v3.0)</span></h2>
+          <h2>🧾 Ficha de cobro <span class="muted">(datos de referencia)</span></h2>
+          <div class="card" style="background:#2a2410;border-color:var(--gold);margin:0 0 8px;padding:8px 10px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos todavía NO entran en ningún cálculo.</b> Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
             <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
@@ -186,9 +187,9 @@ function editCli(id){
           </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Externos: cobrar +</label><input id="e-mext" value="${esc(c.margen_externos_pct||'')}" placeholder="ej 3" style="width:90px"/></div>
-            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Puntos sobre el <b>costo</b> del proveedor, para los que no tengan precio propio en la matriz. Ej: <b>3</b> = a un proveedor que te cuesta 5 se le cobra 8. Dejalo vacío si todos sus precios están cargados a mano.</div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px"><b style="color:var(--gold)">⚠ Hoy no se aplica.</b> La idea era: puntos sobre el <b>costo</b> del proveedor para los que no tengan precio propio en la matriz (ej: <b>3</b> = a uno que cuesta 5 se le cobra 8). Está guardado pero <b>ningún cálculo lo usa</b>: si querés cobrarle de más a un proveedor, ponelo en la matriz del Cierre, que sí se usa.</div>
           </div>
-          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. El <b>disparador</b> y el <b>momento de pago</b> definen el flujo de deuda/cobro. <b>Trader</b> = el TC que te pasa tu trader ese mes.</div>
+          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. <b>Trader</b> = el TC que te pasa tu trader ese mes. Todo esto es <b>anotación</b>: el flujo de deuda y cobro hoy lo manejan los Movimientos, a mano.</div>
         </div>
         <div class="card">
           <h2>💰 Saldo anterior <span class="muted">(deuda previa al sistema)</span></h2>
