@@ -173,24 +173,61 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const avisos = [];
   let deCache = 0, delCasino = 0;
 
+  // ── 1) armar la lista de consultas ────────────────────────────────────────
+  // Cada panel × divisa es UNA consulta al casino, y son independientes entre sí. Hacerlas EN FILA
+  // era lo que hacía que un cliente con 9 paneles multidivisa (26 consultas, hasta 2 min cada una)
+  // nunca terminara: la conexión se cortaba antes y el reporte no se podía sacar (pasó con Oscar).
+  const trabajos = [];
   for (const panel of mios) {
     const cx = casinoConex.list().find((c) => c.id === panel.conexion_id) || casinoConex.list().find((c) => K(c.nombre) === K(panel.sistema));
     if (!cx) { avisos.push(`${panel.nombre}: sin conexión de casino, no se pudo consultar`); continue; }
     const cliCx = casinoConex.client(cx.id);
     if (!cliCx) { avisos.push(`${panel.nombre}: la conexión "${cx.nombre}" no responde`); continue; }
-
     // Un SuperAgente puede tener varias divisas; de un Distribuidor/Agente para abajo hay UNA sola.
     const divisas = (panel.divisas || []).length ? panel.divisas : ['ARS'];
-    for (const divisa of divisas) {
-      // Primero el caché: un mes cerrado ya no cambia, y volver a preguntarle al casino es lo que
-      // hacía que el reporte tardara minutos y se pasara del timeout.
-      let r = null;
-      const guardado = cache.get(cx.id, panel.id_usuario, mes, divisa, { refrescar });
-      if (guardado) { r = { ok: true, filas: guardado.filas }; deCache++; }
-      else {
-        r = await cliCx.reporteProveedoresNodo({ nodoId: panel.id_usuario, from, to, currency: divisa });
-        if (r.ok) { cache.set(cx.id, panel.id_usuario, mes, divisa, r.filas); delCasino++; }
+    for (const divisa of divisas) trabajos.push({ panel, cxId: cx.id, cliCx, divisa });
+  }
+
+  // ── 2) traerlas de a varias a la vez ──────────────────────────────────────
+  // El caché primero: un mes cerrado ya no cambia. Lo que falte se le pide al casino con varios
+  // pedidos en paralelo, pero acotados: si se le mandan las 26 juntas el casino empieza a fallar.
+  const CONCURRENCIA = Number(process.env.EXTERNOS_CONCURRENCIA) || 5;
+  // Tope de tiempo: si el casino está lento y no llegamos, se devuelve lo que se junto en vez de
+  // cortar la conexión y perder todo. Lo que ya se trajo queda en el caché, así que volver a
+  // calcular sigue desde donde quedó en vez de empezar de cero.
+  const PRESUPUESTO_MS = Number(process.env.EXTERNOS_PRESUPUESTO_MS) || 150000;
+  const vence = Date.now() + PRESUPUESTO_MS;
+  const resultados = new Array(trabajos.length);
+  let siguiente = 0; let sinTiempo = 0;
+  async function obrero() {
+    for (;;) {
+      const i = siguiente++;
+      if (i >= trabajos.length) return;
+      const t = trabajos[i];
+      const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
+      if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; continue; }
+      if (Date.now() > vence) { resultados[i] = { ok: false, error: 'no llegó a consultarse (se acabó el tiempo)', porTiempo: true }; sinTiempo++; continue; }
+      try {
+        const r = await t.cliCx.reporteProveedoresNodo({ nodoId: t.panel.id_usuario, from, to, currency: t.divisa });
+        if (r.ok) { cache.set(t.cxId, t.panel.id_usuario, mes, t.divisa, r.filas); delCasino++; }
+        resultados[i] = r;
+      } catch (e) {
+        resultados[i] = { ok: false, error: String((e && e.message) || e) };
       }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, trabajos.length) }, obrero));
+  if (sinTiempo) {
+    avisos.push(`⚠ quedaron ${sinTiempo} de ${trabajos.length} consultas sin hacer: el casino está lento. Lo que ya se trajo quedó guardado — apretá Calcular de nuevo y sigue desde ahí. El total de abajo está INCOMPLETO.`);
+  }
+
+  // ── 3) procesar en orden ──────────────────────────────────────────────────
+  // El cálculo se hace después y en el orden original, para que el resultado no dependa de cuál
+  // consulta contestó primero.
+  for (let i = 0; i < trabajos.length; i++) {
+    const { panel, divisa } = trabajos[i];
+    const r = resultados[i] || { ok: false, error: 'sin respuesta' };
+    {
       if (!r.ok) { avisos.push(`${panel.nombre} (${divisa}): ${r.error}`); continue; }
       const tasa = tcDe(divisa, mes);
 
@@ -253,7 +290,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
-    deCache, delCasino,
+    deCache, delCasino, consultas: trabajos.length, sinTiempo, incompleto: sinTiempo > 0,
     cobrables: filas.filter((f) => f.cobra).length,
     revisados: filas.length,
     totalUsdt: money.round(totalUsdt, 2),
