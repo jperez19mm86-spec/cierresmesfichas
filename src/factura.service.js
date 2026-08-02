@@ -97,16 +97,36 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
           base: r.base,
           total_usdt: r.totalUsdt,
           incompleto: !!r.incompleto,
-          // una línea por proveedor, sumando todos los paneles: al cliente le importa el proveedor,
-          // no en cuál de sus paneles se generó
+          // Una línea por proveedor Y MONEDA, con todo el desglose: cuánto ganó ese proveedor, qué
+          // porcentaje EXCEDENTE se le cobra (su precio menos la base del cliente — si cuesta 14 y
+          // el cliente paga 6, se cobra 8, no 14), cuánto da eso en la moneda del panel y cuánto en
+          // USDT con el tipo de cambio del mes.
+          //
+          // Se agrupa por proveedor + MONEDA a propósito: sumar la ganancia de un proveedor en
+          // pesos con la de guaraníes daría un número que no significa nada, y el tipo de cambio
+          // sería el de cuál. Al cliente sí le da lo mismo en qué panel se generó, eso se suma.
           items: (() => {
             const acc = {};
             (r.paneles || []).forEach((p) => (p.items || []).filter((i) => i.cobra).forEach((i) => {
-              const a = acc[i.proveedor] = acc[i.proveedor] || { proveedor: i.proveedor, pct: i.pct, base: i.base, dif: i.dif, usdt: '0' };
+              const k = `${i.proveedor}|${i.divisa}`;
+              const a = acc[k] = acc[k] || {
+                proveedor: i.proveedor, divisa: i.divisa,
+                pct: i.pct, base: i.base, excedente: i.dif, tc: i.tasa,
+                profit: '0', monto: '0', usdt: '0', paneles: new Set(),
+              };
+              a.profit = money.add(a.profit, i.profit);
+              a.monto = money.add(a.monto, i.monto);
               a.usdt = money.add(a.usdt, i.usdt);
+              a.paneles.add(i.panel);
             }));
             return Object.values(acc)
-              .map((a) => ({ ...a, usdt: money.round(a.usdt, 2) }))
+              .map((a) => ({
+                ...a,
+                profit: money.round(a.profit, 2),
+                monto: money.round(a.monto, 2),
+                usdt: money.round(a.usdt, 2),
+                paneles: [...a.paneles],
+              }))
               .sort((a, b) => Number(b.usdt) - Number(a.usdt));
           })(),
         };
@@ -177,8 +197,13 @@ function aTexto(f, { detalle = false } = {}) {
 
   if (f.externos && f.externos.items && f.externos.items.length) {
     L.push('<b>Proveedores externos</b>');
-    f.externos.items.slice(0, 15).forEach((i) => L.push(`  ${esc(i.proveedor)}: ${$(i.usdt)} USDT`));
-    if (f.externos.items.length > 15) L.push(`  …y ${f.externos.items.length - 15} más`);
+    L.push('<i>Se cobra la diferencia entre lo que cuesta el proveedor y tu base.</i>');
+    // En Telegram no entra una tabla, pero sí el porcentaje que se cobra y en qué moneda salió:
+    // sin eso el cliente ve un USDT que no puede verificar contra nada.
+    f.externos.items.slice(0, 15).forEach((i) => L.push(
+      `  ${esc(i.proveedor)} · ${esc(i.divisa)} · ${esc(i.excedente)}% de ${$(i.profit)} → ${$(i.usdt)} USDT`,
+    ));
+    if (f.externos.items.length > 15) L.push(`  …y ${f.externos.items.length - 15} más (están en el link)`);
     L.push(`  Total → <b>${$(f.externos.total_usdt)} USDT</b>`);
     L.push('');
   }

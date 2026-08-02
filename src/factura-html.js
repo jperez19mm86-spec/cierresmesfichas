@@ -42,12 +42,45 @@ function pagina({ factura: f, actualizado_at }) {
   if (detalle) detalle += '</tbody></table>';
 
   const ext = f.externos;
-  const extHtml = (ext && ext.items && ext.items.length)
+  // Se agrupa POR MONEDA: el tipo de cambio es uno por moneda, así que va en el encabezado del
+  // bloque y no repetido en cada fila. Y así la ganancia queda al lado de la moneda en la que se
+  // generó, que es la única forma de que el cliente pueda verificarla contra su panel.
+  let extTablas = '';
+  if (ext && ext.items && ext.items.length) {
+    const porDiv = {};
+    ext.items.forEach((it) => {
+      // Los links que ya se mandaron guardan la foto vieja, sin ganancia ni moneda. Se completa lo
+      // que se puede deducir para que ese link siga abriendo bien en vez de mostrar celdas vacías.
+      const i = {
+        ...it,
+        divisa: it.divisa || '—',
+        excedente: it.excedente != null ? it.excedente
+          : (money.esNumero(it.pct) && money.esNumero(it.base) ? money.sub(it.pct, it.base) : '—'),
+      };
+      (porDiv[i.divisa] = porDiv[i.divisa] || []).push(i);
+    });
+    extTablas = Object.keys(porDiv)
+      .map((div) => {
+        const its = porDiv[div];
+        const tc = its.find((i) => i.tc) || {};
+        const sub = its.reduce((a, i) => money.add(a, i.usdt), '0');
+        return `<h3>${esc(div)} <span class="m">${tc.tc ? `· tipo de cambio ${$(tc.tc)}` : '· sin tipo de cambio cargado'}</span></h3>
+         <div class="scroll"><table>
+          <thead><tr><th>Proveedor</th><th class="r">Ganancia</th><th class="r">Excedente</th><th class="r">A cobrar</th><th class="r">USDT</th></tr></thead>
+          <tbody>${its.map((i) => `<tr><td>${esc(i.proveedor)}</td><td class="r">${i.profit ? $(i.profit) : '—'}</td>`
+            + `<td class="r"><b>${esc(i.excedente)}%</b><span class="m"> (${esc(i.pct)}−${esc(i.base)})</span></td>`
+            + `<td class="r">${i.monto ? $(i.monto) : '—'}</td><td class="r">${$(i.usdt)}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(div)}</td><td class="r"><b>${$(sub)}</b></td></tr></tfoot>
+         </table></div>`;
+      })
+      .join('');
+  }
+  const extHtml = extTablas
     ? `<div class="card"><h2>Proveedores externos</h2>
-        <p class="m">Se cobran aparte de las cargas: son los proveedores cuyo costo está por encima de tu porcentaje. Se calcula sobre lo que ese proveedor generó.</p>
-        <table><thead><tr><th>Proveedor</th><th class="r">Su %</th><th class="r">Tu base</th><th class="r">USDT</th></tr></thead><tbody>
-        ${ext.items.map((i) => `<tr><td>${esc(i.proveedor)}</td><td class="r">${esc(i.pct)}%</td><td class="r m">${esc(i.base)}%</td><td class="r">${$(i.usdt)}</td></tr>`).join('')}
-        </tbody></table>
+        <p class="m">Se cobran aparte de las cargas. Son los proveedores que cuestan más que tu porcentaje: se te cobra solo la <b>diferencia</b> —
+        si el proveedor cuesta 14% y tu base es 6%, se cobra 8%— aplicada sobre la ganancia que dio ese proveedor.
+        Si un proveedor cuesta igual o menos que tu base, o si dio pérdida, no aparece acá.</p>
+        ${extTablas}
         <p class="tot">Total proveedores: <b>${$(ext.total_usdt)} USDT</b></p></div>`
     : '';
 
@@ -74,6 +107,10 @@ function pagina({ factura: f, actualizado_at }) {
  table{width:100%;border-collapse:collapse;margin:6px 0}
  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--m);font-weight:600;padding:6px 4px;border-bottom:1px solid var(--b)}
  td{padding:6px 4px;border-bottom:1px solid #f2ebf1;font-size:13.5px}
+ tfoot td{border-bottom:none;padding-top:8px}
+ /* si una tabla no entra en un teléfono, se desplaza ELLA sola — la página nunca se mueve de costado */
+ .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .scroll table{min-width:460px}
  .r{text-align:right}
  .anul td{opacity:.55}
  .tot{margin:10px 0 0;font-size:15px}
