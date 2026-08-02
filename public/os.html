@@ -585,6 +585,66 @@ async function facAnular() {
   toast(r.borrados + ' movimientos borrados · ' + money(r.total,2) + ' USDT');
   facturar();
 }
+
+// ───────── 📄 LA FACTURA DEL MES ─────────
+// Junta las dos facturas (consumo y externos) más la cuenta corriente, en un documento para
+// mandarle al cliente. Los números salen de las mismas funciones que las pantallas: lo que se
+// manda no puede diferir de lo que se ve acá.
+async function verFactura(clienteId) {
+  const mes = val('fac-mes');
+  toast('Armando la factura…');
+  const r = await api('/api/os/factura/' + clienteId + '?mes=' + encodeURIComponent(mes));
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  const $ = (x) => money(x, 2);
+  const cons = r.consumo ? ('<div class="card" style="margin:8px 0"><b>Cargas del mes</b>'
+    + '<div class="muted" style="margin-top:4px">' + r.consumo.pedidos + ' carga(s) · ' + $(r.consumo.vendido_usdt) + ' USDT</div>'
+    + '<table style="margin-top:6px"><tbody>' + (r.consumo.porDivisa||[]).map(d => '<tr><td>' + esc(d.divisa) + '</td><td class="right">' + money(d.vendido,2) + '</td><td class="right muted">TC ' + money(d.tc,2) + '</td><td class="right">' + money(d.vendidoUsdt,2) + ' USDT</td></tr>').join('') + '</tbody></table>'
+    + '<div style="margin-top:6px">Comisión <b>' + esc(r.consumo.base) + '%</b> → <b style="color:var(--gold)">' + $(r.consumo.total_usdt) + ' USDT</b></div></div>') : '';
+  const ex = r.externos;
+  const extHtml = (ex && ex.items && ex.items.length)
+    ? ('<div class="card" style="margin:8px 0"><b>Proveedores externos</b>'
+       + (ex.incompleto ? '<div class="muted" style="color:var(--red)">⚠ el reporte del casino quedó incompleto</div>' : '')
+       + '<table style="margin-top:6px"><thead><tr><th>Proveedor</th><th class="right">Su %</th><th class="right">Base</th><th class="right">USDT</th></tr></thead><tbody>'
+       + ex.items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + esc(i.pct) + '%</td><td class="right muted">' + esc(i.base) + '%</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
+       + '</tbody></table><div style="margin-top:6px">Total → <b style="color:var(--gold)">' + $(ex.total_usdt) + ' USDT</b></div></div>')
+    : (ex && ex.faltaBase ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: falta confirmar su % de ese mes.</span></div>'
+       : (ex && ex.error ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: ' + esc(ex.error) + '</span></div>' : ''));
+  const pagos = (r.pagosDelMes||[]).length
+    ? ('<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Por dónde</th><th class="right">USDT</th></tr></thead><tbody>'
+       + r.pagosDelMes.map(p => '<tr><td>' + esc(p.fecha) + '</td><td>' + esc(p.medio||'—') + '</td><td class="right">' + money(p.usdt,2) + '</td></tr>').join('') + '</tbody></table>')
+    : '<div class="muted" style="margin-top:4px">Sin pagos registrados este mes.</div>';
+  const html =
+    '<div id="fac-doc">'
+    + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
+    + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '') + '</div>'
+    + cons + extHtml
+    + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b></div>'
+    + '<div class="card" style="margin:8px 0"><b>Cuenta corriente</b>'
+    + '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>'
+    + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo: ' + $(r.cuenta.saldo) + ' USDT</div>'
+    + pagos
+    + '</div></div>'
+    + '<div class="row" style="margin-top:10px">'
+    + '<button onclick="facturaCopiar()">📋 Copiar para mandar</button>'
+    + '<button class="outline" onclick="facturaImprimir()">🖨 Imprimir / PDF</button>'
+    + '</div>'
+    + '<textarea id="fac-texto" style="position:absolute;left:-9999px">' + esc(r.texto) + '</textarea>';
+  document.getElementById('main').innerHTML = '<div class="card"><button class="outline small" onclick="VIEWS.facturacion()">← volver</button></div>' + html;
+}
+function facturaCopiar() {
+  const t = document.getElementById('fac-texto');
+  if (!t) return;
+  navigator.clipboard.writeText(t.value).then(() => toast('Copiada — pegala en WhatsApp o Telegram')).catch(() => toast('No se pudo copiar'));
+}
+function facturaImprimir() {
+  const d = document.getElementById('fac-doc');
+  if (!d) return;
+  const w = window.open('', '_blank');
+  w.document.write('<html><head><title>Factura</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left;font-size:13px}.right{text-align:right}.muted{color:#666;font-size:12px}.card{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}</style></head><body>' + d.innerHTML + '</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
 // ───────── 🧾 COMPROBANTES DE PAGO ─────────
 // Los sube el cliente desde la pantalla pública y quedan PENDIENTES. Aprobar genera el
 // movimiento de pago, que es lo único que baja la deuda. Por eso el monto que se acredita se
@@ -1137,21 +1197,11 @@ VIEWS.movimientos = async () => {
   const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
   const movs = (await api('/api/os/movimientos')).movimientos||[];
   document.getElementById('main').innerHTML = `
-    <div class="card"><h2>💰 Registrar carga (comercial)</h2>
-      <div class="row">
-        <div><label>Cliente</label><select id="mc-cli" onchange="mcPaneles()">${cliOpts}</select></div>
-        <div><label>Panel</label><select id="mc-pan"></select></div>
-        <div><label>Carga (ARS)</label><input id="mc-carga" type="number" placeholder="20000000"/></div>
-        <div><label>TC (opcional)</label><input id="mc-tc" placeholder="auto"/></div>
-        <button onclick="regCarga()">Registrar + avisar</button>
-      </div>
-      <div class="muted">Calcula fee = base% × carga, equivalente USDT, suma a la deuda y manda el aviso de Telegram.</div>
-    </div>
     <div class="card"><h2>💳 Registrar pago</h2>
       <div class="row">
         <div><label>Cliente</label><select id="mp-cli">${cliOpts}</select></div>
         <div><label>Monto (USDT)</label><input id="mp-monto" type="number" placeholder="1000"/></div>
-        <button onclick="regPago()">Registrar pago</button>
+        <div style="flex:0"><label>¿POR DÓNDE?</label><select id="mp-medio"><option value="cvu">CVU / transferencia</option><option value="usdt">USDT</option><option value="efectivo">Efectivo</option><option value="otro">Otro</option></select></div><button onclick="regPago()">Registrar pago</button>
       </div>
     </div>
     <div class="card"><h2>Movimientos (${movs.length})</h2>
@@ -1167,13 +1217,8 @@ function mcPaneles(){
   const cli=val('mc-cli'); const opts=_paneles.filter(p=>p.cliente_id===cli).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
   const sel=document.getElementById('mc-pan'); if(sel) sel.innerHTML = opts||'<option value="">(sin paneles)</option>';
 }
-async function regCarga(){
-  const r=await api('/api/os/movimientos/carga',{method:'POST',body:JSON.stringify({cliente_id:val('mc-cli'),panel_id:val('mc-pan'),carga:val('mc-carga'),tc:val('mc-tc')||undefined})});
-  if(r.ok) toast('Carga: fee '+money(r.equivUsdt,2)+' USDT — deuda '+money(r.deuda.total,2));
-  VIEWS.movimientos();
-}
 async function regPago(){
-  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:val('mp-cli'),monto_usdt:val('mp-monto')})});
+  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:val('mp-cli'),monto_usdt:val('mp-monto'),medio:val('mp-medio')})});
   if(r.ok) toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT');
   VIEWS.movimientos();
 }
@@ -1506,7 +1551,7 @@ async function calcularFac(){
           +'<td class="right"><b>'+money(c.fee_usdt,2)+'</b></td>'
           +'<td class="right" style="opacity:.7">'+money(c.casino_usdt,2)+'</td>'
           +'<td class="right">'+dif(c.dif_pct)+'</td>'
-          +'<td>'+(chips||'<span class="muted">—</span>')+'</td></tr>';
+          +'<td>'+(chips||'<span class="muted">—</span>')+'</td>'+'<td class="right"><button class="outline small" onclick="verFactura(\''+c.cliente_id+'\')">📄</button></td></tr>';
       }).join('')||'<tr><td colspan="8" class="empty">Sin pedidos cargados ni movimiento en el casino este mes.</td></tr>')
     + '</tbody></table>'
     + ((r.errores&&r.errores.length)?('<div class="muted" style="color:var(--gold);margin-top:6px">⚠ el control del casino falló: '+r.errores.map(esc).join('<br>')+'<br>La facturación igual salió, porque sale de los pedidos.</div>'):'');

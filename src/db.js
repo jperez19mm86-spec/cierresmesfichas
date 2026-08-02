@@ -398,7 +398,7 @@ ensureColumns('reporte_diario', { moneda: "TEXT DEFAULT 'ARS'" });
 ensureColumns('estad_captura', { modo: 'TEXT' });
 // De dónde salió un movimiento. Si lo generó una emisión mensual lleva `origen`
 // ('facturacion' | 'externos') y `origen_ref` (el mes). Cargado a mano quedan en NULL.
-ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT' });
+ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

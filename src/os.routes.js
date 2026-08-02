@@ -30,6 +30,7 @@ const estadMes = require('./estadisticas-mes.service');
 const comprobantes = require('./comprobantes-store');
 const emision = require('./emision.service');
 const ventasOnline = require('./ventas-online.service');
+const facturaSvc = require('./factura.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -627,44 +628,26 @@ function mount(app) {
     ok(res, { movimiento_id: movimiento.id, monto_usdt: montoUsdt, tc: tcUsado, deuda: deudaSvc.cuentaCorriente(cli.id) });
   }));
 
-  // carga COMERCIAL: calcula base→fee→USDT, registra movimiento, deuda y avisa por Telegram
-  app.post('/api/os/movimientos/carga', wrap(async (req, res) => {
-    const { cliente_id, panel_id, carga, divisa, tc, fecha } = req.body || {};
-    const cli = clientes.get(cliente_id); if (!cli) return err(res, 404, 'cliente no encontrado');
-    const pan = panel_id ? paneles.get(panel_id) : null;
-    const base = basePctEfectivo(cli, pan, String(fecha || mesTZ()).slice(0, 7));
-    if (base == null) return err(res, 400, 'el cliente/panel no tiene precio base configurado (cargalo con vigencia)');
-    if (!money.isPos(carga)) return err(res, 400, 'carga inválida');
-    // ⚠ el TC tiene que ser el de LA DIVISA de la carga. Antes se usaba siempre el del peso
-    // argentino, así que un fee en pesos uruguayos salía ~30 veces más chico sin que se notara.
-    const _div = String(divisa || 'ARS').toUpperCase();
-    let tcUsado = tc;
-    if (!tcUsado) {
-      const t = tcUnico.tcDelMes(_div, String(fecha || mesTZ()).slice(0, 7));
-      tcUsado = t.valor;
-      if (!tcUsado && _div === 'ARS') { const viv = await tcSvc.tcAhora(); tcUsado = viv.tc; } // el vivo, solo para ARS
-    }
-    if (!money.isPos(tcUsado)) return err(res, 400, `no hay tipo de cambio para ${_div} en ese mes — cargalo en 💱 Tipos de cambio`);
-    const montoDivisa = money.pct(carga, base);           // fee en ARS
-    const equivUsdt = money.round(money.div(montoDivisa, tcUsado), 6); // fee en USDT = deuda generada
-    const movimiento = movs.create({
-      cliente_id, panel_id: panel_id || null, tipo: 'carga', monto_ars: carga, monto_usdt: equivUsdt,
-      tc_momento: tcUsado, base_pct_aplicado: base, divisa: divisa || 'ARS', fecha,
-    });
-    const deuda = deudaSvc.cuentaCorriente(cliente_id);
-    const aviso = await notify.avisarCarga(cli, {
-      panel: pan ? pan.nombre : (cli.nombre || cli.codigo), carga, basePct: base, montoDivisa, divisa: divisa || 'ARS', tc: tcUsado, equivUsdt, deuda,
-    });
-    ok(res, { movimiento, deuda, tc: tcUsado, equivUsdt, aviso });
-  }));
+  // La CARGA COMERCIAL a mano se sacó (2-ago).
+  //
+  // Calculaba el fee de una venta y lo sumaba a la deuda. Ahora eso lo hace la Factura de consumo,
+  // que sale sola de los pedidos y se emite una vez por mes con candado contra el doble cobro.
+  // Tenerlas conviviendo era una fuga concreta: registrar la carga a mano Y emitir el mes cobraba
+  // la MISMA venta dos veces, y ni el índice único ni el chequeo previo lo veían, porque solo miran
+  // los movimientos que generó una emisión.
+  //
+  // Lo que sí queda es el LIBRO (la lista de movimientos) y el registro de PAGOS.
 
   // PAGO: registra el pago en USDT, recalcula saldo, avisa
   app.post('/api/os/movimientos/pago', wrap(async (req, res) => {
-    const { cliente_id, monto_usdt, fecha, notas } = req.body || {};
+    const { cliente_id, monto_usdt, fecha, notas, medio } = req.body || {};
     const cli = clientes.get(cliente_id); if (!cli) return err(res, 404, 'cliente no encontrado');
     if (!money.isPos(monto_usdt)) return err(res, 400, 'monto inválido');
     const antes = deudaSvc.cuentaCorriente(cliente_id).total;
-    const movimiento = movs.create({ cliente_id, tipo: 'pago', monto_usdt, fecha, notas });
+    // `medio` = por dónde entró la plata (CVU, USDT, efectivo…). Sin esto, al mes siguiente no
+    // se puede reconstruir de dónde vino cada pago, que es lo primero que se pregunta cuando
+    // un cliente reclama.
+    const movimiento = movs.create({ cliente_id, tipo: 'pago', monto_usdt, fecha, notas, medio });
     const despues = deudaSvc.cuentaCorriente(cliente_id);
     const aviso = await notify.avisarPago(cli, { nombre: cli.nombre || cli.codigo, pago: monto_usdt, deudaAnterior: antes, saldo: despues.total });
     ok(res, { movimiento, deuda: despues, aviso });
@@ -1165,6 +1148,40 @@ function mount(app) {
     const r = emision.anular({ mes: req.params.mes, origen: req.params.origen });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   });
+
+  // ───────── 📄 LA FACTURA DEL MES, para mandársela al cliente ─────────
+  // Junta las DOS facturas (consumo y proveedores externos) en un documento, más la cuenta
+  // corriente. No recalcula: pide los mismos números que muestran las pantallas, para que lo
+  // que se manda no pueda diferir de lo que dice el panel.
+  app.get('/api/os/factura/:clienteId', wrap(async (req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    // la línea de consumo sale de la MISMA función que la pantalla de Factura de consumo
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return err(res, 502, fac.error);
+    const linea = (fac.clientes || []).find((c) => c.cliente_id === req.params.clienteId) || null;
+    const f = await facturaSvc.armar({
+      clienteId: req.params.clienteId, mes, consumo: linea,
+      conExternos: req.query.externos !== '0',
+    });
+    if (!f.ok) return err(res, 404, f.error);
+    ok(res, { ...f, texto: facturaSvc.aTexto(f) });
+  }));
+
+  // Todas las facturas de un mes de una sola pasada: los pedidos se traen UNA vez, no una por
+  // cliente. Sirve para el envío de principio de mes.
+  app.get('/api/os/facturas', wrap(async (req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const conExternos = req.query.externos === '1';   // apagado por defecto: consulta el casino
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return err(res, 502, fac.error);
+    const out = [];
+    for (const linea of (fac.clientes || [])) {
+      const f = await facturaSvc.armar({ clienteId: linea.cliente_id, mes, consumo: linea, conExternos });
+      if (f.ok) out.push({ ...f, texto: facturaSvc.aTexto(f) });
+    }
+    out.sort((a, b) => Number(b.totalMes_usdt) - Number(a.totalMes_usdt));
+    ok(res, { mes, conExternos, facturas: out });
+  }));
   // ───────── REPORTES ─────────
   // Mensual (parcial, real): arma desde movimientos + tc_mes. Lo que falta (IN/OUT/RTP/profit) = API del panel.
   app.get('/api/os/reportes/mensual', (req, res) => {

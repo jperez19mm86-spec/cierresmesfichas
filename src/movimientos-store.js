@@ -20,14 +20,15 @@ function create(d) {
   // MAX+1, no COUNT: con un borrado de por medio el COUNT repite el mismo `ord`.
   const ord = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM movimientos').get().n;
   db.prepare(`INSERT INTO movimientos
-    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref)
-    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref)`).run({
+    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio)
+    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio)`).run({
     id, cli: d.cliente_id || null, pan: d.panel_id || null, prov: d.proveedor_id || null, ped: d.pedido_id || null,
     tipo: d.tipo, mars: S(d.monto_ars), musdt: S(d.monto_usdt), tc: S(d.tc_momento), base: S(d.base_pct_aplicado),
     div: d.divisa || 'ARS', fecha: d.fecha || nowISO(), uid: d.usuario_id || null, notas: d.notas || '', ca: nowISO(), ord,
     // `origen` marca que lo generó una emisión mensual y es lo que impide cobrarlo dos veces.
     // Solo lo pone emision.service: desde la ruta de alta manual llega siempre vacío.
     origen: d.origen || null, oref: d.origen_ref || null,
+    medio: d.medio || null,   // por dónde entró el pago: cvu | usdt | efectivo | …
   });
   return get(id);
 }
