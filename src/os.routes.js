@@ -423,11 +423,12 @@ function mount(app) {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
     const g = externosSvc.baseGuardada(req.params.cliente, mes);
     const cli = clientes.list().clientes.find((c) => String(c.nombre).toLowerCase() === String(req.params.cliente).toLowerCase());
+    const vig = cli ? historial.getVigente('cliente', cli.id, 'precio_base_pct') : null;
     ok(res, {
       mes, confirmada: !!g,
-      base: g ? g.base_pct : (cli && cli.precio_base_pct != null ? String(cli.precio_base_pct) : null),
+      base: g ? g.base_pct : (vig != null ? String(vig) : null),
       confirmadoAt: g ? g.confirmadoAt : null,
-      deLaFicha: cli && cli.precio_base_pct != null ? String(cli.precio_base_pct) : null,
+      deLaFicha: vig != null ? String(vig) : null,
     });
   });
   app.post('/api/os/externos/:cliente/base', wrap((req, res) => {

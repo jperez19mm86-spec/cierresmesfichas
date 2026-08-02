@@ -24,6 +24,7 @@ const paneles = require('./paneles-store');
 const clientes = require('./clientes-store');
 const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
+const historial = require('./historial');
 const casinoConex = require('./casino-conexiones-store');
 const money = require('./lib/money');
 const { db } = require('./db');
@@ -122,7 +123,8 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
 
   // % base: el que mandan, si no el confirmado del mes, si no el de la ficha del cliente
   const guardada = baseGuardada(cli.nombre, mes);
-  const base = basePct != null ? String(basePct) : (guardada ? guardada.base_pct : (cli.precio_base_pct != null ? String(cli.precio_base_pct) : null));
+  const deLaFicha = historial.getVigente('cliente', cli.id, 'precio_base_pct');
+  const base = basePct != null ? String(basePct) : (guardada ? guardada.base_pct : (deLaFicha != null ? String(deLaFicha) : null));
   if (base == null) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
   }
