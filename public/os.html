@@ -656,6 +656,18 @@ async function facturaEnviar(clienteId) {
   if (!r.ok) return toast('No se envió: ' + (r.error || ''));
   toast('✅ Enviada · ' + r.partes + ' mensaje(s) · total ' + money(r.total_usdt,2) + ' USDT');
 }
+
+// Crea el link con el que el cliente ve el desglose completo. Guarda una FOTO: si despues entran
+// cargas nuevas, el link sigue mostrando lo que se le mando.
+async function facturaLink(clienteId) {
+  const mes = val('fac-mes');
+  const r = await api('/api/os/factura/' + clienteId + '/link', { method: 'POST', body: JSON.stringify({ mes }) });
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  const msg = r.actualizado ? 'Link actualizado (es el mismo de antes, con los numeros de ahora)' : 'Link creado';
+  navigator.clipboard.writeText(r.url)
+    .then(() => toast(msg + ' y copiado'))
+    .catch(() => toast(msg + ': ' + r.url));
+}
 function facturaCopiar() {
   const t = document.getElementById('fac-texto');
   if (!t) return;

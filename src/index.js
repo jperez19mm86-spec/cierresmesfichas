@@ -631,6 +631,21 @@ app.get('/api/historial', (req, res) => {
 // ─────────────── Frontend estático ───────────────
 // Vista CLIENTE (público): http://localhost:PORT/pedir
 app.get('/pedir', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pedir.html')));
+
+// La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
+// llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
+// el link tiene que seguir diciendo lo que se le mandó.
+app.get('/factura/:token', (req, res) => {
+  const facturaSvc = require('./factura.service');
+  const html = require('./factura-html');
+  const r = facturaSvc.porToken(req.params.token);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  // que no quede cacheada en un proxy: es información de una sola persona
+  res.setHeader('Cache-Control', 'no-store, private');
+  if (!r) return res.status(404).send(html.paginaError('No encontramos esa factura'));
+  if (r.revocado) return res.status(410).send(html.paginaError('Este link ya no está disponible'));
+  res.send(html.pagina(r));
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 

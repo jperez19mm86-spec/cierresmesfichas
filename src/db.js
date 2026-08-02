@@ -51,6 +51,20 @@ db.exec(`
     actualizado_at TEXT
   );
 
+  /* ───── LINK PÚBLICO DE UNA FACTURA ─────
+     El cliente abre el desglose completo sin tener que entrar a ningún lado, y por Telegram le
+     llega solo el resumen. Guarda una FOTO de la factura: si después entran más cargas o cambia
+     un %, el link tiene que seguir mostrando lo que se le mandó, no un número nuevo. */
+  CREATE TABLE IF NOT EXISTS factura_link (
+    token TEXT PRIMARY KEY,       -- al azar y largo: es la única llave, no puede ser adivinable
+    cliente_id TEXT, mes TEXT,
+    datos TEXT,                   -- la factura congelada (JSON)
+    creado_at TEXT, actualizado_at TEXT,
+    accesos INTEGER DEFAULT 0, ultimo_acceso TEXT,
+    revocado INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS ix_factura_link_cli ON factura_link (cliente_id, mes);
+
   CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, sub TEXT, createdAt TEXT);
 
   /* ───── COMERCIAL ───── */

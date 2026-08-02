@@ -1151,6 +1151,14 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   });
 
+  /** La URL pública de este servicio, para armar los links que se le mandan al cliente. */
+  function _urlPublica(req) {
+    const cfg = String(configStore.getCfg('urlPublica') || '').trim().replace(/\/+$/, '');
+    if (cfg) return cfg;
+    const host = process.env.RAILWAY_PUBLIC_DOMAIN || (req && req.get && req.get('host')) || 'localhost';
+    return /^https?:\/\//.test(host) ? host.replace(/\/+$/, '') : 'https://' + host;
+  }
+
   // ───────── 📄 LA FACTURA DEL MES, para mandársela al cliente ─────────
   // Junta las DOS facturas (consumo y proveedores externos) en un documento, más la cuenta
   // corriente. No recalcula: pide los mismos números que muestran las pantallas, para que lo
@@ -1170,6 +1178,21 @@ function mount(app) {
   }));
 
 
+
+  // El LINK con el que el cliente ve el desglose completo. Por Telegram le va el resumen y esto.
+  app.post('/api/os/factura/:clienteId/link', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return err(res, 502, fac.error);
+    const linea = (fac.clientes || []).find((c) => c.cliente_id === req.params.clienteId) || null;
+    const f = await facturaSvc.armar({ clienteId: req.params.clienteId, mes, consumo: linea });
+    if (!f.ok) return err(res, 404, f.error);
+    const l = facturaSvc.crearLink(f);
+    ok(res, { ...l, url: _urlPublica(req) + '/factura/' + l.token, mes });
+  }));
+  app.get('/api/os/factura/:clienteId/links', (req, res) =>
+    ok(res, { links: facturaSvc.linksDe(req.params.clienteId, req.query.mes).map((x) => ({ ...x, url: _urlPublica(req) + '/factura/' + x.token })) }));
+  app.delete('/api/os/factura-link/:token', (req, res) => { facturaSvc.revocar(req.params.token); ok(res); });
   // Mandar la factura al grupo de Telegram DEL CLIENTE.
   //
   // ⚠️ Es una acción que sale para afuera: le llega al cliente. Por eso se dispara sólo desde el
@@ -1191,8 +1214,14 @@ function mount(app) {
     const f = await facturaSvc.armar({ clienteId: cli.id, mes, consumo: linea, conExternos: req.body.externos !== false });
     if (!f.ok) return err(res, 400, f.error);
 
-    // Telegram corta en 4096: se parte por líneas y se manda en orden.
-    const partes = facturaSvc.partir(facturaSvc.aTexto(f, { detalle: conDetalle }));
+    // Por Telegram va el RESUMEN, y el desglose completo por link: 153 cargas en tres mensajes
+    // seguidos no hay quien las lea, y en la página se pueden mirar por panel con calma.
+    let texto = facturaSvc.aTexto(f, { detalle: conDetalle });
+    if (req.body.link !== false) {
+      const l = facturaSvc.crearLink(f);
+      texto += `\n\n📄 <a href="${_urlPublica(req)}/factura/${l.token}">Ver el detalle completo</a>`;
+    }
+    const partes = facturaSvc.partir(texto);
     const enviados = [];
     for (const p of partes) {
       const r = await telegram.sendMessage(tok, chat, p);

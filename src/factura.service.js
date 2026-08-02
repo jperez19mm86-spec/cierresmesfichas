@@ -19,6 +19,8 @@ const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const ventasOnline = require('./ventas-online.service');
 const money = require('./lib/money');
+const crypto = require('crypto');
+const { db } = require('./db');
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const nombreMes = (m) => {
@@ -226,4 +228,56 @@ function partir(texto, max = 3800) {
   return partes;
 }
 
-module.exports = { armar, aTexto, partir, nombreMes };
+
+// ── link público ────────────────────────────────────────────────────────────
+
+/**
+ * Crea (o refresca) el link con el que el cliente ve el desglose completo.
+ *
+ * Guarda una FOTO de la factura. Si el link recalculara al abrirlo, el cliente podría ver un
+ * número distinto del que se le mandó — entran cargas nuevas, se confirma otro %, cambia el TC.
+ * Una factura que se mueve sola no se puede auditar.
+ *
+ * El token es al azar y largo: es la única llave del documento, así que no puede ser adivinable
+ * ni derivable del id del cliente.
+ */
+function crearLink(factura) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  const ya = db.prepare('SELECT token FROM factura_link WHERE cliente_id=? AND mes=? AND revocado=0')
+    .get(factura.cliente.id, factura.mes);
+  const at = new Date().toISOString();
+  if (ya) {
+    // Se refresca la foto pero se conserva el token: si ya se lo mandaste, el link que tiene sigue
+    // andando. Queda registrado cuándo se actualizó, para que no parezca la original.
+    db.prepare('UPDATE factura_link SET datos=?, actualizado_at=? WHERE token=?')
+      .run(JSON.stringify(factura), at, ya.token);
+    return { token: ya.token, actualizado: true };
+  }
+  db.prepare('INSERT INTO factura_link (token, cliente_id, mes, datos, creado_at, actualizado_at) VALUES (?,?,?,?,?,?)')
+    .run(token, factura.cliente.id, factura.mes, JSON.stringify(factura), at, at);
+  return { token, actualizado: false };
+}
+
+/** La factura de un token. Cuenta el acceso: sirve para saber si el cliente la abrió. */
+function porToken(token) {
+  const r = db.prepare('SELECT * FROM factura_link WHERE token=?').get(String(token || ''));
+  if (!r) return null;
+  if (r.revocado) return { revocado: true };
+  db.prepare('UPDATE factura_link SET accesos=accesos+1, ultimo_acceso=? WHERE token=?')
+    .run(new Date().toISOString(), r.token);
+  try {
+    return { factura: JSON.parse(r.datos), creado_at: r.creado_at, actualizado_at: r.actualizado_at, accesos: r.accesos + 1 };
+  } catch (e) { return null; }
+}
+
+function linksDe(clienteId, mes) {
+  return db.prepare('SELECT token, mes, creado_at, actualizado_at, accesos, ultimo_acceso, revocado FROM factura_link WHERE cliente_id=?' + (mes ? ' AND mes=?' : '') + ' ORDER BY mes DESC')
+    .all(...(mes ? [clienteId, mes] : [clienteId]));
+}
+
+function revocar(token) {
+  db.prepare('UPDATE factura_link SET revocado=1 WHERE token=?').run(String(token));
+  return true;
+}
+
+module.exports = { armar, aTexto, partir, crearLink, porToken, linksDe, revocar, nombreMes };

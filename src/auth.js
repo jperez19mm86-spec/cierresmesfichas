@@ -30,6 +30,10 @@ const PUBLIC = [
   // Solo puede CREAR uno, y queda pendiente — aprobarlo (que es lo que mueve la deuda) exige
   // estar adentro del panel.
   /^\/api\/comprobante\/?$/,
+  // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
+  // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
+  // token abre UNA factura de UN cliente, nunca un listado.
+  /^\/factura\/[A-Za-z0-9_-]+\/?$/,
   /^\/logo\.png$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.
