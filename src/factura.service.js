@@ -63,6 +63,24 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
         porPanel = Object.values(acc)
           .map((a) => ({ ...a, monto: money.round(String(a.monto), 2) }))
           .sort((a, b) => Number(b.monto) - Number(a.monto));
+
+        // El cliente audita POR PANEL, no por orden cronológico global: quiere ver las cargas de
+        // un panel juntas y numeradas. Así que se ordena por panel (el de más volumen primero) y
+        // dentro de cada uno por fecha, con su número de orden.
+        const orden = {};
+        porPanel.forEach((p, i) => { orden[`${p.panel}|${p.divisa}`] = i; });
+        detalle.sort((a, b) => {
+          const oa = orden[`${a.panel}|${a.divisa}`] ?? 999;
+          const ob = orden[`${b.panel}|${b.divisa}`] ?? 999;
+          if (oa !== ob) return oa - ob;
+          return String(a.fecha + a.hora).localeCompare(String(b.fecha + b.hora));
+        });
+        const cuenta = {};
+        detalle.forEach((d) => {
+          const k = `${d.panel}|${d.divisa}`;
+          cuenta[k] = (cuenta[k] || 0) + 1;
+          d.n = cuenta[k];                 // 1, 2, 3… dentro de SU panel
+        });
       }
     } catch (e) { /* si el puente no responde, la factura sale igual sin el detalle */ }
   }
@@ -171,9 +189,19 @@ function aTexto(f, { detalle = false } = {}) {
   if (detalle && (f.detalle || []).length) {
     L.push('');
     L.push('<b>Detalle de las cargas</b>');
-    f.detalle.forEach((d) => L.push(
-      `  ${esc(d.fecha)} ${esc(d.hora)} · ${esc(d.panel)} · ${esc(d.divisa)} ${money.fmt(String(d.monto), 2)}${d.anulando ? ' (anulando)' : ''}`,
-    ));
+    // Agrupado por panel: es como lo auditan. Cada bloque arranca con el panel, su moneda y su
+    // subtotal, y las cargas van numeradas DENTRO del panel (1, 2, 3…), no del mes.
+    let panelActual = null;
+    f.detalle.forEach((d) => {
+      const k = `${d.panel}|${d.divisa}`;
+      if (k !== panelActual) {
+        panelActual = k;
+        const p = (f.porPanel || []).find((x) => `${x.panel}|${x.divisa}` === k);
+        L.push('');
+        L.push(`▸ <b>${esc(d.panel)}</b> (${esc(d.divisa)})${p ? ` — ${p.cargas} carga(s) · ${money.fmt(p.monto, 2)}` : ''}`);
+      }
+      L.push(`   ${d.n}. ${esc(d.fecha.slice(8) + '/' + d.fecha.slice(5, 7))} ${esc(d.hora)} · ${money.fmt(String(d.monto), 2)}${d.anulando ? ' (anulando)' : ''}`);
+    });
   }
   return L.join('\n');
 }
@@ -184,10 +212,15 @@ function aTexto(f, { detalle = false } = {}) {
  */
 function partir(texto, max = 3800) {
   const lineas = String(texto).split('\n');
-  const partes = []; let actual = '';
+  const partes = []; let actual = ''; let bloque = '';
   for (const l of lineas) {
-    if ((actual + '\n' + l).length > max) { if (actual) partes.push(actual); actual = l; }
-    else actual = actual ? actual + '\n' + l : l;
+    if (l.startsWith('▸ ')) bloque = l;          // arranca un panel: se recuerda su encabezado
+    if ((actual + '\n' + l).length > max) {
+      if (actual) partes.push(actual);
+      // Si el corte cae a mitad de un panel, el mensaje siguiente arranca repitiendo de cuál es.
+      // Sin esto, la segunda parte serían números sueltos sin decir a qué panel pertenecen.
+      actual = (bloque && !l.startsWith('▸ ')) ? `${bloque} <i>(sigue)</i>\n${l}` : l;
+    } else actual = actual ? `${actual}\n${l}` : l;
   }
   if (actual) partes.push(actual);
   return partes;
