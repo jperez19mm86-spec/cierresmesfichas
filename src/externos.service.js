@@ -218,6 +218,14 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     if (deFoto) { resultados[i] = { ok: true, filas: deFoto }; deLaFoto++; return; }
     const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
     if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; return; }
+    // Si la foto de esa combinación se INTENTÓ y falló, no tiene sentido volver a preguntarle al
+    // casino en vivo: falla igual y tarda. Pasaba con Oscar: 14 consultas condenadas, 157 segundos
+    // de espera para terminar dando lo mismo. Se dice que falta y se sigue.
+    const c = estadMes.captura(t.cxId, mes, t.divisa, estadMes.grupoDe(t.panel) === 'superagent' ? 'superagent' : 'nodo', t.panel.id_usuario);
+    if (c && c.estado === 'error' && !refrescar) {
+      resultados[i] = { ok: false, error: `la foto del mes falló para esta conexión (${c.error}). Volvé a sacarla en 📸 Foto del mes.` };
+      return;
+    }
     pendientes.push(i);
   });
 
