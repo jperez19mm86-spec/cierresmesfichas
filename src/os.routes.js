@@ -26,6 +26,7 @@ const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
 const cierreMesSvc = require('./cierre-mes.service');
+const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const importSheet = require('./import-sheet.service');
@@ -413,11 +414,15 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 404, 'ese mes no estaba congelado');
   });
 
+  // El casino tarda 50-120s por reporte. Las ganancias quedan cacheadas: un mes cerrado no cambia.
+  app.get('/api/os/externos/_cache', (_req, res) => ok(res, { meses: ganCache.resumen(), vigenciaMesEnCursoMin: ganCache.VIGENCIA_MIN }));
+  app.delete('/api/os/externos/_cache', (req, res) => ok(res, ganCache.limpiar(req.query.mes || null)));
+
   // ───────── §9 PROVEEDORES EXTERNOS ─────────
   // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
   app.get('/api/os/externos/:cliente', wrap(async (req, res) => {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
-    const r = await externosSvc.reporte({ clienteNombre: req.params.cliente, mes, basePct: req.query.base });
+    const r = await externosSvc.reporte({ clienteNombre: req.params.cliente, mes, basePct: req.query.base, refrescar: req.query.refrescar === '1' });
     // 409 + faltaBase → el front pregunta "este cliente trabaja al X%, ¿es correcto?" antes de calcular
     if (!r.ok) return res.status(r.faltaBase ? 409 : 404).json({ ok: false, error: r.error, faltaBase: !!r.faltaBase });
     ok(res, r);

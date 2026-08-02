@@ -232,6 +232,12 @@ db.exec(`
   );
   /* Foto de la matriz de UN mes. Los precios cambian (costo del proveedor y % del cliente), y sin
      esto tocar un precio hoy cambiaba lo que calculaba para cualquier mes ya facturado. */
+  /* Ganancias por proveedor que devolvio el casino. Sin esto cada corrida del reporte de §9 le
+     vuelve a preguntar lo mismo (50-120s) y con el casino lento se pasa del timeout. */
+  CREATE TABLE IF NOT EXISTS ganancias_cache (
+    conexion_id TEXT, nodo TEXT, mes TEXT, divisa TEXT, datos TEXT, capturedAt TEXT,
+    PRIMARY KEY (conexion_id, nodo, mes, divisa)
+  );
   CREATE TABLE IF NOT EXISTS cierre_mes_snapshot (
     mes TEXT PRIMARY KEY, datos TEXT, createdAt TEXT, notas TEXT
   );

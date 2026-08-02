@@ -25,6 +25,7 @@ const clientes = require('./clientes-store');
 const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
 const historial = require('./historial');
+const cache = require('./ganancias-cache');
 const casinoConex = require('./casino-conexiones-store');
 const money = require('./lib/money');
 const { db } = require('./db');
@@ -123,7 +124,7 @@ function confirmarBase(cliente, mes, base_pct) {
  * El reporte de un cliente para un mes.
  * @returns { cliente, mes, base, baseConfirmada, paneles[], totales, sinVincular[], avisos[] }
  */
-async function reporte({ clienteNombre, mes, basePct = null }) {
+async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }) {
   const cli = clientes.list().clientes.find((c) => K(c.nombre) === K(clienteNombre));
   if (!cli) return { ok: false, error: `no existe el cliente "${clienteNombre}"` };
 
@@ -149,7 +150,7 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
   const sinVincular = new Map();
   const negativos = new Map(); // proveedor con % MENOR que la base → generaría negativo
   const avisos = [];
-  const cache = new Map();
+  let deCache = 0, delCasino = 0;
 
   for (const panel of mios) {
     const cx = casinoConex.list().find((c) => c.id === panel.conexion_id) || casinoConex.list().find((c) => K(c.nombre) === K(panel.sistema));
@@ -160,11 +161,14 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
     // Un SuperAgente puede tener varias divisas; de un Distribuidor/Agente para abajo hay UNA sola.
     const divisas = (panel.divisas || []).length ? panel.divisas : ['ARS'];
     for (const divisa of divisas) {
-      const clave = `${cx.id}|${panel.id_usuario}|${mes}|${divisa}`;
-      let r = cache.get(clave);
-      if (!r) {
+      // Primero el caché: un mes cerrado ya no cambia, y volver a preguntarle al casino es lo que
+      // hacía que el reporte tardara minutos y se pasara del timeout.
+      let r = null;
+      const guardado = cache.get(cx.id, panel.id_usuario, mes, divisa, { refrescar });
+      if (guardado) { r = { ok: true, filas: guardado.filas }; deCache++; }
+      else {
         r = await cliCx.reporteProveedoresNodo({ nodoId: panel.id_usuario, from, to, currency: divisa });
-        cache.set(clave, r);
+        if (r.ok) { cache.set(cx.id, panel.id_usuario, mes, divisa, r.filas); delCasino++; }
       }
       if (!r.ok) { avisos.push(`${panel.nombre} (${divisa}): ${r.error}`); continue; }
       const tasa = tcDe(divisa, mes);
@@ -228,6 +232,7 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
+    deCache, delCasino,
     cobrables: filas.filter((f) => f.cobra).length,
     revisados: filas.length,
     totalUsdt: money.round(totalUsdt, 2),
