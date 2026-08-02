@@ -606,6 +606,13 @@ const CIE_STYLE = `<style>
     .cie-b-sug{background:rgba(210,160,0,.2);color:#c90}.cie-b-no{background:rgba(140,140,140,.2);color:var(--muted)}
     /* VENDEDORES: no son clientes, pagan el costo real. Van al final, en otro color, y su celda
        se marca si NO coincide con el % base (que es lo único que deberían tener). */
+    .cie-fam{background:rgba(140,100,200,.14);cursor:pointer;user-select:none}
+    .cie-fam td{padding:5px 8px;position:sticky;left:0}
+    .cie-fam:hover{background:rgba(140,100,200,.22)}
+    .cie-est{font-size:9px;padding:1px 5px;border-radius:6px;margin-left:5px;vertical-align:middle}
+    .cie-est-ok{background:rgba(0,160,70,.18);color:#0a4}
+    .cie-est-nc{background:rgba(140,140,140,.2);color:var(--muted)}
+    .cie-est-sc{background:rgba(210,160,0,.22);color:#c90}
     .cie-hv{background:rgba(40,110,220,.14) !important;border-left:2px solid rgba(40,110,220,.5)}
     .cie-tv{background:rgba(40,110,220,.06)}
     .cie-tv:first-of-type{border-left:2px solid rgba(40,110,220,.35)}
@@ -738,41 +745,68 @@ function extCSV() {
 }
 
 // ── sub-vista MATRIZ % ──
-let _cieVerVend = false;   // los vendedores se ocultan por defecto: su celda es SIEMPRE el costo
-function cieToggleVend(){ _cieVerVend = !_cieVerVend; cieMatriz(); }
+// La familia sale del sufijo del nombre (MARCA VENDOR): BVS, SL2, SZ, OP, GameHub…
+function cieFam(n){
+  const s=String(n||'').trim();
+  const m=s.match(/(GameHub|Dima_Li|SLOT[_ ]ZONA|SL2|SL|XG|BVS|SZ|BS|EV|OP|OR|RL|KN|TVBET|TOMHORN|PLATIPUS)$/i);
+  if(!m) return 'Otros';
+  const f=m[1].toUpperCase().replace(/SLOT[_ ]ZONA/,'SZ');
+  return f;
+}
+const CIE_FAM_ORDEN = ['OP','OR','EV','BS','SZ','SL2','SL','XG','BVS','GAMEHUB','DIMA_LI','RL','KN','Otros'];
+let _cieCerradas = new Set();     // familias plegadas
+function cieFoldAll(){ const t=document.querySelectorAll(".cie-fam").length; if(_cieCerradas.size>=t) _cieCerradas=new Set(); else document.querySelectorAll(".cie-fam b").forEach(b=>_cieCerradas.add(b.textContent)); cieMatriz(); }
+function cieFold(f){ if(_cieCerradas.has(f))_cieCerradas.delete(f); else _cieCerradas.add(f); cieMatriz(); }
 async function cieMatriz(){
   const m = await api('/api/os/cierre/matriz'); _cieData = {proveedores:m.proveedores||[], clientes:m.clientes||[], celdas:m.celdas||{}};
   const provs=_cieData.proveedores, celdas=_cieData.celdas;
   // Quién es vendedor sale de la ficha del cliente, no de la matriz.
   const fichas = (await api('/api/os/clientes')).clientes||[];
   const esVend = new Set(fichas.filter(c=>c.es_vendedor).map(c=>String(c.nombre).toLowerCase()));
-  const todos = _cieData.clientes;
-  const soloCli = todos.filter(c=>!esVend.has(String(c.nombre).toLowerCase()));
-  const soloVen = todos.filter(c=> esVend.has(String(c.nombre).toLowerCase()));
-  // Clientes primero, vendedores agrupados al final (y ocultables): no se mezclan.
-  const clis = _cieVerVend ? soloCli.concat(soloVen) : soloCli;
-  const th = (c)=>{const v=esVend.has(String(c.nombre).toLowerCase());
-    return `<th class="${v?'cie-hv':''}">${esc(c.nombre)}${v?' <span class="cie-tag">vend</span>':''} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`;};
+  // LOS VENDEDORES NO VAN EN LA MATRIZ: pagan siempre el costo real del proveedor, por todos los
+  // que usen. No necesitan columna ni les aplica ninguna regla — no son clientes.
+  const clis = _cieData.clientes.filter(c=>!esVend.has(String(c.nombre).toLowerCase()));
+  const nVend = _cieData.clientes.length - clis.length;
+  const th = (c)=>`<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`;
   const head = ['<th class="cie-h0">Proveedor</th>','<th class="cie-hb">% base</th>'].concat(clis.map(th)).join('');
-  let fuera = 0;
-  const body = provs.map(p=>{
+  const nCols = clis.length + 2;
+
+  // Agrupadas por familia: es lo que hace legible una tabla de 239 filas.
+  const fams = {};
+  provs.forEach(p=>{ (fams[cieFam(p.nombre)] = fams[cieFam(p.nombre)]||[]).push(p); });
+  const orden = CIE_FAM_ORDEN.filter(f=>fams[f]).concat(Object.keys(fams).filter(f=>!CIE_FAM_ORDEN.includes(f)));
+  let sinNadie = 0, sinConfig = 0;
+  const fila = (p)=>{
     const row = celdas[p.nombre]||{};
-    const tds = clis.map(c=>{
-      const v=row[c.nombre];
-      const vend = esVend.has(String(c.nombre).toLowerCase());
-      // El vendedor paga el COSTO: si su celda no coincide, es un dato a revisar.
-      const raro = vend && v!=null && v!=='' && p.base_pct!=null && String(v)!==String(p.base_pct);
-      if(raro) fuera++;
-      return `<td class="${vend?'cie-tv':''}"><input class="cie-c${raro?' cie-raro':''}" ${raro?`title="El vendedor paga el costo (${esc(p.base_pct)}), acá dice ${esc(v)}"`:''} data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;
-    }).join('');
-    return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)}</td>`+
+    const conVal = clis.filter(c=>{const v=row[c.nombre]; return v!=null&&v!=='';});
+    const cobran = conVal.filter(c=>Number(row[c.nombre])>0).length;
+    if(!conVal.length) sinConfig++; else if(!cobran) sinNadie++;
+    const tds = clis.map(c=>{const v=row[c.nombre];
+      return `<td><input class="cie-c" data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;}).join('');
+    // marca cómo está esa fila: sin configurar ≠ decidido que no se cobra
+    const est = !conVal.length ? '<span class="cie-est cie-est-sc" title="Ningún cliente tiene valor: FALTA CONFIGURARLO">sin configurar</span>'
+      : !cobran ? '<span class="cie-est cie-est-nc" title="Todos en 0: decidido que no se cobra">no se cobra</span>'
+      : `<span class="cie-est cie-est-ok" title="${cobran} clientes lo pagan">${cobran}</span>`;
+    return `<tr data-prov="${esc(p.nombre.toLowerCase())}" data-fam="${esc(cieFam(p.nombre))}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)} ${est}</td>`+
       `<td><input class="cie-b" data-prov="${esc(p.nombre)}" value="${esc(p.base_pct==null?'':p.base_pct)}" onchange="cieBase(this)"></td>`+tds+`</tr>`;
+  };
+  const body = orden.map(f=>{
+    const filas = fams[f].map(fila).join('');
+    const cerrada = _cieCerradas.has(f);
+    const costos = [...new Set(fams[f].map(p=>p.base_pct).filter(x=>x!=null&&x!==''))];
+    const cab = `<tr class="cie-fam" onclick="cieFold('${esc(f)}')"><td colspan="${nCols}">`
+      +`${cerrada?'▸':'▾'} <b>${esc(f)}</b> <span class="muted">· ${fams[f].length} proveedores`
+      +`${costos.length===1?` · costo ${esc(costos[0])}`:costos.length?` · costos ${costos.slice(0,4).join(', ')}${costos.length>4?'…':''}`:''}</span></td></tr>`;
+    return cab + (cerrada ? '' : filas);
   }).join('');
   document.getElementById('cie-body').innerHTML = `
-  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${soloCli.length}</b> clientes${_cieVerVend?` + <b>${soloVen.length}</b> vendedores`:''}.</div>
-    <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="small ${_cieVerVend?'':'outline'}" onclick="cieToggleVend()">${_cieVerVend?'🙈 Ocultar':'👁 Mostrar'} vendedores (${soloVen.length})</button>
-      <span class="muted" style="font-size:12px">Los <b>vendedores</b> no se cobran como cliente: pagan el <b>costo real</b> del proveedor, así que su columna es siempre igual al <b>% base</b>. Van al final y en otro color.${fuera?` <b style="color:#c90">${fuera} celdas de vendedor no coinciden con el costo</b> — están marcadas.`:''}</span>
+  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes, agrupados por familia.</div>
+    <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">
+      <span class="muted">Los <b>${nVend} vendedores</b> no están acá: no son clientes, pagan <b>siempre el costo real</b> del proveedor por todo lo que usen.</span>
+      <span class="cie-est cie-est-ok">n</span><span class="muted">lo pagan n clientes</span>
+      <span class="cie-est cie-est-nc">no se cobra</span><span class="muted">decidido que no</span>
+      <span class="cie-est cie-est-sc">sin configurar</span><span class="muted">falta cargarlo (${sinConfig})</span>
+      <button class="small outline" onclick="cieFoldAll()">Plegar todo</button>
     </div>
     <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:160px"><label>🔎 Buscar proveedor</label><input id="cie-q" oninput="filtCie()" placeholder="ej: PRAGMATIC"></div>
@@ -795,7 +829,10 @@ async function cieAgregarFaltantes(){ if(!confirm('¿Agregar a la matriz todos l
 async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); cieMatriz(); }
 async function delCieProv(n){ if(!confirm('¿Quitar el proveedor "'+n+'" y sus %?'))return; await api('/api/os/cierre/proveedor/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
 async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?'))return; await api('/api/os/cierre/cliente/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
-function filtCie(){ const q=(val('cie-q')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display = tr.dataset.prov.includes(q)?'':'none'; }); }
+function filtCie(){ const q=(val('cie-q')||'').toLowerCase();
+  document.querySelectorAll('.ciet tbody tr').forEach(tr=>{
+    if(tr.classList.contains('cie-fam')){ tr.style.display = q?'none':''; return; }  // buscando, sin cabeceras
+    tr.style.display = (tr.dataset.prov||'').includes(q)?'':'none'; }); }
 
 // ── sub-vista VINCULAR proveedores del casino ↔ matriz ──
 const _CIE_BADGE = {vinculado:['cie-b-ok','✔ manual'], exacto:['cie-b-ex','= exacto'], sugerido:['cie-b-sug','≈ marca (a mano)'], ambiguo:['cie-b-sug','? a mano'], sin_match:['cie-b-no','sin match']};

@@ -183,15 +183,15 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
           continue;
         }
         const pct = celdas[K(nombreMatriz)];
-        if (pct == null) continue;                              // el cliente no tiene ese proveedor
-        // La celda de la matriz se lee DISTINTO según el cliente (regla del dueño):
-        //   · vendedor  → paga el PRECIO REAL del proveedor, sin importar la celda
-        //   · adicional → la celda YA ES lo que se le suma (Oscar, Luis, Marcelo, JJ…)
-        //   · total     → la celda es el precio final y se le resta su % base (Titan, Juan…)
         const costoProv = costoDe[K(nombreMatriz)];
-        const dif = modo === 'vendedor' ? (costoProv ?? '0')
-          : modo === 'adicional' ? pct
-            : money.sub(pct, base);
+        // EL VENDEDOR NO ES UN CLIENTE: paga SIEMPRE el costo real del proveedor, sea 0.5 o 17, y
+        // por TODOS los que use. No necesita celda en la matriz ni le aplica ninguna otra regla
+        // (regla del dueño). Por eso sus columnas se sacaron de la matriz.
+        if (modo === 'vendedor') {
+          if (costoProv == null || costoProv === '') continue;   // sin costo cargado no se puede cobrar
+        } else if (pct == null) continue;                        // el cliente no tiene ese proveedor
+        // Para los clientes, la celda es el precio final y se le resta su % base.
+        const dif = modo === 'vendedor' ? costoProv : money.sub(pct, base);
         const cobra = money.cmp(dif, '0') > 0;
         // Aviso: un cliente que hoy trabaja al 7% no puede tener un proveedor en 6 → daría negativo.
         if (modo === 'total' && money.cmp(pct, base) < 0) {
