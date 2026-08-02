@@ -646,7 +646,10 @@ async function cieExternos() {
     + '</select></div>'
     + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
     + '<button onclick="extCalcular()">Calcular</button>'
-    + '<span class="muted" style="margin-left:auto">' + (estaCong ? '🧊 mes congelado: usa los precios de ese mes' : '⚠ mes NO congelado: usa los precios de hoy') + '</span>'
+    + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
+    + '<span class="muted">' + (estaCong ? '🧊 congelado: usa los precios de ESE mes' : '⚠ sin congelar: usa los precios de HOY') + '</span>'
+    + '<button class="small ' + (estaCong ? 'outline' : '') + '" onclick="extCongelar(' + estaCong + ')">' + (estaCong ? 'Descongelar' : '🧊 Congelar el mes') + '</button>'
+    + '</span>'
     + '</div></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
 }
@@ -671,6 +674,21 @@ function extPedirBase(sugerido) {
     + '<div style="display:flex;gap:8px;align-items:end"><div><label class="muted">% base</label><br>'
     + '<input id="ext-base" value="' + esc(sugerido == null ? '' : sugerido) + '" style="width:90px"></div>'
     + '<button onclick="extConfirmarBase()">Es correcto, calcular</button></div></div>';
+}
+// Congelar es el paso que protege un mes ya facturado: guarda la foto de los precios (costos,
+// % de cada cliente y vínculos de proveedor) para que cambiarlos después no le mueva los números.
+async function extCongelar(estaCong) {
+  if (estaCong) {
+    if (!confirm('¿Descongelar ' + _extMes + '?\n\nVa a volver a calcularse con los precios de HOY, así que sus números pueden cambiar.')) return;
+    await api('/api/os/cierre/mes/' + _extMes + '/congelar', { method: 'DELETE' });
+    toast('Mes descongelado');
+  } else {
+    if (!confirm('¿Congelar ' + _extMes + ' con los precios de hoy?\n\nA partir de ahora ese mes se calcula SIEMPRE con estos precios, aunque después los cambies. Es lo que hace que un mes ya cobrado se pueda reproducir y auditar.')) return;
+    const r = await api('/api/os/cierre/mes/' + _extMes + '/congelar', { method: 'POST', body: JSON.stringify({ notas: 'congelado desde el panel' }) });
+    if (!r.ok) return toast(r.error || 'no se pudo congelar');
+    toast('Mes congelado: ' + r.proveedores + ' proveedores');
+  }
+  _extData = null; cieExternos();
 }
 async function extConfirmarBase() {
   const v = val('ext-base').trim();
