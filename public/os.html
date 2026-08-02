@@ -638,20 +638,25 @@ async function cieExternos() {
 }
 async function extCalcular() {
   const b = document.getElementById('ext-body');
+  b.innerHTML = '<div class="muted" style="padding:20px">Buscando el % de ese mes…</div>';
+  // El % de un cliente CAMBIA de un mes a otro. Si el de ESTE mes no está confirmado se PREGUNTA
+  // siempre: usar el de la ficha en silencio calcula un mes viejo con el porcentaje de hoy, que es
+  // justo el error que se quiere evitar (junio de Titan era 5%, hoy es 7%).
+  const chk = await api('/api/os/externos/' + encodeURIComponent(_extCli) + '/base?mes=' + _extMes);
+  if (!chk.confirmada) { extPedirBase(chk.base); return; }
   b.innerHTML = '<div class="muted" style="padding:20px">Consultando el casino, panel por panel…</div>';
   const r = await api('/api/os/externos/' + encodeURIComponent(_extCli) + '?mes=' + _extMes);
-  if (!r.ok && r.faltaBase) {
-    // El % base cambia de un mes a otro: se confirma ANTES de calcular y no toca el histórico.
-    const g = await api('/api/os/externos/' + encodeURIComponent(_extCli) + '/base?mes=' + _extMes);
-    b.innerHTML = '<div class="card"><b>Falta confirmar el % base</b>'
-      + '<div class="muted" style="margin:8px 0">' + esc(r.error || '') + '</div>'
-      + '<div style="display:flex;gap:8px;align-items:end"><div><label class="muted">% base de ' + esc(_extCli) + ' para ' + _extMes + '</label><br>'
-      + '<input id="ext-base" value="' + esc(g.base || '') + '" style="width:90px"></div>'
-      + '<button onclick="extConfirmarBase()">Confirmar y calcular</button></div></div>';
-    return;
-  }
   if (!r.ok) { b.innerHTML = '<div class="card" style="color:#e55">' + esc(r.error || 'error') + '</div>'; return; }
   _extData = r; extPintar();
+}
+function extPedirBase(sugerido) {
+  const b = document.getElementById('ext-body');
+  b.innerHTML = '<div class="card"><b>¿Con qué % trabajó ' + esc(_extCli) + ' en ' + _extMes + '?</b>'
+    + '<div class="muted" style="margin:8px 0">Su porcentaje cambia de un mes a otro. Confirmalo antes de calcular: se guarda <b>solo para este mes</b> y no toca los anteriores.'
+    + (sugerido != null && sugerido !== '' ? ' Hoy su ficha dice <b>' + esc(sugerido) + '%</b>.' : '') + '</div>'
+    + '<div style="display:flex;gap:8px;align-items:end"><div><label class="muted">% base</label><br>'
+    + '<input id="ext-base" value="' + esc(sugerido == null ? '' : sugerido) + '" style="width:90px"></div>'
+    + '<button onclick="extConfirmarBase()">Es correcto, calcular</button></div></div>';
 }
 async function extConfirmarBase() {
   const v = val('ext-base').trim();
