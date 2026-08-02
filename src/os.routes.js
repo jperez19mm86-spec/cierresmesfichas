@@ -36,6 +36,7 @@ const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
+const telegram = require('./telegram');
 const importSheet = require('./import-sheet.service');
 const { db } = require('./db');
 const money = require('./lib/money');
@@ -1164,9 +1165,44 @@ function mount(app) {
       conExternos: req.query.externos !== '0',
     });
     if (!f.ok) return err(res, 404, f.error);
-    ok(res, { ...f, texto: facturaSvc.aTexto(f) });
+    ok(res, { ...f, texto: facturaSvc.aTexto(f), textoConDetalle: facturaSvc.aTexto(f, { detalle: true }) });
   }));
 
+
+  // Mandar la factura al grupo de Telegram DEL CLIENTE.
+  //
+  // ⚠️ Es una acción que sale para afuera: le llega al cliente. Por eso se dispara sólo desde el
+  // botón, nunca sola, y nunca como parte de calcular. Si el cliente no tiene grupo cargado se
+  // avisa en vez de fallar en silencio.
+  app.post('/api/os/factura/:clienteId/enviar', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    const conDetalle = !!(req.body && req.body.detalle);
+    const cli = clientes.get(req.params.clienteId);
+    if (!cli) return err(res, 404, 'cliente no encontrado');
+    const chat = cli.telegram && cli.telegram.chatId;
+    if (!chat) return err(res, 400, `${cli.nombre || cli.codigo} no tiene grupo de Telegram cargado (se pone en su ficha)`);
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
+
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return err(res, 502, fac.error);
+    const linea = (fac.clientes || []).find((c) => c.cliente_id === cli.id) || null;
+    const f = await facturaSvc.armar({ clienteId: cli.id, mes, consumo: linea, conExternos: req.body.externos !== false });
+    if (!f.ok) return err(res, 400, f.error);
+
+    // Telegram corta en 4096: se parte por líneas y se manda en orden.
+    const partes = facturaSvc.partir(facturaSvc.aTexto(f, { detalle: conDetalle }));
+    const enviados = [];
+    for (const p of partes) {
+      const r = await telegram.sendMessage(tok, chat, p);
+      enviados.push(r);
+      if (!r.ok) break;                       // si uno falla, no se sigue mandando a ciegas
+    }
+    const fallo = enviados.find((x) => !x.ok);
+    if (fallo) return err(res, 502, `se mandaron ${enviados.length - 1} de ${partes.length} partes: ${fallo.error}`);
+    console.log(`[Factura] enviada a ${cli.nombre} (${mes}) · ${partes.length} mensaje(s)`);
+    ok(res, { enviado: true, partes: partes.length, total_usdt: f.totalMes_usdt, saldo: f.cuenta.saldo });
+  }));
   // Todas las facturas de un mes de una sola pasada: los pedidos se traen UNA vez, no una por
   // cliente. Sirve para el envío de principio de mes.
   app.get('/api/os/facturas', wrap(async (req, res) => {

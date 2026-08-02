@@ -17,6 +17,7 @@ const deudaSvc = require('./deuda.service');
 const movs = require('./movimientos-store');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
+const ventasOnline = require('./ventas-online.service');
 const money = require('./lib/money');
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -29,7 +30,7 @@ const nombreMes = (m) => {
  * @param consumo  la línea de ese cliente que devuelve la facturación del mes (ya calculada afuera,
  *                 para no volver a consultar el sistema en línea por cada factura)
  */
-async function armar({ clienteId, mes, consumo = null, conExternos = true }) {
+async function armar({ clienteId, mes, consumo = null, conExternos = true, conDetalle = true }) {
   const cli = clientes.get(clienteId);
   if (!cli) return { ok: false, error: 'cliente no encontrado' };
   const m = String(mes || '').slice(0, 7);
@@ -43,6 +44,28 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true }) {
     total_usdt: consumo.fee_usdt || '0',
     porDivisa: consumo.porDivisa || [],
   } : null;
+
+  // ── 1b) el detalle carga por carga, para que se pueda auditar ──
+  // Sin esto el cliente ve un total y tiene que creernos. Con esto puede cruzar cada línea contra
+  // lo que él pidió: fecha, panel, moneda y monto.
+  let detalle = null; let porPanel = null;
+  if (conDetalle) {
+    try {
+      const d = await ventasOnline.detalleDelMes(m, cli.id);
+      if (d.ok) {
+        detalle = d.detalle;
+        const acc = {};
+        for (const x of detalle) {
+          const k = `${x.panel}|${x.divisa}`;
+          const a = acc[k] = acc[k] || { panel: x.panel, divisa: x.divisa, cargas: 0, monto: 0 };
+          a.cargas++; a.monto += x.monto;
+        }
+        porPanel = Object.values(acc)
+          .map((a) => ({ ...a, monto: money.round(String(a.monto), 2) }))
+          .sort((a, b) => Number(b.monto) - Number(a.monto));
+      }
+    } catch (e) { /* si el puente no responde, la factura sale igual sin el detalle */ }
+  }
 
   // ── 2) proveedores externos ──
   let ext = null;
@@ -87,6 +110,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true }) {
     emitidaEl: new Date().toISOString().slice(0, 10),
     tc: tcUnico.tcDelMes('ARS', m).valor,
     consumo: cons,
+    detalle, porPanel,
     externos: ext,
     totalMes_usdt: money.round(delMes, 2),
     cuenta: {
@@ -100,31 +124,73 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true }) {
   };
 }
 
-/** La misma factura en texto plano, para pegar en WhatsApp o Telegram. */
-function aTexto(f) {
+/**
+ * La misma factura, lista para mandar por Telegram.
+ *
+ * Va en HTML porque es lo que usa el bot (`parse_mode: 'HTML'`); con asteriscos de Markdown
+ * llegaría con los asteriscos a la vista.
+ *
+ * @param opciones.detalle  incluir la lista carga por carga (para auditoría)
+ */
+function aTexto(f, { detalle = false } = {}) {
   const L = [];
   const $ = (x) => money.fmt(x, 2);
-  L.push(`🧾 *${f.cliente.nombre}* — ${f.mesNombre}`);
+  const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  L.push(`🧾 <b>${esc(f.cliente.nombre)}</b> — ${esc(f.mesNombre)}`);
   L.push('');
+
   if (f.consumo) {
-    L.push(`*Cargas del mes*`);
+    L.push('<b>Cargas del mes</b>');
     L.push(`  ${f.consumo.pedidos} carga(s) · ${$(f.consumo.vendido_usdt)} USDT`);
-    (f.consumo.porDivisa || []).forEach((d) => L.push(`     ${d.divisa} ${$(d.vendido)}`));
-    L.push(`  Comisión ${f.consumo.base}% → *${$(f.consumo.total_usdt)} USDT*`);
+    (f.consumo.porDivisa || []).forEach((d) => L.push(`     ${esc(d.divisa)} ${$(d.vendido)}`));
+    L.push(`  Comisión ${esc(f.consumo.base)}% → <b>${$(f.consumo.total_usdt)} USDT</b>`);
     L.push('');
   }
+
+  // Por panel: es el corte que el cliente entiende, porque son SUS cuentas.
+  if ((f.porPanel || []).length) {
+    L.push('<b>Por panel</b>');
+    f.porPanel.forEach((p) => L.push(`  ${esc(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`));
+    L.push('');
+  }
+
   if (f.externos && f.externos.items && f.externos.items.length) {
-    L.push(`*Proveedores externos*`);
-    f.externos.items.slice(0, 12).forEach((i) => L.push(`  ${i.proveedor}: ${$(i.usdt)} USDT`));
-    if (f.externos.items.length > 12) L.push(`  …y ${f.externos.items.length - 12} más`);
-    L.push(`  Total → *${$(f.externos.total_usdt)} USDT*`);
+    L.push('<b>Proveedores externos</b>');
+    f.externos.items.slice(0, 15).forEach((i) => L.push(`  ${esc(i.proveedor)}: ${$(i.usdt)} USDT`));
+    if (f.externos.items.length > 15) L.push(`  …y ${f.externos.items.length - 15} más`);
+    L.push(`  Total → <b>${$(f.externos.total_usdt)} USDT</b>`);
     L.push('');
   }
-  L.push(`*TOTAL DEL MES: ${$(f.totalMes_usdt)} USDT*`);
+
+  L.push(`<b>TOTAL DEL MES: ${$(f.totalMes_usdt)} USDT</b>`);
   L.push('');
-  L.push(`Saldo de la cuenta: *${$(f.cuenta.saldo)} USDT*`);
+  L.push(`Saldo de la cuenta: <b>${$(f.cuenta.saldo)} USDT</b>`);
   if (Number(f.pagadoMes) > 0) L.push(`(pagado este mes: ${$(f.pagadoMes)} USDT)`);
+
+  if (detalle && (f.detalle || []).length) {
+    L.push('');
+    L.push('<b>Detalle de las cargas</b>');
+    f.detalle.forEach((d) => L.push(
+      `  ${esc(d.fecha)} ${esc(d.hora)} · ${esc(d.panel)} · ${esc(d.divisa)} ${money.fmt(String(d.monto), 2)}${d.anulando ? ' (anulando)' : ''}`,
+    ));
+  }
   return L.join('\n');
 }
 
-module.exports = { armar, aTexto, nombreMes };
+/**
+ * Telegram corta los mensajes en 4096 caracteres. El detalle de un mes movido se pasa fácil, así
+ * que se parte por LÍNEAS — cortar a la mitad de un renglón dejaría un importe partido.
+ */
+function partir(texto, max = 3800) {
+  const lineas = String(texto).split('\n');
+  const partes = []; let actual = '';
+  for (const l of lineas) {
+    if ((actual + '\n' + l).length > max) { if (actual) partes.push(actual); actual = l; }
+    else actual = actual ? actual + '\n' + l : l;
+  }
+  if (actual) partes.push(actual);
+  return partes;
+}
+
+module.exports = { armar, aTexto, partir, nombreMes };

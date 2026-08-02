@@ -613,11 +613,23 @@ async function verFactura(clienteId) {
     ? ('<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Por dónde</th><th class="right">USDT</th></tr></thead><tbody>'
        + r.pagosDelMes.map(p => '<tr><td>' + esc(p.fecha) + '</td><td>' + esc(p.medio||'—') + '</td><td class="right">' + money(p.usdt,2) + '</td></tr>').join('') + '</tbody></table>')
     : '<div class="muted" style="margin-top:4px">Sin pagos registrados este mes.</div>';
+  // Por panel + carga por carga: es lo que hace que el cliente pueda AUDITAR la factura en vez
+  // de tener que creernos el total.
+  const porPanel = (r.porPanel||[]).length
+    ? ('<div class="card" style="margin:8px 0"><b>Por panel</b>'
+       + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th></tr></thead><tbody>'
+       + r.porPanel.map(p => '<tr><td>' + esc(p.panel) + '</td><td>' + esc(p.divisa) + '</td><td class="right">' + p.cargas + '</td><td class="right">' + money(p.monto,2) + '</td></tr>').join('')
+       + '</tbody></table></div>') : '';
+  const det = (r.detalle||[]).length
+    ? ('<div class="card" style="margin:8px 0"><b>Detalle de las cargas</b> <span class="muted">(' + r.detalle.length + ')</span>'
+       + '<div style="max-height:340px;overflow:auto;margin-top:6px"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Panel</th><th>Moneda</th><th class="right">Monto</th></tr></thead><tbody>'
+       + r.detalle.map(d => '<tr' + (d.anulando ? ' style="opacity:.6"' : '') + '><td>' + esc(d.fecha) + '</td><td class="muted">' + esc(d.hora) + '</td><td>' + esc(d.panel) + '</td><td>' + esc(d.divisa) + '</td><td class="right">' + money(d.monto,2) + (d.anulando ? ' <span class="muted">(anulando)</span>' : '') + '</td></tr>').join('')
+       + '</tbody></table></div></div>') : '';
   const html =
     '<div id="fac-doc">'
     + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
     + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '') + '</div>'
-    + cons + extHtml
+    + cons + porPanel + det + extHtml
     + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b></div>'
     + '<div class="card" style="margin:8px 0"><b>Cuenta corriente</b>'
     + '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>'
@@ -627,9 +639,22 @@ async function verFactura(clienteId) {
     + '<div class="row" style="margin-top:10px">'
     + '<button onclick="facturaCopiar()">📋 Copiar para mandar</button>'
     + '<button class="outline" onclick="facturaImprimir()">🖨 Imprimir / PDF</button>'
+    + '<button class="outline" onclick="facturaEnviar(\'' + r.cliente.id + '\')">✈️ Enviar al grupo del cliente</button>'
     + '</div>'
-    + '<textarea id="fac-texto" style="position:absolute;left:-9999px">' + esc(r.texto) + '</textarea>';
+    + '<textarea id="fac-texto" style="position:absolute;left:-9999px">' + esc(r.textoConDetalle || r.texto) + '</textarea>';
   document.getElementById('main').innerHTML = '<div class="card"><button class="outline small" onclick="VIEWS.facturacion()">← volver</button></div>' + html;
+}
+
+// Manda la factura al grupo de Telegram DEL CLIENTE. Sale para afuera: se pregunta siempre, y
+// se avisa si el cliente no tiene grupo cargado en vez de fallar callado.
+async function facturaEnviar(clienteId) {
+  const mes = val('fac-mes');
+  const conDetalle = confirm('¿Incluir el detalle carga por carga?\n\nAceptar = con detalle (para que pueda auditarlo).\nCancelar = solo el resumen.');
+  if (!confirm('Se le va a MANDAR la factura de ' + mes + ' al grupo de Telegram del cliente. ¿Confirmás?')) return;
+  toast('Enviando…');
+  const r = await api('/api/os/factura/' + clienteId + '/enviar', { method: 'POST', body: JSON.stringify({ mes, detalle: conDetalle }) });
+  if (!r.ok) return toast('No se envió: ' + (r.error || ''));
+  toast('✅ Enviada · ' + r.partes + ' mensaje(s) · total ' + money(r.total_usdt,2) + ' USDT');
 }
 function facturaCopiar() {
   const t = document.getElementById('fac-texto');

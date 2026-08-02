@@ -137,4 +137,36 @@ async function ventasDelMes(mes) {
   return { ok: true, mes: m, porCliente, sinMapeo: Object.values(sinMapeo) };
 }
 
-module.exports = { getConfig, setConfig, mapa, setMapeo, listMapeo, ventasDelMes, _pedidos };
+/**
+ * El DETALLE carga por carga de un cliente en un mes: fecha, panel, moneda y monto.
+ *
+ * Es lo que hace que la factura se pueda auditar. Sin esto el cliente ve un total y tiene que
+ * creernos; con esto puede cruzar cada línea contra lo que él pidió.
+ */
+async function detalleDelMes(mes, clienteId) {
+  const m = String(mes || '').slice(0, 7);
+  const r = await _pedidos();
+  if (!r.ok) return r;
+  const mp = mapa();
+  const out = [];
+  for (const p of r.pedidos) {
+    if (p.estado !== 'cargado' && p.estado !== 'anulando') continue;
+    const f = String(p.resueltoAt || p.createdAt || '');
+    if (f.slice(0, 7) !== m) continue;
+    const dest = mp[String(p.codigo || '').toLowerCase()];
+    if (!dest || dest.cliente_id !== clienteId) continue;
+    out.push({
+      fecha: f.slice(0, 10),
+      hora: f.slice(11, 16),
+      panel: p.cajaUsuario || p.userId || '—',
+      divisa: String(p.divisa || 'ARS').toUpperCase(),
+      monto: Number(p.monto) || 0,
+      codigo: p.codigo,
+      anulando: p.estado === 'anulando',
+    });
+  }
+  out.sort((a, b) => String(a.fecha + a.hora).localeCompare(String(b.fecha + b.hora)));
+  return { ok: true, detalle: out };
+}
+
+module.exports = { getConfig, setConfig, mapa, setMapeo, listMapeo, ventasDelMes, detalleDelMes, _pedidos };
