@@ -68,8 +68,8 @@ function tcDe(moneda, iso) {
  * Si el mes está congelado se usa su foto; si no, la matriz viva. Sin esto, cambiar un precio hoy
  * cambiaría lo que calcula un mes ya facturado.
  */
-function pctsDelCliente(nombreCliente, mes) {
-  const p = cierreMes.preciosDe(mes);
+function pctsDelCliente(nombreCliente, mes, p) {
+  if (!p) p = cierreMes.preciosDe(mes);
   const out = {};
   for (const [prov, fila] of Object.entries(p.celdas || {})) {
     const pct = fila && fila[nombreCliente];
@@ -135,9 +135,10 @@ async function reporte({ clienteNombre, mes, basePct = null }) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
   }
 
-  const { celdas, proveedores, congelado, congeladoEn } = pctsDelCliente(cli.nombre, mes);
+  const precios = cierreMes.preciosDe(mes);   // UNA sola vez: parsea la foto entera del mes
+  const { celdas, proveedores, congelado, congeladoEn } = pctsDelCliente(cli.nombre, mes, precios);
   const costoDe = {}; proveedores.forEach((p) => { costoDe[K(p.nombre)] = p.base_pct; });
-  const traducir = traductor(cierreMes.preciosDe(mes));
+  const traducir = traductor(precios);
   const { from, to } = rango(mes);
   const mios = paneles.list().filter((p) => p.cliente_id === cli.id);
 
