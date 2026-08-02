@@ -190,4 +190,19 @@ function ventasDelMes(mes) {
   return out;
 }
 
-module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, seed: save, FILE };
+/**
+ * Borra un pedido. Para sacar los que se sembraron de prueba o los que se crearon por error.
+ *
+ * Es acotado a propósito: los pedidos son la base de lo que se le cobra a cada cliente, así que
+ * borrar uno CAMBIA la facturación del mes. Devuelve el pedido borrado para poder dejar rastro.
+ */
+function remove(id) {
+  const data = load();
+  const i = data.pedidos.findIndex((p) => p.id === String(id));
+  if (i < 0) return { ok: false, error: 'no existe ese pedido' };
+  const [p] = data.pedidos.splice(i, 1);
+  save(data);
+  return { ok: true, pedido: p };
+}
+
+module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };

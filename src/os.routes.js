@@ -1059,6 +1059,23 @@ function mount(app) {
   }));
 
 
+  // Borrar un pedido: para sacar los sembrados de prueba o los creados por error.
+  // ⚠️ Los pedidos son la base de lo que se cobra, así que borrar uno CAMBIA la facturación del mes.
+  // Por eso se niega si ese pedido ya generó un movimiento, y si el mes ya se emitió a la deuda.
+  app.delete('/api/os/pedidos/:id', (req, res) => {
+    const p = pedidosStore.get(req.params.id);
+    if (!p) return err(res, 404, 'no existe ese pedido');
+    const mov = db.prepare('SELECT id FROM movimientos WHERE pedido_id=?').get(String(p.id));
+    if (mov) return err(res, 409, `ese pedido ya generó el movimiento ${mov.id}: anulá el movimiento primero`);
+    const mes = String(p.resueltoAt || p.createdAt || '').slice(0, 7);
+    const em = emision.emitido(mes, 'facturacion');
+    if (em.cantidad) return err(res, 409, `${mes} ya se emitió a la deuda (${em.cantidad} movimientos): anulá la emisión, borrá el pedido y volvé a emitir`);
+    const r = pedidosStore.remove(req.params.id);
+    if (!r.ok) return err(res, 400, r.error);
+    console.log(`[Pedido] BORRADO ${p.id} · ${p.codigo} · ${p.divisa} ${p.monto} · estado ${p.estado}`);
+    ok(res, r);
+  });
+
   // ───────── PASAR LO FACTURADO A LA DEUDA ─────────
   // Emitir es EXPLÍCITO y no se puede duplicar: hay un índice único en la base sobre
   // (cliente, origen, mes). Volver a emitir el mismo mes no agrega nada.
