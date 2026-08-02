@@ -170,12 +170,35 @@ function mount(app) {
     const panelKeys = cPaneles.map((p) => ({ conexion_id: p.conexion_id, grp: GRP_DE_NIVEL[p.nivel_usuario] || 'superagent', sa_id: String(p.id_usuario) }));
     const filas = [];
     for (const mes of mesesList) {
-      let cargas = '0', profit = '0';
-      reporteDiarioStore.filasPanelesMes(panelKeys, mes).forEach((r) => { cargas = money.add(cargas, r.in_amt || '0'); profit = money.add(profit, r.profit || '0'); });
+      // Antes esto sumaba SOLO pesos argentinos: un cliente con paneles en pesos uruguayos aparecía
+      // más chico y no había forma de notarlo. Ahora se suma cada moneda por separado y se pasa a
+      // USDT con SU tipo de cambio, que es la única unidad en la que se pueden sumar entre sí.
+      const porDivisa = {};
+      for (const r of reporteDiarioStore.filasPanelesMes(panelKeys, mes)) {
+        const d = String(r.moneda || 'ARS').toUpperCase();
+        const o = porDivisa[d] = porDivisa[d] || { divisa: d, cargas: '0', profit: '0' };
+        o.cargas = money.add(o.cargas, r.in_amt || '0');
+        o.profit = money.add(o.profit, r.profit || '0');
+      }
       const baseMes = externosSvc.baseDelMes(c, mes).valor || baseActual || '0';
-      const fee = money.pct(cargas, baseMes);
+      let cargas = '0', profit = '0', fee = '0'; const sinTC = [];
+      for (const o of Object.values(porDivisa)) {
+        const t = tcUnico.tcDelMes(o.divisa, mes);
+        o.tc = t.valor; o.tcFuente = t.fuente;
+        o.fee = money.pct(o.cargas, baseMes);
+        if (!t.valor) { sinTC.push(o.divisa); continue; }   // sin TC no se puede sumar: se informa
+        cargas = money.add(cargas, money.div(o.cargas, t.valor));
+        profit = money.add(profit, money.div(o.profit, t.valor));
+        fee = money.add(fee, money.div(o.fee, t.valor));
+        o.cargasUsdt = money.round(money.div(o.cargas, t.valor), 2);
+      }
       const pagos = money.sum(movs.list({ cliente_id: c.id, tipo: 'pago', mes }).map((mv) => mv.monto_usdt || '0'));
-      filas.push({ mes, base: baseMes, cargas: money.round(cargas, 2), fee: money.round(fee, 2), pagos: money.round(pagos, 2), profit: money.round(profit, 2) });
+      filas.push({
+        mes, base: baseMes, moneda: 'USDT',
+        cargas: money.round(cargas, 2), fee: money.round(fee, 2),
+        pagos: money.round(pagos, 2), profit: money.round(profit, 2),
+        porDivisa: Object.values(porDivisa), sinTC,
+      });
     }
     // Lista de plataformas (superagentes/paneles) del cliente → control de que estén todas.
     const plataformas = paneles.list({ cliente_id: c.id }).map((p) => ({

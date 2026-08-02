@@ -79,7 +79,11 @@ function fechasCapturadas(conexion_id, grp) {
 
 /** Filas guardadas de un mes para un set de paneles {conexion_id, grp, sa_id}. Para el Perfil del cliente
  *  (lee del acumulado en vez de consultar el casino en vivo → instantáneo). Devuelve [{sa_id,in_amt,out_amt,profit}]. */
-function filasPanelesMes(keys, mes, moneda = 'ARS') {
+function filasPanelesMes(keys, mes, moneda = null) {
+  // ⚠️ Esto filtraba SIEMPRE por pesos argentinos. Un cliente con paneles en pesos uruguayos o en
+  // guaraníes aparecía más chico de lo que era, y no había forma de darse cuenta mirando la pantalla.
+  // Ahora por defecto trae TODAS las monedas y devuelve `moneda` en cada fila, para que quien lo use
+  // convierta cada una con su propio tipo de cambio.
   if (!keys || !keys.length) return [];
   const byCG = {};
   keys.forEach((k) => { const kk = k.conexion_id + '|' + (k.grp || 'superagent'); (byCG[kk] = byCG[kk] || []).push(String(k.sa_id)); });
@@ -88,7 +92,11 @@ function filasPanelesMes(keys, mes, moneda = 'ARS') {
     const [cid, grp] = kk.split('|');
     const ids = [...new Set(byCG[kk])];
     const ph = ids.map(() => '?').join(',');
-    const rows = db.prepare(`SELECT sa_id, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=? AND moneda=? AND sa_id IN (${ph})`).all(cid, grp, mes, moneda, ...ids);
+    const filtroMon = moneda ? ' AND moneda=?' : '';
+    const args = moneda
+      ? [cid, grp, mes, moneda, ...ids]
+      : [cid, grp, mes, ...ids];
+    const rows = db.prepare(`SELECT sa_id, moneda, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=?${filtroMon} AND sa_id IN (${ph})`).all(...args);
     out.push(...rows);
   }
   return out;

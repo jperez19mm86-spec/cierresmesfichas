@@ -387,9 +387,9 @@ async function showPerfil(id){
     </div>
     <div class="card">
       <h2>📊 Resumen mensual</h2>
-      <div class="muted" style="margin-bottom:6px">Cargas (fichas) y profit <b>reales del casino</b> · fee (beneficio) = base% × cargas · pagos registrados en el sistema.</div>
-      <table><thead><tr><th>Mes</th><th class="right">Base</th><th class="right">Cargas (fichas)</th><th class="right">Fee (beneficio)</th><th class="right">Pagó (USDT)</th><th class="right">Profit casino</th></tr></thead><tbody>
-      ${(r.meses||[]).map(m=>`<tr><td><b>${esc(m.mes)}</b></td><td class="right">${esc(m.base)}%</td><td class="right">${money(m.cargas,0)}</td><td class="right"><b>${money(m.fee,0)}</b></td><td class="right">${money(m.pagos,2)}</td><td class="right">${money(m.profit,0)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Sin datos (¿el cliente tiene paneles linkeados?).</td></tr>'}
+      <div class="muted" style="margin-bottom:6px">Cargas y profit <b>reales del casino</b> · fee (beneficio) = base% × cargas · pagos registrados en el sistema. <b>Todo en USDT</b>: cada moneda se convierte con su propio tipo de cambio del mes. Pasá el mouse por una fila para ver el desglose.</div>
+      <table><thead><tr><th>Mes</th><th class="right">Base</th><th class="right">Cargas (USDT)</th><th class="right">Fee (USDT)</th><th class="right">Pagó (USDT)</th><th class="right">Profit (USDT)</th><th>Monedas</th></tr></thead><tbody>
+      ${(r.meses||[]).map(m=>{const ds=(m.porDivisa||[]);const chips=ds.map(d=>'<span class="pill" style="margin-right:3px" title="'+esc(d.divisa)+': '+money(d.cargas,0)+' cargas'+(d.tc?(' · TC '+money(d.tc,2)+' ('+esc(d.tcFuente||'')+')'):' · SIN TIPO DE CAMBIO')+'">'+esc(d.divisa)+(d.tc?'':' ⚠')+'</span>').join('');const falta=(m.sinTC||[]).length?('<div class="muted" style="color:var(--red);font-size:11px">'+m.sinTC.map(esc).join(', ')+' sin tipo de cambio: no entra en el total</div>'):'';return '<tr><td><b>'+esc(m.mes)+'</b></td>'+'<td class="right">'+esc(m.base)+'%</td>'+'<td class="right">'+money(m.cargas,2)+'</td>'+'<td class="right"><b>'+money(m.fee,2)+'</b></td>'+'<td class="right">'+money(m.pagos,2)+'</td>'+'<td class="right">'+money(m.profit,2)+'</td>'+'<td>'+(chips||'<span class="muted">—</span>')+falta+'</td></tr>';}).join('')||'<tr><td colspan="7" class="empty">Sin datos (¿el cliente tiene paneles linkeados?).</td></tr>'}
       </tbody></table>
     </div>
     <div class="card">
