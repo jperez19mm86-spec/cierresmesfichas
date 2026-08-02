@@ -737,6 +737,14 @@ function mount(app) {
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
 
+  // SONDA CRUDA: POST a cualquier área del casino con la sesión ya abierta. Para reproducir lo que
+  // hace la pantalla del casino al cambiar una opción. No la usa ningún cálculo.
+  app.post('/api/os/casino/conexiones/:id/sonda-cruda', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const b = req.body || {};
+    ok(res, await cli.sondaCruda({ area: b.area || 'info', params: b.params || {}, query: b.query || {} }));
+  }));
+
   // SONDA: corre el reporte con parámetros crudos. Solo para investigar cómo pedirle al casino que
   // abra por distribuidor; no lo usa ningún cálculo.
   app.post('/api/os/casino/conexiones/:id/sonda-reporte', wrap(async (req, res) => {

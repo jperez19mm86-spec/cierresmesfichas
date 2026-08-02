@@ -470,6 +470,26 @@ function makeClient({ url, token, user, password } = {}) {
   }
 
   /**
+   * SONDA CRUDA: manda un POST a cualquier `area` del casino con los params que se le pasen, usando
+   * la sesión ya abierta. Sirve para reproducir exactamente lo que hace la pantalla del casino
+   * cuando se cambia una opción (por ejemplo "Group by = Dealer", que NO se aplica por
+   * `area=reports` — en la captura del dueño ni siquiera aparece esa petición).
+   *
+   * Solo para investigar: no la usa ningún cálculo.
+   */
+  async function sondaCruda({ area = 'info', params = {}, query = {} } = {}) {
+    const r = await apiCall(area, params, query);
+    const d = r.data;
+    return {
+      ok: r.ok, status: r.status,
+      // se recorta para no volver con megabytes
+      claves: (d && typeof d === 'object') ? Object.keys(d) : typeof d,
+      muestra: JSON.stringify(d).slice(0, 1500),
+      error: r.error,
+    };
+  }
+
+  /**
    * SONDA: corre el reporte con los parámetros crudos que se le pasen.
    *
    * Existe para poder averiguar qué combinación hace que el casino abra el reporte POR DISTRIBUIDOR.
@@ -545,7 +565,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, sondaReporte, test };
+  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, sondaReporte, sondaCruda, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };
