@@ -214,14 +214,17 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // Recién lo que no está en ninguna de las dos se le pregunta al casino.
   const pendientes = [];
   trabajos.forEach((t, i) => {
-    const deFoto = estadMes.filasDe({ conexionId: t.cxId, nodoId: t.panel.id_usuario, mes, divisa: t.divisa, grupo: estadMes.grupoDe(t.panel) });
+    // Cada panel lee la foto de SU nivel: superagente o distribuidor. No se mezclan, porque el
+    // filtro profit>0 esconde los negativos distinto en cada nivel y el total cambia.
+    const nivel = estadMes.nivelDe(t.panel);
+    const deFoto = estadMes.filasDe({ conexionId: t.cxId, nodoId: t.panel.id_usuario, mes, divisa: t.divisa, nivel });
     if (deFoto) { resultados[i] = { ok: true, filas: deFoto }; deLaFoto++; return; }
     const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
     if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; return; }
     // Si la foto de esa combinación se INTENTÓ y falló, no tiene sentido volver a preguntarle al
     // casino en vivo: falla igual y tarda. Pasaba con Oscar: 14 consultas condenadas, 157 segundos
     // de espera para terminar dando lo mismo. Se dice que falta y se sigue.
-    const c = estadMes.captura(t.cxId, mes, t.divisa, estadMes.grupoDe(t.panel) === 'superagent' ? 'superagent' : 'nodo', t.panel.id_usuario);
+    const c = estadMes.captura(t.cxId, mes, t.divisa, nivel, t.panel.id_usuario);
     if (c && c.estado === 'error' && !refrescar) {
       resultados[i] = { ok: false, error: `la foto del mes falló para esta conexión (${c.error}). Volvé a sacarla en 📸 Foto del mes.` };
       return;

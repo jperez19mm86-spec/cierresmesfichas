@@ -39,13 +39,6 @@ const paneles = require('./paneles-store');
 const casinoConex = require('./casino-conexiones-store');
 
 const K = (s) => String(s || '').trim();
-const GRUPOS = ['superagent', 'distributor', 'agent'];
-
-/** El nivel del panel dice de qué foto tiene que leer. */
-const GRUPO_DE_NIVEL = { SuperAgente: 'superagent', Distribuidor: 'distributor', Agente: 'agent' };
-function grupoDe(panel) {
-  return GRUPO_DE_NIVEL[panel && panel.nivel_usuario] || 'superagent';
-}
 
 /** Primer y último día del mes, con hora: el motor del casino descarta la fecha pelada. */
 function rango(mes) {
@@ -67,37 +60,63 @@ function divisasDe(conexionId) {
 }
 
 /**
- * ⚠️ EL REPORTE MASIVO SOLO DEVUELVE SUPERAGENTES.
- * Se probó pidiéndolo con las tres agrupaciones y el casino devolvió EXACTAMENTE lo mismo en las
- * tres (44/44/44 filas, 207/207/207…): el parámetro de agrupación lo ignora. Así que la consulta
- * masiva cubre los superagentes y nada más.
+ * ⚠️ EL NIVEL DE AGRUPACIÓN CAMBIA LA PLATA, y no es un detalle de presentación.
  *
- * Los paneles que son Distribuidor o Agente (70 de 211) igual tienen datos propios — verificado:
- * Alan-E-Costa, un distribuidor, devuelve 24 filas cuando se lo consulta por separado. A esos hay
- * que preguntarles uno por uno, pero es UNA vez por mes y tienen una sola divisa cada uno, así que
- * son ~70 consultas más, no 525.
+ * El reporte se pide con el filtro `profit > 0`. Agrupado por SUPERAGENTE, los distribuidores que
+ * perdieron se restan ANTES del filtro. Abierto por DISTRIBUIDOR, esos negativos quedan afuera del
+ * filtro y el total sale más alto. Verificado: Titán junio da 7.150 por superagente y 7.162,50 por
+ * distribuidor; Oscar-SA da 480.187,11 contra 480.378,36.
+ *
+ * Ninguno de los dos está "mal": hay que usar el que corresponde al panel.
+ *   · panel que es SuperAgente  → la captura por superagente
+ *   · panel que es Distribuidor → la captura por distribuidor
+ * (Regla del dueño: "si para sacar la cuenta de Titán necesitás 5 superagentes, tomás los datos de
+ *  ahí; si necesitás los de Gabriel@, revisás un superagente y un distribuidor".)
+ *
+ * ⚠️ El nivel del reporte NO se elige desde acá: es un ajuste guardado en el servidor del casino
+ * por cuenta (Estadísticas → Agrupar por), y mandar el mismo formulario por HTTP no lo cambia —
+ * probado. Así que la foto se saca en DOS pasadas: una con la cuenta en Superagente y otra en
+ * Dealer. `capturar()` lee en qué modo está y guarda las filas con ESE nivel; nunca las etiqueta
+ * como el otro.
  */
-function gruposDe() { return ['superagent']; }
+const NIVELES = ['superagente', 'distribuidor'];
 
-/** Los paneles que NO son superagente: hay que consultarlos de a uno. */
-function panelesSueltos(conexionId) {
-  return paneles.list().filter((p) => p.conexion_id === conexionId && p.id_usuario && grupoDe(p) !== 'superagent');
+/** El nivel de captura que le corresponde a un panel. */
+function nivelDe(panel) {
+  return (panel && panel.nivel_usuario === 'SuperAgente') ? 'superagente' : 'distribuidor';
 }
 
-/** Qué hay que sacar para un mes: la lista completa de consultas. */
-function plan(mes, { conexionId = null } = {}) {
+/** El modo del casino ('superagent' | 'diller') traducido al nivel que produce. */
+function nivelDeModo(valor) {
+  if (valor === 'superagent') return 'superagente';
+  if (valor === 'diller') return 'distribuidor';
+  return null;                                  // cualquier otro modo no sirve para la foto
+}
+
+/**
+ * Qué hay que sacar para un mes: DOS pasadas por panel × divisa, una por nivel.
+ *
+ * Se sacan las dos aunque cada cliente use una sola, por dos razones: el nivel del casino se cambia
+ * a mano y conviene aprovechar cada pasada para todos los paneles, y tener las dos permite VER la
+ * diferencia — que es exactamente la plata que el filtro profit>0 esconde en los negativos.
+ */
+function plan(mes, { conexionId = null, nivel = null } = {}) {
   const cxs = casinoConex.list().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
   for (const cx of cxs) {
-    // 1) una consulta masiva por divisa → todos los superagentes de esa conexión
-    for (const divisa of divisasDe(cx.id)) {
-      out.push({ conexion_id: cx.id, conexion: cx.nombre, mes, divisa, grupo: 'superagent' });
-    }
-    // 2) los distribuidores y agentes, de a uno y solo en SU divisa
-    for (const p of panelesSueltos(cx.id)) {
+    for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario)) {
       const divs = (p.divisas || []).length ? p.divisas : ['ARS'];
       for (const d of divs) {
-        out.push({ conexion_id: cx.id, conexion: cx.nombre, mes, divisa: String(d).toUpperCase(), grupo: 'nodo', nodo: String(p.id_usuario), panel: p.nombre });
+        for (const niv of NIVELES) {
+          if (nivel && niv !== nivel) continue;
+          out.push({
+            conexion_id: cx.id, conexion: cx.nombre, mes,
+            divisa: String(d).toUpperCase(), nivel: niv,
+            nodo: String(p.id_usuario), panel: p.nombre,
+            // el nivel que ESTE panel usa para facturar; el otro queda como control
+            propio: niv === nivelDe(p),
+          });
+        }
       }
     }
   }
@@ -107,40 +126,31 @@ function plan(mes, { conexionId = null } = {}) {
 // ── guardado ────────────────────────────────────────────────────────────────
 
 function _guardar(t, filasIn) {
-  let filas = filasIn;
-  const del = t.grupo === 'nodo'
-    ? db.prepare('DELETE FROM estad_mes WHERE conexion_id=? AND mes=? AND divisa=? AND grupo=? AND nodo_id=?')
-    : db.prepare('DELETE FROM estad_mes WHERE conexion_id=? AND mes=? AND divisa=? AND grupo=?');
+  // Siempre se guarda a nombre del PANEL que se consultó, con el NIVEL en el que se pidió.
+  // El subárbol devuelve una fila por terminal/distribuidor: se suman por proveedor antes de
+  // guardar; si no, entrarían con la misma clave y se perdería todo menos una.
+  const acc = {};
+  for (const f of filasIn || []) {
+    const k = `${f.provider}|${f.label}|${f.vendor}`;
+    const a = acc[k] || (acc[k] = { saLogin: f.saLogin || '', provider: f.provider, label: f.label, vendor: f.vendor, bet: 0, win: 0, profit: 0 });
+    a.bet += Number(f.bet) || 0; a.win += Number(f.win) || 0; a.profit += Number(f.profit) || 0;
+  }
+  const filas = Object.values(acc);
+  const del = db.prepare('DELETE FROM estad_mes WHERE conexion_id=? AND mes=? AND divisa=? AND grupo=? AND nodo_id=?');
   const ins = db.prepare(`INSERT INTO estad_mes
     (id, conexion_id, mes, divisa, grupo, nodo_id, nodo_login, provider, label, vendor, bet, win, profit, capturado_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const at = nowISO();
   // Una transacción: o queda la foto entera de esa combinación, o no queda nada. Una foto a medias
   // es peor que ninguna, porque parece completa.
-  // El subárbol devuelve una fila por terminal: se suman por proveedor antes de guardar, si no
-  // el mismo proveedor entraría varias veces con la misma clave y se perderían todas menos una.
-  if (t.grupo === 'nodo') {
-    const acc = {};
-    for (const f of filas) {
-      const k = `${f.provider}|${f.label}|${f.vendor}`;
-      const a = acc[k] || (acc[k] = { saId: String(t.nodo), saLogin: f.saLogin || '', provider: f.provider, label: f.label, vendor: f.vendor, bet: 0, win: 0, profit: 0 });
-      a.bet += Number(f.bet) || 0; a.win += Number(f.win) || 0; a.profit += Number(f.profit) || 0;
-    }
-    filas = Object.values(acc);
-  }
   const tx = db.transaction(() => {
-    if (t.grupo === 'nodo') del.run(t.conexion_id, t.mes, t.divisa, t.grupo, String(t.nodo));
-    else del.run(t.conexion_id, t.mes, t.divisa, t.grupo);
+    del.run(t.conexion_id, t.mes, t.divisa, t.nivel, String(t.nodo));
     let n = 0;
     for (const f of filas) {
-      // En la consulta suelta las filas vienen del subárbol del nodo y su saId es el de adentro,
-      // así que se guardan a nombre del panel que se consultó.
-      const nodo = t.grupo === 'nodo' ? String(t.nodo) : K(f.saId);
-      if (!nodo) continue;                       // fila sin nodo: no se le puede atribuir a nadie
-      const id = [t.conexion_id, t.mes, t.divisa, t.grupo, nodo, f.provider, f.label, f.vendor].join('|');
-      ins.run(id, t.conexion_id, t.mes, t.divisa, t.grupo, nodo, K(f.saLogin),
+      const id = [t.conexion_id, t.mes, t.divisa, t.nivel, t.nodo, f.provider, f.label, f.vendor].join('|');
+      ins.run(id, t.conexion_id, t.mes, t.divisa, t.nivel, String(t.nodo), K(f.saLogin),
         K(f.provider), K(f.label), K(f.vendor),
-        String(f.bet == null ? '' : f.bet), String(f.win == null ? '' : f.win), String(f.profit == null ? '' : f.profit), at);
+        String(f.bet), String(f.win), String(f.profit), at);
       n++;
     }
     return n;
@@ -153,17 +163,17 @@ function _marcar(t, { estado, filas = 0, nodos = 0, error = null, segundos = 0, 
               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(id) DO UPDATE SET estado=excluded.estado, filas=excluded.filas, nodos=excluded.nodos,
                 error=excluded.error, segundos=excluded.segundos, capturado_at=excluded.capturado_at, modo=excluded.modo`)
-    .run(claveDe(t), t.conexion_id, t.mes, t.divisa, t.grupo,
+    .run(claveDe(t), t.conexion_id, t.mes, t.divisa, t.nivel,
       estado, filas, nodos, error, segundos, nowISO(), modo);
 }
 
 /** La clave de una consulta. Las sueltas llevan el nodo: son una foto por panel, no por conexión. */
 function claveDe(t) {
-  return [t.conexion_id, t.mes, t.divisa, t.grupo, t.grupo === 'nodo' ? t.nodo : ''].join('|');
+  return [t.conexion_id, t.mes, t.divisa, t.nivel, t.nodo].join('|');
 }
-function captura(conexionId, mes, divisa, grupo, nodo = '') {
+function captura(conexionId, mes, divisa, nivel, nodo) {
   return db.prepare('SELECT * FROM estad_captura WHERE id=?')
-    .get([conexionId, mes, divisa, grupo, grupo === 'nodo' ? String(nodo) : ''].join('|')) || null;
+    .get([conexionId, mes, divisa, nivel, String(nodo)].join('|')) || null;
 }
 
 // ── sacar la foto ───────────────────────────────────────────────────────────
@@ -196,7 +206,7 @@ async function modoActual(cliCx) {
     const sel = s && (s.opciones || []).find((o) => o.seleccionada);
     if (!sel) return { ok: false, error: 'no se pudo leer cómo está agrupando el casino' };
     // 'diller' es como el casino escribe "dealer" (sic)
-    return { ok: true, valor: sel.value, grupo: sel.value === 'superagent' ? 'superagent' : (sel.value === 'diller' ? 'nodo' : sel.value) };
+    return { ok: true, valor: sel.value, nivel: nivelDeModo(sel.value) };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
@@ -227,23 +237,29 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
       return;
     }
     for (const t of lista) {
-      // La consulta masiva depende del modo; las sueltas (por nodo) no, porque piden un nodo puntual.
-      if (t.grupo === 'superagent' && modo.ok && modo.valor !== 'superagent') {
-        const err = `el casino está agrupando por "${modo.valor}", no por superagente: esta foto saldría con los números de otros nodos. Cambialo en la pantalla del casino (Estadísticas → Agrupar por → Superagent) y volvé a sacarla.`;
-        _marcar(t, { estado: 'error', error: err });
-        hechos.push({ ...t, estado: 'error', error: err });
+      // 🔒 EL CANDADO. El nivel lo decide el casino, no nosotros: si está agrupando por
+      // distribuidor, lo que devuelva NO son números de superagente aunque se los pida así. Y no
+      // es cosmético — el filtro profit>0 esconde los negativos, así que los dos niveles dan
+      // totales distintos. Guardar uno con la etiqueta del otro sería cobrar el número equivocado.
+      if (!modo.ok || modo.nivel !== t.nivel) {
+        // No es un error: es la OTRA pasada. El nivel lo decide el casino y se cambia a mano, así
+        // que cada corrida saca la mitad que corresponde y la otra queda esperando. Lo que NO puede
+        // pasar es guardar filas de un nivel con la etiqueta del otro: el filtro profit>0 esconde
+        // los negativos distinto en cada uno y el total cambia (Titán: 7.150 vs 7.162,50).
+        const espera = modo.ok
+          ? `falta la pasada por ${t.nivel} (el casino está en "${modo.valor}")`
+          : `no se pudo leer cómo está agrupando el casino: ${modo.error}`;
+        _marcar(t, { estado: modo.ok ? 'otro-nivel' : 'error', error: espera, modo: modo.ok ? modo.valor : null });
+        hechos.push({ ...t, estado: modo.ok ? 'otro-nivel' : 'error', error: espera });
         if (onPaso) onPaso(hechos[hechos.length - 1]);
         continue;
       }
-      const ya = captura(cxId, m, t.divisa, t.grupo, t.nodo);
+      const ya = captura(cxId, m, t.divisa, t.nivel, t.nodo);
       if (!refrescar && ya && ya.estado === 'ok') { hechos.push({ ...t, estado: 'ya estaba', filas: ya.filas, nodos: ya.nodos }); if (onPaso) onPaso(hechos[hechos.length - 1]); continue; }
       const t0 = Date.now();
       let r;
-      try {
-        r = t.grupo === 'nodo'
-          ? await cli.reporteProveedoresNodo({ nodoId: t.nodo, from, to, currency: t.divisa })
-          : await cli.reporteProveedores({ from, to, currency: t.divisa, userGroupBy: 'superagent' });
-      }
+      // Siempre scopeada al nodo del panel: lo que cambia el nivel es el ajuste del casino.
+      try { r = await cli.reporteProveedoresNodo({ nodoId: t.nodo, from, to, currency: t.divisa }); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
       if (!r.ok) {
@@ -262,8 +278,11 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
 
   const modos = {};
   const ok = hechos.filter((h) => h.estado === 'ok' || h.estado === 'ya estaba').length;
+  const otroNivel = hechos.filter((h) => h.estado === 'otro-nivel').length;
   return {
-    ok: true, mes: m, consultas: pasos.length, logradas: ok, fallidas: hechos.length - ok,
+    ok: true, mes: m, consultas: pasos.length, logradas: ok,
+    esperandoElOtroNivel: otroNivel,
+    fallidas: hechos.length - ok - otroNivel,
     filas: hechos.reduce((s, h) => s + (h.filas || 0), 0),
     detalle: hechos,
   };
@@ -277,9 +296,10 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
  * Devuelve null si esa combinación todavía no se sacó: eso significa "no sé", que es distinto de
  * "no tuvo movimiento". Nunca hay que tomar el null como cero.
  */
-function filasDe({ conexionId, nodoId, mes, divisa, grupo = 'superagent' }) {
-  // Los distribuidores y agentes no salen en la consulta masiva: tienen su propia foto, por nodo.
-  const g = grupo === 'superagent' ? 'superagent' : 'nodo';
+function filasDe({ conexionId, nodoId, mes, divisa, nivel = 'superagente' }) {
+  // Cada panel lee la foto de SU nivel: la de superagente si es superagente, la de distribuidor si
+  // no. Mezclarlas cambiaría el número, porque el filtro profit>0 esconde distinto en cada una.
+  const g = nivel;
   const c = captura(conexionId, String(mes).slice(0, 7), String(divisa).toUpperCase(), g, nodoId);
   if (!c || c.estado !== 'ok') return null;
   const rows = db.prepare(`SELECT nodo_id, nodo_login, provider, label, vendor, bet, win, profit
@@ -298,22 +318,27 @@ function estado(mes) {
   const pasos = plan(m);
   const nom = {}; casinoConex.list().forEach((c) => { nom[c.id] = c.nombre; });
   const filas = pasos.map((p) => {
-    const c = captura(p.conexion_id, m, p.divisa, p.grupo, p.nodo);
+    const c = captura(p.conexion_id, m, p.divisa, p.nivel, p.nodo);
     return {
       conexion: nom[p.conexion_id] || p.conexion_id, conexion_id: p.conexion_id,
-      divisa: p.divisa, grupo: p.grupo, nodo: p.nodo || null, panel: p.panel || null,
+      divisa: p.divisa, nivel: p.nivel, nodo: p.nodo || null, panel: p.panel || null,
       estado: c ? c.estado : 'falta', filas: c ? c.filas : 0, nodos: c ? c.nodos : 0,
       error: c ? c.error : null, segundos: c ? c.segundos : null, capturado_at: c ? c.capturado_at : null,
       modo: c ? c.modo : null,
     };
   });
   const listas = filas.filter((f) => f.estado === 'ok').length;
+  const porNivel = {};
+  NIVELES.forEach((niv) => {
+    const dela = filas.filter((f) => f.nivel === niv);
+    porNivel[niv] = { total: dela.length, listas: dela.filter((f) => f.estado === 'ok').length };
+  });
   // ⚠️ Un mes sacado mitad en un modo y mitad en otro NO es comparable: el modo cambia los números
   // (mismo nodo y mes: superagente 480.187,11 vs dealer 480.378,36). Se avisa, no se corrige solo.
   const modos = [...new Set(filas.filter((f) => f.estado === 'ok' && f.modo).map((f) => f.modo))];
   const conError = filas.filter((f) => f.estado === 'error');
   return {
-    mes: m, total: filas.length, listas, modos, modosMezclados: modos.length > 1, faltan: filas.filter((f) => f.estado === 'falta').length,
+    mes: m, total: filas.length, listas, porNivel, modos, modosMezclados: modos.length > 1, faltan: filas.filter((f) => f.estado === 'falta').length,
     conError: conError.length, completa: listas === filas.length && filas.length > 0,
     filasGuardadas: db.prepare('SELECT COUNT(*) c FROM estad_mes WHERE mes=?').get(m).c,
     detalle: filas,
@@ -335,4 +360,4 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, filasDe, estado, meses, plan, divisasDe, gruposDe, grupoDe, captura, borrarMes, rango, GRUPOS };
+module.exports = { capturar, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES };

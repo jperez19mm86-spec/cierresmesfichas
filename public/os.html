@@ -547,7 +547,13 @@ VIEWS.foto = async () => {
     + '<div style="flex:0"><button onclick="fotoSacar(false)">📸 Sacar lo que falta</button></div>'
     + '<div style="flex:0"><button class="outline" onclick="fotoSacar(true)">🔄 Rehacer todo</button></div>'
     + '</div>'
-    + (r.completa ? '<div class="muted" style="margin-top:8px;color:#3c9">✅ La foto de este mes está completa.</div>' : '<div class="muted" style="margin-top:8px">⚠ Falta sacar '+(r.faltan+r.conError)+'. Los reportes que dependan de eso van a preguntarle al casino en vivo (lento) o quedar incompletos.</div>')
+    + (function(){ var pn=r.porNivel||{}; var sa=pn.superagente||{}; var di=pn.distribuidor||{};
+        return '<div class="card" style="background:var(--bg3);margin-top:8px"><b>Las dos pasadas</b>'
+          + '<div class="muted" style="margin-top:4px">El casino agrupa en un nivel por vez y se cambia a mano. Se saca una pasada, se cambia el ajuste y se saca la otra. <b>No es lo mismo:</b> el filtro de ganancias esconde los negativos distinto en cada nivel.</div>'
+          + '<div class="row" style="margin-top:8px">'
+          + '<div class="card" style="flex:1;margin:0"><label>Por superagente</label><div style="font-size:19px;font-weight:800;color:'+((sa.listas===sa.total&&sa.total)?'#3c9':'inherit')+'">'+(sa.listas||0)+' / '+(sa.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Superagent</div></div>'
+          + '<div class="card" style="flex:1;margin:0"><label>Por distribuidor</label><div style="font-size:19px;font-weight:800;color:'+((di.listas===di.total&&di.total)?'#3c9':'inherit')+'">'+(di.listas||0)+' / '+(di.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Distributor</div></div>'
+          + '</div></div>'; })()
     + (errs.length ? '<div class="card" style="background:#3a2410;border-color:var(--red);margin-top:8px"><b style="color:var(--red)">⚠ '+errs.length+' con error</b><div class="muted" style="margin-top:4px">'+[...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div></div>' : '')
     + '</div>' + cuerpo
     + (ms.length ? '<div class="card"><h2>Meses guardados</h2><table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'+ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')+'</tbody></table></div>' : '');
