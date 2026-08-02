@@ -943,10 +943,16 @@ function mount(app) {
     const tc = _tc.valor;
     const out = []; const sinBase = new Set(); const sinTC = new Set();
     const sinPedidos = [];      // tienen movimiento en el casino pero NO se les vendió nada
+    // ⚠️ Ventas cuyo código NO corresponde a ningún cliente. Con los pedidos como base de cobro,
+    // eso es plata vendida que no se le factura a nadie y que no aparece por ningún lado.
+    // Verificado en producción: "Mclain" y "CharlyS2" con 170.000.000 cargados, sin cliente.
+    // Pasa cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior.
+    const usados = new Set();
     let totVend = '0', totFee = '0', totCasino = '0';
 
     for (const c of clientes.list().clientes) {
       const v = ventas[c.codigo] || null;
+      if (v) usados.add(c.codigo);
       const cps = linked.filter((p) => p.cliente_id === c.id);
 
       // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
@@ -1014,10 +1020,27 @@ function mount(app) {
     }
 
     out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
+
+    // Lo vendido que quedó sin dueño. Se informa con el monto por moneda: es lo que hay que
+    // reasignar a mano (o crear el cliente) para poder cobrarlo.
+    const huerfanas = [];
+    for (const [cod, v] of Object.entries(ventas)) {
+      if (usados.has(cod)) continue;
+      const porDiv = Object.entries(v.porDivisa || {}).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) }));
+      if (!porDiv.length) continue;
+      let usdt = '0';
+      for (const [d, m] of Object.entries(v.porDivisa || {})) {
+        const t = tcUnico.tcDelMes(d, mes);
+        if (t.valor) usdt = money.add(usdt, money.div(String(m), t.valor));
+      }
+      huerfanas.push({ codigo: cod, pedidos: v.count, porDivisa: porDiv, usdt: money.round(usdt, 2) });
+    }
+    huerfanas.sort((a, b) => Number(b.usdt) - Number(a.usdt));
+
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? 'casino' : 'apagado',
-      sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos,
+      sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, huerfanas,
       totales: {
         vendido_usdt: money.round(totVend, 2),
         fee_usdt: money.round(totFee, 2),
