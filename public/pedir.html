@@ -35,12 +35,21 @@
   .msg { padding:14px; border-radius:10px; font-size:15px; text-align:center; }
   .msg.err { background:rgba(217,83,79,.12); color:var(--red); border:1px solid rgba(217,83,79,.3); }
   .msg.ok { background:rgba(46,160,67,.12); color:var(--green); border:1px solid rgba(46,160,67,.35); }
+
+  /* El aviso de seguridad: es lo que evita que se pierda la plata, así que se ve de lejos. */
+  .aviso { background:rgba(217,83,79,.10); border:1.5px solid rgba(217,83,79,.45); color:var(--red);
+           border-radius:10px; padding:12px; font-size:13.5px; line-height:1.45; margin-bottom:12px; }
+  .aviso b { display:block; margin-bottom:4px; font-size:14px; }
+  .dato { background:var(--bg3); border:1px solid var(--border); border-radius:9px; padding:11px 13px;
+          font-weight:800; font-size:15px; word-break:break-all; transition:background .2s; }
+  .small { font-size:11.5px; color:var(--muted); }
+  .adj { font-size:13px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <img src="logo.png" class="logo" alt="Latam Games" />
-  <div class="sub">Ingresá tu código y armá tu pedido</div>
+  <div class="sub">Ingresá tu código</div>
 
   <!-- Código -->
   <div class="card">
@@ -52,20 +61,28 @@
     <div id="codigoMsg" style="margin-top:10px"></div>
   </div>
 
-  <!-- Usuario -->
+  <!-- Qué quiere hacer -->
+  <div class="card hidden" id="cardCamino">
+    <div class="cliname" id="cliName2"></div>
+    <div class="q">¿Qué querés hacer?</div>
+    <div class="grid">
+      <div class="opt" id="optFichas" onclick="elegirCamino('fichas')">🎰 Pedir fichas<span class="small">cargar a un usuario</span></div>
+      <div class="opt" id="optPago" onclick="elegirCamino('pago')">🧾 Avisar un pago<span class="small">subir el comprobante</span></div>
+    </div>
+  </div>
+
+  <!-- ─── Camino A: pedir fichas ─── -->
   <div class="card hidden" id="cardCaja">
     <div class="cliname" id="cliName"></div>
     <div class="q">¿A qué usuario querés cargar?</div>
     <div class="grid" id="cajasGrid"></div>
   </div>
 
-  <!-- Moneda -->
   <div class="card hidden" id="cardDivisa">
     <div class="q">¿En qué moneda?</div>
     <div class="grid" id="divisasGrid"></div>
   </div>
 
-  <!-- Monto -->
   <div class="card hidden" id="cardMonto">
     <div class="q">¿Cuánto querés cargar?</div>
     <div class="grid" id="montosGrid"></div>
@@ -74,17 +91,50 @@
     </div>
   </div>
 
-  <!-- Confirmar -->
   <button class="btn full hidden" id="btnPedir" onclick="hacerPedido()" disabled>✅ Hacer el pedido</button>
   <div id="pedidoMsg" style="margin-top:12px"></div>
+
+  <!-- ─── Camino B: avisar un pago ─── -->
+  <div class="card hidden" id="cardVia">
+    <div class="q">¿Cómo pagaste?</div>
+    <div class="grid">
+      <div class="opt" data-via="ars" onclick="pickVia('ars',this)">💵 Pesos<span class="small">transferencia</span></div>
+      <div class="opt" data-via="usdt" onclick="pickVia('usdt',this)">₮ USDT<span class="small">cripto</span></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="cardDatos">
+    <div id="datosPago"></div>
+  </div>
+
+  <div class="card hidden" id="cardPago">
+    <div class="q">¿Cuánto transferiste?</div>
+    <input id="pagoMonto" type="text" inputmode="decimal" placeholder="Monto" oninput="valPago()" />
+    <div id="pagoRango" class="small" style="margin-top:6px"></div>
+
+    <div class="q" style="margin-top:14px">Número de operación o hash <span style="text-transform:none">(opcional)</span></div>
+    <input id="pagoRef" type="text" placeholder="Ej: 1234567890" autocomplete="off" />
+
+    <div class="q" style="margin-top:14px">Comprobante</div>
+    <input id="pagoArchivo" type="file" accept="image/*,application/pdf" onchange="valPago()" />
+    <div id="pagoArchivoMsg" class="adj" style="margin-top:6px"></div>
+  </div>
+
+  <button class="btn full hidden" id="btnPago" onclick="avisarPago()" disabled>🧾 Avisar el pago</button>
+  <div id="pagoMsg" style="margin-top:12px"></div>
 </div>
 
 <script>
   let _codigo = '', _cajas = [], _selCaja = null, _selDivisa = null, _selMonto = null;
+  let _pago = null;   // datos de cobro que manda el servidor
+  let _via = null;    // 'ars' | 'usdt'
+
+  const TARJETAS = ['cardCamino', 'cardCaja', 'cardDivisa', 'cardMonto', 'btnPedir',
+    'cardVia', 'cardDatos', 'cardPago', 'btnPago'];
 
   function fmt(n) { return Number(n).toLocaleString('es-AR'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
-  function show(id, on) { document.getElementById(id).classList.toggle('hidden', !on); }
+  function show(id, on) { const e = document.getElementById(id); if (e) e.classList.toggle('hidden', !on); }
 
   async function buscar() {
     const codigo = document.getElementById('codigo').value.trim();
@@ -95,50 +145,62 @@
     try {
       const r = await fetch('/api/pedir/' + encodeURIComponent(codigo));
       const d = await r.json();
-      if (!d.ok) { msg.innerHTML = `<div class="msg err">${esc(d.error || 'No encontrado')}</div>`; return; }
-      _codigo = d.cliente.codigo; _cajas = d.cajas || [];
+      if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No encontrado') + '</div>'; return; }
+      _codigo = d.cliente.codigo; _cajas = d.cajas || []; _pago = d.pago || null;
       msg.innerHTML = '';
-      document.getElementById('cliName').textContent = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
-      if (!_cajas.length) { document.getElementById('cajasGrid').innerHTML = '<div class="q">Sin usuarios cargados.</div>'; show('cardCaja', true); return; }
+      const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
+      document.getElementById('cliName').textContent = quien;
+      document.getElementById('cliName2').textContent = quien;
       document.getElementById('cajasGrid').className = 'grid' + (_cajas.length === 1 ? ' one' : '');
-      document.getElementById('cajasGrid').innerHTML = _cajas.map(k =>
-        `<div class="opt" data-id="${k.id}" onclick="pickCaja('${k.id}',this)">${esc(k.usuario)}</div>`).join('');
-      show('cardCaja', true);
-    } catch (e) { msg.innerHTML = `<div class="msg err">Error: ${esc(e.message)}</div>`; }
+      document.getElementById('cajasGrid').innerHTML = _cajas.length
+        ? _cajas.map(k => '<div class="opt" data-id="' + k.id + '" onclick="pickCaja(\'' + k.id + '\',this)">' + esc(k.usuario) + '</div>').join('')
+        : '<div class="q">Sin usuarios cargados.</div>';
+      // Primero elige QUÉ quiere hacer.
+      show('cardCamino', true);
+    } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; }
   }
 
+  function elegirCamino(cual) {
+    document.getElementById('optFichas').classList.toggle('sel', cual === 'fichas');
+    document.getElementById('optPago').classList.toggle('sel', cual === 'pago');
+    ['cardCaja','cardDivisa','cardMonto','btnPedir','cardVia','cardDatos','cardPago','btnPago'].forEach(i => show(i, false));
+    document.getElementById('pagoMsg').innerHTML = '';
+    document.getElementById('pedidoMsg').innerHTML = '';
+    if (cual === 'fichas') { show('cardCaja', true); return; }
+    _via = null;
+    document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.remove('sel'));
+    show('cardVia', true);
+  }
+
+  // ─── Camino A: pedir fichas ───────────────────────────────────────────────
   function pickCaja(id, el) {
     _selCaja = _cajas.find(k => k.id === id); _selDivisa = null; _selMonto = null;
     document.querySelectorAll('#cajasGrid .opt').forEach(x => x.classList.toggle('sel', x === el));
-    // reset monto + ocultar hasta elegir moneda
     show('cardMonto', false); show('btnPedir', false);
     const divisas = (_selCaja.divisas && _selCaja.divisas.length) ? _selCaja.divisas : ['ARS'];
     document.getElementById('divisasGrid').className = 'grid' + (divisas.length === 1 ? ' one' : '');
     document.getElementById('divisasGrid').innerHTML = divisas.map(d =>
-      `<div class="opt" data-d="${esc(d)}" onclick="pickDivisa('${esc(d)}',this)">${esc(d)}</div>`).join('');
+      '<div class="opt" data-d="' + esc(d) + '" onclick="pickDivisa(\'' + esc(d) + '\',this)">' + esc(d) + '</div>').join('');
     show('cardDivisa', true);
-    if (divisas.length === 1) { // una sola moneda → seleccionarla sola y mostrar monto
-      pickDivisa(divisas[0], document.querySelector('#divisasGrid .opt'));
-    }
+    if (divisas.length === 1) pickDivisa(divisas[0], document.querySelector('#divisasGrid .opt'));
     updateBtn();
   }
 
   function pickDivisa(d, el) {
     _selDivisa = d; _selMonto = null;
     document.querySelectorAll('#divisasGrid .opt').forEach(x => x.classList.toggle('sel', x.getAttribute('data-d') === d));
-    // Los montos rápidos (500k/1M/5M/10M) son valores en PESOS → solo para ARS.
-    // En otras monedas se muestra SOLO "OTRO" (monto manual).
+    // Los montos rápidos son valores en PESOS → solo para ARS. En otras monedas, monto manual.
     const esArs = String(d).toUpperCase() === 'ARS';
     const montos = esArs ? (_selCaja.montosRapidos || []) : [];
     const mg = document.getElementById('montosGrid');
     mg.className = 'grid' + (esArs ? '' : ' one');
     mg.innerHTML =
-      montos.map(m => `<div class="opt" data-m="${m}" onclick="pickMonto(${m})">$ ${fmt(m)}</div>`).join('') +
-      `<div class="opt" id="optOtro" onclick="toggleOtro()">OTRO<span class="small">monto manual</span></div>`;
+      montos.map(m => '<div class="opt" data-m="' + m + '" onclick="pickMonto(' + m + ')">$ ' + fmt(m) + '</div>').join('') +
+      '<div class="opt" id="optOtro" onclick="toggleOtro()">OTRO<span class="small">monto manual</span></div>';
     document.getElementById('otroWrap').style.display = 'none';
     document.getElementById('otroMonto').value = '';
     show('cardMonto', true); show('btnPedir', true);
-    if (!esArs) toggleOtro(); // moneda != ARS → abrir directo el monto manual
+    if (!esArs) toggleOtro();
     updateBtn();
   }
 
@@ -162,7 +224,7 @@
     const ok = _selCaja && _selDivisa && _selMonto > 0;
     const btn = document.getElementById('btnPedir');
     btn.disabled = !ok;
-    btn.textContent = ok ? `✅ Pedir ${_selDivisa} $ ${fmt(_selMonto)}` : '✅ Hacer el pedido';
+    btn.textContent = ok ? ('✅ Pedir ' + _selDivisa + ' $ ' + fmt(_selMonto)) : '✅ Hacer el pedido';
   }
 
   async function hacerPedido() {
@@ -170,19 +232,120 @@
     const btn = document.getElementById('btnPedir'); const msg = document.getElementById('pedidoMsg');
     btn.disabled = true; msg.innerHTML = '<div class="q">⏳ enviando pedido…</div>';
     try {
-      const r = await fetch('/api/pedir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: _codigo, cajaId: _selCaja.id, divisa: _selDivisa, monto: _selMonto }) });
+      const r = await fetch('/api/pedir', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: _codigo, cajaId: _selCaja.id, divisa: _selDivisa, monto: _selMonto }) });
       const d = await r.json();
       if (d.ok) {
-        msg.innerHTML = `<div class="msg ok">✅ <strong>Pedido enviado</strong><br/>${esc(d.pedido.divisa || _selDivisa)} $ ${fmt(d.pedido.monto)} para <strong>${esc(d.pedido.cajaUsuario)}</strong>.<br/>Te lo van a cargar en breve.</div>`;
-        ['cardCaja', 'cardDivisa', 'cardMonto', 'btnPedir'].forEach(i => show(i, false));
+        msg.innerHTML = '<div class="msg ok">✅ <strong>Pedido enviado</strong><br/>'
+          + esc(d.pedido.divisa || _selDivisa) + ' $ ' + fmt(d.pedido.monto)
+          + ' para <strong>' + esc(d.pedido.cajaUsuario) + '</strong>.<br/>Te lo van a cargar en breve.</div>';
+        ['cardCamino','cardCaja','cardDivisa','cardMonto','btnPedir'].forEach(i => show(i, false));
         setTimeout(() => { document.getElementById('codigo').value = ''; document.getElementById('codigo').focus(); msg.innerHTML = ''; resetSel(); }, 5000);
-      } else { msg.innerHTML = `<div class="msg err">${esc(d.error || 'No se pudo enviar')}</div>`; btn.disabled = false; }
-    } catch (e) { msg.innerHTML = `<div class="msg err">Error: ${esc(e.message)}</div>`; btn.disabled = false; }
+      } else { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo enviar') + '</div>'; btn.disabled = false; }
+    } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; btn.disabled = false; }
+  }
+
+  // ─── Camino B: avisar un pago ─────────────────────────────────────────────
+  function pickVia(v, el) {
+    _via = v;
+    document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.toggle('sel', x === el));
+    const d = (_pago || {})[v] || {};
+
+    // El AVISO va PRIMERO y bien visible: es lo que evita que se pierda la plata.
+    let html = d.aviso ? '<div class="aviso"><b>⚠️ Leé esto antes de transferir</b>' + esc(d.aviso) + '</div>' : '';
+    if (v === 'ars') {
+      html += '<div class="q">Titular</div><div class="dato">' + esc(d.titular || '—') + '</div>'
+        + '<div class="q" style="margin-top:12px">CVU</div><div class="dato" id="datoCopiable">' + esc(d.cvu || '—') + '</div>';
+    } else {
+      html += '<div class="q">Dirección USDT</div><div class="dato" id="datoCopiable">' + esc(d.direccion || '—') + '</div>'
+        + '<div class="q" style="margin-top:12px">Red</div><div class="dato">' + esc(d.red || '—') + '</div>';
+    }
+    if (d.nota) html += '<div class="small" style="margin-top:10px">' + esc(d.nota) + '</div>';
+    html += '<button class="btn full" style="margin-top:12px" onclick="copiarDato()">📋 Copiar</button>';
+    document.getElementById('datosPago').innerHTML = html;
+
+    document.getElementById('pagoMonto').value = '';
+    document.getElementById('pagoRef').value = '';
+    document.getElementById('pagoArchivo').value = '';
+    show('cardDatos', true); show('cardPago', true); show('btnPago', true);
+    valPago();
+  }
+
+  function copiarDato() {
+    const el = document.getElementById('datoCopiable');
+    if (!el) return;
+    const txt = el.textContent.trim();
+    const listo = () => { el.style.background = 'rgba(46,160,67,.25)'; setTimeout(() => { el.style.background = ''; }, 700); };
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(listo).catch(() => {});
+    else listo();
+  }
+
+  function valPago() {
+    const crudo = String(document.getElementById('pagoMonto').value).replace(/\./g, '').replace(',', '.');
+    const m = Number(crudo);
+    const f = document.getElementById('pagoArchivo').files[0];
+    const msgArch = document.getElementById('pagoArchivoMsg');
+    let problema = null;
+    if (f) {
+      const mb = f.size / 1048576;
+      if (mb > 6) problema = 'El archivo pesa ' + mb.toFixed(1) + ' MB y el máximo son 6 MB.';
+      msgArch.innerHTML = problema
+        ? '<span style="color:var(--red)">' + esc(problema) + '</span>'
+        : '📎 ' + esc(f.name) + ' (' + mb.toFixed(1) + ' MB)';
+    } else {
+      msgArch.innerHTML = '<span class="small">Sin archivo. Podés avisar igual, pero con el comprobante se acredita más rápido.</span>';
+    }
+
+    // El rango es un AVISO, no una traba: el cliente ya transfirió, frenarlo acá no le devuelve nada.
+    const d = (_pago || {})[_via] || {};
+    const rango = document.getElementById('pagoRango');
+    if (_via === 'ars' && d.min && d.max) {
+      rango.innerHTML = (m > 0 && (m < Number(d.min) || m > Number(d.max)))
+        ? '<span style="color:var(--red)">⚠️ Ese monto está fuera del rango permitido ($ ' + fmt(d.min) + ' – $ ' + fmt(d.max) + '). Avisá igual y hablá con soporte.</span>'
+        : 'Mínimo $ ' + fmt(d.min) + ' · Máximo $ ' + fmt(d.max) + ' por transferencia';
+    } else { rango.innerHTML = ''; }
+
+    const btn = document.getElementById('btnPago');
+    btn.disabled = !(m > 0) || !!problema;
+    btn.textContent = m > 0 ? ('🧾 Avisar ' + fmt(m) + ' ' + (_via === 'usdt' ? 'USDT' : 'pesos')) : '🧾 Avisar el pago';
+  }
+
+  function leerArchivo(f) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res({ nombre: f.name, tipo: f.type, base64: String(r.result).split(',')[1] });
+      r.onerror = () => rej(new Error('no se pudo leer el archivo'));
+      r.readAsDataURL(f);
+    });
+  }
+
+  async function avisarPago() {
+    const btn = document.getElementById('btnPago'); const msg = document.getElementById('pagoMsg');
+    const monto = String(document.getElementById('pagoMonto').value).trim();
+    if (!monto) return;
+    btn.disabled = true; msg.innerHTML = '<div class="q">⏳ enviando…</div>';
+    try {
+      const f = document.getElementById('pagoArchivo').files[0];
+      const archivo = f ? await leerArchivo(f) : null;
+      const r = await fetch('/api/comprobante', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo: _codigo, via: _via, monto: monto,
+          divisa: _via === 'usdt' ? 'USDT' : 'ARS',
+          referencia: document.getElementById('pagoRef').value.trim(),
+          archivo: archivo,
+        }) });
+      const d = await r.json();
+      if (d.ok) {
+        msg.innerHTML = '<div class="msg ok">✅ <strong>Pago avisado</strong><br/>Lo vamos a revisar y acreditar.<br/>Guardá tu comprobante por las dudas.</div>';
+        ['cardCamino','cardVia','cardDatos','cardPago','btnPago'].forEach(i => show(i, false));
+        setTimeout(() => { document.getElementById('codigo').value = ''; document.getElementById('codigo').focus(); msg.innerHTML = ''; resetSel(); }, 6000);
+      } else { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo enviar') + '</div>'; btn.disabled = false; }
+    } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; btn.disabled = false; }
   }
 
   function resetSel() {
-    _selCaja = null; _selDivisa = null; _selMonto = null;
-    ['cardCaja', 'cardDivisa', 'cardMonto', 'btnPedir'].forEach(i => show(i, false));
+    _selCaja = null; _selDivisa = null; _selMonto = null; _via = null;
+    TARJETAS.forEach(i => show(i, false));
   }
 </script>
 </body>
