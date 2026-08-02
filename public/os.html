@@ -56,7 +56,7 @@
 <script>
 // ───────── helpers ─────────
 const TABS = [
-  ['revision','🩺 Revisión'], ['foto','📸 Foto del mes'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
+  ['revision','🩺 Revisión'], ['foto','📸 Foto del mes'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Factura de consumo'],
   ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'], ['comprobantes','🧾 Comprobantes'],
   ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
@@ -108,7 +108,7 @@ VIEWS.clientes = async () => {
         <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class=badge.warn>—</span>'}</td>
         <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
         <td>${c.paga_proveedores?'sí':'no'}</td>
-        <td class="right"><b>${money(c.deuda?c.deuda.total:0)}</b></td>
+        <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${c.deuda?('<div class="muted" style="font-size:10.5px;white-space:nowrap">consumo '+money(c.deuda.fichas_pendientes,0)+' · ext '+money(c.deuda.proveedores_pendientes,0)+'</div>'):''}</td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
@@ -781,7 +781,7 @@ const CIE_STYLE = `<style>
   </style>`;
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Proveedores externos'],['vincular','🔗 Vincular proveedores']];
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vincular','🔗 Vincular proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
@@ -807,12 +807,33 @@ async function cieExternos() {
     + '</select></div>'
     + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
     + '<button onclick="extCalcular()">Calcular</button>'
+    + '<button class="outline" style="margin-left:6px" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button>'
     + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
     + '<span class="muted">' + (estaCong ? '🧊 congelado: usa los precios de ESE mes' : '⚠ sin congelar: usa los precios de HOY') + '</span>'
     + '<button class="small ' + (estaCong ? 'outline' : '') + '" onclick="extCongelar(' + estaCong + ')">' + (estaCong ? 'Descongelar' : '🧊 Congelar el mes') + '</button>'
     + '</span>'
     + '</div></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
+}
+
+// Emite la factura de EXTERNOS de todo el mes. Es la otra factura, separada de la de consumo:
+// va como 'proveedor_extra' y cae en su propia columna de la cuenta corriente.
+async function extEmitir() {
+  if (!confirm('¿Emitir la factura de PROVEEDORES EXTERNOS de ' + _extMes + ' a la deuda de todos los clientes?\n\nEs una factura APARTE de la de consumo. Emitir de nuevo NO duplica; si hace falta corregir, se anula y se vuelve a emitir.')) return;
+  toast('Calculando cliente por cliente… puede tardar');
+  const r = await api('/api/os/emision/externos', { method: 'POST', body: JSON.stringify({ mes: _extMes }) });
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  const avisos = [];
+  if (r.yaEstaban) avisos.push(r.yaEstaban + ' ya estaban');
+  if ((r.sinBase || []).length) avisos.push((r.sinBase || []).length + ' sin % base');
+  if ((r.fallaron || []).length) avisos.push((r.fallaron || []).length + ' con error');
+  toast(r.creados + ' emitidos · ' + money(r.total, 2) + ' USDT' + (avisos.length ? ' · ' + avisos.join(' · ') : ''));
+  if ((r.fallaron || []).length) console.warn('externos que fallaron:', r.fallaron);
+}
+async function extAnular() {
+  if (!confirm('¿Anular la emisión de externos de ' + _extMes + '?\n\nBorra SOLO los movimientos que generó esa emisión.')) return;
+  const r = await api('/api/os/emision/externos/' + encodeURIComponent(_extMes), { method: 'DELETE' });
+  toast(r.ok ? (r.borrados + ' borrados · ' + money(r.total, 2) + ' USDT') : ('Error: ' + (r.error || '')));
 }
 async function extCalcular() {
   const b = document.getElementById('ext-body');
@@ -1448,8 +1469,13 @@ async function calcularFac(){
   const T=r.totales||{};
   const dif=(x)=>x==null?'':('<span style="color:'+(Math.abs(Number(x))>10?'var(--gold)':'inherit')+'">'+(Number(x)>0?'+':'')+x+'%</span>');
   const em = await api('/api/os/emision/' + encodeURIComponent(r.mes));
+  // Son DOS facturas separadas y van a columnas distintas de la cuenta corriente. Decirlo acá
+  // evita que alguien sume las dos o crea que emitir una ya cubre la otra.
+  const _cabecera = '<div class="card" style="background:var(--bg3);margin:0 0 10px"><b>🧾 Factura de CONSUMO</b>'
+    + '<div class="muted" style="margin-top:4px">Lo que el cliente <b>pidió y se le cargó</b> en el mes, por su % base. Ej: pidió 50.000.000 y su % es 10 → se le cobran 5.000.000, pasados a USDT con el TC del mes.</div>'
+    + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🧮 Cierre de Mes → 🧾 Factura de externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
   const emF = (em.porOrigen || {}).facturacion || null;
-  out.innerHTML = 
+  out.innerHTML = _cabecera +
     (emF
       ? '<div class="card" style="background:#0f2a1a;border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
         + '<div class="muted" style="margin-top:4px">' + emF.cantidad + ' cliente(s) · <b>' + money(emF.total,2) + ' USDT</b> · emitido el ' + esc(String(emF.desde||'').slice(0,16).replace('T',' ')) + '</div>'
