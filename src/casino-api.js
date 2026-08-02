@@ -271,12 +271,27 @@ function makeClient({ url, token, user, password } = {}) {
     if (b.has('to')) b.set('to', conHora(b.get('to'), true));
     if (!b.has('active_template') && autoTpl) b.append('active_template', autoTpl); // template seleccionado del usuario (auto)
     if (!useSession) b.append('api_token', token);
-    // El navegador manda este POST con `response=js`. Sin eso el motor lo trata como render de
-    // página y (sospecha) descarta los campos del formulario, que es lo que haría que cambiar la
-    // agrupación no tenga ningún efecto. `opts.postJs` lo prueba sin tocar el camino que ya anda.
-    const urlPost = `${base}/index.php?act=admin&area=reports${opts.postJs ? '&response=js' : ''}`;
+    // ⚠️ ESTE POST VA COMO NAVEGACIÓN, NO COMO AJAX.
+    // En la pantalla del casino, cambiar "Agrupar por" hace un submit NATIVO del formulario. Se
+    // probó desde la propia página: un fetch con EL MISMO cuerpo NO guarda la agrupación, y el
+    // submit nativo SÍ (el selector pasó de diller a superagent y quedó guardado en el servidor).
+    // Lo único que fetch no puede mandar son las cabeceras de navegación — nosotros sí. Por eso
+    // acá se manda como lo mandaría el navegador, sin `X-Requested-With` y siguiendo el redirect.
+    const hNav = () => ({
+      ...hGet(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Referer: refer,
+      Origin: base,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+    });
     let page;
-    try { page = await axios.post(urlPost, b.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(page); }
+    try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers: hNav(), timeout: 60000, validateStatus: () => true, maxRedirects: 5 }); absorb(page); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
     const html = String(page.data || '');
     // BUG HISTÓRICO ("Unknown error" por semanas): la página embebe VARIAS URLs de reportstable. La 1ra es la
