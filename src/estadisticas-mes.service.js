@@ -18,10 +18,20 @@
  *   ahora:  ~130 consultas, UNA VEZ POR MES
  *
  * DOS TIPOS DE CONSULTA:
- *   · MASIVA (una por conexión × divisa): trae todos los SUPERAGENTES de golpe.
- *   · SUELTA (una por panel): para los Distribuidores y Agentes, que NO salen en la masiva.
- *     Se probó pedir la masiva con las tres agrupaciones y el casino devolvió exactamente lo mismo
- *     en las tres — el parámetro lo ignora. Son 70 paneles de 211 y tienen una sola divisa cada uno.
+ *   · MASIVA (una por conexión × divisa): trae de golpe todos los nodos del nivel que el casino
+ *     tenga elegido en ESE momento.
+ *   · SUELTA (una por panel): para los Distribuidores y Agentes, pidiendo su nodo puntual.
+ *
+ * ⚠️ EL NIVEL DE LA MASIVA NO SE ELIGE DESDE ACÁ. Es un ajuste guardado en el servidor del casino
+ * por cuenta, y solo se cambia a mano en su pantalla (Estadísticas → Agrupar por). Mandar el mismo
+ * formulario por HTTP NO lo guarda: probado desde la propia página del casino, el submit nativo sí
+ * y un fetch con idéntico cuerpo no.
+ *
+ * Y los dos niveles son EXCLUYENTES. Verificado sobre junio en Europa:
+ *     superagent → 951 filas, 39 nodos: 31 superagentes nuestros, 0 distribuidores
+ *     diller     → 2076 filas, 128 nodos: 0 superagentes, 23 distribuidores nuestros
+ * Por eso, antes de guardar, se mira en qué modo está y se frena si no coincide: si no, quedarían
+ * archivados los números de unos nodos bajo el nombre de otros, sin que nada avise.
  */
 const { db } = require('./db');
 const nowISO = () => new Date().toISOString();
@@ -163,6 +173,35 @@ function captura(conexionId, mes, divisa, grupo, nodo = '') {
  * sesión y el casino tira abajo la sesión anterior al volver a entrar) y en paralelo entre conexiones.
  * @param onPaso  se llama con cada paso terminado, para poder mostrar el avance
  */
+/**
+ * ⚠️ EN QUÉ MODO ESTÁ LA CUENTA DEL CASINO AHORA MISMO.
+ *
+ * El casino agrupa el reporte según un ajuste GUARDADO EN SU SERVIDOR por cuenta, y no se puede
+ * cambiar desde acá: solo cambiándolo a mano en su pantalla (el <select> hace un submit nativo del
+ * formulario, y mandar el mismo cuerpo por HTTP no lo guarda — probado).
+ *
+ * Y los dos modos son EXCLUYENTES. Verificado sobre junio en Europa:
+ *   · superagent → 951 filas, 39 nodos: 31 superagentes nuestros,  0 distribuidores
+ *   · diller     → 2076 filas, 128 nodos: 0 superagentes,          23 distribuidores nuestros
+ *
+ * Por eso hay que mirarlo ANTES de guardar. Si no, se sacaría la foto en modo dealer y quedaría
+ * archivada como si fuera de superagentes: números de otra gente bajo el nombre equivocado, sin que
+ * nada avise.
+ */
+async function modoActual(cliCx) {
+  try {
+    const r = await cliCx.camposDeReportes();
+    if (!r.ok) return { ok: false, error: r.error };
+    const s = (r.selects || []).find((x) => x.name === 'reports_user_group_by');
+    const sel = s && (s.opciones || []).find((o) => o.seleccionada);
+    if (!sel) return { ok: false, error: 'no se pudo leer cómo está agrupando el casino' };
+    // 'diller' es como el casino escribe "dealer" (sic)
+    return { ok: true, valor: sel.value, grupo: sel.value === 'superagent' ? 'superagent' : (sel.value === 'diller' ? 'nodo' : sel.value) };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function capturar({ mes, conexionId = null, refrescar = false, onPaso = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
@@ -181,11 +220,21 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
   const hechos = [];
   await Promise.all([...porCx.entries()].map(async ([cxId, lista]) => {
     const cli = casinoConex.client(cxId);         // UNA sesión para toda la conexión
+    // 🔒 CANDADO: si el casino está agrupando de otra forma, lo que devuelva NO es lo que dice ser.
+    const modo = cli ? await modoActual(cli) : { ok: false, error: 'la conexión no responde' };
     if (!cli) {
       lista.forEach((t) => { _marcar(t, { estado: 'error', error: 'la conexión no responde' }); hechos.push({ ...t, estado: 'error', error: 'la conexión no responde' }); });
       return;
     }
     for (const t of lista) {
+      // La consulta masiva depende del modo; las sueltas (por nodo) no, porque piden un nodo puntual.
+      if (t.grupo === 'superagent' && modo.ok && modo.valor !== 'superagent') {
+        const err = `el casino está agrupando por "${modo.valor}", no por superagente: esta foto saldría con los números de otros nodos. Cambialo en la pantalla del casino (Estadísticas → Agrupar por → Superagent) y volvé a sacarla.`;
+        _marcar(t, { estado: 'error', error: err });
+        hechos.push({ ...t, estado: 'error', error: err });
+        if (onPaso) onPaso(hechos[hechos.length - 1]);
+        continue;
+      }
       const ya = captura(cxId, m, t.divisa, t.grupo, t.nodo);
       if (!refrescar && ya && ya.estado === 'ok') { hechos.push({ ...t, estado: 'ya estaba', filas: ya.filas, nodos: ya.nodos }); if (onPaso) onPaso(hechos[hechos.length - 1]); continue; }
       const t0 = Date.now();
@@ -211,6 +260,7 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
     }
   }));
 
+  const modos = {};
   const ok = hechos.filter((h) => h.estado === 'ok' || h.estado === 'ya estaba').length;
   return {
     ok: true, mes: m, consultas: pasos.length, logradas: ok, fallidas: hechos.length - ok,
