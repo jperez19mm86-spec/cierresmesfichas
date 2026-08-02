@@ -416,6 +416,32 @@ function mount(app) {
 
   // El casino tarda 50-120s por reporte. Las ganancias quedan cacheadas: un mes cerrado no cambia.
   app.get('/api/os/externos/_cache', (_req, res) => ok(res, { meses: ganCache.resumen(), vigenciaMesEnCursoMin: ganCache.VIGENCIA_MIN }));
+  // Llenar el cache de a UN panel: el reporte entero se pasa del timeout, pero un panel solo entra
+  // holgado. El front (o un script) recorre los paneles del cliente y despues pide el reporte, que
+  // ya sale instantaneo porque esta todo cacheado.
+  app.post('/api/os/externos/_cache/panel', wrap(async (req, res) => {
+    const b = req.body || {};
+    const p = paneles.get(b.panel_id);
+    if (!p) return err(res, 404, 'panel no encontrado');
+    const mes = b.mes || new Date().toISOString().slice(0, 7);
+    const cx = casinoConex.list().find((c) => c.id === p.conexion_id)
+      || casinoConex.list().find((c) => String(c.nombre).toLowerCase() === String(p.sistema).toLowerCase());
+    if (!cx) return err(res, 400, 'el panel no tiene conexion de casino');
+    const cli = casinoConex.client(cx.id);
+    if (!cli) return err(res, 502, 'la conexion no responde');
+    const [y, m] = mes.split('-').map(Number);
+    const ult = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = mes + '-01', to = mes + '-' + String(ult).padStart(2, '0');
+    const divisas = (b.divisa ? [b.divisa] : ((p.divisas || []).length ? p.divisas : ['ARS']));
+    const hechas = [];
+    for (const d of divisas) {
+      if (!b.refrescar && ganCache.get(cx.id, p.id_usuario, mes, d)) { hechas.push({ divisa: d, deCache: true }); continue; }
+      const r = await cli.reporteProveedoresNodo({ nodoId: p.id_usuario, from, to, currency: d });
+      if (r.ok) { ganCache.set(cx.id, p.id_usuario, mes, d, r.filas); hechas.push({ divisa: d, filas: r.filas.length }); }
+      else hechas.push({ divisa: d, error: r.error });
+    }
+    ok(res, { panel: p.nombre, mes, divisas: hechas });
+  }));
   app.delete('/api/os/externos/_cache', (req, res) => ok(res, ganCache.limpiar(req.query.mes || null)));
 
   // ───────── §9 PROVEEDORES EXTERNOS ─────────
