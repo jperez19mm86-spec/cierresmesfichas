@@ -834,40 +834,59 @@ function mount(app) {
     const nodeMap = {}; const errores = [];
     for (const cid of Object.keys(byConn)) {
       const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
-      const r = await cli.nodos({ from, to, soloActivos: true }); // solo activos (mismo total, mucho más rápido)
+      // multiMoneda: la respuesta del casino YA trae todas las monedas; sin esto se leía solo la
+      // columna de pesos argentinos y un cliente que factura en pesos uruguayos salía en cero.
+      const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true }); // activos: mismo total, mucho más rápido
       if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
       const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
     }
     const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Externos y Reparto
     const tc = _tc.valor;
-    const out = []; let totIn = '0', totProfit = '0', totFee = '0';
+    const out = []; let totFee = '0', totIn = '0', totProfit = '0';
     const sinBase = new Set();  // clientes sin % cargado: se informan en vez de facturarlos al 0%
+    const sinTCGlobal = new Set();
     for (const c of clientes.list().clientes) {
       const cps = linked.filter((p) => p.cliente_id === c.id);
       if (!cps.length) continue;
-      let cIn = '0', cProfit = '0', cFee = '0'; const panelRows = [];
+      let cIn = '0', cProfit = '0', cFee = '0'; const panelRows = []; const porDivisaCli = {};
       for (const p of cps) {
         const node = (nodeMap[p.conexion_id] || {})[String(p.id_usuario)];
-        const inAmt = node ? node.in : '0';
-        const profit = node ? node.profit : '0';
         // el % del MES que se está facturando (no el de hoy) y avisando si el cliente no tiene
-        const r = externosSvc.baseDelMes(c, mes, p);
-        const base = r.valor || '0';
-        if (r.valor == null) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
-        const fee = money.pct(inAmt, base);
-        cIn = money.add(cIn, inAmt); cProfit = money.add(cProfit, profit); cFee = money.add(cFee, fee);
-        panelRows.push({ panel: p.nombre, nodo: p.id_usuario, base, baseFuente: r.fuente, in: money.round(inAmt, 2), profit: money.round(profit, 2), fee: money.round(fee, 2), encontrado: !!node });
+        const rb = externosSvc.baseDelMes(c, mes, p);
+        const base = rb.valor || '0';
+        if (rb.valor == null) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
+        // TODO en USDT: es la única unidad en la que se pueden sumar monedas distintas.
+        const montos = (node && node.montos && Object.keys(node.montos).length)
+          ? node.montos
+          : (node ? { ARS: { in: node.in, profit: node.profit } } : {});
+        let pIn = '0', pProfit = '0', pFee = '0'; const pDiv = [];
+        for (const [div, v] of Object.entries(montos)) {
+          const t = tcUnico.tcDelMes(div, mes);
+          const fee = money.pct(v.in || '0', base);
+          if (!t.valor) { sinTCGlobal.add(div); pDiv.push({ divisa: div, in: v.in, profit: v.profit, tc: null }); continue; }
+          const inU = money.div(v.in || '0', t.valor);
+          const prU = money.div(v.profit || '0', t.valor);
+          const feU = money.div(fee, t.valor);
+          pIn = money.add(pIn, inU); pProfit = money.add(pProfit, prU); pFee = money.add(pFee, feU);
+          pDiv.push({ divisa: div, in: v.in, profit: v.profit, tc: t.valor, inUsdt: money.round(inU, 2), feeUsdt: money.round(feU, 2) });
+          const g = porDivisaCli[div] = porDivisaCli[div] || { divisa: div, in: '0', fee: '0', tc: t.valor };
+          g.in = money.add(g.in, v.in || '0'); g.fee = money.add(g.fee, fee);
+        }
+        cIn = money.add(cIn, pIn); cProfit = money.add(cProfit, pProfit); cFee = money.add(cFee, pFee);
+        panelRows.push({ panel: p.nombre, nodo: p.id_usuario, base, baseFuente: rb.fuente, in: money.round(pIn, 2), profit: money.round(pProfit, 2), fee: money.round(pFee, 2), porDivisa: pDiv, encontrado: !!node });
       }
       out.push({
-        cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
-        in: money.round(cIn, 2), profit: money.round(cProfit, 2), fee_ars: money.round(cFee, 2),
-        fee_usdt: tc ? money.round(money.div(cFee, tc), 2) : null, paneles: panelRows,
+        cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, moneda: 'USDT',
+        in: money.round(cIn, 2), profit: money.round(cProfit, 2), fee_usdt: money.round(cFee, 2),
+        porDivisa: Object.values(porDivisaCli).map((g) => ({ ...g, in: money.round(g.in, 2), fee: money.round(g.fee, 2) })),
+        paneles: panelRows,
       });
       totIn = money.add(totIn, cIn); totProfit = money.add(totProfit, cProfit); totFee = money.add(totFee, cFee);
     }
     ok(res, {
-      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, sinBase: [...sinBase],
-      totales: { in: money.round(totIn, 2), profit: money.round(totProfit, 2), fee_ars: money.round(totFee, 2), fee_usdt: tc ? money.round(money.div(totFee, tc), 2) : null },
+      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto,
+      sinBase: [...sinBase], sinTC: [...sinTCGlobal], moneda: 'USDT',
+      totales: { in: money.round(totIn, 2), profit: money.round(totProfit, 2), fee_usdt: money.round(totFee, 2) },
       clientes: out, errores,
     });
   }));
