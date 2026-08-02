@@ -1415,20 +1415,33 @@ async function calcularFac(){
   const r=await api('/api/os/facturacion?'+qs);
   if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
   const T=r.totales||{};
-  out.innerHTML = `
-    <div class="row" style="align-items:stretch">
-      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Carga total (USDT)</label><div style="font-size:20px;font-weight:800">${money(T.in,2)}</div></div>
-      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Fee a cobrar (USDT)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">${money(T.fee_usdt,2)}</div></div>
-      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Profit casino (USDT)</label><div style="font-size:20px;font-weight:800">${money(T.profit,2)}</div></div>
-    </div>
-    ${r.tc?('<div class="muted" style="margin:8px 0">TC usado: <b>'+money(r.tc,2)+'</b> ARS/USDT <span style="opacity:.7">('+esc(r.tcFuente||'')+')</span></div>'):'<div class="muted" style="margin:8px 0">⚠ sin TC cargado → fee USDT no calculado. Tomá un snapshot en 💱 Tipos de cambio.</div>'}
-    ${(r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b> ('+esc(r.tcFuente||'')+'). Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'% de diferencia)').join(' · ')+'</div><div class="muted" style="margin-top:4px">Corregí el que esté mal en 💱 Tipos de cambio antes de cobrar.</div></div>'):''}
-    ${(r.sinTC&&r.sinTC.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo cargado en esas monedas <b>no entra en el total</b>. Cargá su TC en 💱 Tipos de cambio.</div></div>'):''}
-    ${(r.sinBase&&r.sinBase.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van facturados al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div><div class="muted" style="margin-top:4px">Cargales el precio en la ficha del cliente (con vigencia) antes de cobrar.</div></div>'):''}
-    <table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Carga (USDT)</th><th class="right">Fee (USDT)</th><th class="right">Profit (USDT)</th><th>Monedas</th></tr></thead><tbody>
-    ${(r.clientes||[]).map(c=>{const p0=c.paneles&&c.paneles[0]||{};const fu=p0.baseFuente||'';const mal=fu==='SIN CARGAR';const chips=(c.porDivisa||[]).map(d=>'<span class="pill" style="margin-right:3px" title="'+esc(d.divisa)+': carga '+money(d.in,0)+' · fee '+money(d.fee,0)+' · TC '+money(d.tc,2)+'">'+esc(d.divisa)+'</span>').join('');return '<tr><td><span class="pill">'+esc(c.codigo)+'</span> '+esc(c.nombre||'')+'</td>'+'<td class="right" title="'+esc(fu?('% '+fu+' en '+r.mes):'')+'">'+(mal?'<span style="color:var(--red)">sin %</span>':(esc(p0.base||'')+'%'+(fu==='confirmado'?' <span class="muted" style="font-size:10px">✓</span>':'')))+'</td>'+'<td class="right">'+money(c.in,2)+'</td>'+'<td class="right"><b>'+money(c.fee_usdt,2)+'</b></td>'+'<td class="right">'+money(c.profit,2)+'</td>'+'<td>'+(chips||'<span class="muted">—</span>')+'</td></tr>';}).join('')||'<tr><td colspan="6" class="empty">Ningún cliente con paneles linkeados. Linkeá paneles a nodos del casino en la pestaña Paneles.</td></tr>'}
-    </tbody></table>
-    ${(r.errores&&r.errores.length)?('<div class="muted" style="color:var(--red);margin-top:6px">⚠ '+r.errores.map(esc).join('<br>')+'</div>'):''}`;
+  const dif=(x)=>x==null?'':('<span style="color:'+(Math.abs(Number(x))>10?'var(--gold)':'inherit')+'">'+(Number(x)>0?'+':'')+x+'%</span>');
+  out.innerHTML = 
+    '<div class="row" style="align-items:stretch">'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Vendido (USDT)</label><div style="font-size:20px;font-weight:800">'+money(T.vendido_usdt,2)+'</div><div class="muted" style="font-size:11px">pedidos cargados</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>A cobrar (USDT)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">'+money(T.fee_usdt,2)+'</div><div class="muted" style="font-size:11px">% base × vendido</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Casino (control)</label><div style="font-size:20px;font-weight:800;opacity:.75">'+money(T.casino_usdt,2)+'</div><div class="muted" style="font-size:11px">'+(T.dif_pct!=null?('difiere '+dif(T.dif_pct)):'sin datos')+'</div></div>'
+    + '</div>'
+    + '<div class="muted" style="margin:8px 0">Se cobra por <b>lo vendido</b> (pedidos cargados). El casino va al lado solo como control. TC: <b>'+money(r.tc,2)+'</b> ARS/USDT <span style="opacity:.7">('+esc(r.tcFuente||'')+')</span></div>'
+    + ((r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b>. Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'%)').join(' · ')+'</div></div>'):'')
+    + ((r.sinTC&&r.sinTC.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo vendido en esas monedas <b>no entra en el total</b>.</div></div>'):'')
+    + ((r.sinBase&&r.sinBase.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div></div>'):'')
+    + ((r.sinPedidos&&r.sinPedidos.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.sinPedidos.length+' cliente(s) con movimiento en el casino y CERO pedidos</b><div class="muted" style="margin-top:4px">No se les factura nada. O se cargaron por fuera del sistema, o faltan pedidos.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.sinPedidos.map(x=>'<tr><td><span class="pill">'+esc(x.codigo)+'</span> '+esc(x.nombre||'')+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
+    + '<table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Pedidos</th><th class="right">Vendido (USDT)</th><th class="right">A cobrar</th><th class="right">Casino</th><th class="right">Dif.</th><th>Monedas</th></tr></thead><tbody>'
+    + ((r.clientes||[]).map(c=>{
+        const chips=(c.porDivisa||[]).map(d=>'<span class="pill" style="margin-right:3px" title="'+esc(d.divisa)+': vendido '+money(d.vendido,0)+(d.tc?(' · TC '+money(d.tc,2)):' · SIN TC')+'">'+esc(d.divisa)+(d.tc?'':' ⚠')+'</span>').join('');
+        const anul=c.anulando?('<div class="muted" style="font-size:11px;color:var(--gold)">↩ '+c.anulando.count+' anulando · '+money(c.anulando.usdt,2)+' USDT sin confirmar</div>'):'';
+        return '<tr><td><span class="pill">'+esc(c.codigo)+'</span> '+esc(c.nombre||'')+anul+'</td>'
+          +'<td class="right" title="'+esc(c.baseFuente||'')+'">'+(c.sinBase?'<span style="color:var(--red)">sin %</span>':(esc(c.base)+'%'))+'</td>'
+          +'<td class="right">'+c.pedidos+'</td>'
+          +'<td class="right">'+money(c.vendido_usdt,2)+'</td>'
+          +'<td class="right"><b>'+money(c.fee_usdt,2)+'</b></td>'
+          +'<td class="right" style="opacity:.7">'+money(c.casino_usdt,2)+'</td>'
+          +'<td class="right">'+dif(c.dif_pct)+'</td>'
+          +'<td>'+(chips||'<span class="muted">—</span>')+'</td></tr>';
+      }).join('')||'<tr><td colspan="8" class="empty">Sin pedidos cargados ni movimiento en el casino este mes.</td></tr>')
+    + '</tbody></table>'
+    + ((r.errores&&r.errores.length)?('<div class="muted" style="color:var(--gold);margin-top:6px">⚠ el control del casino falló: '+r.errores.map(esc).join('<br>')+'<br>La facturación igual salió, porque sale de los pedidos.</div>'):'');
 }
 
 // ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────

@@ -149,4 +149,45 @@ function ventasCargadasMes(mes) {
   return out;
 }
 
-module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, seed: save, FILE };
+/**
+ * ⭐ LO QUE SE LE COBRA A CADA CLIENTE EN UN MES.
+ *
+ * Decisión del dueño: manda lo VENDIDO por el sistema de pedidos, no el `in` que reporta el casino.
+ * Son dos números distintos por diseño (hay cargas hechas por fuera, bonos, movimientos internos),
+ * y el que factura es este.
+ *
+ * Diferencias con `ventasCargadasMes`, que se queda solo para el reparto viejo:
+ *   · `monto` NO se usa para facturar: mezcla pesos con guaraníes y no significa nada. Lo que sirve
+ *     es `porDivisa`, y cada moneda se pasa a USDT con SU tipo de cambio.
+ *   · Los pedidos en 'anulando' se informan APARTE: las fichas ya están en el casino pero todavía no
+ *     se confirmó que volvieran. Ni contarlos en silencio ni descartarlos en silencio.
+ *
+ * El mes sale de `resueltoAt` (cuándo se cargó de verdad) y si falta, de `createdAt`.
+ */
+function ventasDelMes(mes) {
+  const out = {};
+  const suma = (cod) => (out[cod] = out[cod] || {
+    count: 0, porDivisa: {}, porUserId: {},
+    anulando: { count: 0, porDivisa: {} },
+  });
+  for (const p of load().pedidos) {
+    if (p.estado !== 'cargado' && p.estado !== 'anulando') continue;
+    const f = String(p.resueltoAt || p.createdAt || '').slice(0, 7);
+    if (mes && f !== mes) continue;
+    const o = suma(String(p.codigo || '—'));
+    const m = Number(p.monto) || 0;
+    const dv = String(p.divisa || 'ARS').toUpperCase();
+    if (p.estado === 'anulando') {
+      o.anulando.count += 1;
+      o.anulando.porDivisa[dv] = (o.anulando.porDivisa[dv] || 0) + m;
+      continue;
+    }
+    o.count += 1;
+    o.porDivisa[dv] = (o.porDivisa[dv] || 0) + m;
+    const uid = String(p.userId || '');
+    if (uid) o.porUserId[uid] = (o.porUserId[uid] || 0) + m;
+  }
+  return out;
+}
+
+module.exports = { create, get, setEstado, setCascada, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, seed: save, FILE };

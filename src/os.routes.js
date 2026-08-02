@@ -897,9 +897,16 @@ function mount(app) {
     r.ok ? ok(res, { nodo: r.nodo }) : err(res, 502, r.error);
   }));
 
-  // ───────── FACTURACIÓN (cierre con datos REALES del casino) ─────────
-  // Para cada cliente con paneles linkeados: trae el `in` (carga) y `profit` reales del casino y
-  // calcula el fee = base% × carga. Una llamada al casino por conexión (eficiente).
+  // ───────── FACTURACIÓN ─────────
+  //
+  // ⭐ LO QUE SE COBRA SALE DE LOS PEDIDOS, no del casino (decisión del dueño).
+  // Son dos números distintos por diseño: el casino informa todo lo que entró a los paneles
+  // (incluidas cargas hechas por fuera del sistema, bonos y movimientos internos), y los pedidos
+  // son lo que se le vendió al cliente. Se factura lo vendido.
+  //
+  // El casino se sigue trayendo AL LADO, como control: si los dos números se separan mucho, o falta
+  // cargar pedidos o hubo cargas por fuera. Pero si el casino no responde, se factura igual —
+  // antes una caída del casino dejaba sin facturar.
   app.get('/api/os/facturacion', wrap(async (req, res) => {
     const mes = req.query.mes || mesTZ();
     const from = req.query.from || `${mes}-01 00:00:00`;
@@ -907,65 +914,112 @@ function mount(app) {
     // pasó después (pedir junio en agosto traía junio+julio+agosto en una sola línea, rotulada 'Junio').
     const _ultDia = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
     const to = req.query.to || `${mes}-${String(_ultDia).padStart(2, '0')} 23:59:59`;
+    const conControl = req.query.control !== '0';
+
+    // 1) LA BASE DE COBRO: los pedidos cargados del mes, por cliente y por moneda.
+    const ventas = pedidosStore.ventasDelMes(mes);
+
+    // 2) EL CONTROL: lo que dice el casino. Si falla, se informa y se sigue.
     const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
-    const byConn = {};
-    linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
     const nodeMap = {}; const errores = [];
-    for (const cid of Object.keys(byConn)) {
-      const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
-      // multiMoneda: la respuesta del casino YA trae todas las monedas; sin esto se leía solo la
-      // columna de pesos argentinos y un cliente que factura en pesos uruguayos salía en cero.
-      const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true }); // activos: mismo total, mucho más rápido
-      if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
-      const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
+    if (conControl) {
+      const byConn = {};
+      linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
+      for (const cid of Object.keys(byConn)) {
+        const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
+        try {
+          const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true });
+          if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
+          const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
+        } catch (e) { errores.push(`conexión ${cid}: ${String((e && e.message) || e)}`); }
+      }
     }
-    const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Externos y Reparto
+
+    const _tc = tcUnico.tcDelMes('ARS', mes);
     const tc = _tc.valor;
-    const out = []; let totFee = '0', totIn = '0', totProfit = '0';
-    const sinBase = new Set();  // clientes sin % cargado: se informan en vez de facturarlos al 0%
-    const sinTCGlobal = new Set();
+    const out = []; const sinBase = new Set(); const sinTC = new Set();
+    const sinPedidos = [];      // tienen movimiento en el casino pero NO se les vendió nada
+    let totVend = '0', totFee = '0', totCasino = '0';
+
     for (const c of clientes.list().clientes) {
+      const v = ventas[c.codigo] || null;
       const cps = linked.filter((p) => p.cliente_id === c.id);
-      if (!cps.length) continue;
-      let cIn = '0', cProfit = '0', cFee = '0'; const panelRows = []; const porDivisaCli = {};
+
+      // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
+      // de un panel no se puede aplicar acá: si un cliente tiene paneles con precios distintos, hay
+      // que unificarlos o cobrarle esa diferencia aparte.
+      const rb = externosSvc.baseDelMes(c, mes);
+      const base = rb.valor || '0';
+
+      // ── lo vendido, moneda por moneda ──
+      let vendUsdt = '0', feeUsdt = '0'; const porDivisa = [];
+      for (const [div, monto] of Object.entries((v && v.porDivisa) || {})) {
+        const t = tcUnico.tcDelMes(div, mes);
+        const fee = money.pct(String(monto), base);
+        if (!t.valor) { sinTC.add(div); porDivisa.push({ divisa: div, vendido: String(monto), tc: null }); continue; }
+        vendUsdt = money.add(vendUsdt, money.div(String(monto), t.valor));
+        feeUsdt = money.add(feeUsdt, money.div(fee, t.valor));
+        porDivisa.push({ divisa: div, vendido: money.round(monto, 2), fee: money.round(fee, 2), tc: t.valor, vendidoUsdt: money.round(money.div(String(monto), t.valor), 2) });
+      }
+
+      // ── el control del casino ──
+      let casinoUsdt = '0'; let hayCasino = false;
       for (const p of cps) {
         const node = (nodeMap[p.conexion_id] || {})[String(p.id_usuario)];
-        // el % del MES que se está facturando (no el de hoy) y avisando si el cliente no tiene
-        const rb = externosSvc.baseDelMes(c, mes, p);
-        const base = rb.valor || '0';
-        if (rb.valor == null) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
-        // TODO en USDT: es la única unidad en la que se pueden sumar monedas distintas.
-        const montos = (node && node.montos && Object.keys(node.montos).length)
-          ? node.montos
-          : (node ? { ARS: { in: node.in, profit: node.profit } } : {});
-        let pIn = '0', pProfit = '0', pFee = '0'; const pDiv = [];
-        for (const [div, v] of Object.entries(montos)) {
+        if (!node) continue;
+        hayCasino = true;
+        const montos = (node.montos && Object.keys(node.montos).length) ? node.montos : { ARS: { in: node.in } };
+        for (const [div, x] of Object.entries(montos)) {
           const t = tcUnico.tcDelMes(div, mes);
-          const fee = money.pct(v.in || '0', base);
-          if (!t.valor) { sinTCGlobal.add(div); pDiv.push({ divisa: div, in: v.in, profit: v.profit, tc: null }); continue; }
-          const inU = money.div(v.in || '0', t.valor);
-          const prU = money.div(v.profit || '0', t.valor);
-          const feU = money.div(fee, t.valor);
-          pIn = money.add(pIn, inU); pProfit = money.add(pProfit, prU); pFee = money.add(pFee, feU);
-          pDiv.push({ divisa: div, in: v.in, profit: v.profit, tc: t.valor, inUsdt: money.round(inU, 2), feeUsdt: money.round(feU, 2) });
-          const g = porDivisaCli[div] = porDivisaCli[div] || { divisa: div, in: '0', fee: '0', tc: t.valor };
-          g.in = money.add(g.in, v.in || '0'); g.fee = money.add(g.fee, fee);
+          if (t.valor) casinoUsdt = money.add(casinoUsdt, money.div(x.in || '0', t.valor));
         }
-        cIn = money.add(cIn, pIn); cProfit = money.add(cProfit, pProfit); cFee = money.add(cFee, pFee);
-        panelRows.push({ panel: p.nombre, nodo: p.id_usuario, base, baseFuente: rb.fuente, in: money.round(pIn, 2), profit: money.round(pProfit, 2), fee: money.round(pFee, 2), porDivisa: pDiv, encontrado: !!node });
       }
+
+      if (!v && !hayCasino) continue;                       // ni vendido ni movimiento: no aparece
+      if (rb.valor == null && v) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
+
+      // Movimiento en el casino pero CERO pedidos: no se factura en cero y listo — se avisa. Una
+      // factura en cero pasa desapercibida; un aviso no.
+      if (!v && hayCasino && money.isPos(casinoUsdt)) {
+        sinPedidos.push({ codigo: c.codigo, nombre: c.nombre || c.nombreVisible, casino_usdt: money.round(casinoUsdt, 2) });
+      }
+
+      // lo que quedó a mitad de anular: las fichas están puestas pero la vuelta no se confirmó
+      let anulandoUsdt = '0';
+      for (const [div, monto] of Object.entries((v && v.anulando && v.anulando.porDivisa) || {})) {
+        const t = tcUnico.tcDelMes(div, mes);
+        if (t.valor) anulandoUsdt = money.add(anulandoUsdt, money.div(String(monto), t.valor));
+      }
+
+      const dif = money.isPos(casinoUsdt) ? money.round(money.mul(money.div(money.sub(vendUsdt, casinoUsdt), casinoUsdt), '100'), 1) : null;
       out.push({
         cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, moneda: 'USDT',
-        in: money.round(cIn, 2), profit: money.round(cProfit, 2), fee_usdt: money.round(cFee, 2),
-        porDivisa: Object.values(porDivisaCli).map((g) => ({ ...g, in: money.round(g.in, 2), fee: money.round(g.fee, 2) })),
-        paneles: panelRows,
+        base, baseFuente: rb.fuente, sinBase: rb.valor == null,
+        pedidos: (v && v.count) || 0,
+        vendido_usdt: money.round(vendUsdt, 2),
+        fee_usdt: money.round(feeUsdt, 2),
+        casino_usdt: money.round(casinoUsdt, 2),
+        dif_pct: dif,
+        anulando: (v && v.anulando && v.anulando.count) ? { count: v.anulando.count, usdt: money.round(anulandoUsdt, 2) } : null,
+        porDivisa,
+        paneles: cps.map((p) => p.nombre),
       });
-      totIn = money.add(totIn, cIn); totProfit = money.add(totProfit, cProfit); totFee = money.add(totFee, cFee);
+      totVend = money.add(totVend, vendUsdt);
+      totFee = money.add(totFee, feeUsdt);
+      totCasino = money.add(totCasino, casinoUsdt);
     }
+
+    out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
     ok(res, {
-      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto,
-      sinBase: [...sinBase], sinTC: [...sinTCGlobal], moneda: 'USDT',
-      totales: { in: money.round(totIn, 2), profit: money.round(totProfit, 2), fee_usdt: money.round(totFee, 2) },
+      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
+      fuente: 'pedidos cargados', control: conControl ? 'casino' : 'apagado',
+      sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos,
+      totales: {
+        vendido_usdt: money.round(totVend, 2),
+        fee_usdt: money.round(totFee, 2),
+        casino_usdt: money.round(totCasino, 2),
+        dif_pct: money.isPos(totCasino) ? money.round(money.mul(money.div(money.sub(totVend, totCasino), totCasino), '100'), 1) : null,
+      },
       clientes: out, errores,
     });
   }));
