@@ -680,16 +680,33 @@ function extPintar() {
     + '<div><div class="muted">Paneles / filas</div><div>' + (d.paneles || []).length + ' · ' + d.cobrables + ' de ' + d.revisados + ' se cobran</div></div>'
     + '<button class="outline small" style="margin-left:auto" onclick="extCSV()">⬇ Exportar</button></div>';
   const alerta = avisos.length ? '<div class="card" style="border-left:3px solid #c90"><ul style="margin:0;padding-left:18px">' + avisos.map(a => '<li>' + a + '</li>').join('') + '</ul></div>' : '';
-  const paneles = (d.paneles || []).map(p => '<div class="card">'
-    + '<div style="display:flex;justify-content:space-between;align-items:baseline"><b>' + esc(p.panel) + '</b>'
-    + '<span class="muted">' + esc(p.nivel || '') + ' · ' + esc(p.divisa) + '</span><b>' + n(p.usdt) + ' USDT</b></div>'
-    + '<table class="small" style="width:100%;margin-top:8px"><thead><tr>'
-    + '<th style="text-align:left">Proveedor</th><th style="text-align:right">Ganancia</th><th style="text-align:right">% extra</th>'
-    + '<th style="text-align:right">Monto</th><th style="text-align:right">Tasa</th><th style="text-align:right">USDT</th></tr></thead><tbody>'
-    + p.items.filter(i => i.cobra).map(i => '<tr><td>' + esc(i.proveedor) + '</td><td style="text-align:right">' + n(i.profit) + '</td>'
-      + '<td style="text-align:right">' + esc(i.dif) + '%</td><td style="text-align:right">' + n(i.monto) + '</td>'
-      + '<td style="text-align:right">' + esc(i.tasa || '—') + '</td><td style="text-align:right"><b>' + n(i.usdt) + '</b></td></tr>').join('')
-    + '</tbody></table></div>').join('');
+  // Un SuperAgente puede tener ganancia en VARIAS monedas: se muestra la divisa en cada fila y
+  // se subtotaliza por moneda, porque los montos no son comparables entre sí.
+  const paneles = (d.paneles || []).map(p => {
+    const filas = p.items.filter(i => i.cobra);
+    const porDiv = {};
+    filas.forEach(i => {
+      const k = i.divisa || '—';
+      porDiv[k] = porDiv[k] || { monto: 0, usdt: 0, n: 0, tasa: i.tasa };
+      porDiv[k].monto += Number(i.monto || 0); porDiv[k].usdt += Number(i.usdt || 0); porDiv[k].n++;
+    });
+    const monedas = Object.keys(porDiv);
+    const resumen = monedas.map(k => '<span style="margin-left:10px">' + esc(k) + ' <b>' + n(porDiv[k].monto) + '</b> <span class="muted">→ ' + n(porDiv[k].usdt) + ' USDT</span></span>').join('');
+    return '<div class="card">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline"><b>' + esc(p.panel) + '</b>'
+      + '<span class="muted">' + esc(p.nivel || '') + ' · ' + monedas.join(', ') + '</span><b>' + n(p.usdt) + ' USDT</b></div>'
+      + (monedas.length > 1 ? '<div class="muted" style="margin-top:4px;font-size:12px">' + resumen + '</div>' : '')
+      + '<table class="small" style="width:100%;margin-top:8px"><thead><tr>'
+      + '<th style="text-align:left">Proveedor</th><th style="text-align:left">Divisa</th><th style="text-align:right">Ganancia</th>'
+      + '<th style="text-align:right">% extra</th><th style="text-align:right">Monto</th><th style="text-align:right">Tasa</th>'
+      + '<th style="text-align:right">USDT</th></tr></thead><tbody>'
+      + filas.map(i => '<tr><td>' + esc(i.proveedor) + '</td>'
+        + '<td><span class="badge">' + esc(i.divisa) + '</span></td>'
+        + '<td style="text-align:right">' + n(i.profit) + '</td>'
+        + '<td style="text-align:right">' + esc(i.dif) + '%</td><td style="text-align:right">' + n(i.monto) + '</td>'
+        + '<td style="text-align:right">' + esc(i.tasa || '—') + '</td><td style="text-align:right"><b>' + n(i.usdt) + '</b></td></tr>').join('')
+      + '</tbody></table></div>';
+  }).join('');
   b.innerHTML = cab + alerta + paneles;
 }
 function extCSV() {
@@ -697,6 +714,14 @@ function extCSV() {
   const filas = [['Cliente', 'Mes', 'Panel', 'Nivel', 'Divisa', 'Proveedor', 'Ganancia', '% extra', 'Monto', 'Tasa', 'USDT']];
   (d.paneles || []).forEach(p => p.items.filter(i => i.cobra).forEach(i => filas.push([d.cliente, d.mes, p.panel, p.nivel, i.divisa, i.proveedor, i.profit, i.dif, i.monto, i.tasa, i.usdt])));
   filas.push([]);
+  // subtotal POR MONEDA: los montos de distintas divisas no se pueden sumar entre sí
+  const porDiv = {};
+  (d.paneles || []).forEach(p => p.items.filter(i => i.cobra).forEach(i => {
+    const k = i.divisa || '—';
+    porDiv[k] = porDiv[k] || { monto: 0, usdt: 0 };
+    porDiv[k].monto += Number(i.monto || 0); porDiv[k].usdt += Number(i.usdt || 0);
+  }));
+  Object.keys(porDiv).forEach(k => filas.push(['', '', '', '', k, 'subtotal', '', '', porDiv[k].monto, '', porDiv[k].usdt]));
   filas.push(['', '', '', '', '', '', '', '', '', 'TOTAL USDT', d.totalUsdt]);
   const csv = filas.map(f => f.map(x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"').join(',')).join('\n');
   const a = document.createElement('a');
