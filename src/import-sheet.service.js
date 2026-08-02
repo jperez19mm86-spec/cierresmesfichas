@@ -390,7 +390,7 @@ async function aplicar({ sheetId = SHEET_ID_DEFAULT, confirmHash, incluirBasePct
   if (incluirBasePct && historial) {
     const hoy = new Date().toISOString().slice(0, 10);
     for (const b of basePctPendientes) {
-      try { historial.setValor('cliente', b.cliente_id, 'precio_base_pct', b.valor, { tipo: 'vigencia', vigente_desde: hoy }); }
+      try { historial.setValor('cliente', b.cliente_id, 'precio_base_pct', { valor: b.valor, tipo_cambio: 'vigencia', vigente_desde: hoy }); }
       catch (e) { plan.avisos.push(`precio base de ${b.cliente_id}: ${e.message}`); }
     }
   }

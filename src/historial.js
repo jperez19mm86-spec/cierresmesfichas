@@ -104,7 +104,12 @@ const setCorreccion = db.transaction((entidad_tipo, entidad_id, campo, valor, op
 /**
  * Setter genérico de UI: el front siempre manda { tipo_cambio, valor, vigente_desde? }.
  */
-function setValor(entidad_tipo, entidad_id, campo, { valor, tipo_cambio, vigente_desde, usuario_id, notas }) {
+function setValor(entidad_tipo, entidad_id, campo, opciones) {
+  // El 4to argumento es un OBJETO. Pasarle el valor suelto dejaba todo en undefined y, peor, caía
+  // en la rama de CORRECCIÓN: pisaba el valor vigente hacia atrás con 'undefined'.
+  if (!opciones || typeof opciones !== 'object') throw new Error('setValor: el 4to argumento tiene que ser { valor, tipo_cambio, vigente_desde }');
+  const { valor, tipo_cambio, vigente_desde, usuario_id, notas } = opciones;
+  if (valor === undefined || valor === null || valor === '') throw new Error(`setValor: valor vacío para ${campo}`);
   if (tipo_cambio === 'vigencia') {
     if (!vigente_desde) throw new Error('vigencia requiere vigente_desde');
     setVigencia(entidad_tipo, entidad_id, campo, valor, vigente_desde, { usuario_id, notas });

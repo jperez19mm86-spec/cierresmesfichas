@@ -804,7 +804,10 @@ function mount(app) {
   app.get('/api/os/facturacion', wrap(async (req, res) => {
     const mes = req.query.mes || mesTZ();
     const from = req.query.from || `${mes}-01 00:00:00`;
-    const to = req.query.to || `${fechaTZ()} 23:59:59`;
+    // El 'hasta' sale del MES elegido, no de hoy: si no, facturar un mes cerrado suma todo lo que
+    // pasó después (pedir junio en agosto traía junio+julio+agosto en una sola línea, rotulada 'Junio').
+    const _ultDia = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const to = req.query.to || `${mes}-${String(_ultDia).padStart(2, '0')} 23:59:59`;
     const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
     const byConn = {};
     linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
