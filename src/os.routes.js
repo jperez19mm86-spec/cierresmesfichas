@@ -31,6 +31,7 @@ const comprobantes = require('./comprobantes-store');
 const emision = require('./emision.service');
 const ventasOnline = require('./ventas-online.service');
 const facturaSvc = require('./factura.service');
+const vendedoresSvc = require('./vendedores.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -1217,6 +1218,19 @@ function mount(app) {
     }
     out.sort((a, b) => Number(b.totalMes_usdt) - Number(a.totalMes_usdt));
     ok(res, { mes, conExternos, facturas: out });
+  }));
+
+  // ───────── 🤝 VENDEDORES ─────────
+  // Un vendedor no paga un % sobre lo que carga: paga AL COSTO por los proveedores que use, en
+  // sus paneles y en los de sus clientes. Es una cuenta interna, no una factura.
+  app.get('/api/os/vendedores', (_req, res) => ok(res, { vendedores: vendedoresSvc.lista() }));
+  app.get('/api/os/vendedores/:id', wrap(async (req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    // la facturación se calcula UNA vez y se reparte: el vendedor y sus clientes salen de ahí
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return err(res, 502, fac.error);
+    const r = await vendedoresSvc.cuenta({ vendedorId: req.params.id, mes, facturacion: fac, conProveedores: req.query.proveedores !== '0' });
+    r.ok ? ok(res, r) : err(res, 404, r.error);
   }));
   // ───────── REPORTES ─────────
   // Mensual (parcial, real): arma desde movimientos + tc_mes. Lo que falta (IN/OUT/RTP/profit) = API del panel.
