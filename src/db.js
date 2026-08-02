@@ -39,6 +39,18 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS pedidos (id TEXT PRIMARY KEY, data TEXT, ord INTEGER);
   CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT);
+  /* ───── PUENTE con el sistema en línea ─────
+     Los pedidos viven allá y el motor que factura vive acá, pero los dos padrones NO comparten
+     códigos: allá un pedido viene con "M526", acá el cliente se llama "Marcelo". Este mapeo se
+     dedujo cruzando cada pedido con el NODO DEL CASINO al que se cargó — el mismo dato en los
+     dos lados — y no adivinando por el nombre. */
+  CREATE TABLE IF NOT EXISTS ventas_mapeo (
+    codigo TEXT PRIMARY KEY,      -- el código del sistema en línea
+    cliente_id TEXT,              -- el cliente de ACÁ
+    origen TEXT,                  -- 'por el nodo del casino' | 'a mano'
+    actualizado_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, sub TEXT, createdAt TEXT);
 
   /* ───── COMERCIAL ───── */

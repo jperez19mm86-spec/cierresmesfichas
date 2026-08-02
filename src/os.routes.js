@@ -29,6 +29,7 @@ const revision = require('./revision.service');
 const estadMes = require('./estadisticas-mes.service');
 const comprobantes = require('./comprobantes-store');
 const emision = require('./emision.service');
+const ventasOnline = require('./ventas-online.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -929,7 +930,29 @@ function mount(app) {
     const conControl = opciones.control !== false;
 
     // 1) LA BASE DE COBRO: los pedidos cargados del mes, por cliente y por moneda.
-    const ventas = pedidosStore.ventasDelMes(mes);
+    //
+    // Los pedidos se toman en el SISTEMA EN LÍNEA, no acá. Si el puente está configurado se traen
+    // de allá, ya traducidos a clientes de este lado (los dos padrones usan códigos distintos: allá
+    // "M526", acá "Marcelo"). Si no está configurado, se usan los pedidos locales — que en el OS
+    // normalmente son cero, y por eso la factura salía vacía.
+    let ventasCli = {}; let huerfanas = []; let origen = 'pedidos locales';
+    const puente = ventasOnline.getConfig();
+    if (puente && puente.url) {
+      const vo = await ventasOnline.ventasDelMes(mes);
+      if (!vo.ok) return { ok: false, error: `no se pudieron traer los pedidos del sistema en línea: ${vo.error}`, mes };
+      ventasCli = vo.porCliente;
+      huerfanas = (vo.sinMapeo || []).map((x) => ({ codigo: x.codigo, pedidos: x.count, porDivisa: Object.entries(x.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })) }));
+      origen = 'pedidos del sistema en línea';
+    } else {
+      const locales = pedidosStore.ventasDelMes(mes);
+      const porCodigo = {};
+      clientes.list().clientes.forEach((c) => { porCodigo[String(c.codigo).toLowerCase()] = c.id; });
+      for (const [cod, v] of Object.entries(locales)) {
+        const id = porCodigo[cod.toLowerCase()];
+        if (!id) { huerfanas.push({ codigo: cod, pedidos: v.count, porDivisa: Object.entries(v.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })) }); continue; }
+        ventasCli[id] = { ...v, codigos: [cod] };
+      }
+    }
 
     // 2) EL CONTROL: lo que dice el casino. Si falla, se informa y se sigue.
     const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
@@ -955,12 +978,10 @@ function mount(app) {
     // eso es plata vendida que no se le factura a nadie y que no aparece por ningún lado.
     // Verificado en producción: "Mclain" y "CharlyS2" con 170.000.000 cargados, sin cliente.
     // Pasa cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior.
-    const usados = new Set();
     let totVend = '0', totFee = '0', totCasino = '0';
 
     for (const c of clientes.list().clientes) {
-      const v = ventas[c.codigo] || null;
-      if (v) usados.add(c.codigo);
+      const v = ventasCli[c.id] || null;
       const cps = linked.filter((p) => p.cliente_id === c.id);
 
       // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
@@ -1029,26 +1050,23 @@ function mount(app) {
 
     out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
 
-    // Lo vendido que quedó sin dueño. Se informa con el monto por moneda: es lo que hay que
-    // reasignar a mano (o crear el cliente) para poder cobrarlo.
-    const huerfanas = [];
-    for (const [cod, v] of Object.entries(ventas)) {
-      if (usados.has(cod)) continue;
-      const porDiv = Object.entries(v.porDivisa || {}).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) }));
-      if (!porDiv.length) continue;
-      let usdt = '0';
-      for (const [d, m] of Object.entries(v.porDivisa || {})) {
-        const t = tcUnico.tcDelMes(d, mes);
-        if (t.valor) usdt = money.add(usdt, money.div(String(m), t.valor));
+    // Lo vendido que quedó sin dueño: códigos del sistema en línea que no están mapeados a
+    // ningún cliente de acá. Es plata vendida que no se le factura a nadie, así que se informa
+    // con el monto para poder mapearla o crear el cliente.
+    for (const h of huerfanas) {
+      let u = '0';
+      for (const d of h.porDivisa) {
+        const t = tcUnico.tcDelMes(d.divisa, mes);
+        if (t.valor) u = money.add(u, money.div(String(d.monto), t.valor));
       }
-      huerfanas.push({ codigo: cod, pedidos: v.count, porDivisa: porDiv, usdt: money.round(usdt, 2) });
+      h.usdt = money.round(u, 2);
     }
     huerfanas.sort((a, b) => Number(b.usdt) - Number(a.usdt));
 
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? 'casino' : 'apagado',
-      sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, huerfanas,
+      origen, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, huerfanas,
       totales: {
         vendido_usdt: money.round(totVend, 2),
         fee_usdt: money.round(totFee, 2),
@@ -1084,6 +1102,28 @@ function mount(app) {
     ok(res, r);
   });
 
+
+  // ───────── PUENTE con el sistema en línea (de donde salen los pedidos) ─────────
+  app.get('/api/os/ventas-online/config', (_req, res) => ok(res, { config: ventasOnline.getConfig() }));
+  app.put('/api/os/ventas-online/config', wrap((req, res) => ok(res, { config: ventasOnline.setConfig(req.body || {}) })));
+  app.get('/api/os/ventas-online/mapeo', (_req, res) => ok(res, { mapeo: ventasOnline.listMapeo() }));
+  app.post('/api/os/ventas-online/mapeo', wrap((req, res) => {
+    const b = req.body || {};
+    const filas = Array.isArray(b.filas) ? b.filas : [b];
+    filas.forEach((f) => ventasOnline.setMapeo(f.codigo, f.cliente_id, f.origen || 'a mano'));
+    ok(res, { mapeo: ventasOnline.listMapeo() });
+  }));
+  // Prueba de conexión: cuántos pedidos ve y de qué meses.
+  app.get('/api/os/ventas-online/prueba', wrap(async (_req, res) => {
+    const r = await ventasOnline._pedidos();
+    if (!r.ok) return err(res, 502, r.error);
+    const meses = {};
+    (r.pedidos || []).filter((p) => p.estado === 'cargado').forEach((p) => {
+      const m = String(p.resueltoAt || p.createdAt || '').slice(0, 7);
+      meses[m] = (meses[m] || 0) + 1;
+    });
+    ok(res, { pedidos: (r.pedidos || []).length, meses });
+  }));
   // ───────── PASAR LO FACTURADO A LA DEUDA ─────────
   // Emitir es EXPLÍCITO y no se puede duplicar: hay un índice único en la base sobre
   // (cliente, origen, mes). Volver a emitir el mismo mes no agrega nada.
