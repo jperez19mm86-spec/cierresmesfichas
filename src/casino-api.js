@@ -271,8 +271,12 @@ function makeClient({ url, token, user, password } = {}) {
     if (b.has('to')) b.set('to', conHora(b.get('to'), true));
     if (!b.has('active_template') && autoTpl) b.append('active_template', autoTpl); // template seleccionado del usuario (auto)
     if (!useSession) b.append('api_token', token);
+    // El navegador manda este POST con `response=js`. Sin eso el motor lo trata como render de
+    // página y (sospecha) descarta los campos del formulario, que es lo que haría que cambiar la
+    // agrupación no tenga ningún efecto. `opts.postJs` lo prueba sin tocar el camino que ya anda.
+    const urlPost = `${base}/index.php?act=admin&area=reports${opts.postJs ? '&response=js' : ''}`;
     let page;
-    try { page = await axios.post(`${base}/index.php?act=admin&area=reports`, b.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(page); }
+    try { page = await axios.post(urlPost, b.toString(), { headers: hForm(), timeout: 60000, validateStatus: () => true, maxRedirects: 0 }); absorb(page); }
     catch (e) { return { ok: false, error: 'reports page: ' + e.message }; }
     const html = String(page.data || '');
     // BUG HISTÓRICO ("Unknown error" por semanas): la página embebe VARIAS URLs de reportstable. La 1ra es la
