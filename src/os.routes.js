@@ -397,7 +397,11 @@ function mount(app) {
   app.get('/api/os/cierre/meses-congelados', (_req, res) => ok(res, { meses: cierreMesSvc.listar() }));
   app.get('/api/os/cierre/mes/:mes/congelado', (req, res) => {
     const g = cierreMesSvc.get(req.params.mes);
-    ok(res, { congelado: !!g, mes: req.params.mes, createdAt: g ? g.createdAt : null, notas: g ? g.notas : null, proveedores: g ? (g.proveedores || []).length : 0 });
+    // ?full=1 devuelve TAMBIÉN las celdas: hace falta para poder auditar un mes ya cerrado.
+    const full = req.query.full === '1' && g;
+    ok(res, { congelado: !!g, mes: req.params.mes, createdAt: g ? g.createdAt : null, notas: g ? g.notas : null,
+      proveedores: g ? (g.proveedores || []).length : 0, links: g ? (g.links || []).length : 0,
+      celdas: full ? g.celdas : undefined, listaProveedores: full ? g.proveedores : undefined });
   });
   app.post('/api/os/cierre/mes/:mes/congelar', wrap((req, res) => {
     const b = req.body || {};
