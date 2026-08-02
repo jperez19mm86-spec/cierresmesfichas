@@ -184,9 +184,29 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // entrar. Mandarle varias consultas a la vez sobre la misma conexión hace que se pisen: probado
   // contra producción, 14 de 26 consultas volvieron con "sesión inválida" y el reporte dio 0.
   // Lo que SÍ se puede hacer en paralelo es una conexión contra otra: son casinos distintos.
+  // 🔴 UN PANEL QUE CUELGA DE OTRO PANEL DEL MISMO CLIENTE SE CONTABA DOS VECES.
+  // La consulta de un nodo devuelve TODO su subárbol, así que si el cliente tiene cargado el padre
+  // Y el hijo, la plata del hijo entra en las dos y se le cobra doble. Verificado: Luxor tenía
+  // "GAMati-A" colgando de "GAMati-D" y su factura salía 762,72 en vez de ~381.
+  // Se saltea el HIJO y se deja el padre, que ya lo incluye. Se informa cuál y por qué.
+  const nodosDelCliente = new Map();
+  mios.forEach((p) => { if (p.id_usuario) nodosDelCliente.set(String(p.id_usuario), p); });
+  const incluidos = [];
+  const propios = mios.filter((p) => {
+    const padre = nodosDelCliente.get(String(p.padre_id || '')) || nodosDelCliente.get(String(p.sa_id || ''));
+    if (padre && padre.id !== p.id) {
+      incluidos.push({ panel: p.nombre, dentroDe: padre.nombre });
+      return false;
+    }
+    return true;
+  });
+  if (incluidos.length) {
+    incluidos.forEach((i) => avisos.push(`"${i.panel}" no se consulta aparte: ya está adentro de "${i.dentroDe}", que es del mismo cliente. Contarlo dos veces le cobraría el doble.`));
+  }
+
   const clientePorCx = new Map();     // una sesión por conexión, reusada para todas sus consultas
   const trabajos = [];
-  for (const panel of mios) {
+  for (const panel of propios) {
     const cx = casinoConex.list().find((c) => c.id === panel.conexion_id) || casinoConex.list().find((c) => K(c.nombre) === K(panel.sistema));
     if (!cx) { avisos.push(`${panel.nombre}: sin conexión de casino, no se pudo consultar`); continue; }
     if (!clientePorCx.has(cx.id)) clientePorCx.set(cx.id, casinoConex.client(cx.id));
@@ -325,7 +345,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
-    deCache, delCasino, deLaFoto, consultas: trabajos.length, sinTiempo, incompleto: sinTiempo > 0,
+    deCache, delCasino, deLaFoto, consultas: trabajos.length, yaIncluidos: incluidos, sinTiempo, incompleto: sinTiempo > 0,
     cobrables: filas.filter((f) => f.cobra).length,
     revisados: filas.length,
     totalUsdt: money.round(totalUsdt, 2),
