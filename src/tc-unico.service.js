@@ -47,7 +47,11 @@ function manual(divisa, mes) {
   const corto = buscado.replace(/_20/, '_');
   for (const [m, tasa] of Object.entries(fila)) {
     const k = K(m);
-    if (k === buscado || k === corto) return tasa != null && tasa !== '' ? String(tasa) : null;
+    if (k === buscado || k === corto) {
+      // Si lo cargado a mano no es un número usable, se trata como QUE NO HAY: así cae al automático
+      // y aparece en los avisos de 'sin tipo de cambio', en vez de dividir por 0 y facturar cero.
+      return money.isPos(tasa) ? String(tasa) : null;
+    }
   }
   return null;
 }

@@ -8,6 +8,7 @@
  * así el grid queda limpio. Se cruza con el catálogo/paneles recién al calcular el cierre.
  */
 const { db } = require('./db');
+const money = require('./lib/money');
 
 const clean = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
 
@@ -120,12 +121,38 @@ function getTC() {
   for (const r of rows) (tasas[r.moneda] = tasas[r.moneda] || {})[r.mes] = r.tasa;
   return { monedas, meses, tasas };
 }
-function setTC(moneda, mes, tasa) {
+function setTC(moneda, mes, tasa, forzar = false) {
   const m = clean(moneda), me = clean(mes), t = clean(tasa);
-  if (!m || !me) return false;
-  if (t == null) { db.prepare('DELETE FROM cierre_tc WHERE moneda=? AND mes=?').run(m, me); return true; }
+  if (!m || !me) return { ok: false, error: 'falta la moneda o el mes' };
+  if (t == null) { db.prepare('DELETE FROM cierre_tc WHERE moneda=? AND mes=?').run(m, me); return { ok: true, borrado: true }; }
+  // ⚠️ SE VALIDA EL FORMATO. Este campo se tipea a mano y es el divisor de TODO lo que se cobra:
+  //    "1.400,50" se interpreta como 0   → esa moneda factura CERO y no avisa
+  //    "1.400"    se interpreta como 1,4 → el fee sale MIL VECES más grande
+  // Descubrirlo con la factura emitida es tarde, así que se rechaza al escribirlo.
+  if (!money.esNumero(t)) {
+    return { ok: false, error: `"${t}" no es un número válido. Usá punto para los decimales y no pongas separador de miles: 1400.50, no 1.400,50` };
+  }
+  if (!money.isPos(t)) return { ok: false, error: 'el tipo de cambio tiene que ser mayor que cero' };
+
+  // Queda un caso que el formato no puede distinguir: "1.400" ES un número válido (1,4), pero casi
+  // seguro se quiso escribir 1400 con separador de miles. No hay forma de saberlo mirando el valor
+  // solo — sí comparándolo con lo que esa misma moneda venía valiendo. Un salto de más del 50% se
+  // frena y pide confirmación explícita.
+  if (!forzar) {
+    const otros = db.prepare('SELECT tasa FROM cierre_tc WHERE moneda=? AND mes<>? ORDER BY rowid DESC LIMIT 1').get(m, me);
+    if (otros && money.isPos(otros.tasa)) {
+      const salto = money.D(money.div(money.sub(t, otros.tasa), otros.tasa)).abs();
+      if (salto.gt('0.5')) {
+        return {
+          ok: false, confirmar: true, anterior: String(otros.tasa),
+          error: `${m} venía en ${otros.tasa} y estás poniendo ${t} — es ${salto.times(100).toFixed(0)}% de diferencia. `
+            + `Si escribiste "1.400" pensando en 1400, el punto es DECIMAL y quedaría 1,4. Confirmá si es correcto.`,
+        };
+      }
+    }
+  }
   db.prepare('INSERT INTO cierre_tc (moneda,mes,tasa) VALUES (?,?,?) ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa').run(m, me, t);
-  return true;
+  return { ok: true };
 }
 
 /** Columna de UN cliente: su descuento + el % de cada proveedor de la matriz (para editar desde el cliente). */

@@ -354,7 +354,15 @@ function mount(app) {
   app.delete('/api/os/cierre/proveedor/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeProveedor(req.params.nombre) }));
   app.post('/api/os/cierre/cliente', wrap((req, res) => ok(res, { nombre: cierreStore.addCliente((req.body || {}).nombre, (req.body || {}).descuento) })));
   app.delete('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeCliente(req.params.nombre) }));
-  app.post('/api/os/cierre/tc', wrap((req, res) => { const b = req.body || {}; ok(res, { guardado: cierreStore.setTC(b.moneda, b.mes, b.tasa) }); }));
+  app.post('/api/os/cierre/tc', wrap((req, res) => {
+    const b = req.body || {};
+    const r = cierreStore.setTC(b.moneda, b.mes, b.tasa, !!b.forzar);
+    // El TC se tipea a mano y es el divisor de todo lo que se cobra: si viene mal escrito hay que
+    // decirlo en el momento, no dejar que salga una factura en cero o mil veces más grande.
+    if (r.ok) return ok(res, { guardado: true, borrado: !!r.borrado });
+    // 409 = 'estás seguro?': la pantalla lo re-manda con forzar:true si el dueño confirma
+    res.status(r.confirmar ? 409 : 400).json({ ok: false, error: r.error, confirmar: !!r.confirmar, anterior: r.anterior });
+  }));
   app.post('/api/os/cierre/importar', wrap((req, res) => ok(res, cierreStore.importar(req.body || {}))));
   // vinculación proveedor del casino ↔ matriz
   app.get('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, cierreStore.getClienteColumna(req.params.nombre)));

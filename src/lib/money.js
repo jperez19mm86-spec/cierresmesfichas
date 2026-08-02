@@ -16,6 +16,21 @@ function D(x) {
   try { return new Decimal(String(x).trim()); } catch (e) { return new Decimal(0); }
 }
 
+/**
+ * ¿Es un número que se puede usar como plata, escrito como corresponde?
+ *
+ * D() se traga lo que no entiende y devuelve 0, que para sumar está bien pero es venenoso cuando el
+ * valor viene tipeado a mano. Con el formato argentino:
+ *    "1.400,50" → 0    → dividir por eso da 0: toda esa moneda factura CERO y nadie se entera
+ *    "1.400"    → 1.4  → el fee sale MIL VECES más grande
+ * Por eso lo que se escribe a mano (tipos de cambio, porcentajes) se valida con esto ANTES de
+ * guardarlo, en vez de descubrirlo cuando la factura ya salió.
+ */
+function esNumero(x) {
+  if (x === null || x === undefined) return false;
+  return /^-?\d+(\.\d+)?$/.test(String(x).trim());
+}
+
 const add = (a, b) => D(a).plus(D(b)).toString();
 const sub = (a, b) => D(a).minus(D(b)).toString();
 const mul = (a, b) => D(a).times(D(b)).toString();
@@ -42,4 +57,4 @@ function fmt(x, dec = 2) {
   return n.toNumber().toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
-module.exports = { D, add, sub, mul, div, pct, round, isPos, isNeg, isZero, cmp, max, sum, fmt, Decimal };
+module.exports = { D, esNumero, add, sub, mul, div, pct, round, isPos, isNeg, isZero, cmp, max, sum, fmt, Decimal };

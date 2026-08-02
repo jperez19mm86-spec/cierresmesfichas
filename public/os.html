@@ -1042,7 +1042,14 @@ async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{meth
 function filtLk(){ const q=(val('cie-lq')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display=(tr.dataset.casino||'').includes(q)?'':'none'; }); }
 
 // ── sub-vista TIPOS DE CAMBIO (moneda × mes, se llena mensual) ──
-async function cieSetTC(el){ const r=await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:el.dataset.mon,mes:el.dataset.mes,tasa:el.value})}); if(r.ok)_cieFlash(el); }
+async function cieSetTC(el, forzar){
+  const r=await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:el.dataset.mon,mes:el.dataset.mes,tasa:el.value,forzar:!!forzar})});
+  if(r.ok){ _cieFlash(el); return; }
+  // 409 = el valor es sospechoso (salto enorme contra el mes anterior). Se pregunta, no se guarda solo.
+  if(r.confirmar){ if(confirm(r.error+' ¿Guardarlo igual?')) return cieSetTC(el, true); el.value=r.anterior||''; return; }
+  toast('No se guardó: '+(r.error||''));
+  el.style.borderColor='var(--red)';
+}
 async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast('Poné el mes'); const mon=(await api('/api/os/cierre/tc')).monedas||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon[0]||'USD',mes:me,tasa:'1'})}); toast('Mes agregado'); VIEWS.tc(); }
 async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); VIEWS.tc(); }
 
