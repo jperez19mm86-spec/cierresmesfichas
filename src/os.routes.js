@@ -26,6 +26,7 @@ const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const revision = require('./revision.service');
+const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
@@ -107,33 +108,19 @@ function mount(app) {
     const codigo = String((req.body && req.body.codigo) || '').trim();
     const nombre = String((req.body && req.body.nombre) || '').trim();
     if (!codigo) return err(res, 400, 'falta el código del cliente');
-    const c = clientes.createCliente({ codigo, nombreVisible: nombre || codigo, nombre });
-    cierreStore.addCliente(c.nombre || c.nombreVisible || codigo); // → aparece como columna en la matriz del Cierre
+    const c = clientesCascada.crear({ codigo, nombre }); // + su columna en la matriz del Cierre
     ok(res, { cliente: c });
   }));
   // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
-  app.delete('/api/os/clientes/:id', (req, res) => {
-    const id = req.params.id;
-    const antes = clientes.get(id);
-    paneles.list({ cliente_id: id }).forEach((p) => paneles.remove(p.id));
-    db.prepare('DELETE FROM cliente_proveedores WHERE cliente_id=?').run(id);
-    db.prepare('DELETE FROM participaciones WHERE cliente_id=?').run(id);
-    db.prepare("DELETE FROM config_valores WHERE entidad_tipo='cliente' AND entidad_id=?").run(id);
-    db.prepare('DELETE FROM movimientos WHERE cliente_id=?').run(id);
-    // Su columna de la matriz también: si no, queda huérfana con todos sus % colgando de un
-    // nombre que ya no existe (pasó con "Hen" y "Moises").
-    if (antes) cierreStore.removeCliente(antes.nombre || antes.nombreVisible);
-    clientes.removeCliente(id) ? ok(res) : err(res, 404, 'cliente no encontrado');
-  });
+  app.delete('/api/os/clientes/:id', (req, res) =>
+    clientesCascada.borrar(req.params.id) ? ok(res) : err(res, 404, 'cliente no encontrado'));
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
     const c = clientes.updateComercial(req.params.id, req.body || {});
     if (!c) return err(res, 404, 'cliente no encontrado');
-    // Renombrar ARRASTRA su columna de la matriz y su % base por mes. La matriz se referencia por
+    // Renombrar ARRASTRA su columna de la matriz y su % base por mes: la matriz se referencia por
     // NOMBRE, así que sin esto el cliente pierde todos sus % en silencio.
-    const viejo = antes && (antes.nombre || antes.nombreVisible);
-    const nuevo = c.nombre || c.nombreVisible;
-    if (viejo && nuevo && viejo !== nuevo) cierreStore.renombrarCliente(viejo, nuevo);
+    clientesCascada.arrastrarRenombre(antes, c);
     ok(res, { cliente: c });
   }));
   // Chequeo de coherencia: columnas de la matriz sin cliente, y clientes sin columna.

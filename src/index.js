@@ -176,11 +176,13 @@ app.get('/api/clientes', (_req, res) => {
   res.json({ ok: true, clientes: clientes.list().clientes });
 });
 
+const clientesCascada = require('./clientes-cascada');
+
 app.post('/api/clientes', (req, res) => {
   const { codigo, nombreVisible } = req.body || {};
   if (!codigo) return res.status(400).json({ ok: false, error: 'código requerido' });
   try {
-    const c = clientes.createCliente({ codigo, nombreVisible });
+    const c = clientesCascada.crear({ codigo, nombreVisible }); // + su columna en la matriz
     res.json({ ok: true, cliente: c });
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
@@ -189,8 +191,11 @@ app.post('/api/clientes', (req, res) => {
 
 app.put('/api/clientes/:id', (req, res) => {
   try {
+    const antes = clientes.get(req.params.id);
     const c = clientes.updateCliente(req.params.id, req.body || {});
     if (!c) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
+    // renombrar SIN esto le hacía perder todos sus % de proveedores, en silencio
+    clientesCascada.arrastrarRenombre(antes, c);
     res.json({ ok: true, cliente: c });
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
@@ -198,7 +203,9 @@ app.put('/api/clientes/:id', (req, res) => {
 });
 
 app.delete('/api/clientes/:id', (req, res) => {
-  const ok = clientes.removeCliente(req.params.id);
+  // baja COMPLETA (paneles, movimientos, participaciones, config y su columna de la matriz):
+  // antes esta ruta borraba solo la fila y dejaba la columna huérfana con todos sus % colgando
+  const ok = clientesCascada.borrar(req.params.id);
   if (!ok) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
   res.json({ ok: true });
 });
