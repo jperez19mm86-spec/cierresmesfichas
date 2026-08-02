@@ -26,6 +26,7 @@ const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const revision = require('./revision.service');
+const estadMes = require('./estadisticas-mes.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
@@ -365,6 +366,19 @@ function mount(app) {
   // y tener dos respuestas para la misma pregunta es justo lo que hay que evitar, así que se fue.
   // Las tablas quedan en la base por si hay que mirarlas, pero ya no las lee nadie.
 
+
+  // ───────── 📸 LA FOTO DEL MES ─────────
+  // Un mes cerrado ya no cambia: se le pregunta al casino UNA vez y después todos los reportes
+  // salen de la base. Antes cada reporte eran 525 consultas en vivo; ahora son 180, una vez al mes.
+  app.get('/api/os/estadisticas/estado', (req, res) => ok(res, estadMes.estado(req.query.mes || mesTZ())));
+  app.get('/api/os/estadisticas/meses', (_req, res) => ok(res, { meses: estadMes.meses() }));
+  app.get('/api/os/estadisticas/plan', (req, res) => ok(res, { plan: estadMes.plan(req.query.mes || mesTZ()) }));
+  app.post('/api/os/estadisticas/capturar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await estadMes.capturar({ mes: b.mes, conexionId: b.conexion_id || null, refrescar: !!b.refrescar });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
   app.post('/api/os/tc/snapshot', wrap(async (_req, res) => {

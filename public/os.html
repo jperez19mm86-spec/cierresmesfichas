@@ -56,7 +56,7 @@
 <script>
 // ───────── helpers ─────────
 const TABS = [
-  ['revision','🩺 Revisión'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
+  ['revision','🩺 Revisión'], ['foto','📸 Foto del mes'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
   ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'],
   ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
@@ -511,6 +511,55 @@ async function saveParts(){
 }
 
 
+
+// ───────── 📸 FOTO DEL MES ─────────
+// Un mes cerrado ya no cambia. Se le pregunta al casino UNA vez y queda guardado; después armar
+// el reporte de cualquier cliente es leer la base. Antes cada reporte eran 525 consultas en vivo.
+let _fotoMes = new Date().toISOString().slice(0,7);
+VIEWS.foto = async () => {
+  document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
+  const ms = (await api('/api/os/estadisticas/meses')).meses||[];
+  const d = r.detalle||[];
+  const porCx = {};
+  d.forEach(x=>{ (porCx[x.conexion]=porCx[x.conexion]||[]).push(x); });
+  const chip=(x)=>{ const col = x.estado==='ok'?'#3c9':(x.estado==='error'?'var(--red)':'#666');
+    const tit = x.estado==='ok' ? (x.filas+' filas · '+x.nodos+' nodos · '+x.segundos+'s') : (x.error||'todavía no se sacó');
+    return '<span class="pill" style="background:'+col+';color:#000;margin:2px;font-size:10.5px" title="'+esc(tit)+'">'+esc(x.divisa)+'</span>'; };
+  const grupoNom = {superagent:'Superagentes', distributor:'Distribuidores', agent:'Agentes'};
+  let cuerpo = '';
+  for (const [cx, filas] of Object.entries(porCx)) {
+    const porGrupo = {}; filas.forEach(f=>{ (porGrupo[f.grupo]=porGrupo[f.grupo]||[]).push(f); });
+    cuerpo += '<div class="card"><h2>'+esc(cx)+'</h2>'
+      + Object.entries(porGrupo).map(([g,fs2])=>{
+          const ok = fs2.filter(x=>x.estado==='ok').length;
+          return '<div style="margin:6px 0"><b>'+esc(grupoNom[g]||g)+'</b> <span class="muted">'+ok+'/'+fs2.length+' divisas</span><div style="margin-top:3px">'+fs2.map(chip).join('')+'</div></div>';
+        }).join('')
+      + '</div>';
+  }
+  const errs = d.filter(x=>x.estado==='error');
+  document.getElementById('main').innerHTML = '<div class="card"><h2>📸 Foto del mes</h2>'
+    + '<div class="muted">Un mes cerrado ya no cambia, así que se le pregunta al casino <b>una sola vez</b> y queda guardado. Después el reporte de cualquier cliente sale de la base: instantáneo, y anda aunque el casino esté caído. Sacala a principio del mes siguiente.</div>'
+    + '<div class="row" style="margin-top:8px;align-items:flex-end">'
+    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
+    + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Listas</label><div style="font-size:22px;font-weight:800;color:'+(r.completa?'#3c9':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
+    + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Filas guardadas</label><div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
+    + '<div style="flex:0"><button onclick="fotoSacar(false)">📸 Sacar lo que falta</button></div>'
+    + '<div style="flex:0"><button class="outline" onclick="fotoSacar(true)">🔄 Rehacer todo</button></div>'
+    + '</div>'
+    + (r.completa ? '<div class="muted" style="margin-top:8px;color:#3c9">✅ La foto de este mes está completa.</div>' : '<div class="muted" style="margin-top:8px">⚠ Falta sacar '+(r.faltan+r.conError)+'. Los reportes que dependan de eso van a preguntarle al casino en vivo (lento) o quedar incompletos.</div>')
+    + (errs.length ? '<div class="card" style="background:#3a2410;border-color:var(--red);margin-top:8px"><b style="color:var(--red)">⚠ '+errs.length+' con error</b><div class="muted" style="margin-top:4px">'+[...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div></div>' : '')
+    + '</div>' + cuerpo
+    + (ms.length ? '<div class="card"><h2>Meses guardados</h2><table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'+ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')+'</tbody></table></div>' : '');
+};
+async function fotoSacar(refrescar){
+  if(refrescar && !confirm('¿Rehacer TODA la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
+  toast('Sacando la foto… puede tardar varios minutos');
+  const r = await api('/api/os/estadisticas/capturar',{method:'POST',body:JSON.stringify({mes:_fotoMes, refrescar})});
+  if(!r.ok) return toast('Error: '+(r.error||''));
+  toast(r.logradas+' de '+r.consultas+' listas · '+money(r.filas,0)+' filas'+(r.fallidas?' · '+r.fallidas+' fallaron':''));
+  VIEWS.foto();
+}
 // ───────── 🩺 REVISIÓN ─────────
 // Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
 // Antes había que acordarse de mirar en cinco pantallas distintas.

@@ -193,6 +193,32 @@ db.exec(`
     captured_at TEXT
   );
 
+
+  /* ───── LA FOTO DEL MES: estadísticas por proveedor sacadas UNA VEZ y guardadas ─────
+     Un mes cerrado ya no cambia. Se le pregunta al casino una sola vez (una consulta por
+     conexión × divisa × agrupación, que trae TODOS los nodos de golpe) y después los reportes
+     se arman leyendo de acá: instantáneo y sin depender de que el casino esté arriba. */
+  CREATE TABLE IF NOT EXISTS estad_mes (
+    id TEXT PRIMARY KEY,          -- conexion|mes|divisa|grupo|nodo|provider|label|vendor
+    conexion_id TEXT, mes TEXT, divisa TEXT,
+    grupo TEXT,                   -- 'superagent' | 'distributor' | 'agent' (el nivel del nodo)
+    nodo_id TEXT, nodo_login TEXT,
+    provider TEXT, label TEXT, vendor TEXT,
+    bet TEXT, win TEXT, profit TEXT,
+    capturado_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS ix_estad_mes_nodo ON estad_mes (conexion_id, mes, divisa, grupo, nodo_id);
+  CREATE INDEX IF NOT EXISTS ix_estad_mes_mes ON estad_mes (mes);
+
+  /* Qué se sacó y qué no. Sin esto, un mes con la foto a medias parece completo. */
+  CREATE TABLE IF NOT EXISTS estad_captura (
+    id TEXT PRIMARY KEY,          -- conexion|mes|divisa|grupo
+    conexion_id TEXT, mes TEXT, divisa TEXT, grupo TEXT,
+    estado TEXT,                  -- 'ok' | 'error'
+    filas INTEGER, nodos INTEGER, error TEXT, segundos REAL,
+    capturado_at TEXT
+  );
+
   /* ───── CONEXIONES AL CASINO (api_token, genérico/multi-master) ───── */
   CREATE TABLE IF NOT EXISTS casino_conexiones (
     id TEXT PRIMARY KEY,

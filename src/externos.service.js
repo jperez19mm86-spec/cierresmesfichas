@@ -26,6 +26,7 @@ const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
 const historial = require('./historial');
 const cache = require('./ganancias-cache');
+const estadMes = require('./estadisticas-mes.service');
 const casinoConex = require('./casino-conexiones-store');
 const tcUnico = require('./tc-unico.service');
 const money = require('./lib/money');
@@ -171,7 +172,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const sinVincular = new Map();
   const negativos = new Map(); // proveedor con % MENOR que la base → generaría negativo
   const avisos = [];
-  let deCache = 0, delCasino = 0;
+  let deCache = 0, delCasino = 0, deLaFoto = 0;
 
   // ── 1) armar la lista de consultas ────────────────────────────────────────
   // Cada panel × divisa es UNA consulta al casino, y son independientes entre sí. Hacerlas EN FILA
@@ -207,12 +208,17 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const resultados = new Array(trabajos.length);
   let sinTiempo = 0;
 
-  // Todo lo que se resuelve con el caché, primero y sin tocar el casino.
+  // Todo lo que se resuelve SIN tocar el casino, primero.
+  //   1) la FOTO DEL MES: se sacó una vez y sirve para todos los clientes de esa conexión
+  //   2) el caché de consultas sueltas anteriores
+  // Recién lo que no está en ninguna de las dos se le pregunta al casino.
   const pendientes = [];
   trabajos.forEach((t, i) => {
+    const deFoto = estadMes.filasDe({ conexionId: t.cxId, nodoId: t.panel.id_usuario, mes, divisa: t.divisa, grupo: estadMes.grupoDe(t.panel) });
+    if (deFoto) { resultados[i] = { ok: true, filas: deFoto }; deLaFoto++; return; }
     const guardado = cache.get(t.cxId, t.panel.id_usuario, mes, t.divisa, { refrescar });
-    if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; }
-    else pendientes.push(i);
+    if (guardado) { resultados[i] = { ok: true, filas: guardado.filas }; deCache++; return; }
+    pendientes.push(i);
   });
 
   // Lo que falta: agrupado POR CONEXIÓN. Dentro de cada una, una por vez; entre conexiones, a la par.
@@ -308,7 +314,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
-    deCache, delCasino, consultas: trabajos.length, sinTiempo, incompleto: sinTiempo > 0,
+    deCache, delCasino, deLaFoto, consultas: trabajos.length, sinTiempo, incompleto: sinTiempo > 0,
     cobrables: filas.filter((f) => f.cobra).length,
     revisados: filas.length,
     totalUsdt: money.round(totalUsdt, 2),
