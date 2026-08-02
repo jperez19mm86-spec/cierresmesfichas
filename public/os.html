@@ -57,7 +57,7 @@
 // ───────── helpers ─────────
 const TABS = [
   ['revision','🩺 Revisión'], ['foto','📸 Foto del mes'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Facturación'],
-  ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'],
+  ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'], ['comprobantes','🧾 Comprobantes'],
   ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 let _tab = 'clientes';
@@ -559,6 +559,60 @@ async function fotoSacar(refrescar){
   if(!r.ok) return toast('Error: '+(r.error||''));
   toast(r.logradas+' de '+r.consultas+' listas · '+money(r.filas,0)+' filas'+(r.fallidas?' · '+r.fallidas+' fallaron':''));
   VIEWS.foto();
+}
+
+// ───────── 🧾 COMPROBANTES DE PAGO ─────────
+// Los sube el cliente desde la pantalla pública y quedan PENDIENTES. Aprobar genera el
+// movimiento de pago, que es lo único que baja la deuda. Por eso el monto que se acredita se
+// escribe acá, y no se toma el que declaró el cliente.
+let _cmpFiltro = 'pendiente';
+VIEWS.comprobantes = async () => {
+  document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/comprobantes' + (_cmpFiltro ? '?estado=' + _cmpFiltro : ''));
+  const cs = r.comprobantes || []; const c0 = r.cuentas || {};
+  const tabs = [['pendiente','⏳ Pendientes',c0.pendiente||0],['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos','']];
+  const fila = (c) => {
+    const pend = c.estado === 'pendiente';
+    const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
+    const arch = c.archivo_bytes
+      ? '<a href="/api/os/comprobantes/' + c.id + '/archivo" target="_blank" class="pill">📎 ver comprobante</a>'
+      : '<span class="pill" style="background:var(--red);color:#000">SIN comprobante</span>';
+    return '<div class="card" style="margin:8px 0;border-left:3px solid ' + (pend ? 'var(--gold)' : (c.estado === 'aprobado' ? '#3c9' : 'var(--red)')) + '">'
+      + '<div class="row" style="align-items:center;gap:10px">'
+      +   '<div style="flex:1"><b>' + esc(c.cliente_nombre || c.codigo) + '</b> <span class="pill">' + esc(c.codigo) + '</span>'
+      +     '<div class="muted" style="font-size:11.5px;margin-top:3px">' + esc(String(c.creado_at || '').slice(0,16).replace('T',' ')) + ' · ' + via + (c.referencia ? ' · ref ' + esc(c.referencia) : '') + '</div></div>'
+      +   '<div style="flex:0;text-align:right"><div class="muted" style="font-size:11px">declarado</div><div style="font-size:19px;font-weight:800">' + money(c.monto,2) + ' ' + esc(c.divisa) + '</div></div>'
+      + '</div>'
+      + '<div style="margin-top:8px">' + arch + (c.notas ? ' <span class="muted">' + esc(c.notas) + '</span>' : '') + '</div>'
+      + (pend
+        ? '<div class="row" style="margin-top:10px;align-items:flex-end">'
+          + '<div style="flex:0"><label>Acreditar (USDT)</label><input id="cmp-u-' + c.id + '" placeholder="ej 250" style="width:120px"></div>'
+          + '<div style="flex:1"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
+          + '<div style="flex:0"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\')">✅ Aprobar y acreditar</button></div>'
+          + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\')">✖ Rechazar</button></div>'
+          + '</div>'
+        : '<div class="muted" style="margin-top:8px">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
+          + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
+          + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>')
+      + '</div>';
+  };
+  document.getElementById('main').innerHTML = '<div class="card"><h2>🧾 Comprobantes de pago</h2>'
+    + '<div class="muted">Los sube el cliente desde la pantalla pública. Quedan <b>pendientes</b>: aprobar uno registra el pago y le baja la deuda, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
+    + '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">'
+    + tabs.map(t => '<button class="' + (t[0] === _cmpFiltro ? '' : 'outline ') + 'small" onclick="_cmpFiltro=\'' + t[0] + '\';VIEWS.comprobantes()">' + t[1] + (t[2] !== '' ? ' (' + t[2] + ')' : '') + '</button>').join('')
+    + '</div></div>'
+    + (cs.length ? cs.map(fila).join('') : '<div class="card"><div class="empty">No hay comprobantes acá.</div></div>');
+};
+
+async function cmpResolver(id, estado) {
+  const u = (document.getElementById('cmp-u-' + id) || {}).value;
+  const nota = (document.getElementById('cmp-n-' + id) || {}).value;
+  if (estado === 'aprobado' && !(Number(String(u).replace(',', '.')) > 0)) return toast('Poné cuántos USDT se acreditan');
+  if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' USDT? Esto registra el pago y le baja la deuda al cliente.')) return;
+  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto_usdt: u, motivo: nota }) });
+  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' USDT') : 'Rechazado');
+  VIEWS.comprobantes();
 }
 // ───────── 🩺 REVISIÓN ─────────
 // Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
