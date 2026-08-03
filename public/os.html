@@ -1541,16 +1541,37 @@ function reloadDist(){ _repMes = val('rep-mes'); REP.mes(); }
 
 /* ── Reparto por cliente ───────────────────────────────────────────────────────────── */
 REP.clientes = async () => {
-  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
-  { const d=await api('/api/os/personas'); _personas=d.personas||[]; }
-  if(!_repCli && _clientes.length) _repCli=_clientes[0].id;
+  { const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }   // siempre fresco: si se
+  { const d=await api('/api/os/personas'); _personas=d.personas||[]; }   // borró o fusionó un cliente, que no siga apareciendo
   const mes = _repMes || new Date().toISOString().slice(0,7);
+  // Quién tiene el reparto cerrado: se pregunta de una y se marca en la lista, para no tener que
+  // abrir cliente por cliente para saber cuáles faltan.
+  const est = {};
+  await Promise.all(_clientes.filter(c=>!c.es_vendedor).map(async c=>{
+    const r = await api('/api/os/reparto/'+c.id+'?mes='+mes);
+    est[c.id] = (r && r.reparto) ? r.reparto.estado : '?';
+  }));
+  window._repEstado = est;
+  if(!_repCli || !_clientes.some(c=>c.id===_repCli)) {
+    const primero = _clientes.filter(c=>!c.es_vendedor).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es'))[0];
+    _repCli = primero ? primero.id : '';
+  }
   document.getElementById('rep-body').innerHTML = `
     <div class="card">
       <h2>👥 Quién cobra de cada cliente</h2>
-      <div class="muted" style="margin-bottom:10px">Los porcentajes son <b>puntos del % base</b> del cliente, no porciones de otra cosa: tienen que sumar exactamente su base. Ej. <i>Pistacho al 10% → Empresa 6 · Julián 1 · Henry 1,5 · Alexa 1,5</i>.</div>
+      <div class="muted" style="margin-bottom:6px">Los porcentajes son <b>puntos del % base</b> del cliente, no porciones de otra cosa: tienen que sumar exactamente su base. Ej. <i>Pistacho al 10% → Empresa 5 · Henry 1,2 · Alexa 1,8 · Juli 1 · Intermediario 1</i>.</div>
+      <div class="muted" style="margin-bottom:10px">En la lista: ✅ ya cierra · 🟡 falta repartir · 🔴 se pasa de la base · ⚪ sin % base cargado.
+        <b>${Object.values(est).filter(e=>e==='ok').length}</b> de ${Object.keys(est).length} cerrados.</div>
       <div class="row">
-        <div><label>Cliente</label><select id="rp-cli" onchange="repCargarCli()">${_clientes.map(c=>`<option value="${c.id}" ${c.id===_repCli?'selected':''}>${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('')}</select></div>
+        <div><label>Cliente</label><select id="rp-cli" onchange="repCargarCli()">${
+          // Alfabético y con el estado adelante: de un vistazo se ve a quién le falta.
+          _clientes.filter(c=>!c.es_vendedor)
+            .sort((a,b)=>String(a.nombre||a.codigo).localeCompare(String(b.nombre||b.codigo),'es',{sensitivity:'base'}))
+            .map(c=>{
+              const e = est[c.id];
+              const m = e==='ok' ? '✅' : e==='sin_base' ? '⚪' : e==='excedido' ? '🔴' : '🟡';
+              return `<option value="${c.id}" ${c.id===_repCli?'selected':''}>${m} ${esc(c.nombre||c.codigo)}</option>`;
+            }).join('')}</select></div>
         <div style="flex:0"><label>Mes</label><input type="month" id="rp-mes" value="${esc(mes)}" onchange="repCargarCli()" style="width:auto"/></div>
         <div style="flex:0"><label>Vigente desde</label><input id="rp-desde" type="date" style="width:auto"/></div>
       </div>
