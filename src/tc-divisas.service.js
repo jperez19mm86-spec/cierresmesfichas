@@ -20,7 +20,18 @@ const money = require('./lib/money');
 const { fechaTZ, nowISO } = require('./lib/fechas');
 
 const FUENTE_URL = 'https://open.er-api.com/v6/latest/USD';
-const IGNORAR = new Set(['ADA', 'USD', 'USDT']);   // USD/USDT valen 1; ADA no se factura
+// USD/USDT valen 1 · ADA no se factura · ARS ver abajo 👇
+const IGNORAR = new Set(['ADA', 'USD', 'USDT', 'ARS']);
+
+/* 🔴 POR QUÉ ARS ESTÁ EN LA LISTA (arreglado 3-ago-2026)
+   La regla de arriba siempre dijo "ARS NO se toma de acá, sale de Binance/criptoya", pero ARS
+   NO estaba en IGNORAR: se guardaba igual, con la cotización OFICIAL. Y como en tc-unico el
+   promedio automático le gana al histórico de Binance, el peso terminaba resolviéndose con la
+   oficial cada vez que un mes no tenía TC cargado a mano.
+   Medido en producción el 3-ago: agosto daba 1488,45 (oficial) en vez de 1579,68 (Binance),
+   6,1% abajo. Como el USDT sale de DIVIDIR por ese número, todo lo facturado en pesos ese mes
+   se habría cobrado 6,1% de más. Junio y julio no se vieron afectados porque tienen el TC
+   cargado a mano, que manda sobre todo lo demás. */
 const ALIAS = { VEF: 'VES' };                       // VEF toma el valor de VES
 
 /** Baja las cotizaciones del día. Devuelve { ok, tasas: {DIVISA: '1234.56'}, error? } */
@@ -96,6 +107,17 @@ function hayDia(fecha) {
 }
 
 /**
+ * Borra las filas de ARS que quedaron guardadas acá con la cotización OFICIAL antes del arreglo
+ * del 3-ago. No alcanza con dejar de escribirlas: mientras existan, `promedioMes('ARS')` las
+ * promedia y el peso se sigue resolviendo con la oficial. Corre sola al arrancar y es idempotente.
+ */
+function purgarArsViejo() {
+  const n = db.prepare("DELETE FROM tc_divisa_snapshots WHERE divisa='ARS'").run().changes;
+  if (n) console.log(`[TC divisas] purgadas ${n} filas de ARS con cotización oficial (el peso va por Binance)`);
+  return n;
+}
+
+/**
  * Cron: UNA por día, y está bien que sea una.
  *
  * A diferencia del peso —que se mueve todo el día contra el dólar cripto y por eso lleva dos
@@ -106,6 +128,7 @@ function hayDia(fecha) {
  * Corre en la última franja de las configuradas para ARS, cuando la cotización del día ya está.
  */
 function startScheduler() {
+  purgarArsViejo();   // el peso no vive acá; si quedaron filas viejas, se van
   const horas = String(process.env.TC_SNAPSHOT_HOURS || '9,18')
     .split(',').map((h) => Number(String(h).trim())).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23);
   const HOUR = (horas.length ? horas : [9, 18]).slice(-1)[0];
@@ -121,4 +144,4 @@ function startScheduler() {
   console.log(`[TC divisas] scheduler activo (snapshot diario ${HOUR}:00 ART)`);
 }
 
-module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, startScheduler, ALIAS, IGNORAR };
+module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, startScheduler, purgarArsViejo, ALIAS, IGNORAR };

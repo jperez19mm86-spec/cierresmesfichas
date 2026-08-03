@@ -16,9 +16,11 @@
  *
  * REGLA ÚNICA (la misma idea que el % base: lo que el dueño confirmó a mano manda):
  *   1) el CARGADO A MANO para el cierre de ese mes (`cierre_tc`) — es la decisión explícita
- *   2) el PROMEDIO AUTOMÁTICO del mes de esa divisa (`tc_divisa_snapshots`)
- *   3) solo para el peso argentino: el promedio de `tc_mes` (histórico, es lo que ya se facturó)
- *   4) el dólar y el USDT valen 1
+ *   2) el PROMEDIO AUTOMÁTICO del mes de esa divisa, y de dónde sale depende de la moneda:
+ *        · PESO ARGENTINO → Binance/criptoya (`tc_snapshots` → `tc_mes`). Es el mercado real:
+ *          el peso se cotiza contra el dólar cripto, no contra el oficial.
+ *        · TODAS LAS DEMÁS → la fuente de cotizaciones oficiales (`tc_divisa_snapshots`).
+ *   3) el dólar y el USDT valen 1
  *
  * Siempre devuelve DE DÓNDE salió y QUÉ DECÍAN LAS OTRAS FUENTES, para que la pantalla pueda avisar
  * cuando no coinciden en vez de elegir una en silencio.
@@ -69,10 +71,17 @@ function tcDelMes(divisa, mes) {
     return { valor: '1', fuente: 'el dólar es la unidad', divisa: D, mes: m, fuentes: {}, conflicto: null };
   }
 
+  // 🔑 El PESO se cotiza contra el dólar cripto, no contra el oficial: su promedio automático es
+  // el de Binance/criptoya (tc_snapshots → tc_mes), NO el de la fuente de cotizaciones oficiales
+  // que alimenta al resto de las divisas. Antes ARS entraba por las dos y ganaba la oficial:
+  // agosto resolvía 1488,45 en vez de 1579,68 — 6,1% abajo, y como se DIVIDE por este número,
+  // todo lo facturado en pesos salía 6,1% de más. Ver el comentario en tc-divisas.service.js.
+  const esPeso = D === 'ARS';
+  const binance = esPeso ? ((tcArs.getMes(m) || {}).tc_cliente || null) : null;
   const f = {
     manual: manual(D, m),
-    automatico: tcDivisas.promedioMes(D, m),
-    arsHistorico: D === 'ARS' ? ((tcArs.getMes(m) || {}).tc_cliente || null) : null,
+    automatico: esPeso ? binance : tcDivisas.promedioMes(D, m),
+    arsHistorico: binance,
   };
 
   let valor = null; let fuente = 'SIN CARGAR';
