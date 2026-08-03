@@ -13,6 +13,7 @@
 const clientes = require('./clientes-store');
 const paneles = require('./paneles-store');
 const cierre = require('./cierre-store');
+const cierreMes = require('./cierre-mes.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const { db } = require('./db');
@@ -152,8 +153,79 @@ function revisar(mes) {
       'Clientes → ficha (o cargalo en la matriz, que sí se usa)', conMargen);
   }
 
+  // 10) CELDAS POR DEBAJO DEL COSTO DEL PROVEEDOR → se está facturando a pérdida
+  //
+  // El chequeo que ya existía compara la celda contra el % base del CLIENTE, que suele ser mucho
+  // más chico que el costo. Así, una celda en 5 con un proveedor que cuesta 12 pasaba como buena
+  // y se cobraba igual: se le factura al cliente menos de lo que el proveedor nos cobra a nosotros.
+  //
+  // Es también lo que pasa cuando SUBE un costo: la celda del cliente es un precio final, no un
+  // margen, así que si el proveedor pasa de 12 a 13 y nadie toca las celdas, el margen se come
+  // solo y nada avisa. Este punto es ese aviso.
+  //
+  // ⚠️ Un 0 NO se marca: significa "a este proveedor no se le cobra", que es una decisión tomada.
+  items.push(...revisarBajoCosto(m));
+
   const graves = items.filter((i) => i.nivel === GRAVE).length;
   return { mes: m, items, graves, avisos: items.length - graves, limpio: items.length === 0 };
 }
 
-module.exports = { revisar };
+/**
+ * Las celdas de la matriz que quedaron por debajo del costo del proveedor.
+ * Devuelve items ya armados (uno por gravedad) para empujar al listado de Revisión.
+ */
+function revisarBajoCosto(mes) {
+  const out = [];
+  const m = String(mes || '').slice(0, 7);
+  // Contra la foto del mes si está congelado: es lo que ese mes va a facturar de verdad.
+  const precios = cierreMes.preciosDe(m);
+  const mx = cierre.getMatriz();
+  const costo = {};
+  if (precios && precios.costo && Object.keys(precios.costo).length) Object.assign(costo, precios.costo);
+  else mx.proveedores.forEach((p) => { costo[p.nombre] = p.base_pct; });
+  const celdas = (precios && precios.celdas && Object.keys(precios.celdas).length) ? precios.celdas : mx.celdas;
+
+  const num = (v) => (v == null || v === '' ? null : Number(v));
+  const bajo = []; const enCero = [];
+  for (const [prov, porCliente] of Object.entries(celdas || {})) {
+    const c = num(costo[prov]);
+    if (c == null) continue;                       // proveedor sin costo cargado: es otro problema
+    for (const [cliente, pct] of Object.entries(porCliente || {})) {
+      const v = num(pct);
+      if (v == null) continue;
+      if (v === 0) { enCero.push(`${cliente} · ${prov}`); continue; }   // decisión tomada, no se toca
+      if (v < c) bajo.push({ cliente, proveedor: prov, celda: String(pct), costo: String(costo[prov]), pierde: Math.round((c - v) * 100) / 100 });
+    }
+  }
+
+  if (bajo.length) {
+    bajo.sort((a, b) => b.pierde - a.pierde);
+    const porCliente = {};
+    bajo.forEach((b) => { (porCliente[b.cliente] = porCliente[b.cliente] || []).push(b); });
+    out.push({
+      nivel: GRAVE,
+      titulo: `${bajo.length} celda(s) por debajo del costo del proveedor`,
+      detalle: 'Se le cobra al cliente MENOS de lo que ese proveedor nos cuesta: cada ficha jugada ahí es pérdida. '
+        + 'Pasa sobre todo cuando sube un costo y no se suben las celdas, porque la celda es un precio final, no un margen.'
+        + (precios && precios.congelado ? ' (Mirado sobre la foto congelada de este mes.)' : ''),
+      donde: '🧮 Cierre de Mes → Matriz % (la fila del proveedor, la columna del cliente)',
+      afectados: Object.entries(porCliente)
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([cli, xs]) => `${cli}: ${xs.length} (peor ${xs[0].proveedor} ${xs[0].celda} vs costo ${xs[0].costo})`),
+      cuantos: bajo.length,
+      detalleFilas: bajo.slice(0, 200),
+    });
+  }
+  if (enCero.length) {
+    out.push({
+      nivel: AVISO,
+      titulo: `${enCero.length} celda(s) en cero (no se les cobra)`,
+      detalle: 'Un 0 significa que a ese proveedor NO se le cobra a ese cliente. Está bien si fue una decisión; se lista para que se vea.',
+      donde: '🧮 Cierre de Mes → Matriz %',
+      afectados: enCero.slice(0, 60), cuantos: enCero.length,
+    });
+  }
+  return out;
+}
+
+module.exports = { revisar, revisarBajoCosto };
