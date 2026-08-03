@@ -2041,13 +2041,25 @@ async function backfillMes(){
   toast('✓ Backfill: '+cap+' días nuevos guardados');
   verAcumulado();
 }
-// ───────── ACUMULADO (solapa propia, siempre visible, filtro mes por mes) ─────────
-let _acMes='', _acData=null, _acView=null, _acCxs=[];
+// ───────── ACUMULADO: 📊 Pulso (resumen + alertas) · 📒 Día a día ─────────
+let _acMes='', _acData=null, _acView=null, _acCxs=[], _acSub='pulso';
+const AC = {};
+
 VIEWS.acumulado = async () => {
+  const subs=[['pulso','📊 Pulso del mes'],['detalle','📒 Día a día']];
+  document.getElementById('main').innerHTML =
+    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
+    + subs.map(([k,l])=>`<button class="${k===_acSub?'':'outline'} small" onclick="acSub('${k}')">${l}</button>`).join('')
+    + `</div></div><div id="ac-cuerpo"><div class="card"><div class="muted">Cargando…</div></div></div>`;
+  await (AC[_acSub]||AC.pulso)();
+};
+function acSub(s){ _acSub=s; VIEWS.acumulado(); }
+
+AC.detalle = async () => {
   const cxs=(await api('/api/os/casino/conexiones')).conexiones||[]; _acCxs=cxs;
   const cxOpts='<option value="__all__">🌐 Todas (todos los GOD)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const mes=_acMes||new Date().toISOString().slice(0,7);
-  document.getElementById('main').innerHTML=`
+  document.getElementById('ac-cuerpo').innerHTML=`
     <div class="card">
       <h2>📒 Reporte Acumulado <span class="muted">(se llena solo, día a día)</span></h2>
       <div class="muted" style="margin-bottom:8px">Lo guardado en la base — el cron captura el día anterior cada noche. "Todas" junta todos los GOD; buscá un tenant sin reconsultar. Mes por mes con ◀ ▶.</div>
@@ -2068,6 +2080,146 @@ VIEWS.acumulado = async () => {
   if(cxs.length) verAcumulado(); else document.getElementById('ac-out').innerHTML='<div class="empty">Agregá una conexión en Config → 🎰 Casino primero.</div>';
 };
 function acMes(delta){ const el=document.getElementById('ac-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} el.value=y+'-'+String(m).padStart(2,'0'); _acMes=el.value; verAcumulado(); }
+
+// ───────── 📊 PULSO DEL MES ─────────
+// Lo que se quiere saber al entrar: cuánto se ganó, si sube o baja, y qué se rompió.
+// Todo sale del acumulado guardado, así que abre al instante.
+let _pulFiltro = '';
+const _NIV = { grave:{ico:'🔴',col:'var(--red)'}, aviso:{ico:'🟡',col:'var(--gold)'}, info:{ico:'ℹ️',col:'var(--muted)'} };
+const _TIPOS = {
+  pasa_de_largo:'Entró y salió', salida_grande:'Salidas grandes', apagado:'Dejaron de operar',
+  margen_cae:'Gana menos', cae_fuerte:'Venden menos', mes_negativo:'En rojo', nuevo:'Nuevos',
+};
+const usd = (n) => n==null ? '—' : money(n,0)+' USDT';
+
+/** Gráfico del mes: el movimiento como área y la ganancia de cada día como barra. Todo en USDT,
+ *  que es la única forma de juntar ocho monedas en un mismo dibujo. SVG a mano: no hay librerías. */
+function graficoMes(serie){
+  if(!serie || !serie.length) return '<div class="empty">Sin días capturados.</div>';
+  const W=760, H=170, P=26;
+  const max = Math.max(...serie.map(d=>Math.max(d.in, d.profit)), 1);
+  const min = Math.min(0, ...serie.map(d=>d.profit));
+  const esc = (v) => H-P - (v-min)/(max-min) * (H-P*2);
+  const x = (i) => P + i*( (W-P*2) / Math.max(serie.length-1,1) );
+  const area = serie.map((d,i)=>`${x(i).toFixed(1)},${esc(d.in).toFixed(1)}`).join(' ');
+  const ancho = Math.max(2, (W-P*2)/serie.length - 2);
+  const barras = serie.map((d,i)=>{
+    const y0=esc(0), y1=esc(d.profit);
+    return `<rect x="${(x(i)-ancho/2).toFixed(1)}" y="${Math.min(y0,y1).toFixed(1)}" width="${ancho.toFixed(1)}" height="${Math.max(Math.abs(y1-y0),1).toFixed(1)}"
+      fill="${d.profit<0?'var(--red)':'var(--gold)'}" opacity=".85"><title>${d.fecha} · movió ${money(d.in,0)} · ganó ${money(d.profit,0)} USDT</title></rect>`;
+  }).join('');
+  const etiq = serie.filter((_,i)=>i%5===0||i===serie.length-1)
+    .map(d=>{ const i=serie.indexOf(d); return `<text x="${x(i)}" y="${H-6}" font-size="9" fill="var(--muted)" text-anchor="middle">${d.fecha.slice(8)}</text>`; }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <polyline points="${area}" fill="none" stroke="var(--blue)" stroke-width="1.6" opacity=".8"/>
+    ${barras}
+    <line x1="${P}" y1="${esc(0)}" x2="${W-P}" y2="${esc(0)}" stroke="var(--border)"/>
+    ${etiq}
+    <text x="${P}" y="12" font-size="10" fill="var(--blue)">— movimiento</text>
+    <text x="${P+82}" y="12" font-size="10" fill="var(--gold)">▮ ganancia del día</text>
+  </svg>`;
+}
+
+AC.pulso = async () => {
+  const mes = _acMes || new Date().toISOString().slice(0,7);
+  const p = await api('/api/os/pulso?mes='+mes);
+  const dest = document.getElementById('ac-cuerpo');
+  if(!p.ok) return dest.innerHTML = '<div class="card"><div class="empty">No se pudo armar el pulso: '+esc(p.error||'')+'</div></div>';
+  window._pul = p;
+
+  const totIn = p.monedas.reduce((a,g)=>a+(g.inUsdt||0),0);
+  const totPr = p.monedas.reduce((a,g)=>a+(g.profitUsdt||0),0);
+  // La variación se calcula sobre las monedas que TIENEN mes anterior, si no compara contra cero.
+  const conPrev = p.monedas.filter(g=>g.varProfit!=null);
+  const varPr = conPrev.length
+    ? conPrev.reduce((a,g)=>a+(g.profitUsdt||0),0) / conPrev.reduce((a,g)=>a+((g.profitUsdt||0)/(1+g.varProfit)),0) - 1
+    : null;
+  const flecha = (v) => v==null ? '<span class="muted">—</span>'
+    : `<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'▲':'▼'} ${Math.abs(v*100).toFixed(0)}%</span>`;
+
+  const kpi = (t,v,s) => `<div class="card" style="flex:1 1 150px;margin:0;padding:12px 14px">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.03em">${t}</div>
+    <div style="font-size:23px;font-weight:800;margin-top:2px">${v}</div>
+    <div class="muted" style="font-size:11.5px">${s||''}</div></div>`;
+
+  const tipos = {}; p.alertas.forEach(a=>{ tipos[a.tipo]=(tipos[a.tipo]||0)+1; });
+  const lista = p.alertas.filter(a=>!_pulFiltro||a.tipo===_pulFiltro);
+
+  dest.innerHTML = `
+    <div class="card">
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0 0 auto"><label>Mes</label><div style="display:flex;gap:6px;align-items:center">
+          <button class="outline small" onclick="pulMes(-1)">◀</button>
+          <input type="month" id="pul-mes" value="${esc(mes)}" onchange="_acMes=this.value;AC.pulso()" style="width:150px">
+          <button class="outline small" onclick="pulMes(1)">▶</button></div></div>
+        <div class="muted" style="flex:1;padding-bottom:9px">
+          ${p.diasCapturados} día(s) capturado(s)${p.ultimoDia?', hasta el <b>'+esc(p.ultimoDia)+'</b>':''} ·
+          ${p.activos} panel(es) con movimiento</div>
+      </div>
+      ${p.faltaCaptura?`<div class="card" style="margin:10px 0 0;border-left:3px solid var(--gold);background:var(--bg3)">
+        <b>⚠ ${esc(p.faltaCaptura)}</b> <span class="muted">Los números de abajo no incluyen ese día.</span>
+        <button class="small" style="margin-left:8px" onclick="capturarAyer()">＋ Capturar ahora</button></div>`:''}
+      ${p.sinTC.length?`<div class="muted" style="margin-top:8px">⚠ Sin tipo de cambio de ${esc(p.sinTC.join(', '))}: esas monedas no entran en los totales en USDT.
+        <a href="#" onclick="go('tc');return false">Cargarlo</a></div>`:''}
+    </div>
+
+    <div class="row" style="gap:10px;margin-bottom:12px">
+      ${kpi('Ganancia del mes', usd(totPr), flecha(varPr)+' vs '+esc(p.mesPrev))}
+      ${kpi('Movimiento', usd(totIn), p.monedas.length+' moneda(s)')}
+      ${kpi('Se llevan los jugadores', totIn?((1-totPr/totIn)*100).toFixed(0)+'%':'—','de todo lo que entra')}
+      ${kpi('Para mirar', (p.graves||0)+' 🔴', (p.avisos||0)+' avisos')}
+    </div>
+
+    <div class="card"><h2>El mes día por día <span class="muted">(en USDT)</span></h2>
+      ${graficoMes(p.serieDia)}</div>
+
+    <div class="card">
+      <h2>Qué mirar <span class="muted">(${p.alertas.length}, lo más caro primero)</span></h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="${_pulFiltro?'outline ':''}small" onclick="pulFiltro('')">Todo (${p.alertas.length})</button>
+        ${Object.keys(tipos).map(t=>`<button class="${_pulFiltro===t?'':'outline '}small" onclick="pulFiltro('${t}')">${esc(_TIPOS[t]||t)} (${tipos[t]})</button>`).join('')}
+      </div>
+      ${lista.length ? lista.map(a=>{
+        const n=_NIV[a.nivel]||_NIV.info;
+        return `<div class="card" style="margin:8px 0;border-left:3px solid ${n.col}">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <div style="flex:1">
+              <b>${n.ico} ${esc(a.titulo)}</b>
+              <div style="margin-top:3px"><span class="pill">${esc(a.login)}</span> <span class="muted">${esc(a.moneda)}</span>
+                ${a.cliente?'· cliente <b>'+esc(a.cliente)+'</b>':'<span class="badge warn">sin cliente asignado</span>'}</div>
+              <div class="muted" style="margin-top:5px;color:var(--text);font-size:13px">${esc(a.detalle)}</div>
+              <div class="muted" style="margin-top:5px">📍 ${esc(a.donde||'')}</div>
+            </div>
+            ${a.montoUsdt!=null?`<div style="flex:0;text-align:right;white-space:nowrap">
+              <div class="muted" style="font-size:11px">en juego</div>
+              <div style="font-size:17px;font-weight:800">${money(a.montoUsdt,0)}</div>
+              <div class="muted" style="font-size:11px">USDT</div></div>`:''}
+          </div></div>`;
+      }).join('') : '<div class="empty">✅ Nada raro en este filtro.</div>'}
+    </div>
+
+    <div class="card"><h2>De dónde sale la ganancia <span class="muted">(top 12)</span></h2>
+      <table><thead><tr><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
+      ${p.top.slice(0,12).map(t=>`<tr>
+        <td><b>${esc(t.login)}</b></td><td class="muted">${esc(t.cliente||'—')}</td><td class="muted">${esc(t.moneda)}</td>
+        <td class="right"><b>${money(t.profitUsdt,0)}</b></td>
+        <td class="right">${flecha(t.varProfit)}</td>
+        <td class="right ${t.rtp>0.85?'':'muted'}" ${t.rtp>0.85?'style="color:var(--red);font-weight:700"':''}>${t.rtp!=null?(t.rtp*100).toFixed(0)+'%':'—'}</td>
+        <td class="right muted">${t.activos}</td></tr>`).join('')}
+      </tbody></table></div>
+
+    <div class="card"><h2>Por moneda</h2>
+      <table><thead><tr><th>Moneda</th><th class="right">Paneles</th><th class="right">Movimiento</th><th class="right">Ganancia</th><th class="right">Se llevan</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">USDT</th></tr></thead><tbody>
+      ${p.monedas.map(g=>`<tr>
+        <td><b>${esc(g.moneda)}</b></td><td class="right muted">${g.paneles}</td>
+        <td class="right">${money(g.in,0)}</td><td class="right">${money(g.profit,0)}</td>
+        <td class="right muted">${g.rtp!=null?(g.rtp*100).toFixed(0)+'%':'—'}</td>
+        <td class="right">${flecha(g.varIn)}</td>
+        <td class="right">${g.profitUsdt!=null?'<b>'+money(g.profitUsdt,0)+'</b>':'<span class="badge warn">sin TC</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+};
+function pulFiltro(t){ _pulFiltro=t; AC.pulso(); }
+function pulMes(delta){ const el=document.getElementById('pul-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} _acMes=y+'-'+String(m).padStart(2,'0'); AC.pulso(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
