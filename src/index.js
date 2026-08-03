@@ -644,7 +644,24 @@ app.get('/factura/:token', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, private');
   if (!r) return res.status(404).send(html.paginaError('No encontramos esa factura'));
   if (r.revocado) return res.status(410).send(html.paginaError('Este link ya no está disponible'));
-  res.send(html.pagina(r));
+  res.send(html.pagina({ ...r, token: req.params.token }));
+});
+
+// La misma factura en planilla, para bajarla y auditarla. Mismo token, misma foto: si el link
+// muestra 2.510,75, el archivo dice 2.510,75. No hay dos números distintos dando vueltas.
+app.get('/factura/:token/planilla.csv', (req, res) => {
+  const facturaSvc = require('./factura.service');
+  const csv = require('./factura-csv');
+  const r = facturaSvc.porToken(req.params.token);
+  if (!r) return res.status(404).type('text/plain; charset=utf-8').send('No encontramos esa factura');
+  if (r.revocado) return res.status(410).type('text/plain; charset=utf-8').send('Este link ya no está disponible');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, private');
+  // El nombre va en filename* además de filename: con acentos, el filename a secas se rompe.
+  const n = csv.nombreArchivo(r.factura);
+  res.setHeader('Content-Disposition',
+    `attachment; filename="${n.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(n)}`);
+  res.send(csv.planilla(r.factura));
 });
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));

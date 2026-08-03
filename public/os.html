@@ -604,19 +604,21 @@ async function verFactura(clienteId) {
   const extHtml = (ex && ex.items && ex.items.length)
     ? ('<div class="card" style="margin:8px 0"><b>Proveedores externos</b>'
        + (ex.incompleto ? '<div class="muted" style="color:var(--red)">⚠ el reporte del casino quedó incompleto</div>' : '')
-       // agrupado por moneda: el TC es uno por moneda, y la ganancia solo se puede leer junto a la suya
-       + Object.entries(ex.items.reduce((a,i) => { (a[i.divisa]=a[i.divisa]||[]).push(i); return a; }, {})).map(([div,its]) => {
-           const tc = (its.find(i => i.tc) || {}).tc;
-           const sub = its.reduce((a,i) => a + Number(i.usdt||0), 0);
-           return '<div style="margin-top:8px;font-size:12px;color:var(--gold)"><b>' + esc(div) + '</b>'
-             + '<span class="muted"> ' + (tc ? '· TC ' + money(tc,2) : '· sin TC cargado') + '</span></div>'
-             + '<table style="margin-top:4px"><thead><tr><th>Proveedor</th><th class="right">Ganancia</th><th class="right">Excedente</th><th class="right">A cobrar</th><th class="right">USDT</th></tr></thead><tbody>'
-             + its.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + money(i.profit,2) + '</td>'
-                 + '<td class="right"><b>' + esc(i.excedente) + '%</b><span class="muted"> (' + esc(i.pct) + '−' + esc(i.base) + ')</span></td>'
-                 + '<td class="right">' + money(i.monto,2) + '</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
-             + '<tr><td colspan="4" class="right muted">Subtotal ' + esc(div) + '</td><td class="right"><b>' + money(String(sub),2) + '</b></td></tr>'
-             + '</tbody></table>';
-         }).join('')
+       // por PANEL, igual que las cargas: cada bloque con su moneda, su TC y su subtotal
+       + (ex.porPanel && ex.porPanel.length
+          ? ex.porPanel.map(p =>
+              '<div style="margin-top:8px;font-size:12px;color:var(--gold)"><b>' + esc(p.panel) + '</b>'
+              + '<span class="muted"> (' + esc(p.divisa) + ')' + (p.tc ? ' · TC ' + money(p.tc,2) : ' · sin TC cargado')
+              + ' · ' + p.items.length + ' proveedor(es)</span></div>'
+              + '<table style="margin-top:4px"><thead><tr><th>Proveedor</th><th class="right">Ganancia</th><th class="right">Excedente</th><th class="right">A cobrar</th><th class="right">USDT</th></tr></thead><tbody>'
+              + p.items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + money(i.profit,2) + '</td>'
+                  + '<td class="right"><b>' + esc(i.excedente) + '%</b></td>'
+                  + '<td class="right">' + money(i.monto,2) + '</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
+              + '<tr><td colspan="4" class="right muted">Subtotal ' + esc(p.panel) + '</td><td class="right"><b>' + money(p.usdt,2) + '</b></td></tr>'
+              + '</tbody></table>').join('')
+          : '<table style="margin-top:6px"><thead><tr><th>Proveedor</th><th class="right">Excedente</th><th class="right">USDT</th></tr></thead><tbody>'
+            + ex.items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + esc(i.excedente != null ? i.excedente : i.dif) + '%</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
+            + '</tbody></table>')
        + '<div style="margin-top:6px">Total → <b style="color:var(--gold)">' + $(ex.total_usdt) + ' USDT</b></div></div>')
     : (ex && ex.faltaBase ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: falta confirmar su % de ese mes.</span></div>'
        : (ex && ex.error ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: ' + esc(ex.error) + '</span></div>' : ''));

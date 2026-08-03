@@ -33,7 +33,7 @@ const PUBLIC = [
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.
-  /^\/factura\/[A-Za-z0-9_-]+\/?$/,
+  /^\/factura\/[A-Za-z0-9_-]+(\/planilla\.csv)?\/?$/,
   /^\/logo\.png$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.

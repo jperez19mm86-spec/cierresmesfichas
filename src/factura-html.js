@@ -15,7 +15,7 @@ const esc = (x) => String(x == null ? '' : x)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const $ = (x) => money.fmt(x, 2);
 
-function pagina({ factura: f, actualizado_at }) {
+function pagina({ factura: f, actualizado_at, token }) {
   const filaDiv = (f.consumo && f.consumo.porDivisa || [])
     .map((d) => `<tr><td>${esc(d.divisa)}</td><td class="r">${$(d.vendido)}</td><td class="r m">${d.tc ? 'TC ' + $(d.tc) : '—'}</td><td class="r">${d.vendidoUsdt != null ? $(d.vendidoUsdt) + ' USDT' : '—'}</td></tr>`)
     .join('');
@@ -42,15 +42,28 @@ function pagina({ factura: f, actualizado_at }) {
   if (detalle) detalle += '</tbody></table>';
 
   const ext = f.externos;
-  // Se agrupa POR MONEDA: el tipo de cambio es uno por moneda, así que va en el encabezado del
-  // bloque y no repetido en cada fila. Y así la ganancia queda al lado de la moneda en la que se
-  // generó, que es la única forma de que el cliente pueda verificarla contra su panel.
+  // El desglose va POR PANEL, igual que las cargas: el cliente audita panel por panel. Cada bloque
+  // lleva su moneda y su tipo de cambio, porque el TC es uno por moneda y sin él el USDT no se
+  // puede verificar contra nada.
   let extTablas = '';
-  if (ext && ext.items && ext.items.length) {
+  const filaProv = (i) => `<tr><td>${esc(i.proveedor)}</td><td class="r">${i.profit ? $(i.profit) : '—'}</td>`
+    + `<td class="r"><b>${esc(i.excedente)}%</b></td>`
+    + `<td class="r">${i.monto ? $(i.monto) : '—'}</td><td class="r">${$(i.usdt)}</td></tr>`;
+  const cabezaProv = '<thead><tr><th>Proveedor</th><th class="r">Ganancia</th><th class="r">Excedente</th><th class="r">A cobrar</th><th class="r">USDT</th></tr></thead>';
+
+  if (ext && ext.porPanel && ext.porPanel.length) {
+    extTablas = ext.porPanel.map((p) => `<h3>${esc(p.panel)} <span class="m">(${esc(p.divisa)})`
+      + `${p.tc ? ` · tipo de cambio ${$(p.tc)}` : ' · sin tipo de cambio cargado'}`
+      + ` · ${p.items.length} proveedor(es)</span></h3>
+       <div class="scroll"><table>${cabezaProv}
+        <tbody>${p.items.map(filaProv).join('')}</tbody>
+        <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(p.panel)}</td><td class="r"><b>${$(p.usdt)}</b></td></tr></tfoot>
+       </table></div>`).join('');
+  } else if (ext && ext.items && ext.items.length) {
+    // Los links que ya se mandaron guardan la foto vieja, sin panel ni ganancia. Se muestra lo que
+    // haya para que ese link siga abriendo, en vez de quedar en blanco.
     const porDiv = {};
     ext.items.forEach((it) => {
-      // Los links que ya se mandaron guardan la foto vieja, sin ganancia ni moneda. Se completa lo
-      // que se puede deducir para que ese link siga abriendo bien en vez de mostrar celdas vacías.
       const i = {
         ...it,
         divisa: it.divisa || '—',
@@ -59,28 +72,32 @@ function pagina({ factura: f, actualizado_at }) {
       };
       (porDiv[i.divisa] = porDiv[i.divisa] || []).push(i);
     });
-    extTablas = Object.keys(porDiv)
-      .map((div) => {
-        const its = porDiv[div];
-        const tc = its.find((i) => i.tc) || {};
-        const sub = its.reduce((a, i) => money.add(a, i.usdt), '0');
-        return `<h3>${esc(div)} <span class="m">${tc.tc ? `· tipo de cambio ${$(tc.tc)}` : '· sin tipo de cambio cargado'}</span></h3>
-         <div class="scroll"><table>
-          <thead><tr><th>Proveedor</th><th class="r">Ganancia</th><th class="r">Excedente</th><th class="r">A cobrar</th><th class="r">USDT</th></tr></thead>
-          <tbody>${its.map((i) => `<tr><td>${esc(i.proveedor)}</td><td class="r">${i.profit ? $(i.profit) : '—'}</td>`
-            + `<td class="r"><b>${esc(i.excedente)}%</b><span class="m"> (${esc(i.pct)}−${esc(i.base)})</span></td>`
-            + `<td class="r">${i.monto ? $(i.monto) : '—'}</td><td class="r">${$(i.usdt)}</td></tr>`).join('')}</tbody>
-          <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(div)}</td><td class="r"><b>${$(sub)}</b></td></tr></tfoot>
-         </table></div>`;
-      })
-      .join('');
+    extTablas = Object.keys(porDiv).map((div) => {
+      const its = porDiv[div];
+      const tc = its.find((i) => i.tc) || {};
+      const sub = its.reduce((a, i) => money.add(a, i.usdt), '0');
+      return `<h3>${esc(div)} <span class="m">${tc.tc ? `· tipo de cambio ${$(tc.tc)}` : ''}</span></h3>
+       <div class="scroll"><table>${cabezaProv}
+        <tbody>${its.map(filaProv).join('')}</tbody>
+        <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(div)}</td><td class="r"><b>${$(sub)}</b></td></tr></tfoot>
+       </table></div>`;
+    }).join('');
   }
+
+  // Resumen arriba del desglose: cuánto puso cada panel. Con varios paneles, es lo primero que se
+  // quiere ver; el detalle de proveedores viene abajo.
+  const extResumen = (ext && ext.porPanel && ext.porPanel.length > 1)
+    ? `<table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Proveedores</th><th class="r">USDT</th></tr></thead><tbody>
+       ${ext.porPanel.map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.items.length}</td><td class="r">${$(p.usdt)}</td></tr>`).join('')}
+       </tbody></table><h3 style="margin-top:18px">Detalle por panel</h3>`
+    : '';
+
   const extHtml = extTablas
     ? `<div class="card"><h2>Proveedores externos</h2>
-        <p class="m">Se cobran aparte de las cargas. Son los proveedores que cuestan más que tu porcentaje: se te cobra solo la <b>diferencia</b> —
-        si el proveedor cuesta 14% y tu base es 6%, se cobra 8%— aplicada sobre la ganancia que dio ese proveedor.
+        <p class="m">Se cobran aparte de las cargas. Son los proveedores que cuestan más que tu porcentaje: se te cobra solo la <b>diferencia</b>,
+        aplicada sobre la ganancia que dio ese proveedor en cada panel.
         Si un proveedor cuesta igual o menos que tu base, o si dio pérdida, no aparece acá.</p>
-        ${extTablas}
+        ${extResumen}${extTablas}
         <p class="tot">Total proveedores: <b>${$(ext.total_usdt)} USDT</b></p></div>`
     : '';
 
@@ -118,11 +135,22 @@ function pagina({ factura: f, actualizado_at }) {
  .big .n{font-size:30px;font-weight:800;color:var(--g);letter-spacing:-.02em}
  .saldo{font-size:22px;font-weight:800}
  .pie{color:var(--m);font-size:12px;text-align:center;margin-top:26px;line-height:1.7}
- @media print{body{background:#fff}.card{break-inside:avoid;border-color:#ccc}}
+ .acc{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0}
+ .acc a,.acc button{display:inline-block;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+   padding:9px 14px;border-radius:9px;border:1px solid var(--b);background:#fff;color:var(--t);text-decoration:none}
+ .acc a{background:var(--g);border-color:var(--g);color:#fff}
+ /* al imprimir se van los botones: en un PDF no sirven de nada */
+ @media print{body{background:#fff}.card{break-inside:avoid;border-color:#ccc}.acc{display:none}
+   h3{break-after:avoid}table{break-inside:auto}tr{break-inside:avoid}}
 </style></head><body><div class="wrap">
 
  <h1>${esc(f.cliente.nombre)}</h1>
  <div class="m">${esc(f.mesNombre)} · emitida el ${esc(f.emitidaEl)}${f.tc ? ` · tipo de cambio ${$(f.tc)}` : ''}</div>
+
+ ${token ? `<div class="acc">
+   <a href="/factura/${esc(token)}/planilla.csv" download>⬇ Descargar planilla</a>
+   <button type="button" onclick="window.print()">🖨 Guardar como PDF</button>
+  </div>` : ''}
 
  ${f.consumo ? `<div class="card"><h2>Cargas del mes</h2>
    <p class="m">${f.consumo.pedidos} carga(s) en el mes. Cada moneda se pasa a USDT con el tipo de cambio del período.</p>

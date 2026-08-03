@@ -129,6 +129,44 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
               }))
               .sort((a, b) => Number(b.usdt) - Number(a.usdt));
           })(),
+          // El DESGLOSE POR PANEL, que es como el cliente audita: igual que con las cargas, quiere
+          // ver qué salió de cada panel suyo, no un total en el que no puede verificar nada.
+          //
+          // Se separa por panel Y moneda (un panel puede reportar en más de una) porque el tipo de
+          // cambio es uno por moneda. Y se suma por proveedor dentro de cada panel: dos proveedores
+          // del casino pueden mapear al mismo nombre de la matriz y saldrían repetidos.
+          porPanel: (() => {
+            const acc = {};
+            (r.paneles || []).forEach((p) => (p.items || []).filter((i) => i.cobra).forEach((i) => {
+              const kp = `${i.panel}|${i.divisa}`;
+              const g = acc[kp] = acc[kp] || {
+                panel: i.panel, divisa: i.divisa, tc: i.tasa, prov: {}, monto: '0', usdt: '0',
+              };
+              const a = g.prov[i.proveedor] = g.prov[i.proveedor] || {
+                proveedor: i.proveedor, pct: i.pct, base: i.base, excedente: i.dif,
+                profit: '0', monto: '0', usdt: '0',
+              };
+              a.profit = money.add(a.profit, i.profit);
+              a.monto = money.add(a.monto, i.monto);
+              a.usdt = money.add(a.usdt, i.usdt);
+              g.monto = money.add(g.monto, i.monto);
+              g.usdt = money.add(g.usdt, i.usdt);
+            }));
+            return Object.values(acc)
+              .map((g) => ({
+                panel: g.panel, divisa: g.divisa, tc: g.tc,
+                monto: money.round(g.monto, 2), usdt: money.round(g.usdt, 2),
+                items: Object.values(g.prov)
+                  .map((a) => ({
+                    ...a,
+                    profit: money.round(a.profit, 2),
+                    monto: money.round(a.monto, 2),
+                    usdt: money.round(a.usdt, 2),
+                  }))
+                  .sort((a, b) => Number(b.usdt) - Number(a.usdt)),
+              }))
+              .sort((a, b) => Number(b.usdt) - Number(a.usdt));
+          })(),
         };
       } else if (r.faltaBase) ext = { faltaBase: true, error: r.error };
       else ext = { error: r.error };
@@ -198,12 +236,20 @@ function aTexto(f, { detalle = false } = {}) {
   if (f.externos && f.externos.items && f.externos.items.length) {
     L.push('<b>Proveedores externos</b>');
     L.push('<i>Se cobra la diferencia entre lo que cuesta el proveedor y tu base.</i>');
-    // En Telegram no entra una tabla, pero sí el porcentaje que se cobra y en qué moneda salió:
-    // sin eso el cliente ve un USDT que no puede verificar contra nada.
-    f.externos.items.slice(0, 15).forEach((i) => L.push(
-      `  ${esc(i.proveedor)} · ${esc(i.divisa)} · ${esc(i.excedente)}% de ${$(i.profit)} → ${$(i.usdt)} USDT`,
-    ));
-    if (f.externos.items.length > 15) L.push(`  …y ${f.externos.items.length - 15} más (están en el link)`);
+    // Por Telegram va el total DE CADA PANEL, no proveedor por proveedor: con 32 proveedores el
+    // mensaje sería ilegible. El desglose completo, con la ganancia de cada uno, está en el link.
+    const pp = f.externos.porPanel || [];
+    if (pp.length) {
+      pp.slice(0, 20).forEach((p) => L.push(
+        `  ${esc(p.panel)} (${esc(p.divisa)}): ${p.items.length} proveedor(es) · ${$(p.usdt)} USDT`,
+      ));
+      if (pp.length > 20) L.push(`  …y ${pp.length - 20} panel(es) más (están en el link)`);
+    } else {
+      f.externos.items.slice(0, 15).forEach((i) => L.push(
+        `  ${esc(i.proveedor)} · ${esc(i.divisa)} · ${esc(i.excedente)}% de ${$(i.profit)} → ${$(i.usdt)} USDT`,
+      ));
+      if (f.externos.items.length > 15) L.push(`  …y ${f.externos.items.length - 15} más (están en el link)`);
+    }
     L.push(`  Total → <b>${$(f.externos.total_usdt)} USDT</b>`);
     L.push('');
   }
