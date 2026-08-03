@@ -33,10 +33,26 @@ function ultimoTC() {
   return r ? r.tc_ars_usdt : null;
 }
 
+/**
+ * Promedio del mes, pesando cada DÍA igual.
+ *
+ * ⚠️ Antes promediaba todas las filas, y como la guarda anti-repetición vivía en memoria, cada
+ * redeploy dentro de la hora del cron dejaba un snapshot de más: el 1-ago quedaron 5 y el 2-ago 3.
+ * Ese día pesaba 5 veces en el promedio que divide TODO lo que se cobra. Medido en julio: 0,019%.
+ * Promediando primero adentro del día, da igual cuántos snapshots caigan en una jornada — que es
+ * lo que permite tomar dos por día a propósito sin torcer nada.
+ */
 function promedioMes(mes) {
-  const rows = db.prepare("SELECT tc_ars_usdt FROM tc_snapshots WHERE substr(fecha,1,7)=?").all(mes);
-  if (!rows.length) return null;
-  return money.round(money.div(money.sum(rows.map((r) => r.tc_ars_usdt)), String(rows.length)), 4);
+  const dias = db.prepare(`SELECT AVG(CAST(tc_ars_usdt AS REAL)) prom FROM tc_snapshots
+    WHERE substr(fecha,1,7)=? GROUP BY fecha`).all(mes);
+  if (!dias.length) return null;
+  return money.round(money.div(money.sum(dias.map((d) => String(d.prom))), String(dias.length)), 4);
+}
+
+/** ¿Ya hay un snapshot de ese día en esa hora? La guarda del cron, pero en la base y no en memoria. */
+function haySnapshotEn(fecha, hora) {
+  const h = String(hora).padStart(2, '0');
+  return !!db.prepare('SELECT 1 FROM tc_snapshots WHERE fecha=? AND substr(hora,1,2)=? LIMIT 1').get(fecha, h);
 }
 
 function getMes(mes) { return db.prepare('SELECT * FROM tc_mes WHERE mes=?').get(mes) || null; }
@@ -67,4 +83,4 @@ function setTcProveedor(mes, tc_proveedor_ext) {
   return getMes(mes);
 }
 
-module.exports = { get, addSnapshot, listSnapshots, ultimoTC, promedioMes, getMes, listMeses, recomputeMes, setTcProveedor };
+module.exports = { get, addSnapshot, listSnapshots, ultimoTC, promedioMes, haySnapshotEn, getMes, listMeses, recomputeMes, setTcProveedor };

@@ -90,19 +90,32 @@ function listDias(mes, divisa) {
   return db.prepare("SELECT * FROM tc_divisa_snapshots WHERE substr(fecha,1,7)=? ORDER BY fecha DESC, divisa ASC").all(mes);
 }
 
-let _ultimoDia = null;
-/** Cron: un snapshot por día. Comparte la hora con el de ARS (TC_SNAPSHOT_HOUR, 18 por defecto). */
+/** ¿Ya se guardó el día? Se pregunta a la BASE: en memoria, cada redeploy volvía a pedir la API. */
+function hayDia(fecha) {
+  return !!db.prepare('SELECT 1 FROM tc_divisa_snapshots WHERE fecha=? LIMIT 1').get(fecha);
+}
+
+/**
+ * Cron: UNA por día, y está bien que sea una.
+ *
+ * A diferencia del peso —que se mueve todo el día contra el dólar cripto y por eso lleva dos
+ * snapshots— esta fuente publica UNA cotización de referencia por jornada: pedirla dos veces
+ * devuelve el mismo número. Además la tabla es única por (fecha, divisa), así que una segunda
+ * pasada pisaría la primera en vez de sumar al promedio.
+ *
+ * Corre en la última franja de las configuradas para ARS, cuando la cotización del día ya está.
+ */
 function startScheduler() {
-  const HOUR = Number(process.env.TC_SNAPSHOT_HOUR || '18');
+  const horas = String(process.env.TC_SNAPSHOT_HOURS || '9,18')
+    .split(',').map((h) => Number(String(h).trim())).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23);
+  const HOUR = (horas.length ? horas : [9, 18]).slice(-1)[0];
   setInterval(async () => {
     try {
       const dia = fechaTZ();
       const hora = Number(new Date().toLocaleString('en-GB', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }));
-      if (hora === HOUR && _ultimoDia !== dia) {
-        _ultimoDia = dia;
-        const r = await snapshotHoy(dia);
-        console.log('[TC divisas] snapshot diario →', r.ok ? `${r.divisas} divisas` : `FALLÓ ${r.error}`);
-      }
+      if (hora !== HOUR || hayDia(dia)) return;
+      const r = await snapshotHoy(dia);
+      console.log('[TC divisas] snapshot diario →', r.ok ? `${r.divisas} divisas` : `FALLÓ ${r.error}`);
     } catch (e) { console.warn('[TC divisas] scheduler error:', e.message); }
   }, 5 * 60 * 1000);
   console.log(`[TC divisas] scheduler activo (snapshot diario ${HOUR}:00 ART)`);

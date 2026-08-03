@@ -42,21 +42,34 @@ async function tcAhora() {
   return { tc: tc.ultimoTC(), fuente: 'snapshot', vivo: false };
 }
 
-/** Scheduler: snapshot 1×/día a la hora configurada (default 18:00 ART). Chequea cada 5 min. */
-let _lastSnapDay = null;
+/**
+ * Scheduler: DOS snapshots por día, a la mañana y al final del día (default 9 y 18 ART).
+ * Chequea cada 5 minutos. Configurable con TC_SNAPSHOT_HOURS="9,18".
+ *
+ * Por qué dos y no uno: el peso se cotiza contra el dólar cripto todo el día, así que una sola
+ * foto a las 18 es una foto del cierre, no del día. Dos separadas dan un promedio mensual más
+ * parecido a lo que realmente pasó. (Las OTRAS divisas siguen en una por día: su fuente publica
+ * una cotización diaria, pedirla dos veces devuelve el mismo número.)
+ *
+ * ⚠️ La guarda de "ya lo hice hoy" se consulta EN LA BASE, no en una variable. Cuando vivía en
+ * memoria, cada redeploy de Railway dentro de la hora del cron sacaba otro snapshot: el 1-ago
+ * quedaron 5 y el 2-ago 3, y esos días pesaban de más en el promedio del mes.
+ */
 function startScheduler() {
-  const HOUR = Number(process.env.TC_SNAPSHOT_HOUR || '18');
+  const HOURS = String(process.env.TC_SNAPSHOT_HOURS || '9,18')
+    .split(',').map((h) => Number(String(h).trim())).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23);
+  const horas = HOURS.length ? HOURS : [9, 18];
   setInterval(async () => {
     try {
       const day = fechaTZ();
-      if (horaNum() === HOUR && _lastSnapDay !== day) {
-        _lastSnapDay = day;
-        const r = await snapshotNow();
-        console.log('[TC] snapshot diario →', r.ok ? ('TC ' + r.snapshot.tc_ars_usdt) : ('FALLÓ ' + r.error));
-      }
+      const h = horaNum();
+      if (!horas.includes(h)) return;
+      if (tc.haySnapshotEn(day, h)) return;      // ya se tomó el de esta franja (sobrevive reinicios)
+      const r = await snapshotNow();
+      console.log(`[TC] snapshot ${String(h).padStart(2, '0')}:00 →`, r.ok ? ('TC ' + r.snapshot.tc_ars_usdt) : ('FALLÓ ' + r.error));
     } catch (e) { console.warn('[TC] scheduler error:', e.message); }
   }, 5 * 60 * 1000);
-  console.log(`[TC] scheduler activo (snapshot diario ${HOUR}:00 ${TZ})`);
+  console.log(`[TC] scheduler activo (snapshots ${horas.map((h) => h + ':00').join(' y ')} ${TZ})`);
 }
 
 module.exports = { fetchTC, snapshotNow, tcAhora, startScheduler };
