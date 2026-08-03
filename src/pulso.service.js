@@ -16,7 +16,7 @@
  *     que pasó de largo, no jugadores. Contarlo como crecimiento es lo que hace que un panel que en
  *     realidad CAYÓ aparezca creciendo 439%. Por eso se detecta y se marca aparte.
  */
-const db = require('./db');
+const { db } = require('./db');
 const money = require('./lib/money');
 const tcUnico = require('./tc-unico.service');
 
