@@ -20,6 +20,7 @@ const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
+const pulsoSvc = require('./pulso.service');
 const pedidosStore = require('./pedidos-store');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
@@ -837,6 +838,9 @@ function mount(app) {
   app.get('/api/os/casino/conexiones/:id/acumulado', (req, res) => {
     ok(res, reporteDiarioStore.getMatriz(req.params.id, req.query.group || 'superagent', req.query.mes || mesUTC(), req.query.moneda || 'ARS'));
   });
+  // 📊 EL PULSO: el resumen y las alertas del mes, desde el acumulado guardado (no toca el casino).
+  app.get('/api/os/pulso', wrap((req, res) => ok(res, pulsoSvc.pulso({ mes: req.query.mes }))));
+
   // Ver el acumulado del mes de TODAS las conexiones juntas (todos los GOD en simultáneo).
   app.get('/api/os/casino/acumulado-todos', (req, res) => {
     ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesUTC(), req.query.moneda || 'ARS'));
