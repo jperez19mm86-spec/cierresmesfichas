@@ -1882,25 +1882,36 @@ VIEWS.facturacion = async () => {
   const mes = new Date().toISOString().slice(0,7);
   document.getElementById('main').innerHTML = `
     <div class="card">
-      <h2>🧾 Facturación <span class="muted">(datos reales del casino)</span></h2>
-      <div class="muted" style="margin-bottom:8px">Trae el <b>IN (carga)</b> y <b>profit</b> reales de cada panel <b>linkeado a un nodo</b>, y calcula el <b>fee = base% × carga</b>. Linkeá los paneles en la pestaña Paneles.</div>
+      <h2>🧾 Factura de consumo <span class="muted">(se cobra por los PEDIDOS)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Lo que se cobra sale de los <b>pedidos</b> del sistema en línea: <b>fee = % base × vendido</b>. El <b>casino va al lado como control</b>, con la diferencia en %.</div>
+      <div class="muted" style="margin-bottom:8px">Ese control ahora sale del <b>acumulado guardado</b> (el cron lo baja todas las noches), así que es instantáneo. Antes se le preguntaba al casino en cada pantallazo y tardaba más de un minuto para llegar al mismo número — y un mes cerrado ya no cambia.</div>
       <div class="row" style="align-items:flex-end">
         <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}"></div>
         <div><label>Desde (opcional)</label><input type="date" id="fac-from"></div>
         <div><label>Hasta (opcional)</label><input type="date" id="fac-to"></div>
         <div style="flex:0"><button onclick="calcularFac()">Calcular</button></div>
+        <div style="flex:0"><button class="outline" onclick="calcularFac(true)" title="Le pregunta al casino en vivo en vez de usar el acumulado. Tarda ~1 minuto.">🔄 Control en vivo</button></div>
       </div>
       <div id="fac-out" class="muted" style="margin-top:12px">Tocá "Calcular".</div>
     </div>`;
 };
-async function calcularFac(){
-  const out=document.getElementById('fac-out'); out.innerHTML='⏳ trayendo datos del casino…';
+async function calcularFac(vivo){
+  const out=document.getElementById('fac-out');
+  out.innerHTML = vivo ? '⏳ preguntándole al casino… tarda cerca de un minuto' : '⏳ calculando…';
   let qs='mes='+encodeURIComponent(val('fac-mes')); const f=val('fac-from'),t=val('fac-to');
   if(f)qs+='&from='+encodeURIComponent(f+' 00:00:00'); if(t)qs+='&to='+encodeURIComponent(t+' 23:59:59');
+  if(vivo) qs+='&vivo=1';
   const r=await api('/api/os/facturacion?'+qs);
   if(!r.ok){ out.innerHTML='<span class="badge err">Error</span>'; return; }
   const T=r.totales||{};
   const dif=(x)=>x==null?'':('<span style="color:'+(Math.abs(Number(x))>10?'var(--gold)':'inherit')+'">'+(Number(x)>0?'+':'')+x+'%</span>');
+  // De dónde salió la columna Casino, y con cuántos días encima: un mes a medio capturar da un
+  // control más chico de lo real y parecería un desvío del cliente.
+  const cob = r.cobertura;
+  const procedencia = '<div class="muted" style="margin-bottom:8px">Control: <b>' + esc(r.control||'—') + '</b>'
+    + (cob ? (cob.dias ? (' · ' + cob.dias + ' día' + (cob.dias===1?'':'s') + ' capturados' + (cob.desde?(' ('+esc(cob.desde)+' → '+esc(cob.hasta)+')'):''))
+                       : ' · <span style="color:var(--red)">el acumulado de este mes está VACÍO: el control no dice nada</span>') : '')
+    + '</div>';
   const em = await api('/api/os/emision/' + encodeURIComponent(r.mes));
   // Son DOS facturas separadas y van a columnas distintas de la cuenta corriente. Decirlo acá
   // evita que alguien sume las dos o crea que emitir una ya cubre la otra.
@@ -1908,7 +1919,7 @@ async function calcularFac(){
     + '<div class="muted" style="margin-top:4px">Lo que el cliente <b>pidió y se le cargó</b> en el mes, por su % base. Ej: pidió 50.000.000 y su % es 10 → se le cobran 5.000.000, pasados a USDT con el TC del mes.</div>'
     + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🧮 Cierre de Mes → 🧾 Factura de externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
   const emF = (em.porOrigen || {}).facturacion || null;
-  out.innerHTML = _cabecera +
+  out.innerHTML = procedencia + _cabecera +
     (emF
       ? '<div class="card" style="background:#0f2a1a;border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
         + '<div class="muted" style="margin-top:4px">' + emF.cantidad + ' cliente(s) · <b>' + money(emF.total,2) + ' USDT</b> · emitido el ' + esc(String(emF.desde||'').slice(0,16).replace('T',' ')) + '</div>'

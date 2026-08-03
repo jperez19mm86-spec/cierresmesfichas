@@ -96,10 +96,18 @@ function filasPanelesMes(keys, mes, moneda = null) {
     const args = moneda
       ? [cid, grp, mes, moneda, ...ids]
       : [cid, grp, mes, ...ids];
-    const rows = db.prepare(`SELECT sa_id, moneda, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=?${filtroMon} AND sa_id IN (${ph})`).all(...args);
+    // conexion_id va en el SELECT: el mismo sa_id puede existir en Casino y en Europa, y sin este
+    // campo no había forma de saber de cuál venía cada fila.
+    const rows = db.prepare(`SELECT conexion_id, sa_id, moneda, in_amt, out_amt, profit FROM reporte_diario WHERE conexion_id=? AND grp=? AND substr(fecha,1,7)=?${filtroMon} AND sa_id IN (${ph})`).all(...args);
     out.push(...rows);
   }
   return out;
 }
 
-module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes, limpiarHuerfanos };
+/** Qué días del mes tiene capturados el acumulado. Sirve para no mostrar un mes a medias como completo. */
+function diasCapturados(mes) {
+  const r = db.prepare("SELECT COUNT(DISTINCT fecha) n, MIN(fecha) desde, MAX(fecha) hasta FROM reporte_diario WHERE substr(fecha,1,7)=?").get(String(mes).slice(0, 7));
+  return { dias: r.n || 0, desde: r.desde || null, hasta: r.hasta || null };
+}
+
+module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes, diasCapturados, limpiarHuerfanos };

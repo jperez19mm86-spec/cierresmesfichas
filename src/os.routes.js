@@ -958,18 +958,44 @@ function mount(app) {
     }
 
     // 2) EL CONTROL: lo que dice el casino. Si falla, se informa y se sigue.
+    //
+    // ⚡ Sale del ACUMULADO GUARDADO, no del casino en vivo. El cron nocturno ya baja esto todas
+    // las noches a `reporte_diario`; preguntárselo otra vez al casino en cada pantallazo tardaba
+    // ~70s (bajaba el árbol ENTERO de las dos conexiones) para llegar al mismo número. Un mes
+    // cerrado además no cambia más, así que consultarlo de nuevo no aporta nada.
+    // Se va en vivo solo si se pide `?vivo=1` o si el rango de fechas no es un mes completo
+    // (el acumulado está guardado por mes, no puede contestar un rango arbitrario).
     const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
     const nodeMap = {}; const errores = [];
+    let controlDe = 'acumulado guardado'; let cobertura = null;
     if (conControl) {
-      const byConn = {};
-      linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
-      for (const cid of Object.keys(byConn)) {
-        const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
-        try {
-          const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true });
-          if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
-          const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
-        } catch (e) { errores.push(`conexión ${cid}: ${String((e && e.message) || e)}`); }
+      const rangoPropio = !!(opciones.from || opciones.to);
+      const vivo = !!opciones.vivo || rangoPropio;
+      if (!vivo) {
+        const keys = linked.map((p) => ({ conexion_id: p.conexion_id, grp: 'superagent', sa_id: String(p.id_usuario) }));
+        const filas = reporteDiarioStore.filasPanelesMes(keys, mes);
+        for (const f of filas) {
+          const m = nodeMap[f.conexion_id] = nodeMap[f.conexion_id] || {};
+          const n = m[String(f.sa_id)] = m[String(f.sa_id)] || { montos: {} };
+          const div = String(f.moneda || 'ARS');
+          n.montos[div] = n.montos[div] || { in: '0' };
+          n.montos[div].in = money.add(n.montos[div].in, String(f.in_amt || 0));
+        }
+        cobertura = reporteDiarioStore.diasCapturados(mes);
+        // Un mes a medio capturar mostraría el control más chico de lo que es y parecería un desvío.
+        if (!cobertura.dias) errores.push(`el acumulado de ${mes} está vacío: el control no dice nada (capturalo en 📒 Acumulado, o pedí ?vivo=1)`);
+      } else {
+        controlDe = rangoPropio ? 'casino en vivo (rango propio)' : 'casino en vivo (pedido)';
+        const byConn = {};
+        linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
+        for (const cid of Object.keys(byConn)) {
+          const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
+          try {
+            const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true });
+            if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
+            const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
+          } catch (e) { errores.push(`conexión ${cid}: ${String((e && e.message) || e)}`); }
+        }
       }
     }
 
@@ -1068,7 +1094,7 @@ function mount(app) {
 
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
-      fuente: 'pedidos cargados', control: conControl ? 'casino' : 'apagado',
+      fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
       origen, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, huerfanas,
       totales: {
         vendido_usdt: money.round(totVend, 2),
@@ -1084,6 +1110,7 @@ function mount(app) {
     ok(res, await _facturacionDe(req.query.mes || mesTZ(), {
       from: req.query.from, to: req.query.to,
       control: req.query.control !== '0',
+      vivo: req.query.vivo === '1',   // forzar la consulta al casino en vez del acumulado guardado
     }));
   }));
 
