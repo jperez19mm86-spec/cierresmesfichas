@@ -138,9 +138,13 @@ function revisar(mes) {
       if (dif > 0.1) desvios.push(`${c.nombre || c.codigo}: casino ${Math.round(casino).toLocaleString('es-AR')} vs pedidos ${Math.round(vendido).toLocaleString('es-AR')} (${Math.round(dif * 100)}%)`);
     }
     if (desvios.length) {
+      // ⚠️ Este texto decía "se factura por lo que dice el CASINO". Es al revés desde el 2-ago:
+      // se factura por los PEDIDOS, y el casino queda al lado solo como control.
       push(AVISO, `${desvios.length} cliente(s) donde el casino y los pedidos no dan lo mismo`,
-        'Se factura por lo que dice el CASINO. Si la diferencia es grande, o falta cargar pedidos o hay cargas hechas por fuera del sistema.',
-        '🧾 Facturación (casino) vs 💰 Reparto (pedidos)', desvios);
+        'Se factura por los PEDIDOS; el casino es solo el control. Que entre MÁS por el casino que lo vendido '
+        + 'es normal cuando hubo cargas que no se cobran (reponer balance por un error, una prueba, un bono). '
+        + 'Que entre MENOS, o falta cargar pedidos, o hubo ventas por fuera del sistema.',
+        '🧾 Factura de consumo → columna Casino y la diferencia en %', desvios);
     }
   } catch { /* si falta el acumulado del mes, este chequeo simplemente no aplica */ }
 
