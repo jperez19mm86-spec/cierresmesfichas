@@ -1,9 +1,15 @@
 /**
- * participaciones-store.js — reparto del profit LATAM entre PERSONAS (sección 2.3).
+ * participaciones-store.js — el ALMACÉN del reparto: quién cobra cuánto de cada cliente.
+ *
+ * Guarda filas (cliente/panel → participante → %) con vigencia. La REGLA DE NEGOCIO de contra
+ * qué tiene que cerrar la suma vive en `reparto.service.js`, que es quien sabe el % base del
+ * cliente; acá solo se valida contra el total que ese servicio pida (`opts.esperado`).
+ *
+ * ⚠️ Desde el reparto de un solo paso (§12), `porcentaje` son PUNTOS ABSOLUTOS sobre la venta
+ * y suman el % BASE del cliente — ya no son una porción del profit LATAM que sumaba 100.
  *
  * Scope: por CLIENTE (panel_id=null) o por PANEL (override). Regla de herencia: si el panel
  * no tiene reparto propio vigente → usa el del cliente.
- * Reglas duras: el reparto de un scope SIEMPRE debe sumar 100% antes de guardar.
  * Versionado: setReparto cierra el reparto vigente del scope e inserta el nuevo (vigencia).
  */
 const crypto = require('crypto');
@@ -36,10 +42,16 @@ function repartoEfectivo(cliente_id, panel_id, fecha = fechaTZ()) {
   return { scope: 'cliente', items: listVigente(cliente_id, null, fecha) };
 }
 
-/** Valida que una lista [{persona_id, porcentaje}] sume 100. */
-function validarSuma(items) {
+/**
+ * Valida que una lista [{persona_id, porcentaje}] sume lo esperado.
+ *
+ * Con el reparto de un solo paso (§12) lo esperado es el **% BASE del cliente**, no 100: las
+ * filas son puntos absolutos sobre la venta (Pistacho 10% = 6+1+1,5+1,5), no porciones de un
+ * pedazo previo. El default sigue en 100 por si alguien llama sin decir contra qué cerrar.
+ */
+function validarSuma(items, esperado = '100') {
   const total = money.sum((items || []).map((i) => i.porcentaje));
-  return { ok: money.cmp(total, '100') === 0, total };
+  return { ok: money.cmp(total, String(esperado)) === 0, total, esperado: String(esperado) };
 }
 
 /** Historial de repartos de un scope (todas las versiones). */
@@ -56,8 +68,13 @@ function listHistorial(cliente_id, panel_id = null) {
  * items: [{persona_id, porcentaje}]. Valida 100% o tira error.
  */
 const setReparto = db.transaction((cliente_id, panel_id, items, vigente_desde, opts = {}) => {
-  const v = validarSuma(items);
-  if (!v.ok) throw new Error(`Las participaciones deben sumar 100% (suman ${v.total}%)`);
+  const esperado = opts.esperado != null ? String(opts.esperado) : '100';
+  const v = validarSuma(items, esperado);
+  if (!v.ok) {
+    throw new Error(esperado === '100'
+      ? `Las participaciones deben sumar 100% (suman ${v.total}%)`
+      : `El reparto debe sumar el % base del cliente: ${esperado}% (suma ${v.total}%)`);
+  }
   const desde = vigente_desde || fechaTZ();
   // cerrar las vigentes del scope
   const vigentes = db.prepare(`

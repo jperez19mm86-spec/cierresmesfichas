@@ -397,6 +397,11 @@ ensureColumns('paneles', {
   arbol_at: 'TEXT',      // cuándo se resolvió (para saber si está vieja)
 });
 
+// PARTICIPANTES del reparto (§12 del addendum v3). La tabla se llamaba "personas" cuando el
+// reparto era en dos pasos y la Empresa vivía aparte, en split_base. Ahora la Empresa es una
+// fila más del catálogo, y el flag la distingue: es la casa, no un socio, y no se borra.
+ensureColumns('personas', { es_empresa: 'INTEGER DEFAULT 0' });
+
 // Conexiones: auth dual (token O usuario/contraseña, ambos cifrados).
 ensureColumns('casino_conexiones', { usuario: 'TEXT', password: 'TEXT' });
 

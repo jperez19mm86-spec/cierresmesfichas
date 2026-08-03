@@ -12,7 +12,7 @@ const proveedores = require('./proveedores-store');
 const tcStore = require('./tc-store');
 const movs = require('./movimientos-store');
 const historial = require('./historial');
-const splitSvc = require('./split.service');
+const repartoSvc = require('./reparto.service');
 const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
@@ -275,18 +275,31 @@ function mount(app) {
     });
   });
   app.post('/api/os/participaciones', wrap((req, res) => {
-    const { cliente_id, panel_id, items, vigente_desde } = req.body || {};
+    const { cliente_id, panel_id, items, vigente_desde, mes, parcial } = req.body || {};
     if (!cliente_id || !Array.isArray(items)) return err(res, 400, 'cliente_id + items[] requeridos');
-    const r = participaciones.setReparto(cliente_id, panel_id || null, items, vigente_desde);
-    ok(res, { reparto: r });
+    // §12: el reparto cierra contra el % BASE del cliente, no contra 100. `parcial:true` deja
+    // guardar un reparto a medio configurar — los puntos que faltan quedan visibles como
+    // "sin asignar" en vez de bloquear el guardado y perder lo ya cargado.
+    const c = clientes.get(cliente_id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    const base = externosSvc.baseDelMes(c, mes || mesTZ()).valor;
+    if (base == null || base === '') return err(res, 400, `${c.codigo} no tiene % base cargado: sin eso no hay contra qué cerrar el reparto`);
+    const suma = money.sum(items.map((i) => i.porcentaje));
+    if (money.cmp(suma, base) > 0) return err(res, 400, `El reparto suma ${suma}% y la base es ${base}%: se estaría repartiendo más de lo que paga el cliente`);
+    if (!parcial && money.cmp(suma, base) !== 0) return err(res, 400, `El reparto debe sumar el ${base}% de base (suma ${suma}%)`);
+    const r = participaciones.setReparto(cliente_id, panel_id || null, items, vigente_desde, { esperado: suma });
+    ok(res, { reparto: r, base, suma: money.round(suma, 4), resto: money.round(money.sub(base, suma), 4) });
   }));
   app.get('/api/os/participaciones/historial', (req, res) =>
     ok(res, { historial: participaciones.listHistorial(req.query.cliente_id, req.query.panel_id || null) }));
 
-  // ───────── SPLIT_BASE ─────────
-  app.get('/api/os/split-base', (_req, res) => ok(res, { split_base: splitBase.list() }));
-  app.put('/api/os/split-base/:pct', wrap((req, res) => ok(res, { row: splitBase.upsert(Object.assign({ pct_base: req.params.pct }, req.body || {})) })));
-  app.delete('/api/os/split-base/:pct', (req, res) => splitBase.remove(req.params.pct) ? ok(res) : err(res, 404, 'no encontrado'));
+  // ───────── SPLIT_BASE (JUBILADA — §12) ─────────
+  // Era el 1er paso del reparto viejo: por cada % base, cuánto iba a Empresa y cuánto a LATAM.
+  // Ahora el reparto es de un solo paso y la Empresa es un participante más (reparto.service).
+  // Queda SOLO LECTURA: los datos siguen en la base y `sembrarDesdeSplit` los usa para
+  // pre-cargar el reparto de cada cliente. Se sacaron el PUT y el DELETE a propósito —
+  // editarla ya no cambiaría ningún cálculo, así que dejarlos era una trampa.
+  app.get('/api/os/split-base', (_req, res) => ok(res, { split_base: splitBase.list(), jubilada: true }));
 
   // ───────── PROVEEDORES ─────────
   app.get('/api/os/proveedores', (_req, res) => ok(res, { proveedores: proveedores.list() }));
@@ -1281,51 +1294,74 @@ function mount(app) {
     }
     ok(res, { mes, tc_mes: tcStore.getMes(mes), clientes: Object.values(porCliente), _nota: 'IN/OUT/Profit/RTP requieren la API del panel (Fase 3/5)' });
   });
-  // DISTRIBUCIÓN del profit (empresa / LATAM / socios) según las VENTAS DE FICHAS reales del mes.
-  // Fuente = pedidos CARGADOS (compra prepaga) por cliente. fee = base% × ventas; split por la tabla
-  // Split; LATAM se reparte entre socios por las participaciones vigentes. En el live, los pedidos
-  // reales llenan esto solos; el % se cobra sobre lo VENDIDO, no sobre el `in` de jugadores.
+  // DISTRIBUCIÓN por PARTICIPANTE según las VENTAS DE FICHAS reales del mes (§12).
+  // Fuente = pedidos CARGADOS (compra prepaga) por cliente; el % se cobra sobre lo VENDIDO, no
+  // sobre el `in` de jugadores. fee = base% × ventas, y ese fee se reparte en UN SOLO PASO entre
+  // los participantes del cliente (la Empresa es uno más). Los puntos del base que todavía no
+  // tienen dueño se informan como `sin_asignar` en vez de repartirse por su cuenta.
   app.get('/api/os/reportes/distribucion', (req, res) => {
     const mes = req.query.mes || mesTZ();
     const fecha = `${mes}-15`; // fecha media del mes para vigencias (base + participaciones)
-    const nombres = {}; personas.list().forEach((p) => { nombres[p.id] = p.nombre; });
+    const nombres = {}; const esEmpresa = {};
+    personas.list().forEach((p) => { nombres[p.id] = p.nombre; esEmpresa[p.id] = !!p.es_empresa; });
     const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Facturación y Externos
     const tc = _tc.valor || '1';
     const ventas = pedidosStore.ventasCargadasMes(mes); // { codigo: { monto, ... } }
-    let empresa = '0', latam = '0', sinSplit = '0', totVentas = '0';
-    const porSocio = {}, porCliente = {};
+    let totVentas = '0', totFee = '0', totSinAsignar = '0';
+    const porParticipante = {}, porCliente = [];
+    const problemas = [];
     for (const c of clientes.list().clientes) {
       const vc = ventas[c.codigo];
       const carga = vc ? String(vc.monto) : '0';
       if (!money.isPos(carga)) continue;
       totVentas = money.add(totVentas, carga);
-      const base = externosSvc.baseDelMes(c, mes).valor || '0';
-      const feeUsdt = money.div(money.pct(carga, base), tc);
-      const k = c.id;
-      porCliente[k] = { cliente_id: k, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, ventas: money.round(carga, 2), base, empresa: '0', latam: '0', fee: money.round(feeUsdt, 2) };
-      const el = splitSvc.empresaLatam(base, carga);
-      if (!el.ok) { sinSplit = money.add(sinSplit, feeUsdt); continue; } // base <8 = caso individual
-      const empUsdt = money.div(el.empresa, tc);
-      const latUsdt = money.div(el.latam, tc);
-      empresa = money.add(empresa, empUsdt);
-      latam = money.add(latam, latUsdt);
-      porCliente[k].empresa = money.round(empUsdt, 2);
-      porCliente[k].latam = money.round(latUsdt, 2);
-      const rep = participaciones.repartoEfectivo(c.id, null, fecha);
-      splitSvc.distribuirLatam(latUsdt, rep.items).forEach((d) => {
-        porSocio[d.persona_id] = money.add(porSocio[d.persona_id] || '0', d.monto);
+
+      // UN SOLO PASO: los participantes del cliente se reparten su % base directo (§12).
+      const d = repartoSvc.distribuir(carga, c, mes, tc, fecha);
+      totFee = money.add(totFee, d.fee_usdt);
+      totSinAsignar = money.add(totSinAsignar, d.sin_asignar);
+      d.items.forEach((it) => {
+        porParticipante[it.persona_id] = money.add(porParticipante[it.persona_id] || '0', it.monto);
       });
+      porCliente.push({
+        cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
+        ventas: money.round(carga, 2), base: d.reparto.base, estado: d.estado,
+        fee: d.fee_usdt, sin_asignar: d.sin_asignar,
+        items: d.items.map((it) => ({ persona_id: it.persona_id, nombre: it.nombre, pct: it.pct, monto: it.monto, es_empresa: it.es_empresa })),
+      });
+      if (d.estado !== 'ok') {
+        problemas.push({
+          codigo: c.codigo, estado: d.estado, base: d.reparto.base,
+          suma: d.reparto.suma, resto: d.reparto.resto, en_juego: d.sin_asignar,
+        });
+      }
     }
-    const socios = Object.keys(porSocio).map((id) => ({ persona_id: id, nombre: nombres[id] || id, monto: money.round(porSocio[id], 2) }))
-      .sort((a, b) => Number(b.monto) - Number(a.monto));
-    const clientesArr = Object.values(porCliente);
+    const participantes = Object.keys(porParticipante).map((id) => ({
+      persona_id: id, nombre: nombres[id] || id, es_empresa: !!esEmpresa[id], monto: money.round(porParticipante[id], 2),
+    })).sort((a, b) => Number(b.monto) - Number(a.monto));
     ok(res, {
       mes, tc, ventas_total: money.round(totVentas, 2),
-      empresa: money.round(empresa, 2), latam: money.round(latam, 2),
-      total: money.round(money.add(empresa, latam), 2), sin_split: money.round(sinSplit, 2),
-      socios, clientes: clientesArr,
-      _nota: 'En USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. fee = base% × ventas. "sin_split" = base <8% (caso individual).',
+      total: money.round(totFee, 2),
+      repartido: money.round(money.sub(totFee, totSinAsignar), 2),
+      sin_asignar: money.round(totSinAsignar, 2),
+      participantes, clientes: porCliente, problemas,
+      _nota: 'En USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. Un solo paso: cada participante cobra SUS PUNTOS del % base del cliente (§12). "sin_asignar" = puntos del base que todavía no tienen dueño.',
     });
+  });
+
+  // Sembrar el reparto de los clientes desde la vieja Tabla Split (Empresa) — ver reparto.service.
+  app.post('/api/os/reparto/sembrar', wrap((req, res) => {
+    const mes = req.body && req.body.mes ? String(req.body.mes).slice(0, 7) : mesTZ();
+    const aplicar = !!(req.body && req.body.aplicar);
+    ok(res, repartoSvc.sembrarDesdeSplit(clientes.list().clientes, mes, { aplicar }));
+  }));
+
+  // El reparto de UN cliente, contrastado contra su % base (lo consume el editor).
+  app.get('/api/os/reparto/:clienteId', (req, res) => {
+    const c = clientes.get(req.params.clienteId);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    const mes = req.query.mes ? String(req.query.mes).slice(0, 7) : mesTZ();
+    ok(res, { cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible }, mes, reparto: repartoSvc.repartoCliente(c, mes) });
   });
 
   // DEV/DEMO: sembrar VENTAS de prueba = pedidos 'cargado' directo en la DB (NO toca el casino, no hace

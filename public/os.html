@@ -100,7 +100,8 @@ const TABS = [
   ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 let _tab = 'clientes';
-let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'socios';
+let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'revision';
+let _repSub = 'mes', _repCli = '';   // Reparto: qué subpantalla y qué cliente se está editando
 let _cxSel = '', _cxNodos = [];
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -521,18 +522,7 @@ async function showPerfil(id){
 }
 
 // ───────── CONFIG ▸ SOCIOS ─────────
-CFG.socios = async () => {
-  const d = await api('/api/os/personas'); _personas=d.personas||[];
-  document.getElementById('cfg-body').innerHTML = `
-    <div class="card"><h2>🤝 Socios (personas)</h2>
-      <div class="muted" style="margin-bottom:8px">Quiénes reciben participación del profit LATAM (Ale, Henry, Carlos…). El % de cada uno se define en Participaciones.</div>
-      <div class="row"><div><label>Nombre</label><input id="np" placeholder="Ale"/></div><button onclick="addPersona()">Agregar</button></div>
-      <hr/>
-      ${_personas.map(p=>`<div class="row" style="align-items:center"><div style="flex:1">${esc(p.nombre)} ${p.activo?'':'<span class="badge err">inactivo</span>'}</div><button class="danger small" onclick="delPersona('${p.id}')">🗑</button></div>`).join('') || '<div class="empty">Sin socios.</div>'}
-    </div>`;
-};
-async function addPersona(){ if(!val('np'))return; await api('/api/os/personas',{method:'POST',body:JSON.stringify({nombre:val('np')})}); CFG.socios(); }
-async function delPersona(id){ if(!confirm('¿Eliminar socio?'))return; await api('/api/os/personas/'+id,{method:'DELETE'}); CFG.socios(); }
+// El catálogo de participantes (que era "Socios") vive ahora en 💰 Reparto → REP.participantes.
 
 // ───────── PANELES (viven adentro de Clientes) ─────────
 // La pestaña se sacó: los paneles se ven y se crean desplegando ▸ la fila de su cliente. Se deja
@@ -573,45 +563,8 @@ async function delPanel(id){
   VIEWS.clientes();
 }
 
-// ───────── CONFIG ▸ PARTICIPACIONES ─────────
-CFG.participaciones = async () => {
-  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
-  { const d=await api('/api/os/personas'); _personas=d.personas||[]; }
-  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
-  document.getElementById('cfg-body').innerHTML = `
-    <div class="card"><h2>📊 Participaciones (reparto del profit LATAM)</h2>
-      <div class="row"><div><label>Cliente</label><select id="pa-cli" onchange="loadParts()">${cliOpts}</select></div>
-      <div><label>Vigente desde</label><input id="pa-desde" type="date"/></div></div>
-      <hr/>
-      <div id="pa-box" class="muted">Elegí un cliente…</div>
-    </div>`;
-  if(_clientes.length) loadParts();
-};
-async function loadParts(){
-  const cli = val('pa-cli'); if(!cli) return;
-  const r = await api('/api/os/participaciones?cliente_id='+cli);
-  const vig = (r.efectivo&&r.efectivo.items)||[];
-  const rows = _personas.map(p=>{
-    const cur = vig.find(v=>v.persona_id===p.id);
-    return `<div class="row" style="align-items:center"><div style="flex:1">${esc(p.nombre)}</div><div style="flex:0;width:120px"><input id="part-${p.id}" type="number" value="${cur?esc(cur.porcentaje):''}" placeholder="0" oninput="sumaParts()"/></div><div style="flex:0">%</div></div>`;
-  }).join('');
-  document.getElementById('pa-box').innerHTML = `
-    <div class="muted">Scope actual: <b>${esc(r.efectivo?r.efectivo.scope:'—')}</b>. Debe sumar 100%.</div>
-    ${rows || 'No hay socios cargados (pestaña Socios).'}
-    <div class="row" style="margin-top:8px"><div style="flex:1">Total: <b id="pa-suma">0</b>%</div><button onclick="saveParts()">💾 Guardar reparto</button></div>`;
-  sumaParts();
-}
-function sumaParts(){
-  let s=0; _personas.forEach(p=>{ const el=document.getElementById('part-'+p.id); if(el&&el.value) s+=Number(el.value); });
-  const el=document.getElementById('pa-suma'); if(el){ el.textContent=s; el.style.color = s===100?'var(--green)':'var(--red)'; }
-}
-async function saveParts(){
-  const items = _personas.map(p=>({persona_id:p.id, porcentaje:val('part-'+p.id)||'0'})).filter(i=>Number(i.porcentaje)>0);
-  const r = await api('/api/os/participaciones',{method:'POST',body:JSON.stringify({cliente_id:val('pa-cli'), items, vigente_desde:val('pa-desde')||undefined})});
-  if(r.ok) toast('Reparto guardado ✓');
-}
-
-
+// Participaciones se fue a 💰 Reparto → REP.clientes: el % de cada participante ahora se
+// carga contra el % base del cliente, no como porción de un profit LATAM que ya no existe.
 
 // ───────── 📸 FOTO DEL MES ─────────
 // Un mes cerrado ya no cambia. Se le pregunta al casino UNA vez y queda guardado; después armar
@@ -1422,38 +1375,185 @@ async function regPago(){
 }
 
 // ───────── REPARTO (split empresa/LATAM/socios) ─────────
-VIEWS.reparto = async () => {
+/* ═══════════ 💰 REPARTO ═══════════════════════════════════════════════════════════════
+   Una sola pantalla para una sola pregunta: cómo se divide lo que paga cada cliente.
+
+   Antes estaba en cuatro lugares — Reparto arriba mostraba el resultado, y adentro de Config
+   vivían Socios, Participaciones y la Tabla Split. Eran cuatro porque el cálculo iba en dos
+   pasos (Split partía el fee en Empresa/LATAM, Participaciones repartía LATAM entre socios).
+   Ahora el cálculo es de UN paso (§12) y la pantalla lo acompaña: el catálogo, la configuración
+   por cliente y el resultado del mes son tres vistas de lo mismo. */
+const REP = {};
+const REP_SUBS = [['mes','📊 Resultado del mes'],['clientes','👥 Reparto por cliente'],['participantes','🤝 Participantes']];
+
+VIEWS.reparto = () => {
+  document.getElementById('main').innerHTML =
+    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
+    REP_SUBS.map(([k,l])=>`<button class="${k===_repSub?'':'outline'} small" onclick="repSub('${k}')">${l}</button>`).join('')+
+    `</div></div><div id="rep-body"><div class="card"><div class="empty">Cargando…</div></div></div>`;
+  (REP[_repSub]||REP.mes)();
+};
+function repSub(s){ _repSub=s; VIEWS.reparto(); }
+
+/* ── Resultado del mes ─────────────────────────────────────────────────────────────── */
+REP.mes = async () => {
   if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
   const mes = _repMes || new Date().toISOString().slice(0,7);
   const d = await api('/api/os/reportes/distribucion?mes='+mes);
-  const cliCod = (id)=>{ const c=_clientes.find(x=>x.id===id); return c?c.codigo:(id||'—'); };
-  document.getElementById('main').innerHTML = `
+  const pend = Number(d.sin_asignar||0)>0;
+  document.getElementById('rep-body').innerHTML = `
     <div class="card">
-      <h2>💰 Distribución del fee <span class="muted">(sobre ventas de fichas · USDT)</span>
+      <h2>💰 Cómo se reparte el mes <span class="muted">(sobre ventas de fichas · USDT)</span>
         <input type="month" id="rep-mes" value="${esc(d.mes||mes)}" onchange="reloadDist()" style="width:auto;display:inline-block;margin-left:8px"></h2>
-      <div class="muted" style="margin-bottom:8px">💵 Ventas de fichas del mes (prepago): <b>${money(d.ventas_total)}</b> — el % se cobra sobre lo <b>vendido</b>, usen o no las fichas.</div>
+      <div class="muted" style="margin-bottom:8px">💵 Vendido en el mes (prepago): <b>${money(d.ventas_total)}</b> — el % se cobra sobre lo <b>vendido</b>, usen o no las fichas.</div>
       <div class="row" style="align-items:stretch">
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>🏢 Empresa</label><div style="font-size:24px;font-weight:800">${money(d.empresa)}</div></div>
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>🤝 LATAM (socios)</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(d.latam)}</div></div>
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Σ Fee total</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Σ A cobrar</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Repartido</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(d.repartido)}</div></div>
+        <div class="card" style="flex:1;background:${pend?'rgba(217,83,79,.12)':'var(--bg3)'};margin:0"><label>Sin asignar</label><div style="font-size:24px;font-weight:800;color:${pend?'var(--red)':'inherit'}">${money(d.sin_asignar)}</div><div class="muted" style="font-size:11px">puntos del base que nadie cobra</div></div>
       </div>
-      ${Number(d.sin_split||0)>0?`<div class="muted" style="margin-top:8px">⚠ ${money(d.sin_split)} USDT en ventas con base &lt;8% (caso individual — definir a mano).</div>`:''}
-      <h2 style="margin-top:16px">Por socio (dentro de LATAM)</h2>
-      <table><thead><tr><th>Socio</th><th class="right">USDT</th></tr></thead><tbody>
-      ${(d.socios||[]).map(s=>`<tr><td>${esc(s.nombre)}</td><td class="right"><b>${money(s.monto)}</b></td></tr>`).join('') || '<tr><td colspan="2" class="empty">Sin ventas este mes.</td></tr>'}
+      ${(d.problemas||[]).length?`<div class="card" style="margin:12px 0 0;border-left:3px solid var(--red);background:var(--bg3)">
+        <b>⚠ ${d.problemas.length} cliente${d.problemas.length>1?'s':''} con el reparto sin terminar</b>
+        <div class="muted" style="margin:4px 0 6px">Se reparte lo que está configurado; el resto figura arriba como "sin asignar".</div>
+        <table><thead><tr><th>Cliente</th><th>Qué pasa</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
+        ${d.problemas.map(p=>`<tr><td><span class="pill">${esc(p.codigo)}</span></td>
+          <td class="muted">${p.estado==='sin_base'?'no tiene % base cargado'
+            :p.estado==='sin_reparto'?'nadie lo cobra todavía'
+            :p.estado==='excedido'?('el reparto suma '+esc(p.suma)+'% y su base es '+esc(p.base)+'% — se cobraría de más')
+            :('faltan repartir '+esc(p.resto)+' de sus '+esc(p.base)+' puntos')}</td>
+          <td class="right"><b>${money(p.en_juego)}</b></td>
+          </tr>`).join('')}
+        </tbody></table>
+        <div style="margin-top:8px"><button class="outline small" onclick="repSub('clientes')">Ir a configurarlos →</button></div>
+      </div>`:''}
+      <h2 style="margin-top:16px">Por participante</h2>
+      <table><thead><tr><th>Participante</th><th class="right">USDT</th></tr></thead><tbody>
+      ${(d.participantes||[]).map(s=>`<tr><td>${s.es_empresa?'🏢 ':''}${esc(s.nombre)}</td><td class="right"><b>${money(s.monto)}</b></td></tr>`).join('') || '<tr><td colspan="2" class="empty">Sin ventas este mes.</td></tr>'}
+      ${pend?`<tr><td class="muted">— sin asignar —</td><td class="right" style="color:var(--red)"><b>${money(d.sin_asignar)}</b></td></tr>`:''}
       </tbody></table>
       <h2 style="margin-top:16px">Por cliente</h2>
-      <table><thead><tr><th>Cliente</th><th class="right">Ventas fichas</th><th class="right">Base</th><th class="right">Empresa</th><th class="right">LATAM</th><th class="right">Fee</th></tr></thead><tbody>
-      ${(d.clientes||[]).map(c=>`<tr><td><span class="pill">${esc(c.codigo||cliCod(c.cliente_id))}</span></td><td class="right">${money(c.ventas)}</td><td class="right">${esc(c.base)}%</td><td class="right">${money(c.empresa)}</td><td class="right">${money(c.latam)}</td><td class="right"><b>${money(c.fee)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin ventas de fichas este mes (cargá pedidos o seedeá demo).</td></tr>'}
+      <table><thead><tr><th>Cliente</th><th class="right">Vendido</th><th class="right">Base</th><th>Se lo llevan</th><th class="right">A cobrar</th></tr></thead><tbody>
+      ${(d.clientes||[]).map(c=>`<tr>
+        <td><span class="pill">${esc(c.codigo)}</span></td>
+        <td class="right">${money(c.ventas)}</td>
+        <td class="right">${c.base!=null?esc(c.base)+'%':'<span class="badge warn">—</span>'}</td>
+        <td class="muted" style="font-size:12px">${(c.items||[]).map(i=>esc(i.nombre)+' '+esc(i.pct)).join(' · ')||'—'}${Number(c.sin_asignar||0)>0?' <span style="color:var(--red)">+ '+money(c.sin_asignar)+' sin asignar</span>':''}</td>
+        <td class="right"><b>${money(c.fee)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin ventas de fichas este mes.</td></tr>'}
       </tbody></table>
-    </div>
-    <div class="card"><div class="muted">⚙ La tabla de Split (qué % va a empresa y a LATAM por cada % base) se configura en la pestaña <b>Config</b>.</div></div>`;
+    </div>`;
 };
-function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
+function reloadDist(){ _repMes = val('rep-mes'); REP.mes(); }
+
+/* ── Reparto por cliente ───────────────────────────────────────────────────────────── */
+REP.clientes = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  { const d=await api('/api/os/personas'); _personas=d.personas||[]; }
+  if(!_repCli && _clientes.length) _repCli=_clientes[0].id;
+  const mes = _repMes || new Date().toISOString().slice(0,7);
+  document.getElementById('rep-body').innerHTML = `
+    <div class="card">
+      <h2>👥 Quién cobra de cada cliente</h2>
+      <div class="muted" style="margin-bottom:10px">Los porcentajes son <b>puntos del % base</b> del cliente, no porciones de otra cosa: tienen que sumar exactamente su base. Ej. <i>Pistacho al 10% → Empresa 6 · Julián 1 · Henry 1,5 · Alexa 1,5</i>.</div>
+      <div class="row">
+        <div><label>Cliente</label><select id="rp-cli" onchange="repCargarCli()">${_clientes.map(c=>`<option value="${c.id}" ${c.id===_repCli?'selected':''}>${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('')}</select></div>
+        <div style="flex:0"><label>Mes</label><input type="month" id="rp-mes" value="${esc(mes)}" onchange="repCargarCli()" style="width:auto"/></div>
+        <div style="flex:0"><label>Vigente desde</label><input id="rp-desde" type="date" style="width:auto"/></div>
+      </div>
+      <hr/>
+      <div id="rp-box" class="muted">Cargando…</div>
+    </div>
+    <div class="card">
+      <h2>⤓ Sembrar desde la vieja Tabla Split</h2>
+      <div class="muted" style="margin-bottom:8px">Pre-carga la fila de la <b>Empresa</b> de cada cliente usando la Tabla Split que se jubiló. Los puntos que iban a "LATAM" <b>no</b> se reparten solos: quién se los lleva es una decisión que nadie tomó, así que quedan sin asignar y a la vista. No pisa a los clientes que ya tengan reparto.</div>
+      <div class="row"><button class="outline" onclick="repSembrar(false)">👁 Ver qué haría</button><button onclick="repSembrar(true)">⤓ Sembrar</button></div>
+      <div id="rp-seed" style="margin-top:12px"></div>
+    </div>`;
+  repCargarCli();
+};
+async function repCargarCli(){
+  _repCli = val('rp-cli'); const mes = val('rp-mes');
+  if(!_repCli) return;
+  const r = await api('/api/os/reparto/'+_repCli+'?mes='+mes);
+  const rep = r.reparto||{};
+  const box = document.getElementById('rp-box');
+  if(rep.base==null||rep.base===''){
+    box.innerHTML = `<div class="badge err">Sin % base</div> <span class="muted">Este cliente no tiene % base cargado para ${esc(mes)}. Sin eso no hay contra qué cerrar el reparto — se carga en su ficha (Clientes → ✎).</span>`;
+    return;
+  }
+  const vig = rep.items||[];
+  box.innerHTML = `
+    <div class="muted" style="margin-bottom:8px">Base de <b>${esc(mes)}</b>: <b style="color:var(--gold)">${esc(rep.base)}%</b> — el reparto tiene que sumar eso.</div>
+    ${_personas.map(p=>{
+      const cur = vig.find(v=>v.persona_id===p.id);
+      return `<div class="row" style="align-items:center;gap:8px">
+        <div style="flex:1">${p.es_empresa?'🏢 ':''}${esc(p.nombre)}</div>
+        <div style="flex:0;width:120px"><input id="part-${p.id}" type="number" step="0.01" value="${cur?esc(cur.pct):''}" placeholder="0" oninput="sumaParts()"/></div>
+        <div style="flex:0">%</div></div>`;
+    }).join('') || '<div class="empty">No hay participantes cargados — agregalos en la solapa Participantes.</div>'}
+    <div class="row" style="margin-top:10px;align-items:center">
+      <div style="flex:1">Suma: <b id="pa-suma">0</b>% de <b>${esc(rep.base)}%</b> <span id="pa-resto" class="muted"></span></div>
+      <button class="outline small" onclick="saveParts(true)">Guardar incompleto</button>
+      <button onclick="saveParts(false)">💾 Guardar reparto</button>
+    </div>`;
+  window._repBase = rep.base;
+  sumaParts();
+}
+function sumaParts(){
+  let s=0; _personas.forEach(p=>{ const el=document.getElementById('part-'+p.id); if(el&&el.value) s+=Number(el.value); });
+  s = Math.round(s*10000)/10000;
+  const base = Number(window._repBase||0);
+  const el=document.getElementById('pa-suma'); if(!el) return;
+  el.textContent = s;
+  el.style.color = s===base ? 'var(--green)' : (s>base ? 'var(--red)' : 'var(--gold)');
+  const r=document.getElementById('pa-resto');
+  if(r){
+    const dif = Math.round((base-s)*10000)/10000;
+    r.textContent = dif===0 ? '· cierra ✓' : (dif>0 ? '· faltan '+dif+' puntos por asignar' : '· se pasa '+(-dif)+' puntos');
+    r.style.color = dif<0 ? 'var(--red)' : 'var(--muted)';
+  }
+}
+async function saveParts(parcial){
+  const items = _personas.map(p=>({persona_id:p.id, porcentaje:val('part-'+p.id)||'0'})).filter(i=>Number(i.porcentaje)>0);
+  const r = await api('/api/os/participaciones',{method:'POST',body:JSON.stringify({
+    cliente_id: val('rp-cli'), mes: val('rp-mes'), parcial: !!parcial,
+    items, vigente_desde: val('rp-desde')||undefined })});
+  if(r.ok){ toast(Number(r.resto)===0?'Reparto guardado ✓':'Guardado — faltan '+r.resto+' puntos'); repCargarCli(); }
+}
+async function repSembrar(aplicar){
+  const out=document.getElementById('rp-seed');
+  out.innerHTML='<div class="empty">Calculando…</div>';
+  const r = await api('/api/os/reparto/sembrar',{method:'POST',body:JSON.stringify({mes:val('rp-mes'),aplicar:!!aplicar})});
+  if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
+  out.innerHTML = `
+    <div class="muted" style="margin-bottom:6px">${aplicar?'✅ Sembrados':'Se sembrarían'} <b>${r.plan.length}</b> clientes · ${r.salteados.length} salteados.</div>
+    ${r.plan.length?`<table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Empresa</th><th class="right">Queda sin asignar</th></tr></thead><tbody>
+    ${r.plan.map(p=>`<tr><td><span class="pill">${esc(p.codigo)}</span></td><td class="right">${esc(p.base)}%</td><td class="right"><b>${esc(p.empresa_pct)}</b></td><td class="right" style="color:var(--gold)">${esc(p.sin_asignar_pct)}</td></tr>`).join('')}
+    </tbody></table>`:''}
+    ${r.salteados.length?`<div class="muted" style="margin-top:8px">Salteados: ${r.salteados.map(s=>esc(s.codigo)+' <i>('+esc(s.motivo)+')</i>').join(' · ')}</div>`:''}`;
+  if(aplicar) repCargarCli();
+}
+
+/* ── Participantes (el catálogo) ───────────────────────────────────────────────────── */
+REP.participantes = async () => {
+  const d = await api('/api/os/personas'); _personas=d.personas||[];
+  document.getElementById('rep-body').innerHTML = `
+    <div class="card"><h2>🤝 Participantes</h2>
+      <div class="muted" style="margin-bottom:8px">Quiénes pueden cobrar sobre el % base de un cliente. La <b>Empresa</b> es uno más de la lista — antes vivía aparte, en la Tabla Split. Cuánto se lleva cada uno se define por cliente en <b>Reparto por cliente</b>.</div>
+      <div class="row"><div><label>Nombre</label><input id="np" placeholder="Julián"/></div><button onclick="addPersona()">Agregar</button></div>
+      <hr/>
+      ${_personas.map(p=>`<div class="row" style="align-items:center">
+        <div style="flex:1">${p.es_empresa?'🏢 ':''}${esc(p.nombre)} ${p.activo?'':'<span class="badge err">inactivo</span>'}${p.es_empresa?' <span class="muted">— la casa, no se puede borrar</span>':''}</div>
+        ${p.es_empresa?'':`<button class="danger small" onclick="delPersona('${p.id}')">🗑</button>`}
+      </div>`).join('') || '<div class="empty">Sin participantes.</div>'}
+    </div>`;
+};
+async function addPersona(){ if(!val('np'))return; await api('/api/os/personas',{method:'POST',body:JSON.stringify({nombre:val('np')})}); REP.participantes(); }
+async function delPersona(id){ if(!confirm('¿Eliminar participante?'))return; await api('/api/os/personas/'+id,{method:'DELETE'}); REP.participantes(); }
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
 function renderCfgHeader(){
-  const subs=[['revision','🩺 Revisión'],['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
+  // Socios, Participaciones y Tabla Split se fueron a 💰 Reparto: las tres eran la misma
+  // pregunta (cómo se divide lo que paga un cliente) partida en tres pantallas.
+  const subs=[['revision','🩺 Revisión'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
@@ -1530,52 +1630,14 @@ async function impAplicar(){
   _impPlan=null; impPrever();
 }
 
-VIEWS.config = () => { document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[_cfgSub]||CFG.socios)(); };
-function cfgSub(s){ _cfgSub=s; document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[s]||CFG.socios)(); }
+VIEWS.config = () => { document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[_cfgSub]||CFG.revision)(); };
+function cfgSub(s){ _cfgSub=s; document.getElementById('main').innerHTML = renderCfgHeader(); (CFG[s]||CFG.revision)(); }
 
 // ───────── CONFIG ▸ TABLA SPLIT ─────────
-CFG.split = async () => {
-  const sb = (await api('/api/os/split-base')).split_base||[];
-  document.getElementById('cfg-body').innerHTML = `
-    <div class="card">
-      <h2>⚖ Tabla Split — Empresa / LATAM por % base</h2>
-      <div class="muted" style="margin-bottom:10px">Por cada <b>% base</b> que paga un cliente, cuánto queda para la <b>empresa</b> y cuánto para <b>LATAM</b> (que luego se reparte entre socios según Participaciones). Ej: un cliente al 15% usa la fila <b>15</b>. Todo editable — agregá o borrá las filas que quieras.</div>
-      <table><thead><tr><th>Base %</th><th>Empresa %</th><th>LATAM %</th><th>Notas</th><th></th></tr></thead><tbody>
-      ${sb.map(r=>`<tr>
-        <td><b>${esc(r.pct_base)}</b></td>
-        <td><input id="sb-emp-${esc(r.pct_base)}" value="${esc(r.pct_empresa)}" style="width:80px" placeholder="—"></td>
-        <td><input id="sb-lat-${esc(r.pct_base)}" value="${esc(r.pct_latam)}" style="width:80px" placeholder="—"></td>
-        <td><input id="sb-not-${esc(r.pct_base)}" value="${esc(r.notas||'')}"></td>
-        <td class="right" style="white-space:nowrap"><button class="small" onclick="saveSplit('${esc(r.pct_base)}')">💾</button> <button class="danger small" onclick="delSplit('${esc(r.pct_base)}')">🗑</button></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="empty">Sin filas. Agregá la primera abajo.</td></tr>'}
-      </tbody></table>
-      <hr/>
-      <h2>➕ Agregar entrada</h2>
-      <div class="row">
-        <div style="flex:0;width:120px"><label>Base %</label><input id="ns-base" placeholder="16"/></div>
-        <div style="flex:0;width:120px"><label>Empresa %</label><input id="ns-emp" placeholder="8"/></div>
-        <div style="flex:0;width:120px"><label>LATAM %</label><input id="ns-lat" placeholder="8"/></div>
-        <div><label>Notas (opcional)</label><input id="ns-not" placeholder=""/></div>
-        <button onclick="addSplit()">Agregar</button>
-      </div>
-      <div class="muted">Podés cargar cualquier % base (16, 20, lo que sea). Empresa + LATAM deberían sumar el base.</div>
-    </div>`;
-};
-async function saveSplit(pct){
-  const r = await api('/api/os/split-base/'+encodeURIComponent(pct),{method:'PUT',body:JSON.stringify({
-    pct_empresa:val('sb-emp-'+pct), pct_latam:val('sb-lat-'+pct), notas:val('sb-not-'+pct) })});
-  if(r.ok) toast('Split '+pct+'% guardado'); CFG.split();
-}
-async function addSplit(){
-  const base=val('ns-base'); if(!base) return toast('Poné el % base');
-  const r=await api('/api/os/split-base/'+encodeURIComponent(base),{method:'PUT',body:JSON.stringify({pct_empresa:val('ns-emp'),pct_latam:val('ns-lat'),notas:val('ns-not')})});
-  if(r.ok) toast('Entrada '+base+'% agregada'); CFG.split();
-}
-async function delSplit(pct){
-  if(!confirm('¿Borrar la entrada '+pct+'% de la tabla?'))return;
-  const r=await api('/api/os/split-base/'+encodeURIComponent(pct),{method:'DELETE'});
-  if(r.ok) toast('Borrada'); CFG.split();
-}
+// La Tabla Split se JUBILÓ (§12): era el 1er paso del reparto viejo — por cada % base, cuánto
+// iba a Empresa y cuánto a LATAM. Ahora el reparto es de un paso y la Empresa es un
+// participante más. Sus datos siguen en la base y 💰 Reparto los usa para sembrar; la pantalla
+// de edición se sacó porque tocarla ya no cambiaría ningún cálculo.
 
 // ───────── CONFIG ▸ DIVISAS (catálogo editable v3.0) ─────────
 CFG.divisas = async () => {
