@@ -13,6 +13,7 @@
   .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
   .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
+  .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
   main { max-width:1000px; margin:0 auto; padding:18px; }
   .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
   .card h2 { font-size:15px; margin:0 0 10px; }
@@ -55,10 +56,15 @@
 
 <script>
 // ───────── helpers ─────────
+// Agrupadas por para qué se usan, con una barrita entre grupos: eran 14 botones seguidos y no se
+// distinguía el día a día de lo que se toca una vez por mes. "Paneles" salió: viven adentro de
+// Clientes, desplegando su fila.
 const TABS = [
-  ['revision','🩺 Revisión'], ['foto','📸 Foto del mes'], ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['paneles','🖥 Paneles'], ['reparto','💰 Reparto'], ['facturacion','🧾 Factura de consumo'],
-  ['cierre','🧮 Cierre de Mes'], ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['movimientos','💸 Movimientos'], ['comprobantes','🧾 Comprobantes'],
-  ['reportes','📈 Reportes'], ['config','⚙ Config'],
+  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['movimientos','💸 Movimientos'], ['comprobantes','🧾 Comprobantes'],
+  '|',
+  ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
+  '|',
+  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['revision','🩺 Revisión'], ['config','⚙ Config'],
 ];
 let _tab = 'clientes';
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'socios';
@@ -77,17 +83,28 @@ async function api(path, opts={}){
 function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
 
 function renderNav(){
-  document.getElementById('nav').innerHTML = TABS.map(([k,l])=>
-    `<button class="navbtn ${k===_tab?'active':''}" onclick="go('${k}')">${l}</button>`).join('');
+  document.getElementById('nav').innerHTML = TABS.map(t=>
+    t==='|' ? '<span class="navsep"></span>'
+            : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('');
 }
 function go(t){ _tab=t; renderNav(); VIEWS[t](); }
 
-// ───────── CLIENTES ─────────
+// ───────── CLIENTES (con sus PANELES adentro) ─────────
+// Un panel no existe solo: siempre es de alguien. Tenerlos en pestañas separadas obligaba a ir y
+// venir para algo tan simple como "¿qué paneles tiene Titan?". Ahora cada cliente se despliega.
 const VIEWS = {}, CFG = {};
+const _cliAbiertos = new Set();      // qué clientes quedaron desplegados (sobrevive al re-render)
+
 VIEWS.clientes = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
-  const d = await api('/api/os/clientes'); _clientes = d.clientes||[];
+  const [d, dp, dc] = await Promise.all([
+    api('/api/os/clientes'), api('/api/os/paneles'), api('/api/os/casino/conexiones'),
+  ]);
+  _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
+  const sinDueno = _paneles.filter(p=>!_clientes.some(c=>c.id===p.cliente_id));
+  const sinLinkear = _paneles.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
+
   main.innerHTML = `
     <div class="card">
       <h2>➕ Nuevo cliente</h2>
@@ -96,25 +113,93 @@ VIEWS.clientes = async () => {
         <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
         <button onclick="nuevoCliente()">Crear cliente</button>
       </div>
-      <div class="muted" style="margin-top:4px">Después con el ✎ le ponés % base, proveedores y le asignás las plataformas.</div>
+      <div class="muted" style="margin-top:4px">Después con el ✎ le ponés % base y proveedores; los paneles se agregan desplegando su fila ▸.</div>
     </div>
     <div class="card">
-      <h2>Clientes <span class="muted">(${_clientes.length})</span></h2>
-      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${_clientes.map(c=>`<tr>
-        <td><span class="pill">${esc(c.codigo)}</span></td>
+      <h2>Clientes <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
+        <button class="outline small" style="float:right" onclick="togglePanTodos()">▾ Abrir todos</button></h2>
+      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
+      ${_clientes.map(c=>{
+        const n = _paneles.filter(p=>p.cliente_id===c.id).length;
+        const ab = _cliAbiertos.has(c.id);
+        return `<tr>
+        <td style="white-space:nowrap;cursor:pointer" onclick="togglePan('${c.id}')"><span id="car-${c.id}" style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <span class="pill">${esc(c.codigo)}</span></td>
         <td>${esc(c.nombre||'')}</td>
         <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
-        <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class=badge.warn>—</span>'}</td>
+        <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">—</span>'}</td>
         <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
         <td>${c.paga_proveedores?'sí':'no'}</td>
+        <td style="cursor:pointer" onclick="togglePan('${c.id}')">${n?('<b>'+n+'</b>'):'<span class="muted">—</span>'}</td>
         <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${c.deuda?('<div class="muted" style="font-size:10.5px;white-space:nowrap">consumo '+money(c.deuda.fichas_pendientes,0)+' · ext '+money(c.deuda.proveedores_pendientes,0)+'</div>'):''}</td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
-      </tr>`).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
+      </tr>
+      <tr id="pan-${c.id}" ${ab?'':'style="display:none"'}><td colspan="9" style="background:var(--bg);padding:10px 14px">${bloquePaneles(c)}</td></tr>`;
+      }).join('') || '<tr><td colspan="9" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
+    ${sinDueno.length ? `<div class="card"><h2>⚠ Paneles sin cliente <span class="muted">(${sinDueno.length})</span></h2>
+      <div class="muted" style="margin-bottom:6px">Su cliente ya no existe. No se le facturan a nadie: asignalos o borralos.</div>
+      <table><thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Casino (nodo)</th><th></th></tr></thead><tbody>
+      ${sinDueno.map(p=>`<tr><td><b>${esc(p.nombre)}</b></td><td>${esc(p.sistema||'')}</td><td>${esc(p.nivel_usuario||'')}</td>
+        <td>${p.conexion_id&&p.id_usuario?'<span class="pill">'+esc(p.id_usuario)+'</span>':'<span class="badge warn">sin linkear</span>'}</td>
+        <td class="right"><select style="width:auto;display:inline-block" onchange="moverPanel('${p.id}',this.value)"><option value="">— asignar a —</option>${_clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)}</option>`).join('')}</select>
+        <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`).join('')}
+      </tbody></table></div>` : ''}
     <div id="cliEdit"></div>`;
 };
+
+/** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
+function bloquePaneles(c){
+  const ps = _paneles.filter(p=>p.cliente_id===c.id);
+  const cxs = window._cxs||[];
+  const cxName=(id)=>{ const x=cxs.find(y=>y.id===id); return x?x.nombre:''; };
+  return `
+   <table style="margin:0">
+     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th></th></tr></thead>
+     <tbody>${ps.map(p=>`<tr>
+       <td><b>${esc(p.nombre)}</b></td>
+       <td>${esc(p.sistema||'')}</td><td>${esc(p.nivel_usuario||'')}</td>
+       <td class="muted">${esc(p.divisas||'—')}</td>
+       <td>${p.conexion_id&&p.id_usuario
+         ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
+         : '<span class="badge warn">sin linkear</span>'}</td>
+       <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
+     </tr>`).join('') || '<tr><td colspan="6" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
+   </table>
+   <div class="row" style="margin-top:10px;gap:6px">
+     <div style="min-width:120px"><label>Panel nuevo</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
+     <div style="flex:0"><label>Sistema</label><select id="pn-sis-${c.id}"><option>Casino</option><option>Europa</option></select></div>
+     <div style="flex:0"><label>Nivel</label><select id="pn-niv-${c.id}"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
+     <div style="flex:0"><label>Tipo</label><select id="pn-tipo-${c.id}"><option>exclusivo</option><option>franquicia</option></select></div>
+     <div style="flex:0"><label>Divisas</label><input id="pn-div-${c.id}" placeholder="ARS" style="width:80px"/></div>
+     <div style="flex:0"><label>Conexión</label><select id="pn-cx-${c.id}"><option value="">— sin linkear —</option>${cxs.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
+     <div style="flex:0"><label>ID nodo</label><input id="pn-idu-${c.id}" placeholder="186350" style="width:95px"/></div>
+     <div style="flex:0"><button class="outline small" onclick="buscarNodo('${c.id}')">🔎 buscar</button></div>
+     <div style="flex:0"><button class="small" onclick="addPanel('${c.id}')">Agregar</button></div>
+   </div>`;
+}
+
+function togglePan(id){
+  const tr=document.getElementById('pan-'+id); if(!tr) return;
+  const abierto = tr.style.display!=='none';
+  tr.style.display = abierto?'none':'';
+  const car=document.getElementById('car-'+id); if(car) car.textContent = abierto?'▸':'▾';
+  if(abierto) _cliAbiertos.delete(id); else _cliAbiertos.add(id);
+}
+function togglePanTodos(){
+  const abrir = _cliAbiertos.size < _clientes.length;
+  _clientes.forEach(c=>{
+    const tr=document.getElementById('pan-'+c.id); if(!tr) return;
+    tr.style.display = abrir?'':'none';
+    const car=document.getElementById('car-'+c.id); if(car) car.textContent = abrir?'▾':'▸';
+    if(abrir) _cliAbiertos.add(c.id); else _cliAbiertos.delete(c.id);
+  });
+}
+async function moverPanel(id, cliente_id){
+  if(!cliente_id) return;
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({cliente_id})});
+  if(r.ok){ toast('Panel asignado'); VIEWS.clientes(); }
+}
 async function nuevoCliente(){
   const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
@@ -414,52 +499,27 @@ CFG.socios = async () => {
 async function addPersona(){ if(!val('np'))return; await api('/api/os/personas',{method:'POST',body:JSON.stringify({nombre:val('np')})}); CFG.socios(); }
 async function delPersona(id){ if(!confirm('¿Eliminar socio?'))return; await api('/api/os/personas/'+id,{method:'DELETE'}); CFG.socios(); }
 
-// ───────── PANELES ─────────
-VIEWS.paneles = async () => {
-  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
-  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[]; window._cxs=cxs;
-  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
-  const cxOpts = '<option value="">— sin linkear —</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
-  const cxName=(id)=>{ const c=cxs.find(x=>x.id===id); return c?c.nombre:''; };
-  const d = await api('/api/os/paneles'); _paneles=d.paneles||[];
-  document.getElementById('main').innerHTML = `
-    <div class="card"><h2>➕ Panel</h2>
-      <div class="row">
-        <div><label>Cliente</label><select id="pn-cli">${cliOpts}</select></div>
-        <div><label>Nombre</label><input id="pn-nombre" placeholder="Ganamos"/></div>
-        <div style="flex:0"><label>Sistema</label><select id="pn-sis"><option>Casino</option><option>Europa</option></select></div>
-        <div style="flex:0"><label>Nivel</label><select id="pn-niv"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
-        <div style="flex:0"><label>Tipo</label><select id="pn-tipo"><option>exclusivo</option><option>franquicia</option></select></div>
-        <div><label>Divisas</label><input id="pn-div" placeholder="ARS"/></div>
-      </div>
-      <div class="row" style="margin-top:8px; align-items:flex-end">
-        <div><label>Conexión casino</label><select id="pn-cx">${cxOpts}</select></div>
-        <div><label>ID nodo (casino)</label><input id="pn-idu" placeholder="186350"/></div>
-        <div style="flex:0"><button class="outline" onclick="buscarNodo()">🔎 buscar por login</button></div>
-        <div style="flex:0"><button onclick="addPanel()">Agregar panel</button></div>
-      </div>
-    </div>
-    <div class="card"><h2>Paneles (${_paneles.length})</h2>
-      <table><thead><tr><th>Nombre</th><th>Cliente</th><th>Sistema</th><th>Nivel</th><th>Casino (nodo)</th><th></th></tr></thead><tbody>
-      ${_paneles.map(p=>{ const c=_clientes.find(x=>x.id===p.cliente_id); const linked=p.conexion_id&&p.id_usuario;
-        return `<tr><td><b>${esc(p.nombre)}</b></td><td>${c?esc(c.codigo):'—'}</td><td>${esc(p.sistema)}</td><td>${esc(p.nivel_usuario)}</td>
-          <td>${linked?('<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'):'<span class="badge warn">sin linkear</span>'}</td>
-          <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`;
-      }).join('') || '<tr><td colspan="6" class="empty">Sin paneles.</td></tr>'}
-      </tbody></table>
-    </div>`;
-};
-async function addPanel(){
-  if(!val('pn-nombre'))return toast('Poné un nombre');
-  await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:val('pn-cli'),nombre:val('pn-nombre'),sistema:val('pn-sis'),nivel_usuario:val('pn-niv'),tipo:val('pn-tipo'),id_usuario:val('pn-idu'),divisas:val('pn-div'),conexion_id:val('pn-cx')})});
-  toast('Panel creado'); VIEWS.paneles();
+// ───────── PANELES (viven adentro de Clientes) ─────────
+// La pestaña se sacó: los paneles se ven y se crean desplegando ▸ la fila de su cliente. Se deja
+// el alias por si algo todavía llama go('paneles').
+VIEWS.paneles = () => VIEWS.clientes();
+
+async function addPanel(cid){
+  if(!val('pn-nombre-'+cid)) return toast('Poné un nombre');
+  const r = await api('/api/os/paneles',{method:'POST',body:JSON.stringify({
+    cliente_id: cid,
+    nombre: val('pn-nombre-'+cid), sistema: val('pn-sis-'+cid), nivel_usuario: val('pn-niv-'+cid),
+    tipo: val('pn-tipo-'+cid), id_usuario: val('pn-idu-'+cid), divisas: val('pn-div-'+cid),
+    conexion_id: val('pn-cx-'+cid),
+  })});
+  if(r.ok){ _cliAbiertos.add(cid); toast('Panel creado'); VIEWS.clientes(); }
 }
-async function buscarNodo(){
-  const cid=val('pn-cx'); if(!cid)return toast('Elegí una conexión casino primero');
+async function buscarNodo(cid){
+  const cx=val('pn-cx-'+cid); if(!cx) return toast('Elegí una conexión casino primero');
   const login=prompt('Buscar nodo por login del casino:'); if(!login)return;
-  const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login));
+  const r=await api('/api/os/casino/conexiones/'+cx+'/buscar?login='+encodeURIComponent(login));
   if(!r.ok||!r.users||!r.users.length)return toast('No se encontró "'+login+'"');
-  document.getElementById('pn-idu').value=r.users[0].id; toast('Encontrado: '+r.users[0].login+' → id '+r.users[0].id);
+  document.getElementById('pn-idu-'+cid).value=r.users[0].id; toast('Encontrado: '+r.users[0].login+' → id '+r.users[0].id);
 }
 async function linkPanel(id){
   const cxs=window._cxs||[]; if(!cxs.length)return toast('Agregá una conexión en Config → Casino');
@@ -468,9 +528,15 @@ async function linkPanel(id){
   let nodeId=prompt('ID del nodo del casino (vacío = buscar por login):',''); if(nodeId===null)return;
   if(!nodeId){ const login=prompt('Login del casino a buscar:'); if(!login)return; const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login)); if(!r.ok||!r.users||!r.users.length)return toast('No se encontró'); nodeId=r.users[0].id; }
   const u=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({conexion_id:cid,id_usuario:nodeId})});
-  if(u.ok)toast('Panel linkeado al nodo '+nodeId); VIEWS.paneles();
+  if(u.ok)toast('Panel linkeado al nodo '+nodeId); VIEWS.clientes();
 }
-async function delPanel(id){ if(!confirm('¿Eliminar panel?'))return; await api('/api/os/paneles/'+id,{method:'DELETE'}); VIEWS.paneles(); }
+async function delPanel(id){
+  const p=(_paneles||[]).find(x=>x.id===id);
+  if(!confirm('¿Eliminar el panel "'+((p&&p.nombre)||id)+'"?'))return;
+  await api('/api/os/paneles/'+id,{method:'DELETE'});
+  if(p&&p.cliente_id)_cliAbiertos.add(p.cliente_id);
+  VIEWS.clientes();
+}
 
 // ───────── CONFIG ▸ PARTICIPACIONES ─────────
 CFG.participaciones = async () => {
