@@ -857,7 +857,8 @@ VIEWS.proveedores = async () => {
   const d = await api('/api/os/proveedores'); _proveedores=d.proveedores||[];
   // vínculo a la matriz del Cierre → mostrar el % (base) que le corresponde a cada proveedor linkeado
   const _lk = await api('/api/os/cierre/links'); const _mx = await api('/api/os/cierre/matriz');
-  const _linkMap={}; (_lk.rows||[]).forEach(r=>{_linkMap[r.casino]={m:r.matriz||null, est:r.estado};}); // SOLO vínculos reales → los no-vinculados quedan "sin vincular" (% a mano)
+  const _linkMap={}; (_lk.rows||[]).forEach(r=>{_linkMap[r.casino]={m:r.matriz||null, est:r.estado, sug:r.sugerido||null};});
+  const _lkN=(e)=>(_lk.rows||[]).filter(r=>r.estado===e).length;
   const _baseMap={}; (_mx.proveedores||[]).forEach(pp=>{_baseMap[pp.nombre]=pp.base_pct;});
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   const cxOpts = '<option value="todas">🌐 Todas (Europa + Casino)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
@@ -878,22 +879,34 @@ VIEWS.proveedores = async () => {
         <button onclick="addProv()">Agregar</button>
       </div>
     </div>
-    <div class="card"><h2>Catálogo (${_proveedores.length})</h2>
-      <div class="muted" style="margin-bottom:6px">El <b>% costo</b> es el <b>% base de la matriz</b> del proveedor vinculado. Si lo editás acá, <b>cambia también en el 🧮 Cierre de Mes</b> (es la misma data). Los que dicen "sin vincular" se conectan en <b>Cierre → 🔗 Vincular proveedores</b>.</div>
-      <table><thead><tr><th>Proveedor</th><th>Vendor</th><th>🔗 Matriz</th><th class="right">% costo <span class="muted" style="font-weight:400">(= % base matriz)</span></th><th></th></tr></thead><tbody>
+    <datalist id="pr-mlist">${(_lk.matriz||[]).map(m=>`<option value="${esc(m)}">`).join('')}</datalist>
+    <div class="card">
+      <h2>Catálogo (${_proveedores.length})</h2>
+      <div class="muted" style="margin-bottom:8px">Cada fila es un proveedor <b>como lo nombra el casino</b> ("RUBYPLAY XG"). La columna del medio dice a qué fila de la <b>matriz de Alexa</b> apunta ("RUBYPLAY OP"), porque los dos lados usan nombres distintos. El <b>% costo</b> es el % base de esa fila: editarlo acá o en 🧮 Cierre de Mes es lo mismo, es la misma data.</div>
+      <div class="muted" style="margin-bottom:8px;border-left:3px solid var(--gold);padding-left:8px">
+        ⚠️ <b>El sufijo es el producto, no un adorno.</b> <span class="pill">3OAKS SL</span>, <span class="pill">3OAKS SL2</span> y <span class="pill">3OAKS OP</span> son proveedores <b>distintos</b> y cuestan distinto (0 · 0,5 · 8,5).
+        Por eso <b>Auto-vincular une SOLO los idénticos</b> (Marca+Vendor exacto); lo parecido queda como sugerencia para que lo elijas vos.</div>
+      <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="small" onclick="provAuto()">🪄 Auto-vincular</button>
+        <span class="badge ok">${_lkN('exacto')+_lkN('vinculado')} vinculados</span>
+        <span class="badge warn">${_lkN('sugerido')+_lkN('ambiguo')} a revisar</span>
+        <span class="badge err">${_lkN('sin_match')} sin match</span>
+        <div style="flex:1;min-width:160px"><input id="pr-q" oninput="filtProv()" placeholder="🔎 buscar proveedor"></div>
+      </div>
+      <table><thead><tr><th>Proveedor del casino</th><th>Vendor</th><th>→ Fila de la matriz</th><th class="right">% costo</th><th></th></tr></thead><tbody>
       ${_proveedores.map(p=>{const vend=(p.codigo||'').includes('|')?p.codigo.slice(p.codigo.lastIndexOf('|')+1):'';
         const casino=(p.nombre+' '+vend).trim(); const lk=_linkMap[casino]; const mp=lk&&lk.m; const base=mp?_baseMap[mp]:null;
-        return `<tr>
+        const sug=lk&&lk.sug?('sug: '+lk.sug):'(elegir de la matriz)';
+        return `<tr data-q="${esc((p.nombre+' '+vend+' '+(mp||'')).toLowerCase())}">
         <td><b>${esc(p.nombre)}</b></td>
         <td class="muted">${esc(vend||'—')}</td>
-        <td style="font-size:11.5px">${mp? esc(mp) : '<span style="opacity:.45">sin vincular</span>'}</td>
+        <td><input list="pr-mlist" data-casino="${esc(casino)}" value="${esc(mp||'')}" placeholder="${esc(sug)}" style="width:100%;font-size:12px" onchange="provSetLink(this)"></td>
         <td class="right">${mp
           ? `<input value="${base==null?'':esc(base)}" data-matriz="${esc(mp)}" style="width:80px" placeholder="—" title="% base de ${esc(mp)} en la matriz del Cierre" onchange="saveCostoMatriz(this)">`
-          : `<input disabled style="width:80px;opacity:.5" placeholder="vinculá primero" title="Vinculá el proveedor a la matriz (Cierre → 🔗 Vincular) para poder poner su %">`}</td>
+          : `<input disabled style="width:80px;opacity:.5" placeholder="vinculá →" title="Elegí primero a qué fila de la matriz apunta"></td>`}</td>
         <td class="right" style="white-space:nowrap"><button class="danger small" onclick="delProv('${p.id}')">🗑</button></td>
       </tr>`}).join('') || '<tr><td colspan="5" class="empty">Sin proveedores. Importá del reporte arriba 👆</td></tr>'}
       </tbody></table>
-      <div class="muted">El <b>% costo</b> = el <b>% base</b> del proveedor en la matriz del Cierre (el rate/costo del proveedor). Editarlo acá o en 🧮 Cierre de Mes es lo mismo — se guarda solo al salir de la casilla.</div>
     </div>`;
   // fechas por defecto: últimos 45 días (rango amplio para no perder ningún proveedor del reporte)
   const _iso=(d)=>d.toISOString().slice(0,10); const _to=new Date();
@@ -929,6 +942,25 @@ async function saveCostoMatriz(el){
 }
 async function delProv(id){ if(!confirm('¿Eliminar?'))return; await api('/api/os/proveedores/'+id,{method:'DELETE'}); VIEWS.proveedores(); }
 
+/* Vincular proveedor del casino → fila de la matriz. Vivía en su propia pestaña dentro de Cierre
+   de Mes; se trajo acá porque era la otra mitad de esta misma tabla: los 130 del casino ya se
+   listan con su fila y su %, solo faltaba poder cambiarla desde el mismo lugar.
+   ⚠️ Auto-vincular une SOLO idénticos: el sufijo (SL / SL2 / OP …) es el producto, y emparejar
+   por parecido cruzaría proveedores que cuestan distinto. */
+async function provSetLink(el){
+  const r=await api('/api/os/cierre/link',{method:'POST',body:JSON.stringify({casino:el.dataset.casino,matriz:el.value})});
+  if(!r.ok) return toast('No se pudo vincular');
+  el.style.background='rgba(0,180,80,.28)'; setTimeout(()=>{el.style.background='';},400);
+  VIEWS.proveedores();   // el % costo depende de la fila vinculada: se recarga para traerlo
+}
+async function provAuto(){
+  const r=await api('/api/os/cierre/auto-vincular',{method:'POST'});
+  if(r.ok) toast(r.exactos+' vinculados por nombre idéntico'+(r.quitados?(' · '+r.quitados+' por-marca desvinculados: elegilos a mano'):''));
+  VIEWS.proveedores();
+}
+function filtProv(){ const q=(val('pr-q')||'').toLowerCase();
+  document.querySelectorAll('#main tbody tr[data-q]').forEach(tr=>{ tr.style.display=(tr.dataset.q||'').includes(q)?'':'none'; }); }
+
 // ───────── CIERRE DE MES (réplica editable de la planilla de Alexa: matriz % + vinculación + TC) ─────────
 let _cieSub = 'matriz', _cieData = {proveedores:[],clientes:[],celdas:{}};
 const CIE_STYLE = `<style>
@@ -963,11 +995,12 @@ const CIE_STYLE = `<style>
   </style>`;
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['vincular','🔗 Vincular proveedores']];
+  // "Vincular proveedores" se fue a la pestaña 🏷 Proveedores: era la otra mitad de esa tabla.
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, vincular:cieVincular}[_cieSub]||cieMatriz)();
+  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
@@ -1314,32 +1347,10 @@ function filtCie(){ const q=(val('cie-q')||'').toLowerCase();
     tr.style.display = (tr.dataset.prov||'').includes(q)?'':'none'; }); }
 
 // ── sub-vista VINCULAR proveedores del casino ↔ matriz ──
-const _CIE_BADGE = {vinculado:['cie-b-ok','✔ manual'], exacto:['cie-b-ex','= exacto'], sugerido:['cie-b-sug','≈ marca (a mano)'], ambiguo:['cie-b-sug','? a mano'], sin_match:['cie-b-no','sin match']};
-async function cieVincular(){
-  const d = await api('/api/os/cierre/links'); const rows=d.rows||[], matriz=d.matriz||[];
-  const n=x=>rows.filter(r=>r.estado===x).length;
-  const dl = `<datalist id="cie-mlist">${matriz.map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`;
-  const trs = rows.map(r=>{const [bc,bl]=_CIE_BADGE[r.estado]||_CIE_BADGE.sin_match; const cur=r.matriz||''; // SOLO vínculos reales (los exactos); el resto va a mano
-    const ph=r.sugerido?('sug: '+r.sugerido):'(elegir de la matriz)';
-    return `<tr data-casino="${esc(r.casino.toLowerCase())}"><td class="cie-p">${esc(r.casino)}</td>`+
-      `<td><input class="cie-lk" list="cie-mlist" data-casino="${esc(r.casino)}" value="${esc(cur)}" placeholder="${esc(ph)}" onchange="cieSetLink(this)"></td>`+
-      `<td><span class="cie-badge ${bc}">${bl}</span></td></tr>`;}).join('');
-  document.getElementById('cie-body').innerHTML = `${dl}
-  <div class="card"><div class="muted">Vinculá cada proveedor que sale del <b>casino</b> (Marca&nbsp;Vendor, ej "RUBYPLAY XG") con su fila en la <b>matriz de %</b> de Alexa (ej "RUBYPLAY OP"). Al calcular el cierre, el profit de cada proveedor usa el % de la fila vinculada. <b>Auto-vincular</b> vincula <b>SOLO los match EXACTOS</b> (Marca+Vendor idéntico); los aproximados (por marca) quedan como sugerencia para <b>elegir a mano</b>.</div>
-    <div class="row" style="margin-top:8px;align-items:center;gap:12px;flex-wrap:wrap">
-      <button class="small" onclick="cieAuto()">🪄 Auto-vincular</button>
-      <span class="cie-badge cie-b-ok">${n('vinculado')} manual</span> <span class="cie-badge cie-b-ex">${n('exacto')} exacto</span>
-      <span class="cie-badge cie-b-sug">${n('sugerido')+n('ambiguo')} a revisar</span> <span class="cie-badge cie-b-no">${n('sin_match')} sin match</span>
-      <div style="flex:1;min-width:150px"><input id="cie-lq" oninput="filtLk()" placeholder="🔎 buscar proveedor casino"></div>
-    </div>
-  </div>
-  <div class="card" style="overflow:auto;max-height:72vh;padding:6px">
-    ${rows.length? `<table class="ciet"><thead><tr><th class="cie-h0">Proveedor del casino</th><th>→ Matriz de %</th><th>Estado</th></tr></thead><tbody>${trs}</tbody></table>` : '<div class="empty">No hay proveedores en el catálogo. Importalos en la solapa 🏷 Proveedores.</div>'}
-  </div>`;
-}
-async function cieSetLink(el){ const r=await api('/api/os/cierre/link',{method:'POST',body:JSON.stringify({casino:el.dataset.casino,matriz:el.value})}); if(r.ok){_cieFlash(el); const badge=el.closest('tr').querySelector('.cie-badge'); if(badge&&el.value.trim()){badge.className='cie-badge cie-b-ok';badge.textContent='✔ manual';}} }
-async function cieAuto(){ const r=await api('/api/os/cierre/auto-vincular',{method:'POST'}); if(r.ok)toast(`${r.exactos} exactos vinculados`+(r.quitados?` · ${r.quitados} por-marca desvinculados (a mano)`:'')); cieVincular(); }
-function filtLk(){ const q=(val('cie-lq')||'').toLowerCase(); document.querySelectorAll('.ciet tbody tr').forEach(tr=>{ tr.style.display=(tr.dataset.casino||'').includes(q)?'':'none'; }); }
+// _CIE_BADGE se usaba en la pantalla de vinculación, que se mudó a 🏷 Proveedores.
+// La vinculación casino→matriz se mudó a la pestaña 🏷 Proveedores (provSetLink / provAuto):
+// era la otra mitad de esa misma tabla y tenerla aparte obligaba a saltar entre dos pantallas
+// para completar una sola fila.
 
 // ── sub-vista TIPOS DE CAMBIO (moneda × mes, se llena mensual) ──
 async function cieSetTC(el, forzar){
