@@ -49,6 +49,26 @@
   .toast.show { opacity:1; }
   .pill { font-family:monospace; background:var(--bg); padding:1px 6px; border-radius:5px; }
   hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
+
+  /* ── Fila desplegada de un cliente (sus paneles) ──────────────────────────
+     Antes el <td> se pintaba con var(--bg), el MISMO tono que el fondo de la
+     página, así que dentro de la tarjeta blanca se leía como un agujero: dos
+     fondos sin relación. Ahora es blanco como la tarjeta —un solo fondo— y lo
+     que marca que está anidado es la barra de acento a la izquierda más la
+     sangría, no un cambio de color. */
+  tr.sub > td { background:var(--bg2); padding:4px 0 16px 0; border-bottom:1px solid var(--border); }
+  .subwrap { margin-left:22px; padding-left:14px; border-left:2px solid var(--gold); }
+  /* La tabla interna necesita leerse como un objeto propio sobre el blanco:
+     se lo dan el marco y la cabecera tenue, no el fondo. */
+  .subwrap table { margin:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .subwrap thead th { background:var(--bg3); font-size:10px; padding:6px 9px; border-bottom:1px solid var(--border); }
+  .subwrap tbody tr:last-child td { border-bottom:none; }
+  .subwrap tbody tr:hover td { background:var(--bg); }
+  /* Dota.click declara 24 divisas y reventaba el ancho de la columna. */
+  .subwrap td.divs { max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Las filas de cliente se despliegan al hacer clic: que se note que son vivas. */
+  #main tbody tr:not(.sub):hover > td { background:var(--bg); }
+  #car-wrap, [id^="car-"] { display:inline-block; transition:transform .15s ease; }
 </style>
 </head>
 <body>
@@ -146,7 +166,7 @@ VIEWS.clientes = async () => {
         <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${c.deuda?('<div class="muted" style="font-size:10.5px;white-space:nowrap">consumo '+money(c.deuda.fichas_pendientes,0)+' · ext '+money(c.deuda.proveedores_pendientes,0)+'</div>'):''}</td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
       </tr>
-      <tr id="pan-${c.id}" ${ab?'':'style="display:none"'}><td colspan="9" style="background:var(--bg);padding:10px 14px">${bloquePaneles(c)}</td></tr>`;
+      <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="9">${bloquePaneles(c)}</td></tr>`;
       }).join('') || '<tr><td colspan="9" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
@@ -167,12 +187,13 @@ function bloquePaneles(c){
   const cxs = window._cxs||[];
   const cxName=(id)=>{ const x=cxs.find(y=>y.id===id); return x?x.nombre:''; };
   return `
-   <table style="margin:0">
+   <div class="subwrap">
+   <table>
      <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
-       <td class="muted">${esc(p.divisas||'—')}</td>
+       <td class="muted divs" title="${esc(p.divisas||'')}">${esc(p.divisas||'—')}</td>
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
@@ -189,6 +210,7 @@ function bloquePaneles(c){
      <div style="flex:0"><label>ID nodo</label><input id="pn-idu-${c.id}" placeholder="186350" style="width:95px"/></div>
      <div style="flex:0"><button class="outline small" onclick="buscarNodo('${c.id}')">🔎 buscar</button></div>
      <div style="flex:0"><button class="small" onclick="addPanel('${c.id}')">Agregar</button></div>
+   </div>
    </div>`;
 }
 
