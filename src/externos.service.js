@@ -152,8 +152,12 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // % base: el que mandan, si no el confirmado del mes, si no el de la ficha del cliente
   const guardada = baseGuardada(cli.nombre, mes);
   const res = baseDelMes(cli, mes);
-  const base = basePct != null ? String(basePct) : res.valor;
-  const baseFuente = basePct != null ? 'a mano' : res.fuente;
+  // Al VENDEDOR no se le resta ninguna base: paga el costo real del proveedor (`dif = costoProv`
+  // más abajo). Exigirle un % base cortaba el reporte por un dato que su cálculo ni mira — y como
+  // sus bases se cargaron en 0 recién el 1-ago, julio abortaba para 7 de los 8. Se asume 0.
+  const esVendedor = !!cli.es_vendedor;
+  const base = basePct != null ? String(basePct) : (res.valor != null ? res.valor : (esVendedor ? '0' : null));
+  const baseFuente = basePct != null ? 'a mano' : (res.valor != null ? res.fuente : 'vendedor: paga el costo, no lleva base');
   if (base == null) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
   }
@@ -166,7 +170,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const mios = paneles.list().filter((p) => p.cliente_id === cli.id);
 
   // Cómo se lee la celda de la matriz para ESTE cliente.
-  const modo = cli.es_vendedor ? 'vendedor' : (cli.externos_modo || 'total');
+  const modo = esVendedor ? 'vendedor' : (cli.externos_modo || 'total');
 
   const filas = [];            // una por panel+proveedor+divisa
   const sinVincular = new Map();
