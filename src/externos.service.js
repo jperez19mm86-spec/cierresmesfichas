@@ -279,6 +279,17 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // ── 3) procesar en orden ──────────────────────────────────────────────────
   // El cálculo se hace después y en el orden original, para que el resultado no dependa de cuál
   // consulta contestó primero.
+  // Se junta por PANEL + MONEDA + PROVEEDOR DE LA MATRIZ antes de sacar cuentas, y recién ahí se
+  // aplica el porcentaje y se pasa a USDT. Una vez, no una por cada línea del casino.
+  //
+  // Por qué importa: el casino puede devolver varias líneas que caen en el mismo proveedor de la
+  // matriz ("EGT DIGITAL SZ" y "EGT DIGITAL default", por ejemplo). Si se redondea cada una y
+  // después se suman, el resultado no coincide con hacer la cuenta de una sola vez, y al cliente
+  // le da distinto por centavos cuando divide para verificar. Sumando primero, la factura cierra:
+  // ganancia × excedente% = a cobrar, y a cobrar ÷ TC = USDT, exacto.
+  const grupos = new Map();
+  let lineasCasino = 0;
+
   for (let i = 0; i < trabajos.length; i++) {
     const { panel, divisa } = trabajos[i];
     const r = resultados[i] || { ok: false, error: 'sin respuesta' };
@@ -310,25 +321,46 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
         if (modo === 'total' && money.cmp(pct, base) < 0) {
           negativos.set(nombreMatriz, { proveedor: nombreMatriz, pct, base });
         }
-        const monto = cobra ? money.round(money.pct(profit, dif), 2) : '0';
-        filas.push({
+        const k = `${panel.id}|${divisa}|${K(nombreMatriz)}`;
+        const g = grupos.get(k) || {
           panel: panel.nombre, panel_id: panel.id, nivel: panel.nivel_usuario, sistema: panel.sistema,
-          divisa, proveedor: nombreMatriz, proveedorCasino: `${f.label || f.provider} ${f.vendor}`.trim(),
+          divisa, proveedor: nombreMatriz, deCasino: [],
           costo: costoDe[K(nombreMatriz)] ?? null,
-          profit, pct, base, dif, cobra, monto,
-          tasa, usdt: (cobra && tasa) ? money.round(money.div(monto, tasa), 2) : '0',
-          sinTasa: cobra && !tasa,
-        });
+          profit: '0', pct, base, dif, cobra, tasa,
+        };
+        g.profit = money.add(g.profit, profit);        // la ganancia se suma ENTERA, sin redondear
+        g.deCasino.push(`${f.label || f.provider} ${f.vendor}`.trim());
+        grupos.set(k, g);
+        lineasCasino++;
         if (cobra && !tasa) avisos.push(`falta el TC de ${divisa} para ${mesCierre(mes)} — ese monto no se pudo pasar a USDT`);
       }
     }
   }
 
+  // Recién ahora: el porcentaje y el pase a USDT, una sola vez por línea facturable.
+  for (const g of grupos.values()) {
+    const monto = g.cobra ? money.round(money.pct(g.profit, g.dif), 2) : '0';
+    filas.push({
+      panel: g.panel, panel_id: g.panel_id, nivel: g.nivel, sistema: g.sistema,
+      divisa: g.divisa, proveedor: g.proveedor,
+      // De qué líneas del casino salió: se guardan todas para poder rastrear de dónde viene el número.
+      proveedorCasino: [...new Set(g.deCasino)].join(' + '),
+      lineas: g.deCasino.length,
+      costo: g.costo,
+      profit: money.round(g.profit, 2), pct: g.pct, base: g.base, dif: g.dif, cobra: g.cobra, monto,
+      tasa: g.tasa, usdt: (g.cobra && g.tasa) ? money.round(money.div(monto, g.tasa), 2) : '0',
+      sinTasa: g.cobra && !g.tasa,
+    });
+  }
+
   // agrupar por panel, como el PDF
+  // Por panel Y MONEDA: un panel puede reportar en varias, y "total" está en moneda local — juntar
+  // pesos con guaraníes en un mismo número no significa nada.
   const porPanel = new Map();
   for (const f of filas) {
-    if (!porPanel.has(f.panel)) porPanel.set(f.panel, { panel: f.panel, nivel: f.nivel, sistema: f.sistema, divisa: f.divisa, items: [], total: '0', usdt: '0' });
-    const g = porPanel.get(f.panel);
+    const kp = `${f.panel}|${f.divisa}`;
+    if (!porPanel.has(kp)) porPanel.set(kp, { panel: f.panel, nivel: f.nivel, sistema: f.sistema, divisa: f.divisa, items: [], total: '0', usdt: '0' });
+    const g = porPanel.get(kp);
     g.items.push(f);
     if (f.cobra) { g.total = money.add(g.total, f.monto); g.usdt = money.add(g.usdt, f.usdt); }
   }
@@ -347,7 +379,10 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     paneles: listaPaneles,
     deCache, delCasino, deLaFoto, consultas: trabajos.length, yaIncluidos: incluidos, sinTiempo, incompleto: sinTiempo > 0,
     cobrables: filas.filter((f) => f.cobra).length,
-    revisados: filas.length,
+    // "revisados" sigue siendo lo que trajo el casino; "facturables" son las líneas después de
+    // juntar las que caen en el mismo proveedor de la matriz.
+    revisados: lineasCasino,
+    facturables: filas.length,
     totalUsdt: money.round(totalUsdt, 2),
     sinVincular: [...sinVincular.entries()].map(([nombre, profit]) => ({ nombre, profit })).sort((a, b) => money.cmp(b.profit, a.profit)),
     avisos: [...new Set(avisos)],

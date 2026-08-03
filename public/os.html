@@ -1001,7 +1001,8 @@ function extPintar() {
     + '<div><div class="muted">Total a cobrar</div><div style="font-size:26px;font-weight:700">' + n(d.totalUsdt) + ' <span class="muted" style="font-size:14px">USDT</span></div></div>'
     + '<div><div class="muted">% base</div><div style="font-size:18px">' + esc(d.base) + '%' + (d.baseConfirmada ? ' <span class="muted" style="font-size:12px">confirmado</span>' : ' <span style="color:#c90;font-size:12px">sin confirmar</span>') + '</div></div>'
     + '<div><div class="muted">Su celda se lee</div><div>' + (d.modo === 'vendedor' ? 'como el <b>costo real</b>' : d.modo === 'adicional' ? 'como lo que <b>se suma</b>' : 'menos su <b>% base</b>') + '</div></div>'
-    + '<div><div class="muted">Paneles / filas</div><div>' + (d.paneles || []).length + ' · ' + d.cobrables + ' de ' + d.revisados + ' se cobran</div></div>'
+    + '<div><div class="muted">Paneles / filas</div><div>' + (d.paneles || []).length + ' · ' + d.cobrables + ' de ' + (d.facturables != null ? d.facturables : d.revisados) + ' se cobran'
+      + (d.facturables != null && d.revisados > d.facturables ? '<span class="muted"> (' + d.revisados + ' líneas del casino)</span>' : '') + '</div></div>'
     + '<button class="outline small" style="margin-left:auto" onclick="extCSV()">⬇ Exportar</button></div>';
   const alerta = avisos.length ? '<div class="card" style="border-left:3px solid #c90"><ul style="margin:0;padding-left:18px">' + avisos.map(a => '<li>' + a + '</li>').join('') + '</ul></div>' : '';
   // Un SuperAgente puede tener ganancia en VARIAS monedas: se muestra la divisa en cada fila y
