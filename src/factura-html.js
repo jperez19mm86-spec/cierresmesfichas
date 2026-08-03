@@ -98,7 +98,9 @@ function pagina({ factura: f, actualizado_at, token }) {
         aplicada sobre la ganancia que dio ese proveedor en cada panel.
         Si un proveedor cuesta igual o menos que tu base, o si dio pérdida, no aparece acá.</p>
         ${extResumen}${extTablas}
-        <p class="tot">Total proveedores: <b>${$(ext.total_usdt)} USDT</b></p></div>`
+        <p class="tot">Total proveedores: <b>${$(ext.total_usdt)} USDT</b></p>
+        <p class="m" style="margin-top:8px">Los importes se redondean a dos decimales. Si dividís una fila por el tipo de cambio,
+        el resultado puede diferir en algún centavo; los totales son los que valen.</p></div>`
     : '';
 
   const pagos = (f.pagosDelMes || []).length
