@@ -97,6 +97,24 @@ async function main() {
   check('reparto cierra contra la base', rc.cierra && rc.base === '11' && rc.suma === '11', rc.estado + ' suma=' + rc.suma);
   check('el reparto tiene a la Empresa adentro', (rc.items || []).some((i) => i.es_empresa && i.pct === '7'), JSON.stringify(rc.items));
 
+  // ── emisión de VENDEDORES: es plata, así que lo que se prueba es que no se pueda cobrar dos
+  // veces y que se pueda deshacer sin llevarse puesta la factura de externos del cliente.
+  {
+    const emision = require('../src/emision.service');
+    const L = [{ cliente_id: cli.id, monto_usdt: '159620.69', base_pct: '0', notas: 'costo (vendedor)' }];
+    const e1 = emision.emitir({ mes: '2026-05', origen: 'vendedores', lineas: L });
+    check('emisión de vendedores crea el movimiento', e1.ok && e1.creados === 1, 'total=' + e1.total);
+    const e2 = emision.emitir({ mes: '2026-05', origen: 'vendedores', lineas: L });
+    check('emitir de nuevo NO duplica', e2.creados === 0 && e2.yaEstaban === 1, 'creados=' + e2.creados);
+    const e3 = emision.emitir({ mes: '2026-05', origen: 'externos', lineas: [{ cliente_id: cli.id, monto_usdt: '50' }] });
+    check('la factura de externos del cliente convive sin chocar', e3.creados === 1, 'creados=' + e3.creados);
+    const an = emision.anular({ mes: '2026-05', origen: 'vendedores' });
+    const queda = emision.emitido('2026-05');
+    check('anular borra SOLO lo del vendedor', an.borrados === 1 && (queda.porOrigen.externos || {}).cantidad === 1 && !queda.porOrigen.vendedores,
+      'borrados=' + an.borrados + ' queda=' + JSON.stringify(queda.porOrigen));
+    emision.anular({ mes: '2026-05', origen: 'externos' });   // limpieza
+  }
+
   // ⚠️ Acá se probaba `src/proveedores.service` (el diferencial de proveedores). Ese archivo se
   // BORRÓ el 2-ago (commit a3a155c): era un segundo motor de externos que calculaba lo mismo con
   // otros %, y no lo llamaba ninguna pantalla. El motor bueno es `externos.service`. El test

@@ -21,7 +21,14 @@ const { db } = require('./db');
 const movs = require('./movimientos-store');
 const money = require('./lib/money');
 
-const ORIGENES = { facturacion: 'carga', externos: 'proveedor_extra' };
+/*
+ * 'vendedores' va aparte de 'externos' aunque los dos terminen en un movimiento `proveedor_extra`:
+ * son cuentas distintas y se emiten por separado. El cliente paga el DIFERENCIAL (su celda menos
+ * su % base); el vendedor paga el COSTO REAL del proveedor, sin base. Tener dos orígenes distintos
+ * es además lo que hace que el índice único los trate por separado: un mismo nombre no puede
+ * quedar cobrado dos veces por el mismo concepto, pero sí puede tener las dos cuentas.
+ */
+const ORIGENES = { facturacion: 'carga', externos: 'proveedor_extra', vendedores: 'proveedor_extra' };
 
 const nowISO = () => new Date().toISOString();
 

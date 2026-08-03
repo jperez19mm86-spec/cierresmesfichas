@@ -963,14 +963,110 @@ const CIE_STYLE = `<style>
   </style>`;
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vincular','🔗 Vincular proveedores']];
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['vincular','🔗 Vincular proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, externos:cieExternos, vincular:cieVincular}[_cieSub]||cieMatriz)();
+  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, vincular:cieVincular}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+
+/* ── sub-vista 🤝 CUENTA DE VENDEDORES ─────────────────────────────────────────────────
+   Un vendedor no es un cliente: no paga un % sobre lo que carga, paga el COSTO REAL de los
+   proveedores que use — en sus paneles y en los de sus clientes.
+
+   Esta cuenta se calculaba en el backend desde el 2-ago, pero no la mostraba ninguna pantalla
+   y la emisión de externos los salteaba (`if (c.es_vendedor) continue`). Resultado: los 8
+   vendedores tenían deuda 0 y esa plata no se cobraba salvo que alguien la sacara a mano. */
+let _venMes = new Date().toISOString().slice(0, 7), _venData = null;
+async function cieVendedores(){
+  const b = document.getElementById('cie-body');
+  b.innerHTML = `
+    <div class="card">
+      <h2>🤝 Cuenta de vendedores <span class="muted">— pagan el costo real, no un %</span></h2>
+      <div class="muted" style="margin-bottom:10px">Los vendedores revenden a sus propios clientes. No se les cobra un porcentaje sobre lo que cargan: pagan <b>lo que cuestan los proveedores</b> que usaron. Un panel de un cliente que cuelga del vendedor aparece en las dos cuentas y <b>está bien</b>: el cliente paga su %, el vendedor paga el costo. Son dos cobros distintos sobre el mismo movimiento.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0"><label>Mes</label><input type="month" id="ven-mes" value="${esc(_venMes)}" style="width:auto"/></div>
+        <div style="flex:0"><button onclick="venCalcular()">Calcular</button></div>
+        <div style="flex:1"></div>
+        <div style="flex:0"><button class="outline small" onclick="venEmitir(true)">👁 Ver qué emitiría</button></div>
+        <div style="flex:0"><button class="small" onclick="venEmitir(false)">📤 Emitir a la deuda</button></div>
+        <div style="flex:0"><button class="danger small" onclick="venAnular()">↩ Anular</button></div>
+      </div>
+      <div class="muted" style="margin-top:6px">Se emite como <b>proveedor_extra</b>, en su propia columna de la cuenta corriente y <b>aparte</b> de la factura de externos de los clientes. Emitir dos veces no duplica; para corregir se anula y se vuelve a emitir.</div>
+      <div id="ven-body" style="margin-top:14px"><div class="muted">Apretá Calcular. Consulta el casino, así que tarda.</div></div>
+    </div>`;
+  if(_venData) venPintar();
+}
+async function venCalcular(){
+  _venMes = val('ven-mes') || _venMes;
+  const out = document.getElementById('ven-body');
+  out.innerHTML = '<div class="empty">Consultando el casino vendedor por vendedor… puede tardar un rato.</div>';
+  const lista = (await api('/api/os/vendedores')).vendedores || [];
+  const filas = [];
+  for(const v of lista){
+    out.innerHTML = '<div class="empty">Calculando ' + esc(v.nombre) + '… (' + (filas.length+1) + '/' + lista.length + ')</div>';
+    const r = await api('/api/os/vendedores/' + v.id + '?mes=' + encodeURIComponent(_venMes));
+    filas.push({ v, r: r && r.cuenta ? r.cuenta : r });
+  }
+  _venData = filas;
+  venPintar();
+}
+function venPintar(){
+  const out = document.getElementById('ven-body');
+  if(!_venData || !_venData.length) return out.innerHTML = '<div class="empty">Sin vendedores.</div>';
+  let total = 0;
+  const filas = _venData.map(({v, r}) => {
+    const t = (r && r.totales) || {};
+    const prov = Number(t.proveedores_usdt || 0);
+    total += prov;
+    const inc = r && r.proveedores && r.proveedores.incompleto;
+    const errr = r && r.proveedores && r.proveedores.error;
+    return `<tr>
+      <td><b>${esc(v.nombre)}</b><div class="muted" style="font-size:11px">${v.clientes} cliente${v.clientes===1?'':'s'}</div></td>
+      <td class="right">${money(t.vendido_propio_usdt||0)}</td>
+      <td class="right">${money(t.vendido_clientes_usdt||0)}</td>
+      <td class="right"><b style="color:var(--gold)">${money(prov)}</b>${inc?' <span class="badge warn">incompleto</span>':''}${errr?' <span class="badge err">error</span>':''}</td>
+    </tr>`;
+  }).join('');
+  out.innerHTML = `
+    <table><thead><tr><th>Vendedor</th><th class="right">Vendió propio (USDT)</th><th class="right">Vendieron sus clientes</th><th class="right">Paga por proveedores</th></tr></thead>
+    <tbody>${filas}</tbody>
+    <tfoot><tr><td colspan="3" class="right"><b>Total a cobrarles</b></td><td class="right"><b>${money(total)}</b></td></tr></tfoot></table>
+    <div class="muted" style="margin-top:6px">Lo que “vendieron sus clientes” es contexto: esa plata la paga cada cliente por su cuenta. Lo que se le cobra al vendedor es la última columna.</div>`;
+}
+async function venEmitir(dry){
+  if(!dry && !confirm('¿Emitir a la deuda lo que pagan los VENDEDORES por proveedores en ' + _venMes + '?\n\nEs una cuenta aparte de la factura de externos de los clientes. Emitir de nuevo NO duplica.')) return;
+  toast(dry ? 'Calculando…' : 'Emitiendo… consulta el casino, tarda');
+  const r = await api('/api/os/emision/vendedores', { method:'POST', body: JSON.stringify({ mes:_venMes, dry: !!dry }) });
+  if(!r.ok) return toast('Error: ' + (r.error||''));
+  const out = document.getElementById('ven-body');
+  if(dry){
+    const ya = (r.yaEmitido && r.yaEmitido.cantidad) || 0;
+    out.innerHTML = `<div class="card" style="background:var(--bg3);margin:0 0 12px">
+      <b>Se emitirían ${r.lineas.length} vendedores · ${money(r.total)} USDT</b>
+      ${ya?`<div class="muted">⚠ ya hay ${ya} movimientos emitidos para este mes: esos no se vuelven a crear.</div>`:''}
+      <table style="margin-top:8px"><thead><tr><th>Vendedor</th><th class="right">USDT</th></tr></thead><tbody>
+      ${r.lineas.map(l=>`<tr><td>${esc(l.vendedor||l.cliente_id)}</td><td class="right"><b>${money(l.monto_usdt)}</b></td></tr>`).join('')}
+      </tbody></table>
+      ${(r.sinCosto||[]).length?`<div class="muted" style="margin-top:6px">Sin costo este mes: ${r.sinCosto.map(esc).join(' · ')}</div>`:''}
+      ${(r.fallaron||[]).length?`<div class="badge err" style="margin-top:6px">${r.fallaron.length} con error</div><div class="muted">${r.fallaron.map(f=>esc(f.vendedor)+': '+esc(f.error)).join('<br>')}</div>`:''}
+    </div>` + out.innerHTML;
+    return;
+  }
+  const avisos = [];
+  if(r.yaEstaban) avisos.push(r.yaEstaban + ' ya estaban');
+  if((r.sinCosto||[]).length) avisos.push((r.sinCosto||[]).length + ' sin costo');
+  if((r.fallaron||[]).length) avisos.push((r.fallaron||[]).length + ' con error');
+  toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (avisos.length?' · '+avisos.join(' · '):''));
+  if((r.fallaron||[]).length) console.warn('vendedores que fallaron:', r.fallaron);
+}
+async function venAnular(){
+  if(!confirm('¿Anular la emisión de VENDEDORES de ' + _venMes + '?\n\nBorra solo los movimientos que generó esa emisión.')) return;
+  const r = await api('/api/os/emision/vendedores/' + encodeURIComponent(_venMes), { method:'DELETE' });
+  toast(r.ok ? (r.borrados + ' borrados · ' + money(r.total,2) + ' USDT') : ('Error: ' + (r.error||'')));
+}
 
 
 // ── sub-vista §9 PROVEEDORES EXTERNOS ──

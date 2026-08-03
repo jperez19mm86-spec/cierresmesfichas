@@ -1164,6 +1164,44 @@ function mount(app) {
     ok(res, { ...out, sinBase, fallaron });
   }));
 
+  /**
+   * Lo que paga cada VENDEDOR por los proveedores que usó, a la deuda.
+   *
+   * Faltaba: la emisión de externos saltea a los vendedores (arriba, `if (c.es_vendedor) continue`)
+   * porque no llevan diferencial, y no había ninguna otra que los tomara. Resultado: su costo se
+   * calculaba, se mostraba en pantalla, y nunca entraba a la cuenta — los 8 tenían deuda 0.
+   *
+   * El vendedor paga el COSTO REAL del proveedor (modo 'vendedor' de externos.service, base 0),
+   * así que sale del mismo reporte que ve la pantalla: no puede diferir de lo que se muestra.
+   * `dry:true` devuelve el detalle SIN escribir, para mirarlo antes de emitir.
+   */
+  app.post('/api/os/emision/vendedores', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    const dry = !!(req.body && req.body.dry);
+    const lineas = []; const fallaron = []; const sinCosto = [];
+    for (const c of clientes.list().clientes) {
+      if (!c.es_vendedor) continue;
+      let r;
+      try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes }); }
+      catch (e) { fallaron.push({ vendedor: c.nombre, error: String((e && e.message) || e) }); continue; }
+      if (!r.ok) { fallaron.push({ vendedor: c.nombre, error: r.error }); continue; }
+      // Un reporte incompleto cobraría de menos y parecería correcto: no se emite.
+      if (r.incompleto) { fallaron.push({ vendedor: c.nombre, error: `la foto del mes está incompleta (faltan ${r.sinTiempo} consultas)` }); continue; }
+      if (!money.isPos(r.totalUsdt)) { sinCosto.push(c.nombre); continue; }
+      lineas.push({ cliente_id: c.id, monto_usdt: r.totalUsdt, base_pct: '0', notas: `Proveedores al costo ${mes} (vendedor)` });
+    }
+    if (dry) {
+      const ya = emision.emitido(mes, 'vendedores');
+      return ok(res, {
+        ok: true, dry: true, mes, lineas: lineas.map((l) => ({ ...l, vendedor: (clientes.get(l.cliente_id) || {}).nombre })),
+        total: money.round(money.sum(lineas.map((l) => l.monto_usdt)), 2), yaEmitido: ya, sinCosto, fallaron,
+      });
+    }
+    const out = emision.emitir({ mes, origen: 'vendedores', lineas });
+    if (!out.ok) return err(res, 400, out.error);
+    ok(res, { ...out, sinCosto, fallaron });
+  }));
+
   app.delete('/api/os/emision/:origen/:mes', (req, res) => {
     const r = emision.anular({ mes: req.params.mes, origen: req.params.origen });
     r.ok ? ok(res, r) : err(res, 400, r.error);
