@@ -15,6 +15,14 @@
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
   .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
   .nb { background:var(--gold); color:#fff; border-radius:20px; padding:0 6px; font-size:11px; margin-left:3px; vertical-align:1px; }
+  /* Europa y Casino son DOS sistemas distintos, y el mismo panel puede estar en los dos
+     (UPruebaLatam lo está). Sin color se leen como si fueran uno repetido. */
+  :root { --sis-eu:#2f6fd0; --sis-cas:#7c4dd6; }
+  .sis { display:inline-block; padding:1px 7px; border-radius:5px; font-size:10.5px; font-weight:700;
+         letter-spacing:.02em; border:1px solid transparent; }
+  .sis.eu  { background:rgba(47,111,208,.13);  color:var(--sis-eu);  border-color:rgba(47,111,208,.35); }
+  .sis.cas { background:rgba(124,77,214,.13);  color:var(--sis-cas); border-color:rgba(124,77,214,.35); }
+  .sis.na  { background:var(--bg3); color:var(--muted); border-color:var(--border); }
   main { max-width:1000px; margin:0 auto; padding:18px; }
   .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
   .card h2 { font-size:15px; margin:0 0 10px; }
@@ -163,7 +171,7 @@ function bloquePaneles(c){
      <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
-       <td>${esc(p.sistema||'')}</td><td>${esc(p.nivel_usuario||'')}</td>
+       <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
        <td class="muted">${esc(p.divisas||'—')}</td>
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
@@ -2091,6 +2099,12 @@ const _TIPOS = {
   margen_cae:'Gana menos', cae_fuerte:'Venden menos', mes_negativo:'En rojo', nuevo:'Nuevos',
 };
 const usd = (n) => n==null ? '—' : money(n,0)+' USDT';
+/** La etiqueta de sistema. Europa azul, Casino violeta — el mismo panel puede estar en los dos. */
+function sisPill(s){
+  if(!s) return '<span class="sis na">?</span>';
+  const eu = /europa/i.test(s);
+  return `<span class="sis ${eu?'eu':'cas'}">${eu?'🇪🇺 Europa':'🎰 Casino'}</span>`;
+}
 
 /** Gráfico del mes: el movimiento como área y la ganancia de cada día como barra. Todo en USDT,
  *  que es la única forma de juntar ocho monedas en un mismo dibujo. SVG a mano: no hay librerías. */
@@ -2120,9 +2134,55 @@ function graficoMes(serie){
   </svg>`;
 }
 
+/** Los últimos meses: barras de ganancia en USDT y la línea de cuánto se llevan los jugadores. */
+function graficoTendencia(ms){
+  const con = ms.filter(x=>!x.vacio);
+  if(con.length<2) return '<div class="empty">Hace falta más de un mes capturado para ver la tendencia.</div>';
+  const W=760,H=180,P=34;
+  const max = Math.max(...con.map(x=>x.profitUsdt),1);
+  const bw = (W-P*2)/ms.length*0.62;
+  const x = (i)=> P + (i+0.5)*((W-P*2)/ms.length);
+  const y = (v)=> H-28 - (v/max)*(H-58);
+  const barras = ms.map((m,i)=> m.vacio ? '' : `<g>
+    <rect x="${(x(i)-bw/2).toFixed(1)}" y="${y(m.profitUsdt).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H-28-y(m.profitUsdt)).toFixed(1)}"
+      rx="3" fill="var(--gold)" opacity=".85"><title>${m.mes}: ganó ${money(m.profitUsdt,0)} USDT · movió ${money(m.inUsdt,0)}</title></rect>
+    <text x="${x(i)}" y="${(y(m.profitUsdt)-5).toFixed(1)}" font-size="10" font-weight="700" fill="var(--text)" text-anchor="middle">${money(m.profitUsdt/1000,0)}k</text>
+  </g>`).join('');
+  // la línea del RTP va sobre su propia escala (0–100%), por eso se dibuja aparte
+  const pts = ms.map((m,i)=> m.vacio||m.rtp==null ? null : `${x(i).toFixed(1)},${(H-28-(m.rtp)*(H-58)).toFixed(1)}`).filter(Boolean).join(' ');
+  const etiq = ms.map((m,i)=>`<text x="${x(i)}" y="${H-10}" font-size="10" fill="${m.vacio?'var(--border)':'var(--muted)'}" text-anchor="middle">${m.mes.slice(5)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${barras}<polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="1.8" stroke-dasharray="4 3" opacity=".8"/>
+    ${ms.map((m,i)=> m.vacio||m.rtp==null?'':`<circle cx="${x(i)}" cy="${(H-28-(m.rtp)*(H-58)).toFixed(1)}" r="2.6" fill="var(--red)"><title>${m.mes}: se llevan ${(m.rtp*100).toFixed(0)}%</title></circle>`).join('')}
+    <line x1="${P}" y1="${H-28}" x2="${W-P}" y2="${H-28}" stroke="var(--border)"/>${etiq}
+    <text x="${P}" y="12" font-size="10" fill="var(--gold)">▮ ganancia del mes (USDT)</text>
+    <text x="${P+160}" y="12" font-size="10" fill="var(--red)">- - cuánto se llevan los jugadores</text>
+  </svg>`;
+}
+
+/** Cuánto se llevan los jugadores en cada panel, este mes contra el anterior. */
+function graficoRtp(rows){
+  if(!rows||!rows.length) return '<div class="empty">Sin datos.</div>';
+  return '<div style="display:flex;flex-direction:column;gap:7px">' + rows.map(r=>{
+    const subio = r.rtpPrev!=null && r.rtp-r.rtpPrev >= 0.05;
+    const ancho = Math.min(r.rtp,1.2)/1.2*100;
+    const anchoP = r.rtpPrev!=null ? Math.min(r.rtpPrev,1.2)/1.2*100 : null;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+        <span>${sisPill(r.sistema)} <b>${esc(r.login)}</b> <span class="muted">${esc(r.moneda)}${r.cliente?' · '+esc(r.cliente):''}</span></span>
+        <span style="${subio?'color:var(--red);font-weight:700':'color:var(--muted)'}">${(r.rtp*100).toFixed(0)}%${
+          r.rtpPrev!=null?` <span class="muted" style="font-weight:400">(era ${(r.rtpPrev*100).toFixed(0)}%)</span>`:''}${subio?' ▲':''}</span>
+      </div>
+      <div style="position:relative;height:11px;background:var(--bg3);border-radius:6px;overflow:hidden">
+        ${anchoP!=null?`<div style="position:absolute;left:0;top:0;height:100%;width:${anchoP.toFixed(1)}%;background:var(--border)"></div>`:''}
+        <div style="position:absolute;left:0;top:0;height:100%;width:${ancho.toFixed(1)}%;background:${subio?'var(--red)':'var(--green)'};opacity:.75;border-radius:6px"></div>
+      </div></div>`;
+  }).join('') + '</div>';
+}
+
 AC.pulso = async () => {
   const mes = _acMes || new Date().toISOString().slice(0,7);
-  const p = await api('/api/os/pulso?mes='+mes);
+  const [p, tnd] = await Promise.all([api('/api/os/pulso?mes='+mes), api('/api/os/pulso/tendencia?mes='+mes+'&meses=6')]);
   const dest = document.getElementById('ac-cuerpo');
   if(!p.ok) return dest.innerHTML = '<div class="card"><div class="empty">No se pudo armar el pulso: '+esc(p.error||'')+'</div></div>';
   window._pul = p;
@@ -2173,6 +2233,33 @@ AC.pulso = async () => {
     <div class="card"><h2>El mes día por día <span class="muted">(en USDT)</span></h2>
       ${graficoMes(p.serieDia)}</div>
 
+    <div class="row" style="gap:10px;margin-bottom:12px;align-items:stretch">
+      <div class="card" style="flex:2 1 380px;margin:0"><h2>Los últimos 6 meses</h2>
+        ${tnd.ok?graficoTendencia(tnd.meses):'<div class="empty">—</div>'}
+        ${tnd.ok&&tnd.sinTC.length?`<div class="muted" style="margin-top:6px">⚠ Sin TC: ${esc(tnd.sinTC.slice(0,6).join(', '))}${tnd.sinTC.length>6?'…':''} — esos meses quedan cortos.</div>`:''}</div>
+      <div class="card" style="flex:1 1 200px;margin:0"><h2>Por sistema</h2>
+        ${(p.sistemas||[]).map(g=>`<div style="margin-bottom:10px">
+          <div>${sisPill(g.sistema)} <span class="muted">${g.paneles} panel(es)</span></div>
+          <div style="font-size:19px;font-weight:800;margin-top:2px">${money(g.profitUsdt,0)} <span class="muted" style="font-size:11px">USDT</span></div>
+          <div class="muted" style="font-size:11.5px">movió ${money(g.inUsdt,0)} · se llevan ${g.rtp!=null?(g.rtp*100).toFixed(0)+'%':'—'}
+            ${g.sinTC?'· <span style="color:var(--gold)">'+g.sinTC+' sin TC</span>':''}</div>
+        </div>`).join('')||'<div class="empty">—</div>'}</div>
+    </div>
+
+    ${(p.clientes||[]).length?`<div class="card"><h2>Clientes para mirar
+      <span class="muted">(un panel roto es un problema; tres del mismo dueño es otra cosa)</span></h2>
+      <table><thead><tr><th>Cliente</th><th class="right">🔴</th><th class="right">Alertas</th><th>Paneles</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
+      ${p.clientes.slice(0,10).map(c=>`<tr>
+        <td><b>${esc(c.cliente)}</b></td>
+        <td class="right">${c.graves?'<span style="color:var(--red);font-weight:800">'+c.graves+'</span>':'<span class="muted">—</span>'}</td>
+        <td class="right muted">${c.alertas}</td>
+        <td class="muted" style="font-size:12px">${c.paneles.slice(0,3).map(esc).join(', ')}${c.paneles.length>3?' +'+(c.paneles.length-3):''}</td>
+        <td class="right"><b>${money(c.usdt,0)}</b></td></tr>`).join('')}
+      </tbody></table></div>`:''}
+
+    <div class="card"><h2>Cuánto se llevan los jugadores <span class="muted">(barra gris = el mes pasado; roja = subió)</span></h2>
+      ${graficoRtp(p.rtp||[])}</div>
+
     <div class="card">
       <h2>Qué mirar <span class="muted">(${p.alertas.length}, lo más caro primero)</span></h2>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
@@ -2185,7 +2272,7 @@ AC.pulso = async () => {
           <div style="display:flex;gap:10px;align-items:flex-start">
             <div style="flex:1">
               <b>${n.ico} ${esc(a.titulo)}</b>
-              <div style="margin-top:3px"><span class="pill">${esc(a.login)}</span> <span class="muted">${esc(a.moneda)}</span>
+              <div style="margin-top:3px">${sisPill(a.sistema)} <span class="pill">${esc(a.login)}</span> <span class="muted">${esc(a.moneda)}</span>
                 ${a.cliente?'· cliente <b>'+esc(a.cliente)+'</b>':'<span class="badge warn">sin cliente asignado</span>'}</div>
               <div class="muted" style="margin-top:5px;color:var(--text);font-size:13px">${esc(a.detalle)}</div>
               <div class="muted" style="margin-top:5px">📍 ${esc(a.donde||'')}</div>
@@ -2199,8 +2286,9 @@ AC.pulso = async () => {
     </div>
 
     <div class="card"><h2>De dónde sale la ganancia <span class="muted">(top 12)</span></h2>
-      <table><thead><tr><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
+      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
       ${p.top.slice(0,12).map(t=>`<tr>
+        <td>${sisPill(t.sistema)}</td>
         <td><b>${esc(t.login)}</b></td><td class="muted">${esc(t.cliente||'—')}</td><td class="muted">${esc(t.moneda)}</td>
         <td class="right"><b>${money(t.profitUsdt,0)}</b></td>
         <td class="right">${flecha(t.varProfit)}</td>
