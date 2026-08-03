@@ -840,6 +840,7 @@ function mount(app) {
   });
   // 📊 EL PULSO: el resumen y las alertas del mes, desde el acumulado guardado (no toca el casino).
   app.get('/api/os/pulso', wrap((req, res) => ok(res, pulsoSvc.pulso({ mes: req.query.mes }))));
+  app.get('/api/os/pulso/tendencia', wrap((req, res) => ok(res, pulsoSvc.tendencia({ hasta: req.query.mes, meses: Number(req.query.meses) || 6 }))));
 
   // Ver el acumulado del mes de TODAS las conexiones juntas (todos los GOD en simultáneo).
   app.get('/api/os/casino/acumulado-todos', (req, res) => {

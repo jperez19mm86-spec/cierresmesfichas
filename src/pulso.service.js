@@ -62,9 +62,24 @@ function seriesDe(mes) {
 function duenos() {
   const m = new Map();
   try {
-    const ps = db.prepare('SELECT p.conexion_id, p.id_usuario, p.nombre, c.codigo, c.nombre AS cliente FROM paneles p LEFT JOIN clientes c ON c.id = p.cliente_id').all();
-    ps.forEach((p) => { if (p.conexion_id && p.id_usuario) m.set(`${p.conexion_id}:${p.id_usuario}`, { codigo: p.codigo || null, cliente: p.cliente || null, panel: p.nombre }); });
+    const ps = db.prepare('SELECT p.conexion_id, p.id_usuario, p.nombre, p.sistema, c.codigo, c.nombre AS cliente FROM paneles p LEFT JOIN clientes c ON c.id = p.cliente_id').all();
+    ps.forEach((p) => { if (p.conexion_id && p.id_usuario) m.set(`${p.conexion_id}:${p.id_usuario}`, { codigo: p.codigo || null, cliente: p.cliente || null, panel: p.nombre, sistema: p.sistema || null }); });
   } catch (e) { /* si el esquema cambia, el pulso sale igual sin el nombre del cliente */ }
+  return m;
+}
+
+/**
+ * De qué SISTEMA es cada conexión. Un mismo panel puede existir en Europa y en Casino a la vez
+ * (UPruebaLatam está en los dos): no es un duplicado, son dos paneles distintos con el mismo
+ * nombre. Sin esta columna parecen el mismo y se lee como un error de datos.
+ */
+function sistemas() {
+  const m = new Map();
+  try {
+    db.prepare('SELECT id, nombre FROM casino_conexiones').all().forEach((c) => {
+      m.set(c.id, { conexion: c.nombre, sistema: /europa/i.test(c.nombre || '') ? 'Europa' : 'Casino' });
+    });
+  } catch (e) { /* sin conexiones el pulso igual sale, sin la columna sistema */ }
   return m;
 }
 
@@ -75,9 +90,17 @@ function pulso({ mes, minDias = 5 } = {}) {
   const { series: sPrev } = seriesDe(prev);
   const prevPor = new Map(sPrev.map((s) => [s.key, s]));
   const quien = duenos();
+  const sis = sistemas();
   const nombre = (s) => {
     const d = quien.get(s.nodo);
-    return { login: s.login, moneda: s.moneda, cliente: d ? (d.codigo || d.cliente) : null };
+    const c = sis.get(s.conexion_id) || {};
+    return {
+      login: s.login, moneda: s.moneda,
+      cliente: d ? (d.codigo || d.cliente) : null,
+      // El sistema sale del panel si está registrado; si no, del nombre de la conexión.
+      sistema: (d && d.sistema) || c.sistema || null,
+      conexion: c.conexion || null,
+    };
   };
 
   // ── tipo de cambio, para poder rankear entre monedas ──
@@ -241,8 +264,57 @@ function pulso({ mes, minDias = 5 } = {}) {
     };
   }).sort((a, b) => (b.profitUsdt || 0) - (a.profitUsdt || 0));
 
+  // ── POR CLIENTE ────────────────────────────────────────────────────────
+  // Un panel roto es un problema; tres paneles del MISMO cliente con el mismo síntoma es otra cosa.
+  // Eso no se ve en una lista de alertas sueltas — hay que sumarlas por dueño.
+  const porCliente = {};
+  alertas.filter((a) => a.nivel !== 'info').forEach((a) => {
+    const k = a.cliente || '(sin cliente)';
+    const c = porCliente[k] = porCliente[k] || { cliente: k, alertas: 0, graves: 0, usdt: 0, paneles: new Set(), tipos: {} };
+    c.alertas++; if (a.nivel === 'grave') c.graves++;
+    c.usdt += a.montoUsdt || 0;
+    c.paneles.add(a.login);
+    c.tipos[a.tipo] = (c.tipos[a.tipo] || 0) + 1;
+  });
+  const clientes = Object.values(porCliente)
+    .map((c) => ({ ...c, paneles: [...c.paneles] }))
+    .sort((a, b) => b.usdt - a.usdt);
+
+  // ── POR SISTEMA (Europa / Casino) ─────────────────────────────────────
+  const porSistema = {};
+  activos.forEach((s) => {
+    const n = nombre(s);
+    const k = n.sistema || '(sin sistema)';
+    const g = porSistema[k] = porSistema[k] || { sistema: k, paneles: 0, inUsdt: 0, profitUsdt: 0, sinTC: 0 };
+    g.paneles++;
+    const i = aUsdt(s.in, s.moneda), p = aUsdt(s.profit, s.moneda);
+    if (i == null) g.sinTC++; else { g.inUsdt += i; g.profitUsdt += p; }
+  });
+  const sistemasTot = Object.values(porSistema)
+    .map((g) => ({ ...g, rtp: g.inUsdt ? (g.inUsdt - g.profitUsdt) / g.inUsdt : null }))
+    .sort((a, b) => b.inUsdt - a.inUsdt);
+
+  // ── CUÁNTO SE LLEVAN LOS JUGADORES, PANEL POR PANEL ───────────────────
+  // Este mes contra el anterior. Es la señal de margen hecha gráfico: si la barra creció, ese panel
+  // está dejando menos aunque mueva lo mismo.
+  const rtp = activos
+    .filter((s) => s.in > 0 && s.activos >= 5)
+    .map((s) => {
+      const a = prevPor.get(s.key);
+      return {
+        ...nombre(s), inUsdt: aUsdt(s.in, s.moneda),
+        rtp: s.out / s.in,
+        rtpPrev: a && a.in > 0 ? a.out / a.in : null,
+        profitUsdt: aUsdt(s.profit, s.moneda),
+      };
+    })
+    .filter((x) => x.inUsdt != null)
+    .sort((a, b) => b.inUsdt - a.inUsdt)
+    .slice(0, 14);
+
   const graves = alertas.filter((a) => a.nivel === 'grave').length;
   return {
+    clientes, sistemas: sistemasTot, rtp,
     ok: true, mes: m, mesPrev: prev,
     dias, ultimoDia: dias[dias.length - 1] || null, diasCapturados: dias.length,
     paneles: series.length, activos: activos.length,
@@ -259,4 +331,53 @@ function pulso({ mes, minDias = 5 } = {}) {
   };
 }
 
-module.exports = { pulso };
+/**
+ * Los últimos N meses en USDT, para ver si la cosa sube o baja de verdad.
+ *
+ * Va por SQL agrupado y no armando series día por día: es un total por mes y moneda, así que no
+ * hace falta recorrer nada. Cada moneda se convierte con SU tipo de cambio DE ESE MES — usar el de
+ * hoy para todos haría que una devaluación se lea como una caída de ventas.
+ */
+function tendencia({ hasta, meses = 6 } = {}) {
+  const fin = String(hasta || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const lista = [];
+  let [y, m] = fin.split('-').map(Number);
+  for (let i = 0; i < meses; i++) { lista.unshift(`${y}-${String(m).padStart(2, '0')}`); m--; if (m < 1) { m = 12; y--; } }
+
+  const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
+  const ph = lista.map(() => '?').join(',');
+  const rows = db.prepare(
+    "SELECT substr(fecha,1,7) AS mes, moneda, conexion_id, SUM(in_amt) AS inn, SUM(out_amt) AS outt, SUM(profit) AS pr,"
+    + " COUNT(DISTINCT sa_id) AS paneles, COUNT(DISTINCT fecha) AS dias"
+    + ` FROM reporte_diario WHERE grp='superagent' AND substr(fecha,1,7) IN (${ph}) GROUP BY 1,2,3`,
+  ).all(...lista).filter((r) => validas.has(r.conexion_id));
+
+  const porMes = {};
+  const faltan = new Set();
+  rows.forEach((r) => {
+    const g = porMes[r.mes] = porMes[r.mes] || { mes: r.mes, inUsdt: 0, profitUsdt: 0, paneles: 0, dias: 0, sinTC: [] };
+    const t = tcUnico.tcDelMes(r.moneda || 'ARS', r.mes);
+    const v = t && t.valor && Number(t.valor) > 0 ? Number(t.valor) : null;
+    if (!v) { if (!g.sinTC.includes(r.moneda)) g.sinTC.push(r.moneda); faltan.add(`${r.moneda} (${r.mes})`); return; }
+    g.inUsdt += Number(r.inn || 0) / v;
+    g.profitUsdt += Number(r.pr || 0) / v;
+    g.paneles += Number(r.paneles || 0);
+    g.dias = Math.max(g.dias, Number(r.dias || 0));
+  });
+
+  return {
+    ok: true,
+    meses: lista.map((mm) => {
+      const g = porMes[mm] || { mes: mm, inUsdt: 0, profitUsdt: 0, paneles: 0, dias: 0, sinTC: [] };
+      return {
+        ...g,
+        inUsdt: Math.round(g.inUsdt), profitUsdt: Math.round(g.profitUsdt),
+        rtp: g.inUsdt ? (g.inUsdt - g.profitUsdt) / g.inUsdt : null,
+        vacio: !g.dias,
+      };
+    }),
+    sinTC: [...faltan],
+  };
+}
+
+module.exports = { pulso, tendencia };
