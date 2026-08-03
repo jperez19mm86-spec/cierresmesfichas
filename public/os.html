@@ -14,6 +14,7 @@
   .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
   .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
+  .nb { background:var(--gold); color:#fff; border-radius:20px; padding:0 6px; font-size:11px; margin-left:3px; vertical-align:1px; }
   main { max-width:1000px; margin:0 auto; padding:18px; }
   .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
   .card h2 { font-size:15px; margin:0 0 10px; }
@@ -57,14 +58,18 @@
 <script>
 // ───────── helpers ─────────
 // Agrupadas por para qué se usan, con una barrita entre grupos: eran 14 botones seguidos y no se
-// distinguía el día a día de lo que se toca una vez por mes. "Paneles" salió: viven adentro de
-// Clientes, desplegando su fila.
+// distinguía el día a día de lo que se toca una vez por mes. Quedaron 11:
+//   · Paneles     → adentro de Clientes, desplegando la fila de cada uno
+//   · Comprobantes→ una solapa de Movimientos (un comprobante aprobado ES un movimiento)
+//   · Revisión    → adentro de Config, que es donde vive el diagnóstico
+// La etiqueta puede ser una función: así Movimientos muestra cuántos comprobantes esperan.
 const TABS = [
-  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'], ['movimientos','💸 Movimientos'], ['comprobantes','🧾 Comprobantes'],
+  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'],
+  ['movimientos', ()=>'💸 Movimientos' + (_cmpPend ? ' <span class="nb">'+_cmpPend+'</span>' : '')],
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
-  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['revision','🩺 Revisión'], ['config','⚙ Config'],
+  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 let _tab = 'clientes';
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'socios';
@@ -85,7 +90,7 @@ function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.hre
 function renderNav(){
   document.getElementById('nav').innerHTML = TABS.map(t=>
     t==='|' ? '<span class="navsep"></span>'
-            : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('');
+            : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
 }
 function go(t){ _tab=t; renderNav(); VIEWS[t](); }
 
@@ -765,12 +770,19 @@ function facturaImprimir() {
 // Los sube el cliente desde la pantalla pública y quedan PENDIENTES. Aprobar genera el
 // movimiento de pago, que es lo único que baja la deuda. Por eso el monto que se acredita se
 // escribe acá, y no se toma el que declaró el cliente.
-let _cmpFiltro = 'pendiente';
-VIEWS.comprobantes = async () => {
-  document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
-  const r = await api('/api/os/comprobantes' + (_cmpFiltro ? '?estado=' + _cmpFiltro : ''));
+// Arranca en "aprobados": la solapa se llama "Ya resueltos", los que esperan tienen la suya.
+let _cmpFiltro = 'aprobado';
+// Vive adentro de 💸 Movimientos, en sus solapas. Se deja el alias por si algo llama go('comprobantes').
+VIEWS.comprobantes = () => { _movSub = 'pendientes'; go('movimientos'); };
+
+/** Pinta la lista de comprobantes en el cuerpo de Movimientos. `estado` vacío = todos. */
+async function pintarComprobantes(estado, conFiltros) {
+  const dest = document.getElementById('mov-body'); if (!dest) return;
+  const r = await api('/api/os/comprobantes' + (estado ? '?estado=' + estado : ''));
   const cs = r.comprobantes || []; const c0 = r.cuentas || {};
-  const tabs = [['pendiente','⏳ Pendientes',c0.pendiente||0],['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos','']];
+  // El número de pendientes va a la pestaña: es lo que hace que se vea desde cualquier pantalla.
+  _cmpPend = c0.pendiente || 0; renderNav();
+  const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
     const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
@@ -796,13 +808,15 @@ VIEWS.comprobantes = async () => {
           + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>')
       + '</div>';
   };
-  document.getElementById('main').innerHTML = '<div class="card"><h2>🧾 Comprobantes de pago</h2>'
-    + '<div class="muted">Los sube el cliente desde la pantalla pública. Quedan <b>pendientes</b>: aprobar uno registra el pago y le baja la deuda, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
-    + '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">'
-    + tabs.map(t => '<button class="' + (t[0] === _cmpFiltro ? '' : 'outline ') + 'small" onclick="_cmpFiltro=\'' + t[0] + '\';VIEWS.comprobantes()">' + t[1] + (t[2] !== '' ? ' (' + t[2] + ')' : '') + '</button>').join('')
-    + '</div></div>'
-    + (cs.length ? cs.map(fila).join('') : '<div class="card"><div class="empty">No hay comprobantes acá.</div></div>');
-};
+  dest.innerHTML = '<div class="card"><h2>🧾 ' + (estado === 'pendiente' ? 'Comprobantes por aprobar' : 'Comprobantes ya resueltos') + '</h2>'
+    + '<div class="muted">Los sube el cliente desde la pantalla pública. Aprobar uno <b>registra el pago y le baja la deuda</b>, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
+    + (conFiltros ? '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">'
+      + tabs.map(t => '<button class="' + (t[0] === _cmpFiltro ? '' : 'outline ') + 'small" onclick="_cmpFiltro=\'' + t[0] + '\';VIEWS.movimientos()">' + t[1] + (t[2] !== '' ? ' (' + t[2] + ')' : '') + '</button>').join('')
+      + '</div>' : '')
+    + '</div>'
+    + (cs.length ? cs.map(fila).join('')
+      : '<div class="card"><div class="empty">' + (estado === 'pendiente' ? '✅ No hay nada esperando aprobación.' : 'No hay comprobantes acá.') + '</div></div>');
+}
 
 async function cmpResolver(id, estado) {
   const u = (document.getElementById('cmp-u-' + id) || {}).value;
@@ -812,14 +826,23 @@ async function cmpResolver(id, estado) {
   const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto_usdt: u, motivo: nota }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' USDT') : 'Rechazado');
-  VIEWS.comprobantes();
+  VIEWS.movimientos();
+}
+/** El contador de la pestaña, para que un comprobante nuevo se vea sin entrar a buscarlo. */
+async function refrescarPendientes() {
+  const r = await api('/api/os/comprobantes?estado=pendiente');
+  _cmpPend = (r.cuentas && r.cuentas.pendiente) || 0;
+  renderNav();
 }
 // ───────── 🩺 REVISIÓN ─────────
 // Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
 // Antes había que acordarse de mirar en cinco pantallas distintas.
+// Vive adentro de ⚙ Config: es un diagnóstico, no algo que se toque todos los días.
 let _revMes = new Date().toISOString().slice(0,7);
-VIEWS.revision = async () => {
-  document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Revisando…</div></div>';
+VIEWS.revision = () => { _cfgSub='revision'; go('config'); };
+
+CFG.revision = async () => {
+  document.getElementById('cfg-body').innerHTML = '<div class="card"><div class="muted">Revisando…</div></div>';
   const r = await api('/api/os/revision?mes='+encodeURIComponent(_revMes));
   const items = r.items||[];
   const fila = (i) => {
@@ -836,14 +859,14 @@ VIEWS.revision = async () => {
   const cab = '<div class="card"><h2>🩺 Revisión de '+esc(r.mes||_revMes)+'</h2>'
     + '<div class="muted">Todo lo que puede hacer que este mes salga con un número equivocado. No corrige nada: te dice qué mirar y dónde.</div>'
     + '<div class="row" style="margin-top:8px;align-items:flex-end">'
-    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;VIEWS.revision()"></div>'
+    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;CFG.revision()"></div>'
     + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Graves</label><div style="font-size:22px;font-weight:800;color:'+(r.graves?'var(--red)':'#3c9')+'">'+(r.graves||0)+'</div></div>'
     + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Avisos</label><div style="font-size:22px;font-weight:800">'+(r.avisos||0)+'</div></div>'
     + '</div></div>';
   const cuerpo = r.limpio
     ? '<div class="card" style="border-left:3px solid #3c9"><b>✅ Sin problemas detectados en este mes.</b><div class="muted">Todos los clientes tienen % base, todas las monedas tienen tipo de cambio y todos los paneles están vinculados.</div></div>'
     : items.map(fila).join('');
-  document.getElementById('main').innerHTML = cab + cuerpo;
+  document.getElementById('cfg-body').innerHTML = cab + cuerpo;
 };
 // ───────── PROVEEDORES ─────────
 let _provCat = []; // catálogo de proveedores del casino (gamesSystem) cargado en memoria
@@ -1308,12 +1331,39 @@ async function tcAhora(){ const r=await api('/api/os/tc/ahora'); document.getEle
 async function setTcProv(mes){ const v=val('tcp-'+mes); if(!v)return; await api('/api/os/tc/mes/'+mes,{method:'PUT',body:JSON.stringify({tc_proveedor_ext:v})}); toast('Mes cerrado'); VIEWS.tc(); }
 
 // ───────── MOVIMIENTOS ─────────
+// Un comprobante aprobado ES un movimiento de pago: eran dos pantallas para los dos lados de lo
+// mismo, y había que acordarse de mirar la otra. Ahora es una sola con solapas, y los que esperan
+// aprobación se ven desde cualquier pantalla porque el número va en la pestaña de arriba.
+let _movSub = 'cuenta';
+let _cmpPend = 0;
+const MOV = {};
+
 VIEWS.movimientos = async () => {
+  const subs = [
+    ['cuenta', '💳 Cuenta y pagos'],
+    ['pendientes', '⏳ Por aprobar' + (_cmpPend ? ' (' + _cmpPend + ')' : '')],
+    ['historial', '🧾 Ya resueltos'],
+  ];
+  document.getElementById('main').innerHTML =
+    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
+    + subs.map(([k,l])=>`<button class="${k===_movSub?'':'outline'} small" onclick="movSub('${k}')">${l}</button>`).join('')
+    + `</div></div><div id="mov-body"><div class="card"><div class="muted">Cargando…</div></div></div>`;
+  await (MOV[_movSub] || MOV.cuenta)();
+};
+function movSub(s){ _movSub=s; VIEWS.movimientos(); }
+
+MOV.pendientes = () => pintarComprobantes('pendiente', false);
+MOV.historial  = () => pintarComprobantes(_cmpFiltro, true);
+
+MOV.cuenta = async () => {
   if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
   if(!_paneles.length){ const d=await api('/api/os/paneles'); _paneles=d.paneles||[]; }
   const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
   const movs = (await api('/api/os/movimientos')).movimientos||[];
-  document.getElementById('main').innerHTML = `
+  document.getElementById('mov-body').innerHTML = `
+    ${_cmpPend ? `<div class="card" style="border-left:3px solid var(--gold)"><b>⏳ Hay ${_cmpPend} comprobante(s) esperando aprobación.</b>
+      <span class="muted">Hasta que los apruebes no bajan ninguna deuda.</span>
+      <button class="small" style="margin-left:8px" onclick="movSub('pendientes')">Verlos</button></div>` : ''}
     <div class="card"><h2>💳 Registrar pago</h2>
       <div class="row">
         <div><label>Cliente</label><select id="mp-cli">${cliOpts}</select></div>
@@ -1329,6 +1379,7 @@ VIEWS.movimientos = async () => {
       </tbody></table>
     </div>`;
   mcPaneles();
+  refrescarPendientes();
 };
 function mcPaneles(){
   const cli=val('mc-cli'); const opts=_paneles.filter(p=>p.cliente_id===cli).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
@@ -1337,7 +1388,7 @@ function mcPaneles(){
 async function regPago(){
   const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:val('mp-cli'),monto_usdt:val('mp-monto'),medio:val('mp-medio')})});
   if(r.ok) toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT');
-  VIEWS.movimientos();
+  _movSub='cuenta'; VIEWS.movimientos();
 }
 
 // ───────── REPARTO (split empresa/LATAM/socios) ─────────
@@ -1372,7 +1423,7 @@ function reloadDist(){ _repMes = val('rep-mes'); VIEWS.reparto(); }
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
 function renderCfgHeader(){
-  const subs=[['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
+  const subs=[['revision','🩺 Revisión'],['socios','🤝 Socios'],['participaciones','📊 Participaciones'],['split','⚖ Tabla Split'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
@@ -2019,7 +2070,9 @@ VIEWS.acumulado = async () => {
 function acMes(delta){ const el=document.getElementById('ac-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} el.value=y+'-'+String(m).padStart(2,'0'); _acMes=el.value; verAcumulado(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
 // init
-renderNav(); go('acumulado');
+// Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
+// estés en otra pantalla, que es todo el punto de haberlos metido ahí adentro.
+renderNav(); go('acumulado'); refrescarPendientes();
 </script>
 </body>
 </html>
