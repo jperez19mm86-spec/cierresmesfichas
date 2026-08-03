@@ -185,8 +185,17 @@ function revisarBajoCosto(mes) {
   else mx.proveedores.forEach((p) => { costo[p.nombre] = p.base_pct; });
   const celdas = (precios && precios.celdas && Object.keys(precios.celdas).length) ? precios.celdas : mx.celdas;
 
+  // A los VENDEDORES el motor les ignora la celda: pagan el costo real (`dif = costoProv`). Una
+  // celda suya por debajo del costo no cobra de menos — no se cobra por ahí. Marcarlas sería
+  // gritar 9 falsas alarmas sobre 15 y volver inútil el aviso.
+  const K = (s) => String(s || '').trim().toLowerCase();
+  const esVendedor = new Set();
+  clientes.list().clientes.filter((c) => c.es_vendedor).forEach((c) => {
+    [c.nombre, c.nombreVisible, c.codigo].filter(Boolean).forEach((n) => esVendedor.add(K(n)));
+  });
+
   const num = (v) => (v == null || v === '' ? null : Number(v));
-  const bajo = []; const enCero = [];
+  const bajo = []; const enCero = []; const deVendedores = [];
   for (const [prov, porCliente] of Object.entries(celdas || {})) {
     const c = num(costo[prov]);
     if (c == null) continue;                       // proveedor sin costo cargado: es otro problema
@@ -194,7 +203,9 @@ function revisarBajoCosto(mes) {
       const v = num(pct);
       if (v == null) continue;
       if (v === 0) { enCero.push(`${cliente} · ${prov}`); continue; }   // decisión tomada, no se toca
-      if (v < c) bajo.push({ cliente, proveedor: prov, celda: String(pct), costo: String(costo[prov]), pierde: Math.round((c - v) * 100) / 100 });
+      if (v >= c) continue;
+      if (esVendedor.has(K(cliente))) { deVendedores.push(`${cliente} · ${prov}`); continue; }
+      bajo.push({ cliente, proveedor: prov, celda: String(pct), costo: String(costo[prov]), pierde: Math.round((c - v) * 100) / 100 });
     }
   }
 
@@ -214,6 +225,15 @@ function revisarBajoCosto(mes) {
         .map(([cli, xs]) => `${cli}: ${xs.length} (peor ${xs[0].proveedor} ${xs[0].celda} vs costo ${xs[0].costo})`),
       cuantos: bajo.length,
       detalleFilas: bajo.slice(0, 200),
+    });
+  }
+  if (deVendedores.length) {
+    out.push({
+      nivel: AVISO,
+      titulo: `${deVendedores.length} celda(s) de VENDEDORES por debajo del costo (no molestan)`,
+      detalle: 'Al vendedor no se le cobra por la celda sino por el costo real del proveedor, así que estas celdas están de más y no hacen daño. Se listan solo para que no sorprendan al mirarlas.',
+      donde: '🧮 Cierre de Mes → Matriz % (las columnas de los vendedores)',
+      afectados: deVendedores.slice(0, 60), cuantos: deVendedores.length,
     });
   }
   if (enCero.length) {
