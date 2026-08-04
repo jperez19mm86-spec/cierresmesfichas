@@ -702,6 +702,16 @@ function mount(app) {
     res.send('﻿' + pagoProv.csv(r));   // BOM: si no, Excel rompe los acentos
   }));
 
+  // TBS: los 53 grupos de proveedores con su id, para poder mapearlos contra la matriz.
+  app.get('/api/os/tbs/grupos', wrap(async (_req, res) => {
+    const cx = casinoConex.list().find((c) => c.motor === 'tbs' && c.activa);
+    if (!cx) return err(res, 400, 'no hay ninguna conexión con motor TBS configurada');
+    const cli = casinoConex.client(cx.id);
+    if (!cli) return err(res, 400, `la conexión "${cx.nombre}" no tiene credenciales cargadas`);
+    const r = await cli.grupos();
+    r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error);
+  }));
+
   /**
    * TBS: el profit de unos agentes puntuales, por grupo de proveedores y por moneda.
    * Es la base para calcular cuánto se le paga a cada proveedor (punto 8).

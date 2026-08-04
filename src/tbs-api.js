@@ -179,6 +179,38 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     return { ok: true, porAgente, faltantes, grupos };
   }
 
+  /**
+   * Los GRUPOS de proveedores con su id, tal como los lista el desplegable del panel.
+   *
+   * No salen de la API de datos sino del HTML de la página: el `<select name="provider">`.
+   * Hacen falta para mapear cada grupo con su fila de la matriz, que es lo que decide el costo.
+   * Los que dicen "(prepayment)" son proveedores SUELTOS, no paquetes.
+   */
+  async function grupos() {
+    const s = await asegurarToken();
+    if (!s.ok) return s;
+    let r;
+    try {
+      r = await axios.get(`${base}/?act=diller&area=&show=notNULL`, {
+        timeout: 60000, validateStatus: () => true,
+        headers: { 'User-Agent': UA, Cookie: `token=${token}` },
+      });
+    } catch (e) { return { ok: false, error: 'no se pudo leer la página: ' + e.message }; }
+    const html = String(r.data || '');
+    const sel = html.match(/<select[^>]*name=["']provider["'][^>]*>([\s\S]*?)<\/select>/i);
+    if (!sel) return { ok: false, error: 'no encontré el desplegable de proveedores (¿sesión?)' };
+    const out = [];
+    const re = /<option[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi;
+    let m;
+    while ((m = re.exec(sel[1])) !== null) {
+      const id = m[1].trim();
+      const nombre = m[2].replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+      if (!id || !nombre || nombre === '- - -') continue;
+      out.push({ id, nombre, suelto: /\(prepayment\)/i.test(nombre) });
+    }
+    return { ok: true, grupos: out };
+  }
+
   /** Test de conexión: hace el login y devuelve con qué cuenta entró. */
   async function test() {
     const l = await login();
@@ -186,7 +218,7 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     return { ok: true, login: user, userId: l.userId, motor: 'tbs' };
   }
 
-  return { login, pedir, profitDeAgentes, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
+  return { login, pedir, profitDeAgentes, grupos, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
 }
 
 module.exports = { makeClient, normUrl };
