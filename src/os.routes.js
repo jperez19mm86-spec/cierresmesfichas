@@ -681,6 +681,30 @@ function mount(app) {
     const c = casinoConex.update(req.params.id, req.body || {}); if (!c) return err(res, 404, 'conexión no encontrada'); ok(res, { conexion: c });
   }));
   app.delete('/api/os/casino/conexiones/:id', (req, res) => casinoConex.remove(req.params.id) ? ok(res) : err(res, 404, 'conexión no encontrada'));
+
+  /**
+   * TBS: el profit de unos agentes puntuales, por grupo de proveedores y por moneda.
+   * Es la base para calcular cuánto se le paga a cada proveedor (punto 8).
+   *
+   * ⏱ Tarda ~54s por llamada. `grupos` es un array y se piden TODOS en la misma pasada —
+   * pedirlos de a uno serían 53 llamadas, casi una hora.
+   */
+  app.post('/api/os/tbs/profit', wrap(async (req, res) => {
+    const b = req.body || {};
+    const cx = casinoConex.list().find((c) => c.motor === 'tbs' && (!b.conexion_id || c.id === b.conexion_id));
+    if (!cx) return err(res, 400, 'no hay ninguna conexión con motor TBS configurada');
+    const cli = casinoConex.client(cx.id);
+    if (!cli) return err(res, 400, `la conexión "${cx.nombre}" no tiene credenciales cargadas`);
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    const ult = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const desde = b.desde || `${mes}-01 00:00:00`;
+    const hasta = b.hasta || `${mes}-${String(ult).padStart(2, '0')} 23:59:59`;
+    const agentes = Array.isArray(b.agentes) ? b.agentes.map(String) : [];
+    if (!agentes.length) return err(res, 400, 'hay que decir de qué agentes (agentes: ["3206986", …])');
+    const r = await cli.profitDeAgentes({ desde, hasta, agentes, grupos: b.grupos || [] });
+    if (!r.ok) return err(res, 502, r.error);
+    ok(res, { conexion: cx.nombre, mes, desde, hasta, ...r });
+  }));
   app.post('/api/os/casino/conexiones/:id/test', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.test(); r.ok ? ok(res, { login: r.login, balances: r.balances }) : err(res, 502, r.error);
