@@ -35,13 +35,28 @@ const money = require('./lib/money');
 const K = (s) => String(s || '').trim().toLowerCase();
 
 /**
- * TBS reporta por GRUPO (53 grupos: el id 10 es el paquete SL, 118 el BVS, 60 el SL2…), no por
- * proveedor suelto. Para cobrarlo hace falta decir qué fila de la matriz corresponde a cada
- * grupo — típicamente las filas `_ALL`, que son justamente el costo por defecto del grupo.
- * Ese mapeo todavía no existe: hasta que el dueño lo defina, TBS se informa aparte y NO se suma,
- * en vez de inventar una correspondencia y facturar sobre una suposición.
+ * TBS reporta por GRUPO de proveedores, no por proveedor suelto. Confirmado por el dueño (4-ago),
+ * y los dos últimos los dice el propio panel entre paréntesis:
+ *
+ *   grupo 10  → SL      (el paquete "pelado": Amatic, Apex, Apollo, Aristocrat, Bingo, Egt,
+ *                        G-club, Habanero, Igrosoft, Igt, Inbet, Microgaming, Netent, Novomatic,
+ *                        Playngo, Pragmatic, Wazdan)
+ *   grupo 118 → BVS     (la misma lista, marcada "(BVS)")
+ *   grupo 60  → SL2     (marcada "(SL2)")
+ *
+ * ⚠️ SL y XG cuestan 0 (regla del dueño), así que el grupo 10 no genera pago. Los que en el
+ * desplegable dicen "(prepayment)" son proveedores SUELTOS y van uno a uno contra su fila de la
+ * matriz, sin pasar por acá.
+ *
+ * El costo de cada grupo sale de las filas `_ALL` de la matriz, que son justamente el costo por
+ * defecto del grupo (SL2_ALL=0.5, BVS_ALL=0.5→1, …).
  */
-const TBS_PENDIENTE = 'TBS reporta por grupo de proveedores; falta decir qué fila de la matriz corresponde a cada grupo';
+const TBS_GRUPOS = {
+  10: 'SL',
+  118: 'BVS',
+  60: 'SL2',
+};
+const TBS_PENDIENTE = 'faltan los agentes de TBS a consultar y el resto de los 53 grupos';
 
 /**
  * Lo que le pagamos a cada proveedor en un mes.
@@ -122,7 +137,10 @@ async function reporte({ mes, monedas = null } = {}) {
 
   const total = money.round(money.sum(proveedores.map((p) => p.usdt)), 2);
   const tbs = casinoConex.list().filter((c) => c.motor === 'tbs' && c.activa);
-  if (tbs.length) avisos.push(`${TBS_PENDIENTE} — ${tbs.map((c) => c.nombre).join(', ')} NO está incluido en este total`);
+  if (tbs.length) {
+    const g = Object.entries(TBS_GRUPOS).map(([id, n]) => `${id}→${n}`).join(' · ');
+    avisos.push(`${tbs.map((c) => c.nombre).join(', ')} NO está incluido en este total. Grupos ya mapeados: ${g}. Falta: ${TBS_PENDIENTE}`);
+  }
 
   return {
     ok: true, mes: m, desde, hasta,
@@ -148,4 +166,4 @@ function csv(rep) {
   return filas.map((f) => f.map(esc).join(',')).join('\n');
 }
 
-module.exports = { reporte, csv, TBS_PENDIENTE };
+module.exports = { reporte, csv, TBS_GRUPOS, TBS_PENDIENTE };
