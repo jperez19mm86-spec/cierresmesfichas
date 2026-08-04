@@ -69,12 +69,17 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     } catch (e) { return { ok: false, error: 'no se pudo conectar: ' + e.message }; }
     const d = r.data;
     if (!d || typeof d !== 'object') {
-      return { ok: false, error: `respuesta inesperada (HTTP ${r.status}): esta URL no parece un panel TBS` };
+      const txt = typeof d === 'string' ? d.slice(0, 120).replace(/\s+/g, ' ') : '';
+      return { ok: false, error: `respuesta inesperada (HTTP ${r.status}): esta URL no parece un panel TBS${txt ? ' — ' + txt : ''}` };
     }
     const t = ((d.content || {}).user || {}).token;
     if (d.status !== 'ok' || !t) {
-      // TBS dice "Account not found" tanto si el usuario no existe como si la clave está mal.
-      return { ok: false, error: d.error || 'no se pudo autenticar' };
+      // Que diga QUÉ pasó. "no se pudo autenticar" a secas obliga a adivinar entre credenciales
+      // mal, IP bloqueada o cuenta sin permisos — y son arreglos distintos.
+      // TBS contesta "Account not found" tanto si el usuario no existe como si la clave está mal.
+      const dice = d.error || (d.status && d.status !== 'ok' ? `status "${d.status}"` : '');
+      const sinToken = d.status === 'ok' && !t ? ' (entró pero no devolvió token)' : '';
+      return { ok: false, error: `TBS rechazó el login: ${dice || 'sin explicación'}${sinToken}`, respuesta: d };
     }
     token = t;
     return { ok: true, token: t, userId: ((d.content || {}).user || {}).id };
