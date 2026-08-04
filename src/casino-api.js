@@ -367,11 +367,24 @@ function makeClient({ url, token, user, password } = {}) {
       if (totalDicho == null && d && typeof d === 'object' && !Array.isArray(d) && d.total != null) totalDicho = Number(d.total);
       if (!trozo.length) break;                                            // no vino nada más
       if (Number.isFinite(totalDicho) && raw.length >= totalDicho) break;   // ya está todo
-      if (!Number.isFinite(totalDicho) && trozo.length < PAGINA) break;     // sin total: página incompleta = última
+      if (trozo.length < PAGINA) break;                                     // página incompleta = última
     }
-    if (Number.isFinite(totalDicho) && raw.length < totalDicho) {
-      return { ok: false, error: `el casino dice que hay ${totalDicho} filas y se juntaron ${raw.length} en ${paginas} páginas: el reporte viene cortado.` };
+    // ⚠️ `total` NO siempre cuenta las mismas filas que devuelve.
+    // En la vista GENERAL (agrupada por proveedor) el motor manda las filas YA AGRUPADAS pero
+    // `total` sigue contando los registros de base: Casino ARS de julio decía 3961 y entregaba
+    // 1000 en la primera página y 0 en la segunda — o sea, estaba completo. Comparar una cosa
+    // contra la otra hacía FALLAR un reporte que había venido entero.
+    //
+    // La señal honesta de fin de datos es la página: si vuelve vacía o incompleta, no hay más.
+    // El caso que sí hay que atrapar es el contrario — quedarse sin páginas con la última LLENA,
+    // que es cuando de verdad puede faltar plata (pasó: 1000 de 1949 y el número parecía bien).
+    const ultimaLlena = raw.length > 0 && raw.length % PAGINA === 0 && paginas >= MAX_PAGINAS;
+    if (ultimaLlena) {
+      return { ok: false, error: `se juntaron ${raw.length} filas en ${paginas} páginas y todavía venían completas: el reporte viene cortado.` };
     }
+    const avisoTotal = (Number.isFinite(totalDicho) && raw.length < totalDicho)
+      ? `el casino informa ${totalDicho} registros y devolvió ${raw.length} filas agrupadas (normal en la vista general)`
+      : null;
     // Para diagnosticar el filtro de fechas: con qué params queda realmente la URL de la tabla.
     const debug = opts.debug ? {
       path: path.replace(/api_token=[^&]*/, 'api_token=***'),
@@ -380,7 +393,7 @@ function makeClient({ url, token, user, password } = {}) {
       urls: allRs.length,
       paginas, total: totalDicho, filas: raw.length,
     } : undefined;
-    return { ok: true, raw, paginas, total: totalDicho, debug };
+    return { ok: true, raw, paginas, total: totalDicho, avisoTotal, debug };
   }
 
   /**
