@@ -165,7 +165,11 @@ async function main() {
     f = pp.filaDeGrupo({ id: 999, nombre: 'lo_que_sea' }, costos, filas);
     check('TBS: un grupo desconocido no se factura', !!f.error && !f.nombre, f.error);
     f = pp.filaDeGrupo({ id: 78, nombre: 'goldenneo' }, { ...costos, 'playson sz': '3' }, filas);
-    check('TBS: si las filas SZ no cuestan igual, no factura el paquete', !!f.error, f.error);
+    check('TBS: si las filas SZ no cuestan igual, no factura el paquete', !!f.error && /PLAYSON SZ/.test(f.error), f.error);
+    // Las mesas en vivo llevan el mismo apellido pero cuestan 10: no fijan el precio del paquete.
+    f = pp.filaDeGrupo({ id: 78, nombre: 'goldenneo' }, { ...costos, 'pragmatic_live_slot_zona': '10' },
+      [...filas, 'PRAGMATIC_LIVE_SLOT_ZONA']);
+    check('TBS: el vivo no le cambia el precio al paquete Slot Zona', f.costo === '1', JSON.stringify(f));
   }
 
   // ── emisión de VENDEDORES: es plata, así que lo que se prueba es que no se pueda cobrar dos

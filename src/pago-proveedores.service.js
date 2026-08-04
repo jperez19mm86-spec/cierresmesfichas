@@ -58,7 +58,12 @@ const K = (s) => String(s || '').trim().toLowerCase();
  * se informa y no se factura, porque elegir una sería inventar el costo.
  */
 const TBS_FAMILIAS = {
-  78: { fam: 'SZ', etiqueta: 'SZ · Slot Zona', re: /(^|[\s_])(SZ|SLOT[\s_]?ZONA)([\s_]|$)/i },
+  // ⚠️ Slot Zona son SLOTS y cuestan 1. En la matriz hay además dos filas de MESAS EN VIVO con
+  // el mismo apellido (PRAGMATIC_LIVE_SLOT_ZONA y EVOLUTION_SLOT_ZONA) que cuestan 10. Esas no
+  // fijan el precio del paquete: en la planilla de junio, en los tres servidores, TODAS las filas
+  // SLOT_ZONA se cobraron al 1% y esas dos no aparecen ni una vez. TBS reporta el vivo en sus
+  // propios grupos (op_live, evolution_pragmatic_live), así que se excluyen acá.
+  78: { fam: 'SZ', etiqueta: 'SZ · Slot Zona', re: /(^|[\s_])(SZ|SLOT[\s_]?ZONA)([\s_]|$)/i, excluir: /LIVE|EVOLUTION/i },
   60: { fam: 'SL2', etiqueta: 'SL2', re: /(^|[\s_])SL2([\s_]|$)/i },
   118: { fam: 'BVS', etiqueta: 'BVS', re: /(^|[\s_])BVS([\s_]|$)/i },
   10: { fam: 'SL', etiqueta: 'SL', re: /(^|[\s_])SL([\s_]|$)/i },
@@ -98,14 +103,21 @@ function filaDeGrupo(g, costoDe, nombres) {
   if (fam) {
     // Una familia entera: todas sus filas tienen que costar lo mismo, si no el total sería una
     // mezcla y no se sabría de dónde salió.
-    const filas = nombres.filter((n) => fam.re.test(n));
+    const filas = nombres.filter((n) => fam.re.test(n) && !(fam.excluir && fam.excluir.test(n)));
     if (!filas.length) return { error: `no hay ninguna fila ${fam.fam} en la matriz` };
     // Una fila SIN costo cargado no vale 0: es un dato que falta. Se la deja afuera de la
     // comparación en vez de tomarla como un costo distinto — si no, cualquier fila nueva
     // agregada después de congelar el mes tumbaba el paquete entero.
-    const costos = [...new Set(filas.map((n) => String(costoDe[K(n)] ?? '')).filter((c) => c !== ''))];
+    const porCosto = new Map();
+    filas.forEach((n) => { const c = String(costoDe[K(n)] ?? ''); if (c === '') return; porCosto.set(c, [...(porCosto.get(c) || []), n]); });
+    const costos = [...porCosto.keys()];
     if (!costos.length) return { error: `ninguna fila ${fam.fam} tiene costo cargado` };
-    if (costos.length > 1) return { error: `las filas ${fam.fam} de la matriz no cuestan todas igual (${costos.join(', ')}): no se puede facturar el grupo entero` };
+    if (costos.length > 1) {
+      // Decir CUÁLES discrepan: con solo los porcentajes hay que ir a buscarlas a mano entre 239 filas.
+      const detalle = costos.sort((a, b) => porCosto.get(b).length - porCosto.get(a).length)
+        .map((c) => `${c}% → ${porCosto.get(c).slice(0, 4).join(', ')}${porCosto.get(c).length > 4 ? ` y ${porCosto.get(c).length - 4} más` : ''}`).join(' · ');
+      return { error: `las filas ${fam.fam} no cuestan todas igual (${detalle}): no se puede facturar el paquete entero hasta emparejarlas` };
+    }
     return { nombre: fam.etiqueta, costo: costos[0], filas: filas.length };
   }
   const suelto = TBS_SUELTOS[g.id];
