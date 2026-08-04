@@ -1055,9 +1055,14 @@ function pagoPintar(){
       <td class="right"><b>${money(p.usdt)}</b></td></tr>`+det;
   }).join('');
   out.innerHTML = `
-    ${r.tbsPendiente?`<div class="card" style="margin:0 0 12px;border-left:3px solid var(--red);background:var(--bg3)">
-      <b>⚠ TBS no está incluido en este total</b>
-      <div class="muted" style="margin-top:4px">${esc(r.tbsPendiente)}. En la planilla de junio TBS era el <b>38%</b> de lo que se pagó, así que este número está incompleto hasta resolverlo.</div></div>`:''}
+    ${(r.tbsSinMapear||[]).length?`<div class="card" style="margin:0 0 12px;border-left:3px solid var(--gold);background:var(--bg3)">
+      <b>⚠ ${r.tbsSinMapear.length} grupo(s) de TBS quedaron afuera del total</b>
+      <div class="muted" style="margin:4px 0 6px">Dieron ganancia en el mes pero no se sabe a qué fila de la matriz corresponden, así que <b>no se pagan</b>. Decime el equivalente de cada uno y entran.</div>
+      <table style="margin-top:6px"><thead><tr><th>Grupo (TBS)</th><th>Ganancia del mes</th><th>Por qué quedó afuera</th></tr></thead><tbody>
+      ${r.tbsSinMapear.map(x=>`<tr><td><b>${esc(x.grupo)}</b> <span class="muted">#${esc(x.id)}</span></td>
+        <td class="muted">${Object.entries(x.porDivisa||{}).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')||'—'}</td>
+        <td class="muted">${esc(x.motivo)}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
     <div class="row" style="align-items:stretch;margin-bottom:12px">
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Total a pagar</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(r.totales.usdt)}</div><div class="muted" style="font-size:11px">USDT</div></div>
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Proveedores</label><div style="font-size:24px;font-weight:800">${r.totales.proveedores}</div></div>

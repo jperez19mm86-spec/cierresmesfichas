@@ -148,6 +148,24 @@ async function main() {
     check('TBS suma el profit por divisa (bet − win)', s.ARS.profit === 70 && s.PYG.profit === 100, JSON.stringify(s));
     check('TBS no mezcla los nodos de otro agente', s.ARS.bet === 150 && s.ARS.salas === 2, 'bet=' + s.ARS.bet);
     check('TBS devuelve null si el agente no está', c.buscarNodo(arbol, 'NOEXISTE') === null);
+
+    // Qué fila de la matriz le toca a cada grupo de TBS. Es lo que decide el COSTO, así que lo
+    // que hay que probar es que no invente cuando la matriz es ambigua.
+    const pp = require('../src/pago-proveedores.service');
+    const filas = ['PRAGMATIC SZ', 'PLAYSON SZ', 'PRAGMATIC SL2', '3OAKS SL2', 'KAGAMING OP', 'RED TIGER OP', 'RED_TIGER OP', 'ALTENTE RL'];
+    const costos = { 'pragmatic sz': '1', 'playson sz': '1', 'pragmatic sl2': '0.5', '3oaks sl2': '0.5', 'kagaming op': '10.5', 'red tiger op': '9.5', 'red_tiger op': '9.5', 'altente rl': '4' };
+    let f = pp.filaDeGrupo({ id: 78, nombre: 'goldenneo' }, costos, filas);
+    check('TBS: el grupo 78 es Slot Zona y cuesta 1', f.costo === '1' && /Slot Zona/.test(f.nombre), JSON.stringify(f));
+    f = pp.filaDeGrupo({ id: 60, nombre: 'slgames2' }, costos, filas);
+    check('TBS: el grupo 60 es SL2 y cuesta 0,5', f.costo === '0.5', JSON.stringify(f));
+    f = pp.filaDeGrupo({ id: 84, nombre: 'op_kagaming' }, costos, filas);
+    check('TBS: op_kagaming cae en KAGAMING OP', f.nombre === 'KAGAMING OP' && f.costo === '10.5', JSON.stringify(f));
+    f = pp.filaDeGrupo({ id: 52, nombre: 'op_red_tiger' }, costos, filas);
+    check('TBS: con dos filas iguales no elige, avisa', !!f.error && !f.nombre, f.error);
+    f = pp.filaDeGrupo({ id: 999, nombre: 'lo_que_sea' }, costos, filas);
+    check('TBS: un grupo desconocido no se factura', !!f.error && !f.nombre, f.error);
+    f = pp.filaDeGrupo({ id: 78, nombre: 'goldenneo' }, { ...costos, 'playson sz': '3' }, filas);
+    check('TBS: si las filas SZ no cuestan igual, no factura el paquete', !!f.error, f.error);
   }
 
   // ── emisión de VENDEDORES: es plata, así que lo que se prueba es que no se pueda cobrar dos

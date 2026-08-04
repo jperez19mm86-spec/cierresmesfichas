@@ -35,28 +35,158 @@ const money = require('./lib/money');
 const K = (s) => String(s || '').trim().toLowerCase();
 
 /**
- * TBS reporta por GRUPO de proveedores, no por proveedor suelto. Confirmado por el dueño (4-ago),
- * y los dos últimos los dice el propio panel entre paréntesis:
+ * ── TBS ────────────────────────────────────────────────────────────────────────────────────
  *
- *   grupo 10  → SL      (el paquete "pelado": Amatic, Apex, Apollo, Aristocrat, Bingo, Egt,
- *                        G-club, Habanero, Igrosoft, Igt, Inbet, Microgaming, Netent, Novomatic,
- *                        Playngo, Pragmatic, Wazdan)
- *   grupo 118 → BVS     (la misma lista, marcada "(BVS)")
- *   grupo 60  → SL2     (marcada "(SL2)")
+ * Reporta por GRUPO de proveedores, no por proveedor suelto: el panel expone 52 grupos con un
+ * nombre interno (`slgames2`, `goldenneo`, `op_kagaming`…) que no se parece al de la matriz.
  *
- * ⚠️ SL y XG cuestan 0 (regla del dueño), así que el grupo 10 no genera pago. Los que en el
- * desplegable dicen "(prepayment)" son proveedores SUELTOS y van uno a uno contra su fila de la
- * matriz, sin pasar por acá.
+ * El mapeo NO se adivinó por parecido de nombre. Se consultó junio-2026 grupo por grupo con los
+ * 4 agentes del dueño y se comparó contra su planilla (`Henry [henry_support] - Profit.csv`).
+ * Las divisas chicas son las que no dejan lugar a duda:
  *
- * El costo de cada grupo sale de las filas `_ALL` de la matriz, que son justamente el costo por
- * defecto del grupo (SL2_ALL=0.5, BVS_ALL=0.5→1, …).
+ *   grupo  78 goldenneo → SZ (Slot Zona)   CRC 100 · BOB 82 · MXN 56 · USD 410 ≈ 413  ✔
+ *   grupo  60 slgames2  → SL2              CRC 8.420 exacto, ARS a 0,13%              ✔
+ *   grupo  10 slgames   → SL     · cuesta 0, no genera pago
+ *   grupo  32 xgames    → XG     · cuesta 0, no genera pago
+ *   grupo 118 BVS       → BVS    · lo dice el propio panel
+ *
+ * SZ es el 76% de lo que se paga por TBS, así que era el que había que identificar sí o sí.
+ *
+ * Los grupos `op_*` son proveedores sueltos y van contra SU fila de la matriz (KAGAMING OP,
+ * BOOMING OP…), cada uno con su costo. Se resuelven por nombre pero con una regla ESTRICTA:
+ * tiene que haber una sola fila que coincida. Si hay dos parecidas (RED TIGER OP y RED_TIGER OP)
+ * se informa y no se factura, porque elegir una sería inventar el costo.
  */
-const TBS_GRUPOS = {
-  10: 'SL',
-  118: 'BVS',
-  60: 'SL2',
+const TBS_FAMILIAS = {
+  78: { fam: 'SZ', etiqueta: 'SZ · Slot Zona', re: /(^|[\s_])(SZ|SLOT[\s_]?ZONA)([\s_]|$)/i },
+  60: { fam: 'SL2', etiqueta: 'SL2', re: /(^|[\s_])SL2([\s_]|$)/i },
+  118: { fam: 'BVS', etiqueta: 'BVS', re: /(^|[\s_])BVS([\s_]|$)/i },
+  10: { fam: 'SL', etiqueta: 'SL', re: /(^|[\s_])SL([\s_]|$)/i },
+  32: { fam: 'XG', etiqueta: 'XG', re: /(^|[\s_])XG([\s_]|$)/i },
 };
-const TBS_PENDIENTE = 'faltan los agentes de TBS a consultar y el resto de los 53 grupos';
+
+/** Los únicos agentes que el dueño factura por TBS. El resto del árbol no es suyo. */
+const TBS_AGENTES = [
+  { id: '3206986', nombre: 'Henry-Latam' },
+  { id: '3206461', nombre: 'NachoAPI' },
+  { id: '3210708', nombre: 'TBSDavidLatam' },
+  { id: '3200138', nombre: 'Henry999' },
+];
+
+/**
+ * Grupos sueltos que NO siguen el patrón `op_<proveedor>` y que se identificaron por número
+ * contra la planilla de junio. La fila de la matriz va escrita tal cual, sin adivinanza.
+ */
+const TBS_SUELTOS = {
+  11: 'SPORTBETTING_ImperiumBet',        // 499.083 ARS, exacto
+  47: 'ALTENTE RL',                      //   6.180 ARS, exacto
+  83: 'WS_SPORTS_Original_Dima_Li',      //  10.000 ARS, exacto
+  59: 'PLAYSON EV',                      // 201.462 vs 201.463
+  68: 'BOOMING_ASIA_KN_Original_Dima_Li',//  30.273 vs 30.693
+};
+
+const TBS_PENDIENTE = null;
+
+/** Para comparar nombres de proveedor: sin espacios, guiones ni mayúsculas. */
+const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/**
+ * Qué fila de la matriz le corresponde a un grupo de TBS.
+ * Devuelve { nombre, costo } o { error } — nunca elige entre varias candidatas.
+ */
+function filaDeGrupo(g, costoDe, nombres) {
+  const fam = TBS_FAMILIAS[g.id];
+  if (fam) {
+    // Una familia entera: todas sus filas tienen que costar lo mismo, si no el total sería una
+    // mezcla y no se sabría de dónde salió.
+    const filas = nombres.filter((n) => fam.re.test(n));
+    if (!filas.length) return { error: `no hay ninguna fila ${fam.fam} en la matriz` };
+    const costos = [...new Set(filas.map((n) => String(costoDe[K(n)] ?? '')))];
+    if (costos.length > 1) return { error: `las filas ${fam.fam} de la matriz no cuestan todas igual (${costos.join(', ')}): no se puede facturar el grupo entero` };
+    return { nombre: fam.etiqueta, costo: costos[0], filas: filas.length };
+  }
+  const suelto = TBS_SUELTOS[g.id];
+  if (suelto) {
+    const n = nombres.find((x) => K(x) === K(suelto));
+    return n ? { nombre: n, costo: String(costoDe[K(n)] ?? '') } : { error: `"${suelto}" ya no está en la matriz` };
+  }
+  // `op_kagaming` → la fila que se llame exactamente "KAGAMING OP". Una sola, o nada.
+  const m = /^op[_\s](.+)$/i.exec(g.nombre);
+  if (!m) return { error: 'grupo sin equivalencia en la matriz' };
+  const buscado = norm(m[1] + 'op');
+  const hit = nombres.filter((n) => norm(n) === buscado);
+  if (hit.length === 1) return { nombre: hit[0], costo: String(costoDe[K(hit[0])] ?? '') };
+  if (hit.length > 1) return { error: `la matriz tiene ${hit.length} filas iguales (${hit.join(' / ')}): habría que dejar una sola` };
+  return { error: 'grupo sin equivalencia en la matriz' };
+}
+
+/**
+ * Lo que se le paga a TBS en el mes. Una consulta por grupo — el panel no sabe devolver el
+ * profit desglosado por grupo en una sola pasada, y sumar todo junto perdería justamente el
+ * dato que decide el costo.
+ */
+async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
+  const conexiones = casinoConex.list().filter((c) => c.motor === 'tbs' && c.activa);
+  const out = { proveedores: [], usdt: '0', sinMapear: [], filas: 0, conexiones: [] };
+  const nombres = Object.keys(costoDe).length ? Object.keys(costoDe) : [];
+  // costoDe está indexado en minúscula; para las expresiones hace falta el nombre como se escribió
+  const reales = cierre.getMatriz().proveedores.map((p) => p.nombre);
+  const lista = reales.length ? reales : nombres;
+
+  for (const cx of conexiones) {
+    const cli = casinoConex.client(cx.id);
+    if (!cli) { avisos.push(`${cx.nombre}: sin credenciales`); continue; }
+    const g = await cli.grupos();
+    if (!g.ok) { avisos.push(`${cx.nombre}: no se pudo leer la lista de grupos — ${g.error}`); continue; }
+    out.conexiones.push(cx.nombre);
+
+    const agentes = TBS_AGENTES.map((a) => a.id);
+    // De a cinco: en serie son ~2 minutos y esto lo mira alguien esperando en pantalla.
+    const tanda = 5;
+    for (let i = 0; i < g.grupos.length; i += tanda) {
+      const parte = await Promise.all(g.grupos.slice(i, i + tanda).map(async (grp) => {
+        try { return { grp, r: await cli.profitDeAgentes({ desde, hasta, agentes, grupos: [grp.id] }) }; }
+        catch (e) { return { grp, r: { ok: false, error: String((e && e.message) || e) } }; }
+      }));
+      for (const { grp, r } of parte) {
+        if (!r.ok) { avisos.push(`${cx.nombre} grupo ${grp.nombre}: ${r.error}`); continue; }
+        // sumar las divisas de los 4 agentes
+        const porDivisa = {};
+        Object.values(r.porAgente || {}).forEach((a) => Object.entries(a.porDivisa || {}).forEach(([d, v]) => {
+          porDivisa[d] = money.add(porDivisa[d] || '0', String(v.profit));
+        }));
+        const conPlata = Object.entries(porDivisa).filter(([, v]) => money.isPos(v));
+        if (!conPlata.length) continue;                       // sin ganancia, no se paga nada
+
+        const fila = filaDeGrupo(grp, costoDe, lista);
+        if (fila.error) {
+          out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: fila.error, porDivisa: Object.fromEntries(conPlata.map(([d, v]) => [d, money.round(v, 2)])) });
+          continue;
+        }
+        if (fila.costo === '' || fila.costo == null) { out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: `"${fila.nombre}" no tiene costo cargado`, porDivisa: {} }); continue; }
+        if (!money.isPos(fila.costo)) continue;               // cuesta 0: no genera pago
+
+        const a = { proveedor: `${fila.nombre} (TBS)`, costo: fila.costo, usdt: '0', lineas: [] };
+        for (const [divisa, profit] of conPlata) {
+          const tc = tcUnico.tcExternos(divisa, mes, fila.nombre);
+          if (!tc.valor) { avisos.push(`TBS ${fila.nombre}: sin TC para ${divisa}`); continue; }
+          const monto = money.round(money.pct(profit, fila.costo), 2);
+          const usdt = money.round(money.div(monto, tc.valor), 2);
+          a.usdt = money.add(a.usdt, usdt);
+          a.lineas.push({ conexion: cx.nombre, divisa, profit: money.round(profit, 2), monto, tc: tc.valor, usdt });
+        }
+        if (!a.lineas.length) continue;
+        a.usdt = money.round(a.usdt, 2);
+        out.usdt = money.add(out.usdt, a.usdt);
+        out.filas += a.lineas.length;
+        out.proveedores.push(a);
+      }
+    }
+  }
+  out.usdt = money.round(out.usdt, 2);
+  out.proveedores.sort((a, b) => Number(b.usdt) - Number(a.usdt));
+  return out;
+}
 
 /**
  * Lo que le pagamos a cada proveedor en un mes.
@@ -131,26 +261,39 @@ async function reporte({ mes, monedas = null } = {}) {
     porConexion[cx.nombre].usdt = money.round(porConexion[cx.nombre].usdt, 2);
   }
 
+  // TBS es el tercer motor: otro protocolo, otra granularidad. Se calcula aparte y se suma acá,
+  // porque para el dueño es una sola cuenta: lo que paga en el mes.
+  const tbs = await lineasTBS({ mes: m, desde, hasta, costoDe, avisos });
+  tbs.proveedores.forEach((p) => {
+    const a = acc.get(p.proveedor) || { proveedor: p.proveedor, costo: p.costo, usdt: '0', lineas: [] };
+    a.usdt = money.add(a.usdt, p.usdt); a.lineas.push(...p.lineas); acc.set(p.proveedor, a);
+  });
+  tbs.conexiones.forEach((n) => { porConexion[n] = { usdt: '0', filas: 0 }; });
+  tbs.proveedores.forEach((p) => p.lineas.forEach((l) => {
+    porConexion[l.conexion].usdt = money.add(porConexion[l.conexion].usdt, l.usdt);
+    porConexion[l.conexion].filas += 1;
+  }));
+  tbs.conexiones.forEach((n) => { porConexion[n].usdt = money.round(porConexion[n].usdt, 2); });
+  if (tbs.sinMapear.length) {
+    avisos.push(`TBS: ${tbs.sinMapear.length} grupo(s) con ganancia quedaron afuera del total porque no se sabe qué fila de la matriz les corresponde (ver "TBS sin mapear").`);
+  }
+
   const proveedores = [...acc.values()]
     .map((a) => ({ ...a, usdt: money.round(a.usdt, 2), lineas: a.lineas.sort((x, y) => Number(y.usdt) - Number(x.usdt)) }))
     .sort((a, b) => Number(b.usdt) - Number(a.usdt));
 
   const total = money.round(money.sum(proveedores.map((p) => p.usdt)), 2);
-  const tbs = casinoConex.list().filter((c) => c.motor === 'tbs' && c.activa);
-  if (tbs.length) {
-    const g = Object.entries(TBS_GRUPOS).map(([id, n]) => `${id}→${n}`).join(' · ');
-    avisos.push(`${tbs.map((c) => c.nombre).join(', ')} NO está incluido en este total. Grupos ya mapeados: ${g}. Falta: ${TBS_PENDIENTE}`);
-  }
 
   return {
     ok: true, mes: m, desde, hasta,
     congelado: !!(precios && precios.congelado),
     proveedores, porConexion,
+    tbsSinMapear: tbs.sinMapear,
     totales: { usdt: total, proveedores: proveedores.length },
     sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), conexiones: [...v.conexiones] }))
       .sort((a, b) => Number(b.profit) - Number(a.profit)),
     sinCosto: [...sinCosto], sinTC: [...sinTC], avisos,
-    tbsPendiente: tbs.length ? TBS_PENDIENTE : null,
+    tbsPendiente: TBS_PENDIENTE,
   };
 }
 
@@ -166,4 +309,4 @@ function csv(rep) {
   return filas.map((f) => f.map(esc).join(',')).join('\n');
 }
 
-module.exports = { reporte, csv, TBS_GRUPOS, TBS_PENDIENTE };
+module.exports = { reporte, csv, TBS_FAMILIAS, TBS_SUELTOS, TBS_AGENTES, filaDeGrupo };
