@@ -393,4 +393,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   };
 }
 
-module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango };
+// `traductor` se exporta para que la cuenta de lo que le PAGAMOS a los proveedores use el mismo
+// cruce casino→matriz que la de lo que les cobramos a los clientes. Si fueran dos, los dos lados
+// del mismo proveedor podrían resolverse distinto.
+module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango, traductor };

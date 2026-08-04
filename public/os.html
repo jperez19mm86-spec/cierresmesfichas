@@ -996,14 +996,83 @@ const CIE_STYLE = `<style>
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
   // "Vincular proveedores" se fue a la pestaña 🏷 Proveedores: era la otra mitad de esa tabla.
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores']];
+  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores}[_cieSub]||cieMatriz)();
+  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+
+/* ── sub-vista 💸 PAGO A PROVEEDORES ───────────────────────────────────────────────────
+   El otro lado de la factura de externos: aquella le COBRA al cliente `ganancia × (celda −
+   su base)`; ésta calcula lo que le PAGAMOS al proveedor, `ganancia × su costo`. La ganancia
+   es la misma; cambia el porcentaje. */
+let _pagoMes = new Date().toISOString().slice(0,7), _pagoData = null, _pagoAbierto = new Set();
+async function ciePago(){
+  document.getElementById('cie-body').innerHTML = `
+    <div class="card">
+      <h2>💸 Cuánto le pagamos a los proveedores</h2>
+      <div class="muted" style="margin-bottom:10px">Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.
+        Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}" style="width:auto"/></div>
+        <div style="flex:0"><button onclick="pagoCalcular()">Calcular</button></div>
+        <div style="flex:1"></div>
+        <div style="flex:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button></div>
+      </div>
+      <div class="muted" style="margin-top:6px">Consulta el casino moneda por moneda, así que tarda. Un mes <b>congelado</b> usa los precios de ese mes.</div>
+      <div id="pago-body" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
+    </div>`;
+  if(_pagoData) pagoPintar();
+}
+async function pagoCalcular(){
+  _pagoMes = val('pago-mes') || _pagoMes;
+  const out=document.getElementById('pago-body');
+  out.innerHTML='<div class="empty">⏳ consultando el casino… puede tardar varios minutos</div>';
+  const r=await api('/api/os/pago-proveedores?mes='+encodeURIComponent(_pagoMes));
+  if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
+  _pagoData=r; _pagoAbierto.clear(); pagoPintar();
+}
+function pagoPintar(){
+  const r=_pagoData, out=document.getElementById('pago-body');
+  const conex=Object.entries(r.porConexion||{});
+  const filas=(r.proveedores||[]).map((p,i)=>{
+    const ab=_pagoAbierto.has(p.proveedor);
+    const det = ab ? `<tr class="sub"><td colspan="4"><div class="subwrap">
+      <table><thead><tr><th>Servidor</th><th>Divisa</th><th class="right">Ganancia</th><th class="right">A pagar</th><th class="right">TC</th><th class="right">USDT</th></tr></thead><tbody>
+      ${p.lineas.map(l=>`<tr><td>${esc(l.conexion)}</td><td class="muted">${esc(l.divisa)}</td><td class="right">${money(l.profit)}</td><td class="right">${money(l.monto)}</td><td class="right muted">${esc(l.tc)}</td><td class="right"><b>${money(l.usdt)}</b></td></tr>`).join('')}
+      </tbody></table></div></td></tr>` : '';
+    return `<tr style="cursor:pointer" onclick="pagoToggle('${esc(p.proveedor).replace(/'/g,"\\'")}')">
+      <td><span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${esc(p.proveedor)}</b></td>
+      <td class="right">${esc(p.costo)}%</td>
+      <td class="muted">${p.lineas.length} línea${p.lineas.length===1?'':'s'}</td>
+      <td class="right"><b>${money(p.usdt)}</b></td></tr>`+det;
+  }).join('');
+  out.innerHTML = `
+    ${r.tbsPendiente?`<div class="card" style="margin:0 0 12px;border-left:3px solid var(--red);background:var(--bg3)">
+      <b>⚠ TBS no está incluido en este total</b>
+      <div class="muted" style="margin-top:4px">${esc(r.tbsPendiente)}. En la planilla de junio TBS era el <b>38%</b> de lo que se pagó, así que este número está incompleto hasta resolverlo.</div></div>`:''}
+    <div class="row" style="align-items:stretch;margin-bottom:12px">
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Total a pagar</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(r.totales.usdt)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Proveedores</label><div style="font-size:24px;font-weight:800">${r.totales.proveedores}</div></div>
+      ${conex.map(([n,v])=>`<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>${esc(n)}</label><div style="font-size:20px;font-weight:800">${money(v.usdt)}</div><div class="muted" style="font-size:11px">${v.filas} líneas</div></div>`).join('')}
+    </div>
+    ${r.congelado?'<div class="muted" style="margin-bottom:8px">🧊 mes congelado: usa los precios de ESE mes</div>':'<div class="muted" style="margin-bottom:8px">⚠ mes sin congelar: usa los precios de HOY</div>'}
+    <table><thead><tr><th>Proveedor</th><th class="right">Costo</th><th></th><th class="right">A pagar (USDT)</th></tr></thead><tbody>
+    ${filas||'<tr><td colspan="4" class="empty">Sin ganancia para cobrar este mes.</td></tr>'}
+    </tbody></table>
+    ${(r.sinVincular||[]).length?`<div class="card" style="margin-top:12px;border-left:3px solid var(--gold);background:var(--bg3)">
+      <b>${r.sinVincular.length} proveedor(es) del casino sin vincular a la matriz</b>
+      <div class="muted" style="margin:4px 0 6px">Generaron ganancia pero no sabemos qué fila de la matriz son, así que <b>no se les está pagando nada</b>. Se vinculan en 🏷 Proveedores.</div>
+      <div class="muted" style="font-size:12px">${r.sinVincular.slice(0,20).map(x=>esc(x.nombre)+' ('+money(x.profit,0)+')').join(' · ')}</div></div>`:''}
+    ${(r.sinCosto||[]).length?`<div class="muted" style="margin-top:8px">Sin costo cargado (no se les paga): ${r.sinCosto.slice(0,25).map(esc).join(' · ')}</div>`:''}
+    ${(r.sinTC||[]).length?`<div class="badge err" style="margin-top:8px">Sin tipo de cambio: ${r.sinTC.map(esc).join(', ')}</div>`:''}
+    ${(r.avisos||[]).length?`<div class="muted" style="margin-top:8px">${r.avisos.map(esc).join('<br>')}</div>`:''}`;
+}
+function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
+function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
 
 /* ── sub-vista 🤝 CUENTA DE VENDEDORES ─────────────────────────────────────────────────
    Un vendedor no es un cliente: no paga un % sobre lo que carga, paga el COSTO REAL de los

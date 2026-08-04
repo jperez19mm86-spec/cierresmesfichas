@@ -13,6 +13,7 @@ const tcStore = require('./tc-store');
 const movs = require('./movimientos-store');
 const historial = require('./historial');
 const repartoSvc = require('./reparto.service');
+const pagoProv = require('./pago-proveedores.service');
 const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
@@ -681,6 +682,25 @@ function mount(app) {
     const c = casinoConex.update(req.params.id, req.body || {}); if (!c) return err(res, 404, 'conexión no encontrada'); ok(res, { conexion: c });
   }));
   app.delete('/api/os/casino/conexiones/:id', (req, res) => casinoConex.remove(req.params.id) ? ok(res) : err(res, 404, 'conexión no encontrada'));
+
+  // ───────── 💸 CUÁNTO LE PAGAMOS A LOS PROVEEDORES (punto 8) ─────────
+  // El otro lado de la factura de externos: aquella cobra `ganancia × (celda − base)` al cliente,
+  // ésta paga `ganancia × costo` al proveedor. Consulta el casino, así que tarda.
+  app.get('/api/os/pago-proveedores', wrap(async (req, res) => {
+    const r = await pagoProv.reporte({
+      mes: req.query.mes || mesTZ(),
+      monedas: req.query.monedas ? String(req.query.monedas).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) : null,
+    });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // El CSV con el mismo formato que el dueño ya usaba a mano.
+  app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {
+    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ() });
+    if (!r.ok) return err(res, 400, r.error);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="pago-proveedores-${r.mes}.csv"`);
+    res.send('﻿' + pagoProv.csv(r));   // BOM: si no, Excel rompe los acentos
+  }));
 
   /**
    * TBS: el profit de unos agentes puntuales, por grupo de proveedores y por moneda.

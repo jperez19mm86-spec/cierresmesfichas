@@ -97,6 +97,22 @@ async function main() {
   check('reparto cierra contra la base', rc.cierra && rc.base === '11' && rc.suma === '11', rc.estado + ' suma=' + rc.suma);
   check('el reparto tiene a la Empresa adentro', (rc.items || []).some((i) => i.es_empresa && i.pct === '7'), JSON.stringify(rc.items));
 
+  // ── Pago a proveedores: la fórmula, contra una fila REAL de la planilla que el dueño hacía
+  // a mano (Henry [henry_support] junio 2026): 3OAKS_OP · Europa · ARS.
+  {
+    const mo = require('../src/lib/money');
+    const monto = mo.round(mo.pct('907286', '8.5'), 2);
+    const usdt = mo.round(mo.div(monto, '1420.0'), 2);
+    check('pago-proveedores: ganancia × costo = monto de la planilla', monto === '77119.31', monto);
+    check('pago-proveedores: monto ÷ TC = USDT de la planilla', Math.abs(Number(usdt) - 54.3) < 0.05, usdt);
+    const csv = require('../src/pago-proveedores.service').csv({
+      mes: '2026-06', totales: { usdt: '54.31' },
+      proveedores: [{ proveedor: '3OAKS OP', costo: '8.5', lineas: [{ conexion: 'Europa', divisa: 'ARS', profit: '907286', monto, tc: '1420.0', usdt }] }],
+    });
+    check('pago-proveedores: el CSV sale con el formato de siempre',
+      csv.includes('Month/Year,Server,Currency') && csv.includes('3OAKS OP') && csv.includes('77119.31'), csv.split('\n')[1]);
+  }
+
   // ── TBS: el tercer motor. Se prueba la lógica de lectura del árbol (lo que puede salir mal),
   // sin tocar la red: buscar un agente a cualquier profundidad y sumar SOLO sus hojas.
   {
