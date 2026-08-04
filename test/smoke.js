@@ -124,6 +124,9 @@ async function main() {
     check('TC externos: SL (que NO es SL2) usa el del proveedor', tcU.tcExternos('ARS', '2026-04', 'WAZDAN SL').valor === '1473.5');
     check('TC externos: otra moneda no se toca',
       tcU.tcExternos('UYU', '2026-04', 'X').valor === tcU.tcDelMes('UYU', '2026-04').valor);
+    // 🔑 Y la factura del CLIENTE no usa esa tasa: va siempre con el promedio del mes.
+    check('TC cliente: la factura al cliente NO usa el del proveedor',
+      tcU.tcDelMes('ARS', '2026-04').valor === '1574.42', tcU.tcDelMes('ARS', '2026-04').valor);
   }
 
   // ── TBS: el tercer motor. Se prueba la lógica de lectura del árbol (lo que puede salir mal),

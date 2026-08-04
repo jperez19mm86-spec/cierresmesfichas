@@ -324,10 +324,16 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
         if (modo === 'total' && money.cmp(pct, base) < 0) {
           negativos.set(nombreMatriz, { proveedor: nombreMatriz, pct, base });
         }
-        // 🔑 El TC depende del PROVEEDOR, no solo de la moneda: en pesos los externos se liquidan
-        // con el TC que informa el proveedor, salvo SL2 y BVS que van con el promedio del mes
-        // (regla del dueño). Por eso se resuelve acá adentro y no una vez por panel.
-        const tcE = tcUnico.tcExternos(divisa, mes, nombreMatriz);
+        // 🔑 QUÉ TC SE USA DEPENDE DE QUÉ CUENTA ES (regla del dueño, 4-ago). Hay tres:
+        //   · la que se le COBRA AL CLIENTE (Marcelo, Titan…) → SIEMPRE el promedio del mes
+        //   · la INTERNA, por vendedor (Henry, Alexa…)        → el TC del proveedor
+        //   · la GLOBAL, lo que pagamos (pago-proveedores)    → el TC del proveedor
+        // Las dos últimas son lo que el dueño realmente paga, y por eso van con la tasa del
+        // proveedor (salvo SL2 y BVS, que van con el promedio). Al cliente se le cobra con el
+        // promedio y punto: la diferencia entre las dos tasas es margen, no un costo a trasladar.
+        const tcE = modo === 'vendedor'
+          ? tcUnico.tcExternos(divisa, mes, nombreMatriz)
+          : tcUnico.tcDelMes(divisa, mes);
         const tasa = tcE.valor;
         const k = `${panel.id}|${divisa}|${K(nombreMatriz)}`;
         const g = grupos.get(k) || {

@@ -120,8 +120,12 @@ function tcDelMes(divisa, mes) {
  * Fuera del peso no hay TC de proveedor: se usa el del mes.
  * Si el mes no tiene TC de proveedor cargado, cae al del mes y lo DICE — no inventa uno.
  *
- * Lo usan las dos caras del mismo negocio: lo que se le COBRA al cliente por externos y lo que
- * se le PAGA al proveedor. Tenerlo en un solo lugar es lo que impide que difieran.
+ * ⚠️ NO LO USA LA FACTURA DEL CLIENTE. Hay TRES cuentas de externos y no todas convierten igual:
+ *   · la que se le COBRA AL CLIENTE (Marcelo, Titan…) → SIEMPRE el promedio del mes (`tcDelMes`)
+ *   · la INTERNA, por vendedor (Henry, Alexa…)        → esta función
+ *   · la GLOBAL, lo que le pagamos al proveedor       → esta función
+ * Las dos últimas son plata que el dueño realmente paga. Al cliente se le cobra con el promedio:
+ * la diferencia entre las dos tasas es margen suyo, no un costo que se traslade.
  */
 function tcExternos(divisa, mes, nombreProveedor) {
   const D = String(divisa || 'ARS').toUpperCase();
