@@ -104,6 +104,40 @@ function tcDelMes(divisa, mes) {
   return { valor, fuente, divisa: D, mes: m, fuentes: f, conflicto };
 }
 
+/**
+ * ⭐ EL TC DE LOS PROVEEDORES EXTERNOS — que NO es el mismo que el del cliente.
+ *
+ * Regla del dueño (4-ago-2026): en PESOS, los proveedores externos se liquidan con el
+ * **tipo de cambio que informa el proveedor** (`tc_mes.tc_proveedor_ext`, la columna
+ * "TC PROVEEDOR (FACTURA)"), no con el promedio del mes. Julio: proveedor 1.473,5 contra
+ * cliente 1.574,42 — un 6,4% de diferencia, y como se DIVIDE por él, mueve la factura un 6,85%.
+ *
+ * Las excepciones, también suyas:
+ *   · **SL2 y BVS** van con el **promedio del mes**, el mismo que se usa para las cuentas de
+ *     los clientes. (En su planilla figuraban como una moneda aparte, `ARS_SL2_BVS`.)
+ *   · **SL y XG** cuestan 0, así que nunca generan un cobro y da igual con qué TC se conviertan.
+ *
+ * Fuera del peso no hay TC de proveedor: se usa el del mes.
+ * Si el mes no tiene TC de proveedor cargado, cae al del mes y lo DICE — no inventa uno.
+ *
+ * Lo usan las dos caras del mismo negocio: lo que se le COBRA al cliente por externos y lo que
+ * se le PAGA al proveedor. Tenerlo en un solo lugar es lo que impide que difieran.
+ */
+function tcExternos(divisa, mes, nombreProveedor) {
+  const D = String(divisa || 'ARS').toUpperCase();
+  const base = tcDelMes(D, mes);
+  if (D !== 'ARS') return base;
+  // el sufijo ES el producto: SL2 y BVS son grupos propios, no variantes de SL
+  if (/(^|[\s_])(SL2|BVS)([\s_]|$)/i.test(String(nombreProveedor || ''))) {
+    return { ...base, fuente: base.fuente + ' (SL2/BVS van con el promedio del mes)' };
+  }
+  const prov = (tcArs.getMes(String(mes).slice(0, 7)) || {}).tc_proveedor_ext;
+  if (prov != null && prov !== '' && money.isPos(String(prov))) {
+    return { valor: String(prov), fuente: 'TC del proveedor (factura)', divisa: D, mes: String(mes).slice(0, 7), fuentes: base.fuentes, conflicto: base.conflicto };
+  }
+  return { ...base, fuente: base.fuente + ' ⚠ sin TC de proveedor cargado para este mes' };
+}
+
 /** Todas las divisas de un mes donde las fuentes NO coinciden. Para mostrarlo en Tipos de cambio. */
 function discrepancias(mes) {
   const m = String(mes || '').slice(0, 7);
@@ -125,4 +159,4 @@ function faltantes(mes, divisasUsadas = []) {
     .sort();
 }
 
-module.exports = { tcDelMes, discrepancias, faltantes, mesCierre };
+module.exports = { tcDelMes, tcExternos, discrepancias, faltantes, mesCierre };

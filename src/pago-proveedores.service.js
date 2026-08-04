@@ -84,7 +84,6 @@ async function reporte({ mes, monedas = null } = {}) {
     porConexion[cx.nombre] = { usdt: '0', filas: 0 };
     for (const [divisa, res] of Object.entries(r.monedas || {})) {
       if (!res || !res.ok) { if (res && res.error) avisos.push(`${cx.nombre} ${divisa}: ${res.error}`); continue; }
-      const tc = tcUnico.tcDelMes(divisa, m);
       for (const fila of res.filas || []) {
         const profit = String(fila.profit ?? '0');
         if (!money.isPos(profit)) continue;                    // pérdida o cero: no se paga
@@ -99,6 +98,9 @@ async function reporte({ mes, monedas = null } = {}) {
         const costo = costoDe[K(nombre)];
         if (costo == null || costo === '') { sinCosto.add(nombre); continue; }
         if (!money.isPos(String(costo))) continue;             // costo 0 = no nos cobra nada
+        // El MISMO TC que usa la factura del cliente: en pesos, el del proveedor, salvo SL2 y BVS
+        // que van con el promedio del mes. Las dos caras del negocio tienen que convertir igual.
+        const tc = tcUnico.tcExternos(divisa, m, nombre);
         if (!tc.valor) { sinTC.add(divisa); continue; }
 
         const monto = money.round(money.pct(profit, String(costo)), 2);

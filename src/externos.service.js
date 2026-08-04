@@ -299,7 +299,6 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     const r = resultados[i] || { ok: false, error: 'sin respuesta' };
     {
       if (!r.ok) { avisos.push(`${panel.nombre} (${divisa}): ${r.error}`); continue; }
-      const tasa = tcDe(divisa, mes);
 
       for (const f of (r.filas || [])) {
         const profit = String(f.profit || '0');
@@ -325,12 +324,17 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
         if (modo === 'total' && money.cmp(pct, base) < 0) {
           negativos.set(nombreMatriz, { proveedor: nombreMatriz, pct, base });
         }
+        // 🔑 El TC depende del PROVEEDOR, no solo de la moneda: en pesos los externos se liquidan
+        // con el TC que informa el proveedor, salvo SL2 y BVS que van con el promedio del mes
+        // (regla del dueño). Por eso se resuelve acá adentro y no una vez por panel.
+        const tcE = tcUnico.tcExternos(divisa, mes, nombreMatriz);
+        const tasa = tcE.valor;
         const k = `${panel.id}|${divisa}|${K(nombreMatriz)}`;
         const g = grupos.get(k) || {
           panel: panel.nombre, panel_id: panel.id, nivel: panel.nivel_usuario, sistema: panel.sistema,
           divisa, proveedor: nombreMatriz, deCasino: [],
           costo: costoDe[K(nombreMatriz)] ?? null,
-          profit: '0', pct, base, dif, cobra, tasa,
+          profit: '0', pct, base, dif, cobra, tasa, tcFuente: tcE.fuente,
         };
         g.profit = money.add(g.profit, profit);        // la ganancia se suma ENTERA, sin redondear
         g.deCasino.push(`${f.label || f.provider} ${f.vendor}`.trim());

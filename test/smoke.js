@@ -111,6 +111,19 @@ async function main() {
     });
     check('pago-proveedores: el CSV sale con el formato de siempre',
       csv.includes('Month/Year,Server,Currency') && csv.includes('3OAKS OP') && csv.includes('77119.31'), csv.split('\n')[1]);
+
+    // El TC de externos NO es el del cliente: en pesos manda el del proveedor, salvo SL2 y BVS.
+    const tcArs = require('../src/tc-store'); const tcU = require('../src/tc-unico.service');
+    tcArs.addSnapshot({ tc_ars_usdt: '1574.42', fecha: '2026-04-15', hora: '18:00' });
+    tcArs.setTcProveedor('2026-04', '1473.5');
+    check('TC externos: en ARS manda el del proveedor', tcU.tcExternos('ARS', '2026-04', 'RUBYPLAY OP').valor === '1473.5',
+      tcU.tcExternos('ARS', '2026-04', 'RUBYPLAY OP').valor);
+    check('TC externos: SL2 va con el promedio del mes', tcU.tcExternos('ARS', '2026-04', 'PRAGMATIC SL2').valor === '1574.42',
+      tcU.tcExternos('ARS', '2026-04', 'PRAGMATIC SL2').valor);
+    check('TC externos: BVS también', tcU.tcExternos('ARS', '2026-04', '3OAKS BVS').valor === '1574.42');
+    check('TC externos: SL (que NO es SL2) usa el del proveedor', tcU.tcExternos('ARS', '2026-04', 'WAZDAN SL').valor === '1473.5');
+    check('TC externos: otra moneda no se toca',
+      tcU.tcExternos('UYU', '2026-04', 'X').valor === tcU.tcDelMes('UYU', '2026-04').valor);
   }
 
   // ── TBS: el tercer motor. Se prueba la lógica de lectura del árbol (lo que puede salir mal),
