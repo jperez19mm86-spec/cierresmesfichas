@@ -35,6 +35,10 @@
   button.small { padding:5px 9px; font-size:12px; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
   .row > div { flex:1; min-width:120px; }
+  /* Un selector de mes o fecha no entra en 120px: el campo quedaba más angosto que su propio
+     contenido y el botón de al lado se le montaba encima, tapando el mes y dejándolo sin poder
+     elegirse. Pasaba en las cinco pantallas que tienen uno. */
+  input[type=month], input[type=date] { min-width:175px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--border); }
   th { color:var(--muted); font-size:11px; text-transform:uppercase; }
@@ -1017,10 +1021,10 @@ async function ciePago(){
       <div class="muted" style="margin-bottom:10px">Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.
         Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.</div>
       <div class="row" style="align-items:flex-end">
-        <div style="flex:0"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}" style="width:auto"/></div>
-        <div style="flex:0"><button onclick="pagoCalcular()">Calcular</button></div>
-        <div style="flex:1"></div>
-        <div style="flex:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button></div>
+        <div style="flex:0"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
+        <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
+        <div style="flex:1;min-width:0"></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button></div>
       </div>
       <div class="muted" style="margin-top:6px">Consulta el casino moneda por moneda, así que tarda. Un mes <b>congelado</b> usa los precios de ese mes.</div>
       <div id="pago-body" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
