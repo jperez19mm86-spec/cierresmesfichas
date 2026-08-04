@@ -242,6 +242,24 @@ function makeClient({ url, user, password, token: tokenFijo }) {
       if (out.length >= 10) return { ok: true, grupos: out, origen: `json embebido en ${u}` };
       if (out.length) diag.push(`json embebido: solo ${out.length} candidatos, poco para 53 grupos`);
       if (/name=["']password["']/i.test(html) && !selects.length) diag.push('volvió el login: la cookie no autenticó');
+      // El select llega vacío: lo llena el propio panel por AJAX. Anotar de dónde podría salir.
+      const srcs = [...html.matchAll(/<script[^>]*src=["']([^"']+)["']/gi)].map((m) => m[1]);
+      if (srcs.length) diag.push(`scripts: ${srcs.join(' · ')}`);
+      const cmds = [...html.matchAll(/cmd["']?\s*[:=]\s*["']([A-Za-z_]+)["']/g)].map((m) => m[1]);
+      if (cmds.length) diag.push(`cmds en la página: ${[...new Set(cmds)].join(', ')}`);
+    }
+
+    // Plan B: pedírselo a la API. La respuesta de datos trae, además del árbol, los filtros
+    // disponibles — que es justamente la lista que el panel usa para llenar el desplegable.
+    for (const cmd of ['providersGet', 'filtersGet', 'treeGet']) {
+      const hoy = new Date().toISOString().slice(0, 10);
+      const r = await pedir(cmd, { fechas: [`${hoy} 00:00:00`, `${hoy} 00:05:00`] });
+      if (!r.ok) { diag.push(`${cmd}: ${r.error}`); continue; }
+      const cand = r.data.providers || r.data.provider || (r.data.filters || {}).providers || r.data.list;
+      const arr = Array.isArray(cand) ? cand : (cand && typeof cand === 'object' ? Object.entries(cand).map(([k, v]) => (v && typeof v === 'object' ? { id: v.id ?? k, name: v.name ?? v.title ?? v.label } : { id: k, name: v })) : null);
+      if (!arr || !arr.length) { diag.push(`${cmd}: sin lista de proveedores (claves: ${Object.keys(r.data).join(', ')})`); continue; }
+      const out = arr.map((x) => fila(x.id ?? x.value, limpio(x.name ?? x.title ?? x.label ?? ''))).filter((x) => x.id && x.nombre);
+      if (out.length) return { ok: true, grupos: out, origen: `API ${cmd}` };
     }
     return { ok: false, error: 'no encontré la lista de grupos en el panel', diag };
   }
