@@ -72,13 +72,16 @@ function makeClient({ url, user, password, token: tokenFijo }) {
       const txt = typeof d === 'string' ? d.slice(0, 120).replace(/\s+/g, ' ') : '';
       return { ok: false, error: `respuesta inesperada (HTTP ${r.status}): esta URL no parece un panel TBS${txt ? ' — ' + txt : ''}` };
     }
+    // ⚠️ TBS responde status "success" cuando entra y "fail" cuando no. Comparar contra "ok"
+    // rechazaba logins válidos: el panel decía que sí y el cliente lo leía como que no.
+    const okStatus = d.status === 'success' || d.status === 'ok';
     const t = ((d.content || {}).user || {}).token;
-    if (d.status !== 'ok' || !t) {
+    if (!okStatus || !t) {
       // Que diga QUÉ pasó. "no se pudo autenticar" a secas obliga a adivinar entre credenciales
       // mal, IP bloqueada o cuenta sin permisos — y son arreglos distintos.
       // TBS contesta "Account not found" tanto si el usuario no existe como si la clave está mal.
       const dice = d.error || (d.status && d.status !== 'ok' ? `status "${d.status}"` : '');
-      const sinToken = d.status === 'ok' && !t ? ' (entró pero no devolvió token)' : '';
+      const sinToken = okStatus && !t ? ' (entró pero no devolvió token)' : '';
       return { ok: false, error: `TBS rechazó el login: ${dice || 'sin explicación'}${sinToken}`, respuesta: d };
     }
     token = t;
