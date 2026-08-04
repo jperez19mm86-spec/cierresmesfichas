@@ -403,7 +403,11 @@ ensureColumns('paneles', {
 ensureColumns('personas', { es_empresa: 'INTEGER DEFAULT 0' });
 
 // Conexiones: auth dual (token O usuario/contraseña, ambos cifrados).
-ensureColumns('casino_conexiones', { usuario: 'TEXT', password: 'TEXT' });
+// `motor` dice con qué CLIENTE hablarle. Hasta el 4-ago se asumía que todas eran del engine
+// 463.life (Casino y Europa); TBS es otro producto y con el cliente de siempre devolvía
+// "usuario o contraseña incorrectos" sin haber probado nunca las credenciales.
+//   '463' (default) → src/casino-api.js   ·   'tbs' → src/tbs-api.js
+ensureColumns('casino_conexiones', { usuario: 'TEXT', password: 'TEXT', motor: "TEXT DEFAULT '463'" });
 
 // Proveedores: % que se cobra al cliente + código del gamesSystem (para importar del casino).
 ensureColumns('proveedores', { tarifa_pct: 'TEXT', codigo: 'TEXT' });

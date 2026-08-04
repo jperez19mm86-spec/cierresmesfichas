@@ -80,7 +80,8 @@ async function arbolDe(conexionId, { verBorrados = false } = {}) {
  * tenían cargado a mano sería peor que dejarlo viejo.
  */
 async function sincronizar({ soloConexion = null } = {}) {
-  const conexiones = casinoConex.list().filter((c) => !soloConexion || c.id === soloConexion);
+  // Solo el engine 463: el árbol de nodos no existe como tal en TBS.
+  const conexiones = casinoConex.list463().filter((c) => !soloConexion || c.id === soloConexion);
   const todos = paneles.list();
   const res = { conexiones: [], resueltos: 0, sinEncontrar: [], nivelCorregido: [], total: todos.length };
 

@@ -317,7 +317,7 @@ function mount(app) {
     const to = q.to || (fechaTZ() + ' 23:59:59');
     const from = q.from || (fechaTZ(new Date(Date.now() - 45 * 864e5)) + ' 00:00:00'); // default: últimos 45 días
     const curs = String(q.currencies || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
-    const conns = casinoConex.list();
+    const conns = casinoConex.list463();   // importar proveedores usa el reporte del engine 463
     const ids = conexion === 'todas' ? conns.filter((c) => c.activa).map((c) => c.id) : [conexion];
     if (!ids.length) return err(res, 400, 'No hay conexiones de casino activas para importar.');
     const seen = new Map(); // codigo(label|vendor) → nombre(label) — identidad = PROVEEDOR + VENDOR
@@ -866,7 +866,7 @@ function mount(app) {
     const dia = req.query.dia || (req.body && req.body.dia) || fechaUTC(); // casino corta días en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const out = [];
-    for (const cx of casinoConex.list()) {
+    for (const cx of casinoConex.list463()) {   // el acumulado se arma con nodos del engine 463
       if (!cx.activa) continue;
       try { const r = await acumSvc.captureDia(cx.id, dia, group); out.push({ conexion: cx.nombre, ...r }); }
       catch (e) { out.push({ conexion: cx.nombre, ok: false, error: e.message }); }
@@ -878,7 +878,7 @@ function mount(app) {
     const mes = req.query.mes || (req.body && req.body.mes) || mesUTC(); // casino corta meses en UTC
     const group = req.query.group || (req.body && req.body.group) || 'superagent';
     const out = [];
-    for (const cx of casinoConex.list()) {
+    for (const cx of casinoConex.list463()) {   // idem: TBS no tiene árbol de nodos
       if (!cx.activa) continue;
       try { const r = await acumSvc.captureMes(cx.id, mes, group); out.push({ conexion: cx.nombre, ...r }); }
       catch (e) { out.push({ conexion: cx.nombre, ok: false, error: e.message }); }

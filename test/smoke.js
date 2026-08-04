@@ -97,6 +97,27 @@ async function main() {
   check('reparto cierra contra la base', rc.cierra && rc.base === '11' && rc.suma === '11', rc.estado + ' suma=' + rc.suma);
   check('el reparto tiene a la Empresa adentro', (rc.items || []).some((i) => i.es_empresa && i.pct === '7'), JSON.stringify(rc.items));
 
+  // ── TBS: el tercer motor. Se prueba la lógica de lectura del árbol (lo que puede salir mal),
+  // sin tocar la red: buscar un agente a cualquier profundidad y sumar SOLO sus hojas.
+  {
+    const tbs = require('../src/tbs-api');
+    check('TBS normaliza la URL', tbs.normUrl('tbs2api.dark-a.com/index.php?act=diller') === 'https://tbs2api.dark-a.com',
+      tbs.normUrl('tbs2api.dark-a.com/index.php?act=diller'));
+    const c = tbs.makeClient({ url: 'tbs2api.dark-a.com', user: 'x', password: 'y' });
+    const arbol = [{ id: 'raiz', tree: [
+      { id: 'AG1', login: 'Agente1', tree: [{ id: 'sub', tree: [
+        { id: 'h1', currency: 'ARS', bet: 100, win: 60 },
+        { id: 'h2', currency: 'PYG', bet: 1000, win: 900 },
+        { id: 'h3', currency: 'ARS', bet: 50, win: 20 }] }] },
+      { id: 'AG2', login: 'Agente2', tree: [{ id: 'h4', currency: 'ARS', bet: 7, win: 2 }] }] }];
+    const n = c.buscarNodo(arbol, 'AG1');
+    check('TBS encuentra el agente anidado', n && n.login === 'Agente1', n && n.login);
+    const s = c.sumarPorDivisa(n);
+    check('TBS suma el profit por divisa (bet − win)', s.ARS.profit === 70 && s.PYG.profit === 100, JSON.stringify(s));
+    check('TBS no mezcla los nodos de otro agente', s.ARS.bet === 150 && s.ARS.salas === 2, 'bet=' + s.ARS.bet);
+    check('TBS devuelve null si el agente no está', c.buscarNodo(arbol, 'NOEXISTE') === null);
+  }
+
   // ── emisión de VENDEDORES: es plata, así que lo que se prueba es que no se pueda cobrar dos
   // veces y que se pueda deshacer sin llevarse puesta la factura de externos del cliente.
   {

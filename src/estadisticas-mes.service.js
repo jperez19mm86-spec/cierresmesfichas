@@ -101,7 +101,9 @@ function nivelDeModo(valor) {
  * diferencia — que es exactamente la plata que el filtro profit>0 esconde en los negativos.
  */
 function plan(mes, { conexionId = null, nivel = null } = {}) {
-  const cxs = casinoConex.list().filter((c) => !conexionId || c.id === conexionId);
+  // list463: la Foto del mes pide nodos/reportes, que solo entiende el engine 463. Una conexión
+  // TBS acá reventaría con "cli.nodos is not a function".
+  const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
   for (const cx of cxs) {
     for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario)) {

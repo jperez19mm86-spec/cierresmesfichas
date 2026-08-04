@@ -1820,15 +1820,25 @@ CFG.casino = async () => {
   document.getElementById('cfg-body').innerHTML = `
     <div class="card"><h2>🎰 Conexiones al casino</h2>
       <div class="muted" style="margin-bottom:8px">Conexión por <b>api_token</b> (se guarda cifrado). Soporta varias (multi-master). El token de dev es solo para mapear; la app real usará su cuenta.</div>
-      <table><thead><tr><th>Nombre</th><th>URL</th><th>Auth</th><th>Estado</th><th></th></tr></thead><tbody>
-      ${cx.map(c=>`<tr><td><b>${esc(c.nombre)}</b>${c.usuario?(' <span class="muted">('+esc(c.usuario)+')</span>'):''}</td><td class="muted">${esc(c.url)}</td><td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">user/pass</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Sin conexiones. Agregá una abajo.</td></tr>'}
+      <table><thead><tr><th>Nombre</th><th>URL</th><th>Motor</th><th>Auth</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${cx.map(c=>`<tr><td><b>${esc(c.nombre)}</b>${c.usuario?(' <span class="muted">('+esc(c.usuario)+')</span>'):''}</td><td class="muted">${esc(c.url)}</td>
+        <td>${(c.motor||'463')==='tbs'?'<span class="badge warn">TBS</span>':'<span class="badge ok">463</span>'}</td>
+        <td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">user/pass</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin conexiones. Agregá una abajo.</td></tr>'}
       </tbody></table>
       <div id="cx-test" class="muted" style="margin-top:6px"></div>
       <hr/>
       <div class="muted" style="margin-bottom:6px">Auth: poné el <b>API token</b> <u>o</u> el <b>usuario + contraseña</b> (lo que tenga la cuenta).</div>
+      <div class="muted" style="margin-bottom:8px;border-left:3px solid var(--gold);padding-left:8px">
+        ⚠️ Elegí bien el <b>motor</b>: son productos distintos y se les habla diferente.
+        <b>463</b> es el de Casino y Europa. <b>TBS</b> es <span class="pill">tbs2api.dark-a.com</span>, otro panel.
+        Con el motor equivocado el "Probar" dice <i>usuario o contraseña incorrectos</i> aunque estén bien — porque nunca llega a probarlas.</div>
       <div class="row">
         <div><label>Nombre</label><input id="cx-nombre" placeholder="463.life"/></div>
         <div><label>URL del panel</label><input id="cx-url" placeholder="admin.463.life"/></div>
+        <div style="flex:0"><label>Motor</label><select id="cx-motor" style="width:auto">
+          <option value="463">463 (Casino / Europa)</option>
+          <option value="tbs">TBS</option>
+        </select></div>
       </div>
       <div class="row" style="margin-top:8px">
         <div><label>API token (opción A)</label><input id="cx-token" type="password" placeholder="token…"/></div>
@@ -1840,7 +1850,9 @@ CFG.casino = async () => {
     <div class="card"><h2>🌳 Explorador de nodos</h2>
       <div class="muted" style="margin-bottom:8px">Distribuidores / Agentes / Cajas con su <b>IN (carga)</b>, OUT, Profit y RTP reales. Tocá "▸ hijos" para drillear.</div>
       <div class="row">
-        <div><label>Conexión</label><select id="cx-sel">${cx.map(c=>`<option value="${c.id}" ${c.id===_cxSel?'selected':''}>${esc(c.nombre)}</option>`).join('')||'<option value="">(ninguna)</option>'}</select></div>
+        <div><label>Conexión</label><select id="cx-sel">${
+          // El explorador pide el árbol de nodos, que solo existe en el engine 463.
+          cx.filter(c=>(c.motor||'463')==='463').map(c=>`<option value="${c.id}" ${c.id===_cxSel?'selected':''}>${esc(c.nombre)}</option>`).join('')||'<option value="">(ninguna)</option>'}</select></div>
         <div><label>Desde</label><input id="cx-from" type="date"/></div>
         <div><label>Hasta</label><input id="cx-to" type="date"/></div>
         <div><label>Buscar</label><input id="cx-q" placeholder="login o id…" oninput="renderNodos()"/></div>
@@ -1849,9 +1861,17 @@ CFG.casino = async () => {
       <div id="cx-nodos" class="muted" style="margin-top:10px">Elegí conexión y tocá "Cargar nodos".</div>
     </div>`;
 };
-async function addConex(){ if(!val('cx-url'))return toast('URL requerida'); if(!val('cx-token') && !(val('cx-user')&&val('cx-pass')))return toast('Poné token O usuario+contraseña'); const r=await api('/api/os/casino/conexiones',{method:'POST',body:JSON.stringify({nombre:val('cx-nombre'),url:val('cx-url'),token:val('cx-token'),usuario:val('cx-user'),password:val('cx-pass')})}); if(r.ok)toast('Conexión agregada'); CFG.casino(); }
+async function addConex(){ if(!val('cx-url'))return toast('URL requerida'); if(!val('cx-token') && !(val('cx-user')&&val('cx-pass')))return toast('Poné token O usuario+contraseña'); const r=await api('/api/os/casino/conexiones',{method:'POST',body:JSON.stringify({nombre:val('cx-nombre'),url:val('cx-url'),token:val('cx-token'),usuario:val('cx-user'),password:val('cx-pass'),motor:val('cx-motor')||'463'})}); if(r.ok)toast('Conexión agregada'); CFG.casino(); }
 async function delConex(id){ if(!confirm('¿Borrar conexión?'))return; await api('/api/os/casino/conexiones/'+id,{method:'DELETE'}); CFG.casino(); }
-async function testConex(id){ const el=document.getElementById('cx-test'); el.innerHTML='⏳ probando…'; const r=await api('/api/os/casino/conexiones/'+id+'/test',{method:'POST'}); el.innerHTML = r.ok? `<span class="badge ok">✓ OK</span> ${esc(r.login||'')} — ARS ${money((r.balances&&r.balances.ARS)||0,0)}` : `<span class="badge err">✗ ${esc(r.error||'falló')}</span>`; }
+async function testConex(id){
+  const el=document.getElementById('cx-test'); el.innerHTML='⏳ probando…';
+  const r=await api('/api/os/casino/conexiones/'+id+'/test',{method:'POST'});
+  if(!r.ok) return el.innerHTML=`<span class="badge err">✗ ${esc(r.error||'falló')}</span>`;
+  // TBS no devuelve balances: su test es el login, que confirma la cuenta y trae el token.
+  el.innerHTML = r.motor==='tbs'
+    ? `<span class="badge ok">✓ OK</span> ${esc(r.login||'')} <span class="muted">(TBS · id ${esc(String(r.userId||'?'))})</span>`
+    : `<span class="badge ok">✓ OK</span> ${esc(r.login||'')} — ARS ${money((r.balances&&r.balances.ARS)||0,0)}`;
+}
 function _cxRange(){ const f=val('cx-from'),t=val('cx-to'); const p=[]; if(f)p.push('from='+encodeURIComponent(f+' 00:00:00')); if(t)p.push('to='+encodeURIComponent(t+' 23:59:59')); return p.join('&'); }
 async function explorar(){
   _cxSel = val('cx-sel'); if(!_cxSel)return toast('Elegí una conexión');

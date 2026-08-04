@@ -95,7 +95,7 @@ function startCron() {
       const mesAct = day.slice(0, 7);
       const mesPrev = ayer.slice(0, 7);
       const diaNum = Number(day.slice(8, 10));
-      for (const cx of casinoConex.list()) {
+      for (const cx of casinoConex.list463()) {   // el acumulado se arma con nodos del engine 463
         if (!cx.activa) continue;
         for (const g of CRON_GROUPS) {
           try {
