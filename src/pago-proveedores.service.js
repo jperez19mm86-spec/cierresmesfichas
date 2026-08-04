@@ -16,7 +16,7 @@
  *   que da el profit de TODA la plataforma por proveedor. Es la misma consulta que hace el
  *   panel en Estadísticas → "Datos generales".
  * · TBS: otro motor y otra granularidad — reporta por GRUPO de proveedores, no por proveedor
- *   suelto. Se resuelve aparte (ver `TBS_PENDIENTE` abajo).
+ *   suelto. Se resuelve aparte, en `lineasTBS` (ver el bloque TBS abajo), y se suma a este total.
  *
  * ── El nombre del proveedor ────────────────────────────────────────────────────────────────
  * Se traduce casino→matriz con `externosSvc.traductor`, EL MISMO que usa la factura del cliente.
@@ -83,9 +83,8 @@ const TBS_SUELTOS = {
   83: 'WS_SPORTS_Original_Dima_Li',      //  10.000 ARS, exacto
   59: 'PLAYSON EV',                      // 201.462 vs 201.463
   68: 'BOOMING_ASIA_KN_Original_Dima_Li',//  30.273 vs 30.693
+  70: 'SA GAMING OP',                    // USD 1.678,80 vs 1.679, exacto
 };
-
-const TBS_PENDIENTE = null;
 
 /** Para comparar nombres de proveedor: sin espacios, guiones ni mayúsculas. */
 const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -101,7 +100,11 @@ function filaDeGrupo(g, costoDe, nombres) {
     // mezcla y no se sabría de dónde salió.
     const filas = nombres.filter((n) => fam.re.test(n));
     if (!filas.length) return { error: `no hay ninguna fila ${fam.fam} en la matriz` };
-    const costos = [...new Set(filas.map((n) => String(costoDe[K(n)] ?? '')))];
+    // Una fila SIN costo cargado no vale 0: es un dato que falta. Se la deja afuera de la
+    // comparación en vez de tomarla como un costo distinto — si no, cualquier fila nueva
+    // agregada después de congelar el mes tumbaba el paquete entero.
+    const costos = [...new Set(filas.map((n) => String(costoDe[K(n)] ?? '')).filter((c) => c !== ''))];
+    if (!costos.length) return { error: `ninguna fila ${fam.fam} tiene costo cargado` };
     if (costos.length > 1) return { error: `las filas ${fam.fam} de la matriz no cuestan todas igual (${costos.join(', ')}): no se puede facturar el grupo entero` };
     return { nombre: fam.etiqueta, costo: costos[0], filas: filas.length };
   }
@@ -128,10 +131,17 @@ function filaDeGrupo(g, costoDe, nombres) {
 async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
   const conexiones = casinoConex.list().filter((c) => c.motor === 'tbs' && c.activa);
   const out = { proveedores: [], usdt: '0', sinMapear: [], filas: 0, conexiones: [] };
-  const nombres = Object.keys(costoDe).length ? Object.keys(costoDe) : [];
   // costoDe está indexado en minúscula; para las expresiones hace falta el nombre como se escribió
-  const reales = cierre.getMatriz().proveedores.map((p) => p.nombre);
-  const lista = reales.length ? reales : nombres;
+  const matriz = cierre.getMatriz().proveedores;
+  const lista = matriz.length ? matriz.map((p) => p.nombre) : Object.keys(costoDe);
+
+  // Junio se congeló ANTES de que TBS estuviera conectado, así que la foto del mes no tiene el
+  // costo de varios proveedores que TBS sí reporta. Para esos —y solo para esos— se usa el costo
+  // de hoy, y se dice cuáles fueron: es la única forma de dar un número, pero no es la foto.
+  const costos = {}; const delVivo = [];
+  matriz.forEach((p) => { if (p.base_pct != null && p.base_pct !== '') costos[K(p.nombre)] = p.base_pct; });
+  Object.keys(costos).forEach((k) => { if (costoDe[k] == null || costoDe[k] === '') delVivo.push(k); });
+  Object.entries(costoDe).forEach(([k, v]) => { if (v != null && v !== '') costos[k] = v; });
 
   for (const cx of conexiones) {
     const cli = casinoConex.client(cx.id);
@@ -158,12 +168,12 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
         const conPlata = Object.entries(porDivisa).filter(([, v]) => money.isPos(v));
         if (!conPlata.length) continue;                       // sin ganancia, no se paga nada
 
-        const fila = filaDeGrupo(grp, costoDe, lista);
+        const fila = filaDeGrupo(grp, costos, lista);
         if (fila.error) {
           out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: fila.error, porDivisa: Object.fromEntries(conPlata.map(([d, v]) => [d, money.round(v, 2)])) });
           continue;
         }
-        if (fila.costo === '' || fila.costo == null) { out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: `"${fila.nombre}" no tiene costo cargado`, porDivisa: {} }); continue; }
+        if (fila.costo === '' || fila.costo == null) { out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: `"${fila.nombre}" no tiene costo cargado en la matriz`, porDivisa: Object.fromEntries(conPlata.map(([d, v]) => [d, money.round(v, 2)])) }); continue; }
         if (!money.isPos(fila.costo)) continue;               // cuesta 0: no genera pago
 
         const a = { proveedor: `${fila.nombre} (TBS)`, costo: fila.costo, usdt: '0', lineas: [] };
@@ -185,6 +195,8 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
   }
   out.usdt = money.round(out.usdt, 2);
   out.proveedores.sort((a, b) => Number(b.usdt) - Number(a.usdt));
+  const usados = delVivo.filter((k) => out.proveedores.some((p) => p.lineas.length && K(p.proveedor).startsWith(k)));
+  if (usados.length) avisos.push(`TBS: ${usados.length} proveedor(es) no estaban en la foto del mes congelado, así que se usó su costo de HOY: ${usados.slice(0, 8).join(', ')}${usados.length > 8 ? '…' : ''}`);
   return out;
 }
 
@@ -293,7 +305,6 @@ async function reporte({ mes, monedas = null } = {}) {
     sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), conexiones: [...v.conexiones] }))
       .sort((a, b) => Number(b.profit) - Number(a.profit)),
     sinCosto: [...sinCosto], sinTC: [...sinTC], avisos,
-    tbsPendiente: TBS_PENDIENTE,
   };
 }
 
