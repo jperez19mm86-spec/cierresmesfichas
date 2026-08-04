@@ -220,12 +220,14 @@ function makeClient({ url, user, password, token: tokenFijo }) {
       for (const s of selects) {
         if (!/provider|diller|group/i.test(s[1])) continue;
         const out = [];
-        for (const o of s[2].matchAll(/<option[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi)) {
-          const id = o[1].trim(); const nombre = limpio(o[2]);
+        // El value puede venir sin comillas (<option value=10>): pedirlas descartaba todo.
+        for (const o of s[2].matchAll(/<option\b[^>]*?\bvalue=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/option>/gi)) {
+          const id = (o[1] ?? o[2] ?? o[3] ?? '').trim(); const nombre = limpio(o[4]);
           if (!id || !nombre || /^-+$/.test(nombre.replace(/\s/g, ''))) continue;
           out.push(fila(id, nombre));
         }
         if (out.length) return { ok: true, grupos: out, origen: `select de ${u}` };
+        diag.push(`el select de proveedores vino vacío — así empieza: ${s[2].replace(/\s+/g, ' ').trim().slice(0, 400)}`);
       }
 
       // 2) Widget de JS: la lista viaja como JSON dentro de la página.
@@ -239,7 +241,7 @@ function makeClient({ url, user, password, token: tokenFijo }) {
       }
       if (out.length >= 10) return { ok: true, grupos: out, origen: `json embebido en ${u}` };
       if (out.length) diag.push(`json embebido: solo ${out.length} candidatos, poco para 53 grupos`);
-      if (/act=users|name=["']password["']/i.test(html)) diag.push('la página devolvió el login: la cookie no autenticó');
+      if (/name=["']password["']/i.test(html) && !selects.length) diag.push('volvió el login: la cookie no autenticó');
     }
     return { ok: false, error: 'no encontré la lista de grupos en el panel', diag };
   }
