@@ -46,7 +46,7 @@ const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
 
 const ok = (res, extra = {}) => res.json(Object.assign({ ok: true }, extra));
-const err = (res, code, msg) => res.status(code).json({ ok: false, error: msg });
+const err = (res, code, msg, extra) => res.status(code).json({ ok: false, error: msg, ...(extra || {}) });
 const wrap = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { err(res, 400, e.message); } };
 
 // Cache del árbol de nodos por conexión (algunas cuentas GOD ven decenas de miles de nodos y
@@ -709,7 +709,7 @@ function mount(app) {
     const cli = casinoConex.client(cx.id);
     if (!cli) return err(res, 400, `la conexión "${cx.nombre}" no tiene credenciales cargadas`);
     const r = await cli.grupos();
-    r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error);
+    r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error, { diag: r.diag || [] });
   }));
 
   /**

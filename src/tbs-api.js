@@ -47,6 +47,7 @@ function normUrl(u) {
 function makeClient({ url, user, password, token: tokenFijo }) {
   const base = normUrl(url);
   let token = tokenFijo || '';        // si la cuenta tiene token propio, no hace falta login
+  let cookies = '';                   // la PÁGINA (no la API) se autentica con la cookie de sesión
 
   const comun = (extra = {}) => ({
     timeout: 120000,                  // 54s es lo normal acá; 120 da margen sin colgarse para siempre
@@ -85,6 +86,10 @@ function makeClient({ url, user, password, token: tokenFijo }) {
       return { ok: false, error: `TBS rechazó el login: ${dice || 'sin explicación'}${sinToken}`, respuesta: d };
     }
     token = t;
+    // La API se conforma con el token, pero el HTML del panel pide la cookie de sesión de PHP.
+    // Viene en este mismo login; si no se guarda acá, después no hay forma de pedirla.
+    const set = r.headers && (r.headers['set-cookie'] || r.headers['Set-Cookie']);
+    if (Array.isArray(set) && set.length) cookies = set.map((c) => String(c).split(';')[0]).join('; ');
     return { ok: true, token: t, userId: ((d.content || {}).user || {}).id };
   }
 
@@ -187,28 +192,56 @@ function makeClient({ url, user, password, token: tokenFijo }) {
    * Los que dicen "(prepayment)" son proveedores SUELTOS, no paquetes.
    */
   async function grupos() {
-    const s = await asegurarToken();
-    if (!s.ok) return s;
-    let r;
-    try {
-      r = await axios.get(`${base}/?act=diller&area=&show=notNULL`, {
-        timeout: 60000, validateStatus: () => true,
-        headers: { 'User-Agent': UA, Cookie: `token=${token}` },
-      });
-    } catch (e) { return { ok: false, error: 'no se pudo leer la página: ' + e.message }; }
-    const html = String(r.data || '');
-    const sel = html.match(/<select[^>]*name=["']provider["'][^>]*>([\s\S]*?)<\/select>/i);
-    if (!sel) return { ok: false, error: 'no encontré el desplegable de proveedores (¿sesión?)' };
-    const out = [];
-    const re = /<option[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi;
-    let m;
-    while ((m = re.exec(sel[1])) !== null) {
-      const id = m[1].trim();
-      const nombre = m[2].replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-      if (!id || !nombre || nombre === '- - -') continue;
-      out.push({ id, nombre, suelto: /\(prepayment\)/i.test(nombre) });
+    // Siempre login de nuevo: hace falta la COOKIE de sesión, y un token guardado no la trae.
+    const l = await login();
+    if (!l.ok) return l;
+
+    const limpio = (s) => String(s).replace(/<[^>]*>/g, '')
+      .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#0?39;|&apos;/g, "'")
+      .replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+    const fila = (id, nombre) => ({ id: String(id), nombre, suelto: /\(prepayment\)/i.test(nombre) });
+
+    const diag = [];
+    const paginas = [`${base}/?act=diller`, `${base}/index.php?act=diller`, `${base}/`];
+    for (const u of paginas) {
+      let r;
+      try {
+        r = await axios.get(u, {
+          timeout: 60000, validateStatus: () => true,
+          headers: { 'User-Agent': UA, Cookie: `${cookies}${cookies ? '; ' : ''}token=${token}` },
+        });
+      } catch (e) { diag.push(`${u}: ${e.message}`); continue; }
+      const html = String(r.data || '');
+      diag.push(`${u}: HTTP ${r.status}, ${html.length} bytes`);
+
+      // 1) Un <select> de verdad. El name puede ser provider, providers[], provider_id…
+      const selects = [...html.matchAll(/<select\b([^>]*)>([\s\S]*?)<\/select>/gi)];
+      if (selects.length) diag.push(`selects: ${selects.map((s) => (s[1].match(/(?:name|id)=["']([^"']+)["']/i) || [, '?'])[1]).join(', ')}`);
+      for (const s of selects) {
+        if (!/provider|diller|group/i.test(s[1])) continue;
+        const out = [];
+        for (const o of s[2].matchAll(/<option[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi)) {
+          const id = o[1].trim(); const nombre = limpio(o[2]);
+          if (!id || !nombre || /^-+$/.test(nombre.replace(/\s/g, ''))) continue;
+          out.push(fila(id, nombre));
+        }
+        if (out.length) return { ok: true, grupos: out, origen: `select de ${u}` };
+      }
+
+      // 2) Widget de JS: la lista viaja como JSON dentro de la página.
+      //    Se buscan objetos con id + nombre, que es la forma que tienen acá.
+      const out = [];
+      const vistos = new Set();
+      for (const m of html.matchAll(/\{[^{}]*?"id"\s*:\s*"?(\d+)"?[^{}]*?"(?:name|title|label|provider)"\s*:\s*"((?:[^"\\]|\\.)*)"[^{}]*?\}/gi)) {
+        const id = m[1]; const nombre = limpio(m[2].replace(/\\"/g, '"').replace(/\\\//g, '/'));
+        if (!nombre || vistos.has(id)) continue;
+        vistos.add(id); out.push(fila(id, nombre));
+      }
+      if (out.length >= 10) return { ok: true, grupos: out, origen: `json embebido en ${u}` };
+      if (out.length) diag.push(`json embebido: solo ${out.length} candidatos, poco para 53 grupos`);
+      if (/act=users|name=["']password["']/i.test(html)) diag.push('la página devolvió el login: la cookie no autenticó');
     }
-    return { ok: true, grupos: out };
+    return { ok: false, error: 'no encontré la lista de grupos en el panel', diag };
   }
 
   /** Test de conexión: hace el login y devuelve con qué cuenta entró. */
