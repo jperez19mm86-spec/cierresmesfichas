@@ -1277,6 +1277,13 @@ function mount(app) {
   app.get('/api/os/ventas-online/config', (_req, res) => ok(res, { config: ventasOnline.getConfig() }));
   app.put('/api/os/ventas-online/config', wrap((req, res) => ok(res, { config: ventasOnline.setConfig(req.body || {}) })));
   app.get('/api/os/ventas-online/mapeo', (_req, res) => ok(res, { mapeo: ventasOnline.listMapeo() }));
+  // Los pedidos de UN cliente, uno por uno. Hace falta cuando lo vendido no cuadra con lo que
+  // registró el casino: sin ver pedido por pedido no se puede saber cuál entró con el código
+  // equivocado (pasa cuando un panel se muda de un cliente a otro).
+  app.get('/api/os/ventas-online/detalle', wrap(async (req, res) => {
+    const r = await ventasOnline.detalleDelMes(req.query.mes || mesTZ(), req.query.cliente_id);
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
   app.post('/api/os/ventas-online/mapeo', wrap((req, res) => {
     const b = req.body || {};
     const filas = Array.isArray(b.filas) ? b.filas : [b];
