@@ -272,7 +272,7 @@ function bloquePaneles(c){
   return `
    <div class="subwrap">
    <table>
-     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th></th></tr></thead>
+     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
@@ -280,8 +280,11 @@ function bloquePaneles(c){
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
+       <td><input value="${esc((p.alias||[]).join(', '))}" placeholder="—" style="width:150px;font-size:11px"
+            title="Si el sistema de pedidos lo escribe distinto (463.life vs 463.live), poné acá esa otra forma. Separá con comas."
+            onchange="setAlias('${p.id}', this.value)"></td>
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
-     </tr>`).join('') || '<tr><td colspan="6" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
+     </tr>`).join('') || '<tr><td colspan="7" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
    </table>
    <div class="row" style="margin-top:10px;gap:6px">
      <div style="min-width:120px"><label>Panel nuevo</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
@@ -746,6 +749,12 @@ async function linkPanel(id){
   if(!nodeId){ const login=prompt('Login del casino a buscar:'); if(!login)return; const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login)); if(!r.ok||!r.users||!r.users.length)return toast('No se encontró'); nodeId=r.users[0].id; }
   const u=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({conexion_id:cid,id_usuario:nodeId})});
   if(u.ok)toast('Panel linkeado al nodo '+nodeId); VIEWS.clientes();
+}
+/* El nombre del panel lo elige el casino, no nosotros, y el sistema de pedidos a veces lo escribe
+   distinto. En vez de renombrar allá, se registran acá las otras formas. */
+async function setAlias(id, txt){
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({alias:txt})});
+  toast(r.ok?'Nombres guardados':'✗ '+((r&&r.error)||'error'));
 }
 async function delPanel(id){
   const p=(_paneles||[]).find(x=>x.id===id);

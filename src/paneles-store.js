@@ -19,6 +19,7 @@ function obj(r) {
     ...r,
     usa_config_cliente: !!r.usa_config_cliente,
     divisas: parseJson(r.divisas, []),
+    alias: parseJson(r.alias, []),
     montosRapidos: parseJson(r.montosRapidos, []),
     escala: parseJson(r.escala, []),
   };
@@ -70,12 +71,13 @@ function create(d) {
   // con 17 monedas. Antes se recortaba a la primera si el nivel no era SuperAgente, lo que borraba
   // en silencio el resto (y se volvía a disparar al linkear la conexión, que hace un update).
   const divisas = normDivisas(d.divisas);
+  const alias = normAlias(d.alias);
   db.prepare(`INSERT INTO paneles
-      (id,cliente_id,nombre,sistema,tipo,nivel_usuario,id_usuario,usa_config_cliente,divisas,usuario,montosRapidos,notas,conexion_id,createdAt,ord)
-      VALUES (@id,@cli,@nombre,@sistema,@tipo,@nivel,@idu,@ucc,@div,@usuario,@montos,@notas,@cxid,@ca,@ord)`).run({
+      (id,cliente_id,nombre,sistema,tipo,nivel_usuario,id_usuario,usa_config_cliente,divisas,alias,usuario,montosRapidos,notas,conexion_id,createdAt,ord)
+      VALUES (@id,@cli,@nombre,@sistema,@tipo,@nivel,@idu,@ucc,@div,@alias,@usuario,@montos,@notas,@cxid,@ca,@ord)`).run({
     id, cli: d.cliente_id || null, nombre: String(d.nombre || '').trim(), sistema: d.sistema || '',
     tipo: d.tipo || 'exclusivo', nivel, idu: String(d.id_usuario || '').trim(),
-    ucc: d.usa_config_cliente === false ? 0 : 1, div: JSON.stringify(divisas),
+    ucc: d.usa_config_cliente === false ? 0 : 1, div: JSON.stringify(divisas), alias: JSON.stringify(alias),
     usuario: String(d.usuario || '').trim(), montos: JSON.stringify(d.montosRapidos || []),
     notas: String(d.notas || '').trim(), cxid: d.conexion_id || null, ca: new Date().toISOString(), ord,
   });
@@ -89,12 +91,13 @@ function update(id, patch) {
   // Igual que en create(): NO recortar por nivel. Clave acá porque linkPanel() hace un update
   // con solo {conexion_id, id_usuario} y el recorte borraba las divisas ya cargadas.
   const divisas = patch.divisas !== undefined ? normDivisas(patch.divisas) : p.divisas;
+  const alias = patch.alias !== undefined ? normAlias(patch.alias) : (p.alias || []);
   db.prepare(`UPDATE paneles SET cliente_id=@cli,nombre=@nombre,sistema=@sistema,tipo=@tipo,nivel_usuario=@nivel,
-      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid WHERE id=@id`).run({
+      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,alias=@alias,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid WHERE id=@id`).run({
     id, cli: f('cliente_id', p.cliente_id), nombre: String(f('nombre', p.nombre)).trim(), sistema: f('sistema', p.sistema),
     tipo: f('tipo', p.tipo), nivel, idu: String(f('id_usuario', p.id_usuario)).trim(),
     ucc: (patch.usa_config_cliente !== undefined ? (patch.usa_config_cliente ? 1 : 0) : (p.usa_config_cliente ? 1 : 0)),
-    div: JSON.stringify(divisas), usuario: String(f('usuario', p.usuario)).trim(),
+    div: JSON.stringify(divisas), alias: JSON.stringify(alias), usuario: String(f('usuario', p.usuario)).trim(),
     montos: JSON.stringify(f('montosRapidos', p.montosRapidos)), notas: String(f('notas', p.notas)).trim(),
     cxid: f('conexion_id', p.conexion_id),
   });
@@ -116,6 +119,20 @@ function remove(id) { return db.prepare('DELETE FROM paneles WHERE id=?').run(id
  * @param meses  cuántos meses hacia atrás mirar (default 6)
  * @returns [{ panel_id, nombre, cliente_id, guardadas[], usadas[], sobran[], faltan[], meses }]
  */
+/** Los alias, limpios y sin repetidos. Acepta CSV o array. */
+function normAlias(v) {
+  const arr = Array.isArray(v) ? v : String(v || '').split(/[,\n]+/);
+  return [...new Set(arr.map((x) => String(x || '').trim()).filter(Boolean))];
+}
+
+/** El panel que responde a ese nombre, mirando el nombre real Y sus alias. */
+function porNombre(nombre) {
+  const k = String(nombre || '').trim().toLowerCase();
+  if (!k) return null;
+  return list().find((p) => String(p.nombre || '').trim().toLowerCase() === k
+    || (p.alias || []).some((a) => String(a).trim().toLowerCase() === k)) || null;
+}
+
 function divisasUsadas(meses = 6) {
   const rd = require('./reporte-diario-store');
   const hoy = new Date();
@@ -151,4 +168,4 @@ function divisasUsadas(meses = 6) {
 }
 
 module.exports = {
-  divisasUsadas, list, get, create, update, remove, setJerarquia, NIVELES };
+  divisasUsadas, porNombre, normAlias, list, get, create, update, remove, setJerarquia, NIVELES };

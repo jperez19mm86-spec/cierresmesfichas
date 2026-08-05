@@ -155,10 +155,15 @@ async function cruceConPaneles(mes) {
   if (!r.ok) return r;
   const clientes = require('./clientes-store').list().clientes;
   const nombreDe = {}; clientes.forEach((c) => { nombreDe[c.id] = c.nombre || c.nombreVisible || c.codigo; });
+  // Se indexa por el nombre Y por los alias: el sistema en línea escribe "463.life" donde el OS
+  // tiene "463.live", y por esa letra el pedido no cruzaba con nada.
   const dueno = {};
   require('./paneles-store').list().forEach((p) => {
-    const k = String(p.nombre || '').trim().toLowerCase();
-    if (k && p.cliente_id) dueno[k] = p.cliente_id;
+    if (!p.cliente_id) return;
+    [p.nombre, ...(p.alias || [])].forEach((n) => {
+      const k = String(n || '').trim().toLowerCase();
+      if (k) dueno[k] = p.cliente_id;
+    });
   });
   const mp = mapa();
   const cruces = {}; const panelesRaros = {};

@@ -386,6 +386,11 @@ ensureColumns('clientes', {
 
 // Cada PANEL puede linkearse a un nodo del casino (qué conexión + qué id de usuario del casino).
 ensureColumns('paneles', { conexion_id: 'TEXT' });
+// El sistema de pedidos escribe el nombre del panel a su manera —"463.life" donde el OS tiene
+// "463.live"— y por una letra el pedido no cruza con ningún panel: se le termina facturando al
+// dueño del código en vez de a quien recibió las fichas. `alias` deja registrar esas otras formas
+// sin tener que renombrar nada en el casino, que es donde el nombre no lo elegimos nosotros.
+ensureColumns('paneles', { alias: 'TEXT' });   // JSON array de nombres alternativos
 
 // Jerarquía REAL del panel en el casino (SuperAgente → Distribuidor → Agente). Hace falta para
 // cargar: las fichas se bajan nivel por nivel, así que hay que saber por qué padres pasar.

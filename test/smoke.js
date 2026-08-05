@@ -320,6 +320,28 @@ async function main() {
       !(r.data.sinBase || []).some((n) => /Vendedor Uno|VEND1/.test(n)), JSON.stringify(r.data.sinBase));
   }
 
+  // ── ALIAS de panel: el sistema de pedidos escribe "463.life" y el OS tiene "463.live". Por esa
+  // letra el pedido no cruzaba con ningún panel y se le facturaba al dueño del código.
+  {
+    const pstore = require('../src/paneles-store');
+    r = await post('/api/os/paneles', { cliente_id: cli.id, nombre: '463.live', sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '2628233' });
+    const pid = r.data.panel.id;
+    check('alias: un panel arranca sin otros nombres', Array.isArray(r.data.panel.alias) && !r.data.panel.alias.length, JSON.stringify(r.data.panel.alias));
+    r = await put('/api/os/paneles/' + pid, { alias: '463.life, 463 life' });
+    check('alias: se guardan varios separados por coma', r.data.ok && r.data.panel.alias.length === 2, JSON.stringify(r.data.panel.alias));
+    // La búsqueda por nombre se prueba en ESTE proceso: el server corre con otra base (DB_PATH),
+    // así que un panel creado por la API no lo ve el store de acá.
+    const pl = pstore.create({ cliente_id: 'c_test', nombre: '463.live', sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '2628233' });
+    check('alias: sin alias no lo encuentra por el nombre de al lado', !pstore.porNombre('463.life'));
+    pstore.update(pl.id, { alias: '463.life, 463 life' });
+    check('alias: ahora sí lo encuentra por el otro nombre', (pstore.porNombre('463.LIFE') || {}).id === pl.id);
+    check('alias: y sigue encontrándolo por el suyo', (pstore.porNombre('463.live') || {}).id === pl.id);
+    check('alias: no inventa con un nombre que no existe', !pstore.porNombre('no-existe-este'));
+    // Guardar otra cosa del panel no puede borrar los alias en silencio.
+    r = await put('/api/os/paneles/' + pid, { nivel_usuario: 'Distribuidor' });
+    check('alias: editar otro campo no se los lleva puestos', (r.data.panel.alias || []).length === 2, JSON.stringify(r.data.panel.alias));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
