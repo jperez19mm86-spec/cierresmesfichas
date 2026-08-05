@@ -156,6 +156,22 @@ function discrepancias(mes) {
   return out;
 }
 
+/**
+ * El TC resuelto de TODAS las divisas del mes, para poder mirarlas de un vistazo.
+ * ARS_OF no entra: no es una moneda, es el ARS que factura el proveedor (ver `tcExternos`).
+ */
+function resumenMes(mes) {
+  const m = String(mes || '').slice(0, 7);
+  const divisas = new Set(['ARS']);
+  cierre.getTC().monedas.forEach((d) => divisas.add(String(d).toUpperCase()));
+  tcDivisas.promediosMes(m).forEach((r) => divisas.add(String(r.divisa).toUpperCase()));
+  divisas.delete(String(cierre.FILA_PROVEEDOR).toUpperCase());
+  return [...divisas].sort().map((d) => {
+    const r = tcDelMes(d, m);
+    return { divisa: d, valor: r.valor, fuente: r.fuente, conflicto: !!r.conflicto };
+  });
+}
+
 /** Las divisas de un mes que no tienen NINGÚN TC: todo lo que se facture en ellas queda sin pasar a USDT. */
 function faltantes(mes, divisasUsadas = []) {
   return [...new Set(divisasUsadas.map((d) => String(d || '').toUpperCase()))]
@@ -163,4 +179,4 @@ function faltantes(mes, divisasUsadas = []) {
     .sort();
 }
 
-module.exports = { tcDelMes, tcExternos, discrepancias, faltantes, mesCierre };
+module.exports = { tcDelMes, tcExternos, discrepancias, resumenMes, faltantes, mesCierre };

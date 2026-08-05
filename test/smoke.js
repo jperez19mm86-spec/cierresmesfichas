@@ -251,6 +251,34 @@ async function main() {
     check('foto: un mes sin congelar no se puede corregir', r.status === 400 && /no está congelado/.test(r.data.error || ''), r.data.error);
   }
 
+  // ── TIPOS DE CAMBIO: ARS_OF y el "TC Proveedor" son el MISMO dato. Estaban en dos tablas y
+  // se habían separado (julio con 1473,5 en una y vacío en la otra). Lo que se prueba es que
+  // escribir por cualquiera de los dos lados deje los dos iguales.
+  {
+    r = await post('/api/os/cierre/tc', { moneda: 'ARS_OF', mes: 'Julio_2026', tasa: '1473.5', forzar: true });
+    check('TC: se guarda el ARS del proveedor en la grilla', r.data.ok, JSON.stringify(r.data));
+    r = await get('/api/os/tc/meses');
+    let jul = (r.data.meses || []).find((x) => x.mes === '2026-07');
+    check('TC: cargarlo en la grilla lo deja también en el cierre mensual', jul && jul.tc_proveedor_ext === '1473.5', jul && jul.tc_proveedor_ext);
+
+    r = await put('/api/os/tc/mes/2026-07', { tc_proveedor_ext: '1500' });
+    check('TC: cargarlo en el cierre mensual lo deja también en la grilla', r.data.ok, JSON.stringify(r.data.error || ''));
+    r = await get('/api/os/cierre/tc');
+    check('TC: la grilla quedó con el mismo número', (r.data.tasas.ARS_OF || {}).Julio_2026 === '1500', (r.data.tasas.ARS_OF || {}).Julio_2026);
+
+    // La columna del mes se arma sola con los promedios, pero NO pisa lo cargado a mano.
+    await post('/api/os/cierre/tc', { moneda: 'ARS', mes: 'Julio_2026', tasa: '1574.12', forzar: true });
+    r = await post('/api/os/tc/columna', { mes: '2026-07' });
+    check('TC: armar la columna respeta lo cargado a mano', r.data.ok && !r.data.escritas.some((e) => e.divisa === 'ARS'), JSON.stringify(r.data.escritas || r.data.error));
+    check('TC: armar la columna nunca toca el TC del proveedor', r.data.ok && !r.data.escritas.some((e) => e.divisa === 'ARS_OF'));
+
+    // Borrar una columna entera se lleva las celdas de todas las monedas de ese mes.
+    r = await axios.delete(BASE + '/api/os/cierre/tc/mes/Julio_2026', H());
+    check('TC: se borra la columna entera', r.data.ok && r.data.celdas >= 2, 'celdas=' + r.data.celdas);
+    r = await get('/api/os/cierre/tc');
+    check('TC: la columna borrada ya no está', !(r.data.meses || []).includes('Julio_2026'), JSON.stringify(r.data.meses));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

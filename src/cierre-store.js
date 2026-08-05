@@ -9,6 +9,7 @@
  */
 const { db } = require('./db');
 const money = require('./lib/money');
+const { mesISO } = require('./lib/fechas');
 
 const clean = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
 
@@ -113,6 +114,9 @@ function removeCliente(nombre) {
 }
 
 // ── Exchange Rate ──
+/** La fila de la grilla que guarda el ARS del PROVEEDOR (el de su factura, no el promedio). */
+const FILA_PROVEEDOR = 'ARS_OF';
+
 function getTC() {
   const rows = db.prepare('SELECT moneda, mes, tasa FROM cierre_tc').all();
   const monedas = [...new Set(rows.map((r) => r.moneda))].sort();
@@ -152,7 +156,30 @@ function setTC(moneda, mes, tasa, forzar = false) {
     }
   }
   db.prepare('INSERT INTO cierre_tc (moneda,mes,tasa) VALUES (?,?,?) ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa').run(m, me, t);
+  // ARS_OF ES el TC del proveedor: el mismo número que la tarjeta "Cierre mensual". Estaban en
+  // dos tablas distintas y se habían separado — julio tenía 1473,5 en una y nada en la otra, y la
+  // factura de externos lee la otra. Se escribe en las dos de una vez para que no vuelva a pasar.
+  if (m.toUpperCase() === FILA_PROVEEDOR) {
+    const iso = mesISO(me);
+    if (iso) { try { require('./tc-store').setTcProveedor(iso, t); } catch (e) { /* no romper la carga por esto */ } }
+  }
   return { ok: true };
+}
+
+/** Borra una columna entera (un mes) de la grilla de TC. */
+function removeMesTC(mes) {
+  const me = clean(mes); if (!me) return { ok: false, error: 'falta el mes' };
+  const n = db.prepare('DELETE FROM cierre_tc WHERE mes=?').run(me).changes;
+  return { ok: true, mes: me, celdas: n };
+}
+
+/** Renombra una columna (Enero_26 → Enero_2026) sin perder los valores. */
+function renombrarMesTC(viejo, nuevo) {
+  const a = clean(viejo), b = clean(nuevo);
+  if (!a || !b) return { ok: false, error: 'faltan los nombres' };
+  if (getTC().meses.includes(b)) return { ok: false, error: `ya existe una columna "${b}"` };
+  const n = db.prepare('UPDATE cierre_tc SET mes=? WHERE mes=?').run(b, a).changes;
+  return { ok: true, de: a, a: b, celdas: n };
 }
 
 /** Columna de UN cliente: su descuento + el % de cada proveedor de la matriz (para editar desde el cliente). */
@@ -301,6 +328,7 @@ function setCeldas(cambios) {
 }
 
 module.exports = {
+  removeMesTC, renombrarMesTC, FILA_PROVEEDOR,
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,

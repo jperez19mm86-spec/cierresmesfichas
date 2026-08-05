@@ -27,4 +27,25 @@ const fechaUTC = (d = new Date()) => d.toISOString().slice(0, 10); // 'YYYY-MM-D
 const mesUTC = (d = new Date()) => d.toISOString().slice(0, 7);    // 'YYYY-MM' en UTC
 const ayerUTC = () => fechaUTC(new Date(Date.now() - 86400000));   // día anterior COMPLETO (UTC)
 
-module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum, fechaUTC, mesUTC, ayerUTC };
+// ── Cómo se llaman los meses en la grilla del cierre ──────────────────────────────────────
+// La planilla original los escribe 'Julio_2026', no en ISO. Vive acá y no en un servicio para
+// que lo puedan usar los dos lados sin que se requieran entre ellos.
+const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+/** '2026-07' → 'Julio_2026' */
+function mesCierre(iso) {
+  const [y, m] = String(iso || '').split('-');
+  return MESES_ES[Number(m) - 1] ? `${MESES_ES[Number(m) - 1]}_${y}` : String(iso);
+}
+
+/** 'Julio_2026' → '2026-07'. Tolera 'JULIO_26' y 'julio_2026'; null si no se entiende. */
+function mesISO(label) {
+  const m = /^\s*([A-Za-zÁÉÍÓÚáéíóúÑñ]+)[_\s-]+(\d{2}|\d{4})\s*$/.exec(String(label || ''));
+  if (!m) return null;
+  const i = MESES_ES.findIndex((x) => x.toLowerCase() === m[1].toLowerCase());
+  if (i < 0) return null;
+  const y = m[2].length === 2 ? `20${m[2]}` : m[2];
+  return `${y}-${String(i + 1).padStart(2, '0')}`;
+}
+
+module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum, fechaUTC, mesUTC, ayerUTC, MESES_ES, mesCierre, mesISO };

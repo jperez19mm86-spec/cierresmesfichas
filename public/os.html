@@ -1470,56 +1470,127 @@ async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toa
 
 // ───────── TIPOS DE CAMBIO ─────────
 let _tcMes = new Date().toISOString().slice(0,7);
+/* ─────────────────────────────────────────────────────────────────────────────────────────
+   TIPOS DE CAMBIO. Un solo número por moneda y por mes divide TODO lo que se cobra, así que
+   la pantalla está ordenada por de dónde sale ese número:
+     1. el que se está usando este mes (todas las monedas, con su fuente)
+     2. la grilla moneda × mes, que es la que manda
+     3. lo que se está juntando ahora, que es lo que va a formar la próxima columna
+     4. el cierre mensual: promedio del mes contra el TC que factura el proveedor
+   ARS_OF no es una moneda: es el ARS que factura el PROVEEDOR. Es la misma casilla que
+   "TC Proveedor" de la tarjeta de cierre — antes eran dos y se habían separado.
+   ───────────────────────────────────────────────────────────────────────────────────────── */
 VIEWS.tc = async () => {
-  const snaps = (await api('/api/os/tc/snapshots')).snapshots||[];
   const meses = (await api('/api/os/tc/meses')).meses||[];
-  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], mesesCie=d.meses||[], tasas=d.tasas||{};
+  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], tasas=d.tasas||{};
   const uso = await api('/api/os/tc/del-mes?mes='+encodeURIComponent(_tcMes));
-  const head = ['<th class="cie-h0">Moneda</th>'].concat(mesesCie.map(me=>`<th>${esc(me)}</th>`)).join('');
-  const body = monedas.map(mon=>{
+  const prom = (await api('/api/os/tc/divisas/promedios?mes='+encodeURIComponent(_tcMes))).promedios||[];
+  const PROV='ARS_OF';
+
+  // Las columnas se ordenan por el mes que representan, no como salieron de la base: mezcladas
+  // (Enero_26 después de Julio_2026) no hay forma de leer la grilla.
+  const mesesCie = (d.meses||[]).slice().sort((a,b)=>String(tcISO(a)||a).localeCompare(String(tcISO(b)||b)));
+  const head = ['<th class="cie-h0">Moneda</th>'].concat(mesesCie.map(me=>
+    `<th>${esc(me)}<br><span class="cie-x" title="borrar la columna ${esc(me)}" onclick="tcBorrarMes('${esc(me).replace(/'/g,"\\'")}')">✕</span></th>`)).join('');
+  const filas = monedas.slice().sort((a,b)=> (a===PROV?1:0)-(b===PROV?1:0) || a.localeCompare(b));
+  const body = filas.map(mon=>{
+    const esProv = mon===PROV;
     const tds = mesesCie.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
-    return `<tr><td class="cie-p">${esc(mon)}</td>${tds}</tr>`;
+    return `<tr${esProv?' class="cie-hv"':''}><td class="cie-p">${esc(mon)}${esProv?' <span class="cie-tag">del proveedor</span>':''}</td>${tds}</tr>`;
   }).join('');
   const disc = uso.discrepancias||[];
+  const rows = (uso.monedas||[]);
+
   document.getElementById('main').innerHTML = CIE_STYLE + `
-    <div class="card"><h2>El TC que se está usando</h2>
-      <div class="muted">Este es el número con el que Facturación, Reparto y Proveedores externos pasan todo a USDT. Manda el <b>cargado a mano</b> para el mes; si no hay, el <b>promedio automático</b>; para ARS, el histórico.</div>
-      <div class="row" style="margin-top:8px;align-items:flex-end">
+    <div class="card">
+      <div class="row" style="align-items:flex-end;margin-bottom:10px">
         <div style="flex:0"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>ARS / USDT en ${esc(_tcMes)}</label>
-          <div style="font-size:20px;font-weight:800">${uso.ars&&uso.ars.valor?money(uso.ars.valor,2):'— sin cargar'}</div>
-          <div class="muted" style="font-size:11px">${esc((uso.ars&&uso.ars.fuente)||'')}</div></div>
+        <div style="flex:1"><h2 style="margin:0">El TC que se está usando en ${esc(_tcMes)}</h2>
+          <div class="muted" style="font-size:12px">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
+            Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.</div></div>
       </div>
-      ${disc.length?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0 0"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal abajo: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:8px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${(rows.length?rows:[uso.ars].filter(Boolean)).map(x=>`
+          <div class="card" style="margin:0;background:var(--bg3);min-width:132px;flex:0 0 auto;padding:8px 10px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.4px">${esc(x.divisa||'ARS')}</div>
+            <div style="font-size:17px;font-weight:800;${x.valor?'':'color:var(--muted)'}">${x.valor?money(x.valor,x.valor>100?2:4):'— sin cargar'}</div>
+            <div class="muted" style="font-size:10px">${esc((x.fuente||'').replace('cargado a mano en el cierre','a mano').replace('promedio automático del mes','promedio'))}</div>
+          </div>`).join('')}
+      </div>
+      ${disc.length?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:10px 0 0"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal en la grilla: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:10px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
     </div>
-    <div class="card"><h2>Cargado a mano (moneda × mes)</h2>
-      <div class="muted">Es el que <b>manda</b>. Al calcular el cierre, la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes. Se guarda solo. <b>${monedas.length}</b> monedas × <b>${mesesCie.length}</b> meses.</div>
-      <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
+
+    <div class="card"><h2>Moneda × mes</h2>
+      <div class="muted">Es la que <b>manda</b>: la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes.
+        Se guarda sola al salir de la casilla. <b>${filas.length}</b> monedas × <b>${mesesCie.length}</b> meses.
+        La fila <b>ARS_OF</b> es el ARS que factura el <b>proveedor</b> — es la misma casilla que "TC Proveedor" de abajo.</div>
+      <div class="row" style="margin-top:10px;align-items:flex-end;gap:10px;flex-wrap:wrap">
         <div style="flex:0"><label>➕ Mes</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
         <div style="flex:0"><button class="small" onclick="cieAddMes()">Columna</button></div>
         <div style="flex:0"><label>➕ Moneda</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
         <div style="flex:0"><button class="small" onclick="cieAddMon()">Fila</button></div>
+        <div style="flex:1"></div>
+        <div style="flex:0"><button class="outline small" onclick="tcArmarColumna()">✨ Armar la columna de ${esc(_tcMes)} con los promedios</button></div>
       </div>
-      <div style="overflow:auto;max-height:50vh;margin-top:8px">
-        ${monedas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
+      <div style="overflow:auto;max-height:52vh;margin-top:10px">
+        ${filas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
       </div>
     </div>
-    <div class="card"><h2>Automático ARS/USDT</h2>
-      <div class="row"><button onclick="snapNow()">📸 Snapshot ahora (Binance/criptoya)</button>
-      <button class="outline" onclick="tcAhora()">Ver TC actual</button><div id="tc-now" class="muted" style="align-self:center"></div></div>
-      <div class="muted">El cron toma un snapshot automático todos los días 18:00. El promedio del mes es el TC Cliente.</div>
-    </div>
-    <div class="card"><h2>Cierre mensual (TC)</h2>
-      <table><thead><tr><th>Mes</th><th>TC Cliente (prom)</th><th>TC Proveedor (factura)</th><th>Diferencia</th><th>Cerrado</th><th></th></tr></thead><tbody>
-      ${meses.map(m=>`<tr><td>${esc(m.mes)}</td><td>${m.tc_cliente?money(m.tc_cliente,2):'—'}</td><td>${m.tc_proveedor_ext?money(m.tc_proveedor_ext,2):'<input id="tcp-'+m.mes+'" placeholder="factura" style="width:110px">'}</td><td>${m.diferencia_tc?money(m.diferencia_tc,2):'—'}</td><td>${m.cerrado?'✅':'—'}</td><td>${m.tc_proveedor_ext?'':'<button class="small" onclick="setTcProv(\''+m.mes+'\')">Guardar</button>'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin meses todavía. Tomá un snapshot.</td></tr>'}
+
+    <div class="card"><h2>Lo que se está juntando en ${esc(_tcMes)}</h2>
+      <div class="muted">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
+        se escribe solo como columna nueva de la grilla — sin pisar nada que hayas cargado a mano.</div>
+      <div class="row" style="margin:10px 0 6px">
+        <button class="outline small" onclick="snapNow()">📸 Guardar ARS ahora</button>
+        <button class="outline small" onclick="snapDivisas()">📸 Guardar el resto ahora</button>
+        <button class="outline small" onclick="tcAhora()">Ver ARS al instante</button>
+        <div id="tc-now" class="muted" style="align-self:center"></div>
+      </div>
+      <table><thead><tr><th>Moneda</th><th class="right">Días juntados</th><th class="right">Promedio del mes</th><th>Ya está en la grilla</th></tr></thead><tbody>
+      ${prom.map(p=>{
+        const lbl=tcLabel(_tcMes); const yaVal=(tasas[p.divisa]||{})[lbl];
+        return `<tr><td><b>${esc(p.divisa)}</b>${p.fuente?' <span class="muted" style="font-size:10px">'+esc(p.fuente)+'</span>':''}</td>
+          <td class="right">${p.dias||0}</td><td class="right">${p.promedio?money(p.promedio,4):'—'}</td>
+          <td>${yaVal!=null?'<span class="badge ok">'+esc(yaVal)+'</span>':'<span class="muted">todavía no</span>'}</td></tr>`;
+      }).join('') || '<tr><td colspan="4" class="empty">Sin cotizaciones guardadas este mes.</td></tr>'}
       </tbody></table>
     </div>
-    <div class="card"><h2>Snapshots recientes (${snaps.length})</h2>
-      <table><thead><tr><th>Fecha</th><th>Hora</th><th>TC</th><th>Fuente</th></tr></thead><tbody>
-      ${snaps.slice(0,30).map(s=>`<tr><td>${esc(s.fecha)}</td><td>${esc(s.hora)}</td><td>${money(s.tc_ars_usdt,2)}</td><td class="muted">${esc(s.fuente)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Sin snapshots.</td></tr>'}
+
+    <div class="card"><h2>Cierre mensual: promedio contra el TC del proveedor</h2>
+      <div class="muted">El <b>TC Cliente</b> es el promedio del mes (Binance/criptoya) y es con el que se le cobra a los clientes.
+        El <b>TC Proveedor</b> sale de la factura del proveedor y es el mismo dato que la fila <b>ARS_OF</b> de la grilla: se escribe una vez y queda en los dos lados.</div>
+      <table style="margin-top:8px"><thead><tr><th>Mes</th><th class="right">TC Cliente (promedio)</th><th class="right">TC Proveedor (ARS_OF)</th><th class="right">Diferencia</th><th></th></tr></thead><tbody>
+      ${meses.map(m=>{
+        const lbl=tcLabel(m.mes); const of=(tasas[PROV]||{})[lbl];
+        const cruce = (of!=null && m.tc_proveedor_ext && String(of)!==String(m.tc_proveedor_ext));
+        return `<tr><td><b>${esc(m.mes)}</b> <span class="muted">${esc(lbl)}</span></td>
+          <td class="right">${m.tc_cliente?money(m.tc_cliente,2):'—'}</td>
+          <td class="right">${m.tc_proveedor_ext?money(m.tc_proveedor_ext,2):'<input id="tcp-'+m.mes+'" placeholder="de su factura" style="width:120px">'}</td>
+          <td class="right ${m.diferencia_tc&&Number(m.diferencia_tc)<0?'':''}">${m.diferencia_tc?money(m.diferencia_tc,2):'—'}</td>
+          <td>${m.tc_proveedor_ext?(cruce?'<span class="badge err">la grilla dice '+esc(of)+'</span>':''):'<button class="small" onclick="setTcProv(\''+m.mes+'\')">Guardar</button>'}</td></tr>`;
+      }).join('') || '<tr><td colspan="5" class="empty">Sin meses todavía.</td></tr>'}
       </tbody></table>
     </div>`;
 };
+const TC_MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+/** '2026-07' → 'Julio_2026' (así se llaman las columnas de la grilla) */
+function tcLabel(iso){ const [y,m]=String(iso||'').split('-'); return TC_MESES_ES[Number(m)-1]?TC_MESES_ES[Number(m)-1]+'_'+y:String(iso); }
+/** 'Julio_2026' / 'JULIO_26' → '2026-07'. Sirve para ordenar las columnas por fecha. */
+function tcISO(lbl){ const m=/^\s*([A-Za-zÁ-ú]+)[_\s-]+(\d{2}|\d{4})\s*$/.exec(String(lbl||'')); if(!m)return null;
+  const i=TC_MESES_ES.findIndex(x=>x.toLowerCase()===m[1].toLowerCase()); if(i<0)return null;
+  return (m[2].length===2?'20'+m[2]:m[2])+'-'+String(i+1).padStart(2,'0'); }
+async function tcBorrarMes(mes){
+  if(!confirm('¿Borrar la columna "'+mes+'" entera? Se van los tipos de cambio de todas las monedas de ese mes.')) return;
+  const r=await api('/api/os/cierre/tc/mes/'+encodeURIComponent(mes),{method:'DELETE'});
+  toast(r.ok?('Columna borrada ('+r.celdas+' celdas)'):(r.error||'error')); VIEWS.tc();
+}
+async function tcArmarColumna(){
+  const r=await api('/api/os/tc/columna',{method:'POST',body:JSON.stringify({mes:_tcMes})});
+  if(!r.ok) return toast(r.error||'error');
+  toast(r.escritas.length?('Columna '+r.columna+': '+r.escritas.length+' monedas escritas'+(r.respetadas.length?', '+r.respetadas.length+' ya cargadas a mano':'')):'No había nada nuevo para escribir');
+  VIEWS.tc();
+}
+async function snapDivisas(){ const r=await api('/api/os/tc/divisas/snapshot',{method:'POST'}); toast(r.ok?('Guardadas '+r.divisas+' monedas'):(r.error||'error')); VIEWS.tc(); }
 async function snapNow(){ const r=await api('/api/os/tc/snapshot',{method:'POST'}); if(r.ok) toast('Snapshot: '+r.snapshot.tc_ars_usdt); VIEWS.tc(); }
 async function tcAhora(){ const r=await api('/api/os/tc/ahora'); document.getElementById('tc-now').textContent = r.tc?('TC '+money(r.tc,2)+' ('+(r.vivo?'vivo':'snapshot')+')'):'sin TC'; }
 async function setTcProv(mes){ const v=val('tcp-'+mes); if(!v)return; await api('/api/os/tc/mes/'+mes,{method:'PUT',body:JSON.stringify({tc_proveedor_ext:v})}); toast('Mes cerrado'); VIEWS.tc(); }

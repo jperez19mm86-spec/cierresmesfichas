@@ -17,6 +17,8 @@ const pagoProv = require('./pago-proveedores.service');
 const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
+const tcColumna = require('./tc-columna.service');
+const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
@@ -75,6 +77,7 @@ function mount(app) {
   splitBase.seedIfEmpty();
   tcSvc.startScheduler();
   tcDivisas.startScheduler();
+  tcColumna.startScheduler();
   acumSvc.startCron();
 
   // Panel del OS (HTML estático, detrás del gate de auth)
@@ -464,7 +467,7 @@ function mount(app) {
   app.get('/api/os/tc/del-mes', (req, res) => {
     const mes = req.query.mes || mesTZ();
     if (req.query.divisa) return ok(res, tcUnico.tcDelMes(req.query.divisa, mes));
-    ok(res, { mes, ars: tcUnico.tcDelMes('ARS', mes), discrepancias: tcUnico.discrepancias(mes) });
+    ok(res, { mes, ars: tcUnico.tcDelMes('ARS', mes), monedas: tcUnico.resumenMes(mes), discrepancias: tcUnico.discrepancias(mes) });
   });
 
   // ── TC del resto de las divisas (ARS sale de Binance, arriba) ──
@@ -485,10 +488,32 @@ function mount(app) {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
     ok(res, { mes, dias: tcDivisas.listDias(mes, req.query.divisa) });
   });
+  // La columna del mes en la grilla, armada con los promedios que se juntaron.
+  app.post('/api/os/tc/columna', wrap((req, res) => {
+    const b = req.body || {};
+    const r = tcColumna.armarColumna(b.mes || mesTZ(), { pisar: !!b.pisar });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // Borrar / renombrar una columna entera de la grilla.
+  app.delete('/api/os/cierre/tc/mes/:mes', wrap((req, res) => {
+    const r = cierreStore.removeMesTC(req.params.mes);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.post('/api/os/cierre/tc/renombrar', wrap((req, res) => {
+    const b = req.body || {};
+    const r = cierreStore.renombrarMesTC(b.de, b.a);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
+  // El TC del proveedor entra SIEMPRE por acá: `setTC` lo escribe en la grilla (fila ARS_OF) y en
+  // tc_mes de una sola vez. Guardarlo directo en tc_mes es lo que había dejado los dos lados
+  // distintos — julio con 1473,5 en uno y vacío en el otro.
   app.put('/api/os/tc/mes/:mes', wrap((req, res) => {
     const { tc_proveedor_ext } = req.body || {};
     if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');
-    ok(res, { mes: tcStore.setTcProveedor(req.params.mes, tc_proveedor_ext) });
+    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, true);
+    if (!r.ok) return err(res, 400, r.error);
+    ok(res, { mes: tcStore.getMes(req.params.mes) });
   }));
 
   // ───────── CONGELAR LA MATRIZ DE UN MES ─────────
