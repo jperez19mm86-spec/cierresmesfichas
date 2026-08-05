@@ -37,11 +37,18 @@ db.exec(`
   );
 
   /* Un SELLO es un grupo de proveedores de TBS, con el nombre largo que usa la planilla.
-     grupo_id es el id del grupo en el panel: sin él no se puede pedir el GGR. */
+     grupo_id es el id del grupo en el panel: sin él no se puede pedir el GGR.
+
+     Los 52 se identificaron alineando el desplegable del panel con la lista de precios del
+     dueño: las dos vienen en el mismo orden. La alineación no se dio por buena porque cuadre
+     la cantidad — se contrastó contra los 12 grupos que ya estaban verificados uno por uno
+     con los números reales del panel (Slot zona por CRC/BOB/MXN exactos, Sport Betting por
+     499.083, SA Gaming por USD 1.678,80...). Los 12 caen donde tienen que caer. */
   CREATE TABLE IF NOT EXISTS api_sello (
     nombre TEXT PRIMARY KEY,      -- 'EGT Digital, Pragmatic Play, NetEnt, ELK Studios (Slot zona)'
     grupo_id TEXT,                -- id del grupo en TBS (78 = goldenneo = Slot zona)
     corto TEXT,                   -- 'Slot zona', para las pantallas
+    costo TEXT,                   -- lo que cobra el proveedor por ese sello (del panel)
     ord INTEGER
   );
 
@@ -58,6 +65,10 @@ db.exec(`
     PRIMARY KEY (cliente_id, sello)
   );
 `);
+
+// La tabla puede venir de una versión anterior sin `costo`. La migración vive ACÁ y no en db.js
+// porque allá corre antes de que esta tabla exista y, en una base nueva, el ALTER explota.
+try { db.exec('ALTER TABLE api_sello ADD COLUMN costo TEXT'); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -106,9 +117,11 @@ function saveSello(d) {
   const n = String(d.nombre || '').trim();
   if (!n) return { ok: false, error: 'falta el nombre del sello' };
   const ord = d.ord != null ? Number(d.ord) : (db.prepare('SELECT COALESCE(MAX(ord),-1)+1 n FROM api_sello').get().n);
-  db.prepare(`INSERT INTO api_sello (nombre,grupo_id,corto,ord) VALUES (?,?,?,?)
-    ON CONFLICT(nombre) DO UPDATE SET grupo_id=excluded.grupo_id, corto=excluded.corto`)
-    .run(n, d.grupo_id == null ? null : String(d.grupo_id).trim(), String(d.corto || '').trim() || null, ord);
+  db.prepare(`INSERT INTO api_sello (nombre,grupo_id,corto,costo,ord) VALUES (?,?,?,?,?)
+    ON CONFLICT(nombre) DO UPDATE SET grupo_id=COALESCE(excluded.grupo_id, api_sello.grupo_id),
+      corto=COALESCE(excluded.corto, api_sello.corto), costo=COALESCE(excluded.costo, api_sello.costo)`)
+    .run(n, d.grupo_id == null || d.grupo_id === '' ? null : String(d.grupo_id).trim(),
+      String(d.corto || '').trim() || null, d.costo == null || d.costo === '' ? null : String(d.costo).trim(), ord);
   return { ok: true };
 }
 function removeSello(nombre) {
