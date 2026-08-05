@@ -18,6 +18,7 @@ const deudaSvc = require('./deuda.service');
 const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
+const apiStore = require('./api-store');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
@@ -800,6 +801,31 @@ function mount(app) {
     if (!cli) return err(res, 400, `la conexión "${cx.nombre}" no tiene credenciales cargadas`);
     const r = await cli.grupos();
     r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error, { diag: r.diag || [] });
+  }));
+
+  // ───────── 🔌 API (TBS) — el otro negocio ─────────
+  // Padrón APARTE del de fichas: otros clientes, otros %, y el % es POR SELLO.
+  app.get('/api/os/api/clientes', (_req, res) => ok(res, { clientes: apiStore.listClientes() }));
+  app.post('/api/os/api/clientes', wrap((req, res) => {
+    const r = apiStore.saveCliente(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/api/clientes/:id', wrap((req, res) => ok(res, apiStore.removeCliente(req.params.id))));
+
+  app.get('/api/os/api/sellos', (_req, res) => ok(res, { sellos: apiStore.listSellos() }));
+  app.post('/api/os/api/sellos', wrap((req, res) => {
+    const r = apiStore.saveSello(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/api/sellos/:nombre', wrap((req, res) => ok(res, apiStore.removeSello(req.params.nombre))));
+
+  // Sembrar el padrón y la matriz de una. Idempotente: no pisa lo cargado salvo que se pida.
+  app.post('/api/os/api/sembrar', wrap((req, res) => ok(res, apiStore.sembrar(req.body || {}))));
+  app.get('/api/os/api/matriz', (_req, res) => ok(res, apiStore.matriz()));
+  app.post('/api/os/api/pct', wrap((req, res) => {
+    const b = req.body || {};
+    const r = apiStore.setPct(b.cliente_id, b.sello, b);
+    r.ok ? ok(res, r) : err(res, 400, r.error, { confirmar: !!r.confirmar, empresa: r.empresa, suma: r.suma });
   }));
 
   // TBS: el árbol de cuentas aplanado. Sin el id de cada cuenta no se le puede pedir el profit.
