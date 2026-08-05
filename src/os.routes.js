@@ -697,12 +697,13 @@ function mount(app) {
     const r = await pagoProv.reporte({
       mes: req.query.mes || mesTZ(),
       monedas: req.query.monedas ? String(req.query.monedas).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) : null,
+      refrescar: req.query.refrescar === '1',
     });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   // El CSV con el mismo formato que el dueño ya usaba a mano.
   app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {
-    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ() });
+    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
     if (!r.ok) return err(res, 400, r.error);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="pago-proveedores-${r.mes}.csv"`);

@@ -30,6 +30,7 @@ const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
+const ganCache = require('./ganancias-cache');
 const money = require('./lib/money');
 
 const K = (s) => String(s || '').trim().toLowerCase();
@@ -141,7 +142,7 @@ function filaDeGrupo(g, costoDe, nombres) {
  * profit desglosado por grupo en una sola pasada, y sumar todo junto perdería justamente el
  * dato que decide el costo.
  */
-async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
+async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false }) {
   const conexiones = casinoConex.list().filter((c) => c.motor === 'tbs' && c.activa);
   const out = { proveedores: [], usdt: '0', sinMapear: [], filas: 0, conexiones: [] };
   // costoDe está indexado en minúscula; para las expresiones hace falta el nombre como se escribió
@@ -159,7 +160,13 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
   for (const cx of conexiones) {
     const cli = casinoConex.client(cx.id);
     if (!cli) { avisos.push(`${cx.nombre}: sin credenciales`); continue; }
-    const g = await cli.grupos();
+    // La lista de 52 grupos casi no cambia; pedirla cada vez es un viaje de más.
+    let g = ganCache.get(cx.id, '_tbs_grupos', mes, '_lista', { refrescar });
+    if (g) g = { ok: true, grupos: g.filas };
+    else {
+      g = await cli.grupos();
+      if (g.ok) ganCache.set(cx.id, '_tbs_grupos', mes, '_lista', g.grupos);
+    }
     if (!g.ok) { avisos.push(`${cx.nombre}: no se pudo leer la lista de grupos — ${g.error}`); continue; }
     out.conexiones.push(cx.nombre);
 
@@ -168,16 +175,26 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
     const tanda = 5;
     for (let i = 0; i < g.grupos.length; i += tanda) {
       const parte = await Promise.all(g.grupos.slice(i, i + tanda).map(async (grp) => {
-        try { return { grp, r: await cli.profitDeAgentes({ desde, hasta, agentes, grupos: [grp.id] }) }; }
-        catch (e) { return { grp, r: { ok: false, error: String((e && e.message) || e) } }; }
+        // Un mes cerrado no cambia: la ganancia de cada grupo se guarda y no se vuelve a pedir.
+        // Son 52 consultas de ~2s; sin caché el reporte entero se pasaba del límite del proxy.
+        const hit = ganCache.get(cx.id, `_tbs_g${grp.id}`, mes, '_todas', { refrescar });
+        if (hit) return { grp, r: { ok: true, porDivisa: hit.filas, cacheado: true } };
+        try {
+          const r = await cli.profitDeAgentes({ desde, hasta, agentes, grupos: [grp.id] });
+          if (r.ok) {
+            const pd = {};
+            Object.values(r.porAgente || {}).forEach((a) => Object.entries(a.porDivisa || {}).forEach(([d, v]) => {
+              pd[d] = money.add(pd[d] || '0', String(v.profit));
+            }));
+            ganCache.set(cx.id, `_tbs_g${grp.id}`, mes, '_todas', pd);
+            return { grp, r: { ok: true, porDivisa: pd } };
+          }
+          return { grp, r };
+        } catch (e) { return { grp, r: { ok: false, error: String((e && e.message) || e) } }; }
       }));
       for (const { grp, r } of parte) {
         if (!r.ok) { avisos.push(`${cx.nombre} grupo ${grp.nombre}: ${r.error}`); continue; }
-        // sumar las divisas de los 4 agentes
-        const porDivisa = {};
-        Object.values(r.porAgente || {}).forEach((a) => Object.entries(a.porDivisa || {}).forEach(([d, v]) => {
-          porDivisa[d] = money.add(porDivisa[d] || '0', String(v.profit));
-        }));
+        const porDivisa = r.porDivisa || {};
         const conPlata = Object.entries(porDivisa).filter(([, v]) => money.isPos(v));
         if (!conPlata.length) continue;                       // sin ganancia, no se paga nada
 
@@ -219,7 +236,7 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos }) {
  * @param monedas  qué divisas consultar (null = las que el conector conoce)
  * @returns { ok, mes, proveedores[], totales, porConexion, sinCosto[], sinVincular[], sinTC[], avisos[] }
  */
-async function reporte({ mes, monedas = null } = {}) {
+async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const { from, to } = externosSvc.rango(m);
@@ -246,10 +263,20 @@ async function reporte({ mes, monedas = null } = {}) {
     if (!cx.activa) continue;
     const cli = casinoConex.client(cx.id);
     if (!cli) { avisos.push(`${cx.nombre}: sin credenciales`); continue; }
-    let r;
-    try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: monedas, userGroupBy: '' }); }
-    catch (e) { avisos.push(`${cx.nombre}: ${String((e && e.message) || e)}`); continue; }
-    if (!r || !r.ok) { avisos.push(`${cx.nombre}: ${(r && r.error) || 'no respondió'}`); continue; }
+    // Lo mismo que con TBS: el casino tarda 50-120s por conexión y un mes cerrado ya no se mueve.
+    let r = null;
+    const hit = ganCache.get(cx.id, '_pago_general', m, '_todas', { refrescar });
+    if (hit) r = { ok: true, monedas: hit.filas };
+    if (!r) {
+      try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: monedas, userGroupBy: '' }); }
+      catch (e) { avisos.push(`${cx.nombre}: ${String((e && e.message) || e)}`); continue; }
+      if (!r || !r.ok) { avisos.push(`${cx.nombre}: ${(r && r.error) || 'no respondió'}`); continue; }
+      // Solo se guarda si vino COMPLETO: media respuesta cacheada es un número mal que se queda.
+      const fallo = Object.values(r.monedas || {}).some((x) => !x || !x.ok);
+      if (!fallo) ganCache.set(cx.id, '_pago_general', m, '_todas', r.monedas);
+      else avisos.push(`${cx.nombre}: alguna divisa falló, así que no se guardó en caché — reintentá para completar el mes`);
+    }
+    if (!r || !r.ok) { avisos.push(`${cx.nombre}: no respondió`); continue; }
 
     porConexion[cx.nombre] = { usdt: '0', filas: 0 };
     for (const [divisa, res] of Object.entries(r.monedas || {})) {
@@ -288,7 +315,7 @@ async function reporte({ mes, monedas = null } = {}) {
 
   // TBS es el tercer motor: otro protocolo, otra granularidad. Se calcula aparte y se suma acá,
   // porque para el dueño es una sola cuenta: lo que paga en el mes.
-  const tbs = await lineasTBS({ mes: m, desde, hasta, costoDe, avisos });
+  const tbs = await lineasTBS({ mes: m, desde, hasta, costoDe, avisos, refrescar });
   tbs.proveedores.forEach((p) => {
     const a = acc.get(p.proveedor) || { proveedor: p.proveedor, costo: p.costo, usdt: '0', lineas: [] };
     a.usdt = money.add(a.usdt, p.usdt); a.lineas.push(...p.lineas); acc.set(p.proveedor, a);

@@ -1013,7 +1013,7 @@ function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.
    El otro lado de la factura de externos: aquella le COBRA al cliente `ganancia × (celda −
    su base)`; ésta calcula lo que le PAGAMOS al proveedor, `ganancia × su costo`. La ganancia
    es la misma; cambia el porcentaje. */
-let _pagoMes = new Date().toISOString().slice(0,7), _pagoData = null, _pagoAbierto = new Set();
+let _pagoMes = new Date().toISOString().slice(0,7), _pagoData = null, _pagoAbierto = new Set(), _pagoRefrescar = false;
 async function ciePago(){
   document.getElementById('cie-body').innerHTML = `
     <div class="card">
@@ -1024,9 +1024,11 @@ async function ciePago(){
         <div style="flex:0"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
         <div style="flex:1;min-width:0"></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoRefrescar()">↻ Volver a consultar</button></div>
         <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button></div>
       </div>
-      <div class="muted" style="margin-top:6px">Consulta el casino moneda por moneda, así que tarda. Un mes <b>congelado</b> usa los precios de ese mes.</div>
+      <div class="muted" style="margin-top:6px">La primera vez de cada mes consulta los tres paneles y tarda varios minutos; después sale de lo guardado.
+        <b>Volver a consultar</b> los pregunta de nuevo. Un mes <b>congelado</b> usa los precios de ese mes.</div>
       <div id="pago-body" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
     </div>`;
   if(_pagoData) pagoPintar();
@@ -1034,8 +1036,9 @@ async function ciePago(){
 async function pagoCalcular(){
   _pagoMes = val('pago-mes') || _pagoMes;
   const out=document.getElementById('pago-body');
-  out.innerHTML='<div class="empty">⏳ consultando el casino… puede tardar varios minutos</div>';
-  const r=await api('/api/os/pago-proveedores?mes='+encodeURIComponent(_pagoMes));
+  out.innerHTML='<div class="empty">⏳ consultando… la primera vez de un mes tarda varios minutos; después sale de lo guardado</div>';
+  const r=await api('/api/os/pago-proveedores?mes='+encodeURIComponent(_pagoMes)+(_pagoRefrescar?'&refrescar=1':''));
+  _pagoRefrescar=false;
   if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
   _pagoData=r; _pagoAbierto.clear(); pagoPintar();
 }
@@ -1081,6 +1084,7 @@ function pagoPintar(){
     ${(r.avisos||[]).length?`<div class="muted" style="margin-top:8px">${r.avisos.map(esc).join('<br>')}</div>`:''}`;
 }
 function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
+function pagoRefrescar(){ _pagoRefrescar=true; pagoCalcular(); }
 function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
 
 /* ── sub-vista 🤝 CUENTA DE VENDEDORES ─────────────────────────────────────────────────
@@ -1892,51 +1896,78 @@ CFG.pagos = async () => {
 async function savePagos(){ await api('/api/os/config/pagos',{method:'PUT',body:JSON.stringify({cvuVigente:val('pg-cvu'),cvuNota:document.getElementById('pg-cvunota').value,usdtAddress:val('pg-usdt'),usdtRed:val('pg-red'),usdtNota:document.getElementById('pg-usdtnota').value})}); toast('Guardado'); }
 
 // ───────── CONFIG ▸ CASINO (conexiones + explorador de nodos) ─────────
+// El motor se guarda como '463' (es el nombre técnico del engine, y cambiarlo obligaría a migrar
+// las conexiones ya cargadas), pero en pantalla se llama Imperia, que es como lo nombra el dueño.
+const MOTOR_PILL = (m) => ((m||'463')==='tbs'
+  ? '<span class="badge warn">TBS</span>'
+  : '<span class="badge ok">Imperia</span>');
+
+/**
+ * Un input que el navegador NO autocompleta.
+ * Con `autocomplete="off"` solo no alcanza: Chrome lo ignora en cualquier campo que huela a
+ * usuario/clave/dirección y metía el admin de otro sitio en la URL del panel. Arrancar en
+ * readonly y soltarlo al primer foco es lo único que lo frena de verdad.
+ */
+const INP = (id, ph, type) => `<input id="${id}" ${type?`type="${type}"`:''} placeholder="${ph}"
+  autocomplete="${type==='password'?'new-password':'off'}" autocorrect="off" autocapitalize="none" spellcheck="false"
+  readonly onfocus="this.removeAttribute('readonly')" style="width:100%"/>`;
+
 CFG.casino = async () => {
   const cx = (await api('/api/os/casino/conexiones')).conexiones||[];
   if(!_cxSel && cx[0]) _cxSel = cx[0].id;
   document.getElementById('cfg-body').innerHTML = `
-    <div class="card"><h2>🎰 Conexiones al casino</h2>
-      <div class="muted" style="margin-bottom:8px">Conexión por <b>api_token</b> (se guarda cifrado). Soporta varias (multi-master). El token de dev es solo para mapear; la app real usará su cuenta.</div>
-      <table><thead><tr><th>Nombre</th><th>URL</th><th>Motor</th><th>Auth</th><th>Estado</th><th></th></tr></thead><tbody>
+    <div class="card"><h2>🎰 Paneles conectados</h2>
+      <div class="muted" style="margin-bottom:10px">De acá salen las ganancias y las cargas. Las credenciales se guardan cifradas.</div>
+      <table><thead><tr><th>Panel</th><th>URL</th><th>Motor</th><th>Entra con</th><th>Estado</th><th></th></tr></thead><tbody>
       ${cx.map(c=>`<tr><td><b>${esc(c.nombre)}</b>${c.usuario?(' <span class="muted">('+esc(c.usuario)+')</span>'):''}</td><td class="muted">${esc(c.url)}</td>
-        <td>${(c.motor||'463')==='tbs'?'<span class="badge warn">TBS</span>':'<span class="badge ok">463</span>'}</td>
-        <td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">user/pass</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin conexiones. Agregá una abajo.</td></tr>'}
+        <td>${MOTOR_PILL(c.motor)}</td>
+        <td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">usuario</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin paneles conectados. Agregá uno abajo.</td></tr>'}
       </tbody></table>
       <div id="cx-test" class="muted" style="margin-top:6px"></div>
-      <hr/>
-      <div class="muted" style="margin-bottom:6px">Auth: poné el <b>API token</b> <u>o</u> el <b>usuario + contraseña</b> (lo que tenga la cuenta).</div>
-      <div class="muted" style="margin-bottom:8px;border-left:3px solid var(--gold);padding-left:8px">
-        ⚠️ Elegí bien el <b>motor</b>: son productos distintos y se les habla diferente.
-        <b>463</b> es el de Casino y Europa. <b>TBS</b> es <span class="pill">tbs2api.dark-a.com</span>, otro panel.
+    </div>
+
+    <div class="card"><h2>➕ Conectar un panel</h2>
+      <div class="muted" style="margin-bottom:10px;border-left:3px solid var(--gold);padding-left:10px">
+        Empezá por el <b>motor</b>: son dos productos distintos y se les habla diferente.
+        <b>Imperia</b> es el de Casino y Europa; <b>TBS</b> es <span class="pill">tbs2api.dark-a.com</span>, otro panel.
         Con el motor equivocado el "Probar" dice <i>usuario o contraseña incorrectos</i> aunque estén bien — porque nunca llega a probarlas.</div>
-      <div class="row">
-        <div><label>Nombre</label><input id="cx-nombre" placeholder="463.life"/></div>
-        <div><label>URL del panel</label><input id="cx-url" placeholder="admin.463.life"/></div>
-        <div style="flex:0"><label>Motor</label><select id="cx-motor" style="width:auto">
-          <option value="463">463 (Casino / Europa)</option>
+
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0 0 220px"><label>Motor</label><select id="cx-motor" style="width:100%">
+          <option value="463">Imperia · Casino y Europa</option>
           <option value="tbs">TBS</option>
         </select></div>
+        <div style="flex:1 1 200px"><label>Nombre del panel</label>${INP('cx-nombre','Europa, Asia, Casino…')}</div>
+        <div style="flex:2 1 280px"><label>URL del panel</label>${INP('cx-url','admin.midominio.com')}</div>
       </div>
-      <div class="row" style="margin-top:8px">
-        <div><label>API token (opción A)</label><input id="cx-token" type="password" placeholder="token…"/></div>
-        <div><label>Usuario (opción B)</label><input id="cx-user" placeholder="463.life"/></div>
-        <div><label>Contraseña (opción B)</label><input id="cx-pass" type="password" placeholder="••••••"/></div>
-        <button onclick="addConex()">Agregar</button>
+
+      <div style="margin:14px 0 6px" class="muted">Cómo entra el OS: con el <b>token</b> de la cuenta <u>o</u> con <b>usuario y contraseña</b>. Con uno alcanza.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1 1 240px"><label>API token</label>${INP('cx-token','pegá el token acá','password')}</div>
+        <div style="flex:0 0 auto;padding-bottom:9px" class="muted">— o —</div>
+        <div style="flex:1 1 180px"><label>Usuario</label>${INP('cx-user','usuario del panel')}</div>
+        <div style="flex:1 1 180px"><label>Contraseña</label>${INP('cx-pass','••••••••','password')}</div>
+        <button onclick="addConex()">Conectar</button>
       </div>
     </div>
+
     <div class="card"><h2>🌳 Explorador de nodos</h2>
-      <div class="muted" style="margin-bottom:8px">Distribuidores / Agentes / Cajas con su <b>IN (carga)</b>, OUT, Profit y RTP reales. Tocá "▸ hijos" para drillear.</div>
+      <div class="muted" style="margin-bottom:10px">
+        El <b>árbol de cuentas</b> del panel tal como lo ve el casino: distribuidores → agentes → cajas.
+        De cada uno muestra lo que <b>cargó (IN)</b>, lo que <b>retiró (OUT)</b>, el <b>Profit</b> y el <b>RTP</b> del período.
+        Sirve para dos cosas: encontrar el <b>id de un panel</b> cuando das de alta un cliente, y ver a mano
+        de dónde salió un número antes de darlo por bueno. Tocá "▸ hijos" para bajar un nivel.
+        <br>Solo para el motor <b>Imperia</b>: TBS no expone este árbol.</div>
       <div class="row">
-        <div><label>Conexión</label><select id="cx-sel">${
-          // El explorador pide el árbol de nodos, que solo existe en el engine 463.
-          cx.filter(c=>(c.motor||'463')==='463').map(c=>`<option value="${c.id}" ${c.id===_cxSel?'selected':''}>${esc(c.nombre)}</option>`).join('')||'<option value="">(ninguna)</option>'}</select></div>
+        <div><label>Panel</label><select id="cx-sel">${
+          // El explorador pide el árbol de nodos, que solo existe en el motor Imperia (463).
+          cx.filter(c=>(c.motor||'463')==='463').map(c=>`<option value="${c.id}" ${c.id===_cxSel?'selected':''}>${esc(c.nombre)}</option>`).join('')||'<option value="">(ninguno)</option>'}</select></div>
         <div><label>Desde</label><input id="cx-from" type="date"/></div>
         <div><label>Hasta</label><input id="cx-to" type="date"/></div>
         <div><label>Buscar</label><input id="cx-q" placeholder="login o id…" oninput="renderNodos()"/></div>
         <button onclick="explorar()">Cargar nodos</button>
       </div>
-      <div id="cx-nodos" class="muted" style="margin-top:10px">Elegí conexión y tocá "Cargar nodos".</div>
+      <div id="cx-nodos" class="muted" style="margin-top:10px">Elegí un panel y tocá "Cargar nodos".</div>
     </div>`;
 };
 async function addConex(){ if(!val('cx-url'))return toast('URL requerida'); if(!val('cx-token') && !(val('cx-user')&&val('cx-pass')))return toast('Poné token O usuario+contraseña'); const r=await api('/api/os/casino/conexiones',{method:'POST',body:JSON.stringify({nombre:val('cx-nombre'),url:val('cx-url'),token:val('cx-token'),usuario:val('cx-user'),password:val('cx-pass'),motor:val('cx-motor')||'463'})}); if(r.ok)toast('Conexión agregada'); CFG.casino(); }
