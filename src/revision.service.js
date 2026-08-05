@@ -278,9 +278,11 @@ function cruceProveedores(mes) {
   const K = (s) => String(s || '').trim().toLowerCase();
   const mx = cierre.getMatriz();
   const precios = cierreMes.preciosDe(m);
+  // El costo del mes; para las filas que la foto no tiene (se agregaron después de congelar) se
+  // usa el de hoy. Si no, medio catálogo aparece "sin costo" y el aviso se vuelve ruido.
   const costoDe = {};
-  if (precios && precios.costo && Object.keys(precios.costo).length) Object.assign(costoDe, precios.costo);
-  else mx.proveedores.forEach((p) => { costoDe[p.nombre] = p.base_pct; });
+  mx.proveedores.forEach((p) => { if (p.base_pct != null && p.base_pct !== '') costoDe[p.nombre] = p.base_pct; });
+  if (precios && precios.costo) Object.entries(precios.costo).forEach(([n, c]) => { if (c != null && c !== '') costoDe[n] = c; });
 
   // Los vendedores no cuentan como "clientes que lo pagan": pagan el costo real, no la celda.
   const esVendedor = new Set();
@@ -322,11 +324,19 @@ function cruceProveedores(mes) {
     const desde = apuntan[p.nombre] || [];
     const costo = costoDe[p.nombre];
     const gan = ganancia[p.nombre] || null;
+    const c = costo == null || costo === '' ? null : Number(costo);
+    // ⚠️ Que nadie lo pague NO es un problema por sí solo: los SL y los XG cuestan 0 y está
+    // decidido que no se cobran — 39 filas gritando en rojo por eso vuelven el aviso inservible.
+    // Duele cuando NOSOTROS pagamos por él (costo > 0) y no se lo cobramos a nadie.
     let estado = 'ok';
-    if (gan && !cobran) estado = 'nadie_lo_paga';               // 💸 dio ganancia y no se cobra
-    else if (gan && (costo == null || costo === '')) estado = 'sin_costo';
-    else if (!desde.length && conValor.length) estado = 'sin_vinculo';   // configurado pero nadie apunta
-    else if (!desde.length && !conValor.length) estado = 'sin_uso';      // ni se reporta ni se cobra
+    if (gan && c == null) estado = 'sin_costo';                        // dio ganancia y no sé qué pago
+    else if (gan && c > 0 && !cobran) estado = 'nadie_lo_paga';        // 💸 lo pago y no lo cobro
+    else if (gan && c === 0 && !cobran) estado = 'no_se_cobra';        // decidido: sale gratis
+    // Solo molesta si de verdad se le COBRA a alguien y ningún panel lo reporta: ahí o el
+    // proveedor cambió de nombre o el vínculo se perdió. Una fila en cero que nadie reporta no
+    // le hace nada a nadie.
+    else if (!desde.length && cobran) estado = 'sin_vinculo';
+    else if (!desde.length) estado = 'sin_uso';                        // ni se reporta ni se cobra
     else if (!conValor.length) estado = 'sin_configurar';
     return {
       matriz: p.nombre, costo: costo == null ? null : String(costo),

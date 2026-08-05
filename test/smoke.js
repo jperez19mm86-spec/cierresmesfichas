@@ -287,6 +287,26 @@ async function main() {
     check('TC: la columna borrada ya no está', !(r.data.meses || []).includes('Julio_2026'), JSON.stringify(r.data.meses));
   }
 
+  // ── El CRUCE entre Proveedores y Matriz. Lo que hay que probar no es que encuentre cosas,
+  // es que NO grite por las que estan bien: los SL/XG cuestan 0 y esta decidido que no se cobran.
+  {
+    const rev = require('../src/revision.service');
+    const cs = require('../src/cierre-store');
+    cs.addProveedor('PRUEBA SL', '0');            // cuesta 0: no cobrarlo es correcto
+    cs.addProveedor('PRUEBA OP', '9');            // cuesta 9: no cobrarlo es plata perdida
+    cs.setCelda('PRUEBA SL', 'Lu', '0');
+    const x = rev.cruceProveedores('2026-06');
+    const f = (n) => (x.filas || []).find((y) => y.matriz === n) || {};
+    check('cruce: sin ganancia guardada no inventa problemas', x.ok && !x.hayDatos, 'hayDatos=' + x.hayDatos);
+    check('cruce: una fila en 0 que nadie reporta es "sin uso", no una alarma',
+      f('PRUEBA SL').estado === 'sin_uso', f('PRUEBA SL').estado);
+    cs.setCelda('PRUEBA SL', 'Lu', '5');   // ahora SÍ se le cobra a alguien y nadie la reporta
+    check('cruce: si se le cobra a alguien y ningún panel la reporta, avisa',
+      (rev.cruceProveedores('2026-06').filas.find((y) => y.matriz === 'PRUEBA SL') || {}).estado === 'sin_vinculo');
+    check('cruce: la fila sin celdas ni vínculo no dice "sin configurar"',
+      f('PRUEBA OP').estado === 'sin_uso', f('PRUEBA OP').estado);
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

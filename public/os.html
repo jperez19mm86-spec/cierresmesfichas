@@ -1457,8 +1457,8 @@ async function cieMatriz(){
     const x = xEstado[p.nombre] || {};
     const est = x.estado==='nadie_lo_paga'
         ? `<span class="cie-est cie-est-sc" style="background:rgba(200,50,50,.25);color:#e66" title="Dio ${money(x.ganancia,0)} de ganancia este mes y ningún cliente lo paga">💸 nadie lo paga</span>`
-      : !conVal.length && !(x.vinculadoDesde||[]).length
-        ? '<span class="cie-est cie-est-nc" title="Ningún panel lo reporta y ningún cliente lo tiene: la fila no se usa">sin uso</span>'
+      : x.estado==='sin_uso'
+        ? '<span class="cie-est cie-est-nc" title="Ningún panel lo reporta y nadie lo paga: la fila no se usa">sin uso</span>'
       : !conVal.length ? '<span class="cie-est cie-est-sc" title="Lo reporta el casino pero ningún cliente tiene valor: FALTA CONFIGURARLO">sin configurar</span>'
       : !cobran ? '<span class="cie-est cie-est-nc" title="Todos en 0: decidido que no se cobra">no se cobra</span>'
       : `<span class="cie-est cie-est-ok" title="${cobran} clientes lo pagan">${cobran}</span>`;
