@@ -374,6 +374,7 @@ function editCli(id){
             <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
             <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
             <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
+            <div style="flex:0"><label title="Si está en no, la opción no le aparece y el servidor igual se lo rechaza">Puede avisar pagos</label><select id="e-avisa"><option value="0" ${c.avisa_pagos===false?'selected':''}>no</option><option value="1" ${c.avisa_pagos!==false?'selected':''}>sí</option></select></div>
           </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
@@ -581,7 +582,7 @@ async function saveCli(id){
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
     mover_balance:val('e-mover')==='1', margen_externos_pct:val('e-mext'),
-    es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'),
+    es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
@@ -720,6 +721,16 @@ async function ajustarDivisas(){
   const r=await api('/api/os/paneles/divisas/ajustar',{method:'POST',body:JSON.stringify({meses:6})});
   toast(r.ok?('Ajustados '+r.ajustados+' paneles'):(r.error||'error'));
   VIEWS.clientes();
+}
+
+async function avisaPagosUno(id, valor){
+  const r=await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({avisa_pagos:valor})});
+  toast(r.ok?(valor?'Habilitado':'Deshabilitado'):'✗ '+((r&&r.error)||'error')); CFG.pagos();
+}
+async function avisaPagosTodos(valor){
+  if(!confirm(valor?'¿Habilitar "avisar pagos" a TODOS los clientes?':'¿Sacarle "avisar pagos" a TODOS?\n\nDespués se lo prendés uno por uno a los que corresponda.')) return;
+  const r=await api('/api/os/clientes/avisa-pagos',{method:'POST',body:JSON.stringify({valor})});
+  toast(r.ok?(r.cambiados+' clientes actualizados'):'✗ '+((r&&r.error)||'error')); CFG.pagos();
 }
 
 VIEWS.paneles = () => VIEWS.clientes();
@@ -2237,7 +2248,29 @@ async function delDivisa(cod){ if(!confirm('¿Borrar la divisa "'+cod+'"?'))retu
 // ───────── CONFIG ▸ MEDIOS DE PAGO (global v3.0: CVU + USDT + notas) ─────────
 CFG.pagos = async () => {
   const p=(await api('/api/os/config/pagos')).pagos||{};
+  const cs=(await api('/api/os/clientes')).clientes||[];
+  const puede=cs.filter(c=>c.avisa_pagos!==false);
   document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>🧾 Quién puede avisar pagos</h2>
+      <div class="muted">En la pantalla del cliente, <b>“Avisar un pago”</b> deja subir un comprobante y lo manda a la cola de revisión.
+        No todos tienen que poder: acá elegís quiénes. Al que no lo tiene <b>no le aparece la opción</b>, y si igual lo intenta por afuera <b>el servidor se lo rechaza</b>.</div>
+      <div class="row" style="margin:10px 0 8px;align-items:center">
+        <span class="badge ${puede.length===cs.length?'warn':'ok'}">${puede.length} de ${cs.length} lo tienen habilitado</span>
+        <button class="outline small" onclick="avisaPagosTodos(false)">Apagar para todos</button>
+        <button class="outline small" onclick="avisaPagosTodos(true)">Prender para todos</button>
+        <div class="muted" style="flex:1">Lo habitual: apagar para todos y prender solo a los que corresponde.</div>
+      </div>
+      <table><thead><tr><th>Cliente</th><th>Vendedor</th><th>¿Puede avisar pagos?</th></tr></thead><tbody>
+      ${cs.slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''))).map(c=>{
+        const v=cs.find(x=>x.id===c.vendedor_id);
+        return `<tr><td>${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</td>
+          <td class="muted">${esc(v?(v.nombre||v.codigo):'—')}</td>
+          <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+            <input type="checkbox" ${c.avisa_pagos!==false?'checked':''} style="width:auto" onchange="avisaPagosUno('${c.id}',this.checked)">
+            <span class="muted">${c.avisa_pagos!==false?'sí':'no'}</span></label></td></tr>`;
+      }).join('')}
+      </tbody></table>
+    </div>
     <div class="card"><h2>💳 Medios de pago (global)</h2>
       <div class="muted" style="margin-bottom:8px">Un solo lugar para todos los clientes. Cuando un cliente elige CVU o USDT, el sistema le muestra estos datos + la nota/advertencia.</div>
       <h3 style="margin:6px 0">CVU (ARS)</h3>

@@ -147,6 +147,11 @@
       const d = await r.json();
       if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No encontrado') + '</div>'; return; }
       _codigo = d.cliente.codigo; _cajas = d.cajas || []; _pago = d.pago || null;
+      // Avisar un pago no lo tiene cualquiera: si este cliente no lo tiene, la opción no aparece
+      // y el camino queda directo a pedir fichas.
+      const optPago = document.getElementById('optPago');
+      const puedePago = d.puedeAvisarPago !== false;
+      optPago.style.display = puedePago ? '' : 'none';
       msg.innerHTML = '';
       const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
       document.getElementById('cliName').textContent = quien;

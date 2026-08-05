@@ -46,6 +46,7 @@ function load() {
       // guardado de CUALQUIER cliente la deja en NULL para todos. Pasó con externos_modo.
       externos_modo: r.externos_modo || null,
       vendedor_id: r.vendedor_id || null,
+      avisa_pagos: r.avisa_pagos == null ? true : !!r.avisa_pagos,
       saldo_inicial: r.saldo_inicial || null,
       saldo_inicial_divisa: r.saldo_inicial_divisa || null,
       saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
@@ -59,10 +60,10 @@ const _saveTx = db.transaction((data) => {
   const ins = db.prepare(`INSERT INTO clientes
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
-     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo)
+     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,avisa_pagos)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
-     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo)`);
+     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@avisa)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -73,6 +74,7 @@ const _saveTx = db.transaction((data) => {
     mez: nn(c.mezcla_pago_usdt), aj: nn(c.ajuste_usdt_pct), fa: c.fecha_alta || c.createdAt || null,
     dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
     mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
+    avisa: (c.avisa_pagos === false) ? 0 : 1,
   }));
 });
 function save(data) { _saveTx(data); }
@@ -109,7 +111,7 @@ function createCliente({ codigo, nombreVisible, nombre }) {
     createdAt: new Date().toISOString(), telegram: { chatId: '', enabled: false }, cajas: [],
     nombre: nom, estado: 'activo', paga_proveedores: false, permite_deuda: false,
     mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: new Date().toISOString().slice(0, 10),
-    mover_balance: false, margen_externos_pct: null, es_vendedor: false, vendedor_id: null, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
+    mover_balance: false, margen_externos_pct: null, es_vendedor: false, vendedor_id: null, avisa_pagos: true, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
   };
   data.clientes.push(cliente); save(data); return cliente;
 }
@@ -148,6 +150,7 @@ function updateComercial(id, patch) {
   });
   if (patch.mover_balance !== undefined) c.mover_balance = !!patch.mover_balance;
   if (patch.es_vendedor !== undefined) c.es_vendedor = !!patch.es_vendedor;
+  if (patch.avisa_pagos !== undefined) c.avisa_pagos = !!patch.avisa_pagos;
   save(data); return c;
 }
 

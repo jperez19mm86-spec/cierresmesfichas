@@ -330,16 +330,45 @@ async function main() {
     r = await put('/api/os/paneles/' + pid, { alias: '463.life, 463 life' });
     check('alias: se guardan varios separados por coma', r.data.ok && r.data.panel.alias.length === 2, JSON.stringify(r.data.panel.alias));
     // La búsqueda por nombre se prueba en ESTE proceso: el server corre con otra base (DB_PATH),
-    // así que un panel creado por la API no lo ve el store de acá.
-    const pl = pstore.create({ cliente_id: 'c_test', nombre: '463.live', sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '2628233' });
-    check('alias: sin alias no lo encuentra por el nombre de al lado', !pstore.porNombre('463.life'));
-    pstore.update(pl.id, { alias: '463.life, 463 life' });
-    check('alias: ahora sí lo encuentra por el otro nombre', (pstore.porNombre('463.LIFE') || {}).id === pl.id);
-    check('alias: y sigue encontrándolo por el suyo', (pstore.porNombre('463.live') || {}).id === pl.id);
-    check('alias: no inventa con un nombre que no existe', !pstore.porNombre('no-existe-este'));
+    // así que un panel creado por la API no lo ve el store de acá. Y como esa base NO se borra
+    // entre corridas, el panel de prueba lleva un sufijo único y se limpia al final: si no, la
+    // segunda corrida encontraba el de la primera y "sin alias no lo encuentra" fallaba sola.
+    const suf = Date.now().toString(36);
+    const nombreOk = `panel.live.${suf}`; const nombreOtro = `panel.life.${suf}`;
+    const pl = pstore.create({ cliente_id: 'c_test', nombre: nombreOk, sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '2628233' });
+    check('alias: sin alias no lo encuentra por el nombre de al lado', !pstore.porNombre(nombreOtro));
+    pstore.update(pl.id, { alias: `${nombreOtro}, otro ${suf}` });
+    check('alias: ahora sí lo encuentra por el otro nombre', (pstore.porNombre(nombreOtro.toUpperCase()) || {}).id === pl.id);
+    check('alias: y sigue encontrándolo por el suyo', (pstore.porNombre(nombreOk) || {}).id === pl.id);
+    check('alias: no inventa con un nombre que no existe', !pstore.porNombre('no-existe-este-' + suf));
+    pstore.remove(pl.id);
+    check('alias: la prueba no deja basura en la base', !pstore.porNombre(nombreOtro) && !pstore.porNombre(nombreOk));
     // Guardar otra cosa del panel no puede borrar los alias en silencio.
     r = await put('/api/os/paneles/' + pid, { nivel_usuario: 'Distribuidor' });
     check('alias: editar otro campo no se los lleva puestos', (r.data.panel.alias || []).length === 2, JSON.stringify(r.data.panel.alias));
+  }
+
+  // ── PERMISO PARA AVISAR PAGOS. Lo que hay que probar no es que se esconda el botón —eso no es
+  // un permiso— sino que el SERVIDOR lo rechace: /api/comprobante es pública y cualquiera que
+  // sepa un código puede postearle a mano.
+  {
+    r = await get('/api/pedir/L210');
+    check('comprobantes: por defecto el cliente puede avisar pagos', r.data.puedeAvisarPago === true, JSON.stringify(r.data.puedeAvisarPago));
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '100', divisa: 'USDT' });
+    check('comprobantes: habilitado, el aviso entra', r.status === 200 && r.data.ok, JSON.stringify(r.data.error || ''));
+
+    await put('/api/os/clientes/' + cli.id + '/comercial', { avisa_pagos: false });
+    r = await get('/api/pedir/L210');
+    check('comprobantes: apagado, la pantalla ya no ofrece la opción', r.data.puedeAvisarPago === false);
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '100', divisa: 'USDT' });
+    check('comprobantes: apagado, el SERVIDOR lo rechaza aunque se postee a mano', r.status === 403, 'HTTP ' + r.status);
+
+    // Y se puede apagar/prender a todos de una, que es como se usa.
+    r = await post('/api/os/clientes/avisa-pagos', { valor: false });
+    check('comprobantes: se apaga para todos de una', r.data.ok && r.data.cambiados >= 1, 'cambiados=' + r.data.cambiados);
+    await put('/api/os/clientes/' + cli.id + '/comercial', { avisa_pagos: true });
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '100', divisa: 'USDT' });
+    check('comprobantes: al volver a habilitarlo, entra de nuevo', r.status === 200 && r.data.ok, 'HTTP ' + r.status);
   }
 
   // panel /os se sirve (detrás de auth)

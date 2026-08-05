@@ -385,6 +385,10 @@ ensureColumns('clientes', {
 });
 
 // Cada PANEL puede linkearse a un nodo del casino (qué conexión + qué id de usuario del casino).
+// Quién puede AVISAR UN PAGO desde la pantalla del cliente. Arranca en 1 para no cambiarle el
+// comportamiento a nadie al desplegar; se apaga por cliente (o a todos de una) desde el OS.
+ensureColumns('clientes', { avisa_pagos: 'INTEGER DEFAULT 1' });
+
 ensureColumns('paneles', { conexion_id: 'TEXT' });
 // El sistema de pedidos escribe el nombre del panel a su manera —"463.life" donde el OS tiene
 // "463.live"— y por una letra el pedido no cruza con ningún panel: se le termina facturando al

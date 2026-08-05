@@ -365,6 +365,9 @@ app.get('/api/pedir/:codigo', (req, res) => {
   res.json({
     ok: true,
     cliente: { codigo: cli.codigo, nombreVisible: cli.nombreVisible },
+    // Con qué caminos cuenta ESTE cliente. Avisar un pago no lo tiene cualquiera: entra a la
+    // cola de comprobantes y hay que revisarlo uno por uno.
+    puedeAvisarPago: cli.avisa_pagos !== false,
     pago: {
       ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), min: cfg('arsMin'), max: cfg('arsMax'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
       usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
@@ -402,6 +405,12 @@ app.post('/api/comprobante', async (req, res) => {
   const b = req.body || {};
   const cli = clientes.getByCodigo(b.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
+  // ⚠️ Se comprueba ACÁ, no solo en la pantalla. Ocultar el botón no impide nada: cualquiera que
+  // sepa un código puede postear a esta ruta a mano, y es pública (no pide login, ver auth.js).
+  if (cli.avisa_pagos === false) {
+    console.log(`[Comprobante] RECHAZADO: ${cli.codigo} no tiene habilitado avisar pagos`);
+    return res.status(403).json({ ok: false, error: 'Tu cuenta no tiene habilitado avisar pagos por acá. Escribinos y lo cargamos nosotros.' });
+  }
   const r = comprobantes.crear({
     codigo: cli.codigo, clienteNombre: cli.nombreVisible,
     via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas: b.notas,

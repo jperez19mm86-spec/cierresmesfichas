@@ -88,7 +88,7 @@ function mount(app) {
   app.get('/api/os/clientes', (_req, res) => {
     const list = clientes.list().clientes.map((c) => ({
       id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado,
-      telegram: c.telegram, paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda,
+      telegram: c.telegram, paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda, avisa_pagos: c.avisa_pagos !== false,
       mezcla_pago_usdt: c.mezcla_pago_usdt, ajuste_usdt_pct: c.ajuste_usdt_pct,
       // v3.0 ficha
       divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
@@ -133,6 +133,17 @@ function mount(app) {
   // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
   app.delete('/api/os/clientes/:id', (req, res) =>
     clientesCascada.borrar(req.params.id) ? ok(res) : err(res, 404, 'cliente no encontrado'));
+  // Prender o apagar "avisar pagos" a varios de una. Es lo primero que se necesita: apagarlo para
+  // todos y prenderlo solo a los pocos que corresponde.
+  app.post('/api/os/clientes/avisa-pagos', wrap((req, res) => {
+    const b = req.body || {};
+    const valor = !!b.valor;
+    const ids = Array.isArray(b.ids) && b.ids.length ? b.ids : clientes.list().clientes.map((c) => c.id);
+    let n = 0;
+    ids.forEach((id) => { if (clientes.updateComercial(id, { avisa_pagos: valor })) n++; });
+    ok(res, { cambiados: n, valor });
+  }));
+
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
     const c = clientes.updateComercial(req.params.id, req.body || {});
