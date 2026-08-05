@@ -185,6 +185,32 @@ function makeClient({ url, user, password, token: tokenFijo }) {
   }
 
   /**
+   * El ÁRBOL de cuentas, aplanado: cada nodo con su id, su login y de quién cuelga.
+   *
+   * Es lo que hace falta para linkear: los clientes de la planilla de API (Ars1Api, Nacho-API,
+   * TBS45Ar23…) son nodos de este árbol, y sin su id no se les puede pedir el profit.
+   */
+  async function arbol({ desde, hasta, grupos = [] } = {}) {
+    const r = await pedir('treeGet', { fechas: [desde, hasta], proveedores: grupos });
+    if (!r.ok) return r;
+    const out = [];
+    const rec = (nodos, padre, prof) => {
+      (nodos || []).forEach((n) => {
+        if (!n || typeof n !== 'object') return;
+        out.push({
+          id: String(n.id), login: n.login || '', nombre: n.name || '',
+          padre: padre ? { id: String(padre.id), login: padre.login || '' } : null,
+          profundidad: prof, hijos: Array.isArray(n.tree) ? n.tree.length : 0,
+          moneda: n.currency || null,
+        });
+        if (Array.isArray(n.tree)) rec(n.tree, n, prof + 1);
+      });
+    };
+    rec(r.data.tree || [], null, 0);
+    return { ok: true, nodos: out };
+  }
+
+  /**
    * Los GRUPOS de proveedores con su id, tal como los lista el desplegable del panel.
    *
    * No salen de la API de datos sino del HTML de la página: el `<select name="provider">`.
@@ -271,7 +297,7 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     return { ok: true, login: user, userId: l.userId, motor: 'tbs' };
   }
 
-  return { login, pedir, profitDeAgentes, grupos, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
+  return { login, pedir, profitDeAgentes, grupos, arbol, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
 }
 
 module.exports = { makeClient, normUrl };

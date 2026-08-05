@@ -802,6 +802,22 @@ function mount(app) {
     r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error, { diag: r.diag || [] });
   }));
 
+  // TBS: el árbol de cuentas aplanado. Sin el id de cada cuenta no se le puede pedir el profit.
+  app.get('/api/os/tbs/arbol', wrap(async (req, res) => {
+    const cx = casinoConex.list().find((c) => c.motor === 'tbs' && c.activa);
+    if (!cx) return err(res, 400, 'no hay ninguna conexión con motor TBS configurada');
+    const cli = casinoConex.client(cx.id);
+    if (!cli) return err(res, 400, `la conexión "${cx.nombre}" no tiene credenciales cargadas`);
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const ult = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const r = await cli.arbol({
+      desde: req.query.desde || `${mes}-01 00:00:00`,
+      hasta: req.query.hasta || `${mes}-${String(ult).padStart(2, '0')} 23:59:59`,
+      grupos: req.query.grupos ? String(req.query.grupos).split(',') : [],
+    });
+    r.ok ? ok(res, { conexion: cx.nombre, mes, ...r }) : err(res, 502, r.error);
+  }));
+
   /**
    * TBS: el profit de unos agentes puntuales, por grupo de proveedores y por moneda.
    * Es la base para calcular cuánto se le paga a cada proveedor (punto 8).
