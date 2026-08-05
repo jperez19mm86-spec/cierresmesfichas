@@ -1926,7 +1926,7 @@ async function delPersona(id){ if(!confirm('¿Eliminar participante?'))return; a
 function renderCfgHeader(){
   // Socios, Participaciones y Tabla Split se fueron a 💰 Reparto: las tres eran la misma
   // pregunta (cómo se divide lo que paga un cliente) partida en tres pantallas.
-  const subs=[['revision','🩺 Revisión'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
+  const subs=[['revision','🩺 Revisión'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
@@ -2057,6 +2057,70 @@ CFG.pagos = async () => {
     </div>`;
 };
 async function savePagos(){ await api('/api/os/config/pagos',{method:'PUT',body:JSON.stringify({cvuVigente:val('pg-cvu'),cvuNota:document.getElementById('pg-cvunota').value,usdtAddress:val('pg-usdt'),usdtRed:val('pg-red'),usdtNota:document.getElementById('pg-usdtnota').value})}); toast('Guardado'); }
+
+/* ───────── CONFIG ▸ TELEGRAM ─────────────────────────────────────────────────────────────
+   Mandar una factura necesita DOS cosas, y hasta ahora se configuraban en el panel operativo:
+   por eso desde el OS decía "no está configurado" sin decir dónde arreglarlo.
+     1. el BOT, uno solo para todo (el token que da @BotFather)
+     2. el GRUPO de cada cliente (su chatId), uno por cliente
+   Faltando cualquiera de las dos, no sale nada. */
+CFG.telegram = async () => {
+  const cfg = await api('/api/config');
+  const cs = ((await api('/api/os/clientes')).clientes||[]).filter(c=>!c.es_vendedor);
+  const con = cs.filter(c=>c.telegram&&c.telegram.chatId);
+  document.getElementById('cfg-body').innerHTML = `
+    <div class="card"><h2>📣 Avisos y facturas por Telegram</h2>
+      <div class="muted">Para que una factura salga hacen falta las <b>dos</b> cosas: el <b>bot</b> (uno solo, para todo)
+        y el <b>grupo</b> de ese cliente. Si falta cualquiera de las dos, no se manda nada.</div>
+      <div class="row" style="margin-top:12px;align-items:flex-end">
+        <div style="flex:2"><label>Token del bot (te lo da @BotFather)</label>
+          <input id="tg-token" type="password" placeholder="${cfg.telegramConfigured?'ya hay uno cargado — escribí otro para reemplazarlo':'123456789:AA...'}"
+            autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly')" style="width:100%"></div>
+        <div style="flex:0"><button onclick="tgGuardarToken()">Guardar</button></div>
+        <div style="flex:0;padding-bottom:8px">${cfg.telegramConfigured
+          ? '<span class="badge ok">bot cargado '+esc(cfg.telegramTokenHint||'')+'</span>'
+          : '<span class="badge err">todavía no hay bot: no se puede mandar nada</span>'}</div>
+      </div>
+      <div class="muted" style="margin-top:8px;border-left:3px solid var(--gold);padding-left:8px">
+        <b>Cómo se saca cada cosa:</b><br>
+        1. En Telegram, escribile a <span class="pill">@BotFather</span> → <span class="pill">/newbot</span> → te da un token. Ese va arriba.<br>
+        2. Agregá el bot al grupo de cada cliente <b>como administrador</b> (si no, no puede escribir).<br>
+        3. El <b>chatId</b> del grupo empieza con <span class="pill">-100…</span>. Si no lo tenés, escribí algo en el grupo y abrí
+        <span class="pill">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span>: aparece ahí.<br>
+        4. Pegalo abajo y probá. <b>El botón Probar manda un mensaje de verdad al grupo</b>, así que avisá antes.
+      </div>
+    </div>
+    <div class="card"><h2>Grupos por cliente <span class="muted">(${con.length} de ${cs.length} cargados)</span></h2>
+      <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.</div>
+      <table><thead><tr><th>Cliente</th><th>chatId del grupo</th><th>Avisos automáticos</th><th></th></tr></thead><tbody>
+      ${cs.map(c=>{const t=c.telegram||{};
+        return `<tr><td>${_nom(c)}</td>
+          <td><input id="tgc-${c.id}" value="${esc(t.chatId||'')}" placeholder="-1001234567890" style="width:190px"></td>
+          <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+            <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} style="width:auto"> avisar cada carga</label></td>
+          <td class="right" style="white-space:nowrap">
+            <button class="small" onclick="tgGuardarCli('${c.id}')">Guardar</button>
+            <button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')" ${t.chatId?'':'disabled title="cargá primero el chatId"'}>🔔 Probar</button></td></tr>`;
+      }).join('')}
+      </tbody></table>
+    </div>`;
+};
+async function tgGuardarToken(){
+  const v=val('tg-token'); if(!v) return toast('Pegá el token');
+  const r=await api('/api/config',{method:'PUT',body:JSON.stringify({telegramBotToken:v})});
+  toast(r.telegramConfigured?'Bot guardado':'No se pudo guardar'); CFG.telegram();
+}
+async function tgGuardarCli(id){
+  const chatId=val('tgc-'+id), enabled=document.getElementById('tge-'+id).checked;
+  const r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId,enabled})});
+  toast(r.ok?'Guardado':'Error'); CFG.telegram();
+}
+// Sale para AFUERA: manda un mensaje de verdad al grupo del cliente. Se pregunta siempre.
+async function tgProbar(id,nombre){
+  if(!confirm('Se va a mandar un mensaje de prueba al grupo de Telegram de '+nombre+'. Lo van a ver ellos. ¿Confirmás?')) return;
+  const r=await api('/api/clientes/'+id+'/telegram/test',{method:'POST'});
+  toast(r.ok?'✅ Mensaje enviado':'❌ '+(r.error||'falló'));
+}
 
 // ───────── CONFIG ▸ CASINO (conexiones + explorador de nodos) ─────────
 // El motor se guarda como '463' (es el nombre técnico del engine, y cambiarlo obligaría a migrar
