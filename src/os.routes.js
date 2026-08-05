@@ -508,6 +508,13 @@ function mount(app) {
     const r = cierreMesSvc.congelar(req.params.mes, { notas: b.notas, matriz: b.matriz || null, pisar: !!b.pisar });
     r.ok ? ok(res, r) : err(res, r.yaExiste ? 409 : 400, r.error);
   }));
+  // Corregir UN costo dentro de una foto ya congelada (no es cambiar de precio: es arreglar un
+  // numero que salio mal en la foto). Deja rastro en las notas del mes.
+  app.post('/api/os/cierre/mes/:mes/costo', wrap((req, res) => {
+    const b = req.body || {};
+    const r = cierreMesSvc.corregirCosto(req.params.mes, b.proveedor, b.base_pct, b.motivo);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
   app.delete('/api/os/cierre/mes/:mes/congelar', (req, res) => {
     const r = cierreMesSvc.descongelar(req.params.mes);
     r.ok ? ok(res, r) : err(res, 404, 'ese mes no estaba congelado');

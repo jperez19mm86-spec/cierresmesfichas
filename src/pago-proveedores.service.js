@@ -89,6 +89,7 @@ const TBS_SUELTOS = {
   59: 'PLAYSON EV',                      // 201.462 vs 201.463
   68: 'BOOMING_ASIA_KN_Original_Dima_Li',//  30.273 vs 30.693
   70: 'SA GAMING OP',                    // USD 1.678,80 vs 1.679, exacto
+  41: 'Platipus_OP',                     // lo confirmó el dueño: el grupo "platipus" de TBS es el OP
 };
 
 /** Para comparar nombres de proveedor: sin espacios, guiones ni mayúsculas. */

@@ -222,6 +222,35 @@ async function main() {
   check('el total del mes no cambió (2.2M/1476)', Math.abs(Number(r.data.total) - (2200000 / 1476)) < 0.1, 'total=' + r.data.total);
   check('nada quedó sin asignar', r.data.sin_asignar === '0', 'sin_asignar=' + r.data.sin_asignar);
 
+  // ── Corregir un costo DENTRO de una foto congelada. Lo peligroso no es el número que se
+  // cambia, es todo lo que NO se tiene que mover: celdas, clientes y vínculos del mes cerrado.
+  {
+    await post('/api/os/cierre/proveedor', { nombre: 'PROV FOTO', base_pct: '9' });
+    await post('/api/os/cierre/celda', { proveedor: 'PROV FOTO', cliente: 'Lu', pct: '12' });
+    await post('/api/os/cierre/mes/2026-05/congelar', { notas: 'prueba', pisar: true });
+    let f = await get('/api/os/cierre/mes/2026-05/congelado?full=1');
+    const celdasAntes = JSON.stringify(f.data.celdas), provsAntes = (f.data.listaProveedores || []).length;
+
+    r = await post('/api/os/cierre/mes/2026-05/costo', { proveedor: 'PROV FOTO', base_pct: '10.5', motivo: 'test' });
+    check('foto: corrige el costo y dice de cuánto a cuánto', r.data.ok && r.data.antes === '9' && r.data.ahora === '10.5', JSON.stringify(r.data));
+    f = await get('/api/os/cierre/mes/2026-05/congelado?full=1');
+    const p2 = (f.data.listaProveedores || []).find((x) => x.nombre === 'PROV FOTO');
+    check('foto: el costo quedó corregido en la foto', p2 && p2.base_pct === '10.5', p2 && p2.base_pct);
+    check('foto: no se movió ninguna celda', JSON.stringify(f.data.celdas) === celdasAntes);
+    check('foto: no se agregó ni se perdió ningún proveedor', (f.data.listaProveedores || []).length === provsAntes);
+    check('foto: la corrección queda anotada', /corrección/.test(f.data.notas || '') && /9 → 10.5/.test(f.data.notas || ''), f.data.notas);
+
+    // la matriz VIVA no se toca: corregir un mes cerrado no cambia el precio de hoy
+    const mzv = await get('/api/os/cierre/matriz');
+    const vivo = (mzv.data.proveedores || []).find((x) => x.nombre === 'PROV FOTO');
+    check('foto: corregir el mes cerrado no cambia el precio de hoy', vivo && vivo.base_pct === '9', vivo && vivo.base_pct);
+
+    r = await post('/api/os/cierre/mes/2026-05/costo', { proveedor: 'NO EXISTE', base_pct: '1' });
+    check('foto: no inventa un proveedor que no estaba', r.status === 400 && /no está en la foto/.test(r.data.error || ''), r.data.error);
+    r = await post('/api/os/cierre/mes/2030-01/costo', { proveedor: 'PROV FOTO', base_pct: '1' });
+    check('foto: un mes sin congelar no se puede corregir', r.status === 400 && /no está congelado/.test(r.data.error || ''), r.data.error);
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

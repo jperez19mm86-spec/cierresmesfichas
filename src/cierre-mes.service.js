@@ -44,6 +44,35 @@ function congelar(mes, { notas = '', matriz = null, pisar = false } = {}) {
   return { ok: true, mes: m, proveedores: (g.proveedores || []).length, celdas: Object.keys(g.celdas || {}).length };
 }
 
+/**
+ * Corrige el COSTO de un proveedor DENTRO de la foto de un mes ya congelado.
+ *
+ * Congelar de nuevo con `pisar` no sirve para esto: `congelar` vuelve a leer la matriz viva y los
+ * vínculos de HOY, así que arrastraría todos los cambios posteriores al mes. Acá se toca un solo
+ * número y lo demás queda intacto.
+ *
+ * Se usa cuando la foto salió con un precio equivocado — no para cambiar de precio, que eso es una
+ * vigencia. Queda anotado en las notas del mes: un mes cerrado que cambia sin dejar rastro es
+ * exactamente lo que la foto vino a evitar.
+ */
+function corregirCosto(mes, nombre, basePct, motivo = '') {
+  const m = String(mes || '').trim();
+  const snap = get(m);
+  if (!snap) return { ok: false, error: `${m} no está congelado` };
+  const n = String(nombre || '').trim();
+  const p = (snap.proveedores || []).find((x) => x.nombre === n);
+  if (!p) return { ok: false, error: `"${n}" no está en la foto de ${m}` };
+  const antes = p.base_pct;
+  const ahora = basePct == null || basePct === '' ? null : String(basePct).trim();
+  if (String(antes ?? '') === String(ahora ?? '')) return { ok: true, mes: m, proveedor: n, antes, ahora, sinCambio: true };
+
+  const proveedores = snap.proveedores.map((x) => (x.nombre === n ? { ...x, base_pct: ahora } : x));
+  const payload = JSON.stringify({ proveedores, celdas: snap.celdas || {}, clientes: snap.clientes || [], links: snap.links || [] });
+  const nota = `${(snap.notas || '').trim()}\n[corrección ${new Date().toISOString().slice(0, 10)}] ${n}: ${antes ?? '(vacío)'} → ${ahora ?? '(vacío)'}${motivo ? ' · ' + motivo : ''}`.trim();
+  db.prepare('UPDATE cierre_mes_snapshot SET datos=?, notas=? WHERE mes=?').run(payload, nota, m);
+  return { ok: true, mes: m, proveedor: n, antes, ahora };
+}
+
 function descongelar(mes) {
   const n = db.prepare('DELETE FROM cierre_mes_snapshot WHERE mes=?').run(String(mes)).changes;
   return { ok: n > 0, borrado: n > 0 };
@@ -61,4 +90,4 @@ function preciosDe(mes) {
   return { congelado: !!snap, congeladoEn: snap ? snap.createdAt : null, costo, celdas: datos.celdas || {}, links: snap ? (snap.links || null) : null };
 }
 
-module.exports = { get, listar, congelar, descongelar, preciosDe };
+module.exports = { get, listar, congelar, descongelar, corregirCosto, preciosDe };
