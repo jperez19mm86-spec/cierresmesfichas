@@ -272,6 +272,14 @@ async function main() {
     check('TC: armar la columna respeta lo cargado a mano', r.data.ok && !r.data.escritas.some((e) => e.divisa === 'ARS'), JSON.stringify(r.data.escritas || r.data.error));
     check('TC: armar la columna nunca toca el TC del proveedor', r.data.ok && !r.data.escritas.some((e) => e.divisa === 'ARS_OF'));
 
+    // Borrar una FILA se lleva sus tasas de todos los meses y la saca de las que se cotizan.
+    await post('/api/os/cierre/tc', { moneda: 'PGY', mes: 'Julio_2026', tasa: '6005.38', forzar: true });
+    const div = require('../src/tc-divisas.service');
+    r = await axios.delete(BASE + '/api/os/cierre/tc/moneda/PGY', H());
+    check('TC: se borra la fila de una moneda', r.data.ok && r.data.celdas >= 1, 'celdas=' + r.data.celdas);
+    r = await get('/api/os/cierre/tc');
+    check('TC: la fila borrada ya no está', !(r.data.monedas || []).includes('PGY'), JSON.stringify(r.data.monedas));
+
     // Borrar una columna entera se lleva las celdas de todas las monedas de ese mes.
     r = await axios.delete(BASE + '/api/os/cierre/tc/mes/Julio_2026', H());
     check('TC: se borra la columna entera', r.data.ok && r.data.celdas >= 2, 'celdas=' + r.data.celdas);

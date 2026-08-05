@@ -1497,7 +1497,8 @@ VIEWS.tc = async () => {
   const body = filas.map(mon=>{
     const esProv = mon===PROV;
     const tds = mesesCie.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
-    return `<tr${esProv?' class="cie-hv"':''}><td class="cie-p">${esc(mon)}${esProv?' <span class="cie-tag">del proveedor</span>':''}</td>${tds}</tr>`;
+    return `<tr${esProv?' class="cie-hv"':''}><td class="cie-p">${esc(mon)}${esProv?' <span class="cie-tag">del proveedor</span>':''}
+      <span class="cie-x" title="borrar la fila ${esc(mon)}" onclick="tcBorrarMoneda('${esc(mon).replace(/'/g,"\\'")}')">✕</span></td>${tds}</tr>`;
   }).join('');
   const disc = uso.discrepancias||[];
   const rows = (uso.monedas||[]);
@@ -1586,6 +1587,11 @@ async function tcBorrarMes(mes){
   if(!confirm('¿Borrar la columna "'+mes+'" entera? Se van los tipos de cambio de todas las monedas de ese mes.')) return;
   const r=await api('/api/os/cierre/tc/mes/'+encodeURIComponent(mes),{method:'DELETE'});
   toast(r.ok?('Columna borrada ('+r.celdas+' celdas)'):(r.error||'error')); VIEWS.tc();
+}
+async function tcBorrarMoneda(mon){
+  if(!confirm('¿Borrar la fila "'+mon+'" entera? Se van sus tipos de cambio de todos los meses y deja de cotizarse.')) return;
+  const r=await api('/api/os/cierre/tc/moneda/'+encodeURIComponent(mon),{method:'DELETE'});
+  toast(r.ok?('Fila borrada ('+r.celdas+' celdas'+(r.snapshotsBorrados?', '+r.snapshotsBorrados+' cotizaciones':'')+')'):(r.error||'error')); VIEWS.tc();
 }
 async function tcArmarColumna(){
   const r=await api('/api/os/tc/columna',{method:'POST',body:JSON.stringify({mes:_tcMes})});

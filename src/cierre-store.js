@@ -173,6 +173,13 @@ function removeMesTC(mes) {
   return { ok: true, mes: me, celdas: n };
 }
 
+/** Borra una fila entera (una moneda) de la grilla de TC. */
+function removeMonedaTC(moneda) {
+  const mo = clean(moneda); if (!mo) return { ok: false, error: 'falta la moneda' };
+  const n = db.prepare('DELETE FROM cierre_tc WHERE moneda=?').run(mo).changes;
+  return { ok: true, moneda: mo, celdas: n };
+}
+
 /** Renombra una columna (Enero_26 → Enero_2026) sin perder los valores. */
 function renombrarMesTC(viejo, nuevo) {
   const a = clean(viejo), b = clean(nuevo);
@@ -328,7 +335,7 @@ function setCeldas(cambios) {
 }
 
 module.exports = {
-  removeMesTC, renombrarMesTC, FILA_PROVEEDOR,
+  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR,
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,

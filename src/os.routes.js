@@ -502,6 +502,12 @@ function mount(app) {
     const r = cierreStore.removeMesTC(req.params.mes);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
+  app.delete('/api/os/cierre/tc/moneda/:moneda', wrap((req, res) => {
+    const r = cierreStore.removeMonedaTC(req.params.moneda);
+    // La lista de monedas que se cotizan sale de estas filas: si se va una, se va su historial.
+    if (r.ok) r.snapshotsBorrados = tcDivisas.purgarNoSeguidas();
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
   app.post('/api/os/cierre/tc/renombrar', wrap((req, res) => {
     const b = req.body || {};
     const r = cierreStore.renombrarMesTC(b.de, b.a);
