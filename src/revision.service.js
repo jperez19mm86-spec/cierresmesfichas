@@ -16,6 +16,9 @@ const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
+const casinoConex = require('./casino-conexiones-store');
+const ganCache = require('./ganancias-cache');
+const money = require('./lib/money');
 const { db } = require('./db');
 
 const GRAVE = 'grave';   // sale un número equivocado y no se nota
@@ -252,4 +255,93 @@ function revisarBajoCosto(mes) {
   return out;
 }
 
-module.exports = { revisar, revisarBajoCosto };
+/**
+ * ── EL CRUCE ENTRE 🏷 PROVEEDORES Y 🧮 MATRIZ ───────────────────────────────────────────────
+ *
+ * Las dos pantallas hablan del mismo proveedor pero miran cosas distintas, y por eso una puede
+ * estar toda en verde mientras la otra dice "sin configurar":
+ *
+ *   · PROVEEDORES mira el NOMBRE: que "RUBYPLAY XG" del casino apunte a una fila de la matriz.
+ *     Vinculado = el nombre resuelve. No dice nada de si alguien lo paga.
+ *   · MATRIZ mira las CELDAS: a qué clientes se les cobra esa fila y a cuánto.
+ *     Sin configurar = ningún cliente tiene valor. No dice nada de si el casino lo reporta.
+ *
+ * Ninguna de las dos, sola, contesta la única pregunta que cuesta plata:
+ *   ¿hay algún proveedor que DIO GANANCIA este mes y no se le cobra a NADIE?
+ *
+ * Eso es lo que arma esta función, juntando los tres datos por fila de la matriz. La ganancia
+ * sale de lo YA GUARDADO del pago a proveedores (no vuelve a consultar el casino): si el mes no
+ * se trajo todavía, se dice, en vez de dar por bueno que no hay ganancia.
+ */
+function cruceProveedores(mes) {
+  const m = String(mes || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const K = (s) => String(s || '').trim().toLowerCase();
+  const mx = cierre.getMatriz();
+  const precios = cierreMes.preciosDe(m);
+  const costoDe = {};
+  if (precios && precios.costo && Object.keys(precios.costo).length) Object.assign(costoDe, precios.costo);
+  else mx.proveedores.forEach((p) => { costoDe[p.nombre] = p.base_pct; });
+
+  // Los vendedores no cuentan como "clientes que lo pagan": pagan el costo real, no la celda.
+  const esVendedor = new Set();
+  clientes.list().clientes.filter((c) => c.es_vendedor).forEach((c) => {
+    [c.nombre, c.nombreVisible, c.codigo].filter(Boolean).forEach((n) => esVendedor.add(K(n)));
+  });
+
+  // Quién apunta a cada fila de la matriz
+  const apuntan = {};
+  db.prepare('SELECT casino, matriz FROM cierre_link').all().forEach((l) => {
+    if (!l.matriz) return;
+    (apuntan[l.matriz] = apuntan[l.matriz] || []).push(l.casino);
+  });
+
+  // La ganancia del mes, de lo ya guardado. Se traduce con el MISMO cruce que usa la factura.
+  const traducir = externosSvc.traductor(precios);
+  const ganancia = {}; let hayDatos = false; const conexionesSinTraer = [];
+  for (const cx of casinoConex.list()) {
+    if (!cx.activa) continue;
+    if ((cx.motor || '463') === 'tbs') continue;        // TBS reporta por grupo, no por proveedor
+    const hit = ganCache.get(cx.id, '_pago_general', m, '_todas');
+    if (!hit) { conexionesSinTraer.push(cx.nombre); continue; }
+    hayDatos = true;
+    for (const res of Object.values(hit.filas || {})) {
+      for (const fila of (res && res.filas) || []) {
+        const nombre = traducir(fila);
+        if (!nombre) continue;
+        const p = String(fila.profit ?? '0');
+        if (!money.isPos(p)) continue;
+        ganancia[nombre] = money.add(ganancia[nombre] || '0', p);
+      }
+    }
+  }
+
+  const filas = mx.proveedores.map((p) => {
+    const row = mx.celdas[p.nombre] || {};
+    const conValor = Object.entries(row).filter(([cli, v]) => v != null && v !== '' && !esVendedor.has(K(cli)));
+    const cobran = conValor.filter(([, v]) => Number(v) > 0).length;
+    const desde = apuntan[p.nombre] || [];
+    const costo = costoDe[p.nombre];
+    const gan = ganancia[p.nombre] || null;
+    let estado = 'ok';
+    if (gan && !cobran) estado = 'nadie_lo_paga';               // 💸 dio ganancia y no se cobra
+    else if (gan && (costo == null || costo === '')) estado = 'sin_costo';
+    else if (!desde.length && conValor.length) estado = 'sin_vinculo';   // configurado pero nadie apunta
+    else if (!desde.length && !conValor.length) estado = 'sin_uso';      // ni se reporta ni se cobra
+    else if (!conValor.length) estado = 'sin_configurar';
+    return {
+      matriz: p.nombre, costo: costo == null ? null : String(costo),
+      vinculadoDesde: desde, celdas: conValor.length, cobran,
+      ganancia: gan ? money.round(gan, 2) : null, estado,
+    };
+  });
+
+  const porEstado = {};
+  filas.forEach((f) => { porEstado[f.estado] = (porEstado[f.estado] || 0) + 1; });
+  return {
+    ok: true, mes: m, hayDatos, conexionesSinTraer,
+    filas: filas.sort((a, b) => Number(b.ganancia || 0) - Number(a.ganancia || 0)),
+    resumen: porEstado,
+  };
+}
+
+module.exports = { revisar, revisarBajoCosto, cruceProveedores };

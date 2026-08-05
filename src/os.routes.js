@@ -146,6 +146,9 @@ function mount(app) {
   app.get('/api/os/cierre/coherencia', (_req, res) => ok(res, cierreStore.inconsistencias()));
   // 🩺 TODO lo que puede hacer que un mes salga con un número equivocado, en una sola respuesta.
   app.get('/api/os/revision', (req, res) => ok(res, revision.revisar(req.query.mes)));
+  // El cruce entre Proveedores (el nombre resuelve) y Matriz (a quién se le cobra): lo que
+  // ninguna de las dos contesta sola es si algo dio ganancia y no se le cobra a nadie.
+  app.get('/api/os/cierre/cruce', (req, res) => ok(res, revision.cruceProveedores(req.query.mes)));
   // precio base con vigencia/corrección
   app.put('/api/os/clientes/:id/precio-base', wrap((req, res) => {
     const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};

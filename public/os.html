@@ -865,11 +865,12 @@ VIEWS.proveedores = async () => {
   const _lkN=(e)=>(_lk.rows||[]).filter(r=>r.estado===e).length;
   const _baseMap={}; (_mx.proveedores||[]).forEach(pp=>{_baseMap[pp.nombre]=pp.base_pct;});
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
+  const cruce = await api('/api/os/cierre/cruce?mes='+encodeURIComponent(_cieMesCruce()));
   const cxOpts = '<option value="todas">🌐 Todas (Europa + Casino)</option>'+cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provOpts = _provCat.length
     ? ('<option value="">— elegí proveedor —</option>'+_provCat.map(p=>`<option value="${esc(p.code)}" data-label="${esc(p.label)}">${esc(p.label)}${p.sub?'':' (agregador)'}</option>`).join(''))
     : '<option value="">(cargá los proveedores del casino →)</option>';
-  document.getElementById('main').innerHTML = `
+  document.getElementById('main').innerHTML = cruceCard(cruce) + `
     <div class="card"><h2>➕ Proveedor</h2>
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión casino</label><select id="pr-cx">${cxOpts}</select></div>
@@ -1369,12 +1370,62 @@ function cieFam(n){
   const f=m[1].toUpperCase().replace(/SLOT[_ ]ZONA/,'SZ');
   return f;
 }
+/* ── EL CRUCE ENTRE 🏷 PROVEEDORES Y 🧮 MATRIZ ───────────────────────────────────────────────
+   Las dos miran al mismo proveedor pero cosas distintas, y por eso una puede estar toda en verde
+   mientras la otra dice "sin configurar":
+     · Proveedores mira el NOMBRE: que "RUBYPLAY XG" del casino apunte a una fila de la matriz.
+     · Matriz mira las CELDAS: a qué clientes se les cobra esa fila.
+   Ninguna sola contesta lo único que cuesta plata: si algo dio ganancia y no se le cobra a nadie.
+   Esta tarjeta va arriba de las DOS para que digan lo mismo. */
+function _cieMesCruce(){ const d=new Date(); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); }
+function cruceCard(c){
+  if(!c || !c.ok) return '';
+  const nadie=(c.filas||[]).filter(f=>f.estado==='nadie_lo_paga');
+  const sinCosto=(c.filas||[]).filter(f=>f.estado==='sin_costo');
+  const sinVinc=(c.filas||[]).filter(f=>f.estado==='sin_vinculo');
+  if(!c.hayDatos){
+    return `<div class="card" style="margin:0 0 12px;background:var(--bg3)">
+      <b>El cruce con las ganancias de ${esc(c.mes)} todavía no se puede hacer</b>
+      <div class="muted" style="margin-top:4px">Falta traer el mes de ${esc((c.conexionesSinTraer||[]).join(', ')||'los paneles')}.
+        Andá a <b>🧮 Cierre de Mes → 💸 Pago</b> y apretá Calcular: queda guardado y esta tarjeta se llena sola.
+        Sin eso no se puede saber si algún proveedor dio ganancia y no se le está cobrando a nadie.</div></div>`;
+  }
+  if(!nadie.length && !sinCosto.length && !sinVinc.length){
+    return `<div class="card" style="margin:0 0 12px;background:var(--bg3)">
+      <b>✅ Proveedores y Matriz coinciden en ${esc(c.mes)}</b>
+      <div class="muted" style="margin-top:4px">Todo lo que dio ganancia está vinculado, tiene costo y se le cobra a alguien.</div></div>`;
+  }
+  const tabla=(titulo,color,detalle,filas,col)=>!filas.length?'':`
+    <div style="margin-top:10px"><b style="color:${color}">${titulo}</b>
+      <div class="muted" style="margin:2px 0 6px">${detalle}</div>
+      <table><thead><tr><th>Fila de la matriz</th><th class="right">Ganancia del mes</th><th class="right">% costo</th><th>${col}</th></tr></thead><tbody>
+      ${filas.slice(0,15).map(f=>`<tr><td><b>${esc(f.matriz)}</b></td>
+        <td class="right">${f.ganancia?money(f.ganancia,0):'—'}</td>
+        <td class="right">${f.costo==null?'<span class="badge err">sin costo</span>':esc(f.costo)+'%'}</td>
+        <td class="muted">${(f.vinculadoDesde||[]).join(', ')||'—'}</td></tr>`).join('')}
+      ${filas.length>15?`<tr><td colspan="4" class="muted">…y ${filas.length-15} más</td></tr>`:''}
+      </tbody></table></div>`;
+  return `<div class="card" style="margin:0 0 12px;border-left:3px solid var(--gold)">
+    <b>Cruce de ${esc(c.mes)}: lo que una pantalla no ve sola</b>
+    <div class="muted" style="margin-top:4px"><b>🏷 Proveedores</b> mira que el nombre del casino resuelva a una fila.
+      <b>🧮 Matriz</b> mira a qué clientes se les cobra esa fila. Que una esté en verde no dice nada de la otra.</div>
+    ${tabla('💸 '+nadie.length+' proveedor(es) dieron ganancia y no se le cobran a NADIE','#e66',
+      'Están vinculados y el casino los reporta, pero ningún cliente tiene valor en esa fila: esa ganancia se paga y no se cobra.',nadie,'Lo reporta')}
+    ${tabla('⚠ '+sinCosto.length+' con ganancia y sin costo cargado','var(--gold)',
+      'No se sabe cuánto le pagamos al proveedor: queda afuera del total de Pago a proveedores.',sinCosto,'Lo reporta')}
+    ${tabla(sinVinc.length+' fila(s) configuradas que no reporta ningún panel','var(--muted)',
+      'Tienen celdas cargadas pero ningún nombre del casino apunta ahí. O el proveedor dejó de usarse, o cambió de nombre y hay que revincularlo.',sinVinc,'Lo reporta')}
+  </div>`;
+}
 const CIE_FAM_ORDEN = ['OP','OR','EV','BS','SZ','SL2','SL','XG','BVS','GAMEHUB','DIMA_LI','RL','KN','Otros'];
 let _cieCerradas = new Set();     // familias plegadas
 function cieFoldAll(){ const t=document.querySelectorAll(".cie-fam").length; if(_cieCerradas.size>=t) _cieCerradas=new Set(); else document.querySelectorAll(".cie-fam b").forEach(b=>_cieCerradas.add(b.textContent)); cieMatriz(); }
 function cieFold(f){ if(_cieCerradas.has(f))_cieCerradas.delete(f); else _cieCerradas.add(f); cieMatriz(); }
 async function cieMatriz(){
   const m = await api('/api/os/cierre/matriz'); _cieData = {proveedores:m.proveedores||[], clientes:m.clientes||[], celdas:m.celdas||{}};
+  // El cruce con Proveedores: "sin configurar" solo asusta si el casino ADEMÁS lo reporta.
+  const cruce = await api('/api/os/cierre/cruce?mes='+encodeURIComponent(_cieMesCruce()));
+  const xEstado = {}; (cruce.filas||[]).forEach(f=>{ xEstado[f.matriz]=f; });
   const provs=_cieData.proveedores, celdas=_cieData.celdas;
   // Quién es vendedor sale de la ficha del cliente, no de la matriz.
   const fichas = (await api('/api/os/clientes')).clientes||[];
@@ -1399,8 +1450,16 @@ async function cieMatriz(){
     if(!conVal.length) sinConfig++; else if(!cobran) sinNadie++;
     const tds = clis.map(c=>{const v=row[c.nombre];
       return `<td><input class="cie-c" data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;}).join('');
-    // marca cómo está esa fila: sin configurar ≠ decidido que no se cobra
-    const est = !conVal.length ? '<span class="cie-est cie-est-sc" title="Ningún cliente tiene valor: FALTA CONFIGURARLO">sin configurar</span>'
+    // Marca cómo está la fila CRUZANDO las dos pantallas. Una fila vacía no es lo mismo si el
+    // casino la reporta que si no la reporta nadie: la primera es plata que no se cobra, la
+    // segunda es una fila que sobra. Antes las dos decían "sin configurar" y por eso la Matriz
+    // parecía llena de problemas mientras Proveedores estaba todo en verde.
+    const x = xEstado[p.nombre] || {};
+    const est = x.estado==='nadie_lo_paga'
+        ? `<span class="cie-est cie-est-sc" style="background:rgba(200,50,50,.25);color:#e66" title="Dio ${money(x.ganancia,0)} de ganancia este mes y ningún cliente lo paga">💸 nadie lo paga</span>`
+      : !conVal.length && !(x.vinculadoDesde||[]).length
+        ? '<span class="cie-est cie-est-nc" title="Ningún panel lo reporta y ningún cliente lo tiene: la fila no se usa">sin uso</span>'
+      : !conVal.length ? '<span class="cie-est cie-est-sc" title="Lo reporta el casino pero ningún cliente tiene valor: FALTA CONFIGURARLO">sin configurar</span>'
       : !cobran ? '<span class="cie-est cie-est-nc" title="Todos en 0: decidido que no se cobra">no se cobra</span>'
       : `<span class="cie-est cie-est-ok" title="${cobran} clientes lo pagan">${cobran}</span>`;
     return `<tr data-prov="${esc(p.nombre.toLowerCase())}" data-fam="${esc(cieFam(p.nombre))}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)} ${est}</td>`+
@@ -1415,13 +1474,14 @@ async function cieMatriz(){
       +`${costos.length===1?` · costo ${esc(costos[0])}`:costos.length?` · costos ${costos.slice(0,4).join(', ')}${costos.length>4?'…':''}`:''}</span></td></tr>`;
     return cab + (cerrada ? '' : filas);
   }).join('');
-  document.getElementById('cie-body').innerHTML = `
+  document.getElementById('cie-body').innerHTML = cruceCard(cruce) + `
   <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes, agrupados por familia.</div>
     <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">
       <span class="muted">Los <b>${nVend} vendedores</b> no están acá: no son clientes, pagan <b>siempre el costo real</b> del proveedor por todo lo que usen.</span>
       <span class="cie-est cie-est-ok">n</span><span class="muted">lo pagan n clientes</span>
       <span class="cie-est cie-est-nc">no se cobra</span><span class="muted">decidido que no</span>
-      <span class="cie-est cie-est-sc">sin configurar</span><span class="muted">falta cargarlo (${sinConfig})</span>
+      <span class="cie-est cie-est-sc">sin configurar</span><span class="muted">el casino lo reporta y no está cargado</span>
+      <span class="cie-est cie-est-nc">sin uso</span><span class="muted">no lo reporta nadie</span>
       <button class="small outline" onclick="cieFoldAll()">Plegar todo</button>
     </div>
     <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
