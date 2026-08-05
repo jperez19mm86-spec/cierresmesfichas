@@ -1120,6 +1120,7 @@ function mount(app) {
     // Verificado en producción: "Mclain" y "CharlyS2" con 170.000.000 cargados, sin cliente.
     // Pasa cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior.
     let totVend = '0', totFee = '0', totCasino = '0';
+    let cmpVend = '0', cmpCasino = '0';   // solo los clientes que SÍ tienen pedidos
 
     // ⚠️ LOS VENDEDORES NO VAN EN ESTA FACTURA. No pagan un % de lo que cargan: pagan el COSTO
     // REAL de los proveedores que usen, y eso se liquida en 🧮 Cierre de Mes → 🤝 Vendedores.
@@ -1203,6 +1204,11 @@ function mount(app) {
       totVend = money.add(totVend, vendUsdt);
       totFee = money.add(totFee, feeUsdt);
       totCasino = money.add(totCasino, casinoUsdt);
+      // El total contra el total no dice nada cuando hay clientes que cargan por fuera del
+      // sistema: Titan solo son 1,96M de los 3,3M del control, y arrastra el promedio a -66%
+      // sin que haya nada mal. Este otro total compara SOLO a los que sí pasan por pedidos, que
+      // es donde un desvío significa de verdad que algo no cuadra.
+      if (v && v.count) { cmpVend = money.add(cmpVend, vendUsdt); cmpCasino = money.add(cmpCasino, casinoUsdt); }
     }
 
     out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
@@ -1229,6 +1235,12 @@ function mount(app) {
         fee_usdt: money.round(totFee, 2),
         casino_usdt: money.round(totCasino, 2),
         dif_pct: money.isPos(totCasino) ? money.round(money.mul(money.div(money.sub(totVend, totCasino), totCasino), '100'), 1) : null,
+        // Comparable = solo los clientes que pasan por pedidos. Es el número que dice si la
+        // facturación cuadra; el otro mezcla a los que cargan por fuera del sistema.
+        cmp_vendido_usdt: money.round(cmpVend, 2),
+        cmp_casino_usdt: money.round(cmpCasino, 2),
+        cmp_dif_pct: money.isPos(cmpCasino) ? money.round(money.mul(money.div(money.sub(cmpVend, cmpCasino), cmpCasino), '100'), 1) : null,
+        fuera_usdt: money.round(money.sub(totCasino, cmpCasino), 2),
       },
       clientes: out, errores,
     };

@@ -2233,6 +2233,15 @@ async function calcularFac(vivo){
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>A cobrar (USDT)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">'+money(T.fee_usdt,2)+'</div><div class="muted" style="font-size:11px">% base × vendido</div></div>'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Casino (control)</label><div style="font-size:20px;font-weight:800;opacity:.75">'+money(T.casino_usdt,2)+'</div><div class="muted" style="font-size:11px">'+(T.dif_pct!=null?('difiere '+dif(T.dif_pct)):'sin datos')+'</div></div>'
     + '</div>'
+    // El total contra el total engaña cuando hay clientes que cargan por fuera del sistema: uno
+    // solo puede arrastrar la diferencia a -66% sin que haya nada mal. Este compara solo a los
+    // que sí pasan por pedidos, que es donde un desvío significa algo.
+    + ((T.cmp_dif_pct!=null && Number(T.fuera_usdt)>0)
+      ? '<div class="card" style="background:var(--bg3);margin:8px 0"><b>Comparando solo a los que pasan por pedidos: '+dif(T.cmp_dif_pct)+'</b>'
+        + '<div class="muted" style="margin-top:4px">Vendido '+money(T.cmp_vendido_usdt,2)+' contra '+money(T.cmp_casino_usdt,2)+' del casino. '
+        + 'Los otros <b>'+money(T.fuera_usdt,2)+' USDT</b> son de clientes con movimiento en el casino y <b>cero pedidos</b> (los de la lista de abajo): '
+        + 'cargaron por fuera del sistema, así que compararlos contra sus pedidos siempre va a dar -100% y arrastra el total.</div></div>'
+      : '')
     + '<div class="muted" style="margin:8px 0">Se cobra por <b>lo vendido</b> (pedidos cargados). El casino va al lado solo como control. TC: <b>'+money(r.tc,2)+'</b> ARS/USDT <span style="opacity:.7">('+esc(r.tcFuente||'')+')</span></div>'
     + ((r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b>. Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'%)').join(' · ')+'</div></div>'):'')
     + ((r.sinTC&&r.sinTC.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo vendido en esas monedas <b>no entra en el total</b>.</div></div>'):'')
