@@ -102,4 +102,53 @@ function update(id, patch) {
 }
 function remove(id) { return db.prepare('DELETE FROM paneles WHERE id=?').run(id).changes > 0; }
 
-module.exports = { list, get, create, update, remove, setJerarquia, NIVELES };
+/**
+ * ── ¿LAS DIVISAS DE CADA PANEL SON LAS QUE DE VERDAD USA? ────────────────────────────────────
+ *
+ * Lo que se guarda en `divisas` viene del casino, pero es lo que la cuenta tiene HABILITADO, no
+ * lo que mueve. RMIara-D figura con ARS, AUD, CLP, COP, DOP, EUR, MXN, PEN… y opera solo en
+ * pesos. No es cosmético: esa lista es la que dispara el aviso de "moneda sin tipo de cambio",
+ * así que media pantalla de alertas es por monedas que nadie usó nunca.
+ *
+ * Acá se compara contra el ACUMULADO ya guardado —lo que el cron baja todas las noches— así que
+ * no consulta el casino ni tarda. Solo informa; cambiar el dato es una decisión de quien mira.
+ *
+ * @param meses  cuántos meses hacia atrás mirar (default 6)
+ * @returns [{ panel_id, nombre, cliente_id, guardadas[], usadas[], sobran[], faltan[], meses }]
+ */
+function divisasUsadas(meses = 6) {
+  const rd = require('./reporte-diario-store');
+  const hoy = new Date();
+  const lista = [];
+  for (let i = 0; i < Math.max(1, meses); i++) {
+    const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - i, 1));
+    lista.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  const paneles = list().filter((p) => p.conexion_id && p.id_usuario);
+  const keys = paneles.map((p) => ({ conexion_id: p.conexion_id, grp: 'superagent', sa_id: String(p.id_usuario) }));
+  const usadasDe = {};
+  for (const mes of lista) {
+    for (const f of rd.filasPanelesMes(keys, mes)) {
+      // Una moneda "se usa" si tuvo movimiento de verdad; una fila en cero no la habilita.
+      const hay = Number(f.in_amt || 0) || Number(f.out_amt || 0) || Number(f.profit || 0);
+      if (!hay) continue;
+      const k = `${f.conexion_id}|${f.sa_id}`;
+      (usadasDe[k] = usadasDe[k] || new Set()).add(String(f.moneda || '').toUpperCase());
+    }
+  }
+  return paneles.map((p) => {
+    const usadas = [...(usadasDe[`${p.conexion_id}|${p.id_usuario}`] || [])].sort();
+    const guardadas = (p.divisas || []).map((x) => String(x).toUpperCase());
+    return {
+      panel_id: p.id, nombre: p.nombre, cliente_id: p.cliente_id, id_usuario: p.id_usuario,
+      guardadas, usadas,
+      sobran: guardadas.filter((d) => !usadas.includes(d)),
+      faltan: usadas.filter((d) => !guardadas.includes(d)),
+      sinDatos: !usadas.length,
+      meses: lista,
+    };
+  });
+}
+
+module.exports = {
+  divisasUsadas, list, get, create, update, remove, setJerarquia, NIVELES };

@@ -139,8 +139,22 @@ const _cliAbiertos = new Set();      // qué clientes quedaron desplegados (sobr
    y sale toda del campo `vendedor_id` que ya estaba cargado — antes se veía como 48 filas
    alfabéticas donde no se distinguía quién dependía de quién.
    Se arma recursivo, así que si mañana hay un nivel más no hay que tocar nada. */
-let _cliCerradas = new Set();
+// Arranca PLEGADO: con 48 clientes y 205 paneles, abrir todo de entrada es una pared de datos.
+// Se ven los vendedores de arriba y se va abriendo lo que se quiere mirar.
+let _cliCerradas = null;          // null = todavía no se tocó nada → todo plegado
+function _cerradasIni(lista){
+  if(_cliCerradas) return _cliCerradas;
+  _cliCerradas = new Set(lista.filter(c=>lista.some(x=>x.vendedor_id===c.id)).map(c=>c.id));
+  return _cliCerradas;
+}
 function cliFold(k){ _cliCerradas.has(k)?_cliCerradas.delete(k):_cliCerradas.add(k); VIEWS.clientes(); }
+/** Plegar todo (deja solo los de arriba) o abrir todo. */
+function cliFoldAll(lista){
+  const conGente = lista.filter(c=>lista.some(x=>x.vendedor_id===c.id)).map(c=>c.id);
+  if(_cliCerradas && _cliCerradas.size >= conGente.length){ _cliCerradas = new Set(); _cliAbiertos.clear(); }
+  else { _cliCerradas = new Set(conGente); _cliAbiertos.clear(); }
+  VIEWS.clientes();
+}
 
 function cliArbol(lista){
   const hijos={};    // vendedor_id → los que cuelgan de él
@@ -167,7 +181,7 @@ function cliFilas(n, prof=0){
   const c=n.cliente;
   const tienePaneles=_paneles.filter(p=>p.cliente_id===c.id).length;
   const ab=_cliAbiertos.has(c.id);
-  const plegado=_cliCerradas.has(c.id);
+  const plegado=_cerradasIni(_clientes).has(c.id);
   const sangria=prof*22;
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
@@ -214,10 +228,19 @@ VIEWS.clientes = async () => {
     </div>
     <div class="card">
       <h2>Clientes por vendedor <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
-        <button class="outline small" style="float:right" onclick="togglePanTodos()">▾ Abrir todos</button></h2>
+        <span style="float:right;display:flex;gap:6px">
+          <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
+          <button class="outline small" onclick="togglePanTodos()">Paneles</button></span></h2>
       <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${cliArbol(_clientes).map(n=>cliFilas(n)).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
+      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFilas(n)).join('')) || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
+    </div>
+    <div class="card"><h2>🪙 Divisas de los paneles <span class="muted">(¿son las que se usan?)</span></h2>
+      <div class="muted">Lo que trae el casino es lo que la cuenta tiene <b>habilitado</b>, no lo que <b>mueve</b>.
+        Acá se compara contra el movimiento real de los últimos meses — sale de lo ya guardado, no consulta el casino.</div>
+      <div class="row" style="margin-top:8px"><button class="outline small" onclick="verDivisas()">Revisar</button>
+        <div id="div-out" class="muted" style="align-self:center"></div></div>
+      <div id="div-tabla"></div>
     </div>
     ${sinDueno.length ? `<div class="card"><h2>⚠ Paneles sin cliente <span class="muted">(${sinDueno.length})</span></h2>
       <div class="muted" style="margin-bottom:6px">Su cliente ya no existe. No se le facturan a nadie: asignalos o borralos.</div>
@@ -647,6 +670,44 @@ async function cliResumen(id){
 // ───────── PANELES (viven adentro de Clientes) ─────────
 // La pestaña se sacó: los paneles se ven y se crean desplegando ▸ la fila de su cliente. Se deja
 // el alias por si algo todavía llama go('paneles').
+/* Las divisas guardadas contra las que el panel mueve de verdad. La lista guardada es la que
+   dispara el aviso de "moneda sin tipo de cambio": si sobra media docena, ese aviso deja de
+   servir. */
+async function verDivisas(){
+  const out=document.getElementById('div-out'), tab=document.getElementById('div-tabla');
+  out.textContent='⏳ revisando…';
+  const r=await api('/api/os/paneles/divisas?meses=6');
+  if(!r.ok){ out.textContent='error'; return; }
+  const sobran=(r.paneles||[]).filter(x=>x.sobran.length).sort((a,b)=>b.sobran.length-a.sobran.length);
+  const faltan=(r.paneles||[]).filter(x=>x.faltan.length);
+  out.innerHTML=`${r.conSobrante} con monedas de más · ${r.conFaltante} con monedas que faltan · ${r.sinDatos} sin movimiento en 6 meses`;
+  const nom=(id)=>{const c=(_clientes||[]).find(x=>x.id===id); return c?(c.nombre||c.codigo):'—';};
+  tab.innerHTML = (!sobran.length && !faltan.length) ? '<div class="muted" style="margin-top:8px">✅ Todas coinciden.</div>' : `
+    ${faltan.length?`<div class="card" style="background:#3a2410;border-color:var(--red);margin:10px 0 0">
+      <b style="color:var(--red)">${faltan.length} panel(es) MOVIERON una moneda que no tienen habilitada</b>
+      <div class="muted" style="margin-top:4px">Eso sí importa: la cascada de carga puede no encontrar por dónde pasar.</div>
+      <table style="margin-top:6px"><thead><tr><th>Panel</th><th>Cliente</th><th>Falta</th></tr></thead><tbody>
+      ${faltan.map(x=>`<tr><td><b>${esc(x.nombre)}</b></td><td class="muted">${esc(nom(x.cliente_id))}</td><td>${x.faltan.map(d=>'<span class="badge err">'+esc(d)+'</span>').join(' ')}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
+    ${sobran.length?`<div class="card" style="margin:10px 0 0;background:var(--bg3)">
+      <b>${sobran.length} panel(es) con monedas que nunca movieron</b>
+      <div class="muted" style="margin:4px 0 6px">Están habilitadas en el casino pero sin un solo movimiento en 6 meses.
+        Dejarlas hace que el aviso de "moneda sin tipo de cambio" grite por monedas que nadie usa.</div>
+      <button class="small" onclick="ajustarDivisas()">Dejar solo las que se usan (${sobran.length} paneles)</button>
+      <table style="margin-top:8px"><thead><tr><th>Panel</th><th>Cliente</th><th>Usa</th><th>Sobran</th></tr></thead><tbody>
+      ${sobran.slice(0,40).map(x=>`<tr><td><b>${esc(x.nombre)}</b></td><td class="muted">${esc(nom(x.cliente_id))}</td>
+        <td>${x.usadas.map(d=>'<span class="badge ok">'+esc(d)+'</span>').join(' ')||'<span class="muted">ninguna</span>'}</td>
+        <td class="muted" style="font-size:11px">${x.sobran.map(esc).join(' · ')}</td></tr>`).join('')}
+      ${sobran.length>40?`<tr><td colspan="4" class="muted">…y ${sobran.length-40} más</td></tr>`:''}
+      </tbody></table></div>`:''}`;
+}
+async function ajustarDivisas(){
+  if(!confirm('¿Dejar en cada panel solo las monedas que movió en los últimos 6 meses?\n\nLos que no tuvieron ningún movimiento se dejan como están.')) return;
+  const r=await api('/api/os/paneles/divisas/ajustar',{method:'POST',body:JSON.stringify({meses:6})});
+  toast(r.ok?('Ajustados '+r.ajustados+' paneles'):(r.error||'error'));
+  VIEWS.clientes();
+}
+
 VIEWS.paneles = () => VIEWS.clientes();
 
 async function addPanel(cid){

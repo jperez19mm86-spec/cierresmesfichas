@@ -248,6 +248,28 @@ function mount(app) {
   app.put('/api/os/paneles/:id', wrap((req, res) => {
     const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); _espejarCaja(p); ok(res, { panel: p });
   }));
+  // Qué monedas MUEVE cada panel de verdad, contra las que tiene guardadas.
+  app.get('/api/os/paneles/divisas', (req, res) => {
+    const filas = paneles.divisasUsadas(Number(req.query.meses) || 6);
+    ok(res, {
+      paneles: filas,
+      conSobrante: filas.filter((f) => f.sobran.length).length,
+      conFaltante: filas.filter((f) => f.faltan.length).length,
+      sinDatos: filas.filter((f) => f.sinDatos).length,
+    });
+  });
+  // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
+  app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
+    const b = req.body || {};
+    const filas = paneles.divisasUsadas(Number(b.meses) || 6)
+      .filter((f) => (b.panel_id ? f.panel_id === b.panel_id : f.sobran.length) && f.usadas.length);
+    const hechos = filas.map((f) => {
+      paneles.update(f.panel_id, { divisas: f.usadas });
+      return { panel: f.nombre, antes: f.guardadas, ahora: f.usadas };
+    });
+    ok(res, { ajustados: hechos.length, hechos });
+  }));
+
   app.delete('/api/os/paneles/:id', (req, res) => {
     const p = paneles.get(req.params.id);
     const borrado = paneles.remove(req.params.id);
