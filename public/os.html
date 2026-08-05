@@ -1485,6 +1485,7 @@ VIEWS.tc = async () => {
   const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], tasas=d.tasas||{};
   const uso = await api('/api/os/tc/del-mes?mes='+encodeURIComponent(_tcMes));
   const prom = (await api('/api/os/tc/divisas/promedios?mes='+encodeURIComponent(_tcMes))).promedios||[];
+  const seg = await api('/api/os/tc/divisas/seguidas');
   const PROV='ARS_OF';
 
   // Las columnas se ordenan por el mes que representan, no como salieron de la base: mezcladas
@@ -1539,7 +1540,9 @@ VIEWS.tc = async () => {
 
     <div class="card"><h2>Lo que se está juntando en ${esc(_tcMes)}</h2>
       <div class="muted">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
-        se escribe solo como columna nueva de la grilla — sin pisar nada que hayas cargado a mano.</div>
+        se escribe solo como columna nueva de la grilla — sin pisar nada que hayas cargado a mano.
+        <br>Se siguen <b>solo las monedas que están como fila en la grilla de arriba</b> (la fuente publica ~160 y no sirven):
+        <span class="muted" style="font-size:11px">${(seg.monedas||[]).join(' · ')}</span>. Agregá una fila y al otro día ya se le junta la cotización.</div>
       <div class="row" style="margin:10px 0 6px">
         <button class="outline small" onclick="snapNow()">📸 Guardar ARS ahora</button>
         <button class="outline small" onclick="snapDivisas()">📸 Guardar el resto ahora</button>

@@ -34,6 +34,32 @@ const IGNORAR = new Set(['ADA', 'USD', 'USDT', 'ARS']);
    cargado a mano, que manda sobre todo lo demás. */
 const ALIAS = { VEF: 'VES' };                       // VEF toma el valor de VES
 
+/**
+ * ── SOLO LAS MONEDAS QUE SE USAN ───────────────────────────────────────────────────────────
+ * La fuente publica ~160 cotizaciones. Guardarlas todas llenaba la base y, peor, la pantalla:
+ * entre AED, AFN, ALL y AOA no se encontraba el peso. Se siguen únicamente las monedas en las
+ * que de verdad se factura.
+ *
+ * La lista NO está clavada: sale de las FILAS de la grilla de TC (`cierre_tc`), que es donde el
+ * dueño decide en qué monedas trabaja. Si mañana agrega una fila, al otro día ya se le junta la
+ * cotización sola. La base de abajo es el piso —las que aparecen en el reporte de proveedores
+ * externos— para que la lista nunca quede vacía si la grilla se vacía.
+ */
+const BASE_SEGUIDAS = ['BOB', 'BRL', 'CLP', 'COP', 'CRC', 'DOP', 'GTQ', 'HNL', 'MXN', 'PEN', 'PYG', 'UYU', 'VEF', 'VES', 'ZAR'];
+
+/** Las monedas que se siguen: las de la grilla + el piso. Sin ARS (va por Binance) ni USD/USDT. */
+function seguidas() {
+  const set = new Set(BASE_SEGUIDAS);
+  try {
+    require('./cierre-store').getTC().monedas.forEach((m) => {
+      const d = String(m || '').toUpperCase().trim();
+      if (/^[A-Z]{3}$/.test(d)) set.add(d);        // ARS_OF y demás etiquetas no son monedas
+    });
+  } catch (e) { /* si la grilla no se puede leer, queda el piso */ }
+  IGNORAR.forEach((d) => set.delete(d));
+  return set;
+}
+
 /** Baja las cotizaciones del día. Devuelve { ok, tasas: {DIVISA: '1234.56'}, error? } */
 async function fetchTasas() {
   const ctrl = new AbortController();
@@ -44,8 +70,9 @@ async function fetchTasas() {
     const j = await r.json();
     if (!j || !j.rates) return { ok: false, error: 'respuesta sin cotizaciones' };
     const tasas = {};
+    const quiero = seguidas();
     for (const [div, val] of Object.entries(j.rates)) {
-      if (IGNORAR.has(div)) continue;
+      if (IGNORAR.has(div) || !quiero.has(div)) continue;
       const n = Number(val);
       if (!Number.isFinite(n) || n <= 0) continue;
       tasas[div] = money.round(String(n), 6);
@@ -118,6 +145,19 @@ function purgarArsViejo() {
 }
 
 /**
+ * Borra lo guardado de monedas que no se siguen. Dejar de escribirlas no alcanza: mientras las
+ * filas viejas existan, siguen apareciendo en los promedios y en la pantalla.
+ */
+function purgarNoSeguidas() {
+  const quiero = [...seguidas()];
+  if (!quiero.length) return 0;
+  const huecos = quiero.map(() => '?').join(',');
+  const n = db.prepare(`DELETE FROM tc_divisa_snapshots WHERE divisa NOT IN (${huecos})`).run(...quiero).changes;
+  if (n) console.log(`[TC divisas] purgadas ${n} filas de monedas que no se usan (quedan ${quiero.length})`);
+  return n;
+}
+
+/**
  * Cron: UNA por día, y está bien que sea una.
  *
  * A diferencia del peso —que se mueve todo el día contra el dólar cripto y por eso lleva dos
@@ -128,7 +168,8 @@ function purgarArsViejo() {
  * Corre en la última franja de las configuradas para ARS, cuando la cotización del día ya está.
  */
 function startScheduler() {
-  purgarArsViejo();   // el peso no vive acá; si quedaron filas viejas, se van
+  purgarArsViejo();     // el peso no vive acá; si quedaron filas viejas, se van
+  purgarNoSeguidas();   // ~160 monedas de la fuente, se guardan solo las que se facturan
   const horas = String(process.env.TC_SNAPSHOT_HOURS || '9,18')
     .split(',').map((h) => Number(String(h).trim())).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23);
   const HOUR = (horas.length ? horas : [9, 18]).slice(-1)[0];
@@ -144,4 +185,4 @@ function startScheduler() {
   console.log(`[TC divisas] scheduler activo (snapshot diario ${HOUR}:00 ART)`);
 }
 
-module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, startScheduler, purgarArsViejo, ALIAS, IGNORAR };
+module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, startScheduler, purgarArsViejo, purgarNoSeguidas, seguidas, ALIAS, IGNORAR, BASE_SEGUIDAS };

@@ -484,6 +484,9 @@ function mount(app) {
     if (ars) lista.unshift({ divisa: 'ARS', dias: tcStore.listSnapshots(mes).length, promedio: ars, fuente: 'binance/criptoya' });
     ok(res, { mes, promedios: lista });
   });
+  // Qué monedas se siguen (salen de las filas de la grilla) + limpiar lo que sobró.
+  app.get('/api/os/tc/divisas/seguidas', (_req, res) => ok(res, { monedas: [...tcDivisas.seguidas()].sort(), piso: tcDivisas.BASE_SEGUIDAS }));
+  app.post('/api/os/tc/divisas/purgar', wrap((_req, res) => ok(res, { borradas: tcDivisas.purgarNoSeguidas(), monedas: [...tcDivisas.seguidas()].sort() })));
   app.get('/api/os/tc/divisas/dias', (req, res) => {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
     ok(res, { mes, dias: tcDivisas.listDias(mes, req.query.divisa) });
