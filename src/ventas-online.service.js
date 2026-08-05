@@ -138,6 +138,64 @@ async function ventasDelMes(mes) {
 }
 
 /**
+ * ¿Los pedidos entraron con el código de otro cliente?
+ *
+ * El pedido dice a nombre de QUIÉN se pidió (su código); el panel dice DÓNDE cayeron las fichas.
+ * Cuando un panel se muda de un cliente a otro, los pedidos siguen llegando con el código viejo
+ * y la factura se la come el que no era. Pasó de verdad: 8 de los 15 pedidos de julio de Juan se
+ * cargaron en paneles de Titan — 483.886 USDT, el 90% de lo que se le facturaba a Juan.
+ *
+ * Acá se cruzan las dos cosas. No corrige nada: dice dónde no coinciden.
+ * Los paneles que no se reconocen se informan aparte — así apareció que el sistema en línea
+ * escribe "463.life" y el OS lo tiene como "463.live", y por esa letra no cruzaba nada.
+ */
+async function cruceConPaneles(mes) {
+  const m = String(mes || '').slice(0, 7);
+  const r = await _pedidos();
+  if (!r.ok) return r;
+  const clientes = require('./clientes-store').list().clientes;
+  const nombreDe = {}; clientes.forEach((c) => { nombreDe[c.id] = c.nombre || c.nombreVisible || c.codigo; });
+  const dueno = {};
+  require('./paneles-store').list().forEach((p) => {
+    const k = String(p.nombre || '').trim().toLowerCase();
+    if (k && p.cliente_id) dueno[k] = p.cliente_id;
+  });
+  const mp = mapa();
+  const cruces = {}; const panelesRaros = {};
+  for (const p of r.pedidos) {
+    if (p.estado !== 'cargado' && p.estado !== 'anulando') continue;
+    if (String(p.resueltoAt || p.createdAt || '').slice(0, 7) !== m) continue;
+    const dest = mp[String(p.codigo || '').toLowerCase()];
+    if (!dest) continue;                                   // sin mapear: ya lo avisa la factura
+    const nom = String(p.cajaUsuario || p.userId || '').trim();
+    const owner = dueno[nom.toLowerCase()];
+    const dv = String(p.divisa || 'ARS').toUpperCase();
+    const monto = Number(p.monto) || 0;
+    if (!owner) {
+      const s = panelesRaros[nom] = panelesRaros[nom] || { panel: nom, count: 0, porDivisa: {}, deCodigo: new Set() };
+      s.count++; s.porDivisa[dv] = (s.porDivisa[dv] || 0) + monto; s.deCodigo.add(p.codigo);
+      continue;
+    }
+    if (owner === dest.cliente_id) continue;               // coincide: nada que decir
+    const k = `${dest.cliente_id}|${owner}`;
+    const c = cruces[k] = cruces[k] || {
+      seFacturaA: nombreDe[dest.cliente_id] || dest.cliente_id, seFacturaA_id: dest.cliente_id,
+      panelEsDe: nombreDe[owner] || owner, panelEsDe_id: owner,
+      count: 0, porDivisa: {}, paneles: new Set(), codigos: new Set(),
+    };
+    c.count++; c.porDivisa[dv] = (c.porDivisa[dv] || 0) + monto;
+    c.paneles.add(nom); c.codigos.add(p.codigo);
+  }
+  return {
+    ok: true, mes: m,
+    cruces: Object.values(cruces).map((c) => ({ ...c, paneles: [...c.paneles], codigos: [...c.codigos] }))
+      .sort((a, b) => b.count - a.count),
+    panelesSinReconocer: Object.values(panelesRaros).map((s) => ({ ...s, deCodigo: [...s.deCodigo] }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
+
+/**
  * El DETALLE carga por carga de un cliente en un mes: fecha, panel, moneda y monto.
  *
  * Es lo que hace que la factura se pueda auditar. Sin esto el cliente ve un total y tiene que
@@ -169,4 +227,4 @@ async function detalleDelMes(mes, clienteId) {
   return { ok: true, detalle: out };
 }
 
-module.exports = { getConfig, setConfig, mapa, setMapeo, listMapeo, ventasDelMes, detalleDelMes, _pedidos };
+module.exports = { getConfig, setConfig, mapa, setMapeo, listMapeo, ventasDelMes, detalleDelMes, cruceConPaneles, _pedidos };

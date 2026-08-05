@@ -1280,6 +1280,11 @@ function mount(app) {
   // Los pedidos de UN cliente, uno por uno. Hace falta cuando lo vendido no cuadra con lo que
   // registró el casino: sin ver pedido por pedido no se puede saber cuál entró con el código
   // equivocado (pasa cuando un panel se muda de un cliente a otro).
+  // ¿Algún pedido entró con el código de un cliente pero se cargó en el panel de otro?
+  app.get('/api/os/ventas-online/cruce', wrap(async (req, res) => {
+    const r = await ventasOnline.cruceConPaneles(req.query.mes || mesTZ());
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
   app.get('/api/os/ventas-online/detalle', wrap(async (req, res) => {
     const r = await ventasOnline.detalleDelMes(req.query.mes || mesTZ(), req.query.cliente_id);
     r.ok ? ok(res, r) : err(res, 502, r.error);
