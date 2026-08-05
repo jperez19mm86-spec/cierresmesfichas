@@ -133,6 +133,26 @@ function go(t){ _tab=t; renderNav(); VIEWS[t](); }
 const VIEWS = {}, CFG = {};
 const _cliAbiertos = new Set();      // qué clientes quedaron desplegados (sobrevive al re-render)
 
+/* La cartera de cada vendedor junta. Antes eran 48 filas alfabéticas y para saber qué maneja
+   Henry había que acordarse de memoria; el dato (vendedor_id) ya estaba cargado en los 40. */
+let _cliCerradas = new Set();
+function cliFold(k){ _cliCerradas.has(k)?_cliCerradas.delete(k):_cliCerradas.add(k); VIEWS.clientes(); }
+function cliPorVendedor(lista){
+  const nom={}; lista.forEach(c=>{nom[c.id]=c.nombre||c.codigo;});
+  const vend=lista.filter(c=>c.es_vendedor);
+  const grupos=[];
+  // Los vendedores primero y juntos: no son clientes, no pagan un % de lo que cargan.
+  if(vend.length) grupos.push({k:'_vend', titulo:'🤝 Vendedores', filas:vend.slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')))});
+  const porV={};
+  lista.filter(c=>!c.es_vendedor).forEach(c=>{ const k=c.vendedor_id||'_directos'; (porV[k]=porV[k]||[]).push(c); });
+  Object.entries(porV)
+    .filter(([k])=>k!=='_directos')
+    .sort((a,b)=>b[1].length-a[1].length)
+    .forEach(([k,filas])=>grupos.push({k, titulo:'👤 '+(nom[k]||k), filas:filas.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')))}));
+  if(porV._directos) grupos.push({k:'_directos', titulo:'Sin vendedor asignado', filas:porV._directos});
+  return grupos;
+}
+
 VIEWS.clientes = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
@@ -156,13 +176,18 @@ VIEWS.clientes = async () => {
     <div class="card">
       <h2>Clientes <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
         <button class="outline small" style="float:right" onclick="togglePanTodos()">▾ Abrir todos</button></h2>
-      <table><thead><tr><th>Código</th><th>Nombre</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${_clientes.map(c=>{
+      <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
+      ${cliPorVendedor(_clientes).map(g=>{
+        const cerrada=_cliCerradas.has(g.k);
+        const deuda=g.filas.reduce((a,x)=>a+Number((x.deuda&&x.deuda.total)||0),0);
+        const cab=`<tr class="cie-fam" onclick="cliFold('${esc(g.k)}')"><td colspan="8" style="padding:6px 8px">`
+          +`${cerrada?'▸':'▾'} <b>${esc(g.titulo)}</b> <span class="muted">· ${g.filas.length} ${g.filas.length===1?'cliente':'clientes'}`
+          +`${deuda?` · deuda ${money(deuda,0)} USDT`:''}</span></td></tr>`;
+        return cab + (cerrada ? '' : g.filas.map(c=>{
         const n = _paneles.filter(p=>p.cliente_id===c.id).length;
         const ab = _cliAbiertos.has(c.id);
         return `<tr>
-        <td style="white-space:nowrap;cursor:pointer" onclick="togglePan('${c.id}')"><span id="car-${c.id}" style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <span class="pill">${esc(c.codigo)}</span></td>
-        <td>${esc(c.nombre||'')}</td>
+        <td style="white-space:nowrap;cursor:pointer" onclick="togglePan('${c.id}')"><span id="car-${c.id}" style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> ${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</td>
         <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
         <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">—</span>'}</td>
         <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
@@ -171,8 +196,8 @@ VIEWS.clientes = async () => {
         <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${c.deuda?('<div class="muted" style="font-size:10.5px;white-space:nowrap">consumo '+money(c.deuda.fichas_pendientes,0)+' · ext '+money(c.deuda.proveedores_pendientes,0)+'</div>'):''}</td>
         <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
       </tr>
-      <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="9">${bloquePaneles(c)}</td></tr>`;
-      }).join('') || '<tr><td colspan="9" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
+      <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="8">${bloquePaneles(c)}</td></tr>`;
+      }).join('')); }).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
     ${sinDueno.length ? `<div class="card"><h2>⚠ Paneles sin cliente <span class="muted">(${sinDueno.length})</span></h2>
@@ -317,6 +342,28 @@ function editCli(id){
           <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. <b>Trader</b> = el TC que te pasa tu trader ese mes. Todo esto es <b>anotación</b>: el flujo de deuda y cobro hoy lo manejan los Movimientos, a mano.</div>
         </div>
         <div class="card">
+          <h2>📣 Avisos por Telegram</h2>
+          <div class="muted" style="margin-bottom:6px">El grupo de este cliente. Sin esto no le llega ni la factura ni el aviso de cada carga.
+            El <b>bot</b> se carga una sola vez en ⚙ Config → 📣 Telegram.</div>
+          <div class="row" style="align-items:flex-end">
+            <div style="flex:0"><label>chatId del grupo</label><input id="e-tgchat" value="${esc((c.telegram||{}).chatId||'')}" placeholder="-1001234567890" style="width:200px"></div>
+            <div style="flex:0;padding-bottom:9px"><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+              <input type="checkbox" id="e-tgon" ${(c.telegram||{}).enabled?'checked':''} style="width:auto"> avisar cada carga</label></div>
+            <div style="flex:0"><button class="outline small" onclick="tgProbar('${id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button></div>
+            <div class="muted" style="flex:1;padding-bottom:9px">Se guarda con 💾 Guardar. <b>Probar manda un mensaje de verdad al grupo.</b></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>🧾 Códigos de pedido <span class="muted">(del sistema en línea)</span></h2>
+          <div class="muted" style="margin-bottom:6px">Con qué código llegan los pedidos de este cliente. <b>El código dice QUIÉN CONSUME</b>, no quién hizo el pedido:
+            si el vendedor pide por su cliente, tiene que usar el código <b>del cliente</b>. Si no, la carga se le factura al vendedor y va al 0%.</div>
+          <div id="e-cods" class="muted">Cargando…</div>
+          <div class="row" style="margin-top:8px;align-items:flex-end">
+            <div style="flex:0"><label>➕ Agregar código</label><input id="e-nuevocod" placeholder="ej: TITAN01" style="width:170px"></div>
+            <div style="flex:0"><button class="small" onclick="cliAddCodigo('${id}')">Agregar</button></div>
+          </div>
+        </div>
+        <div class="card">
           <h2>💰 Saldo anterior <span class="muted">(deuda previa al sistema)</span></h2>
           <div class="row" style="align-items:flex-end">
             <div><label>Monto</label><input id="e-saldoini" value="${esc(c.saldo_inicial||'')}" placeholder="ej 1500"/></div>
@@ -333,6 +380,7 @@ function editCli(id){
     </div>
   </div>`;
   fillDivisas(c.divisa_fichas);
+  cliPintarCodigos(id);
   loadCliPlat(id);
   loadCliProv(id);
 }
@@ -463,8 +511,41 @@ async function saveCli(id){
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
+  // El grupo de Telegram va por su propia ruta, pero se guarda con el mismo botón: para el que
+  // lo usa es un dato más de la ficha, no otro trámite.
+  const tg=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({
+    chatId:val('e-tgchat'), enabled:document.getElementById('e-tgon').checked })});
+  if(tg&&!tg.ok) toast('⚠ lo demás se guardó, pero el grupo de Telegram no: '+(tg.error||''));
   _cliDirty=false; toast('Guardado'); VIEWS.clientes();
 }
+/* Los códigos de pedido del cliente. Se guardan al toque (son una lista, no un campo), así que
+   no esperan al 💾 de arriba. */
+async function cliPintarCodigos(id){
+  const box=document.getElementById('e-cods'); if(!box) return;
+  const mp=(await api('/api/os/ventas-online/mapeo')).mapeo||[];
+  const mios=mp.filter(x=>x.cliente_id===id);
+  box.innerHTML = mios.length
+    ? mios.map(x=>`<span class="pill" style="margin-right:6px">${esc(x.codigo)}
+        <span class="cie-x" title="quitar" onclick="cliDelCodigo('${esc(x.codigo).replace(/'/g,"\\'")}')">✕</span></span>`).join('')
+    : '<span class="badge err">todavía no tiene código propio</span> <span class="muted">— sus pedidos solo pueden entrar con el código de su vendedor, y ahí se facturan al 0%</span>';
+}
+async function cliAddCodigo(id){
+  const cod=val('e-nuevocod').trim(); if(!cod) return toast('Escribí el código');
+  const mp=(await api('/api/os/ventas-online/mapeo')).mapeo||[];
+  const ya=mp.find(x=>String(x.codigo).toLowerCase()===cod.toLowerCase());
+  if(ya && ya.cliente_id!==id){
+    const otro=(_clientes.find(c=>c.id===ya.cliente_id)||{}).nombre||ya.cliente_id;
+    if(!confirm('El código "'+cod+'" hoy apunta a '+otro+'. ¿Se lo pasás a este cliente?\n\nLos pedidos que ya entraron con ese código se le van a facturar a este.')) return;
+  }
+  await api('/api/os/ventas-online/mapeo',{method:'POST',body:JSON.stringify({codigo:cod,cliente_id:id,origen:'a mano'})});
+  document.getElementById('e-nuevocod').value=''; toast('Código agregado'); cliPintarCodigos(id);
+}
+async function cliDelCodigo(cod){
+  if(!confirm('¿Sacar el código "'+cod+'"? Los pedidos que lleguen con él van a quedar sin cliente.')) return;
+  await api('/api/os/ventas-online/mapeo',{method:'POST',body:JSON.stringify({codigo:cod,cliente_id:null})});
+  toast('Código quitado'); cliPintarCodigos(_cliModalId);
+}
+
 // Materializa el saldo anterior como un movimiento de ajuste (es lo que la cuenta corriente suma).
 // Re-aplicar reemplaza el anterior en vez de duplicarlo.
 async function aplicarSaldoIni(id){
