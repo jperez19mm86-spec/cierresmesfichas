@@ -185,11 +185,17 @@ function cliFilas(n, prof=0){
   const sangria=prof*22;
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
+  // ⚠️ Una fila puede desplegar DOS cosas distintas —su gente y sus paneles— y con una sola
+  // flecha no se sabía cuál se estaba abriendo: con la lista plegada, tocar a Alexa cerraba su
+  // rama y sus 13 paneles parecían haber desaparecido. Ahora cada cosa tiene su control:
+  // la flecha del NOMBRE abre la rama, el NÚMERO de paneles abre los paneles.
   const flecha = n.subs.length
-    ? `<span class="cie-x" style="color:var(--gold);opacity:1" onclick="event.stopPropagation();cliFold('${c.id}')">${plegado?'▸':'▾'}</span>`
-    : (tienePaneles ? `<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span>` : '<span style="opacity:.25">·</span>');
+    ? `<span style="color:var(--gold);font-size:11px">${plegado?'▸':'▾'}</span>`
+    : '<span style="opacity:.2">·</span>';
+  const abrirRama = n.subs.length ? `cliFold('${c.id}')` : `togglePan('${c.id}')`;
   const fila=`<tr${c.es_vendedor?' class="cie-tv"':''}>
-    <td style="white-space:nowrap;cursor:pointer;padding-left:${8+sangria}px" onclick="togglePan('${c.id}')">
+    <td style="white-space:nowrap;cursor:pointer;padding-left:${8+sangria}px" onclick="${abrirRama}"
+        title="${n.subs.length?'ver quiénes cuelgan de acá':'ver sus paneles'}">
       ${flecha} ${_nom(c)}
       ${c.es_vendedor?`<span class="cie-tag">vendedor</span>`:''}
 </td>
@@ -198,12 +204,13 @@ function cliFilas(n, prof=0){
       ? '<span class="muted" title="A un vendedor no le aplica un % base: paga el costo real de los proveedores que use">no aplica</span>'
       : (c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">sin cargar</span>')}</td>
     <td class="muted">${cuantos?cuantos:'—'}</td>
-    <td style="cursor:pointer" onclick="togglePan('${c.id}')">${tienePaneles?('<b>'+tienePaneles+'</b>'):'<span class="muted">—</span>'}</td>
+    <td style="cursor:pointer" onclick="togglePan('${c.id}')" title="${tienePaneles?'ver sus paneles':'sin paneles'}">${
+      tienePaneles?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${tienePaneles}</b>`:'<span class="muted">—</span>'}</td>
     <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${
       n.subs.length&&deudaRama!==Number((c.deuda&&c.deuda.total)||0)?`<div class="muted" style="font-size:10.5px;white-space:nowrap">con su gente ${money(deudaRama,0)}</div>`:''}</td>
     <td class="right" style="white-space:nowrap"><button class="outline small" onclick="abrirCliente('${c.id}','resumen')">Abrir ficha</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
   </tr>
-  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="7">${bloquePaneles(c)}</td></tr>`;
+  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="7" style="padding-left:${18+sangria}px">${bloquePaneles(c)}</td></tr>`;
   return fila + (plegado ? '' : n.subs.map(x=>cliFilas(x, prof+1)).join(''));
 }
 
@@ -232,7 +239,8 @@ VIEWS.clientes = async () => {
         <span style="float:right;display:flex;gap:6px">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
           <button class="outline small" onclick="togglePanTodos()">Paneles</button></span></h2>
-      <div class="muted" style="margin-bottom:8px">La <b>base</b> es lo único de esta tabla que factura.
+      <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
+        La <b>base</b> es lo único de esta tabla que factura.
         A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
       <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Su gente</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
       ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFilas(n)).join('')) || '<tr><td colspan="7" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
