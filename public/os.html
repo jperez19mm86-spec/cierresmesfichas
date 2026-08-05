@@ -1413,8 +1413,9 @@ function cruceCard(c){
       'Están vinculados y el casino los reporta, pero ningún cliente tiene valor en esa fila: esa ganancia se paga y no se cobra.',nadie,'Lo reporta')}
     ${tabla('⚠ '+sinCosto.length+' con ganancia y sin costo cargado','var(--gold)',
       'No se sabe cuánto le pagamos al proveedor: queda afuera del total de Pago a proveedores.',sinCosto,'Lo reporta')}
-    ${tabla(sinVinc.length+' fila(s) configuradas que no reporta ningún panel','var(--muted)',
-      'Tienen celdas cargadas pero ningún nombre del casino apunta ahí. O el proveedor dejó de usarse, o cambió de nombre y hay que revincularlo.',sinVinc,'Lo reporta')}
+    ${tabla(sinVinc.length+' fila(s) que se le cobran a alguien y ningún panel reporta','var(--muted)',
+      'Tienen precio cargado para uno o más clientes, pero ningún nombre del casino apunta ahí: o el proveedor dejó de usarse, o cambió de nombre y hay que revincularlo. '
+      +'<b>Ojo:</b> los que llegan por <b>TBS</b> entran por grupo y no tienen vínculo de nombre — para esos es normal aparecer acá.',sinVinc,'Lo reporta')}
   </div>`;
 }
 const CIE_FAM_ORDEN = ['OP','OR','EV','BS','SZ','SL2','SL','XG','BVS','GAMEHUB','DIMA_LI','RL','KN','Otros'];
