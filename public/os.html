@@ -192,17 +192,18 @@ function cliFilas(n, prof=0){
     <td style="white-space:nowrap;cursor:pointer;padding-left:${8+sangria}px" onclick="togglePan('${c.id}')">
       ${flecha} ${_nom(c)}
       ${c.es_vendedor?`<span class="cie-tag">vendedor</span>`:''}
-      ${n.subs.length?`<span class="muted" style="font-size:11px">· ${cuantos} abajo</span>`:''}</td>
+</td>
     <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
-    <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">—</span>'}</td>
-    <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
-    <td>${c.paga_proveedores?'sí':'no'}</td>
+    <td>${c.es_vendedor
+      ? '<span class="muted" title="A un vendedor no le aplica un % base: paga el costo real de los proveedores que use">no aplica</span>'
+      : (c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">sin cargar</span>')}</td>
+    <td class="muted">${cuantos?cuantos:'—'}</td>
     <td style="cursor:pointer" onclick="togglePan('${c.id}')">${tienePaneles?('<b>'+tienePaneles+'</b>'):'<span class="muted">—</span>'}</td>
     <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${
       n.subs.length&&deudaRama!==Number((c.deuda&&c.deuda.total)||0)?`<div class="muted" style="font-size:10.5px;white-space:nowrap">con su gente ${money(deudaRama,0)}</div>`:''}</td>
     <td class="right" style="white-space:nowrap"><button class="outline small" onclick="abrirCliente('${c.id}','resumen')">Abrir ficha</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
   </tr>
-  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="8">${bloquePaneles(c)}</td></tr>`;
+  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="7">${bloquePaneles(c)}</td></tr>`;
   return fila + (plegado ? '' : n.subs.map(x=>cliFilas(x, prof+1)).join(''));
 }
 
@@ -231,8 +232,10 @@ VIEWS.clientes = async () => {
         <span style="float:right;display:flex;gap:6px">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
           <button class="outline small" onclick="togglePanTodos()">Paneles</button></span></h2>
-      <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFilas(n)).join('')) || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
+      <div class="muted" style="margin-bottom:8px">La <b>base</b> es lo único de esta tabla que factura.
+        A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
+      <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Su gente</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
+      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFilas(n)).join('')) || '<tr><td colspan="7" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
     <div class="card"><h2>🪙 Divisas de los paneles <span class="muted">(¿son las que se usan?)</span></h2>
@@ -381,7 +384,7 @@ function editCli(id){
         </div>
         <div class="card">
           <h2>🧾 Ficha de cobro <span class="muted">(datos de referencia)</span></h2>
-          <div class="card" style="background:#2a2410;border-color:var(--gold);margin:0 0 8px;padding:8px 10px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos todavía NO entran en ningún cálculo.</b> Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
+          <div class="card" style="background:#2a2410;border-color:var(--gold);margin:0 0 8px;padding:8px 10px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos NO entran en ningún cálculo</b> — igual que <b>Ajuste USDT %</b>, <b>Paga proveedores</b> y <b>Permite deuda</b> de arriba: son notas para acordarse de cómo trabaja cada cliente, y por eso se sacaron de la tabla. Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
             <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
