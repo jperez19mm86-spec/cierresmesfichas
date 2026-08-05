@@ -1114,15 +1114,27 @@ function mount(app) {
     const tc = _tc.valor;
     const out = []; const sinBase = new Set(); const sinTC = new Set();
     const sinPedidos = [];      // tienen movimiento en el casino pero NO se les vendió nada
+    const enCero = [];          // el % base dice 0: se les factura cero y parece correcto
     // ⚠️ Ventas cuyo código NO corresponde a ningún cliente. Con los pedidos como base de cobro,
     // eso es plata vendida que no se le factura a nadie y que no aparece por ningún lado.
     // Verificado en producción: "Mclain" y "CharlyS2" con 170.000.000 cargados, sin cliente.
     // Pasa cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior.
     let totVend = '0', totFee = '0', totCasino = '0';
 
+    // ⚠️ LOS VENDEDORES NO VAN EN ESTA FACTURA. No pagan un % de lo que cargan: pagan el COSTO
+    // REAL de los proveedores que usen, y eso se liquida en 🧮 Cierre de Mes → 🤝 Vendedores.
+    // Estando acá aparecían como "sin % base — van al 0%" (los 6 en rojo: David, IGLatam, Sarah,
+    // Alexa, Carlos, Henry), se les facturaba cero, y su movimiento del casino igual se sumaba al
+    // control: el total decía que la venta difería un 66% de lo que el casino registró, mezclando
+    // plata que esta factura no cobra por diseño.
+    const vendedores = [];
     for (const c of clientes.list().clientes) {
       const v = ventasCli[c.id] || null;
       const cps = linked.filter((p) => p.cliente_id === c.id);
+      if (c.es_vendedor) {
+        if (v || cps.length) vendedores.push(c.nombre || c.nombreVisible || c.codigo);
+        continue;
+      }
 
       // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
       // de un panel no se puede aplicar acá: si un cliente tiene paneles con precios distintos, hay
@@ -1156,6 +1168,11 @@ function mount(app) {
 
       if (!v && !hayCasino) continue;                       // ni vendido ni movimiento: no aparece
       if (rb.valor == null && v) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
+      // Base CERO no es lo mismo que base sin cargar: acá el número está puesto, dice cero, y la
+      // factura sale en cero "correctamente". Si fue un olvido, nada lo iba a delatar.
+      if (rb.valor != null && !money.isPos(base) && (v || money.isPos(casinoUsdt))) {
+        enCero.push({ nombre: c.nombre || c.nombreVisible || c.codigo, vendido_usdt: money.round(vendUsdt, 2), casino_usdt: money.round(casinoUsdt, 2) });
+      }
 
       // Movimiento en el casino pero CERO pedidos: no se factura en cero y listo — se avisa. Una
       // factura en cero pasa desapercibida; un aviso no.
@@ -1206,7 +1223,7 @@ function mount(app) {
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
-      origen, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, huerfanas,
+      origen, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, vendedores, huerfanas,
       totales: {
         vendido_usdt: money.round(totVend, 2),
         fee_usdt: money.round(totFee, 2),

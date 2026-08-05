@@ -307,6 +307,19 @@ async function main() {
       f('PRUEBA OP').estado === 'sin_uso', f('PRUEBA OP').estado);
   }
 
+  // ── FACTURA DE CONSUMO: los VENDEDORES no van. No pagan un % de lo que cargan, pagan el costo
+  // real de los proveedores. Estando adentro salían como "sin % base" y su movimiento del casino
+  // inflaba el control, que es lo que hacía que el total dijera -66%.
+  {
+    const vend = (await post('/api/clientes', { codigo: 'VEND1', nombreVisible: 'Vendedor Uno' })).data.cliente;
+    await put('/api/os/clientes/' + vend.id + '/comercial', { es_vendedor: true });
+    r = await get('/api/os/facturacion?mes=' + curMes);
+    check('factura: el vendedor no aparece entre los clientes',
+      !(r.data.clientes || []).some((c) => c.codigo === 'VEND1'), JSON.stringify((r.data.clientes || []).map((c) => c.codigo)));
+    check('factura: el vendedor tampoco figura como "sin % base"',
+      !(r.data.sinBase || []).some((n) => /Vendedor Uno|VEND1/.test(n)), JSON.stringify(r.data.sinBase));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

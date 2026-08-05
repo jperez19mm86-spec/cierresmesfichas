@@ -2187,6 +2187,14 @@ VIEWS.facturacion = async () => {
       <div id="fac-out" class="muted" style="margin-top:12px">Tocá "Calcular".</div>
     </div>`;
 };
+/* El código y el nombre suelen ser lo mismo ("Titan" / "Titan") y la tabla lo escribía dos
+   veces. Se muestra el código solo cuando de verdad aporta algo distinto. */
+function _nom(c){
+  const cod=String(c.codigo||''), nom=String(c.nombre||'');
+  if(!nom) return '<span class="pill">'+esc(cod)+'</span>';
+  if(!cod || cod.toLowerCase()===nom.toLowerCase()) return '<b>'+esc(nom)+'</b>';
+  return '<b>'+esc(nom)+'</b> <span class="pill" style="font-size:10px;opacity:.7">'+esc(cod)+'</span>';
+}
 async function calcularFac(vivo){
   const out=document.getElementById('fac-out');
   out.innerHTML = vivo ? '⏳ preguntándole al casino… tarda cerca de un minuto' : '⏳ calculando…';
@@ -2230,12 +2238,14 @@ async function calcularFac(vivo){
     + ((r.sinTC&&r.sinTC.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo vendido en esas monedas <b>no entra en el total</b>.</div></div>'):'')
     + ((r.sinBase&&r.sinBase.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div></div>'):'')
     + ((r.huerfanas&&r.huerfanas.length)?('<div class="card" style="background:#3a1010;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">🔴 '+r.huerfanas.length+' código(s) con ventas que NO son de ningún cliente</b><div class="muted" style="margin-top:4px">Esa plata está vendida y <b>no se le factura a nadie</b>. Suele pasar cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior. Reasignalos o creá el cliente.</div><table style="margin-top:6px"><thead><tr><th>Código</th><th class="right">Pedidos</th><th>Vendido</th><th class="right">USDT</th></tr></thead><tbody>'+r.huerfanas.map(h=>'<tr><td><span class="pill" style="background:var(--red);color:#000">'+esc(h.codigo)+'</span></td><td class="right">'+h.pedidos+'</td><td>'+h.porDivisa.map(d=>esc(d.divisa)+' '+money(d.monto,0)).join(' · ')+'</td><td class="right"><b>'+money(h.usdt,2)+'</b></td></tr>').join('')+'</tbody></table></div>'):'')
-    + ((r.sinPedidos&&r.sinPedidos.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.sinPedidos.length+' cliente(s) con movimiento en el casino y CERO pedidos</b><div class="muted" style="margin-top:4px">No se les factura nada. O se cargaron por fuera del sistema, o faltan pedidos.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.sinPedidos.map(x=>'<tr><td><span class="pill">'+esc(x.codigo)+'</span> '+esc(x.nombre||'')+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
+    + ((r.vendedores&&r.vendedores.length)?('<div class="muted" style="margin:8px 0">'+r.vendedores.length+' vendedor(es) quedan afuera de esta factura por diseño ('+r.vendedores.map(esc).join(' · ')+'): no pagan un % de lo que cargan, pagan el <b>costo real</b> de los proveedores que usen. Su cuenta se liquida en <b>🧮 Cierre de Mes → 🤝 Vendedores</b>.</div>'):'')
+    + ((r.enCero&&r.enCero.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.enCero.length+' cliente(s) con % base en CERO</b><div class="muted" style="margin-top:4px">Tienen el número puesto y dice 0, así que la factura les sale en cero y parece correcta. Si es a propósito, ignoralo; si fue un olvido, no lo iba a delatar nada.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Vendido (USDT)</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.enCero.map(x=>'<tr><td><b>'+esc(x.nombre)+'</b></td><td class="right">'+money(x.vendido_usdt,2)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
+    + ((r.sinPedidos&&r.sinPedidos.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.sinPedidos.length+' cliente(s) con movimiento en el casino y CERO pedidos</b><div class="muted" style="margin-top:4px">No se les factura nada. O se cargaron por fuera del sistema, o faltan pedidos.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.sinPedidos.map(x=>'<tr><td>'+_nom(x)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
     + '<table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Pedidos</th><th class="right">Vendido (USDT)</th><th class="right">A cobrar</th><th class="right">Casino</th><th class="right">Dif.</th><th>Monedas</th></tr></thead><tbody>'
     + ((r.clientes||[]).map(c=>{
         const chips=(c.porDivisa||[]).map(d=>'<span class="pill" style="margin-right:3px" title="'+esc(d.divisa)+': vendido '+money(d.vendido,0)+(d.tc?(' · TC '+money(d.tc,2)):' · SIN TC')+'">'+esc(d.divisa)+(d.tc?'':' ⚠')+'</span>').join('');
         const anul=c.anulando?('<div class="muted" style="font-size:11px;color:var(--gold)">↩ '+c.anulando.count+' anulando · '+money(c.anulando.usdt,2)+' USDT sin confirmar</div>'):'';
-        return '<tr><td><span class="pill">'+esc(c.codigo)+'</span> '+esc(c.nombre||'')+anul+'</td>'
+        return '<tr><td>'+_nom(c)+anul+'</td>'
           +'<td class="right" title="'+esc(c.baseFuente||'')+'">'+(c.sinBase?'<span style="color:var(--red)">sin %</span>':(esc(c.base)+'%'))+'</td>'
           +'<td class="right">'+c.pedidos+'</td>'
           +'<td class="right">'+money(c.vendido_usdt,2)+'</td>'
