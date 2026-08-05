@@ -133,24 +133,63 @@ function go(t){ _tab=t; renderNav(); VIEWS[t](); }
 const VIEWS = {}, CFG = {};
 const _cliAbiertos = new Set();      // qué clientes quedaron desplegados (sobrevive al re-render)
 
-/* La cartera de cada vendedor junta. Antes eran 48 filas alfabéticas y para saber qué maneja
-   Henry había que acordarse de memoria; el dato (vendedor_id) ya estaba cargado en los 40. */
+/* ── EL ÁRBOL DE LA CARTERA ──────────────────────────────────────────────────────────────────
+   Un vendedor puede tener vendedores abajo (Alexa → Julian, GanamosSarah), y cada vendedor sus
+   clientes, y cada cliente sus paneles. Es la misma jerarquía que existe de verdad en el negocio,
+   y sale toda del campo `vendedor_id` que ya estaba cargado — antes se veía como 48 filas
+   alfabéticas donde no se distinguía quién dependía de quién.
+   Se arma recursivo, así que si mañana hay un nivel más no hay que tocar nada. */
 let _cliCerradas = new Set();
 function cliFold(k){ _cliCerradas.has(k)?_cliCerradas.delete(k):_cliCerradas.add(k); VIEWS.clientes(); }
-function cliPorVendedor(lista){
-  const nom={}; lista.forEach(c=>{nom[c.id]=c.nombre||c.codigo;});
-  const vend=lista.filter(c=>c.es_vendedor);
-  const grupos=[];
-  // Los vendedores primero y juntos: no son clientes, no pagan un % de lo que cargan.
-  if(vend.length) grupos.push({k:'_vend', titulo:'🤝 Vendedores', filas:vend.slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')))});
-  const porV={};
-  lista.filter(c=>!c.es_vendedor).forEach(c=>{ const k=c.vendedor_id||'_directos'; (porV[k]=porV[k]||[]).push(c); });
-  Object.entries(porV)
-    .filter(([k])=>k!=='_directos')
-    .sort((a,b)=>b[1].length-a[1].length)
-    .forEach(([k,filas])=>grupos.push({k, titulo:'👤 '+(nom[k]||k), filas:filas.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')))}));
-  if(porV._directos) grupos.push({k:'_directos', titulo:'Sin vendedor asignado', filas:porV._directos});
-  return grupos;
+
+function cliArbol(lista){
+  const hijos={};    // vendedor_id → los que cuelgan de él
+  lista.forEach(c=>{ const k=c.vendedor_id||'_raiz'; (hijos[k]=hijos[k]||[]).push(c); });
+  const orden=(a,b)=> (b.es_vendedor?1:0)-(a.es_vendedor?1:0) || String(a.nombre||'').localeCompare(String(b.nombre||''));
+  const nodo=(c,nivel)=>({
+    cliente:c, nivel,
+    subs:(hijos[c.id]||[]).sort(orden).map(x=>nodo(x,nivel+1)),
+  });
+  const raiz=(hijos._raiz||[]).sort(orden).map(c=>nodo(c,0));
+  return raiz;
+}
+/** Cuántos cuelgan de este nodo, contando todos los niveles. */
+function cliCuenta(n){ return n.subs.reduce((a,x)=>a+1+cliCuenta(x),0); }
+/** La deuda del nodo más la de todo lo que cuelga. */
+function cliDeuda(n){
+  const p=Number((n.cliente.deuda&&n.cliente.deuda.total)||0);
+  return n.subs.reduce((a,x)=>a+cliDeuda(x),p);
+}
+
+/* Pinta un nodo del árbol y todo lo que cuelga. La sangría dice el nivel; un vendedor con gente
+   abajo se puede plegar entero. */
+function cliFilas(n, prof=0){
+  const c=n.cliente;
+  const tienePaneles=_paneles.filter(p=>p.cliente_id===c.id).length;
+  const ab=_cliAbiertos.has(c.id);
+  const plegado=_cliCerradas.has(c.id);
+  const sangria=prof*22;
+  const cuantos=cliCuenta(n);
+  const deudaRama=cliDeuda(n);
+  const flecha = n.subs.length
+    ? `<span class="cie-x" style="color:var(--gold);opacity:1" onclick="event.stopPropagation();cliFold('${c.id}')">${plegado?'▸':'▾'}</span>`
+    : (tienePaneles ? `<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span>` : '<span style="opacity:.25">·</span>');
+  const fila=`<tr${c.es_vendedor?' class="cie-tv"':''}>
+    <td style="white-space:nowrap;cursor:pointer;padding-left:${8+sangria}px" onclick="togglePan('${c.id}')">
+      ${flecha} ${_nom(c)}
+      ${c.es_vendedor?`<span class="cie-tag">vendedor</span>`:''}
+      ${n.subs.length?`<span class="muted" style="font-size:11px">· ${cuantos} abajo</span>`:''}</td>
+    <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
+    <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">—</span>'}</td>
+    <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
+    <td>${c.paga_proveedores?'sí':'no'}</td>
+    <td style="cursor:pointer" onclick="togglePan('${c.id}')">${tienePaneles?('<b>'+tienePaneles+'</b>'):'<span class="muted">—</span>'}</td>
+    <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${
+      n.subs.length&&deudaRama!==Number((c.deuda&&c.deuda.total)||0)?`<div class="muted" style="font-size:10.5px;white-space:nowrap">con su gente ${money(deudaRama,0)}</div>`:''}</td>
+    <td class="right" style="white-space:nowrap"><button class="outline small" onclick="abrirCliente('${c.id}','resumen')">Abrir ficha</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
+  </tr>
+  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="8">${bloquePaneles(c)}</td></tr>`;
+  return fila + (plegado ? '' : n.subs.map(x=>cliFilas(x, prof+1)).join(''));
 }
 
 VIEWS.clientes = async () => {
@@ -171,33 +210,13 @@ VIEWS.clientes = async () => {
         <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
         <button onclick="nuevoCliente()">Crear cliente</button>
       </div>
-      <div class="muted" style="margin-top:4px">Después con el ✎ le ponés % base y proveedores; los paneles se agregan desplegando su fila ▸.</div>
+      <div class="muted" style="margin-top:4px">Después, con <b>Abrir ficha</b>, le ponés % base, proveedores, su vendedor y su grupo de Telegram. Los paneles se agregan desplegando su fila ▸.</div>
     </div>
     <div class="card">
-      <h2>Clientes <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
+      <h2>Clientes por vendedor <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
         <button class="outline small" style="float:right" onclick="togglePanTodos()">▾ Abrir todos</button></h2>
       <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Ajuste</th><th>Prov.</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${cliPorVendedor(_clientes).map(g=>{
-        const cerrada=_cliCerradas.has(g.k);
-        const deuda=g.filas.reduce((a,x)=>a+Number((x.deuda&&x.deuda.total)||0),0);
-        const cab=`<tr class="cie-fam" onclick="cliFold('${esc(g.k)}')"><td colspan="8" style="padding:6px 8px">`
-          +`${cerrada?'▸':'▾'} <b>${esc(g.titulo)}</b> <span class="muted">· ${g.filas.length} ${g.filas.length===1?'cliente':'clientes'}`
-          +`${deuda?` · deuda ${money(deuda,0)} USDT`:''}</span></td></tr>`;
-        return cab + (cerrada ? '' : g.filas.map(c=>{
-        const n = _paneles.filter(p=>p.cliente_id===c.id).length;
-        const ab = _cliAbiertos.has(c.id);
-        return `<tr>
-        <td style="white-space:nowrap;cursor:pointer" onclick="togglePan('${c.id}')"><span id="car-${c.id}" style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> ${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</td>
-        <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
-        <td>${c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">—</span>'}</td>
-        <td class="muted">${c.ajuste_usdt_pct?esc(c.ajuste_usdt_pct)+'%':'—'}</td>
-        <td>${c.paga_proveedores?'sí':'no'}</td>
-        <td style="cursor:pointer" onclick="togglePan('${c.id}')">${n?('<b>'+n+'</b>'):'<span class="muted">—</span>'}</td>
-        <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${c.deuda?('<div class="muted" style="font-size:10.5px;white-space:nowrap">consumo '+money(c.deuda.fichas_pendientes,0)+' · ext '+money(c.deuda.proveedores_pendientes,0)+'</div>'):''}</td>
-        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="showPerfil('${c.id}')">👤 Perfil</button> <button class="outline small" onclick="editCli('${c.id}')">✎</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
-      </tr>
-      <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="8">${bloquePaneles(c)}</td></tr>`;
-      }).join('')); }).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
+      ${cliArbol(_clientes).map(n=>cliFilas(n)).join('') || '<tr><td colspan="8" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
       </tbody></table>
     </div>
     ${sinDueno.length ? `<div class="card"><h2>⚠ Paneles sin cliente <span class="muted">(${sinDueno.length})</span></h2>
@@ -208,7 +227,7 @@ VIEWS.clientes = async () => {
         <td class="right"><select style="width:auto;display:inline-block" onchange="moverPanel('${p.id}',this.value)"><option value="">— asignar a —</option>${_clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)}</option>`).join('')}</select>
         <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`).join('')}
       </tbody></table></div>` : ''}
-    <div id="cliEdit"></div>`;
+    `;
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
@@ -275,25 +294,44 @@ async function borrarCliente(id, codigo){
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
   if(r.ok){ toast('Cliente borrado'); VIEWS.clientes(); }
 }
-let _cliDirty=false, _cliModalId=null;
+let _cliDirty=false, _cliModalId=null, _cliTab='resumen';
+
+/* ── LA FICHA DEL CLIENTE, UNA SOLA ──────────────────────────────────────────────────────────
+   Antes había dos vistas compitiendo: 👤 Perfil (mirar, pantalla entera) y ✎ (editar, modal).
+   El mismo cliente en dos lugares, y datos suyos —el grupo de Telegram, sus códigos— en un
+   tercero. Ahora es una pantalla con solapas: se entra una vez y está todo. */
+async function abrirCliente(id, tab){
+  _cliTab = tab || _cliTab || 'resumen';
+  const c = (_clientes||[]).find(x=>x.id===id) || {};
+  _cliModalId = id;
+  const nom={}; (_clientes||[]).forEach(x=>{nom[x.id]=x.nombre||x.codigo;});
+  const TABS=[['resumen','📊 Resumen'],['comercial','💼 Comercial y cuentas']];
+  document.getElementById('main').innerHTML = `
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <button class="outline small" onclick="salirCliente()">← Clientes</button>
+        <h2 style="margin:0 0 0 10px">${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</h2>
+        <div class="muted" style="margin-left:10px">${c.vendedor_id?('lo maneja <b>'+esc(nom[c.vendedor_id]||'')+'</b>'):(c.es_vendedor?'':'sin vendedor asignado')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+        ${TABS.map(([k,l])=>`<button class="${k===_cliTab?'':'outline'} small" onclick="abrirCliente('${id}','${k}')">${l}</button>`).join('')}
+      </div>
+    </div>
+    <div id="cli-tab-body"><div class="card"><div class="empty">Cargando…</div></div></div>`;
+  if(_cliTab==='comercial') editCli(id); else await cliResumen(id);
+}
+function salirCliente(){
+  if(_cliDirty && !confirm('Tenés cambios sin guardar en Comercial.\n\nAceptar = salir igual\nCancelar = quedarme')) return;
+  _cliDirty=false; VIEWS.clientes();
+}
+
 function editCli(id){
   const c = _clientes.find(x=>x.id===id); if(!c) return;
   const opt=(cur,v,l)=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`;
   _cliDirty=false; _cliModalId=id;
-  document.getElementById('cliEdit').innerHTML = `
-  <style>
-    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;z-index:1000;padding:22px 12px;overflow:auto}
-    .modal-dlg{background:var(--bg2,#fff);border:1px solid var(--border);border-radius:12px;max-width:980px;width:100%;box-shadow:0 14px 44px rgba(0,0,0,.35);max-height:92vh;display:flex;flex-direction:column}
-    .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2,#fff);border-radius:12px 12px 0 0;z-index:2}
-    .modal-body{overflow:auto;padding:10px 14px}
-  </style>
-  <div class="modal-ov" onclick="if(event.target===this)closeCliModal()">
-    <div class="modal-dlg">
-      <div class="modal-head">
-        <h2 style="margin:0">✎ ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2>
-        <div style="display:flex;gap:8px;flex:0 0 auto"><button onclick="saveCli('${id}')">💾 Guardar</button><button class="outline" onclick="closeCliModal()">Salir ✕</button></div>
-      </div>
-      <div class="modal-body" oninput="_cliDirty=true" onchange="_cliDirty=true">
+  document.getElementById('cli-tab-body').innerHTML = `
+      <div oninput="_cliDirty=true" onchange="_cliDirty=true">
+        <div class="row" style="justify-content:flex-end;margin-bottom:8px"><button onclick="saveCli('${id}')">💾 Guardar cambios</button></div>
         <div class="card">
           <div class="row">
             <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -377,14 +415,13 @@ function editCli(id){
         <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
         <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>
       </div>
-    </div>
-  </div>`;
+  `;
   fillDivisas(c.divisa_fichas);
   cliPintarCodigos(id);
   loadCliPlat(id);
   loadCliProv(id);
 }
-// Cierra el modal. Si hay cambios sin guardar, pregunta si guardar o salir sin guardar.
+// Quedó de cuando la ficha era un modal; hoy la salida es `salirCliente`.
 function closeCliModal(){
   if(_cliDirty){
     if(confirm('Tenés cambios sin guardar.\n\nAceptar = GUARDAR y salir\nCancelar = salir SIN guardar')){ saveCli(_cliModalId); return; }
@@ -567,8 +604,8 @@ async function verPBHist(id){
   const r=await api('/api/os/clientes/'+id+'/precio-base/historial');
   document.getElementById('pb-hist').innerHTML = '<hr/>'+(r.historial||[]).map(h=>`• ${esc(h.valor)}% — desde ${esc(h.vigente_desde)} ${h.vigente_hasta?('hasta '+esc(h.vigente_hasta)):'(vigente)'}`).join('<br/>') || 'sin historial';
 }
-async function showPerfil(id){
-  const main=document.getElementById('main'); main.innerHTML='<div class="card"><div class="empty">Cargando perfil…</div></div>';
+async function cliResumen(id){
+  const main=document.getElementById('cli-tab-body');
   const r=await api('/api/os/clientes/'+id+'/perfil?meses=6');
   if(!r.ok){ main.innerHTML='<div class="card"><div class="empty">Error cargando el perfil</div></div>'; return; }
   const c=r.cliente, d=r.deuda||{}, hp=(r.historial_pct||[]);
@@ -576,9 +613,7 @@ async function showPerfil(id){
   const sisResumen=Object.entries(porSis).map(([s,n])=>`<span class="badge">${esc(s)}: ${n}</span>`).join(' ');
   main.innerHTML = `
     <div class="card">
-      <div class="row" style="align-items:center"><button class="outline small" onclick="VIEWS.clientes()">← Volver</button>
-        <h2 style="margin:0 0 0 10px">👤 ${esc(c.nombre||c.codigo)} <span class="muted">${esc(c.codigo)}</span></h2></div>
-      <div class="row" style="align-items:stretch; margin-top:10px">
+      <div class="row" style="align-items:stretch">
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Estado</label><div style="font-size:18px;font-weight:800">${esc(c.estado||'')}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Base actual</label><div style="font-size:18px;font-weight:800">${r.base_actual!=null?esc(r.base_actual)+'%':'—'}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (USDT)</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
