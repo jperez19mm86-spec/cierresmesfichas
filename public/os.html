@@ -1033,12 +1033,34 @@ async function ciePago(){
     </div>`;
   if(_pagoData) pagoPintar();
 }
+/* Los datos del mes se bajan UNA vez y quedan guardados; después solo se arman los números.
+   No entran en una sola consulta (dos paneles de casino de 50-120s más 52 grupos de TBS se pasan
+   del límite del servidor), así que se traen por partes y se va mostrando el avance. */
 async function pagoCalcular(){
   _pagoMes = val('pago-mes') || _pagoMes;
   const out=document.getElementById('pago-body');
-  out.innerHTML='<div class="empty">⏳ consultando… la primera vez de un mes tarda varios minutos; después sale de lo guardado</div>';
-  const r=await api('/api/os/pago-proveedores?mes='+encodeURIComponent(_pagoMes)+(_pagoRefrescar?'&refrescar=1':''));
-  _pagoRefrescar=false;
+  const paso=(t)=>{ out.innerHTML='<div class="empty">⏳ '+t+'</div>'; };
+  const refrescar=_pagoRefrescar; _pagoRefrescar=false;
+
+  const cx=((await api('/api/os/casino/conexiones')).conexiones||[]).filter(c=>c.activa);
+  for(const c of cx){
+    let desde=0, vuelta=0;
+    while(vuelta++ < 20){
+      paso(`trayendo ${esc(c.nombre)}${desde?` · ${desde} grupos listos`:''}… (solo la primera vez de ${esc(_pagoMes)})`);
+      const p=await api('/api/os/pago-proveedores/precargar',{method:'POST',body:JSON.stringify({mes:_pagoMes,conexion_id:c.id,desde,limite:12,refrescar})});
+      if(!p.ok){
+        // El motor de reportes del casino falla de a ratos: se avisa y se sigue con el resto,
+        // pero el mes queda incompleto y hay que decirlo, no dar un total como si estuviera bien.
+        out.innerHTML=`<div class="badge err">${esc(p.error||'falló')}</div>
+          <div class="muted" style="margin-top:6px">${p.reintentable?'Es el motor del casino, que falla de a ratos. Probá "Volver a consultar" en un minuto.':''}</div>`;
+        if(!p.reintentable) break; else return;
+      }
+      if(!p.faltan) break;
+      desde=p.hechos;
+    }
+  }
+  paso('armando los números…');
+  const r=await api('/api/os/pago-proveedores?mes='+encodeURIComponent(_pagoMes));
   if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
   _pagoData=r; _pagoAbierto.clear(); pagoPintar();
 }

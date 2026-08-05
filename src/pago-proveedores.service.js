@@ -231,6 +231,71 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
 }
 
 /**
+ * Llena el caché de UN panel, de a pedazos.
+ *
+ * El reporte entero no entra en una sola request: dos paneles de casino a 50-120s más 52
+ * consultas a TBS se pasan del límite del proxy y la respuesta muere sin dejar nada guardado.
+ * Acá se trae un pedazo, se guarda, y el que llama vuelve a pedir el siguiente. Cuando el mes
+ * está completo el reporte sale de lo guardado en el acto.
+ *
+ * @returns { ok, conexion, motor, hechos, total, faltan, avisos }
+ */
+async function precargar({ mes, conexion_id, desde: desdeIdx = 0, limite = 12, refrescar = false } = {}) {
+  const m = String(mes || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
+  const cx = casinoConex.list().find((c) => c.id === conexion_id);
+  if (!cx) return { ok: false, error: 'no encontré esa conexión' };
+  const cli = casinoConex.client(cx.id);
+  if (!cli) return { ok: false, error: `"${cx.nombre}" no tiene credenciales cargadas` };
+  const { from, to } = externosSvc.rango(m);
+  const desde = `${from} 00:00:00`; const hasta = `${to} 23:59:59`;
+  const avisos = [];
+
+  if ((cx.motor || '463') !== 'tbs') {
+    if (!refrescar && ganCache.get(cx.id, '_pago_general', m, '_todas')) {
+      return { ok: true, conexion: cx.nombre, motor: '463', hechos: 1, total: 1, faltan: 0, yaEstaba: true, avisos };
+    }
+    let r;
+    try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: null, userGroupBy: '' }); }
+    catch (e) { return { ok: false, error: `${cx.nombre}: ${String((e && e.message) || e)}` }; }
+    if (!r || !r.ok) return { ok: false, error: `${cx.nombre}: ${(r && r.error) || 'no respondió'}` };
+    const fallaron = Object.entries(r.monedas || {}).filter(([, x]) => !x || !x.ok).map(([d]) => d);
+    if (fallaron.length) return { ok: false, error: `${cx.nombre}: el motor de reportes falló en ${fallaron.join(', ')} — probá de nuevo`, reintentable: true };
+    ganCache.set(cx.id, '_pago_general', m, '_todas', r.monedas);
+    return { ok: true, conexion: cx.nombre, motor: '463', hechos: 1, total: 1, faltan: 0, avisos };
+  }
+
+  // TBS: la lista de grupos primero, después el profit de cada uno, de a tandas.
+  let lista = ganCache.get(cx.id, '_tbs_grupos', m, '_lista', { refrescar });
+  if (lista) lista = lista.filas;
+  else {
+    const g = await cli.grupos();
+    if (!g.ok) return { ok: false, error: `${cx.nombre}: no se pudo leer la lista de grupos — ${g.error}` };
+    ganCache.set(cx.id, '_tbs_grupos', m, '_lista', g.grupos);
+    lista = g.grupos;
+  }
+  const agentes = TBS_AGENTES.map((a) => a.id);
+  const trozo = lista.slice(desdeIdx, desdeIdx + limite);
+  const tanda = 5;
+  for (let i = 0; i < trozo.length; i += tanda) {
+    await Promise.all(trozo.slice(i, i + tanda).map(async (grp) => {
+      if (!refrescar && ganCache.get(cx.id, `_tbs_g${grp.id}`, m, '_todas')) return;
+      try {
+        const r = await cli.profitDeAgentes({ desde, hasta, agentes, grupos: [grp.id] });
+        if (!r.ok) { avisos.push(`grupo ${grp.nombre}: ${r.error}`); return; }
+        const pd = {};
+        Object.values(r.porAgente || {}).forEach((a) => Object.entries(a.porDivisa || {}).forEach(([d, v]) => {
+          pd[d] = money.add(pd[d] || '0', String(v.profit));
+        }));
+        ganCache.set(cx.id, `_tbs_g${grp.id}`, m, '_todas', pd);
+      } catch (e) { avisos.push(`grupo ${grp.nombre}: ${String((e && e.message) || e)}`); }
+    }));
+  }
+  const hechos = Math.min(desdeIdx + trozo.length, lista.length);
+  return { ok: true, conexion: cx.nombre, motor: 'tbs', hechos, total: lista.length, faltan: Math.max(0, lista.length - hechos), avisos };
+}
+
+/**
  * Lo que le pagamos a cada proveedor en un mes.
  * @param mes      'YYYY-MM'
  * @param monedas  qué divisas consultar (null = las que el conector conoce)
@@ -360,4 +425,4 @@ function csv(rep) {
   return filas.map((f) => f.map(esc).join(',')).join('\n');
 }
 
-module.exports = { reporte, csv, TBS_FAMILIAS, TBS_SUELTOS, TBS_AGENTES, filaDeGrupo };
+module.exports = { reporte, precargar, csv, TBS_FAMILIAS, TBS_SUELTOS, TBS_AGENTES, filaDeGrupo };

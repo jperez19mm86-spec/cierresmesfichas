@@ -702,6 +702,18 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   // El CSV con el mismo formato que el dueño ya usaba a mano.
+  // Traer el mes de a pedazos y dejarlo guardado. El reporte entero no entra en una sola
+  // request; esto se llama varias veces (una por panel, y TBS de a tandas de grupos) y despues
+  // el reporte sale de lo guardado.
+  app.post('/api/os/pago-proveedores/precargar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await pagoProv.precargar({
+      mes: b.mes || mesTZ(), conexion_id: b.conexion_id,
+      desde: Number(b.desde) || 0, limite: Number(b.limite) || 12, refrescar: !!b.refrescar,
+    });
+    r.ok ? ok(res, r) : err(res, 502, r.error, { reintentable: !!r.reintentable });
+  }));
+
   app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {
     const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
     if (!r.ok) return err(res, 400, r.error);
