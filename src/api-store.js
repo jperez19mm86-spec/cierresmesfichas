@@ -32,6 +32,11 @@ db.exec(`
     alias TEXT,                   -- como lo llama la planilla ('Ars1Api', 'Colombians'), JSON array
     agente TEXT,                  -- de qué cuenta raíz cuelga (Henry999, henry-IG…)
     activo INTEGER DEFAULT 1,
+    /* Cajas de ESTE cliente que se facturan por separado (ids de nodo, JSON array).
+       TBS devuelve el profit de un nodo con TODO su subárbol adentro, así que si una caja va
+       aparte hay que restarla — si no, se le cobra dos veces: una en su propia cuenta y otra
+       dentro del total de su padre. */
+    excluye TEXT,
     notas TEXT,
     createdAt TEXT
   );
@@ -71,6 +76,7 @@ db.exec(`
 // porque allá corre antes de que esta tabla exista y, en una base nueva, el ALTER explota.
 try { db.exec('ALTER TABLE api_sello ADD COLUMN costo TEXT'); } catch (e) { /* ya la tiene */ }
 try { db.exec('ALTER TABLE api_sello ADD COLUMN tipo TEXT'); } catch (e) { /* ya la tiene */ }
+try { db.exec('ALTER TABLE api_cliente ADD COLUMN excluye TEXT'); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -79,11 +85,11 @@ const K = (s) => String(s || '').trim().toLowerCase();
 // ── CLIENTES ──────────────────────────────────────────────────────────────────────────────
 function listClientes() {
   return db.prepare('SELECT * FROM api_cliente ORDER BY login COLLATE NOCASE').all()
-    .map((r) => ({ ...r, alias: J(r.alias, []), activo: r.activo !== 0 }));
+    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0 }));
 }
 function getCliente(id) {
   const r = db.prepare('SELECT * FROM api_cliente WHERE id=?').get(String(id));
-  return r ? { ...r, alias: J(r.alias, []), activo: r.activo !== 0 } : null;
+  return r ? { ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0 } : null;
 }
 /** Lo busca por id, por login o por cualquiera de sus alias: la planilla lo escribe distinto. */
 function buscarCliente(txt) {
@@ -96,13 +102,16 @@ function saveCliente(d) {
   const id = String(d.id || '').trim();
   if (!id) return { ok: false, error: 'falta el id del nodo de TBS' };
   const alias = Array.isArray(d.alias) ? d.alias : String(d.alias || '').split(/[,\n]+/);
-  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,notas,createdAt)
-    VALUES (?,?,?,?,?,?,?)
+  const exc = Array.isArray(d.excluye) ? d.excluye : String(d.excluye || '').split(/[,\n]+/);
+  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt)
+    VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET login=excluded.login, alias=excluded.alias, agente=excluded.agente,
-      activo=excluded.activo, notas=excluded.notas`)
+      activo=excluded.activo, excluye=excluded.excluye, notas=excluded.notas`)
     .run(id, String(d.login || '').trim(),
       JSON.stringify([...new Set(alias.map((x) => String(x).trim()).filter(Boolean))]),
-      String(d.agente || '').trim(), d.activo === false ? 0 : 1, String(d.notas || ''), nowISO());
+      String(d.agente || '').trim(), d.activo === false ? 0 : 1,
+      JSON.stringify([...new Set(exc.map((x) => String(x).trim()).filter(Boolean))]),
+      String(d.notas || ''), nowISO());
   return { ok: true, cliente: getCliente(id) };
 }
 function removeCliente(id) {
