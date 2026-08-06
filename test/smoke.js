@@ -427,6 +427,27 @@ async function main() {
     a2.removeSello('Sello desmap');
   }
 
+  // ── una celda que no paga lo que el sello cuesta tiene que chillar ──
+  // El motor usa el pct_proveedor de la CELDA y nunca miraba el costo del SELLO: así 8 celdas de
+  // SL2 dijeron "pago 0" sobre un sello que cuesta 0,50 y el costo se contó como ganancia.
+  {
+    const a3 = require('../src/api-store');
+    const cuenta3 = require('../src/api-cuenta.service');
+    a3.saveSello({ nombre: 'Sello caro', grupo_id: '999999', corto: 'SC', costo: '0.50', tipo: 'postpago' });
+    a3.saveCliente({ id: 'T9', login: 'ClienteTest9', activo: 1 });
+    a3.setPct('T9', 'Sello caro', { pct_cliente: '2', pct_proveedor: '0', origen: 'verificado' });
+    let av = cuenta3.revisarCostos().avisos.join(' | ');
+    check('API: avisa cuando la celda no paga lo que el sello cuesta',
+      /no pagan lo que el sello cuesta/.test(av) && /ClienteTest9 \/ SC/.test(av), av.slice(0, 200));
+    a3.setPct('T9', 'Sello caro', { pct_cliente: '0.2', pct_proveedor: '0.5', origen: 'verificado' });
+    av = cuenta3.revisarCostos().avisos.join(' | ');
+    check('API: avisa cuando se vende por debajo del costo', /POR DEBAJO del costo/.test(av), av.slice(0, 200));
+    a3.setPct('T9', 'Sello caro', { pct_cliente: '2', pct_proveedor: '0.5', origen: 'verificado' });
+    av = cuenta3.revisarCostos().avisos.join(' | ');
+    check('API: cuando coincide con el costo, no molesta', !/ClienteTest9/.test(av), av.slice(0, 200));
+    a3.removePct('T9', 'Sello caro'); a3.removeCliente('T9'); a3.removeSello('Sello caro');
+  }
+
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
   // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
   // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.

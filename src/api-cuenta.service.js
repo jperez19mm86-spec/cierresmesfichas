@@ -117,6 +117,42 @@ async function precargar({ mes, desde: desdeIdx = 0, limite = 8, refrescar = fal
 }
 
 /**
+ * LO QUE SE PAGA CONTRA LO QUE CUESTA.
+ *
+ * El motor calcula el pago al proveedor con el pct_proveedor de la CELDA, y nunca miraba el costo
+ * del SELLO. Por eso 8 celdas de SL2 dijeron "pago 0" durante meses sobre un sello que cuesta 0,50:
+ * nadie los cruzaba. Eran ~4.800 USD por mes de costo escondido, contados como ganancia.
+ *
+ * Cruzarlos no cambia ningún número: sólo hace ruido cuando no coinciden. Va aparte de cuentas()
+ * a propósito — no necesita TBS, así que sirve aunque el panel esté caído.
+ */
+function revisarCostos() {
+  const { clientes, sellos, celdas } = apiStore.matriz();
+  const porNombre = {}; sellos.forEach((s) => { porNombre[s.nombre] = s; });
+  const desalineados = []; const bajoCosto = []; const avisos = [];
+  clientes.forEach((cl) => {
+    if (!cl.activo) return;
+    Object.entries(celdas[cl.id] || {}).forEach(([nombre, p]) => {
+      const s = porNombre[nombre]; if (!s || s.costo == null) return;
+      const quien = `${cl.login} / ${s.corto || nombre}`;
+      if (p.pct_cliente == null || p.pct_cliente === '') { desalineados.push(`${quien}: sin precio de cliente`); return; }
+      if (Number(p.pct_proveedor || 0) > Number(p.pct_cliente)) {
+        bajoCosto.push(`${quien}: cobra ${p.pct_cliente}% y paga ${p.pct_proveedor}%`);
+      } else if (Math.abs(Number(p.pct_proveedor || 0) - Number(s.costo)) > 0.001) {
+        desalineados.push(`${quien}: paga ${p.pct_proveedor || 0}% pero el sello cuesta ${s.costo}%`);
+      }
+    });
+  });
+  if (bajoCosto.length) {
+    avisos.push(`${bajoCosto.length} celda(s) venden POR DEBAJO del costo, o sea que cada GGR es pérdida: ${bajoCosto.join(' · ')}`);
+  }
+  if (desalineados.length) {
+    avisos.push(`${desalineados.length} celda(s) no pagan lo que el sello cuesta: ${desalineados.join(' · ')}`);
+  }
+  return { ok: true, desalineados, bajoCosto, avisos };
+}
+
+/**
  * Las dos cuentas del mes.
  * @returns { ok, mes, cuentas[], totales, sinPrecio[], sinTC[], avisos[] }
  */
@@ -225,6 +261,10 @@ function cuentas({ mes, cliente_id = null } = {}) {
     avisos.push(`${sinGrupo.length} sello(s) tienen precio cargado pero no están mapeados a ningún grupo de TBS `
       + `(${sinGrupo.join(', ')}). No se factura nada de eso hasta saber a qué proveedor corresponden.`);
   }
+
+  const rev = revisarCostos();
+  avisos.push(...rev.avisos);
+  const { desalineados, bajoCosto } = rev;
   out.sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
   return {
     ok: true, mes: m,
@@ -234,8 +274,8 @@ function cuentas({ mes, cliente_id = null } = {}) {
       proveedor: money.round(totProv, 2),
       empresa: money.round(money.sub(totCli, totProv), 2),
     },
-    sinPrecio, sinTC: [...sinTC], faltanSellos: sinTraer, avisos,
+    sinPrecio, sinTC: [...sinTC], faltanSellos: sinTraer, desalineados, bajoCosto, avisos,
   };
 }
 
-module.exports = { precargar, cuentas, rango, sellosEnUso, gruposValidos, olvidarGrupos };
+module.exports = { precargar, cuentas, rango, sellosEnUso, gruposValidos, olvidarGrupos, revisarCostos };
