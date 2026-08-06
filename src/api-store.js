@@ -135,8 +135,13 @@ function saveSello(d) {
   const n = String(d.nombre || '').trim();
   if (!n) return { ok: false, error: 'falta el nombre del sello' };
   const ord = d.ord != null ? Number(d.ord) : (db.prepare('SELECT COALESCE(MAX(ord),-1)+1 n FROM api_sello').get().n);
+  // El COALESCE existe para que un PUT parcial no borre lo que no vino. Pero eso hacía IMPOSIBLE
+  // desmapear un sello: mandar grupo_id null lo dejaba igual. Y desmapear hace falta — el grupo 63
+  // de "Pragmatic OP" no existía en TBS y facturaba el GGR de todos los proveedores juntos.
+  // Ahora se distingue: la clave AUSENTE no toca nada; presente en null o "" borra.
+  const borra = Object.prototype.hasOwnProperty.call(d, 'grupo_id') && (d.grupo_id == null || d.grupo_id === '');
   db.prepare(`INSERT INTO api_sello (nombre,grupo_id,corto,costo,tipo,ord) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(nombre) DO UPDATE SET grupo_id=COALESCE(excluded.grupo_id, api_sello.grupo_id),
+    ON CONFLICT(nombre) DO UPDATE SET grupo_id=${borra ? 'NULL' : 'COALESCE(excluded.grupo_id, api_sello.grupo_id)'},
       corto=COALESCE(excluded.corto, api_sello.corto), costo=COALESCE(excluded.costo, api_sello.costo),
       tipo=COALESCE(excluded.tipo, api_sello.tipo)`)
     .run(n, d.grupo_id == null || d.grupo_id === '' ? null : String(d.grupo_id).trim(),

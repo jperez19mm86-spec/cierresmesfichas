@@ -416,6 +416,15 @@ async function main() {
     const nula = await cuenta.gruposValidos({ grupos: async () => ({ ok: false, error: 'caído' }) });
     check('API: si TBS no da la lista de grupos, no bloquea', nula === null, String(nula));
     cuenta.olvidarGrupos();
+    // y se tiene que poder DESMAPEAR un sello, que era justo lo que el COALESCE impedía
+    const a2 = require('../src/api-store');
+    a2.saveSello({ nombre: 'Sello desmap', grupo_id: '63', corto: 'SD', costo: '1' });
+    a2.saveSello({ nombre: 'Sello desmap', corto: 'SD2' });                 // sin la clave: no toca
+    check('API: un PUT parcial no borra el grupo', a2.listSellos().find((x) => x.nombre === 'Sello desmap').grupo_id === '63');
+    a2.saveSello({ nombre: 'Sello desmap', grupo_id: null });               // con la clave en null: borra
+    check('API: se puede desmapear un sello', a2.listSellos().find((x) => x.nombre === 'Sello desmap').grupo_id == null,
+      String(a2.listSellos().find((x) => x.nombre === 'Sello desmap').grupo_id));
+    a2.removeSello('Sello desmap');
   }
 
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
