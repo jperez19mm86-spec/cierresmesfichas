@@ -47,8 +47,9 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS api_sello (
     nombre TEXT PRIMARY KEY,      -- 'EGT Digital, Pragmatic Play, NetEnt, ELK Studios (Slot zona)'
     grupo_id TEXT,                -- id del grupo en TBS (78 = goldenneo = Slot zona)
-    corto TEXT,                   -- 'Slot zona', para las pantallas
+    corto TEXT,                   -- 'Slot Zona' — el nombre con el que se trabaja
     costo TEXT,                   -- lo que cobra el proveedor por ese sello (del panel)
+    tipo TEXT,                    -- 'prepago' | 'postpago' (define en qué cuenta entra)
     ord INTEGER
   );
 
@@ -69,6 +70,7 @@ db.exec(`
 // La tabla puede venir de una versión anterior sin `costo`. La migración vive ACÁ y no en db.js
 // porque allá corre antes de que esta tabla exista y, en una base nueva, el ALTER explota.
 try { db.exec('ALTER TABLE api_sello ADD COLUMN costo TEXT'); } catch (e) { /* ya la tiene */ }
+try { db.exec('ALTER TABLE api_sello ADD COLUMN tipo TEXT'); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -117,11 +119,13 @@ function saveSello(d) {
   const n = String(d.nombre || '').trim();
   if (!n) return { ok: false, error: 'falta el nombre del sello' };
   const ord = d.ord != null ? Number(d.ord) : (db.prepare('SELECT COALESCE(MAX(ord),-1)+1 n FROM api_sello').get().n);
-  db.prepare(`INSERT INTO api_sello (nombre,grupo_id,corto,costo,ord) VALUES (?,?,?,?,?)
+  db.prepare(`INSERT INTO api_sello (nombre,grupo_id,corto,costo,tipo,ord) VALUES (?,?,?,?,?,?)
     ON CONFLICT(nombre) DO UPDATE SET grupo_id=COALESCE(excluded.grupo_id, api_sello.grupo_id),
-      corto=COALESCE(excluded.corto, api_sello.corto), costo=COALESCE(excluded.costo, api_sello.costo)`)
+      corto=COALESCE(excluded.corto, api_sello.corto), costo=COALESCE(excluded.costo, api_sello.costo),
+      tipo=COALESCE(excluded.tipo, api_sello.tipo)`)
     .run(n, d.grupo_id == null || d.grupo_id === '' ? null : String(d.grupo_id).trim(),
-      String(d.corto || '').trim() || null, d.costo == null || d.costo === '' ? null : String(d.costo).trim(), ord);
+      String(d.corto || '').trim() || null, d.costo == null || d.costo === '' ? null : String(d.costo).trim(),
+      String(d.tipo || '').trim() || null, ord);
   return { ok: true };
 }
 function removeSello(nombre) {
