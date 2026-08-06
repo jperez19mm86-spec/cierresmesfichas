@@ -21,6 +21,7 @@ const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
+const apiResumen = require('./api-resumen.service');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
@@ -838,6 +839,17 @@ function mount(app) {
 
   // Lo que se le paga al proveedor contra lo que el sello cuesta. No necesita TBS.
   app.get('/api/os/api/revision', (_req, res) => ok(res, apiCuenta.revisarCostos()));
+
+  // El cierre del mes de API: una fila por cuenta, y el dueño elige cuáles entran en el total.
+  app.get('/api/os/api/resumen', wrap((req, res) => {
+    const r = apiResumen.resumen({ mes: String(req.query.mes || mesTZ()).slice(0, 7) });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.post('/api/os/api/resumen/sel', wrap((req, res) => {
+    const b = req.body || {};
+    if (!b.mes || !b.clave) return err(res, 400, 'falta el mes o la clave');
+    ok(res, apiStore.setEnResumen(b.mes, b.clave, b.entra !== false, b.motivo));
+  }));
 
   // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:
   // lo que le pagamos al proveedor no puede viajar al navegador y esconderse con CSS.

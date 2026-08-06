@@ -2621,7 +2621,7 @@ let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
 VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
 function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
 function apiHeader(){
-  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Cuentas de API'],['cuentas','🧾 Cuentas del mes']];
+  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Cuentas de API'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_apiSub?'':'outline'} small" onclick="apiSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="api-body"></div>`;
@@ -2813,6 +2813,107 @@ function apiPintarCuentas(){
       </tbody></table></div></div>`:''}`;
 }
 function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
+
+// ───────── CIERRE DEL MES: el total, con lo que entra y lo que no ─────────
+let _apiRes=null;
+API.resumen = async () => {
+  const mes=_apiMes;
+  document.getElementById('api-body').innerHTML=`
+    <div class="card">
+      <h2>📊 Cierre del mes de API</h2>
+      <div class="muted" style="margin-bottom:8px">El total del mes no es la suma de todos: hay cuentas que no se
+        cobran. Destildá las que quedan afuera y el total se recalcula. <b>La decisión se guarda por mes</b>, así que
+        un cierre viejo se vuelve a sacar igual aunque después cambie el trato con el cliente.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ares-mes" value="${mes}"></div>
+        <div style="flex:0"><button onclick="apiResCargar()">Calcular</button></div>
+        <div style="flex:0"><button class="outline" onclick="apiResImprimir()">📄 Reporte</button></div>
+      </div>
+      <div id="ares-body" style="margin-top:12px" class="muted">Elegí el mes y calculá.</div>
+    </div>`;
+  apiResCargar();
+};
+async function apiResCargar(){
+  _apiMes=document.getElementById('ares-mes').value||_apiMes;
+  document.getElementById('ares-body').innerHTML='<div class="muted">Calculando…</div>';
+  _apiRes=await api('/api/os/api/resumen?mes='+encodeURIComponent(_apiMes));
+  apiResPintar();
+}
+async function apiResSel(clave,entra){
+  const f=(_apiRes.filas||[]).find(x=>x.clave===clave); if(f) f.entra=entra;
+  apiResPintar();                                        // responde ya, sin esperar al servidor
+  await api('/api/os/api/resumen/sel',{method:'POST',body:{mes:_apiRes.mes,clave,entra}});
+  _apiRes=await api('/api/os/api/resumen?mes='+encodeURIComponent(_apiRes.mes));
+  apiResPintar();
+}
+function apiResPintar(){
+  const r=_apiRes, out=document.getElementById('ares-body'); if(!out) return;
+  if(!r||!r.ok) return out.innerHTML=`<div class="nota err">${esc((r&&r.error)||'no se pudo calcular')}</div>`;
+  const T=r.totales, TT=r.totalesConTodo;
+  const hayFuera=(r.fuera||[]).length;
+  out.innerHTML=`
+    <div class="row" style="align-items:stretch">
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Total</label>
+        <div style="font-size:22px;font-weight:800">${money(T.cliente,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Proveedor</label>
+        <div style="font-size:22px;font-weight:800;opacity:.8">${money(T.proveedor,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Empresa</label>
+        <div style="font-size:22px;font-weight:800;color:var(--gold)">${money(T.empresa,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+    </div>
+    ${hayFuera?`<div class="nota warn"><span class="tit">${r.fuera.length} cuenta(s) fuera del total</span>
+      Suman <b>${money(String(Number(TT.cliente)-Number(T.cliente)),2)} USDT</b> que no se están cobrando.
+      Con todo adentro el mes daría ${money(TT.cliente,2)} / ${money(TT.proveedor,2)} / ${money(TT.empresa,2)}.</div>`:''}
+    <table style="margin-top:12px"><thead><tr>
+      <th style="width:34px"></th><th>Cuenta</th><th class="right">Total</th><th class="right">Proveedor</th><th class="right">Empresa</th>
+    </tr></thead><tbody>
+    ${(r.filas||[]).map(f=>`<tr${f.entra?'':' style="opacity:.45"'}>
+      <td><input type="checkbox" style="width:auto" ${f.entra?'checked':''} onchange="apiResSel('${f.clave}',this.checked)"></td>
+      <td>${f.es_caja?'<span class="muted" style="font-size:11px">└ caja de '+esc(f.de)+'</span><br>':''}<b>${esc(f.titulo)}</b>
+        ${f.titulo!==f.login?`<span class="muted" style="font-size:11px"> · ${esc(f.login)}</span>`:''}</td>
+      <td class="right"><b>${money(f.total,2)}</b></td>
+      <td class="right muted">${money(f.proveedor,2)}</td>
+      <td class="right" style="color:var(--gold)">${money(f.empresa,2)}</td></tr>`).join('')
+      ||'<tr><td colspan="5" class="empty">Sin cuentas este mes.</td></tr>'}
+    </tbody><tfoot><tr>
+      <td></td><td><b>Total del mes</b></td>
+      <td class="right"><b>${money(T.cliente,2)}</b></td>
+      <td class="right"><b>${money(T.proveedor,2)}</b></td>
+      <td class="right" style="color:var(--gold)"><b>${money(T.empresa,2)}</b></td>
+    </tr></tfoot></table>`;
+}
+function apiResImprimir(){
+  const r=_apiRes; if(!r||!r.ok) return alert('calculá el mes primero');
+  const T=r.totales, dentro=(r.filas||[]).filter(x=>x.entra), fuera=(r.filas||[]).filter(x=>!x.entra);
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><meta charset="utf-8"><title>API ${esc(r.mes)}</title>
+  <style>body{font:14px system-ui;padding:26px;color:#2b2230;max-width:760px;margin:auto}
+  h1{font-size:20px;margin:0 0 18px}
+  table{width:100%;border-collapse:collapse;margin-bottom:8px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:#8c7e89;border-bottom:1px solid #ead6e6;padding:6px 8px}
+  td{padding:6px 8px;border-bottom:1px solid #f3e9f1}.r{text-align:right}
+  tfoot td{font-weight:800;border-top:2px solid #ead6e6;border-bottom:none;font-size:15px}
+  .cab{display:flex;gap:10px;margin-bottom:20px}
+  .cab div{flex:1;padding:11px 13px;background:#f6e9f4;border-radius:8px}
+  .cab span{display:block;font-size:11px;color:#8c7e89;text-transform:uppercase}
+  .cab b{font-size:19px}
+  .fuera{margin-top:24px;font-size:12px;color:#8c7e89}
+  @media print{button{display:none}.cab div{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+  <h1>API · ${esc(r.mes)}</h1>
+  <div class="cab">
+    <div><span>Total</span><b>${money(T.cliente,2)}</b></div>
+    <div><span>Proveedor</span><b>${money(T.proveedor,2)}</b></div>
+    <div><span>Empresa</span><b>${money(T.empresa,2)}</b></div>
+  </div>
+  <table><thead><tr><th>Cuenta</th><th class="r">Total</th><th class="r">Proveedor</th><th class="r">Empresa</th></tr></thead><tbody>
+  ${dentro.map(f=>`<tr><td>${esc(f.titulo)}${f.es_caja?' <span style="color:#8c7e89;font-size:11px">(caja de '+esc(f.de)+')</span>':''}</td>
+    <td class="r">${money(f.total,2)}</td><td class="r">${money(f.proveedor,2)}</td><td class="r">${money(f.empresa,2)}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td>Total</td><td class="r">${money(T.cliente,2)}</td>
+    <td class="r">${money(T.proveedor,2)}</td><td class="r">${money(T.empresa,2)}</td></tr></tfoot></table>
+  ${fuera.length?`<div class="fuera"><b>No entran en este total:</b> ${fuera.map(f=>esc(f.titulo)+' ('+money(f.total,2)+')'+(f.motivo?' — '+esc(f.motivo):'')).join(' · ')}</div>`:''}
+  <button style="margin-top:20px;padding:9px 15px" onclick="window.print()">Guardar como PDF</button>
+  </body></html>`);
+  w.document.close();
+}
 /* La cuenta del cliente la arma el SERVIDOR: lo que le pagamos al proveedor no viaja al navegador.
    Por eso esto pide el documento en vez de esconder columnas de lo que ya está en pantalla. */
 async function apiDoc(id,vista,alcance,caja){

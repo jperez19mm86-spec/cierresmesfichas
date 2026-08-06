@@ -522,6 +522,27 @@ async function main() {
     check('API/doc: el total en US$ sale de sumar las secciones', dCli.ggr_usd === '4000', dCli.ggr_usd);
   }
 
+  // ── el cierre del mes: elegir qué entra en el total, y que la decisión sea por MES ──
+  // En junio la caja de Nacho quedó afuera por un acuerdo puntual y en julio entra. Si la decisión
+  // fuera una propiedad del cliente, sacar el cierre de junio otra vez daría otro número.
+  {
+    const a4 = require('../src/api-store');
+    check('API/resumen: por defecto no hay nada excluido', a4.fueraDelResumen('2026-06').length === 0);
+    a4.setEnResumen('2026-06', 'k_caja', false, 'acuerdo con el cliente');
+    check('API/resumen: se puede sacar una unidad de un mes',
+      a4.fueraDelResumen('2026-06').some((x) => x.clave === 'k_caja' && /acuerdo/.test(x.motivo)),
+      JSON.stringify(a4.fueraDelResumen('2026-06')));
+    check('API/resumen: y eso NO afecta a otro mes', a4.fueraDelResumen('2026-07').length === 0,
+      JSON.stringify(a4.fueraDelResumen('2026-07')));
+    a4.setEnResumen('2026-06', 'k_caja', true);
+    check('API/resumen: se puede volver a meter', a4.fueraDelResumen('2026-06').length === 0);
+    // lo que NO está en la tabla, entra: un cliente nuevo no puede quedar afuera en silencio
+    a4.setEnResumen('2026-06', 'k_otro', false, 'monto insignificante');
+    check('API/resumen: sólo se guardan las exclusiones',
+      a4.fueraDelResumen('2026-06').length === 1 && a4.fueraDelResumen('2026-06')[0].clave === 'k_otro');
+    a4.setEnResumen('2026-06', 'k_otro', true);
+  }
+
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
   // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
   // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.

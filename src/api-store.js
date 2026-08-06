@@ -93,6 +93,12 @@ try { db.exec('ALTER TABLE api_pct ADD COLUMN nota TEXT'); } catch (e) { /* ya l
 // es de Nacho. Con padre_id la cuenta sale en tres vistas — la caja sola, el resto solo, y el total —
 // en vez de aparecer como dos clientes que nadie sabe que son uno. Un solo nivel, no un árbol.
 try { db.exec('ALTER TABLE api_cliente ADD COLUMN padre_id TEXT'); } catch (e) { /* ya la tiene */ }
+// QUE ENTRA EN EL RESUMEN DEL MES, y por mes. No es una propiedad del cliente: en junio la caja de
+// Nacho quedó afuera por un acuerdo puntual y en julio entra. Guardar la decisión por mes es lo que
+// hace que un resumen viejo se pueda volver a sacar igual, en vez de cambiar cuando cambia el trato.
+// Sólo se guardan las EXCLUSIONES: lo que no está en la tabla, entra.
+db.exec(`CREATE TABLE IF NOT EXISTS api_resumen_fuera (
+  mes TEXT NOT NULL, clave TEXT NOT NULL, motivo TEXT, at TEXT, PRIMARY KEY (mes, clave))`);
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -247,7 +253,23 @@ function sembrar({ clientes = [], sellos = [], precios = [], pisar = false } = {
   return { ok: true, ...out };
 }
 
+/** Las claves que NO entran en el resumen de ese mes. Una clave es un cliente o una caja. */
+function fueraDelResumen(mes) {
+  return db.prepare('SELECT clave, motivo FROM api_resumen_fuera WHERE mes=?').all(String(mes).slice(0, 7));
+}
+function setEnResumen(mes, clave, entra, motivo = '') {
+  const m = String(mes).slice(0, 7); const k = String(clave);
+  if (entra) db.prepare('DELETE FROM api_resumen_fuera WHERE mes=? AND clave=?').run(m, k);
+  else {
+    db.prepare(`INSERT INTO api_resumen_fuera (mes,clave,motivo,at) VALUES (?,?,?,?)
+      ON CONFLICT(mes,clave) DO UPDATE SET motivo=excluded.motivo, at=excluded.at`)
+      .run(m, k, String(motivo || ''), nowISO());
+  }
+  return { ok: true };
+}
+
 module.exports = {
+  fueraDelResumen, setEnResumen,
   sembrar,
   listClientes, getCliente, buscarCliente, saveCliente, removeCliente,
   listSellos, saveSello, removeSello,
