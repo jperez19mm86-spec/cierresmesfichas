@@ -101,7 +101,7 @@ const TABS = [
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
-  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
+  ['proveedores','🏷 Proveedores'], ['api','🔌 API (TBS)'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 let _tab = 'clientes';
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'revision';
@@ -2560,6 +2560,98 @@ async function calcularFac(vivo){
     + '</tbody></table>'
     + ((r.errores&&r.errores.length)?('<div class="muted" style="color:var(--gold);margin-top:6px">⚠ el control del casino falló: '+r.errores.map(esc).join('<br>')+'<br>La facturación igual salió, porque sale de los pedidos.</div>'):'');
 }
+
+/* ───────── 🔌 API (TBS) ──────────────────────────────────────────────────────────────────
+   El otro negocio. No comparte NADA con el de fichas: otros clientes, otros porcentajes, y el
+   % es por SELLO (grupo de proveedores), no uno solo por cliente.
+
+   Los precios vienen de dos lugares y no valen lo mismo, así que se ven distinto:
+     VERIFICADO → salió de un mes ya facturado. Se cobró así.
+     sin verificar → salió de la tabla de precios, que está desactualizada.
+   Facturar con uno o con el otro es la diferencia entre cobrar lo pactado y cobrar lo que
+   alguien anotó alguna vez. */
+let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
+VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
+function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
+function apiHeader(){
+  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Cuentas de API'],['cuentas','🧾 Cuentas del mes']];
+  return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
+    subs.map(([k,l])=>`<button class="${k===_apiSub?'':'outline'} small" onclick="apiSub('${k}')">${l}</button>`).join('')+
+    `</div></div><div id="api-body"></div>`;
+}
+const API={};
+
+API.clientes = async () => {
+  const cs=(await api('/api/os/api/clientes')).clientes||[];
+  const m=await api('/api/os/api/matriz');
+  document.getElementById('api-body').innerHTML=`
+    <div class="card"><h2>Cuentas de API <span class="muted">(${cs.length})</span></h2>
+      <div class="muted">Cada cuenta es un nodo del árbol de TBS. La clave es su <b>id</b>, no el nombre:
+        la planilla los escribe distinto de como los llama el panel, y por eso cada uno guarda sus <b>otros nombres</b>.</div>
+      <table style="margin-top:10px"><thead><tr><th>Cuenta en TBS</th><th>id</th><th>Cuelga de</th><th>Otros nombres</th><th class="right">Sellos con precio</th><th>Estado</th></tr></thead><tbody>
+      ${cs.map(c=>{
+        const n=Object.keys((m.celdas||{})[c.id]||{}).length;
+        const ver=Object.values((m.celdas||{})[c.id]||{}).filter(x=>x.origen==='verificado').length;
+        return `<tr${c.activo?'':' style="opacity:.5"'}>
+          <td><b>${esc(c.login)}</b>${c.notas?`<div class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}</td>
+          <td class="muted">${esc(c.id)}</td><td class="muted">${esc(c.agente||'—')}</td>
+          <td class="muted" style="font-size:11px">${(c.alias||[]).join(' · ')||'—'}</td>
+          <td class="right">${n?`<b>${n}</b> <span class="muted" style="font-size:11px">(${ver} verificados)</span>`:'<span class="badge err">sin precios</span>'}</td>
+          <td>${c.activo?'<span class="badge ok">activa</span>':'<span class="muted">inactiva</span>'}</td></tr>`;
+      }).join('')}
+      </tbody></table></div>`;
+};
+
+API.matriz = async () => {
+  const m=await api('/api/os/api/matriz');
+  const cs=(m.clientes||[]).filter(c=>c.activo);
+  const sellos=(m.sellos||[]).filter(x=>x.grupo_id);
+  const cel=m.celdas||{};
+  let ver=0,pla=0,vac=0;
+  const fila=(x)=>{
+    const tds=cs.map(c=>{
+      const d=(cel[c.id]||{})[x.nombre];
+      if(!d||d.pct_cliente==null){ vac++; return '<td class="muted" style="text-align:center">·</td>'; }
+      d.origen==='verificado'?ver++:pla++;
+      const est=d.origen==='verificado'
+        ? 'background:rgba(0,160,70,.16);font-weight:700'
+        : 'background:rgba(210,160,0,.16);color:var(--muted)';
+      return `<td style="text-align:center;${est}" title="${c.login} · ${esc(x.corto)}
+cliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · Central ${d.pts_ib||'—'} · Henry ${d.pts_henry||'—'}
+${d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios'}">${esc(d.pct_cliente)}</td>`;
+    }).join('');
+    return `<tr><td class="cie-p" title="${esc(x.nombre)}">${esc(x.corto)} <span class="muted" style="font-size:10px">${x.tipo==='postpago'?'post':'pre'} · costo ${esc(x.costo||0)}%</span></td>${tds}</tr>`;
+  };
+  const cuerpo=sellos.map(fila).join('');
+  document.getElementById('api-body').innerHTML = CIE_STYLE + `
+    <div class="card"><h2>Precios por cliente <span class="muted">(% que paga sobre el GGR)</span></h2>
+      <div class="muted">Filas = <b>sellos</b> (grupos de proveedores de TBS) · columnas = <b>cuentas de API</b>. Cada celda es lo que ese cliente paga por ese sello.</div>
+      <div style="display:flex;gap:14px;align-items:center;margin:10px 0;font-size:12px;flex-wrap:wrap">
+        <span><span style="display:inline-block;width:14px;height:14px;background:rgba(0,160,70,.35);vertical-align:middle;border-radius:3px"></span>
+          <b>${ver}</b> verificados <span class="muted">— salieron de un mes ya facturado</span></span>
+        <span><span style="display:inline-block;width:14px;height:14px;background:rgba(210,160,0,.35);vertical-align:middle;border-radius:3px"></span>
+          <b>${pla}</b> sin verificar <span class="muted">— de la tabla de precios, revisalos antes de facturar</span></span>
+        <span class="muted">· <b>${vac}</b> sin precio</span>
+      </div>
+      <div style="overflow:auto;max-height:70vh">
+        <table class="ciet"><thead><tr><th class="cie-h0">Sello</th>${cs.map(c=>`<th title="${esc(c.login)} · id ${esc(c.id)}">${esc(c.login).slice(0,13)}</th>`).join('')}</tr></thead>
+        <tbody>${cuerpo}</tbody></table>
+      </div>
+    </div>`;
+};
+
+API.cuentas = async () => {
+  document.getElementById('api-body').innerHTML=`
+    <div class="card"><h2>🧾 Cuentas del mes</h2>
+      <div class="muted">Por cada cuenta salen <b>dos</b> del mismo GGR de TBS: lo que se le <b>cobra al cliente</b>
+        y lo que se le <b>paga al proveedor</b>. La diferencia es la ganancia, que es lo que se reparte.</div>
+      <div class="card" style="background:var(--bg3);margin:12px 0 0">
+        <b>Todavía no está el cálculo</b>
+        <div class="muted" style="margin-top:4px">Ya están cargados el padrón, los 52 sellos con su grupo de TBS y su costo, y los precios por cliente.
+          Falta el motor que le pida el GGR al panel y arme las dos cuentas.</div>
+      </div>
+    </div>`;
+};
 
 // ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────
 VIEWS.reportes = async () => {

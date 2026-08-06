@@ -68,6 +68,12 @@ db.exec(`
     pct_proveedor TEXT,           -- lo que de eso se lleva el proveedor
     pts_ib TEXT,                  -- puntos de Central/IB (IMPERIUM es el mismo, otro nombre)
     pts_henry TEXT,               -- puntos de Henry
+    /* De dónde salió este precio, y por lo tanto cuánto se le puede creer:
+         'verificado' → de un mes YA FACTURADO (la planilla de movimientos). Se cobró así.
+         'planilla'   → de la tabla de precios, que el dueño avisó que está desactualizada.
+       No es un detalle de auditoría: facturar con uno o con el otro es la diferencia entre
+       cobrar lo pactado y cobrar lo que alguien anotó alguna vez. La pantalla los separa. */
+    origen TEXT DEFAULT 'planilla',
     PRIMARY KEY (cliente_id, sello)
   );
 `);
@@ -77,6 +83,7 @@ db.exec(`
 try { db.exec('ALTER TABLE api_sello ADD COLUMN costo TEXT'); } catch (e) { /* ya la tiene */ }
 try { db.exec('ALTER TABLE api_sello ADD COLUMN tipo TEXT'); } catch (e) { /* ya la tiene */ }
 try { db.exec('ALTER TABLE api_cliente ADD COLUMN excluye TEXT'); } catch (e) { /* ya la tiene */ }
+try { db.exec("ALTER TABLE api_pct ADD COLUMN origen TEXT DEFAULT 'planilla'"); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -153,7 +160,7 @@ function matriz() {
   db.prepare('SELECT * FROM api_pct').all().forEach((r) => {
     (celdas[r.cliente_id] = celdas[r.cliente_id] || {})[r.sello] = {
       pct_cliente: r.pct_cliente, pct_proveedor: r.pct_proveedor,
-      pts_ib: r.pts_ib, pts_henry: r.pts_henry,
+      pts_ib: r.pts_ib, pts_henry: r.pts_henry, origen: r.origen || 'planilla',
     };
   });
   return { clientes, sellos, celdas };
@@ -183,11 +190,12 @@ function setPct(cliente_id, sello, d = {}) {
           + `(${pc}% menos ${pp || 0}% del proveedor). Tienen que dar lo mismo.` };
     }
   }
-  db.prepare(`INSERT INTO api_pct (cliente_id,sello,pct_cliente,pct_proveedor,pts_ib,pts_henry)
-    VALUES (?,?,?,?,?,?)
+  db.prepare(`INSERT INTO api_pct (cliente_id,sello,pct_cliente,pct_proveedor,pts_ib,pts_henry,origen)
+    VALUES (?,?,?,?,?,?,?)
     ON CONFLICT(cliente_id,sello) DO UPDATE SET pct_cliente=excluded.pct_cliente,
-      pct_proveedor=excluded.pct_proveedor, pts_ib=excluded.pts_ib, pts_henry=excluded.pts_henry`)
-    .run(cid, s, pc, pp, ib, hen);
+      pct_proveedor=excluded.pct_proveedor, pts_ib=excluded.pts_ib, pts_henry=excluded.pts_henry,
+      origen=excluded.origen`)
+    .run(cid, s, pc, pp, ib, hen, d.origen === 'verificado' ? 'verificado' : 'planilla');
   return { ok: true };
 }
 function removePct(cliente_id, sello) {
@@ -209,7 +217,9 @@ function sembrar({ clientes = [], sellos = [], precios = [], pisar = false } = {
   clientes.forEach((c) => { if (pisar || !yaC.has(String(c.id))) { saveCliente(c); out.clientes++; } });
   sellos.forEach((x, i) => { if (pisar || !yaS.has(x.nombre)) { saveSello({ ...x, ord: i }); out.sellos++; } });
   precios.forEach((p) => {
-    if (!pisar && getPct(p.cliente_id, p.sello)) { out.salteados++; return; }
+    const ya = getPct(p.cliente_id, p.sello);
+    // Un precio de la planilla NUNCA pisa uno verificado: el verificado ya se cobró así.
+    if (ya && (!pisar || (ya.origen === 'verificado' && p.origen !== 'verificado'))) { out.salteados++; return; }
     const r = setPct(p.cliente_id, p.sello, p);
     if (r.ok) out.precios++; else out.errores.push(`${p.cliente_id} · ${p.sello}: ${r.error}`);
   });
