@@ -38,7 +38,21 @@
   /* Un selector de mes o fecha no entra en 120px: el campo quedaba más angosto que su propio
      contenido y el botón de al lado se le montaba encima, tapando el mes y dejándolo sin poder
      elegirse. Pasaba en las cinco pantallas que tienen uno. */
+  /* ⚠️ El selector de MES y el de FECHA son más anchos que cualquier otro input: el navegador
+     les mete el texto completo ("agosto de 2026") más su ícono de calendario. Los tenía en
+     min-width pero el DIV que los contiene seguía valiendo 120px, así que el input se desbordaba
+     y el botón de al lado le quedaba encima — tapando justo el ícono con el que se abre.
+     La regla va sobre el CONTENEDOR, así aplica en las 8 pantallas que tienen un selector de mes
+     sin que haya que acordarse en cada una. */
   input[type=month], input[type=date] { min-width:175px; }
+  .row > div:has(> input[type=month]), .row > div:has(> input[type=date]),
+  .row > div:has(> label + input[type=month]), .row > div:has(> label + input[type=date]) {
+    flex:0 0 auto; min-width:190px;
+  }
+  .row > div:has(> input[type=month]) input, .row > div:has(> input[type=date]) input,
+  .row > div:has(> label + input[type=month]) input, .row > div:has(> label + input[type=date]) input {
+    width:100%;
+  }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--border); }
   th { color:var(--muted); font-size:11px; text-transform:uppercase; }
@@ -807,7 +821,7 @@ VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><h2>📸 Foto del mes</h2>'
     + '<div class="muted">Un mes cerrado ya no cambia, así que se le pregunta al casino <b>una sola vez</b> y queda guardado. Después el reporte de cualquier cliente sale de la base: instantáneo, y anda aunque el casino esté caído. Sacala a principio del mes siguiente.</div>'
     + '<div class="row" style="margin-top:8px;align-items:flex-end">'
-    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
+    + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
     + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Listas</label><div style="font-size:22px;font-weight:800;color:'+(r.completa?'#3c9':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
     + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Filas guardadas</label><div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
     + '<div style="flex:0"><button onclick="fotoSacar(false)">📸 Sacar lo que falta</button></div>'
@@ -1054,7 +1068,7 @@ CFG.revision = async () => {
   const cab = '<div class="card"><h2>🩺 Revisión de '+esc(r.mes||_revMes)+'</h2>'
     + '<div class="muted">Todo lo que puede hacer que este mes salga con un número equivocado. No corrige nada: te dice qué mirar y dónde.</div>'
     + '<div class="row" style="margin-top:8px;align-items:flex-end">'
-    + '<div style="flex:0"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;CFG.revision()"></div>'
+    + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;CFG.revision()"></div>'
     + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Graves</label><div style="font-size:22px;font-weight:800;color:'+(r.graves?'var(--red)':'#3c9')+'">'+(r.graves||0)+'</div></div>'
     + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Avisos</label><div style="font-size:22px;font-weight:800">'+(r.avisos||0)+'</div></div>'
     + '</div></div>';
@@ -1082,8 +1096,8 @@ VIEWS.proveedores = async () => {
     <div class="card"><h2>➕ Proveedor</h2>
       <div class="row" style="align-items:flex-end">
         <div><label>Conexión casino</label><select id="pr-cx">${cxOpts}</select></div>
-        <div style="flex:0"><label>Desde</label><input id="pr-from" type="date" style="width:150px"/></div>
-        <div style="flex:0"><label>Hasta</label><input id="pr-to" type="date" style="width:150px"/></div>
+        <div style="flex:0 0 190px"><label>Desde</label><input id="pr-from" type="date" style="width:100%"/></div>
+        <div style="flex:0 0 190px"><label>Hasta</label><input id="pr-to" type="date" style="width:100%"/></div>
         <div style="flex:0"><button class="outline" onclick="importarProvReporte()">⤓ Importar del reporte</button></div>
       </div>
       <div class="muted" style="margin-top:6px">Trae los proveedores <b>tal como aparecen en el Reporte de Proveedores</b> (unión de las conexiones — la misma marca en Europa y Casino cuenta una sola vez). Después completá el <b>% de costo</b> de cada uno. Es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.</div>
@@ -1230,7 +1244,7 @@ async function ciePago(){
       <div class="muted" style="margin-bottom:10px">Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.
         Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.</div>
       <div class="row" style="align-items:flex-end">
-        <div style="flex:0"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
         <div style="flex:1;min-width:0"></div>
         <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoRefrescar()">↻ Volver a consultar</button></div>
@@ -1333,7 +1347,7 @@ async function cieVendedores(){
       <h2>🤝 Cuenta de vendedores <span class="muted">— pagan el costo real, no un %</span></h2>
       <div class="muted" style="margin-bottom:10px">Los vendedores revenden a sus propios clientes. No se les cobra un porcentaje sobre lo que cargan: pagan <b>lo que cuestan los proveedores</b> que usaron. Un panel de un cliente que cuelga del vendedor aparece en las dos cuentas y <b>está bien</b>: el cliente paga su %, el vendedor paga el costo. Son dos cobros distintos sobre el mismo movimiento.</div>
       <div class="row" style="align-items:flex-end">
-        <div style="flex:0"><label>Mes</label><input type="month" id="ven-mes" value="${esc(_venMes)}" style="width:auto"/></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ven-mes" value="${esc(_venMes)}" style="width:100%"/></div>
         <div style="flex:0"><button onclick="venCalcular()">Calcular</button></div>
         <div style="flex:1"></div>
         <div style="flex:0"><button class="outline small" onclick="venEmitir(true)">👁 Ver qué emitiría</button></div>
@@ -1775,7 +1789,7 @@ VIEWS.tc = async () => {
   document.getElementById('main').innerHTML = CIE_STYLE + `
     <div class="card">
       <div class="row" style="align-items:flex-end;margin-bottom:10px">
-        <div style="flex:0"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
         <div style="flex:1"><h2 style="margin:0">El TC que se está usando en ${esc(_tcMes)}</h2>
           <div class="muted" style="font-size:12px">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
             Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.</div></div>
@@ -2036,8 +2050,8 @@ REP.clientes = async () => {
               const m = e==='ok' ? '✅' : e==='sin_base' ? '⚪' : e==='excedido' ? '🔴' : '🟡';
               return `<option value="${c.id}" ${c.id===_repCli?'selected':''}>${m} ${esc(c.nombre||c.codigo)}</option>`;
             }).join('')}</select></div>
-        <div style="flex:0"><label>Mes</label><input type="month" id="rp-mes" value="${esc(mes)}" onchange="repCargarCli()" style="width:auto"/></div>
-        <div style="flex:0"><label>Vigente desde</label><input id="rp-desde" type="date" style="width:auto"/></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="rp-mes" value="${esc(mes)}" onchange="repCargarCli()" style="width:100%"/></div>
+        <div style="flex:0 0 190px"><label>Vigente desde</label><input id="rp-desde" type="date" style="width:100%"/></div>
       </div>
       <hr/>
       <div id="rp-box" class="muted">Cargando…</div>
@@ -2647,7 +2661,7 @@ API.cuentas = async () => {
       <div class="muted">Por cada cuenta salen <b>dos</b> del mismo GGR de TBS: lo que se le <b>cobra al cliente</b>
         y lo que se le <b>paga al proveedor</b>. La diferencia es la ganancia, que es lo que se reparte.</div>
       <div class="row" style="align-items:flex-end;margin-top:10px">
-        <div style="flex:0"><label>Mes</label><input type="month" id="api-mes" value="${esc(_apiMes)}"></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="api-mes" value="${esc(_apiMes)}"></div>
         <div style="flex:0"><button onclick="apiCalcular()">Calcular</button></div>
         <div style="flex:0"><button class="outline small" onclick="apiCalcular(true)">↻ Volver a consultar TBS</button></div>
       </div>
@@ -2747,7 +2761,7 @@ VIEWS.reportes = async () => {
         <div style="flex:0 0 140px"><label>Conexión</label><select id="rm-cx" style="width:100%"><option value="__all__">🌐 Todas</option>${cxOpts}</select></div>
         <div style="flex:0"><label>Agrupar</label><select id="rm-nivel"><option value="superagent">Superagente</option><option value="distributor">Distribuidor</option></select></div>
         <div style="flex:0"><label>Moneda</label><select id="rm-cur" onchange="genMatriz()" style="min-width:62px"><option value="ARS">ARS</option></select></div>
-        <div style="flex:0 0 120px"><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}" style="width:100%"></div>
+        <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="rm-mes" value="${new Date().toISOString().slice(0,7)}" style="width:100%"></div>
         <button onclick="genMatriz()">Cargar mes</button>
         <div style="flex:0 0 140px"><label>Buscar superagente</label><input id="rm-q" placeholder="🔍 filtrar…" oninput="fillRmSa()" disabled autocomplete="off" style="width:100%"></div>
         <div style="flex:0"><label>Ver</label><select id="rm-sa" onchange="renderRM()" disabled style="min-width:135px;max-width:165px"><option value="">— cargá —</option></select></div>
