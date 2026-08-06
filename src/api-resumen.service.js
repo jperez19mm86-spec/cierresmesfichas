@@ -71,7 +71,9 @@ function resumen({ mes } = {}) {
 
   return {
     ok: true, mes: m,
-    filas: filas.sort((a, b) => Number(b.total) - Number(a.total)),
+    // Alfabético, no por monto: el cierre se lee para buscar una cuenta, no para ver cuál es la
+    // más grande. Con locale español, así la Ñ y los acentos caen donde tienen que caer.
+    filas: filas.sort((a, b) => String(a.titulo).localeCompare(String(b.titulo), 'es', { sensitivity: 'base' })),
     totales: {
       cliente: money.round(suma(dentro, 'total'), 2),
       proveedor: money.round(suma(dentro, 'proveedor'), 2),
