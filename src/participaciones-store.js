@@ -76,12 +76,28 @@ const setReparto = db.transaction((cliente_id, panel_id, items, vigente_desde, o
       : `El reparto debe sumar el % base del cliente: ${esperado}% (suma ${v.total}%)`);
   }
   const desde = vigente_desde || fechaTZ();
-  // cerrar las vigentes del scope
-  const vigentes = db.prepare(`
-    SELECT id FROM participaciones
-    WHERE cliente_id=? AND ${panel_id ? 'panel_id=?' : 'panel_id IS NULL'} AND vigente_hasta IS NULL
-  `).all(...(panel_id ? [cliente_id, panel_id] : [cliente_id]));
   const hasta = diaAnterior(desde);
+  const donde = panel_id ? 'panel_id=?' : 'panel_id IS NULL';
+  const args = panel_id ? [cliente_id, panel_id] : [cliente_id];
+
+  /* ⚠️ "Desde esta fecha rige ESTE reparto" — y eso obliga a mirar TODAS las vigencias, no solo
+     las abiertas.
+
+     Antes se cerraban únicamente las que tenían `vigente_hasta IS NULL`. Alcanzaba mientras cada
+     reparto nuevo empezara después del anterior, pero al cargar uno con fecha ANTERIOR a una
+     vigencia ya cerrada, esa vieja quedaba viva y se superponía con la nueva: el mes devolvía
+     los dos repartos juntos y la Empresa aparecía dos veces. Pasó de verdad al fusionar a Henry
+     con la Empresa desde julio — Karen-Fede quedó con "Empresa 8 · Henry 3,5 · Alexa 3,5 ·
+     Empresa 11,5 · Alexa 3,5" y el reparto sumaba más que la base del cliente.
+
+     Un reparto no se "suma" al anterior: lo reemplaza de esa fecha en adelante. */
+  const superadas = db.prepare(`SELECT id FROM participaciones
+    WHERE cliente_id=? AND ${donde} AND vigente_desde >= ?`).all(...args, desde);
+  superadas.forEach((r) => db.prepare('DELETE FROM participaciones WHERE id=?').run(r.id));
+
+  const vigentes = db.prepare(`SELECT id FROM participaciones
+    WHERE cliente_id=? AND ${donde} AND vigente_desde < ?
+      AND (vigente_hasta IS NULL OR vigente_hasta >= ?)`).all(...args, desde, desde);
   vigentes.forEach((r) => db.prepare('UPDATE participaciones SET vigente_hasta=? WHERE id=?').run(hasta, r.id));
   // insertar las nuevas
   const ins = db.prepare(`INSERT INTO participaciones

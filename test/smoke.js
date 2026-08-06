@@ -401,6 +401,33 @@ async function main() {
     a.removeCliente('T1'); a.removeSello('Sello test');
   }
 
+  // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
+  // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
+  // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.
+  {
+    const parts = require('../src/participaciones-store');
+    const pid = 'c_vig_test';
+    parts.setReparto(pid, null, [{ persona_id: 'p1', porcentaje: '8' }, { persona_id: 'p2', porcentaje: '3' }], '2026-08-01', { esperado: '11' });
+    let e = parts.repartoEfectivo(pid, null, '2026-08-15');
+    check('vigencia: el reparto de agosto rige en agosto', e.items.length === 2, JSON.stringify(e.items.map((x) => x.porcentaje)));
+    // ahora uno ANTERIOR, que es el caso que rompía
+    parts.setReparto(pid, null, [{ persona_id: 'p1', porcentaje: '11' }], '2026-07-01', { esperado: '11' });
+    e = parts.repartoEfectivo(pid, null, '2026-07-15');
+    check('vigencia: en julio rige el nuevo y SOLO el nuevo', e.items.length === 1 && e.items[0].porcentaje === '11',
+      JSON.stringify(e.items.map((x) => x.persona_id + ':' + x.porcentaje)));
+    e = parts.repartoEfectivo(pid, null, '2026-08-15');
+    check('vigencia: y también reemplaza al de agosto, que empezaba después', e.items.length === 1 && e.items[0].porcentaje === '11',
+      JSON.stringify(e.items.map((x) => x.persona_id + ':' + x.porcentaje)));
+    // guardar dos veces la MISMA fecha no duplica
+    parts.setReparto(pid, null, [{ persona_id: 'p1', porcentaje: '11' }], '2026-07-01', { esperado: '11' });
+    e = parts.repartoEfectivo(pid, null, '2026-07-15');
+    check('vigencia: guardar dos veces la misma fecha no duplica', e.items.length === 1, JSON.stringify(e.items));
+    // y una vigencia posterior no pisa el pasado
+    parts.setReparto(pid, null, [{ persona_id: 'p2', porcentaje: '11' }], '2026-09-01', { esperado: '11' });
+    e = parts.repartoEfectivo(pid, null, '2026-07-15');
+    check('vigencia: una posterior no toca el pasado', e.items.length === 1 && e.items[0].persona_id === 'p1', JSON.stringify(e.items));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
