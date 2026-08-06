@@ -129,18 +129,23 @@ async function precargar({ mes, desde: desdeIdx = 0, limite = 8, refrescar = fal
 function revisarCostos() {
   const { clientes, sellos, celdas } = apiStore.matriz();
   const porNombre = {}; sellos.forEach((s) => { porNombre[s.nombre] = s; });
-  const desalineados = []; const bajoCosto = []; const avisos = [];
+  const desalineados = []; const bajoCosto = []; const aceptados = []; const avisos = [];
   clientes.forEach((cl) => {
     if (!cl.activo) return;
     Object.entries(celdas[cl.id] || {}).forEach(([nombre, p]) => {
       const s = porNombre[nombre]; if (!s || s.costo == null) return;
       const quien = `${cl.login} / ${s.corto || nombre}`;
-      if (p.pct_cliente == null || p.pct_cliente === '') { desalineados.push(`${quien}: sin precio de cliente`); return; }
-      if (Number(p.pct_proveedor || 0) > Number(p.pct_cliente)) {
-        bajoCosto.push(`${quien}: cobra ${p.pct_cliente}% y paga ${p.pct_proveedor}%`);
+      let falla = null;
+      if (p.pct_cliente == null || p.pct_cliente === '') falla = { d: `${quien}: sin precio de cliente`, tipo: 'des' };
+      else if (Number(p.pct_proveedor || 0) > Number(p.pct_cliente)) {
+        falla = { d: `${quien}: cobra ${p.pct_cliente}% y paga ${p.pct_proveedor}%`, tipo: 'bajo' };
       } else if (Math.abs(Number(p.pct_proveedor || 0) - Number(s.costo)) > 0.001) {
-        desalineados.push(`${quien}: paga ${p.pct_proveedor || 0}% pero el sello cuesta ${s.costo}%`);
+        falla = { d: `${quien}: paga ${p.pct_proveedor || 0}% pero el sello cuesta ${s.costo}%`, tipo: 'des' };
       }
+      if (!falla) return;
+      // Con nota, es una decisión tomada y no una alarma: sigue a la vista pero no grita.
+      if (p.nota) { aceptados.push(`${falla.d} — ${p.nota}`); return; }
+      (falla.tipo === 'bajo' ? bajoCosto : desalineados).push(falla.d);
     });
   });
   if (bajoCosto.length) {
@@ -149,7 +154,7 @@ function revisarCostos() {
   if (desalineados.length) {
     avisos.push(`${desalineados.length} celda(s) no pagan lo que el sello cuesta: ${desalineados.join(' · ')}`);
   }
-  return { ok: true, desalineados, bajoCosto, avisos };
+  return { ok: true, desalineados, bajoCosto, aceptados, avisos };
 }
 
 /**
@@ -195,6 +200,12 @@ function cuentas({ mes, cliente_id = null } = {}) {
           const suyo = (porCuenta[String(id)] || {})[divisa];
           if (suyo) profit = money.sub(profit, String(suyo));
         });
+        // UN PROVEEDOR EN NEGATIVO VA EN CERO, NUNCA SE RESTA. Regla del dueño, para todos los
+        // clientes de TBS: si en un mes los jugadores le ganaron a un proveedor, ese proveedor no
+        // se factura y listo — la pérdida no le baja la cuenta al cliente. Ojo al verificar contra
+        // el TOTAL del panel: ese total SÍ netea los negativos, así que va a dar menos que la suma
+        // de los proveedores facturados. No es un descuadre. En julio la caja de Nacho perdió
+        // 182.513.445 ARS en Slot Zona y por eso su total cierra 182M por debajo de lo facturable.
         if (!money.isPos(profit)) continue;
 
         const tcC = tcUnico.tcDelMes(divisa, m);
@@ -264,7 +275,7 @@ function cuentas({ mes, cliente_id = null } = {}) {
 
   const rev = revisarCostos();
   avisos.push(...rev.avisos);
-  const { desalineados, bajoCosto } = rev;
+  const { desalineados, bajoCosto, aceptados } = rev;
   out.sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
   return {
     ok: true, mes: m,
@@ -274,7 +285,7 @@ function cuentas({ mes, cliente_id = null } = {}) {
       proveedor: money.round(totProv, 2),
       empresa: money.round(money.sub(totCli, totProv), 2),
     },
-    sinPrecio, sinTC: [...sinTC], faltanSellos: sinTraer, desalineados, bajoCosto, avisos,
+    sinPrecio, sinTC: [...sinTC], faltanSellos: sinTraer, desalineados, bajoCosto, aceptados, avisos,
   };
 }
 

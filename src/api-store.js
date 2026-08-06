@@ -84,6 +84,11 @@ try { db.exec('ALTER TABLE api_sello ADD COLUMN costo TEXT'); } catch (e) { /* y
 try { db.exec('ALTER TABLE api_sello ADD COLUMN tipo TEXT'); } catch (e) { /* ya la tiene */ }
 try { db.exec('ALTER TABLE api_cliente ADD COLUMN excluye TEXT'); } catch (e) { /* ya la tiene */ }
 try { db.exec("ALTER TABLE api_pct ADD COLUMN origen TEXT DEFAULT 'planilla'"); } catch (e) { /* ya la tiene */ }
+// Una celda puede estar "mal" a propósito. TBS45Ar23 vende Buffalo Thunder por debajo del costo y
+// el dueño decidió apagarle el proveedor al cliente en vez de subirle el precio. Sin un lugar donde
+// anotar eso, la revisión lo denuncia todos los meses — y un aviso que grita por algo ya resuelto
+// deja de mirarse. Con nota, sigue estando a la vista, pero como decisión y no como alarma.
+try { db.exec('ALTER TABLE api_pct ADD COLUMN nota TEXT'); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -165,7 +170,7 @@ function matriz() {
   db.prepare('SELECT * FROM api_pct').all().forEach((r) => {
     (celdas[r.cliente_id] = celdas[r.cliente_id] || {})[r.sello] = {
       pct_cliente: r.pct_cliente, pct_proveedor: r.pct_proveedor,
-      pts_ib: r.pts_ib, pts_henry: r.pts_henry, origen: r.origen || 'planilla',
+      pts_ib: r.pts_ib, pts_henry: r.pts_henry, origen: r.origen || 'planilla', nota: r.nota || null,
     };
   });
   return { clientes, sellos, celdas };
@@ -195,12 +200,16 @@ function setPct(cliente_id, sello, d = {}) {
           + `(${pc}% menos ${pp || 0}% del proveedor). Tienen que dar lo mismo.` };
     }
   }
-  db.prepare(`INSERT INTO api_pct (cliente_id,sello,pct_cliente,pct_proveedor,pts_ib,pts_henry,origen)
-    VALUES (?,?,?,?,?,?,?)
+  // La nota se mantiene si no viene en el cuerpo: un cambio de precio no borra la explicación.
+  const nota = Object.prototype.hasOwnProperty.call(d, 'nota')
+    ? (d.nota == null || d.nota === '' ? null : String(d.nota).trim())
+    : ((db.prepare('SELECT nota FROM api_pct WHERE cliente_id=? AND sello=?').get(cid, s) || {}).nota || null);
+  db.prepare(`INSERT INTO api_pct (cliente_id,sello,pct_cliente,pct_proveedor,pts_ib,pts_henry,origen,nota)
+    VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT(cliente_id,sello) DO UPDATE SET pct_cliente=excluded.pct_cliente,
       pct_proveedor=excluded.pct_proveedor, pts_ib=excluded.pts_ib, pts_henry=excluded.pts_henry,
-      origen=excluded.origen`)
-    .run(cid, s, pc, pp, ib, hen, d.origen === 'verificado' ? 'verificado' : 'planilla');
+      origen=excluded.origen, nota=excluded.nota`)
+    .run(cid, s, pc, pp, ib, hen, d.origen === 'verificado' ? 'verificado' : 'planilla', nota);
   return { ok: true };
 }
 function removePct(cliente_id, sello) {

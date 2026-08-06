@@ -445,7 +445,30 @@ async function main() {
     a3.setPct('T9', 'Sello caro', { pct_cliente: '2', pct_proveedor: '0.5', origen: 'verificado' });
     av = cuenta3.revisarCostos().avisos.join(' | ');
     check('API: cuando coincide con el costo, no molesta', !/ClienteTest9/.test(av), av.slice(0, 200));
+    // Una celda puede estar "mal" a propósito: TBS45Ar23 vende Buffalo Thunder bajo el costo y el
+    // dueño eligió apagarle el proveedor al cliente. Con nota deja de ser alarma y pasa a decisión.
+    a3.setPct('T9', 'Sello caro', { pct_cliente: '0.2', pct_proveedor: '0.5', origen: 'verificado', nota: 'se apaga en TBS' });
+    let rv = cuenta3.revisarCostos();
+    check('API: una celda con nota no grita, queda como decisión',
+      !rv.avisos.length && rv.aceptados.length === 1 && /se apaga en TBS/.test(rv.aceptados[0]), JSON.stringify(rv.aceptados));
+    // y cambiar el precio no borra la explicación
+    a3.setPct('T9', 'Sello caro', { pct_cliente: '0.3', pct_proveedor: '0.5', origen: 'verificado' });
+    check('API: cambiar el precio no borra la nota', /se apaga en TBS/.test((a3.getPct('T9', 'Sello caro') || {}).nota || ''),
+      String((a3.getPct('T9', 'Sello caro') || {}).nota));
     a3.removePct('T9', 'Sello caro'); a3.removeCliente('T9'); a3.removeSello('Sello caro');
+  }
+
+  // ── un proveedor en negativo va en CERO, nunca se resta ──
+  // Regla del dueño para todos los clientes de TBS. Ojo: el TOTAL del panel SÍ netea los negativos,
+  // así que va a dar menos que la suma de lo facturable. Eso no es un descuadre.
+  {
+    const mo = require('../src/lib/money');
+    const provs = { SL: '767939922', XG: '227505447', SL2: '284225980', SlotZona: '-182513445' };
+    const facturable = Object.values(provs).filter((v) => mo.isPos(v)).reduce((a, v) => mo.add(a, v), '0');
+    const neto = Object.values(provs).reduce((a, v) => mo.add(a, v), '0');
+    check('API: el negativo no se resta de lo facturable', facturable === '1279671349', facturable);
+    check('API: pero el total del panel sí lo netea', neto === '1097157904', neto);
+    check('API: la diferencia es exactamente la pérdida', mo.sub(facturable, neto) === '182513445', mo.sub(facturable, neto));
   }
 
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que

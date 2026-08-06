@@ -829,6 +829,14 @@ function mount(app) {
     const r = apiStore.setPct(b.cliente_id, b.sello, b);
     r.ok ? ok(res, r) : err(res, 400, r.error, { confirmar: !!r.confirmar, empresa: r.empresa, suma: r.suma });
   }));
+  // Dar de baja un proveedor para un cliente. Hace falta de verdad: si un sello se le desactiva
+  // en TBS, dejarle el precio cargado lo mantiene en la lista de revisión para siempre. Sin precio
+  // el GGR que llegue cae en "sinPrecio", que se ve — no se factura por las dudas ni desaparece.
+  app.delete('/api/os/api/pct/:cliente/:sello', wrap((req, res) =>
+    ok(res, apiStore.removePct(req.params.cliente, req.params.sello))));
+
+  // Lo que se le paga al proveedor contra lo que el sello cuesta. No necesita TBS.
+  app.get('/api/os/api/revision', (_req, res) => ok(res, apiCuenta.revisarCostos()));
 
   // Las DOS cuentas del mes de API: la del cliente y la del proveedor, del mismo GGR.
   app.post('/api/os/api/precargar', wrap(async (req, res) => {
