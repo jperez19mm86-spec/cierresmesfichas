@@ -543,6 +543,24 @@ async function main() {
     a4.setEnResumen('2026-06', 'k_otro', true);
   }
 
+  // ── y la ruta de verdad, por HTTP ──
+  // El store andaba y la pantalla no: api() le pasa opts tal cual a fetch, así que mandar el body
+  // como objeto llegaba "[object Object]". Los tests en proceso no lo veían. Este sí.
+  {
+    r = await post('/api/os/api/resumen/sel', { mes: '2026-06', clave: 'k_http', entra: false, motivo: 'test' });
+    check('API/resumen: la ruta guarda la exclusión', r.status === 200 && r.data.ok, JSON.stringify(r.data));
+    // La base de prueba no tiene conexión TBS, así que el resumen no puede calcular: lo que se
+    // comprueba acá es que la ruta EXISTE y contesta, no el número (eso ya está más arriba).
+    r = await get('/api/os/api/resumen?mes=2026-06');
+    check('API/resumen: la ruta del resumen contesta',
+      r.status === 200 || (r.status === 400 && /conexión con motor TBS/.test(r.data.error || '')),
+      r.status + ' ' + (r.data.error || 'ok'));
+    r = await post('/api/os/api/resumen/sel', { mes: '2026-06', clave: 'k_http', entra: true });
+    check('API/resumen: y se puede volver a incluir', r.status === 200 && r.data.ok, JSON.stringify(r.data));
+    r = await post('/api/os/api/resumen/sel', { entra: false });
+    check('API/resumen: sin mes ni clave, 400 y no rompe', r.status === 400 && /falta/.test(r.data.error || ''), r.data.error);
+  }
+
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
   // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
   // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.

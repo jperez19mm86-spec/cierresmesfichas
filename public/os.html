@@ -2842,7 +2842,11 @@ async function apiResCargar(){
 async function apiResSel(clave,entra){
   const f=(_apiRes.filas||[]).find(x=>x.clave===clave); if(f) f.entra=entra;
   apiResPintar();                                        // responde ya, sin esperar al servidor
-  await api('/api/os/api/resumen/sel',{method:'POST',body:{mes:_apiRes.mes,clave,entra}});
+  // api() le pasa opts tal cual a fetch: el body va SERIALIZADO. Mandarlo como objeto llegaba
+  // "[object Object]", el servidor lo rechazaba y el tilde volvía solo a su lugar.
+  const q=await api('/api/os/api/resumen/sel',{method:'POST',
+    body:JSON.stringify({mes:_apiRes.mes,clave,entra})});
+  if(!q.ok){ if(f) f.entra=!entra; return apiResPintar(); }   // no se guardó: no mentir en pantalla
   _apiRes=await api('/api/os/api/resumen?mes='+encodeURIComponent(_apiRes.mes));
   apiResPintar();
 }
