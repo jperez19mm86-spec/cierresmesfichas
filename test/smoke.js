@@ -401,6 +401,23 @@ async function main() {
     a.removeCliente('T1'); a.removeSello('Sello test');
   }
 
+  // ── un grupo que TBS no conoce NO puede facturar ──
+  // TBS, ante un id de grupo desconocido, ignora el filtro y devuelve el profit de TODOS los
+  // proveedores juntos. Así, el sello "Pragmatic OP" (grupo 63, inexistente) facturaba el GGR
+  // entero del cliente por segunda vez y le duplicaba la cuenta a David y a Ars1api.
+  {
+    const cuenta = require('../src/api-cuenta.service');
+    const falso = { grupos: async () => ({ ok: true, grupos: [{ id: '24', nombre: 'tomhorn' }, { id: '62', nombre: 'op_pragmatic_live' }] }) };
+    cuenta.olvidarGrupos();
+    const v = await cuenta.gruposValidos(falso);
+    check('API: se sabe qué grupos reconoce TBS', v && v.has('24') && v.has('62') && !v.has('63'), [...(v || [])].join(','));
+    // si el panel no contesta la lista, no se bloquea nada: peor sería dejar de facturar todo
+    cuenta.olvidarGrupos();
+    const nula = await cuenta.gruposValidos({ grupos: async () => ({ ok: false, error: 'caído' }) });
+    check('API: si TBS no da la lista de grupos, no bloquea', nula === null, String(nula));
+    cuenta.olvidarGrupos();
+  }
+
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
   // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
   // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.

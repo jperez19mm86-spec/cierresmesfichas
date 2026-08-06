@@ -53,6 +53,27 @@ function sellosEnUso() {
 }
 
 /**
+ * LOS GRUPOS QUE TBS RECONOCE DE VERDAD.
+ *
+ * Esto existe por una razón cara. El sello "Pragmatic OP" estaba mapeado al grupo 63, que no
+ * figura en el desplegable del panel. TBS, ante un id que no conoce, NO devuelve vacío ni un
+ * error: IGNORA EL FILTRO y devuelve el profit de todos los proveedores juntos. O sea que ese
+ * sello facturaba el GGR entero del cliente una segunda vez, encima de las líneas buenas. A
+ * David le duplicaba la cuenta (1.095,92 en vez de 547,96) y lo mismo a Ars1api.
+ *
+ * Un filtro que no filtra tiene que ser un error ruidoso, no una línea más en la factura.
+ */
+let _validos = null;
+async function gruposValidos(cli) {
+  if (_validos) return _validos;
+  const r = await cli.grupos();
+  if (!r.ok || !Array.isArray(r.grupos) || !r.grupos.length) return null;  // sin lista, no bloqueo
+  _validos = new Set(r.grupos.map((g) => String(g.id)));
+  return _validos;
+}
+function olvidarGrupos() { _validos = null; }
+
+/**
  * Trae el GGR del mes de a pedazos y lo deja guardado.
  * Una consulta por sello devuelve el profit de TODAS las cuentas a la vez, así que se pide por
  * sello y no por cliente: son ~40 llamadas en vez de ~400.
@@ -70,8 +91,14 @@ async function precargar({ mes, desde: desdeIdx = 0, limite = 8, refrescar = fal
   const agentes = apiStore.listClientes().map((x) => String(x.id));
   const trozo = sellos.slice(desdeIdx, desdeIdx + limite);
   const avisos = [];
+  const validos = await gruposValidos(c.cli);
 
   for (const s of trozo) {
+    if (validos && !validos.has(String(s.grupo_id))) {
+      avisos.push(`${s.corto || s.nombre}: el grupo ${s.grupo_id} no existe en TBS. NO se factura: `
+        + 'con un id desconocido el panel ignora el filtro y devuelve el GGR de todos los proveedores juntos.');
+      continue;
+    }
     if (!refrescar && ganCache.get(c.cx.id, `_api_${s.grupo_id}`, m, '_todas')) continue;
     try {
       const r = await c.cli.profitDeAgentes({ desde, hasta, agentes, grupos: [String(s.grupo_id)] });
@@ -189,6 +216,15 @@ function cuentas({ mes, cliente_id = null } = {}) {
   if (sinTraer.length) {
     avisos.push(`${sinTraer.length} sello(s) todavía sin traer de TBS (${sinTraer.slice(0, 6).join(', ')}${sinTraer.length > 6 ? '…' : ''}). El total está incompleto hasta traerlos.`);
   }
+  // Un sello con precio pero sin grupo no se le puede preguntar a TBS: no factura, y en silencio.
+  // Mejor decirlo, que es plata que alguien está usando y no se está cobrando.
+  const conPrecio = new Set();
+  Object.values(celdas).forEach((ss) => Object.keys(ss).forEach((n) => conPrecio.add(n)));
+  const sinGrupo = sellos.filter((s) => !s.grupo_id && conPrecio.has(s.nombre)).map((s) => s.corto || s.nombre);
+  if (sinGrupo.length) {
+    avisos.push(`${sinGrupo.length} sello(s) tienen precio cargado pero no están mapeados a ningún grupo de TBS `
+      + `(${sinGrupo.join(', ')}). No se factura nada de eso hasta saber a qué proveedor corresponden.`);
+  }
   out.sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
   return {
     ok: true, mes: m,
@@ -202,4 +238,4 @@ function cuentas({ mes, cliente_id = null } = {}) {
   };
 }
 
-module.exports = { precargar, cuentas, rango, sellosEnUso };
+module.exports = { precargar, cuentas, rango, sellosEnUso, gruposValidos, olvidarGrupos };
