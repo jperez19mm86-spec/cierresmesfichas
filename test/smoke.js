@@ -428,6 +428,28 @@ async function main() {
     check('vigencia: una posterior no toca el pasado', e.items.length === 1 && e.items[0].persona_id === 'p1', JSON.stringify(e.items));
   }
 
+  // ── la misma línea de tiempo, pero en los valores sueltos (precio base, costos, etc.) ──
+  {
+    const hist = require('../src/historial');
+    const eid = 'test_vig_' + Date.now();
+    const val = (f) => hist.getVigente('cliente', eid, 'precio_base_pct', f);
+    // primero agosto, y DESPUÉS julio: el caso que dejaba el tramo dado vuelta
+    hist.setVigencia('cliente', eid, 'precio_base_pct', '15', '2026-08-01');
+    hist.setVigencia('cliente', eid, 'precio_base_pct', '14', '2026-07-01');
+    check('valores: cargar una fecha anterior no rompe la posterior',
+      val('2026-07-15') === '14' && val('2026-08-15') === '15', `jul=${val('2026-07-15')} ago=${val('2026-08-15')}`);
+    const filas = hist.listValores('cliente', eid, 'precio_base_pct');
+    check('valores: ningún tramo queda al revés',
+      filas.every((f) => !f.vigente_hasta || f.vigente_hasta >= f.vigente_desde),
+      JSON.stringify(filas.map((f) => f.vigente_desde + '→' + f.vigente_hasta)));
+    // guardar dos veces la misma fecha pisa el valor, no agrega un tramo
+    hist.setVigencia('cliente', eid, 'precio_base_pct', '13', '2026-07-01');
+    check('valores: la misma fecha pisa y no duplica',
+      hist.listValores('cliente', eid, 'precio_base_pct').length === 2 && val('2026-07-15') === '13',
+      String(hist.listValores('cliente', eid, 'precio_base_pct').length));
+    require('../src/db').db.prepare('DELETE FROM config_valores WHERE entidad_id=?').run(eid);
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

@@ -74,19 +74,55 @@ function logCambio({ entidad_tipo, entidad_id, campo, valor_anterior, valor_nuev
 }
 
 /**
- * VIGENCIA: cierra la fila vigente (vigente_hasta = día anterior a `vigente_desde`) e inserta la nueva.
+ * VIGENCIA: inserta un tramo nuevo que arranca en `vigente_desde`.
+ *
+ * OJO con el orden. Antes esto cerraba "la fila abierta" a secas, y cargar un valor con fecha
+ * ANTERIOR a uno que ya existía dejaba la vieja con vigente_hasta < vigente_desde: un tramo dado
+ * vuelta, que después no lo levanta nadie. Le pasó a la base de Crazy-duck (agosto quedó
+ * "desde 2026-08-01 hasta 2026-06-30"). La línea de tiempo se arma mirando a los dos lados:
+ *   · el tramo que arranca EL MISMO día no es un tramo nuevo, es el mismo: se le pisa el valor
+ *   · el de ANTES se cierra el día anterior
+ *   · el de DESPUÉS no se toca (es un cambio futuro legítimo) y le pone el techo al nuevo
  */
 const setVigencia = db.transaction((entidad_tipo, entidad_id, campo, valor, vigente_desde, opts = {}) => {
-  const actual = getFilaActual(entidad_tipo, entidad_id, campo);
-  if (actual) {
-    db.prepare('UPDATE config_valores SET vigente_hasta=? WHERE id=?').run(diaAnterior(vigente_desde), actual.id);
+  const arg = [entidad_tipo, entidad_id, campo];
+  const q = (cond, ord) => db.prepare(
+    `SELECT * FROM config_valores WHERE entidad_tipo=? AND entidad_id=? AND campo=? AND ${cond}
+     ORDER BY vigente_desde ${ord} LIMIT 1`);
+  const misma = q('vigente_desde = ?', 'DESC').get(...arg, vigente_desde);
+  const previa = q('vigente_desde < ?', 'DESC').get(...arg, vigente_desde);
+  const siguiente = q('vigente_desde > ?', 'ASC').get(...arg, vigente_desde);
+  const anterior = (misma || previa || null);
+  const techo = siguiente ? diaAnterior(siguiente.vigente_desde) : null;
+
+  if (previa) db.prepare('UPDATE config_valores SET vigente_hasta=? WHERE id=?').run(diaAnterior(vigente_desde), previa.id);
+  if (misma) {
+    db.prepare('UPDATE config_valores SET valor=?, vigente_hasta=? WHERE id=?').run(String(valor), techo, misma.id);
+  } else {
+    db.prepare(`
+      INSERT INTO config_valores (id, entidad_tipo, entidad_id, campo, valor, vigente_desde, vigente_hasta, createdAt)
+      VALUES (@id,@et,@eid,@campo,@valor,@vd,@vh,@ca)
+    `).run({ id: newId('cv'), et: entidad_tipo, eid: entidad_id, campo, valor: String(valor), vd: vigente_desde, vh: techo, ca: nowISO() });
   }
-  db.prepare(`
-    INSERT INTO config_valores (id, entidad_tipo, entidad_id, campo, valor, vigente_desde, vigente_hasta, createdAt)
-    VALUES (@id,@et,@eid,@campo,@valor,@vd,NULL,@ca)
-  `).run({ id: newId('cv'), et: entidad_tipo, eid: entidad_id, campo, valor: String(valor), vd: vigente_desde, ca: nowISO() });
-  logCambio({ entidad_tipo, entidad_id, campo, valor_anterior: actual ? actual.valor : null, valor_nuevo: valor, tipo_cambio: 'vigencia', vigente_desde, usuario_id: opts.usuario_id, notas: opts.notas });
+  logCambio({ entidad_tipo, entidad_id, campo, valor_anterior: anterior ? anterior.valor : null, valor_nuevo: valor, tipo_cambio: 'vigencia', vigente_desde, usuario_id: opts.usuario_id, notas: opts.notas });
 });
+
+/**
+ * Endereza los tramos que quedaron dados vuelta por el bug de arriba.
+ * Corre una sola vez al levantar: es barato y deja la línea de tiempo consistente.
+ */
+function repararTramosDadosVuelta() {
+  const malas = db.prepare(`SELECT * FROM config_valores
+    WHERE vigente_hasta IS NOT NULL AND vigente_hasta < vigente_desde`).all();
+  malas.forEach((f) => {
+    const sig = db.prepare(`SELECT vigente_desde FROM config_valores
+      WHERE entidad_tipo=? AND entidad_id=? AND campo=? AND vigente_desde > ?
+      ORDER BY vigente_desde ASC LIMIT 1`).get(f.entidad_tipo, f.entidad_id, f.campo, f.vigente_desde);
+    db.prepare('UPDATE config_valores SET vigente_hasta=? WHERE id=?')
+      .run(sig ? diaAnterior(sig.vigente_desde) : null, f.id);
+  });
+  return malas.length;
+}
 
 /**
  * CORRECCIÓN: corrige la fila vigente EN SU LUGAR (retroactivo). Si no existe, crea una desde "época".
@@ -134,4 +170,5 @@ module.exports = {
   getVigente, getFilaActual, listValores,
   setVigencia, setCorreccion, setValor,
   logCambio, listHistorial,
+  repararTramosDadosVuelta,
 };

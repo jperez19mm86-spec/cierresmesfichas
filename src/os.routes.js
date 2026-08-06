@@ -77,6 +77,7 @@ function basePctEfectivo(cliente, panel, mes = mesTZ()) {
 
 function mount(app) {
   splitBase.seedIfEmpty();
+  historial.repararTramosDadosVuelta();   // tramos que quedaron al revés por el bug de setVigencia
   tcSvc.startScheduler();
   tcDivisas.startScheduler();
   tcColumna.startScheduler();
