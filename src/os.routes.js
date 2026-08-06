@@ -19,6 +19,7 @@ const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
+const apiCuenta = require('./api-cuenta.service');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
@@ -826,6 +827,18 @@ function mount(app) {
     const b = req.body || {};
     const r = apiStore.setPct(b.cliente_id, b.sello, b);
     r.ok ? ok(res, r) : err(res, 400, r.error, { confirmar: !!r.confirmar, empresa: r.empresa, suma: r.suma });
+  }));
+
+  // Las DOS cuentas del mes de API: la del cliente y la del proveedor, del mismo GGR.
+  app.post('/api/os/api/precargar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await apiCuenta.precargar({ mes: b.mes || mesTZ(), desde: Number(b.desde) || 0,
+      limite: Number(b.limite) || 8, refrescar: !!b.refrescar });
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+  app.get('/api/os/api/cuentas', wrap((req, res) => {
+    const r = apiCuenta.cuentas({ mes: req.query.mes || mesTZ(), cliente_id: req.query.cliente_id || null });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
 
   // TBS: el árbol de cuentas aplanado. Sin el id de cada cuenta no se le puede pedir el profit.

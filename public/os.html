@@ -2640,18 +2640,86 @@ ${d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verif
     </div>`;
 };
 
+let _apiCta=null, _apiAbierta=new Set();
 API.cuentas = async () => {
   document.getElementById('api-body').innerHTML=`
     <div class="card"><h2>🧾 Cuentas del mes</h2>
       <div class="muted">Por cada cuenta salen <b>dos</b> del mismo GGR de TBS: lo que se le <b>cobra al cliente</b>
         y lo que se le <b>paga al proveedor</b>. La diferencia es la ganancia, que es lo que se reparte.</div>
-      <div class="card" style="background:var(--bg3);margin:12px 0 0">
-        <b>Todavía no está el cálculo</b>
-        <div class="muted" style="margin-top:4px">Ya están cargados el padrón, los 52 sellos con su grupo de TBS y su costo, y los precios por cliente.
-          Falta el motor que le pida el GGR al panel y arme las dos cuentas.</div>
+      <div class="row" style="align-items:flex-end;margin-top:10px">
+        <div style="flex:0"><label>Mes</label><input type="month" id="api-mes" value="${esc(_apiMes)}"></div>
+        <div style="flex:0"><button onclick="apiCalcular()">Calcular</button></div>
+        <div style="flex:0"><button class="outline small" onclick="apiCalcular(true)">↻ Volver a consultar TBS</button></div>
       </div>
+      <div id="api-cta" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
     </div>`;
+  if(_apiCta) apiPintarCuentas();
 };
+/* TBS tarda ~2s por sello y son ~40: no entra en una sola consulta. Se trae por tandas y se
+   guarda, igual que el pago a proveedores; un mes cerrado no se vuelve a preguntar. */
+async function apiCalcular(refrescar){
+  _apiMes=val('api-mes')||_apiMes;
+  const out=document.getElementById('api-cta');
+  let desde=0;
+  for(let v=0; v<20; v++){
+    out.innerHTML='<div class="empty">⏳ trayendo el GGR de TBS… '+desde+' sellos listos'+(v?'':' (la primera vez de cada mes tarda)')+'</div>';
+    const p=await api('/api/os/api/precargar',{method:'POST',body:JSON.stringify({mes:_apiMes,desde,limite:8,refrescar})});
+    if(!p.ok){ out.innerHTML='<div class="badge err">'+esc(p.error||'error')+'</div>'; return; }
+    if(!p.faltan) break;
+    desde=p.hechos;
+  }
+  out.innerHTML='<div class="empty">⏳ armando las cuentas…</div>';
+  const r=await api('/api/os/api/cuentas?mes='+encodeURIComponent(_apiMes));
+  if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
+  _apiCta=r; _apiAbierta.clear(); apiPintarCuentas();
+}
+function apiPintarCuentas(){
+  const r=_apiCta, out=document.getElementById('api-cta'); if(!out) return;
+  const T=r.totales||{};
+  const filas=(r.cuentas||[]).map(c=>{
+    const ab=_apiAbierta.has(c.cliente_id);
+    const det=ab?`<tr class="sub"><td colspan="6"><div class="subwrap">
+      <table><thead><tr><th>Sello</th><th>Divisa</th><th class="right">GGR</th><th class="right">%</th><th class="right">Le cobro</th><th class="right">Le pago al prov.</th><th class="right">Queda</th><th class="right">Central</th><th class="right">Henry</th></tr></thead><tbody>
+      ${c.lineas.map(l=>`<tr${l.origen!=='verificado'?' style="background:rgba(210,160,0,.10)"':''}>
+        <td>${esc(l.sello)}${l.origen!=='verificado'?' <span class="cie-est cie-est-sc" title="El % no está verificado: salió de la tabla de precios">sin verificar</span>':''}</td>
+        <td class="muted">${esc(l.divisa)}</td><td class="right muted">${money(l.ggr,0)}</td>
+        <td class="right">${esc(l.pct_cliente)}%<span class="muted" style="font-size:10px"> / ${esc(l.pct_proveedor||0)}%</span></td>
+        <td class="right"><b>${money(l.usdt_cliente,2)}</b></td>
+        <td class="right muted">${money(l.usdt_proveedor,2)}${l.tc_proveedor&&l.tc_proveedor!==l.tc_cliente?`<div style="font-size:10px">TC ${esc(l.tc_proveedor)}</div>`:''}</td>
+        <td class="right">${money(l.usdt_empresa,2)}</td>
+        <td class="right muted">${l.usdt_central!=null?money(l.usdt_central,2):'—'}</td>
+        <td class="right muted">${l.usdt_henry!=null?money(l.usdt_henry,2):'—'}</td></tr>`).join('')}
+      </tbody></table></div></td></tr>`:'';
+    return `<tr style="cursor:pointer" onclick="apiToggle('${c.cliente_id}')">
+      <td><span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${esc(c.login)}</b>
+        ${c.sinVerificar?`<span class="cie-est cie-est-sc">${c.sinVerificar} sin verificar</span>`:''}</td>
+      <td class="muted">${c.lineas.length} línea${c.lineas.length===1?'':'s'}</td>
+      <td class="right"><b>${money(c.usdt_cliente,2)}</b></td>
+      <td class="right muted">${money(c.usdt_proveedor,2)}</td>
+      <td class="right" style="color:var(--gold)"><b>${money(c.usdt_empresa,2)}</b></td></tr>`+det;
+  }).join('');
+  out.innerHTML=`
+    <div class="row" style="align-items:stretch">
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Le cobro a los clientes</label>
+        <div style="font-size:22px;font-weight:800">${money(T.cliente,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Le pago a los proveedores</label>
+        <div style="font-size:22px;font-weight:800;opacity:.8">${money(T.proveedor,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Queda para repartir</label>
+        <div style="font-size:22px;font-weight:800;color:var(--gold)">${money(T.empresa,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
+    </div>
+    ${(r.avisos||[]).length?`<div class="card" style="background:#3a2410;border-color:var(--gold);margin:10px 0 0">${r.avisos.map(esc).join('<br>')}</div>`:''}
+    ${(r.sinTC||[]).length?`<div class="badge err" style="margin-top:8px">Sin tipo de cambio: ${r.sinTC.map(esc).join(', ')}</div>`:''}
+    <table style="margin-top:12px"><thead><tr><th>Cuenta</th><th></th><th class="right">Le cobro</th><th class="right">Le pago</th><th class="right">Queda</th></tr></thead><tbody>
+    ${filas||'<tr><td colspan="5" class="empty">Sin GGR este mes.</td></tr>'}</tbody></table>
+    ${(r.sinPrecio||[]).length?`<div class="card" style="background:#3a2410;border-color:var(--red);margin-top:12px">
+      <b style="color:var(--red)">${r.sinPrecio.length} sello(s) con GGR y SIN precio cargado</b>
+      <div class="muted" style="margin:4px 0 6px">Produjeron ganancia y no se le está cobrando a nadie.</div>
+      <table><thead><tr><th>Cuenta</th><th>Sello</th><th>GGR</th></tr></thead><tbody>
+      ${r.sinPrecio.slice(0,20).map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
+        <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td></tr>`).join('')}
+      </tbody></table></div>`:''}`;
+}
+function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
 
 // ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────
 VIEWS.reportes = async () => {

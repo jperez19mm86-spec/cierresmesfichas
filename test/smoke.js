@@ -371,6 +371,36 @@ async function main() {
     check('comprobantes: al volver a habilitarlo, entra de nuevo', r.status === 200 && r.data.ok, 'HTTP ' + r.status);
   }
 
+  // ── API (TBS): la cuenta del cliente y la del proveedor salen del MISMO GGR. Lo que se prueba
+  // es la cadena completa contra una fila REAL de la planilla del dueño (Ars1Api, junio 2026,
+  // Slot Zona) y el guardarraíl del reparto.
+  {
+    const a = require('../src/api-store');
+    const mo = require('../src/lib/money');
+    // GGR 4.668.341,7 × 9% = 420.150,75 ; ÷ 1519,31 = 276,54 US$ ; el proveedor se lleva 1 de 9
+    const ggr = '4668341.7';
+    const mCli = mo.round(mo.pct(ggr, '9'), 2);
+    check('API: GGR × % del cliente = el monto de la planilla', mCli === '420150.75', mCli);
+    const usdCli = mo.round(mo.div(mCli, '1519.31'), 2);
+    check('API: ÷ TC = los US$ de la planilla', Math.abs(Number(usdCli) - 276.5) < 0.05, usdCli);
+    const usdProv = mo.round(mo.div(mo.round(mo.pct(ggr, '1'), 2), '1519.31'), 2);
+    check('API: el proveedor se lleva su parte', Math.abs(Number(usdProv) - 30.7) < 0.05, usdProv);
+    check('API: lo que queda para la empresa', Math.abs(Number(mo.sub(usdCli, usdProv)) - 245.8) < 0.1, mo.sub(usdCli, usdProv));
+
+    a.saveCliente({ id: 'T1', login: 'CuentaTest' });
+    a.saveSello({ nombre: 'Sello test', grupo_id: '999', corto: 'TEST' });
+    let r = a.setPct('T1', 'Sello test', { pct_cliente: '9', pct_proveedor: '1', pts_ib: '5', pts_henry: '3' });
+    check('API: el reparto que cierra se guarda', r.ok, r.error);
+    r = a.setPct('T1', 'Sello test', { pct_cliente: '9', pct_proveedor: '1', pts_ib: '5', pts_henry: '9' });
+    check('API: si Central + Henry no dan lo que queda, no guarda', !r.ok && /Tienen que dar lo mismo/.test(r.error || ''), r.error);
+    // Un precio de planilla NO puede pisar uno verificado: el verificado ya se cobró así.
+    a.setPct('T1', 'Sello test', { pct_cliente: '9', pct_proveedor: '1', pts_ib: '5', pts_henry: '3', origen: 'verificado' });
+    const sem = a.sembrar({ precios: [{ cliente_id: 'T1', sello: 'Sello test', pct_cliente: '99', origen: 'planilla' }], pisar: true });
+    check('API: la planilla no pisa un precio verificado', sem.salteados === 1 && a.getPct('T1', 'Sello test').pct_cliente === '9',
+      a.getPct('T1', 'Sello test').pct_cliente);
+    a.removeCliente('T1'); a.removeSello('Sello test');
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
