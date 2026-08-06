@@ -2829,15 +2829,25 @@ async function apiDoc(id,vista,alcance,caja){
   td{padding:5px 8px;border-bottom:1px solid #f3e9f1}.r{text-align:right}
   tfoot td{font-weight:700;border-top:2px solid #ead6e6;border-bottom:none}
   .tot{margin-top:20px;padding:12px 14px;background:#f6e9f4;border-radius:8px;font-size:17px;font-weight:800}
-  @media print{button{display:none}}</style></head><body>
+  /* Un color por proyecto, como los venías separando a mano: sin esto, en el total quedan SL, SL2
+     y XG repetidos y no se sabe de cuál de los dos es cada fila. */
+  .proy{display:flex;justify-content:space-between;align-items:baseline;margin:26px 0 2px;
+        padding:8px 12px;border-radius:7px;font-size:15px}
+  .proy.p0{background:#e8e6f6}.proy.p1{background:#f6e2e4}
+  .proy span{font-weight:800}
+  .sub2{text-align:right;padding:6px 12px 2px;font-size:14px;color:#8c7e89}
+  @media print{button{display:none}.proy{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
   <h1>${esc(d.cuenta)}${d.caja?' — '+esc(d.caja):''}</h1>
   <div style="color:#8c7e89;margin-bottom:14px">Consumo de ${esc(d.mes)}</div>
-  ${d.porDivisa.map(g=>`<h2>${esc(g.divisa)} · tipo de cambio ${esc(g.tc_cliente)}</h2>
-    <table><thead><tr><th>Proveedor</th><th class="r">GGR ${esc(g.divisa)}</th><th class="r">GGR US$</th><th class="r">%</th><th class="r">USDT</th></tr></thead><tbody>
-    ${g.lineas.map(l=>`<tr><td>${esc(l.sello)}</td><td class="r">${money(l.ggr,0)}</td>
-      <td class="r">${money(l.ggr_usd,2)}</td><td class="r">${esc(l.pct_cliente)}%</td>
-      <td class="r">${money(l.usdt_cliente,2)}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td>Subtotal</td><td class="r">${money(g.ggr,0)}</td><td class="r">${money(g.ggr_usd,2)}</td><td></td><td class="r">${money(g.usdt_cliente,2)}</td></tr></tfoot></table>`).join('')}
+  ${d.secciones.map((sec,i)=>`
+    ${d.secciones.length>1?`<div class="proy p${i%2}"><b>${esc(sec.titulo)}</b><span>${money(sec.usdt_cliente,2)} USDT</span></div>`:''}
+    ${sec.porDivisa.map(g=>`<h2>${esc(g.divisa)} · tipo de cambio ${esc(g.tc_cliente)}</h2>
+      <table><thead><tr><th>Proveedor</th><th class="r">GGR ${esc(g.divisa)}</th><th class="r">GGR US$</th><th class="r">%</th><th class="r">USDT</th></tr></thead><tbody>
+      ${g.lineas.map(l=>`<tr><td>${esc(l.sello)}</td><td class="r">${money(l.ggr,0)}</td>
+        <td class="r">${money(l.ggr_usd,2)}</td><td class="r">${esc(l.pct_cliente)}%</td>
+        <td class="r">${money(l.usdt_cliente,2)}</td></tr>`).join('')}
+      </tbody><tfoot><tr><td>Subtotal ${esc(g.divisa)}</td><td class="r">${money(g.ggr,0)}</td><td class="r">${money(g.ggr_usd,2)}</td><td></td><td class="r">${money(g.usdt_cliente,2)}</td></tr></tfoot></table>`).join('')}
+    ${d.secciones.length>1?`<div class="sub2">Total ${esc(sec.titulo)}: <b>${money(sec.usdt_cliente,2)} USDT</b></div>`:''}`).join('')}
   <div class="tot">Total a pagar: ${money(d.usdt_cliente,2)} USDT</div>
   <button style="margin-top:18px;padding:9px 15px" onclick="window.print()">Guardar como PDF</button>
   </body></html>`);

@@ -498,6 +498,15 @@ async function main() {
       !/proveedor|empresa|pts_|central|henry|costo_sello|origen/i.test(txt), txt.slice(0, 220));
     check('API/doc: pero sí lleva el GGR en las dos monedas',
       /"ggr":/.test(txt) && /"ggr_usd":/.test(txt) && /"tc_cliente":/.test(txt));
+    // El total NO puede venir mezclado: con dos proyectos, SL/SL2/XG aparecen en los dos y sin
+    // separarlos quedan filas repetidas que no se sabe de cuál son.
+    check('API/doc: el total viene separado por proyecto, no mezclado',
+      dCli.secciones.length === 2 && dCli.secciones[0].titulo === 'Padre' && dCli.secciones[1].titulo === 'LaCaja',
+      JSON.stringify(dCli.secciones.map((x) => x.titulo)));
+    check('API/doc: cada proyecto trae su propio subtotal',
+      dCli.secciones.every((x) => x.usdt_cliente === '200'), JSON.stringify(dCli.secciones.map((x) => x.usdt_cliente)));
+    check('API/doc: y una sola caja no se parte en secciones',
+      doc.documento({ cuenta, mes: '2026-07', vista: 'cliente', alcance: 'caja', caja_id: 'C1' }).secciones.length === 1);
     const dInt = doc.documento({ cuenta, mes: '2026-07', vista: 'interno', alcance: 'total' });
     check('API/doc: la interna sí lleva el proveedor y la empresa',
       dInt.usdt_proveedor === '80' && dInt.usdt_empresa === '120', JSON.stringify([dInt.usdt_proveedor, dInt.usdt_empresa]));
@@ -510,7 +519,7 @@ async function main() {
     check('API/doc: una caja que no existe no rompe, avisa',
       doc.documento({ cuenta, mes: '2026-07', alcance: 'caja', caja_id: 'NOPE' }).ok === false);
     // el total en dólares es lo único sumable entre monedas
-    check('API/doc: el total en US$ sale de sumar los subtotales por divisa', dCli.ggr_usd === '2000', dCli.ggr_usd);
+    check('API/doc: el total en US$ sale de sumar las secciones', dCli.ggr_usd === '4000', dCli.ggr_usd);
   }
 
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que

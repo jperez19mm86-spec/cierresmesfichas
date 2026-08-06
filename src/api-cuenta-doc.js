@@ -58,19 +58,37 @@ function documento({ cuenta, mes, vista = 'interno', alcance = 'total', caja_id 
   const cl = esCliente ? LINEA_CLIENTE : LINEA_INTERNA;
   const cd = esCliente ? DIVISA_CLIENTE : DIVISA_INTERNA;
 
-  const porDivisa = (b.porDivisa || []).map((d) => ({
+  const proyectar = (bloque) => (bloque.porDivisa || []).map((d) => ({
     ...tomar(d, cd),
     lineas: (d.lineas || []).map((l) => tomar(l, cl)),
   }));
+
+  // EL TOTAL VA EN SECCIONES, NO MEZCLADO.
+  // Sumar los dos proyectos en una sola tabla deja SL, SL2 y XG repetidos sin decir de cuál son.
+  // El dueño siempre mandó esta cuenta con los proyectos separados, cada uno con su subtotal, y el
+  // total abajo. Una sección por proyecto es eso mismo: sirve para leerla y para conciliarla.
+  const partes = (alcance === 'total' && cuenta.cajas && cuenta.cajas.length)
+    ? [{ titulo: cuenta.login, bloque: cuenta.propio },
+      ...cuenta.cajas.map((k) => ({ titulo: k.login, bloque: k }))]
+    : [{ titulo: alcance === 'caja' ? b.login : cuenta.login, bloque: b }];
+
+  const secciones = partes.map((p) => {
+    const porDivisa = proyectar(p.bloque);
+    const s = { titulo: p.titulo, porDivisa,
+      ggr_usd: porDivisa.reduce((a, d) => money.add(a, d.ggr_usd || '0'), '0'),
+      usdt_cliente: p.bloque.usdt_cliente };
+    if (!esCliente) { s.usdt_proveedor = p.bloque.usdt_proveedor; s.usdt_empresa = p.bloque.usdt_empresa; }
+    return s;
+  });
 
   const doc = {
     ok: true, mes, vista, alcance,
     cuenta: cuenta.login,
     caja: alcance === 'caja' ? b.login : null,
+    secciones,
     // El total sólo se puede dar en dólares: sumar GGR de monedas distintas no significa nada.
-    ggr_usd: porDivisa.reduce((a, d) => money.add(a, d.ggr_usd || '0'), '0'),
+    ggr_usd: secciones.reduce((a, s) => money.add(a, s.ggr_usd), '0'),
     usdt_cliente: b.usdt_cliente,
-    porDivisa,
   };
   if (!esCliente) {
     doc.usdt_proveedor = b.usdt_proveedor;
