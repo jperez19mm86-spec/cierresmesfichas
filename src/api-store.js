@@ -89,6 +89,10 @@ try { db.exec("ALTER TABLE api_pct ADD COLUMN origen TEXT DEFAULT 'planilla'"); 
 // anotar eso, la revisión lo denuncia todos los meses — y un aviso que grita por algo ya resuelto
 // deja de mirarse. Con nota, sigue estando a la vista, pero como decisión y no como alarma.
 try { db.exec('ALTER TABLE api_pct ADD COLUMN nota TEXT'); } catch (e) { /* ya la tiene */ }
+// Una CAJA no es otro cliente: es el mismo, al que se le entregan cuentas separadas. MULT2-CAL-ARS-PROD
+// es de Nacho. Con padre_id la cuenta sale en tres vistas — la caja sola, el resto solo, y el total —
+// en vez de aparecer como dos clientes que nadie sabe que son uno. Un solo nivel, no un árbol.
+try { db.exec('ALTER TABLE api_cliente ADD COLUMN padre_id TEXT'); } catch (e) { /* ya la tiene */ }
 
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
@@ -97,7 +101,7 @@ const K = (s) => String(s || '').trim().toLowerCase();
 // ── CLIENTES ──────────────────────────────────────────────────────────────────────────────
 function listClientes() {
   return db.prepare('SELECT * FROM api_cliente ORDER BY login COLLATE NOCASE').all()
-    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0 }));
+    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0, padre_id: r.padre_id || null }));
 }
 function getCliente(id) {
   const r = db.prepare('SELECT * FROM api_cliente WHERE id=?').get(String(id));
@@ -115,15 +119,18 @@ function saveCliente(d) {
   if (!id) return { ok: false, error: 'falta el id del nodo de TBS' };
   const alias = Array.isArray(d.alias) ? d.alias : String(d.alias || '').split(/[,\n]+/);
   const exc = Array.isArray(d.excluye) ? d.excluye : String(d.excluye || '').split(/[,\n]+/);
-  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt)
-    VALUES (?,?,?,?,?,?,?,?)
+  // padre_id: ausente no toca nada, presente en null/'' desengancha la caja.
+  const tienePadre = Object.prototype.hasOwnProperty.call(d, 'padre_id');
+  const padre = tienePadre ? (d.padre_id == null || d.padre_id === '' ? null : String(d.padre_id).trim()) : null;
+  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt,padre_id)
+    VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET login=excluded.login, alias=excluded.alias, agente=excluded.agente,
-      activo=excluded.activo, excluye=excluded.excluye, notas=excluded.notas`)
+      activo=excluded.activo, excluye=excluded.excluye, notas=excluded.notas${tienePadre ? ', padre_id=excluded.padre_id' : ''}`)
     .run(id, String(d.login || '').trim(),
       JSON.stringify([...new Set(alias.map((x) => String(x).trim()).filter(Boolean))]),
       String(d.agente || '').trim(), d.activo === false ? 0 : 1,
       JSON.stringify([...new Set(exc.map((x) => String(x).trim()).filter(Boolean))]),
-      String(d.notas || ''), nowISO());
+      String(d.notas || ''), nowISO(), padre);
   return { ok: true, cliente: getCliente(id) };
 }
 function removeCliente(id) {

@@ -20,6 +20,7 @@ const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
+const apiCuentaDoc = require('./api-cuenta-doc');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
@@ -837,6 +838,20 @@ function mount(app) {
 
   // Lo que se le paga al proveedor contra lo que el sello cuesta. No necesita TBS.
   app.get('/api/os/api/revision', (_req, res) => ok(res, apiCuenta.revisarCostos()));
+
+  // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:
+  // lo que le pagamos al proveedor no puede viajar al navegador y esconderse con CSS.
+  app.get('/api/os/api/cuenta/:clienteId', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const r = apiCuenta.cuentas({ mes });
+    if (!r.ok) return err(res, 400, r.error);
+    const c = (r.cuentas || []).find((x) => String(x.cliente_id) === String(req.params.clienteId));
+    const d = apiCuentaDoc.documento({ cuenta: c, mes,
+      vista: req.query.vista === 'cliente' ? 'cliente' : 'interno',
+      alcance: ['propio', 'caja', 'total'].includes(req.query.alcance) ? req.query.alcance : 'total',
+      caja_id: req.query.caja_id || null });
+    d.ok ? ok(res, d) : err(res, 404, d.error);
+  }));
 
   // Las DOS cuentas del mes de API: la del cliente y la del proveedor, del mismo GGR.
   app.post('/api/os/api/precargar', wrap(async (req, res) => {

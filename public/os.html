@@ -60,6 +60,39 @@
   .badge.ok { background:rgba(46,160,67,.15); color:var(--green); }
   .badge.warn { background:rgba(196,86,173,.14); color:var(--gold); }
   .badge.err { background:rgba(217,83,79,.15); color:var(--red); }
+  /* Bloques de aviso. Antes cada uno traía su propio background:rgba(196,86,173,.07); a mano — un marrón oscuro
+     que venía de cuando el panel era oscuro. Con el tema claro quedaba texto oscuro sobre fondo
+     oscuro: ilegible. Ahora es una clase, tintada sobre el fondo claro y con una barra de color
+     al costado, que es lo que hace que se lea de un vistazo cuál es cuál. */
+  .nota { border-radius:8px; padding:10px 12px; margin:10px 0 0; font-size:13px; line-height:1.6;
+          border:1px solid var(--border); border-left:4px solid var(--muted); background:var(--bg3); }
+  .nota b { color:var(--text); }
+  .nota.warn { border-color:rgba(196,86,173,.35); border-left-color:var(--gold); background:rgba(196,86,173,.07); }
+  .nota.err  { border-color:rgba(217,83,79,.35);  border-left-color:var(--red);  background:rgba(217,83,79,.07); }
+  .nota.ok   { border-color:rgba(46,160,67,.35);  border-left-color:var(--green);background:rgba(46,160,67,.07); }
+  .nota .tit { font-weight:800; display:block; margin-bottom:3px; }
+  .nota.warn .tit { color:var(--gold); }
+  .nota.err  .tit { color:var(--red); }
+  .nota.ok   .tit { color:var(--green); }
+  .nota table { margin-top:6px; }
+  .nota table th { font-size:10px; }
+  .nota table td { padding:4px 9px; font-size:12px; }
+  /* Cuentas de API: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
+     cada bloque es una tabla cerrada con su propio subtotal y su TC en la cabecera. */
+  .apidiv { margin:0 0 12px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .apidiv-h { display:flex; gap:9px; align-items:baseline; padding:6px 10px; background:var(--bg3);
+              border-bottom:1px solid var(--border); font-size:12px; }
+  .apidiv table { margin:0; }
+  .apidiv tfoot td { background:var(--bg3); border-top:1px solid var(--border); }
+  .apidiv tr.sinver { background:rgba(196,86,173,.07); }
+  .apicaja { margin:0 0 12px; padding-left:12px; border-left:3px solid var(--gold); }
+  .apicaja-h { font-weight:700; font-size:13px; margin:0 0 6px; }
+  .apitres { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 8px; }
+  .apitres > div { flex:1; min-width:130px; padding:7px 11px; background:var(--bg3);
+                   border:1px solid var(--border); border-radius:7px; }
+  .apitres > div.tot { border-color:var(--gold); background:rgba(196,86,173,.07); }
+  .apitres span { display:block; font-size:11px; }
+  .apitres b { font-size:16px; }
   .muted { color:var(--muted); font-size:12px; }
   .empty { color:var(--muted); text-align:center; padding:20px; }
   .right { text-align:right; }
@@ -410,7 +443,7 @@ function editCli(id){
         </div>
         <div class="card">
           <h2>🧾 Ficha de cobro <span class="muted">(datos de referencia)</span></h2>
-          <div class="card" style="background:#2a2410;border-color:var(--gold);margin:0 0 8px;padding:8px 10px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos NO entran en ningún cálculo</b> — igual que <b>Ajuste USDT %</b>, <b>Paga proveedores</b> y <b>Permite deuda</b> de arriba: son notas para acordarse de cómo trabaja cada cliente, y por eso se sacaron de la tabla. Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
+          <div class="nota warn" style="margin:0 0 8px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos NO entran en ningún cálculo</b> — igual que <b>Ajuste USDT %</b>, <b>Paga proveedores</b> y <b>Permite deuda</b> de arriba: son notas para acordarse de cómo trabaja cada cliente, y por eso se sacaron de la tabla. Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
             <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
@@ -712,7 +745,7 @@ async function verDivisas(){
   out.innerHTML=`${r.conSobrante} con monedas de más · ${r.conFaltante} con monedas que faltan · ${r.sinDatos} sin movimiento en 6 meses`;
   const nom=(id)=>{const c=(_clientes||[]).find(x=>x.id===id); return c?(c.nombre||c.codigo):'—';};
   tab.innerHTML = (!sobran.length && !faltan.length) ? '<div class="muted" style="margin-top:8px">✅ Todas coinciden.</div>' : `
-    ${faltan.length?`<div class="card" style="background:#3a2410;border-color:var(--red);margin:10px 0 0">
+    ${faltan.length?`<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--red);margin:10px 0 0">
       <b style="color:var(--red)">${faltan.length} panel(es) MOVIERON una moneda que no tienen habilitada</b>
       <div class="muted" style="margin-top:4px">Eso sí importa: la cascada de carga puede no encontrar por dónde pasar.</div>
       <table style="margin-top:6px"><thead><tr><th>Panel</th><th>Cliente</th><th>Falta</th></tr></thead><tbody>
@@ -834,7 +867,7 @@ VIEWS.foto = async () => {
           + '<div class="card" style="flex:1;margin:0"><label>Por superagente</label><div style="font-size:19px;font-weight:800;color:'+((sa.listas===sa.total&&sa.total)?'#3c9':'inherit')+'">'+(sa.listas||0)+' / '+(sa.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Superagent</div></div>'
           + '<div class="card" style="flex:1;margin:0"><label>Por distribuidor</label><div style="font-size:19px;font-weight:800;color:'+((di.listas===di.total&&di.total)?'#3c9':'inherit')+'">'+(di.listas||0)+' / '+(di.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Distributor</div></div>'
           + '</div></div>'; })()
-    + (errs.length ? '<div class="card" style="background:#3a2410;border-color:var(--red);margin-top:8px"><b style="color:var(--red)">⚠ '+errs.length+' con error</b><div class="muted" style="margin-top:4px">'+[...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div></div>' : '')
+    + (errs.length ? '<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--red);margin-top:8px"><b style="color:var(--red)">⚠ '+errs.length+' con error</b><div class="muted" style="margin-top:4px">'+[...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div></div>' : '')
     + '</div>' + cuerpo
     + (ms.length ? '<div class="card"><h2>Meses guardados</h2><table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'+ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')+'</tbody></table></div>' : '');
 };
@@ -1802,7 +1835,7 @@ VIEWS.tc = async () => {
             <div class="muted" style="font-size:10px">${esc((x.fuente||'').replace('cargado a mano en el cierre','a mano').replace('promedio automático del mes','promedio'))}</div>
           </div>`).join('')}
       </div>
-      ${disc.length?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:10px 0 0"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal en la grilla: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:10px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
+      ${disc.length?('<div class="nota warn"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal en la grilla: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:10px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
     </div>
 
     <div class="card"><h2>Moneda × mes</h2>
@@ -2529,7 +2562,7 @@ async function calcularFac(vivo){
   const emF = (em.porOrigen || {}).facturacion || null;
   out.innerHTML = procedencia + _cabecera +
     (emF
-      ? '<div class="card" style="background:#0f2a1a;border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
+      ? '<div class="card" style="background:rgba(46,160,67,.07);border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
         + '<div class="muted" style="margin-top:4px">' + emF.cantidad + ' cliente(s) · <b>' + money(emF.total,2) + ' USDT</b> · emitido el ' + esc(String(emF.desde||'').slice(0,16).replace('T',' ')) + '</div>'
         + '<div class="muted" style="margin-top:4px">Volver a emitir no duplica nada. Si cambiaron los datos, anulá la emisión y emitila de nuevo.</div>'
         + '<button class="danger small" style="margin-top:8px" onclick="facAnular()">↩ Anular la emisión</button></div>'
@@ -2551,13 +2584,13 @@ async function calcularFac(vivo){
         + 'cargaron por fuera del sistema, así que compararlos contra sus pedidos siempre va a dar -100% y arrastra el total.</div></div>'
       : '')
     + '<div class="muted" style="margin:8px 0">Se cobra por <b>lo vendido</b> (pedidos cargados). El casino va al lado solo como control. TC: <b>'+money(r.tc,2)+'</b> ARS/USDT <span style="opacity:.7">('+esc(r.tcFuente||'')+')</span></div>'
-    + ((r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b>. Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'%)').join(' · ')+'</div></div>'):'')
-    + ((r.sinTC&&r.sinTC.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo vendido en esas monedas <b>no entra en el total</b>.</div></div>'):'')
-    + ((r.sinBase&&r.sinBase.length)?('<div class="card" style="background:#3a2410;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div></div>'):'')
-    + ((r.huerfanas&&r.huerfanas.length)?('<div class="card" style="background:#3a1010;border-color:var(--red);margin:8px 0"><b style="color:var(--red)">🔴 '+r.huerfanas.length+' código(s) con ventas que NO son de ningún cliente</b><div class="muted" style="margin-top:4px">Esa plata está vendida y <b>no se le factura a nadie</b>. Suele pasar cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior. Reasignalos o creá el cliente.</div><table style="margin-top:6px"><thead><tr><th>Código</th><th class="right">Pedidos</th><th>Vendido</th><th class="right">USDT</th></tr></thead><tbody>'+r.huerfanas.map(h=>'<tr><td><span class="pill" style="background:var(--red);color:#000">'+esc(h.codigo)+'</span></td><td class="right">'+h.pedidos+'</td><td>'+h.porDivisa.map(d=>esc(d.divisa)+' '+money(d.monto,0)).join(' · ')+'</td><td class="right"><b>'+money(h.usdt,2)+'</b></td></tr>').join('')+'</tbody></table></div>'):'')
+    + ((r.tcConflicto&&r.tcConflicto.length)?('<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ las fuentes de TC no coinciden para '+esc(r.mes)+'</b><div class="muted" style="margin-top:4px">Se usó <b>'+money(r.tc,2)+'</b>. Las otras dicen: '+r.tcConflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,2)+' ('+c.difPct+'%)').join(' · ')+'</div></div>'):'')
+    + ((r.sinTC&&r.sinTC.length)?('<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinTC.length+' moneda(s) sin tipo de cambio en '+esc(r.mes)+':</b> '+r.sinTC.map(esc).join(' · ')+'<div class="muted" style="margin-top:4px">Lo vendido en esas monedas <b>no entra en el total</b>.</div></div>'):'')
+    + ((r.sinBase&&r.sinBase.length)?('<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--red);margin:8px 0"><b style="color:var(--red)">⚠ '+r.sinBase.length+' cliente(s) SIN % base en '+esc(r.mes)+' — van al 0%:</b><div class="muted" style="margin-top:4px">'+r.sinBase.map(esc).join(' · ')+'</div></div>'):'')
+    + ((r.huerfanas&&r.huerfanas.length)?('<div class="card" style="background:rgba(217,83,79,.07);border-color:var(--red);margin:8px 0"><b style="color:var(--red)">🔴 '+r.huerfanas.length+' código(s) con ventas que NO son de ningún cliente</b><div class="muted" style="margin-top:4px">Esa plata está vendida y <b>no se le factura a nadie</b>. Suele pasar cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior. Reasignalos o creá el cliente.</div><table style="margin-top:6px"><thead><tr><th>Código</th><th class="right">Pedidos</th><th>Vendido</th><th class="right">USDT</th></tr></thead><tbody>'+r.huerfanas.map(h=>'<tr><td><span class="pill" style="background:var(--red);color:#000">'+esc(h.codigo)+'</span></td><td class="right">'+h.pedidos+'</td><td>'+h.porDivisa.map(d=>esc(d.divisa)+' '+money(d.monto,0)).join(' · ')+'</td><td class="right"><b>'+money(h.usdt,2)+'</b></td></tr>').join('')+'</tbody></table></div>'):'')
     + ((r.vendedores&&r.vendedores.length)?('<div class="muted" style="margin:8px 0">'+r.vendedores.length+' vendedor(es) quedan afuera de esta factura por diseño ('+r.vendedores.map(esc).join(' · ')+'): no pagan un % de lo que cargan, pagan el <b>costo real</b> de los proveedores que usen. Su cuenta se liquida en <b>🧮 Cierre de Mes → 🤝 Vendedores</b>.</div>'):'')
-    + ((r.enCero&&r.enCero.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.enCero.length+' cliente(s) con % base en CERO</b><div class="muted" style="margin-top:4px">Tienen el número puesto y dice 0, así que la factura les sale en cero y parece correcta. Si es a propósito, ignoralo; si fue un olvido, no lo iba a delatar nada.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Vendido (USDT)</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.enCero.map(x=>'<tr><td><b>'+esc(x.nombre)+'</b></td><td class="right">'+money(x.vendido_usdt,2)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
-    + ((r.sinPedidos&&r.sinPedidos.length)?('<div class="card" style="background:#3a2410;border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.sinPedidos.length+' cliente(s) con movimiento en el casino y CERO pedidos</b><div class="muted" style="margin-top:4px">No se les factura nada. O se cargaron por fuera del sistema, o faltan pedidos.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.sinPedidos.map(x=>'<tr><td>'+_nom(x)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
+    + ((r.enCero&&r.enCero.length)?('<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.enCero.length+' cliente(s) con % base en CERO</b><div class="muted" style="margin-top:4px">Tienen el número puesto y dice 0, así que la factura les sale en cero y parece correcta. Si es a propósito, ignoralo; si fue un olvido, no lo iba a delatar nada.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Vendido (USDT)</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.enCero.map(x=>'<tr><td><b>'+esc(x.nombre)+'</b></td><td class="right">'+money(x.vendido_usdt,2)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
+    + ((r.sinPedidos&&r.sinPedidos.length)?('<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--gold);margin:8px 0"><b style="color:var(--gold)">⚠ '+r.sinPedidos.length+' cliente(s) con movimiento en el casino y CERO pedidos</b><div class="muted" style="margin-top:4px">No se les factura nada. O se cargaron por fuera del sistema, o faltan pedidos.</div><table style="margin-top:6px"><thead><tr><th>Cliente</th><th class="right">Casino (USDT)</th></tr></thead><tbody>'+r.sinPedidos.map(x=>'<tr><td>'+_nom(x)+'</td><td class="right">'+money(x.casino_usdt,2)+'</td></tr>').join('')+'</tbody></table></div>'):'')
     + '<table><thead><tr><th>Cliente</th><th class="right">Base</th><th class="right">Pedidos</th><th class="right">Vendido (USDT)</th><th class="right">A cobrar</th><th class="right">Casino</th><th class="right">Dif.</th><th>Monedas</th></tr></thead><tbody>'
     + ((r.clientes||[]).map(c=>{
         const chips=(c.porDivisa||[]).map(d=>'<span class="pill" style="margin-right:3px" title="'+esc(d.divisa)+': vendido '+money(d.vendido,0)+(d.tc?(' · TC '+money(d.tc,2)):' · SIN TC')+'">'+esc(d.divisa)+(d.tc?'':' ⚠')+'</span>').join('');
@@ -2687,53 +2720,129 @@ async function apiCalcular(refrescar){
   if(!r.ok){ out.innerHTML='<div class="badge err">'+esc(r.error||'error')+'</div>'; return; }
   _apiCta=r; _apiAbierta.clear(); apiPintarCuentas();
 }
+/* El detalle de un bloque, cortado por DIVISA. Cada moneda tiene su TC y su subtotal; el GGR local
+   sólo se suma dentro de su divisa, y al lado va el equivalente en dólares, que es lo único
+   comparable entre monedas y lo que sirve para auditar contra el panel. */
+function apiBloque(b, conInterno){
+  return (b.porDivisa||[]).map(d=>`
+    <div class="apidiv">
+      <div class="apidiv-h">
+        <b>${esc(d.divisa)}</b>
+        <span class="muted">TC ${esc(d.tc_cliente)}${d.tc_proveedor&&d.tc_proveedor!==d.tc_cliente?' · proveedor '+(d.tc_proveedor_varios?'varios':esc(d.tc_proveedor)):''}</span>
+        <span style="flex:1"></span>
+        <span class="muted">GGR ${money(d.ggr,0)} ${esc(d.divisa)} = <b>US$ ${money(d.ggr_usd,2)}</b></span>
+      </div>
+      <table><thead><tr>
+        <th>Sello</th><th class="right">GGR ${esc(d.divisa)}</th><th class="right">GGR US$</th>
+        <th class="right">%</th><th class="right">Le cobro</th>
+        ${conInterno?'<th class="right">Le pago</th><th class="right">Empresa</th>':''}
+      </tr></thead><tbody>
+      ${d.lineas.map(l=>`<tr${l.origen&&l.origen!=='verificado'?' class="sinver"':''}>
+        <td>${esc(l.sello)}${l.origen&&l.origen!=='verificado'?' <span class="cie-est cie-est-sc" title="El % salió de la tabla de precios y no está verificado">sin verificar</span>':''}</td>
+        <td class="right muted">${money(l.ggr,0)}</td>
+        <td class="right muted">${money(l.ggr_usd,2)}</td>
+        <td class="right">${esc(l.pct_cliente)}%${conInterno?`<span class="muted" style="font-size:10px"> / ${esc(l.pct_proveedor||0)}%</span>`:''}</td>
+        <td class="right"><b>${money(l.usdt_cliente,2)}</b></td>
+        ${conInterno?`<td class="right muted">${money(l.usdt_proveedor,2)}</td>
+          <td class="right" style="color:var(--gold)">${money(l.usdt_empresa,2)}</td>`:''}
+      </tr>`).join('')}
+      </tbody><tfoot><tr>
+        <td><b>Subtotal ${esc(d.divisa)}</b></td>
+        <td class="right"><b>${money(d.ggr,0)}</b></td>
+        <td class="right"><b>${money(d.ggr_usd,2)}</b></td><td></td>
+        <td class="right"><b>${money(d.usdt_cliente,2)}</b></td>
+        ${conInterno?`<td class="right">${money(d.usdt_proveedor,2)}</td>
+          <td class="right" style="color:var(--gold)"><b>${money(d.usdt_empresa,2)}</b></td>`:''}
+      </tr></tfoot></table>
+    </div>`).join('');
+}
 function apiPintarCuentas(){
   const r=_apiCta, out=document.getElementById('api-cta'); if(!out) return;
   const T=r.totales||{};
-  const filas=(r.cuentas||[]).map(c=>{
-    const ab=_apiAbierta.has(c.cliente_id);
-    const det=ab?`<tr class="sub"><td colspan="6"><div class="subwrap">
-      <table><thead><tr><th>Sello</th><th>Divisa</th><th class="right">GGR</th><th class="right">%</th><th class="right">Le cobro</th><th class="right">Le pago al prov.</th><th class="right">Queda</th><th class="right">Central</th><th class="right">Henry</th></tr></thead><tbody>
-      ${c.lineas.map(l=>`<tr${l.origen!=='verificado'?' style="background:rgba(210,160,0,.10)"':''}>
-        <td>${esc(l.sello)}${l.origen!=='verificado'?' <span class="cie-est cie-est-sc" title="El % no está verificado: salió de la tabla de precios">sin verificar</span>':''}</td>
-        <td class="muted">${esc(l.divisa)}</td><td class="right muted">${money(l.ggr,0)}</td>
-        <td class="right">${esc(l.pct_cliente)}%<span class="muted" style="font-size:10px"> / ${esc(l.pct_proveedor||0)}%</span></td>
-        <td class="right"><b>${money(l.usdt_cliente,2)}</b></td>
-        <td class="right muted">${money(l.usdt_proveedor,2)}${l.tc_proveedor&&l.tc_proveedor!==l.tc_cliente?`<div style="font-size:10px">TC ${esc(l.tc_proveedor)}</div>`:''}</td>
-        <td class="right">${money(l.usdt_empresa,2)}</td>
-        <td class="right muted">${l.usdt_central!=null?money(l.usdt_central,2):'—'}</td>
-        <td class="right muted">${l.usdt_henry!=null?money(l.usdt_henry,2):'—'}</td></tr>`).join('')}
-      </tbody></table></div></td></tr>`:'';
-    return `<tr style="cursor:pointer" onclick="apiToggle('${c.cliente_id}')">
+  const fila=(c,esCaja)=>{
+    const b=c.total||c, id=String(c.cliente_id), ab=_apiAbierta.has(id);
+    const nl=(b.lineas||[]).length;
+    // Un cliente con caja se muestra en tres partes, que es como el dueño entrega las cuentas.
+    const partes=(c.cajas&&c.cajas.length)?`
+      <tr class="sub"><td colspan="5"><div class="subwrap">
+        <div class="apitres">
+          <div><span class="muted">Sin la caja</span><b>${money(c.propio.usdt_cliente,2)}</b></div>
+          ${c.cajas.map(k=>`<div><span class="muted">${esc(k.login)}</span><b>${money(k.usdt_cliente,2)}</b></div>`).join('')}
+          <div class="tot"><span class="muted">Total</span><b>${money(c.total.usdt_cliente,2)}</b></div>
+        </div></div></td></tr>`:'';
+    const det=ab?`<tr class="sub"><td colspan="5"><div class="subwrap">
+      <div class="row" style="margin:0 0 8px">
+        <button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','${c.cajas&&c.cajas.length?'total':'propio'}')">📄 Cuenta del cliente</button>
+        ${(c.cajas||[]).map(k=>`<button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','caja','${k.cliente_id}')">📄 Sólo ${esc(k.login)}</button>`).join('')}
+        <span style="flex:1"></span>
+      </div>
+      ${apiBloque(c.propio||c,true)}
+      ${(c.cajas||[]).map(k=>`<div class="apicaja"><div class="apicaja-h">📦 ${esc(k.login)} <span class="muted">— caja de ${esc(c.login)}, se factura aparte</span></div>${apiBloque(k,true)}</div>`).join('')}
+      </div></td></tr>`:'';
+    return `<tr style="cursor:pointer" onclick="apiToggle('${id}')">
       <td><span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${esc(c.login)}</b>
-        ${c.sinVerificar?`<span class="cie-est cie-est-sc">${c.sinVerificar} sin verificar</span>`:''}</td>
-      <td class="muted">${c.lineas.length} línea${c.lineas.length===1?'':'s'}</td>
-      <td class="right"><b>${money(c.usdt_cliente,2)}</b></td>
-      <td class="right muted">${money(c.usdt_proveedor,2)}</td>
-      <td class="right" style="color:var(--gold)"><b>${money(c.usdt_empresa,2)}</b></td></tr>`+det;
-  }).join('');
+        ${c.cajas&&c.cajas.length?`<span class="badge warn" style="margin-left:5px">+${c.cajas.length} caja${c.cajas.length===1?'':'s'}</span>`:''}
+        ${b.sinVerificar?`<span class="cie-est cie-est-sc">${b.sinVerificar} sin verificar</span>`:''}</td>
+      <td class="muted">${nl} línea${nl===1?'':'s'} · ${(b.porDivisa||[]).length} divisa${(b.porDivisa||[]).length===1?'':'s'}</td>
+      <td class="right"><b>${money(b.usdt_cliente,2)}</b></td>
+      <td class="right muted">${money(b.usdt_proveedor,2)}</td>
+      <td class="right" style="color:var(--gold)"><b>${money(b.usdt_empresa,2)}</b></td></tr>`+partes+det;
+  };
+  const filas=(r.cuentas||[]).map(c=>fila(c)).join('');
   out.innerHTML=`
     <div class="row" style="align-items:stretch">
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Le cobro a los clientes</label>
         <div style="font-size:22px;font-weight:800">${money(T.cliente,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Le pago a los proveedores</label>
         <div style="font-size:22px;font-weight:800;opacity:.8">${money(T.proveedor,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
-      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Queda para repartir</label>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Queda para la empresa <span class="muted">(Henry incluido)</span></label>
         <div style="font-size:22px;font-weight:800;color:var(--gold)">${money(T.empresa,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
     </div>
-    ${(r.avisos||[]).length?`<div class="card" style="background:#3a2410;border-color:var(--gold);margin:10px 0 0">${r.avisos.map(esc).join('<br>')}</div>`:''}
-    ${(r.sinTC||[]).length?`<div class="badge err" style="margin-top:8px">Sin tipo de cambio: ${r.sinTC.map(esc).join(', ')}</div>`:''}
-    <table style="margin-top:12px"><thead><tr><th>Cuenta</th><th></th><th class="right">Le cobro</th><th class="right">Le pago</th><th class="right">Queda</th></tr></thead><tbody>
+    ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
+    ${(r.aceptados||[]).length?`<div class="nota"><span class="tit">Decisiones tomadas</span>${r.aceptados.map(esc).join('<br>')}</div>`:''}
+    ${(r.sinTC||[]).length?`<div class="nota err"><span class="tit">Sin tipo de cambio</span>${r.sinTC.map(esc).join(', ')}</div>`:''}
+    <table style="margin-top:12px"><thead><tr><th>Cuenta</th><th></th><th class="right">Le cobro</th><th class="right">Le pago</th><th class="right">Empresa</th></tr></thead><tbody>
     ${filas||'<tr><td colspan="5" class="empty">Sin GGR este mes.</td></tr>'}</tbody></table>
-    ${(r.sinPrecio||[]).length?`<div class="card" style="background:#3a2410;border-color:var(--red);margin-top:12px">
-      <b style="color:var(--red)">${r.sinPrecio.length} sello(s) con GGR y SIN precio cargado</b>
-      <div class="muted" style="margin:4px 0 6px">Produjeron ganancia y no se le está cobrando a nadie.</div>
+    ${(r.sinPrecio||[]).length?`<div class="nota err">
+      <span class="tit">${r.sinPrecio.length} sello(s) con GGR y SIN precio cargado</span>
+      Produjeron ganancia y no se le está cobrando a nadie.
+      <div style="max-height:280px;overflow:auto;margin-top:6px">
       <table><thead><tr><th>Cuenta</th><th>Sello</th><th>GGR</th></tr></thead><tbody>
-      ${r.sinPrecio.slice(0,20).map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
+      ${r.sinPrecio.map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
         <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td></tr>`).join('')}
-      </tbody></table></div>`:''}`;
+      </tbody></table></div></div>`:''}`;
 }
 function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
+/* La cuenta del cliente la arma el SERVIDOR: lo que le pagamos al proveedor no viaja al navegador.
+   Por eso esto pide el documento en vez de esconder columnas de lo que ya está en pantalla. */
+async function apiDoc(id,vista,alcance,caja){
+  const mes=document.getElementById('api-mes').value;
+  const q=`?mes=${encodeURIComponent(mes)}&vista=${vista}&alcance=${alcance}${caja?'&caja_id='+encodeURIComponent(caja):''}`;
+  const d=await api('/api/os/api/cuenta/'+encodeURIComponent(id)+q);
+  if(!d.ok) return alert(d.error||'no se pudo armar');
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><meta charset="utf-8"><title>Cuenta ${esc(d.cuenta)} — ${esc(d.mes)}</title>
+  <style>body{font:14px system-ui;padding:26px;color:#2b2230;max-width:900px;margin:auto}
+  h1{font-size:19px;margin:0 0 2px}h2{font-size:14px;margin:22px 0 4px;color:#8c7e89}
+  table{width:100%;border-collapse:collapse;margin-bottom:6px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:#8c7e89;border-bottom:1px solid #ead6e6;padding:5px 8px}
+  td{padding:5px 8px;border-bottom:1px solid #f3e9f1}.r{text-align:right}
+  tfoot td{font-weight:700;border-top:2px solid #ead6e6;border-bottom:none}
+  .tot{margin-top:20px;padding:12px 14px;background:#f6e9f4;border-radius:8px;font-size:17px;font-weight:800}
+  @media print{button{display:none}}</style></head><body>
+  <h1>${esc(d.cuenta)}${d.caja?' — '+esc(d.caja):''}</h1>
+  <div style="color:#8c7e89;margin-bottom:14px">Consumo de ${esc(d.mes)}</div>
+  ${d.porDivisa.map(g=>`<h2>${esc(g.divisa)} · tipo de cambio ${esc(g.tc_cliente)}</h2>
+    <table><thead><tr><th>Proveedor</th><th class="r">GGR ${esc(g.divisa)}</th><th class="r">GGR US$</th><th class="r">%</th><th class="r">USDT</th></tr></thead><tbody>
+    ${g.lineas.map(l=>`<tr><td>${esc(l.sello)}</td><td class="r">${money(l.ggr,0)}</td>
+      <td class="r">${money(l.ggr_usd,2)}</td><td class="r">${esc(l.pct_cliente)}%</td>
+      <td class="r">${money(l.usdt_cliente,2)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Subtotal</td><td class="r">${money(g.ggr,0)}</td><td class="r">${money(g.ggr_usd,2)}</td><td></td><td class="r">${money(g.usdt_cliente,2)}</td></tr></tfoot></table>`).join('')}
+  <div class="tot">Total a pagar: ${money(d.usdt_cliente,2)} USDT</div>
+  <button style="margin-top:18px;padding:9px 15px" onclick="window.print()">Guardar como PDF</button>
+  </body></html>`);
+  w.document.close();
+}
 
 // ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────
 VIEWS.reportes = async () => {

@@ -158,6 +158,54 @@ function revisarCostos() {
 }
 
 /**
+ * CORTE POR DIVISA.
+ *
+ * Una regla que no se puede violar: el GGR local sólo se suma DENTRO de la misma divisa. Sumar
+ * los GGR de ARS y PYG da un número que no significa nada. Entre divisas lo único sumable es el
+ * equivalente en dólares. Por eso el subtotal lleva las dos cosas y el total del cliente sólo la
+ * segunda.
+ *
+ * El TC del cliente es uno por divisa y por mes, así que va en la cabecera del bloque. El del
+ * proveedor puede variar entre sellos de la misma divisa (SL2 va con el promedio y Slot Zona con
+ * el del proveedor), y cuando eso pasa se dice en vez de mostrar uno cualquiera.
+ */
+function porDivisaDe(lineas) {
+  const ix = new Map();
+  lineas.forEach((l) => {
+    let g = ix.get(l.divisa);
+    if (!g) {
+      g = { divisa: l.divisa, tc_cliente: l.tc_cliente, tc_proveedor: null, tc_proveedor_varios: false,
+        ggr: '0', ggr_usd: '0', usdt_cliente: '0', usdt_proveedor: '0', usdt_empresa: '0', lineas: [] };
+      ix.set(l.divisa, g);
+    }
+    g.lineas.push(l);
+    g.ggr = money.add(g.ggr, l.ggr);
+    g.ggr_usd = money.add(g.ggr_usd, l.ggr_usd || '0');
+    g.usdt_cliente = money.add(g.usdt_cliente, l.usdt_cliente);
+    g.usdt_proveedor = money.add(g.usdt_proveedor, l.usdt_proveedor);
+    g.usdt_empresa = money.add(g.usdt_empresa, l.usdt_empresa);
+    if (l.tc_proveedor) {
+      if (g.tc_proveedor == null) g.tc_proveedor = l.tc_proveedor;
+      else if (g.tc_proveedor !== l.tc_proveedor) g.tc_proveedor_varios = true;
+    }
+  });
+  return [...ix.values()].sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
+}
+
+/** Suma dos bloques de cuenta (la caja + el resto = el total). */
+function sumarBloques(a, b) {
+  const lineas = [...a.lineas, ...b.lineas];
+  return {
+    lineas,
+    porDivisa: porDivisaDe(lineas),
+    usdt_cliente: money.round(money.add(a.usdt_cliente, b.usdt_cliente), 2),
+    usdt_proveedor: money.round(money.add(a.usdt_proveedor, b.usdt_proveedor), 2),
+    usdt_empresa: money.round(money.add(a.usdt_empresa, b.usdt_empresa), 2),
+    sinVerificar: (a.sinVerificar || 0) + (b.sinVerificar || 0),
+  };
+}
+
+/**
  * Las dos cuentas del mes.
  * @returns { ok, mes, cuentas[], totales, sinPrecio[], sinTC[], avisos[] }
  */
@@ -220,20 +268,21 @@ function cuentas({ mes, cliente_id = null } = {}) {
         const usdProv = tcP.valor ? money.round(money.div(mProv, tcP.valor), 2) : '0';
         const usdEmp = money.round(money.sub(usdCli, usdProv), 2);
 
-        // El reparto: los puntos suman lo que queda, así que reparten esa ganancia y nada más.
-        const ib = Number(p.pts_ib || 0); const hen = Number(p.pts_henry || 0);
-        const pts = ib + hen;
-        const usdIb = pts ? money.round(money.mul(usdEmp, String(ib / pts)), 2) : null;
-        const usdHen = pts ? money.round(money.sub(usdEmp, usdIb), 2) : null;
+        // El GGR en dólares se saca del profit CRUDO, no del redondeado: si no, los centavos no
+        // cierran contra usdt_cliente y el número que sirve para auditar es justo el que miente.
+        const ggrUsd = money.round(money.div(profit, tcC.valor), 2);
 
         uCli = money.add(uCli, usdCli); uProv = money.add(uProv, usdProv);
         lineas.push({
           sello: s.corto || s.nombre, sello_largo: s.nombre, tipo: s.tipo, divisa,
-          ggr: money.round(profit, 2),
+          ggr: money.round(profit, 2), ggr_crudo: profit,
           pct_cliente: p.pct_cliente, pct_proveedor: p.pct_proveedor, origen: p.origen,
           monto_cliente: mCli, tc_cliente: tcC.valor, usdt_cliente: usdCli,
           monto_proveedor: mProv, tc_proveedor: tcP.valor || null, usdt_proveedor: usdProv,
-          usdt_empresa: usdEmp, usdt_central: usdIb, usdt_henry: usdHen,
+          // usdt_empresa ya es "Henry incluido": Henry dejó de ser participante y se fusionó
+          // adentro de Empresa, así que la partición en central/henry se fue. La columna que el
+          // dueño quiere ver es una sola.
+          usdt_empresa: usdEmp, ggr_usd: ggrUsd, costo_sello: s.costo == null ? null : String(s.costo),
         });
       }
     }
@@ -251,7 +300,8 @@ function cuentas({ mes, cliente_id = null } = {}) {
     lineas.sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
     out.push({
       cliente_id: cl.id, login: cl.login, alias: cl.alias, agente: cl.agente,
-      lineas,
+      padre_id: cl.padre_id || null,
+      lineas, porDivisa: porDivisaDe(lineas),
       usdt_cliente: money.round(uCli, 2),
       usdt_proveedor: money.round(uProv, 2),
       usdt_empresa: money.round(money.sub(uCli, uProv), 2),
@@ -259,6 +309,29 @@ function cuentas({ mes, cliente_id = null } = {}) {
     });
     totCli = money.add(totCli, uCli); totProv = money.add(totProv, uProv);
   }
+
+  // ── LAS CAJAS ADENTRO DE SU DUEÑO ──────────────────────────────────────────────────────────
+  // MULT2-CAL-ARS-PROD no es otro cliente: es la caja de Nacho, a la que se le entrega una cuenta
+  // aparte. Con padre_id deja de figurar como un cliente suelto y pasa a ser un bloque adentro del
+  // suyo, con las tres vistas que hacen falta: la caja sola, el resto solo, y el TOTAL de las dos.
+  // El `excluye` NO se toca: es lo que hace que las líneas del padre sean el neto (TBS devuelve el
+  // subárbol completo). Por eso caja + resto da exactamente el mismo total que antes.
+  const porId = {}; out.forEach((c) => { porId[String(c.cliente_id)] = c; });
+  const anidados = [];
+  out.forEach((c) => {
+    if (!c.padre_id) return;
+    const padre = porId[String(c.padre_id)];
+    if (!padre) return;                      // el padre no facturó este mes: la caja queda suelta
+    (padre.cajas = padre.cajas || []).push(c);
+    anidados.push(String(c.cliente_id));
+  });
+  const raiz = out.filter((c) => !anidados.includes(String(c.cliente_id)));
+  raiz.forEach((c) => {
+    if (!c.cajas) return;
+    c.propio = { lineas: c.lineas, porDivisa: c.porDivisa, usdt_cliente: c.usdt_cliente,
+      usdt_proveedor: c.usdt_proveedor, usdt_empresa: c.usdt_empresa, sinVerificar: c.sinVerificar };
+    c.total = c.cajas.reduce((acc, k) => sumarBloques(acc, k), c.propio);
+  });
 
   if (sinTraer.length) {
     avisos.push(`${sinTraer.length} sello(s) todavía sin traer de TBS (${sinTraer.slice(0, 6).join(', ')}${sinTraer.length > 6 ? '…' : ''}). El total está incompleto hasta traerlos.`);
@@ -276,10 +349,10 @@ function cuentas({ mes, cliente_id = null } = {}) {
   const rev = revisarCostos();
   avisos.push(...rev.avisos);
   const { desalineados, bajoCosto, aceptados } = rev;
-  out.sort((a, b) => Number(b.usdt_cliente) - Number(a.usdt_cliente));
+  raiz.sort((a, b) => Number((b.total || b).usdt_cliente) - Number((a.total || a).usdt_cliente));
   return {
     ok: true, mes: m,
-    cuentas: out,
+    cuentas: raiz,
     totales: {
       cliente: money.round(totCli, 2),
       proveedor: money.round(totProv, 2),

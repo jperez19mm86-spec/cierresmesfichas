@@ -471,6 +471,48 @@ async function main() {
     check('API: la diferencia es exactamente la pérdida', mo.sub(facturable, neto) === '182513445', mo.sub(facturable, neto));
   }
 
+  // ── los dos documentos: el del cliente NO puede llevar lo que le pagamos al proveedor ──
+  {
+    const doc = require('../src/api-cuenta-doc');
+    const mo = require('../src/lib/money');
+    const linea = (sello, divisa, ggr, ggrUsd, cli, prov) => ({
+      sello, sello_largo: sello + ' (largo)', tipo: 'prepago', divisa,
+      ggr, ggr_usd: ggrUsd, tc_cliente: '1000', pct_cliente: '10', monto_cliente: cli,
+      usdt_cliente: cli, pct_proveedor: '4', costo_sello: '4', monto_proveedor: prov,
+      tc_proveedor: '1100', usdt_proveedor: prov, usdt_empresa: mo.sub(cli, prov), origen: 'verificado',
+    });
+    const bloque = (ls) => ({ lineas: ls, porDivisa: [
+      { divisa: 'ARS', tc_cliente: '1000', tc_proveedor: '1100', tc_proveedor_varios: false,
+        ggr: '2000000', ggr_usd: '2000', usdt_cliente: '200', usdt_proveedor: '80', usdt_empresa: '120',
+        lineas: ls },
+    ], usdt_cliente: '200', usdt_proveedor: '80', usdt_empresa: '120', sinVerificar: 0 });
+    const propio = bloque([linea('SL', 'ARS', '1200000', '1200', '120', '48')]);
+    const caja = bloque([linea('XG', 'ARS', '800000', '800', '80', '32')]);
+    const cuenta = { cliente_id: 'P1', login: 'Padre', propio,
+      cajas: [{ cliente_id: 'C1', login: 'LaCaja', ...caja }],
+      total: { ...bloque([...propio.lineas, ...caja.lineas]), usdt_cliente: '200' } };
+
+    const dCli = doc.documento({ cuenta, mes: '2026-07', vista: 'cliente', alcance: 'total' });
+    const txt = JSON.stringify(dCli);
+    check('API/doc: la cuenta del cliente no lleva NADA del proveedor ni del reparto',
+      !/proveedor|empresa|pts_|central|henry|costo_sello|origen/i.test(txt), txt.slice(0, 220));
+    check('API/doc: pero sí lleva el GGR en las dos monedas',
+      /"ggr":/.test(txt) && /"ggr_usd":/.test(txt) && /"tc_cliente":/.test(txt));
+    const dInt = doc.documento({ cuenta, mes: '2026-07', vista: 'interno', alcance: 'total' });
+    check('API/doc: la interna sí lleva el proveedor y la empresa',
+      dInt.usdt_proveedor === '80' && dInt.usdt_empresa === '120', JSON.stringify([dInt.usdt_proveedor, dInt.usdt_empresa]));
+    const dCaja = doc.documento({ cuenta, mes: '2026-07', vista: 'cliente', alcance: 'caja', caja_id: 'C1' });
+    check('API/doc: se puede pedir sólo la caja', dCaja.ok && dCaja.caja === 'LaCaja' && dCaja.usdt_cliente === '200', JSON.stringify(dCaja.caja));
+    const dProp = doc.documento({ cuenta, mes: '2026-07', vista: 'interno', alcance: 'propio' });
+    check('API/doc: y el resto sin la caja', dProp.ok && dProp.alcance === 'propio', dProp.alcance);
+    check('API/doc: la interna muestra las tres vistas juntas',
+      dInt.desglose && dInt.desglose.cajas.length === 1 && dInt.desglose.total, JSON.stringify(dInt.desglose || {}).slice(0, 120));
+    check('API/doc: una caja que no existe no rompe, avisa',
+      doc.documento({ cuenta, mes: '2026-07', alcance: 'caja', caja_id: 'NOPE' }).ok === false);
+    // el total en dólares es lo único sumable entre monedas
+    check('API/doc: el total en US$ sale de sumar los subtotales por divisa', dCli.ggr_usd === '2000', dCli.ggr_usd);
+  }
+
   // ── VIGENCIAS DEL REPARTO: cargar uno con fecha ANTERIOR a otro ya cargado tiene que
   // REEMPLAZARLO, no convivir con él. Cuando convivían, el mes devolvía los dos repartos juntos
   // y la Empresa aparecía dos veces — el reparto sumaba más que la base y nadie lo veía.
