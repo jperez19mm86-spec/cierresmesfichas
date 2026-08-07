@@ -865,6 +865,7 @@ VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
   const ms = (await api('/api/os/estadisticas/meses')).meses||[];
+  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   const d = r.detalle||[];
   const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores'};
   const errs = d.filter(x=>x.estado==='error');
@@ -915,6 +916,15 @@ VIEWS.foto = async () => {
         + r.total+' consultas, y puede no terminar.</div>')
     + (errs.length ? '<div class="nota err" style="margin-top:8px"><span class="tit">'+errs.length+' con error</span>'
         + [...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div>' : '')
+    + '<div class="card" style="background:var(--bg3);margin-top:12px"><b>Y la otra mitad: la vista GENERAL</b>'
+    + '<div class="muted" style="margin-top:4px">Lo de arriba dice <b>quién consumió qué</b> — se agrupa por superagente y '
+    + 'distribuidor, y sirve para cobrarle a cada cliente lo que usó. Pero para saber <b>cuánto le debés vos al proveedor</b> '
+    + 'hace falta el total de toda la plataforma, sin agrupar por nadie (lo que el casino llama "Datos generales"). '
+    + 'Son dos preguntas distintas y dos consultas distintas; las dos son del mismo mes, así que se sacan acá.</div>'
+    + '<div class="row" style="margin-top:8px">'
+    + cxs.filter(c=>c.activa!==false).map(c=>'<div style="flex:0"><button class="outline small" onclick="fotoGeneral(\''+c.id+'\',\''+esc(String(c.nombre)).replace(/\x27/g,"")+'\')">📥 '+esc(c.nombre)+'</button></div>').join('')
+    + '<div class="muted" style="flex:1;align-self:center">Una consulta por conexión. Si el mes ya está sacado, contesta al instante.</div>'
+    + '</div><div id="foto-gen" class="muted" style="margin-top:6px"></div></div>'
     + '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Cómo se saca, y el detalle por divisa</summary>'
     + '<div class="nota" style="margin-top:8px"><b>Son dos pasadas y hay que cambiar un ajuste en el casino entre una y otra.</b> '
     + 'El casino agrupa por un nivel a la vez y eso <b>no se puede cambiar desde acá</b>: se cambia a mano en su pantalla '
@@ -931,6 +941,19 @@ VIEWS.foto = async () => {
         + ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')
         + '</tbody></table></div>' : '');
 };
+/* La vista general (sin agrupar) del mes, por conexión. Es la que necesita "cuánto le pago al
+   proveedor": el total de la plataforma, no el de cada nodo. Vive en otro servicio pero es el
+   mismo mes, y tenerla en otra pantalla hacía que un mes pareciera sacado estando a medias. */
+async function fotoGeneral(cxId, nombre){
+  const cont=document.getElementById('foto-gen');
+  cont.innerHTML='<span class="muted">Preguntándole a '+esc(nombre)+'… puede tardar minutos.</span>';
+  const r=await api('/api/os/pago-proveedores/precargar',{method:'POST',
+    body:JSON.stringify({mes:_fotoMes, conexion_id:cxId})});
+  cont.innerHTML = r.ok
+    ? '<span class="badge ok">'+esc(nombre)+'</span> '+(r.yaEstaba?'ya estaba sacado':'listo')
+      +(r.avisos&&r.avisos.length?' · <span style="color:var(--red)">'+r.avisos.map(esc).join(' · ')+'</span>':'')
+    : '<span class="badge err">'+esc(nombre)+'</span> '+esc(r.error||'no se pudo');
+}
 async function fotoSacar(refrescar){
   if(refrescar && !confirm('¿Rehacer TODA la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
   toast('Sacando la foto… puede tardar varios minutos');
