@@ -867,6 +867,42 @@ function mount(app) {
     ok(res, apiStore.setEnResumen(b.mes, b.clave, b.entra !== false, b.motivo));
   }));
 
+  // Mandarle a un cliente de API su cuenta del mes por Telegram.
+  // SALE PARA AFUERA: se pide confirmación en la pantalla y se manda la vista 'cliente', que por
+  // construcción no lleva lo que le pagamos al proveedor ni cómo se reparte adentro.
+  app.post('/api/os/api/cuenta/:clienteId/enviar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    const cl = apiStore.listClientes().find((x) => String(x.id) === String(req.params.clienteId));
+    if (!cl) return err(res, 404, 'cuenta de API no encontrada');
+    const chat = (cl.telegram_chat_id || '').trim();
+    if (!chat) return err(res, 400, `${cl.login} no tiene grupo de Telegram cargado (se pone en 👥 Cuentas de API)`);
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
+
+    const r = apiCuenta.cuentas({ mes });
+    if (!r.ok) return err(res, 400, r.error);
+    const cuenta = (r.cuentas || []).find((x) => String(x.cliente_id) === String(cl.id));
+    if (!cuenta) return err(res, 400, `${cl.login} no tiene consumo en ${mes}: no hay nada que mandar`);
+    const doc = apiCuentaDoc.documento({ cuenta, mes, vista: 'cliente',
+      alcance: ['propio', 'caja', 'total'].includes(b.alcance) ? b.alcance : 'total', caja_id: b.caja_id || null });
+    if (!doc.ok) return err(res, 400, doc.error);
+
+    // Cinturón y tiradores: la lista blanca ya lo garantiza, pero esto sale para afuera y no hay
+    // vuelta atrás. Si alguna vez alguien agrega un campo al motor, acá se frena antes de mandarlo.
+    const txt = apiCuentaDoc.aTexto(doc, { titulo: apiResumen.comoLoLlama(cl) });
+    if (/proveedor|usdt_empresa|pts_ib|pts_henry|costo_sello/i.test(JSON.stringify(doc))) {
+      return err(res, 500, 'la cuenta del cliente traía datos internos: NO se mandó nada. Avisá que esto pasó.');
+    }
+    const partes = facturaSvc.partir(txt);
+    const enviados = [];
+    for (const p of partes) { const x = await telegram.sendMessage(tok, chat, p); enviados.push(x); if (!x.ok) break; }
+    const fallo = enviados.find((x) => !x.ok);
+    if (fallo) return err(res, 502, `se mandaron ${enviados.length - 1} de ${partes.length} partes: ${fallo.error}`);
+    console.log(`[API] cuenta enviada a ${cl.login} (${mes}) · ${partes.length} mensaje(s)`);
+    ok(res, { enviado: true, partes: partes.length, total_usdt: doc.usdt_cliente });
+  }));
+
   // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:
   // lo que le pagamos al proveedor no puede viajar al navegador y esconderse con CSS.
   app.get('/api/os/api/cuenta/:clienteId', wrap((req, res) => {

@@ -520,6 +520,24 @@ async function main() {
       doc.documento({ cuenta, mes: '2026-07', alcance: 'caja', caja_id: 'NOPE' }).ok === false);
     // el total en dólares es lo único sumable entre monedas
     check('API/doc: el total en US$ sale de sumar las secciones', dCli.ggr_usd === '4000', dCli.ggr_usd);
+
+    // ── el texto que se le manda por Telegram ──
+    // Sale del documento YA proyectado, nunca de la cuenta cruda. Un mensaje mandado no se puede
+    // volver atrás: si acá se colara lo que le pagamos al proveedor, el cliente lo lee y listo.
+    const txtCli = doc.aTexto(dCli, { titulo: 'Nacho' });
+    check('API/telegram: el texto no lleva nada del proveedor ni del reparto',
+      !/proveedor|empresa|henry|central|costo/i.test(txtCli), txtCli.slice(0, 200));
+    check('API/telegram: lleva el total y el detalle por divisa',
+      /TOTAL A PAGAR/.test(txtCli) && /ARS/.test(txtCli) && /tipo de cambio/.test(txtCli));
+    check('API/telegram: con dos proyectos, los separa', /▸ Padre/.test(txtCli) && /▸ LaCaja/.test(txtCli),
+      txtCli.slice(0, 300));
+    const txtInt = doc.aTexto(dInt, { titulo: 'Nacho' });
+    check('API/telegram: el texto se arma igual desde la vista interna (no filtra por venir de ahí)',
+      !/usdt_proveedor|pts_ib/.test(txtInt));
+    check('API/telegram: sin documento no inventa un mensaje', doc.aTexto(null) === '' && doc.aTexto({ ok: false }) === '');
+    // el < de un nombre no puede romper el HTML del mensaje
+    const raro = doc.documento({ cuenta: { ...cuenta, login: '<b>hack</b>' }, mes: '2026-07', vista: 'cliente', alcance: 'propio' });
+    check('API/telegram: un nombre con HTML se escapa', /&lt;b&gt;hack/.test(doc.aTexto(raro)), doc.aTexto(raro).slice(0, 80));
   }
 
   // ── el cierre del mes: elegir qué entra en el total, y que la decisión sea por MES ──

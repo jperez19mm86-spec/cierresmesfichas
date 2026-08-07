@@ -2897,14 +2897,17 @@ API.clientes = async () => {
     <div class="card"><h2>Cuentas de API <span class="muted">(${cs.length})</span></h2>
       <div class="muted">Cada cuenta es un nodo del árbol de TBS. La clave es su <b>id</b>, no el nombre:
         la planilla los escribe distinto de como los llama el panel, y por eso cada uno guarda sus <b>otros nombres</b>.</div>
-      <table style="margin-top:10px"><thead><tr><th>Cuenta en TBS</th><th>id</th><th>Cuelga de</th><th>Otros nombres</th><th class="right">Sellos con precio</th><th>Estado</th></tr></thead><tbody>
+      <table style="margin-top:10px"><thead><tr><th>Cuenta en TBS</th><th>id</th><th>Otros nombres</th><th>Grupo de Telegram</th><th class="right">Sellos con precio</th><th>Estado</th></tr></thead><tbody>
       ${cs.map(c=>{
         const n=Object.keys((m.celdas||{})[c.id]||{}).length;
         const ver=Object.values((m.celdas||{})[c.id]||{}).filter(x=>x.origen==='verificado').length;
         return `<tr${c.activo?'':' style="opacity:.5"'}>
           <td><b>${esc(c.login)}</b>${c.notas?`<div class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}</td>
-          <td class="muted">${esc(c.id)}</td><td class="muted">${esc(c.agente||'—')}</td>
+          <td class="muted">${esc(c.id)}<div style="font-size:10px">cuelga de ${esc(c.agente||'—')}</div></td>
           <td class="muted" style="font-size:11px">${(c.alias||[]).join(' · ')||'—'}</td>
+          <td><input id="tgapi-${c.id}" value="${esc(c.telegram_chat_id||'')}" placeholder="-1001234567890"
+            onchange="apiTgGuardar('${c.id}')" style="width:170px;font-family:monospace;font-size:12px">
+            ${c.telegram_chat_id?'':'<span class="badge err" style="margin-left:5px">sin grupo</span>'}</td>
           <td class="right">${n?`<b>${n}</b> <span class="muted" style="font-size:11px">(${ver} verificados)</span>`:'<span class="badge err">sin precios</span>'}</td>
           <td>${c.activo?'<span class="badge ok">activa</span>':'<span class="muted">inactiva</span>'}</td></tr>`;
       }).join('')}
@@ -3052,7 +3055,9 @@ function apiPintarCuentas(){
       <div class="row" style="margin:0 0 8px">
         <button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','${c.cajas&&c.cajas.length?'total':'propio'}')">📄 Cuenta del cliente</button>
         ${(c.cajas||[]).map(k=>`<button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','caja','${k.cliente_id}')">📄 Sólo ${esc(k.login)}</button>`).join('')}
+        <button class="small" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}')">📤 Enviar por Telegram</button>
         <span style="flex:1"></span>
+        <span class="muted" id="apienv-${id}" style="align-self:center"></span>
       </div>
       ${apiBloque(c.propio||c,true)}
       ${(c.cajas||[]).map(k=>`<div class="apicaja"><div class="apicaja-h">📦 ${esc(k.login)} <span class="muted">— caja de ${esc(c.login)}, se factura aparte</span></div>${apiBloque(k,true)}</div>`).join('')}
@@ -3227,6 +3232,32 @@ function apiResImprimir(){
   <button style="margin-top:20px;padding:9px 15px" onclick="window.print()">Guardar como PDF</button>
   </body></html>`);
   w.document.close();
+}
+/* Guarda el grupo de Telegram de una cuenta de API al salir del campo. */
+async function apiTgGuardar(id){
+  const inp=document.getElementById('tgapi-'+id);
+  const cs=(await api('/api/os/api/clientes')).clientes||[];
+  const c=cs.find(x=>String(x.id)===String(id)); if(!c) return;
+  const r=await api('/api/os/api/clientes',{method:'POST',
+    body:JSON.stringify({...c, telegram_chat_id: inp.value.trim()})});
+  if(r.ok){ inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350); }
+}
+/* SALE PARA AFUERA: le manda al cliente su cuenta del mes por Telegram. Se pregunta siempre y se
+   dice a qué grupo va, porque un mensaje mandado no se puede volver atrás. */
+async function apiEnviar(id, nombre, alcance){
+  const mes=document.getElementById('api-mes').value;
+  const cs=(await api('/api/os/api/clientes')).clientes||[];
+  const c=cs.find(x=>String(x.id)===String(id));
+  const chat=(c&&c.telegram_chat_id||'').trim();
+  if(!chat) return alert(nombre+' no tiene grupo de Telegram cargado.\n\nSe pone en 👥 Cuentas de API.');
+  if(!confirm('¿Mandarle a '+nombre+' su cuenta de '+mes+'?\n\nVa al grupo '+chat+'.\nEs un mensaje de verdad: no se puede deshacer.')) return;
+  const out=document.getElementById('apiev-'+id)||document.getElementById('apienv-'+id);
+  const marca=(t)=>{const e=document.getElementById('apienv-'+id); if(e) e.innerHTML=t;};
+  marca('<span class="muted">Mandando…</span>');
+  const r=await api('/api/os/api/cuenta/'+encodeURIComponent(id)+'/enviar',
+    {method:'POST',body:JSON.stringify({mes, alcance})});
+  marca(r.ok?'<span class="badge ok">enviado</span> '+r.partes+' mensaje(s) · '+money(r.total_usdt,2)+' USDT'
+           :'<span class="badge err">no se envió</span> '+esc(r.error||''));
 }
 /* La cuenta del cliente la arma el SERVIDOR: lo que le pagamos al proveedor no viaja al navegador.
    Por eso esto pide el documento en vez de esconder columnas de lo que ya está en pantalla. */

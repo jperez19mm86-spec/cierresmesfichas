@@ -107,4 +107,34 @@ function documento({ cuenta, mes, vista = 'interno', alcance = 'total', caja_id 
   return doc;
 }
 
-module.exports = { documento, LINEA_CLIENTE, DIVISA_CLIENTE };
+/**
+ * La cuenta del cliente, en texto para Telegram.
+ *
+ * Se arma DESDE EL DOCUMENTO ya proyectado, nunca desde la cuenta cruda. Es la misma razón por la
+ * que existe la lista blanca: si esto leyera la cuenta original, alcanzaría con una línea distraída
+ * para mandarle al cliente lo que le pagamos al proveedor. Acá esos campos directamente no existen.
+ */
+function aTexto(doc, { titulo = null } = {}) {
+  if (!doc || !doc.ok) return '';
+  const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const L = [];
+  L.push(`🧾 <b>${esc(titulo || doc.cuenta)}</b> — consumo de ${esc(doc.mes)}`);
+  (doc.secciones || []).forEach((sec) => {
+    if ((doc.secciones || []).length > 1) { L.push(''); L.push(`<b>▸ ${esc(sec.titulo)}</b>`); }
+    (sec.porDivisa || []).forEach((g) => {
+      L.push('');
+      L.push(`<b>${esc(g.divisa)}</b>  <i>tipo de cambio ${esc(g.tc_cliente)}</i>`);
+      (g.lineas || []).forEach((l) => {
+        L.push(`  ${esc(l.sello)} — ${n(l.ggr, 0)} ${esc(g.divisa)} · ${esc(l.pct_cliente)}% = <b>${n(l.usdt_cliente)}</b>`);
+      });
+      L.push(`  <i>subtotal ${esc(g.divisa)}: ${n(g.usdt_cliente)} USDT</i>`);
+    });
+    if ((doc.secciones || []).length > 1) L.push(`  <b>Total ${esc(sec.titulo)}: ${n(sec.usdt_cliente)} USDT</b>`);
+  });
+  L.push('');
+  L.push(`💵 <b>TOTAL A PAGAR: ${n(doc.usdt_cliente)} USDT</b>`);
+  return L.join('\n');
+}
+
+module.exports = { documento, aTexto, LINEA_CLIENTE, DIVISA_CLIENTE };

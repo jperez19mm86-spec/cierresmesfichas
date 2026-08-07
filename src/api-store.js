@@ -93,6 +93,10 @@ try { db.exec('ALTER TABLE api_pct ADD COLUMN nota TEXT'); } catch (e) { /* ya l
 // es de Nacho. Con padre_id la cuenta sale en tres vistas — la caja sola, el resto solo, y el total —
 // en vez de aparecer como dos clientes que nadie sabe que son uno. Un solo nivel, no un árbol.
 try { db.exec('ALTER TABLE api_cliente ADD COLUMN padre_id TEXT'); } catch (e) { /* ya la tiene */ }
+// El grupo de Telegram de esta cuenta, para mandarle su cuenta del mes. Es PROPIO del cliente de
+// API y no se hereda de nadie: acá no hay vendedores, y el "agente" (Henry999, henry-IG) es una
+// cuenta técnica del árbol de TBS, no el comercial que atiende a ese cliente.
+try { db.exec('ALTER TABLE api_cliente ADD COLUMN telegram_chat_id TEXT'); } catch (e) { /* ya la tiene */ }
 // QUE ENTRA EN EL RESUMEN DEL MES, y por mes. No es una propiedad del cliente: en junio la caja de
 // Nacho quedó afuera por un acuerdo puntual y en julio entra. Guardar la decisión por mes es lo que
 // hace que un resumen viejo se pueda volver a sacar igual, en vez de cambiar cuando cambia el trato.
@@ -107,7 +111,7 @@ const K = (s) => String(s || '').trim().toLowerCase();
 // ── CLIENTES ──────────────────────────────────────────────────────────────────────────────
 function listClientes() {
   return db.prepare('SELECT * FROM api_cliente ORDER BY login COLLATE NOCASE').all()
-    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0, padre_id: r.padre_id || null }));
+    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0, padre_id: r.padre_id || null, telegram_chat_id: r.telegram_chat_id || null }));
 }
 function getCliente(id) {
   const r = db.prepare('SELECT * FROM api_cliente WHERE id=?').get(String(id));
@@ -128,15 +132,18 @@ function saveCliente(d) {
   // padre_id: ausente no toca nada, presente en null/'' desengancha la caja.
   const tienePadre = Object.prototype.hasOwnProperty.call(d, 'padre_id');
   const padre = tienePadre ? (d.padre_id == null || d.padre_id === '' ? null : String(d.padre_id).trim()) : null;
-  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt,padre_id)
-    VALUES (?,?,?,?,?,?,?,?,?)
+  // Igual que padre_id: la clave ausente no toca nada, presente en null o '' borra el grupo.
+  const tieneTg = Object.prototype.hasOwnProperty.call(d, 'telegram_chat_id');
+  const tg = tieneTg ? (d.telegram_chat_id == null || d.telegram_chat_id === '' ? null : String(d.telegram_chat_id).trim()) : null;
+  db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt,padre_id,telegram_chat_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET login=excluded.login, alias=excluded.alias, agente=excluded.agente,
-      activo=excluded.activo, excluye=excluded.excluye, notas=excluded.notas${tienePadre ? ', padre_id=excluded.padre_id' : ''}`)
+      activo=excluded.activo, excluye=excluded.excluye, notas=excluded.notas${tienePadre ? ', padre_id=excluded.padre_id' : ''}${tieneTg ? ', telegram_chat_id=excluded.telegram_chat_id' : ''}`)
     .run(id, String(d.login || '').trim(),
       JSON.stringify([...new Set(alias.map((x) => String(x).trim()).filter(Boolean))]),
       String(d.agente || '').trim(), d.activo === false ? 0 : 1,
       JSON.stringify([...new Set(exc.map((x) => String(x).trim()).filter(Boolean))]),
-      String(d.notas || ''), nowISO(), padre);
+      String(d.notas || ''), nowISO(), padre, tg);
   return { ok: true, cliente: getCliente(id) };
 }
 function removeCliente(id) {
