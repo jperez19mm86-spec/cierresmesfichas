@@ -2345,7 +2345,13 @@ async function savePagos(){ await api('/api/os/config/pagos',{method:'PUT',body:
    Faltando cualquiera de las dos, no sale nada. */
 CFG.telegram = async () => {
   const cfg = await api('/api/config');
-  const cs = ((await api('/api/os/clientes')).clientes||[]).filter(c=>!c.es_vendedor);
+  // Los VENDEDORES estaban excluidos de esta lista, y son justo los que más mueven: Henry con 17
+  // paneles, IGLatam con 18, David con 17, Carlos con 11 (RMJoseDiaz-SA y compañía). Sin grupo no
+  // les llega ni la factura ni el aviso de carga, y no había forma de cargárselo desde acá.
+  const cs = (await api('/api/os/clientes')).clientes||[];
+  // Los paneles se piden acá y no se confía en el global: ese sólo existe si antes se pasó por
+  // la pantalla de Clientes, y a Config se puede entrar directo.
+  const pans = (await api('/api/os/paneles')).paneles||[];
   const con = cs.filter(c=>c.telegram&&c.telegram.chatId);
   const sinGrupo = cs.filter(c=>!(c.telegram&&c.telegram.chatId));
   document.getElementById('cfg-body').innerHTML = `
@@ -2374,7 +2380,7 @@ CFG.telegram = async () => {
       <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.
         Se escribe acá o en la ficha del cliente: <b>es el mismo dato</b>, se guarda solo al salir del campo.</div>
       ${sinGrupo.length?`<div class="nota warn"><span class="tit">${sinGrupo.length} sin grupo</span>
-        No les llega nada: ${sinGrupo.slice(0,14).map(c=>esc(_nom(c))).join(' · ')}${sinGrupo.length>14?' …':''}</div>`:''}
+        No les llega nada: ${sinGrupo.slice(0,14).map(c=>_nom(c)).join(' · ')}${sinGrupo.length>14?' …':''}</div>`:''}
 
       <details style="margin:10px 0" ${sinGrupo.length>3?'open':''}>
         <summary style="cursor:pointer;font-weight:700">📋 Pegar varios de una vez</summary>
@@ -2388,8 +2394,10 @@ CFG.telegram = async () => {
       </details>
 
       <table><thead><tr><th>Cliente</th><th>chatId del grupo</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
-      ${cs.map(c=>{const t=c.telegram||{};
-        return `<tr><td><b>${_nom(c)}</b></td>
+      ${cs.map(c=>{const t=c.telegram||{}; const np=pans.filter(p=>p.cliente_id===c.id).length;
+        return `<tr><td>${_nom(c)}
+          ${c.es_vendedor?'<span class="cie-tag">vendedor</span>':''}
+          ${np?`<span class="muted" style="font-size:11px">· ${np} panel${np===1?'':'es'}</span>`:''}</td>
           <td><input id="tgc-${c.id}" value="${esc(t.chatId||'')}" placeholder="-1001234567890"
             onchange="tgFila('${c.id}')" style="width:190px;font-family:monospace;font-size:12px"></td>
           <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
