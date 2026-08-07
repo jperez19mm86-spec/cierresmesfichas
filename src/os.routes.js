@@ -326,7 +326,23 @@ function mount(app) {
       if (!r.ok) { filas.push({ panel_id: p.id, nombre: p.nombre, error: r.error, pista: r.pista || null }); continue; }
       const guardadas = (p.divisas || []).map((x) => String(x).toUpperCase());
       const usadas = usadasPorPanel[p.id] || [];
+
+      // ── REGLA DEL DUEÑO: SÓLO UN SUPERAGENTE PUEDE TENER VARIAS DIVISAS ────────────────────
+      // Un distribuidor tiene una y nada más. Al leer los 201 paneles la regla se cumplió sola
+      // —los 65 distribuidores trajeron exactamente 1—, así que acá no corrige nada: vigila.
+      // Si algún día un distribuidor vuelve con dos, el que está mal es alguno de los dos lados,
+      // y escribirlo callado taparía justo eso. Se avisa y no se toca.
+      const esSuper = /superagente/i.test(String(p.nivel_usuario || ''));
+      const rompeRegla = !esSuper && r.divisas.length > 1;
+
+      let aplicado = null;
+      if (b.aplicar && !rompeRegla && r.divisas.length
+          && r.divisas.join(',') !== guardadas.slice().sort().join(',')) {
+        paneles.update(p.id, { divisas: r.divisas });
+        aplicado = { antes: guardadas, ahora: r.divisas };
+      }
       filas.push({
+        aplicado, rompeRegla, nivel: p.nivel_usuario || '',
         panel_id: p.id, nombre: p.nombre, nodo: p.id_usuario,
         habilitadas: r.divisas, guardadas, usadas,
         // faltan primero: es lo único de acá que puede estar costando plata

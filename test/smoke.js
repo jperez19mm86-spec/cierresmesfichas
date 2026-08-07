@@ -914,6 +914,31 @@ async function main() {
     await new Promise((r) => srv.close(r));
   }
 
+  // ── la regla del dueño: sólo un SuperAgente puede tener varias divisas ──
+  // No corrige: vigila. Al leer los 201 paneles los 65 distribuidores trajeron exactamente 1, así
+  // que si mañana uno vuelve con dos, algo cambió y hay que mirarlo — no escribirlo callado.
+  {
+    const regla = (nivel, leidas, guardadas) => {
+      const esSuper = /superagente/i.test(String(nivel || ''));
+      if (!esSuper && leidas.length > 1) return 'no se toca (rompe la regla)';
+      if (!leidas.length) return 'no se toca (lectura vacía)';
+      if (leidas.join(',') === guardadas.slice().sort().join(',')) return 'no se toca (ya está igual)';
+      return 'escribe';
+    };
+    check('regla: un SuperAgente con varias divisas se escribe',
+      regla('SuperAgente', ['ARS', 'USD'], ['ARS']) === 'escribe');
+    check('regla: un Distribuidor con 1 divisa se escribe',
+      regla('Distribuidor', ['MXN'], ['ARS']) === 'escribe');
+    check('regla: un Distribuidor con 2 NO se toca, se avisa',
+      regla('Distribuidor', ['ARS', 'USD'], ['ARS']) === 'no se toca (rompe la regla)');
+    check('regla: un Agente con 2 tampoco (la regla es "no superagente")',
+      regla('Agente', ['ARS', 'USD'], ['ARS']) === 'no se toca (rompe la regla)');
+    check('regla: una lectura vacía nunca borra lo guardado',
+      regla('SuperAgente', [], ['ARS', 'USD']) === 'no se toca (lectura vacía)');
+    check('regla: si ya coincide no se escribe al pedo',
+      regla('SuperAgente', ['ARS', 'USD'], ['USD', 'ARS']) === 'no se toca (ya está igual)');
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
