@@ -939,7 +939,9 @@ VIEWS.foto = async () => {
     + 'hace falta el total de toda la plataforma, sin agrupar por nadie (lo que el casino llama "Datos generales"). '
     + 'Son dos preguntas distintas y dos consultas distintas; las dos son del mismo mes, así que se sacan acá.</div>'
     + '<div class="row" style="margin-top:8px">'
-    + cxs.filter(c=>c.activa!==false).map(c=>'<div style="flex:0"><button class="outline small" onclick="fotoGeneral(\''+c.id+'\',\''+esc(String(c.nombre)).replace(/\x27/g,"")+'\')">📥 '+esc(c.nombre)+'</button></div>').join('')
+    // Sólo motor 463. TBS es otro sistema y vive en su propio espacio (/tbs): tenerlo acá lo
+    // metía de vuelta adentro del comercial, que es justo lo que se acababa de separar.
+    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>'<div style="flex:0"><button class="outline small" onclick="fotoGeneral(\''+c.id+'\',\''+esc(String(c.nombre)).replace(/\x27/g,"")+'\')">📥 '+esc(c.nombre)+'</button></div>').join('')
     + '<div class="muted" style="flex:1;align-self:center">Una consulta por conexión. Si el mes ya está sacado, contesta al instante.</div>'
     + '</div><div id="foto-gen" class="muted" style="margin-top:6px"></div></div>'
     + '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Cómo se saca, y el detalle por divisa</summary>'
@@ -2966,6 +2968,15 @@ API.cuentas = async () => {
         <div style="flex:0"><button class="outline small" onclick="apiCalcular(true)">↻ Volver a consultar TBS</button></div>
       </div>
       <div id="api-cta" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
+    </div>
+    <div class="card"><h2>📥 Lo que le pagamos a los proveedores de TBS</h2>
+      <div class="muted">Las cuentas de arriba dicen <b>qué le cobrás a cada cliente</b>. Esto es la otra mitad:
+        el total que TBS le factura a la casa por cada familia de proveedores, que es lo que necesita el reporte de
+        pago a proveedores. Es una consulta pesada, por eso se guarda: si el mes ya está sacado contesta al instante.</div>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:0"><button class="outline" onclick="apiPagoProv()">📥 Sacar el mes</button></div>
+        <div class="muted" id="api-pp" style="flex:1;align-self:center"></div>
+      </div>
     </div>`;
   if(_apiCta) apiPintarCuentas();
 };
@@ -3092,6 +3103,26 @@ async function apiCosto(inp){
   if((rv.avisos||[]).length) toast('⚠ '+rv.avisos[0].slice(0,150));
 }
 function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
+/* La vista general de TBS: lo que el proveedor le factura a la casa. Vive acá y no en la Foto del
+   mes del comercial — es otro motor y otro negocio. Va de a pedazos porque tarda ~54s por llamada. */
+async function apiPagoProv(){
+  const mes=document.getElementById('api-mes').value;
+  const cxs=(await api('/api/os/casino/conexiones')).conexiones||[];
+  const tbs=cxs.find(c=>c.motor==='tbs'&&c.activa!==false);
+  const out=document.getElementById('api-pp');
+  if(!tbs) return out.innerHTML='<span class="badge err">no hay conexión TBS activa</span>';
+  let desde=0, vueltas=0;
+  while(vueltas++<40){
+    out.innerHTML='<span class="muted">Consultando TBS… '+(desde?desde+' familias listas':'arrancando')+' (tarda ~54s por llamada)</span>';
+    const r=await api('/api/os/pago-proveedores/precargar',{method:'POST',
+      body:JSON.stringify({mes, conexion_id:tbs.id, desde, limite:2})});
+    if(!r.ok){ out.innerHTML='<span class="badge err">'+esc(r.error||'no se pudo')+'</span>'; return; }
+    desde=r.hechos!=null?r.hechos:desde+2;
+    if(!r.faltan){ out.innerHTML='<span class="badge ok">listo</span> '+desde+' de '+(r.total||desde)
+      +(r.avisos&&r.avisos.length?' · <span style="color:var(--red)">'+r.avisos.map(esc).join(' · ')+'</span>':''); return; }
+  }
+  out.innerHTML='<span class="badge warn">se cortó por las vueltas</span> probá de nuevo, sigue desde donde quedó';
+}
 
 // ───────── CIERRE DEL MES: el total, con lo que entra y lo que no ─────────
 let _apiRes=null;
