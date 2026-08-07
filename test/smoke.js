@@ -799,6 +799,26 @@ async function main() {
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
+
+  // ── que el JAVASCRIPT DE LA PÁGINA COMPILE ──
+  // Faltaba, y se notó: un reemplazo mal cortado duplicó 179 líneas, el script tiró
+  // "_apiRes has already been declared" y /tbs quedó en blanco. Los 180 checks pasaban igual,
+  // porque ninguno miraba si el script parseaba. Servir HTML no es servir una página que anda.
+  {
+    const cuerpo = String(r.data);
+    const bloques = cuerpo.match(/<script>([\s\S]*?)<\/script>/g) || [];
+    let error = null;
+    bloques.forEach((b) => {
+      if (error) return;
+      const js = b.replace(/^<script>/, '').replace(/<\/script>$/, '');
+      try { new Function(js); } catch (e) { error = e.message; }
+    });
+    check('panel /os: el javascript compila', !error, error || bloques.length + ' bloque(s) de script');
+    // y que no haya quedado una función o un global declarado dos veces
+    const dup = ['function apiDoc', 'let _apiRes', 'function apiPintarCuentas', 'function renderNav']
+      .filter((x) => cuerpo.split(x).length - 1 > 1);
+    check('panel /os: nada declarado dos veces', !dup.length, dup.join(', '));
+  }
   // TBS es su propio espacio: misma página, pero la barra se arma según por dónde se entró.
   r = await axios.get(BASE + '/tbs', H());
   check('panel /tbs sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /TABS_TBS/.test(r.data));
