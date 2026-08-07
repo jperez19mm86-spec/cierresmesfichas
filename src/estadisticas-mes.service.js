@@ -189,6 +189,84 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
   return out;
 }
 
+/**
+ * ── LA EXTRACCIÓN NUEVA: UNA LLAMADA POR DIVISA, NO UNA POR PANEL ─────────────────────────────
+ *
+ * La pantalla de reportes del casino manda `reports_user_group_by` y devuelve TODOS los nodos de
+ * ese nivel en una respuesta. Eso es lo que hace reporteProveedores. La Foto venía pidiendo una
+ * consulta por panel Y divisa (reporteProveedoresNodo): 347 contra 32.
+ *
+ * Y no era sólo lento. reporteProveedoresNodo manda `reports_base_group_by=users` y
+ * `reports_group_by=terminal`, dos valores que YA NO EXISTEN en esa pantalla —hoy las opciones son
+ * ''/'bets' y provider/label/category/vendor/provider_label/game_name—. De ahí los "49 con error"
+ * de Europa: 8 de 8 y 6 de 6 fallaron en la prueba mientras la global respondía en 2,9s.
+ *
+ * ⚠️ EL NÚMERO NO ES EL MISMO, Y ESO ES A PROPÓSITO. El filtro se aplica a las FILAS del reporte:
+ * agrupando por terminal se tiran las terminales negativas y se suman sólo las positivas;
+ * agrupando por nodo×proveedor los negativos se netean adentro del proveedor antes de filtrar. Por
+ * eso la global da siempre igual o menos (Europa/julio/ARS: 20 de 31 paneles idénticos, 11 con
+ * -0,13%). La regla del dueño es "un proveedor en negativo va en cero, nunca se resta" — a nivel
+ * PROVEEDOR, que es lo que hace la global. El método viejo la aplicaba una vuelta más abajo, a la
+ * terminal, y por eso venía cobrando de más.
+ *
+ * @param divisas  las monedas a pedir; una llamada por cada una
+ * @param guardar  false = probar sin escribir nada
+ */
+async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas = [], plantilla = '',
+  guardar = false, onPaso = null } = {}) {
+  const m = String(mes || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
+  const cli = casinoConex.client(conexionId);
+  if (!cli) return { ok: false, error: 'la conexión no responde' };
+  const { from, to } = rango(m);
+  const grupo = nivel === 'superagente' ? 'superagent' : 'diller';
+  // Ganancia mayor a cero, explícito. Antes iba `profit > ''` (valor vacío), que deja al casino
+  // decidir qué significa. El dueño lo pidió así: profit > 0.
+  const filtros = [{ column_name: 'profit', condition: '>', value: '0' }];
+
+  const salida = [];
+  for (const divisa of divisas.map((d) => String(d).toUpperCase())) {
+    const t0 = Date.now();
+    let r;
+    try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: grupo, activeTemplate: plantilla, filtros }); }
+    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
+    if (!r.ok) { salida.push({ divisa, ok: false, error: r.error, segundos: seg }); if (onPaso) onPaso(salida[salida.length - 1]); continue; }
+
+    // partir por nodo: la respuesta trae todos juntos
+    const porNodo = new Map();
+    (r.filas || []).forEach((f) => {
+      if (!f.saId) return;
+      if (!porNodo.has(f.saId)) porNodo.set(f.saId, []);
+      porNodo.get(f.saId).push(f);
+    });
+    // sólo se guardan los nodos que son paneles NUESTROS en esa conexión: la global trae también
+    // los de otros, y guardarlos llenaría la base de filas que ningún reporte va a leer.
+    const mios = new Map();
+    paneles.list().filter((p) => p.conexion_id === conexionId && p.id_usuario)
+      .forEach((p) => mios.set(String(p.id_usuario), p));
+    let guardados = 0, filas = 0;
+    const sinPanel = [];
+    porNodo.forEach((fs, nodoId) => {
+      if (!mios.has(nodoId)) { sinPanel.push(nodoId); return; }
+      if (guardar) {
+        const t = { conexion_id: conexionId, mes: m, divisa, nivel, nodo: nodoId };
+        filas += _guardar(t, fs);
+        _marcar(t, { estado: 'ok', filas: fs.length, nodos: 1, segundos: seg, modo: grupo });
+      } else filas += fs.length;
+      guardados++;
+    });
+    salida.push({ divisa, ok: true, segundos: seg, filasQueTrajo: (r.filas || []).length,
+      nodosQueTrajo: porNodo.size, panelesNuestros: guardados, filasGuardadas: filas,
+      nodosAjenos: sinPanel.length });
+    if (onPaso) onPaso(salida[salida.length - 1]);
+  }
+  return { ok: true, mes: m, nivel, plantilla, guardado: !!guardar, divisas: salida,
+    total: { llamadas: salida.length, ok: salida.filter((x) => x.ok).length,
+      filas: salida.reduce((a, x) => a + (x.filasGuardadas || 0), 0),
+      paneles: salida.reduce((a, x) => a + (x.panelesNuestros || 0), 0) } };
+}
+
 // ── guardado ────────────────────────────────────────────────────────────────
 
 function _guardar(t, filasIn) {
@@ -471,4 +549,4 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};
+module.exports = { capturar, capturarGlobal, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};

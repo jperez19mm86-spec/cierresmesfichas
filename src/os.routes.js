@@ -815,6 +815,17 @@ function mount(app) {
       iguales: filas.filter((x) => x.dif !== undefined && Math.abs(x.dif) < 0.01).length, filas });
   }));
 
+  /** La extracción nueva: una llamada por divisa. Con guardar:false no escribe nada. */
+  app.post('/api/os/estadisticas/capturar-global', wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await estadMes.capturarGlobal({
+      mes: b.mes, conexionId: b.conexion_id, nivel: b.nivel === 'distribuidor' ? 'distribuidor' : 'superagente',
+      divisas: Array.isArray(b.divisas) ? b.divisas : [],
+      plantilla: b.plantilla || '', guardar: !!b.guardar,
+    });
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
+
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
