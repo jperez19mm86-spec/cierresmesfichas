@@ -283,7 +283,11 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
     if (!r.ok) {
       if (guardar) _marcar({ conexion_id: conexionId, mes: m, divisa, nivel, nodo: '' },
         { estado: 'error', error: r.error, segundos: seg, modo: grupo });
-      salida.push({ divisa, ok: false, error: r.error, segundos: seg });
+      // El motor manda una PÁGINA de error con el motivo adentro; casino-api ya lo extrae en
+      // `debug`. Tirarlo dejaba "devolvió un error" a secas y a adivinar cuál.
+      salida.push({ divisa, ok: false, error: r.error, segundos: seg,
+        detalle: r.debug ? String(r.debug.mensaje || '').slice(0, 300) : null,
+        pedimos: r.debug ? r.debug.pedimos : null });
       if (onPaso) onPaso(salida[salida.length - 1]); continue;
     }
 
