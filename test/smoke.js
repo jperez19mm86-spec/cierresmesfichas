@@ -879,6 +879,12 @@ async function main() {
       if (modo === 'login') { rs.writeHead(200, { 'Content-Type': 'text/html' }); return rs.end('<form><input name="login"><input name="password"></form>'); }
       if (modo === 'redirect') { rs.writeHead(302, { Location: '/index.php?act=admin&area=login' }); return rs.end(); }
       if (modo === 'vacio') { rs.writeHead(200); return rs.end(''); }
+      // El usuario con el que entra el OS ve las divisas pero NO puede agregarlas: la pantalla
+      // viene sin el selector, y encima en inglés. Sigue siendo la página correcta.
+      if (modo === 'soloLectura') { rs.writeHead(200, { 'Content-Type': 'text/html' });
+        return rs.end('<h1>Currencies and gaming systems</h1>' + REAL.map((d) => `<input type="hidden" name="currency" value="${d}">`).join('')); }
+      if (modo === 'sinDivisas') { rs.writeHead(200, { 'Content-Type': 'text/html' });
+        return rs.end('<h1>Currencies and gaming systems</h1><select name="add_currency"><option value="ADA">ADA</option></select>'); }
       rs.writeHead(200, { 'Content-Type': 'text/html' }); rs.end(PAGINA);
     });
     await new Promise((r) => srv.listen(0, r));
@@ -894,6 +900,13 @@ async function main() {
       const r = await cli.divisasDeNodo('2628233');
       check(`divisas casino: si ${m} → error, NUNCA lista vacía`, r.ok === false && !!r.error, JSON.stringify(r).slice(0, 70));
     }
+    modo = 'soloLectura';
+    const rl = await cli.divisasDeNodo('2628233');
+    check('divisas casino: sin permiso para agregar igual lee las 10',
+      rl.ok && rl.divisas.join(',') === REAL.join(',') && rl.soloLectura === true, JSON.stringify(rl).slice(0, 80));
+    modo = 'sinDivisas';
+    check('divisas casino: pantalla correcta pero sin ninguna divisa → error',
+      (await cli.divisasDeNodo('2628233')).ok === false);
     modo = 'ok';
     check('divisas casino: id no numérico se rechaza', (await cli.divisasDeNodo('../etc')).ok === false);
     // Lo más importante: esa pantalla también GUARDA (form por divisa + Guardar). Sólo se lee.

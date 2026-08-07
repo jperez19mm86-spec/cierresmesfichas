@@ -713,22 +713,26 @@ function makeClient({ url, token, user, password } = {}) {
     }
 
     const sacar = (re) => { const out = []; let m; while ((m = re.exec(html)) !== null) out.push(m[1].toUpperCase()); return [...new Set(out)]; };
-    const habilitadas = sacar(/<input[^>]*name=["\']?currency["\']?[^>]*value=["\']([A-Z]{2,6})["\']/gi);
-    // El <select> de agregar: las disponibles. Sirve de prueba de que la página es la correcta —
-    // si no aparece, no estamos leyendo lo que creemos.
-    const bloqueSel = (html.match(/<select[^>]*name=["\']?add_currency["\']?[^>]*>([\s\S]*?)<\/select>/i) || [])[1] || '';
-    const disponibles = [...new Set((bloqueSel.match(/value=["\']([A-Za-z]{2,6})["\']/g) || [])
-      .map((x) => (x.match(/["\']([A-Za-z]{2,6})["\']/) || [])[1]).filter(Boolean))];
-    if (!bloqueSel) {
-      // Sin pista, este error obliga a adivinar. El casino contesta 200 con una página distinta
-      // cuando el usuario no tiene permiso para esa pantalla, y eso se parece a un parser roto.
-      // Se manda sólo texto visible y recortado — nunca el html crudo, que lleva la sesión adentro.
+    const habilitadas = sacar(/<input[^>]*name=["']?currency["']?[^>]*value=["']([A-Z]{2,6})["']/gi);
+
+    // LA PRUEBA DE QUE LEÍMOS BIEN SON LAS DIVISAS MISMAS, no el selector para agregar.
+    // Primero pedía ver el <select name="add_currency"> y eso estaba mal: ese selector es para
+    // EDITAR, y el usuario con el que entra el OS puede mirar la pantalla sin poder agregar nada.
+    // Con esa regla, un usuario de sólo lectura daba "esa página no parece la de divisas" — o sea,
+    // confundía "no me dejan tocar" con "no encontré la página".
+    //
+    // Tampoco se mira el título: esta pantalla sale en español o en inglés según el usuario
+    // ("Divisas y sistemas de juegos" / "Currencies and gaming systems"), que es exactamente lo que
+    // ya rompió la extracción de Europa una vez. Los value= de los input no cambian de idioma.
+    if (!habilitadas.length) {
       const texto = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
         .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-      return { ok: false, error: 'esa página no parece la de divisas (no está el selector para agregar)',
-        pista: texto.slice(0, 220), largo: html.length, tieneCurrency: /name=["']?currency["']?/i.test(html) };
+      return { ok: false, error: 'no se encontró ninguna divisa en esa pantalla', pista: texto.slice(0, 220), largo: html.length };
     }
-    return { ok: true, nodo: id, divisas: habilitadas.sort(), disponibles: disponibles.length };
+    const bloqueSel = (html.match(/<select[^>]*name=["']?add_currency["']?[^>]*>([\s\S]*?)<\/select>/i) || [])[1] || '';
+    const disponibles = [...new Set((bloqueSel.match(/value=["']([A-Za-z]{2,6})["']/g) || [])
+      .map((x) => (x.match(/["']([A-Za-z]{2,6})["']/) || [])[1]).filter(Boolean))];
+    return { ok: true, nodo: id, divisas: habilitadas.sort(), disponibles: disponibles.length, soloLectura: !bloqueSel };
   }
 
   /** Test de conexión: trae login + balances de la cuenta. */
