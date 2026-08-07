@@ -1065,7 +1065,9 @@ function mount(app) {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const b = req.body || {};
     const r = await cli.sondaReporte({ from: b.from, to: b.to, nodoId: b.nodo || null, campos: b.campos || null, params: b.params || {} });
-    r.ok ? ok(res, r) : err(res, 502, r.error);
+    // El `debug` viaja también cuando falla: es una sonda, y sin lo que devolvió el casino no se
+    // puede diagnosticar nada. Tirar el error pelado dejaba "devolvió un error" y nada más.
+    r.ok ? ok(res, r) : err(res, 502, r.error, { debug: r.debug || null });
   }));
 
   // Las plantillas de reporte guardadas en el casino: la agrupación sale de ahí, no de un parámetro.
