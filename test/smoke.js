@@ -824,6 +824,22 @@ async function main() {
     check('matriz: y hay reglas de columna fija que revisar', reglas.length >= 2, String(reglas.length));
   }
 
+  // ── el link que se le manda al cliente TIENE que abrir sin login ──
+  // Creé la ruta /cuenta/:token pero me olvidé de la lista PUBLIC de auth.js: el cliente abría el
+  // link y le aparecía la pantalla de ingreso del panel. Y el cliente no tiene usuario.
+  {
+    const sinCookie = { validateStatus: () => true, maxRedirects: 0 };
+    const rc = await axios.get(BASE + '/cuenta/TOKENQUENOEXISTE', sinCookie);
+    const redirige = rc.status === 302 || /login/i.test(String(rc.headers.location || ''));
+    check('cuenta pública: el link NO manda al login', !redirige, rc.status + ' ' + (rc.headers.location || ''));
+    check('cuenta pública: un token inventado da 404, no la página de nadie',
+      rc.status === 404 && /No encontramos/.test(String(rc.data)), String(rc.status));
+    // y lo de adentro sigue cerrado
+    const rp = await axios.get(BASE + '/api/os/api/cuenta/x/pagina', sinCookie);
+    check('cuenta pública: la vista previa del dueño sigue pidiendo login',
+      rp.status === 302 || rp.status === 401 || /login/i.test(String(rp.headers.location || '')), String(rp.status));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

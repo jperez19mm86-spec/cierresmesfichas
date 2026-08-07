@@ -34,6 +34,10 @@ const PUBLIC = [
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.
   /^\/factura\/[A-Za-z0-9_-]+(\/planilla\.csv)?\/?$/,
+  // Lo mismo para la CUENTA DEL MES de un cliente de API (TBS). Mismo razonamiento y misma forma
+  // de llave: el token es al azar y largo, abre UNA cuenta de UN mes, y no lleva a ningún listado.
+  // Sin esto el link que se le manda al cliente cae en el login — y el cliente no tiene usuario.
+  /^\/cuenta\/[A-Za-z0-9_-]+\/?$/,
   /^\/logo\.png$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.
