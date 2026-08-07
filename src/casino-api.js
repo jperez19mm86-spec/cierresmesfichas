@@ -364,7 +364,9 @@ function makeClient({ url, token, user, password } = {}) {
         const cuerpo = d.replace(/<head[\s\S]*?<\/head>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
           .replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)',
-          debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' '), mensaje: cuerpo.slice(0, 600), bytes: d.length } };
+          debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' '), mensaje: cuerpo.slice(0, 600), bytes: d.length,
+            // La URL que pedimos, para poder compararla contra la que arma el panel en el navegador.
+            pedimos: p, embebida: rsUrl } };
       }
       const trozo = Array.isArray(d) ? d
         : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
