@@ -610,6 +610,39 @@ async function main() {
     require('../src/db').db.prepare('DELETE FROM config_valores WHERE entidad_id=?').run(eid);
   }
 
+  // ── el grupo del vendedor baja a su gente ──
+  // Cuatro lugares distintos deciden a dónde mandar (aviso de carga público, aviso del OS, factura
+  // y prueba). Si la herencia vive en dos de los cuatro, la factura llega y el aviso no, sin que
+  // nada lo diga. Por eso está en una sola función y por eso se prueba acá.
+  {
+    const dest = require('../src/telegram-destino');
+    const M = {
+      v1: { id: 'v1', nombre: 'Henry', es_vendedor: true, telegram: { chatId: '-100HENRY', enabled: true } },
+      c1: { id: 'c1', nombre: 'Juan', vendedor_id: 'v1', telegram: { chatId: '', enabled: false } },
+      c2: { id: 'c2', nombre: 'Titan', vendedor_id: 'v1', telegram: { chatId: '-100PROPIO', enabled: true } },
+      c3: { id: 'c3', nombre: 'Suelto', telegram: { chatId: '', enabled: true } },
+      v0: { id: 'v0', nombre: 'Sarah', es_vendedor: true, telegram: { chatId: '', enabled: false } },
+      c4: { id: 'c4', nombre: 'Hijo', vendedor_id: 'v0', telegram: { chatId: '', enabled: true } },
+      cx: { id: 'cx', nombre: 'Ciclo', vendedor_id: 'cx', telegram: { chatId: '', enabled: true } },
+    };
+    const g = (id) => M[id];
+    check('telegram: sin grupo propio, hereda el del vendedor',
+      dest.destinoDe(M.c1, g).chatId === '-100HENRY' && dest.destinoDe(M.c1, g).de === 'Henry',
+      JSON.stringify(dest.destinoDe(M.c1, g)));
+    check('telegram: con grupo propio, manda el propio',
+      dest.destinoDe(M.c2, g).chatId === '-100PROPIO' && dest.destinoDe(M.c2, g).heredado === false);
+    check('telegram: sin vendedor y sin grupo, no hay a dónde', dest.destinoDe(M.c3, g).chatId === null);
+    check('telegram: si el vendedor tampoco tiene, no inventa', dest.destinoDe(M.c4, g).chatId === null);
+    check('telegram: un cliente que es su propio vendedor no cuelga', dest.destinoDe(M.cx, g).chatId === null);
+    // El INTERRUPTOR no se hereda: si se heredara, prender el del vendedor pondría a 14 clientes
+    // a escribir de golpe en un grupo real sin que nadie lo pidiera.
+    check('telegram: el aviso de carga NO se hereda, aunque el destino sí',
+      dest.avisaCargas(M.c1, g) === false && dest.destinoDe(M.c1, g).chatId === '-100HENRY');
+    check('telegram: con interruptor propio prendido y destino heredado, sí avisa',
+      dest.avisaCargas({ ...M.c1, telegram: { chatId: '', enabled: true } }, g) === true);
+    check('telegram: sin destino no avisa aunque esté prendido', dest.avisaCargas(M.c4, g) === false);
+  }
+
   // ── pegar varios chatId de Telegram de una vez ──
   // De una planilla nunca vienen escritos igual: con tab, con coma, con acentos, con espacios de
   // más. Si el parseo falla en silencio, el grupo queda sin cargar y ese cliente no recibe nada.

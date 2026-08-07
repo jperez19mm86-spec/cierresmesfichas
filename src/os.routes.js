@@ -22,6 +22,7 @@ const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiResumen = require('./api-resumen.service');
+const tgDestino = require('./telegram-destino');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
 const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
@@ -1562,8 +1563,10 @@ function mount(app) {
     const conDetalle = !!(req.body && req.body.detalle);
     const cli = clientes.get(req.params.clienteId);
     if (!cli) return err(res, 404, 'cliente no encontrado');
-    const chat = cli.telegram && cli.telegram.chatId;
-    if (!chat) return err(res, 400, `${cli.nombre || cli.codigo} no tiene grupo de Telegram cargado (se pone en su ficha)`);
+    // Puede ir al grupo del vendedor si el cliente no tiene el suyo — ver telegram-destino.js.
+    const dest = tgDestino.destinoDe(cli, (id) => clientes.get(id));
+    const chat = dest.chatId;
+    if (!chat) return err(res, 400, `${cli.nombre || cli.codigo} no tiene grupo de Telegram, ni él ni su vendedor (se pone en su ficha, o en la del vendedor para que lo hereden todos)`);
     const tok = configStore.getTelegramToken();
     if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
 

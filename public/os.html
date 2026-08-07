@@ -2352,8 +2352,16 @@ CFG.telegram = async () => {
   // Los paneles se piden acá y no se confía en el global: ese sólo existe si antes se pasó por
   // la pantalla de Clientes, y a Config se puede entrar directo.
   const pans = (await api('/api/os/paneles')).paneles||[];
-  const con = cs.filter(c=>c.telegram&&c.telegram.chatId);
-  const sinGrupo = cs.filter(c=>!(c.telegram&&c.telegram.chatId));
+  // "Le llega" incluye a los que HEREDAN el grupo del vendedor: contar sólo los propios marcaría
+  // 45 faltantes que en realidad sí reciben, y un contador que miente no se mira más.
+  const porId={}; cs.forEach(c=>{porId[c.id]=c;});
+  const destino=c=>{
+    const p=((c.telegram||{}).chatId||'').trim(); if(p) return {chatId:p,de:null};
+    const v=c.vendedor_id?porId[c.vendedor_id]:null;
+    const h=((v||{}).telegram||{}).chatId; return h&&String(h).trim()?{chatId:String(h).trim(),de:v}:{chatId:null,de:null};
+  };
+  const con = cs.filter(c=>destino(c).chatId);
+  const sinGrupo = cs.filter(c=>!destino(c).chatId);
   document.getElementById('cfg-body').innerHTML = `
     <div class="card"><h2>📣 Avisos y facturas por Telegram</h2>
       <div class="muted">Para que una factura salga hacen falta las <b>dos</b> cosas: el <b>bot</b> (uno solo, para todo)
@@ -2377,10 +2385,12 @@ CFG.telegram = async () => {
       </div>
     </div>
     <div class="card"><h2>Grupos por cliente <span class="muted">(${con.length} de ${cs.length})</span></h2>
-      <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.
-        Se escribe acá o en la ficha del cliente: <b>es el mismo dato</b>, se guarda solo al salir del campo.</div>
+      <div class="muted" style="margin-bottom:8px">Organizado por vendedor, igual que la pantalla de Clientes.
+        <b>El que no carga grupo propio hereda el de su vendedor</b>: cargás uno solo arriba y le sirve a toda su gente.
+        Se escribe acá o en la ficha del cliente — es el mismo dato — y se guarda solo al salir del campo.</div>
       ${sinGrupo.length?`<div class="nota warn"><span class="tit">${sinGrupo.length} sin grupo</span>
-        No les llega nada: ${sinGrupo.slice(0,14).map(c=>_nom(c)).join(' · ')}${sinGrupo.length>14?' …':''}</div>`:''}
+        Ni propio ni heredado: ${sinGrupo.slice(0,14).map(c=>_nom(c)).join(' · ')}${sinGrupo.length>14?' …':''}
+        <div style="margin-top:5px">Cargarle el grupo al <b>vendedor</b> resuelve a todos los suyos de una.</div></div>`:''}
 
       <details style="margin:10px 0" ${sinGrupo.length>3?'open':''}>
         <summary style="cursor:pointer;font-weight:700">📋 Pegar varios de una vez</summary>
@@ -2393,30 +2403,63 @@ CFG.telegram = async () => {
         <div id="tg-pegar-res"></div>
       </details>
 
-      <table><thead><tr><th>Cliente</th><th>chatId del grupo</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
-      ${cs.map(c=>{const t=c.telegram||{}; const np=pans.filter(p=>p.cliente_id===c.id).length;
-        return `<tr><td>${_nom(c)}
-          ${c.es_vendedor?'<span class="cie-tag">vendedor</span>':''}
-          ${np?`<span class="muted" style="font-size:11px">· ${np} panel${np===1?'':'es'}</span>`:''}</td>
-          <td><input id="tgc-${c.id}" value="${esc(t.chatId||'')}" placeholder="-1001234567890"
-            onchange="tgFila('${c.id}')" style="width:190px;font-family:monospace;font-size:12px"></td>
-          <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
-            <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} onchange="tgFila('${c.id}')" style="width:auto">
-            avisar cada carga</label></td>
-          <td class="right" style="white-space:nowrap">
-            ${t.chatId?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
-            <button class="outline small" onclick="abrirCliente('${c.id}','comercial')">Ficha</button></td></tr>`;
-      }).join('')}
+      <table><thead><tr><th>Cliente</th><th>Grupo a donde le llega</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
+      ${tgGrupos(cs,pans)}
       </tbody></table>
     </div>`;
 };
+/* La tabla, ORGANIZADA POR VENDEDOR — el mismo criterio que la pantalla de Clientes.
+   Cada vendedor primero, y debajo su gente. El que no carga grupo propio HEREDA el del vendedor:
+   así se carga uno solo y le sirve a los 14 clientes de Henry, en vez de pegar el mismo id 14 veces.
+   La herencia se resuelve también en el servidor (telegram-destino.js), no sólo acá: si sólo se
+   dibujara, la pantalla diría que llega y el mensaje se perdería. */
+function tgGrupos(cs, pans){
+  const vend = cs.filter(c=>c.es_vendedor).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es'));
+  const deVend = {}; cs.forEach(c=>{ if(c.vendedor_id) (deVend[c.vendedor_id]=deVend[c.vendedor_id]||[]).push(c); });
+  const huerfanos = cs.filter(c=>!c.es_vendedor && !c.vendedor_id);
+  const fila=(c, jefe)=>{
+    const t=c.telegram||{}; const np=pans.filter(p=>p.cliente_id===c.id).length;
+    const propio=(t.chatId||'').trim();
+    const hered=!propio && jefe && ((jefe.telegram||{}).chatId||'').trim();
+    return `<tr${c.es_vendedor?' class="cie-tv"':''}>
+      <td style="padding-left:${jefe?26:8}px">${jefe?'<span class="muted">└ </span>':''}${_nom(c)}
+        ${c.es_vendedor?'<span class="cie-tag">vendedor</span>':''}
+        ${np?`<span class="muted" style="font-size:11px">· ${np} panel${np===1?'':'es'}</span>`:''}</td>
+      <td><input id="tgc-${c.id}" value="${esc(propio)}"
+        placeholder="${hered?'hereda de '+esc(jefe.nombre||jefe.codigo):'-1001234567890'}"
+        onchange="tgFila('${c.id}')" title="${hered?'Vacío = le llega al grupo de '+esc(jefe.nombre||jefe.codigo)+'. Escribí uno acá sólo si este cliente tiene grupo propio.':''}"
+        style="width:190px;font-family:monospace;font-size:12px${hered?';background:rgba(46,160,67,.10)':''}">
+        ${hered?'<span class="badge ok" style="margin-left:5px">hereda</span>':''}
+        ${!propio&&!hered?'<span class="badge err" style="margin-left:5px">no le llega</span>':''}</td>
+      <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+        <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} onchange="tgFila('${c.id}')" style="width:auto">
+        avisar cada carga</label></td>
+      <td class="right" style="white-space:nowrap">
+        ${(propio||hered)?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
+        <button class="outline small" onclick="abrirCliente('${c.id}','comercial')">Ficha</button></td></tr>`;
+  };
+  let html='';
+  vend.forEach(v=>{
+    html+=fila(v,null);
+    (deVend[v.id]||[]).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es')).forEach(c=>{html+=fila(c,v);});
+  });
+  if(huerfanos.length){
+    html+=`<tr><td colspan="4" class="muted" style="padding-top:14px"><b>Sin vendedor asignado</b> — estos no pueden heredar de nadie</td></tr>`;
+    huerfanos.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es')).forEach(c=>{html+=fila(c,null);});
+  }
+  return html||'<tr><td colspan="4" class="empty">Sin clientes.</td></tr>';
+}
 /* Guarda una fila al salir del campo. Es el MISMO endpoint que usa la ficha del cliente, así que
    no son dos configuraciones: es un atajo de carga sobre el mismo dato. */
 async function tgFila(id){
   const chatId=val('tgc-'+id), enabled=document.getElementById('tge-'+id).checked;
   const r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId,enabled})});
   const inp=document.getElementById('tgc-'+id);
-  if(r.ok){ inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350); }
+  if(!r.ok) return;
+  inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350);
+  // Si el que cambió es un VENDEDOR, el "hereda" de toda su gente cambia con él: hay que repintar.
+  const cs=((await api('/api/os/clientes')).clientes||[]);
+  if((cs.find(c=>c.id===id)||{}).es_vendedor) setTimeout(()=>CFG.telegram(),400);
 }
 /* Pegar de a muchos. Reconoce por nombre, por código y por los "otros nombres" del cliente, sin
    acentos ni mayúsculas, porque de una planilla nunca vienen escritos igual. */

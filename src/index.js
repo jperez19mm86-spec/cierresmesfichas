@@ -21,6 +21,7 @@ const clientes = require('./clientes-store');
 const pedidos = require('./pedidos-store');
 const config = require('./config-store');
 const telegram = require('./telegram');
+const tgDestino = require('./telegram-destino');
 const sheets = require('./sheets');
 const push = require('./push');
 const auth = require('./auth');
@@ -265,9 +266,12 @@ app.put('/api/clientes/:id/telegram', (req, res) => {
 app.post('/api/clientes/:id/telegram/test', async (req, res) => {
   const c = clientes.get(req.params.id);
   if (!c) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
+  // La prueba tiene que ir al MISMO lugar que va a ir la factura, herencia incluida: si no,
+  // probás, te llega, y después la factura se va a otro lado (o a ninguno).
+  const dest = tgDestino.destinoDe(c, (id) => clientes.get(id));
   const r = await telegram.sendMessage(
     config.getTelegramToken(),
-    c.telegram && c.telegram.chatId,
+    dest.chatId,
     `🔔 Prueba de avisos — <b>${c.nombreVisible} (${c.codigo})</b>\nSi ves esto, el grupo quedó bien configurado.\n\n<i>Latam Games</i>`
   );
   res.json(r.ok ? { ok: true } : { ok: false, error: r.error });
@@ -540,8 +544,9 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
       try {
         const cli = clientes.getByCodigo(p.codigo);
         const tok = config.getTelegramToken();
-        if (cli && cli.telegram && cli.telegram.enabled && cli.telegram.chatId && tok) {
-          telegram.sendMessage(tok, cli.telegram.chatId, telegram.cargaText({
+        const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
+        if (cli && cli.telegram && cli.telegram.enabled && dest.chatId && tok) {
+          telegram.sendMessage(tok, dest.chatId, telegram.cargaText({
             clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })
             .catch((e) => console.warn('[Telegram] aviso error:', e.message));

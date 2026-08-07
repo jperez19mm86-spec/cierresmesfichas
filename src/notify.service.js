@@ -3,6 +3,8 @@
  * Reusa el sender de la MATRIZ (telegram.sendMessage) + el bot global (config-store).
  */
 const telegram = require('./telegram');
+const destino = require('./telegram-destino');
+const clientes = require('./clientes-store');
 const config = require('./config-store');
 const money = require('./lib/money');
 
@@ -47,10 +49,13 @@ function msgPago({ nombre, pago, deudaAnterior, saldo }) {
 
 async function _send(cliente, text) {
   const tok = config.getTelegramToken();
-  if (!(cliente && cliente.telegram && cliente.telegram.enabled && cliente.telegram.chatId && tok)) {
+  // El destino puede ser el grupo del VENDEDOR: ver telegram-destino.js. El interruptor, en cambio,
+  // es siempre del cliente — heredarlo pondría a 14 clientes a escribir de golpe en un grupo real.
+  const d = destino.destinoDe(cliente, (id) => clientes.get(id));
+  if (!(tok && d.chatId && cliente && (cliente.telegram || {}).enabled)) {
     return { ok: false, skipped: true };
   }
-  return telegram.sendMessage(tok, cliente.telegram.chatId, text);
+  return telegram.sendMessage(tok, d.chatId, text);
 }
 
 const avisarCarga = (cliente, data) => _send(cliente, msgCarga(data));
