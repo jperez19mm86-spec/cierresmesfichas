@@ -796,6 +796,22 @@ async function main() {
       /if \(!modo\.ok && cli && nivelDeclarado/.test(src));
   }
 
+  // ── la matriz de TBS: alfabética y con los baratos marcados ──
+  // "Casi sin costo" es costo ≤ 1: SL, SL2, Slot Zona, XG y la familia postpago. Ahí lo que se
+  // cobra es casi todo margen, y son los que el dueño necesita ubicar de un vistazo.
+  {
+    const orden = (a, b) => String(a).localeCompare(String(b), 'es', { sensitivity: 'base' });
+    const nombres = ['Slot Zona', 'absolute live', 'Ávila', 'BVS', 'SL2', 'SL'];
+    const ord = [...nombres].sort(orden);
+    check('matriz: alfabético sin importar mayúsculas ni acentos',
+      ord[0] === 'absolute live' && ord[1] === 'Ávila' && ord.indexOf('SL') < ord.indexOf('SL2'), ord.join(' · '));
+    const barato = (x) => x.costo != null && Number(x.costo) <= 1;
+    check('matriz: 0, 0,5 y 1 se marcan',
+      barato({ costo: '0' }) && barato({ costo: '0.5' }) && barato({ costo: '1' }));
+    check('matriz: 1,5 y más NO se marcan', !barato({ costo: '1.5' }) && !barato({ costo: '8.5' }));
+    check('matriz: un sello sin costo cargado no se marca (no sé ≠ es gratis)', !barato({ costo: null }));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

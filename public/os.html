@@ -1378,6 +1378,11 @@ const CIE_STYLE = `<style>
     .ciet input{width:46px;border:none;background:transparent;color:var(--text);text-align:center;font-size:12px;padding:2px}
     .ciet input.cie-d{width:52px;color:var(--muted)}
     .ciet input.cie-lk{width:170px;text-align:left}
+    /* Los sellos que cuestan 1% o menos: se marcan en la primera columna, que es la que queda
+       fija al hacer scroll horizontal. Marcar toda la fila taparía el color de cada celda, que
+       dice otra cosa (verificado / sin verificar). */
+    .ciet tr.cie-barato td.cie-p{background:rgba(46,160,67,.10);border-left:3px solid var(--green)}
+    .ciet tr.cie-barato td.cie-p input{color:var(--green);font-weight:700}
     .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
     .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
     .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}.cie-x:hover{opacity:1}
@@ -2930,7 +2935,13 @@ API.clientes = async () => {
 API.matriz = async () => {
   const m=await api('/api/os/api/matriz');
   const cs=(m.clientes||[]).filter(c=>c.activo);
-  const sellos=(m.sellos||[]).filter(x=>x.grupo_id);
+  // Alfabético por el nombre corto, que es el que se lee. Antes venían en el orden en que se
+  // cargaron, que no significa nada y obliga a barrer las 40 filas para encontrar una.
+  const sellos=(m.sellos||[]).filter(x=>x.grupo_id)
+    .sort((a,b)=>String(a.corto||a.nombre).localeCompare(String(b.corto||b.nombre),'es',{sensitivity:'base'}));
+  // Los de costo 0, 0,5 o 1 son casi todo margen: son los que conviene tener a la vista.
+  const barato=(x)=>x.costo!=null && Number(x.costo)<=1;
+  const nBaratos=sellos.filter(barato).length;
   const cel=m.celdas||{};
   let ver=0,pla=0,vac=0;
   const fila=(x)=>{
@@ -2955,7 +2966,7 @@ API.matriz = async () => {
     // El costo del sello es EDITABLE acá. Antes era texto fijo y no había ningún lugar donde
     // cambiarlo: si el proveedor subía o el número estaba mal cargado, no quedaba más que tocar la
     // base. Y es el número contra el que se cruza lo que se le paga a cada cliente.
-    return `<tr><td class="cie-p" title="${esc(x.nombre)}">${esc(x.corto)}
+    return `<tr${barato(x)?' class="cie-barato"':''}><td class="cie-p" title="${esc(x.nombre)}${barato(x)?'\ncuesta '+x.costo+'%: casi todo lo que se cobra es margen':''}">${esc(x.corto)}
       <span class="muted" style="font-size:10px">${x.tipo==='postpago'?'post':'pre'} · costo
       <input value="${esc(x.costo==null?'':x.costo)}" data-sello="${esc(x.nombre)}"
         onchange="apiCosto(this)" title="Lo que cuesta este proveedor. Cambiarlo NO cambia lo que se le cobra a nadie: sólo lo que se descuenta como costo."
@@ -2971,6 +2982,9 @@ API.matriz = async () => {
         <span><span style="display:inline-block;width:14px;height:14px;background:rgba(210,160,0,.35);vertical-align:middle;border-radius:3px"></span>
           <b>${pla}</b> sin verificar <span class="muted">— de la tabla de precios, revisalos antes de facturar</span></span>
         <span class="muted">· <b>${vac}</b> sin precio</span>
+        <span style="border-left:1px solid var(--border);padding-left:14px">
+          <span style="display:inline-block;width:14px;height:14px;background:rgba(46,160,67,.20);border-left:3px solid var(--green);vertical-align:middle;border-radius:3px"></span>
+          <b>${nBaratos}</b> casi sin costo <span class="muted">— cuestan 1% o menos, así que lo que se cobra es casi todo margen</span></span>
       </div>
       <div style="overflow:auto;max-height:70vh">
         <table class="ciet"><thead><tr><th class="cie-h0">Sello</th>${cs.map(c=>`<th title="${esc(c.login)} · id ${esc(c.id)}">${esc(c.login).slice(0,13)}</th>`).join('')}</tr></thead>
