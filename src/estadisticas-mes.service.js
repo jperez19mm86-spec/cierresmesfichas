@@ -293,7 +293,7 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
     const mios = new Map();
     paneles.list().filter((p) => p.conexion_id === conexionId && p.id_usuario)
       .forEach((p) => mios.set(String(p.id_usuario), p));
-    let guardados = 0, filas = 0;
+    let guardados = 0, filas = 0, vacios = 0;
     const sinPanel = [];
     porNodo.forEach((fs, nodoId) => {
       if (!mios.has(nodoId)) { sinPanel.push(nodoId); return; }
@@ -304,13 +304,34 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
       } else filas += fs.length;
       guardados++;
     });
+    // ⚠️ "NO VINO NADA" TAMBIÉN ES UNA RESPUESTA, Y HAY QUE ANOTARLA.
+    // Si un panel no movió esa moneda, la global no trae ninguna fila suya. Sin dejar constancia,
+    // filasDe devuelve null y el reporte de externos lo lee como "falta la foto" — y se va a
+    // preguntarle al casino EN VIVO, con la llamada vieja que hoy falla. Medido: IGLatam pedía 87
+    // consultas, resolvía 27 por la foto y las otras 60 se iban en vivo, 158 segundos y 0 filas.
+    //
+    // Se marca sólo a los paneles de ESTE nivel: los del otro salen en la otra vuelta, y darlos por
+    // vacíos acá les borraría la foto buena.
+    if (guardar) {
+      paneles.list()
+        .filter((p) => p.conexion_id === conexionId && p.id_usuario && p.en_foto !== false
+          && nivelDe(p) === nivel && !porNodo.has(String(p.id_usuario))
+          && ((p.divisas || []).length ? p.divisas : ['ARS']).map((d) => String(d).toUpperCase()).includes(divisa))
+        .forEach((p) => {
+          const t = { conexion_id: conexionId, mes: m, divisa, nivel, nodo: String(p.id_usuario) };
+          _guardar(t, []);                       // borra lo que hubiera de antes: hoy no movió nada
+          _marcar(t, { estado: 'ok', filas: 0, nodos: 0, segundos: seg, modo: grupo });
+          vacios++;
+        });
+    }
+
     // La unidad del plan es la DIVISA: se marca con nodo vacío para distinguirla de las capturas
     // por panel, que siguen existiendo y son las que lee filasDe.
     if (guardar) _marcar({ conexion_id: conexionId, mes: m, divisa, nivel, nodo: '' },
       { estado: 'ok', filas, nodos: guardados, segundos: seg, modo: grupo });
     salida.push({ divisa, ok: true, segundos: seg, filasQueTrajo: (r.filas || []).length,
       nodosQueTrajo: porNodo.size, panelesNuestros: guardados, filasGuardadas: filas,
-      nodosAjenos: sinPanel.length });
+      panelesEnCero: vacios, nodosAjenos: sinPanel.length });
     if (onPaso) onPaso(salida[salida.length - 1]);
   }
   return { ok: true, mes: m, nivel, plantilla, guardado: !!guardar, divisas: salida,
