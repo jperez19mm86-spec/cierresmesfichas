@@ -33,12 +33,24 @@ function destinoDe(cliente, getCliente) {
   const propio = ((cliente.telegram || {}).chatId || '').trim();
   if (propio) return { chatId: propio, heredado: false, de: null };
 
-  const vid = cliente.vendedor_id;
-  if (!vid || String(vid) === String(cliente.id)) return { chatId: null, heredado: false, de: null };
-  const v = typeof getCliente === 'function' ? getCliente(vid) : null;
-  const delVendedor = ((v && v.telegram) || {}).chatId;
-  if (!v || !delVendedor || !String(delVendedor).trim()) return { chatId: null, heredado: false, de: null };
-  return { chatId: String(delVendedor).trim(), heredado: true, de: v.nombre || v.codigo || String(vid) };
+  // SUBE TODA LA CADENA, no un solo escalón. Hay vendedores que cuelgan de otro vendedor —
+  // GanamosSarah y Julian son de Alexa — así que un cliente de Julian tiene que poder terminar en
+  // el grupo de Alexa. Con un solo salto la pantalla mostraría la jerarquía y el mensaje se
+  // perdería a mitad de camino.
+  // `vistos` corta los ciclos: si alguien queda como vendedor de su propio vendedor, esto se
+  // colgaría, y colgar el envío de una factura es peor que no encontrar el grupo.
+  const vistos = new Set([String(cliente.id)]);
+  let actual = cliente;
+  while (true) {
+    const vid = actual.vendedor_id;
+    if (!vid || vistos.has(String(vid))) return { chatId: null, heredado: false, de: null };
+    vistos.add(String(vid));
+    const v = typeof getCliente === 'function' ? getCliente(vid) : null;
+    if (!v) return { chatId: null, heredado: false, de: null };
+    const suyo = ((v.telegram || {}).chatId || '').trim();
+    if (suyo) return { chatId: suyo, heredado: true, de: v.nombre || v.codigo || String(vid) };
+    actual = v;
+  }
 }
 
 /** ¿Se le puede avisar CADA CARGA? Hace falta el destino Y el interruptor propio prendido. */

@@ -634,6 +634,21 @@ async function main() {
     check('telegram: sin vendedor y sin grupo, no hay a dónde', dest.destinoDe(M.c3, g).chatId === null);
     check('telegram: si el vendedor tampoco tiene, no inventa', dest.destinoDe(M.c4, g).chatId === null);
     check('telegram: un cliente que es su propio vendedor no cuelga', dest.destinoDe(M.cx, g).chatId === null);
+    // Vendedores anidados: GanamosSarah y Julian son vendedores Y cuelgan de Alexa. Un cliente de
+    // Julian tiene que poder terminar en el grupo de Alexa: si sólo se subiera un escalón, la
+    // pantalla mostraría la jerarquía y el mensaje se perdería a mitad de camino.
+    const N = {
+      ale: { id: 'ale', nombre: 'Alexa', es_vendedor: true, telegram: { chatId: '-100ALEXA' } },
+      jul: { id: 'jul', nombre: 'Julian', es_vendedor: true, vendedor_id: 'ale', telegram: { chatId: '' } },
+      nieto: { id: 'nieto', nombre: 'Luxor', vendedor_id: 'jul', telegram: { chatId: '' } },
+      a: { id: 'a', nombre: 'A', vendedor_id: 'b', telegram: { chatId: '' } },
+      b: { id: 'b', nombre: 'B', vendedor_id: 'a', telegram: { chatId: '' } },
+    };
+    const gn = (id) => N[id];
+    check('telegram: sube toda la cadena, no un solo escalón',
+      dest.destinoDe(N.nieto, gn).chatId === '-100ALEXA' && dest.destinoDe(N.nieto, gn).de === 'Alexa',
+      JSON.stringify(dest.destinoDe(N.nieto, gn)));
+    check('telegram: un ciclo entre dos no cuelga el envío', dest.destinoDe(N.a, gn).chatId === null);
     // El INTERRUPTOR no se hereda: si se heredara, prender el del vendedor pondría a 14 clientes
     // a escribir de golpe en un grupo real sin que nadie lo pidiera.
     check('telegram: el aviso de carga NO se hereda, aunque el destino sí',

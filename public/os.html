@@ -2414,15 +2414,19 @@ CFG.telegram = async () => {
    La herencia se resuelve también en el servidor (telegram-destino.js), no sólo acá: si sólo se
    dibujara, la pantalla diría que llega y el mensaje se perdería. */
 function tgGrupos(cs, pans){
-  const vend = cs.filter(c=>c.es_vendedor).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es'));
-  const deVend = {}; cs.forEach(c=>{ if(c.vendedor_id) (deVend[c.vendedor_id]=deVend[c.vendedor_id]||[]).push(c); });
-  const huerfanos = cs.filter(c=>!c.es_vendedor && !c.vendedor_id);
-  const fila=(c, jefe)=>{
+  // ⚠️ Un vendedor puede colgar de OTRO vendedor: GanamosSarah y Julian son vendedores y a la vez
+  // gente de Alexa. Recorriendo "todos los vendedores" arriba y además sus hijos, esos dos salían
+  // DOS VECES. Se recorre el árbol como en la pantalla de Clientes: la raíz son los que no cuelgan
+  // de nadie, y cada uno dibuja a los suyos hacia abajo. Cada cliente aparece exactamente una vez.
+  const deVend = {}; cs.forEach(c=>{ if(c.vendedor_id && c.vendedor_id!==c.id) (deVend[c.vendedor_id]=deVend[c.vendedor_id]||[]).push(c); });
+  const porNombre=(a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es');
+  const raiz = cs.filter(c=>!c.vendedor_id || c.vendedor_id===c.id).sort(porNombre);
+  const fila=(c, jefe, prof)=>{
     const t=c.telegram||{}; const np=pans.filter(p=>p.cliente_id===c.id).length;
     const propio=(t.chatId||'').trim();
     const hered=!propio && jefe && ((jefe.telegram||{}).chatId||'').trim();
     return `<tr${c.es_vendedor?' class="cie-tv"':''}>
-      <td style="padding-left:${jefe?26:8}px">${jefe?'<span class="muted">└ </span>':''}${_nom(c)}
+      <td style="padding-left:${8+prof*22}px">${prof?'<span class="muted">└ </span>':''}${_nom(c)}
         ${c.es_vendedor?'<span class="cie-tag">vendedor</span>':''}
         ${np?`<span class="muted" style="font-size:11px">· ${np} panel${np===1?'':'es'}</span>`:''}</td>
       <td><input id="tgc-${c.id}" value="${esc(propio)}"
@@ -2438,14 +2442,21 @@ function tgGrupos(cs, pans){
         ${(propio||hered)?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
         <button class="outline small" onclick="abrirCliente('${c.id}','comercial')">Ficha</button></td></tr>`;
   };
-  let html='';
-  vend.forEach(v=>{
-    html+=fila(v,null);
-    (deVend[v.id]||[]).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es')).forEach(c=>{html+=fila(c,v);});
-  });
-  if(huerfanos.length){
-    html+=`<tr><td colspan="4" class="muted" style="padding-top:14px"><b>Sin vendedor asignado</b> — estos no pueden heredar de nadie</td></tr>`;
-    huerfanos.sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es')).forEach(c=>{html+=fila(c,null);});
+  // Baja por el árbol. `vistos` corta cualquier ciclo en los datos (A vendedor de B y B de A):
+  // sin eso una rama circular colgaría el navegador en vez de mostrar la pantalla.
+  const vistos=new Set();
+  const rama=(c, jefe, prof)=>{
+    if(vistos.has(c.id)) return '';
+    vistos.add(c.id);
+    return fila(c,jefe,prof) + (deVend[c.id]||[]).sort(porNombre).map(h=>rama(h,c,prof+1)).join('');
+  };
+  let html=raiz.map(c=>rama(c,null,0)).join('');
+  // Los que quedaron fuera del árbol: su vendedor no existe o hay un ciclo. Se muestran igual —
+  // desaparecer de la lista sería peor que salir raro.
+  const sueltos=cs.filter(c=>!vistos.has(c.id)).sort(porNombre);
+  if(sueltos.length){
+    html+=`<tr><td colspan="4" class="muted" style="padding-top:14px"><b>Sin vendedor válido</b> — no pueden heredar de nadie</td></tr>`;
+    html+=sueltos.map(c=>fila(c,null,0)).join('');
   }
   return html||'<tr><td colspan="4" class="empty">Sin clientes.</td></tr>';
 }
