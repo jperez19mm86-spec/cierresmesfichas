@@ -699,6 +699,11 @@ function mount(app) {
       const totalFoto = suma(guardadas);
       const totalGlobal = g ? [...g.values()].reduce((a, x) => a + x, 0) : null;
       const fila = { panel: p.nombre, nodo: String(p.id_usuario),
+        nivelDelPanel: p.nivel_usuario || '',
+        // ¿se está comparando en el nivel en el que ESE panel factura, o en el otro? Un panel
+        // medido en el nivel que no le corresponde no tiene por qué dar lo mismo, y mezclarlos
+        // haría parecer que los dos reportes no coinciden cuando el problema es la comparación.
+        esSuNivel: estadMes.nivelDe(p) === nivel,
         enLaFoto: !!guardadas, enElGlobal: !!g,
         filasFoto: (guardadas || []).length, filasGlobal: g ? g.size : 0,
         totalFoto: guardadas ? Number(totalFoto.toFixed(2)) : null,
@@ -720,7 +725,13 @@ function mount(app) {
     });
 
     const ambos = comparados.filter((x) => x.enLaFoto && x.enElGlobal);
+    const propios = ambos.filter((x) => x.esSuNivel);
+    const otros = ambos.filter((x) => !x.esSuNivel);
     ok(res, { mes, divisa, nivel, segundos,
+      enSuNivel: { comparables: propios.length, iguales: propios.filter((x) => Math.abs(x.dif) < 0.01).length,
+        distintos: propios.filter((x) => Math.abs(x.dif) >= 0.01) },
+      enElOtroNivel: { comparables: otros.length, iguales: otros.filter((x) => Math.abs(x.dif) < 0.01).length,
+        distintos: otros.filter((x) => Math.abs(x.dif) >= 0.01).length },
       filasQueTrajoLaGlobal: (r.filas || []).length,
       nodosQueTrajoLaGlobal: global.size,
       comparables: ambos.length,
