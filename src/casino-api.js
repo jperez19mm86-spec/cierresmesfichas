@@ -719,7 +719,15 @@ function makeClient({ url, token, user, password } = {}) {
     const bloqueSel = (html.match(/<select[^>]*name=["\']?add_currency["\']?[^>]*>([\s\S]*?)<\/select>/i) || [])[1] || '';
     const disponibles = [...new Set((bloqueSel.match(/value=["\']([A-Za-z]{2,6})["\']/g) || [])
       .map((x) => (x.match(/["\']([A-Za-z]{2,6})["\']/) || [])[1]).filter(Boolean))];
-    if (!bloqueSel) return { ok: false, error: 'esa página no parece la de divisas (no está el selector para agregar)' };
+    if (!bloqueSel) {
+      // Sin pista, este error obliga a adivinar. El casino contesta 200 con una página distinta
+      // cuando el usuario no tiene permiso para esa pantalla, y eso se parece a un parser roto.
+      // Se manda sólo texto visible y recortado — nunca el html crudo, que lleva la sesión adentro.
+      const texto = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+      return { ok: false, error: 'esa página no parece la de divisas (no está el selector para agregar)',
+        pista: texto.slice(0, 220), largo: html.length, tieneCurrency: /name=["']?currency["']?/i.test(html) };
+    }
     return { ok: true, nodo: id, divisas: habilitadas.sort(), disponibles: disponibles.length };
   }
 

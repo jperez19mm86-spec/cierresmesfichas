@@ -323,7 +323,7 @@ function mount(app) {
         filas.push({ panel_id: p.id, nombre: p.nombre, error: 'esa conexión no es del motor Imperia' }); continue;
       }
       const r = await cli.divisasDeNodo(p.id_usuario);
-      if (!r.ok) { filas.push({ panel_id: p.id, nombre: p.nombre, error: r.error }); continue; }
+      if (!r.ok) { filas.push({ panel_id: p.id, nombre: p.nombre, error: r.error, pista: r.pista || null }); continue; }
       const guardadas = (p.divisas || []).map((x) => String(x).toUpperCase());
       const usadas = usadasPorPanel[p.id] || [];
       filas.push({
