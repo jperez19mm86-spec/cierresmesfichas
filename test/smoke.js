@@ -1030,6 +1030,29 @@ async function main() {
     check('modo: un valor que no sirve para la foto sigue dando null', em.nivelDeModo('terminal') === null);
   }
 
+  // ── la columna de orden tiene que EXISTIR en el reporte que se pide ──
+  // El motor sólo acepta ordenar por una columna del resultado, y no lo dice: contesta una página
+  // "Unknown error occurred." a todo. Primero fue sort=provider agrupando por Distributor; después
+  // sort=id en "Datos generales", donde tampoco hay `id`. Las dos veces pareció un motor caído.
+  {
+    const CAMPOS = {
+      general: ['provider', 'label', 'vendor', 'bet', 'win', 'profit', 'rtp'],
+      porNivel: ['id', 'login', 'provider', 'label', 'vendor', 'profit'],
+    };
+    const orden = (general) => (general ? 'profit' : 'id');
+    check('orden: en la vista general la columna pedida existe',
+      CAMPOS.general.includes(orden(true)), orden(true));
+    check('orden: por nivel la columna pedida existe',
+      CAMPOS.porNivel.includes(orden(false)), orden(false));
+    check('orden: NO se ordena por id en la general (ahí no hay id)',
+      orden(true) !== 'id' && !CAMPOS.general.includes('id'));
+    // el código real
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'casino-api.js'), 'utf8');
+    check('orden: casino-api elige la columna según la vista',
+      /sort:\s*general\s*\?\s*'profit'\s*:\s*'id'/.test(src));
+    check('orden: ya no está hardcodeado sort=id', !/sort=id&order=desc/.test(src));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

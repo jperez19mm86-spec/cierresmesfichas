@@ -354,9 +354,14 @@ function makeClient({ url, token, user, password } = {}) {
     // motor no lo dice: contesta una página HTML "Unknown error occurred." a cualquier pedido —
     // idéntica en las dos conexiones, con o sin filtro, con o sin nodo, con cualquier rango. Semanas
     // pareciendo un motor caído por un parámetro de ordenamiento.
-    // `id` está siempre, agrupe como agrupe, y es lo que manda el panel del casino.
-    // El orden acá no importa: las filas se agregan por proveedor más adelante.
-    if (!/[?&]sort=/.test(path)) path += '&search=&sort=id&order=desc';
+    // 🔴 Y "id está siempre" ERA MENTIRA. Vale agrupando por Superagente o Distributor, pero en
+    // "Datos generales" el casino no abre por cuenta: las columnas son provider, label, vendor,
+    // bet, win, profit, rtp — sin `id`. Pidiendo sort=id ahí devuelve la MISMA página "Unknown
+    // error occurred.", y la vista general fallaba en las 78 divisas de las dos conexiones.
+    // Por eso la columna de orden la elige QUIEN PIDE, que es el único que sabe qué campos pidió.
+    // El orden en sí no importa: las filas se agregan por proveedor más adelante.
+    const colOrden = opts.sort || 'id';
+    if (!/[?&]sort=/.test(path)) path += `&search=&sort=${encodeURIComponent(colOrden)}&order=desc`;
     if (!/[?&]offset=/.test(path)) path += '&offset=0';
     if (!/[?&]limit=/.test(path)) path += `&limit=${PAGINA}`;
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
@@ -491,7 +496,8 @@ function makeClient({ url, token, user, password } = {}) {
       fields.forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    }, { filtros, from, to, sinPlantilla });
+      // ordenar por una columna que EXISTA en lo que se pidió: en la general no hay `id`
+    }, { filtros, from, to, sinPlantilla, sort: general ? 'profit' : 'id' });
     if (!r.ok) return r;
     let filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',
