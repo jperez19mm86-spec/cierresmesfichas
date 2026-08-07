@@ -939,6 +939,32 @@ async function main() {
       regla('SuperAgente', ['ARS', 'USD'], ['USD', 'ARS']) === 'no se toca (ya está igual)');
   }
 
+  // ── la limpieza de grupos viejos NO puede borrar los niveles vigentes ──
+  // Estaba escrita en inglés de cuando los niveles se llamaban 'superagent'. Al renombrarlos al
+  // español, 'superagente' dejó de coincidir y la limpieza borraba LOS DOS niveles: cada vez que
+  // se arrancaba una captura se vaciaba el mes entero. Este test es el que no la deja desfasarse.
+  {
+    const { db } = require('../src/db');
+    const em = require('../src/estadisticas-mes.service');
+    const vigentes = [...em.NIVELES, 'nodo'];
+    const hueco = vigentes.map(() => '?').join(',');
+    const MES = '1999-01';
+    db.prepare('DELETE FROM estad_mes WHERE mes=?').run(MES);
+    const ins = db.prepare(`INSERT INTO estad_mes (id,conexion_id,mes,divisa,grupo,nodo_id,nodo_login,
+      provider,label,vendor,bet,win,profit,capturado_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    // uno por nivel vigente, más dos de los grupos viejos que sí hay que barrer
+    [...vigentes, 'distributor', 'agent'].forEach((g, i) => ins.run('t' + i, 'cx', MES, 'ARS', g,
+      '1', 'x', 'p', 'l', 'v', '0', '0', '0', '2026-01-01'));
+    db.prepare(`DELETE FROM estad_mes WHERE mes=? AND grupo NOT IN (${hueco})`).run(MES, ...vigentes);
+    const quedan = db.prepare('SELECT grupo FROM estad_mes WHERE mes=?').all(MES).map((r) => r.grupo).sort();
+    check('limpieza: sobreviven TODOS los niveles vigentes', quedan.join(',') === vigentes.slice().sort().join(','), quedan.join(','));
+    check('limpieza: se van los grupos viejos', !quedan.includes('distributor') && !quedan.includes('agent'));
+    // el desfasaje concreto que hubo, para que no vuelva disfrazado
+    check('limpieza: "superagente" no se pierde por escribir "superagent"',
+      quedan.includes('superagente'), quedan.join(','));
+    db.prepare('DELETE FROM estad_mes WHERE mes=?').run(MES);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

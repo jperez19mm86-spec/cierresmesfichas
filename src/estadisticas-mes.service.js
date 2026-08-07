@@ -293,9 +293,18 @@ async function capturar({ mes, conexionId = null, nivel = null, divisa = null, a
   // Las agrupaciones 'distributor' y 'agent' fueron un intento que no sirvió (el casino devolvía
   // lo mismo que 'superagent'): si quedaron filas de esa época, se limpian.
   // Sólo en el primer pedazo: con la foto troceada esto correría en cada llamada al pedo.
+  //
+  // ⚠️ LA LISTA SALE DE NIVELES, NO SE ESCRIBE A MANO. Estaba escrita en inglés —('superagent',
+  // 'nodo')— de cuando los niveles se llamaban así. Después se renombraron al español y esta línea
+  // quedó atrás: 'superagente' ya no coincidía con 'superagent', así que la limpieza le pasaba por
+  // encima a LOS DOS NIVELES. Cada vez que se arrancaba una captura se borraba el mes entero, y
+  // como la captura que seguía iba guardando, parecía que "se perdían al cargar el otro panel".
+  // Atado a NIVELES esto no se puede volver a desfasar sin que fallen los tests.
   if (ini === 0) {
-    db.prepare("DELETE FROM estad_mes WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
-    db.prepare("DELETE FROM estad_captura WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
+    const vigentes = [...NIVELES, 'nodo'];
+    const hueco = vigentes.map(() => '?').join(',');
+    db.prepare(`DELETE FROM estad_mes WHERE mes=? AND grupo NOT IN (${hueco})`).run(m, ...vigentes);
+    db.prepare(`DELETE FROM estad_captura WHERE mes=? AND grupo NOT IN (${hueco})`).run(m, ...vigentes);
   }
 
   const hechos = [];
