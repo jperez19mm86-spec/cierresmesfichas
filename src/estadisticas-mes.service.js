@@ -90,6 +90,10 @@ function nivelDe(panel) {
 function nivelDeModo(valor) {
   if (valor === 'superagent') return 'superagente';
   if (valor === 'diller') return 'distribuidor';
+  // "Datos generales": el casino no abre por cuenta, devuelve UNA fila por proveedor para toda la
+  // plataforma. Responde otra pregunta — no quién consumió qué, sino cuánto le debemos al
+  // proveedor. Se guarda con grupo 'nodo', que es como ya se llamaba esa vista.
+  if (valor === '' || valor == null) return 'general';
   return null;                                  // cualquier otro modo no sirve para la foto
 }
 
@@ -262,15 +266,17 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
   }
   nivel = modo.nivel;
   const grupo = modo.valor;
+  const esGeneral = nivel === 'general';
   // Ganancia mayor a cero, explícito. Antes iba `profit > ''` (valor vacío), que deja al casino
   // decidir qué significa. El dueño lo pidió así: profit > 0.
   const filtros = [{ column_name: 'profit', condition: '>', value: '0' }];
+  // La vista general se pide con userGroupBy vacío; las otras con superagent/diller.
 
   const salida = [];
   for (const divisa of divisas.map((d) => String(d).toUpperCase())) {
     const t0 = Date.now();
     let r;
-    try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: grupo,
+    try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: esGeneral ? '' : grupo,
         activeTemplate: plantilla === 'ninguna' ? '' : plantilla, sinPlantilla: plantilla === 'ninguna', filtros }); }
     catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
@@ -279,6 +285,18 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
         { estado: 'error', error: r.error, segundos: seg, modo: grupo });
       salida.push({ divisa, ok: false, error: r.error, segundos: seg });
       if (onPaso) onPaso(salida[salida.length - 1]); continue;
+    }
+
+    // En la vista GENERAL no hay nodos: es una fila por proveedor para toda la plataforma. Se
+    // guarda con nodo vacío y grupo 'nodo', que es como ya se llamaba esa vista antes.
+    if (esGeneral) {
+      const t = { conexion_id: conexionId, mes: m, divisa, nivel: 'nodo', nodo: '' };
+      const n = guardar ? _guardar(t, r.filas || []) : (r.filas || []).length;
+      if (guardar) _marcar(t, { estado: 'ok', filas: n, nodos: 0, segundos: seg, modo: 'general' });
+      salida.push({ divisa, ok: true, segundos: seg, filasQueTrajo: (r.filas || []).length,
+        nodosQueTrajo: 0, panelesNuestros: 0, filasGuardadas: n, panelesEnCero: 0, nodosAjenos: 0, general: true });
+      if (onPaso) onPaso(salida[salida.length - 1]);
+      continue;
     }
 
     // partir por nodo: la respuesta trae todos juntos

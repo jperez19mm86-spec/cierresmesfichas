@@ -833,7 +833,7 @@ function mount(app) {
     const r = await estadMes.capturarGlobal({
       mes, conexionId: b.conexion_id,
       // sin nivel declarado, se usa el que tenga el casino; con nivel, se rechaza si no coincide
-      nivel: b.nivel === 'distribuidor' ? 'distribuidor' : (b.nivel === 'superagente' ? 'superagente' : null),
+      nivel: ['distribuidor', 'superagente', 'general'].includes(b.nivel) ? b.nivel : null,
       divisas: tanda, plantilla: b.plantilla || '', guardar: b.guardar !== false,
     });
     if (!r.ok) return err(res, 502, r.error);
