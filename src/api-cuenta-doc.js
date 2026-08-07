@@ -19,6 +19,7 @@
  * hasta que alguien lo ponga a mano — que es exactamente lo que se quiere.
  */
 const money = require('./lib/money');
+const { MESES_ES } = require('./lib/fechas');
 
 const LINEA_CLIENTE = ['sello', 'sello_largo', 'tipo', 'divisa', 'ggr', 'ggr_usd', 'tc_cliente',
   'pct_cliente', 'monto_cliente', 'usdt_cliente'];
@@ -114,27 +115,65 @@ function documento({ cuenta, mes, vista = 'interno', alcance = 'total', caja_id 
  * que existe la lista blanca: si esto leyera la cuenta original, alcanzaría con una línea distraída
  * para mandarle al cliente lo que le pagamos al proveedor. Acá esos campos directamente no existen.
  */
-function aTexto(doc, { titulo = null } = {}) {
+function aTexto(doc, { titulo = null, link = null } = {}) {
   if (!doc || !doc.ok) return '';
   const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const [y, m] = String(doc.mes || '').split('-');
+  const mesNom = MESES_ES[Number(m) - 1] ? `${MESES_ES[Number(m) - 1]}-${y}` : String(doc.mes);
   const L = [];
-  L.push(`🧾 <b>${esc(titulo || doc.cuenta)}</b> — consumo de ${esc(doc.mes)}`);
-  (doc.secciones || []).forEach((sec) => {
-    if ((doc.secciones || []).length > 1) { L.push(''); L.push(`<b>▸ ${esc(sec.titulo)}</b>`); }
-    (sec.porDivisa || []).forEach((g) => {
-      L.push('');
-      L.push(`<b>${esc(g.divisa)}</b>  <i>tipo de cambio ${esc(g.tc_cliente)}</i>`);
-      (g.lineas || []).forEach((l) => {
-        L.push(`  ${esc(l.sello)} — ${n(l.ggr, 0)} ${esc(g.divisa)} · ${esc(l.pct_cliente)}% = <b>${n(l.usdt_cliente)}</b>`);
-      });
-      L.push(`  <i>subtotal ${esc(g.divisa)}: ${n(g.usdt_cliente)} USDT</i>`);
-    });
-    if ((doc.secciones || []).length > 1) L.push(`  <b>Total ${esc(sec.titulo)}: ${n(sec.usdt_cliente)} USDT</b>`);
-  });
+  L.push(`🧾 <b>Cuenta de consumo TBS ${esc(mesNom)}</b>`);
+  L.push(esc(titulo || doc.cuenta));
   L.push('');
-  L.push(`💵 <b>TOTAL A PAGAR: ${n(doc.usdt_cliente)} USDT</b>`);
+  L.push(`💵 <b>Total a pagar: ${n(doc.usdt_cliente)} USDT</b>`);
+  // El desglose va en el LINK, no en el mensaje. Pegar 40 líneas con subtotales por divisa en un
+  // chat no se lee, y encima Telegram lo parte en varios mensajes. La página se mira con calma y
+  // tiene el botón para guardarla en PDF.
+  if ((doc.secciones || []).length > 1) {
+    L.push('');
+    (doc.secciones || []).forEach((sec) => L.push(`· ${esc(sec.titulo)}: ${n(sec.usdt_cliente)} USDT`));
+  }
+  if (link) { L.push(''); L.push(`📄 <a href="${esc(link)}">Ver el detalle por proveedor y divisa</a>`); }
   return L.join('\n');
 }
 
-module.exports = { documento, aTexto, LINEA_CLIENTE, DIVISA_CLIENTE };
+/**
+ * EL LINK PÚBLICO de una cuenta.
+ *
+ * Se guarda el documento YA PROYECTADO, no la cuenta. Lo que quede acá es exactamente lo que va a
+ * ver quien abra el link: si mañana alguien agrega un campo interno al motor, este link sigue
+ * mostrando lo mismo que mostraba, porque es una foto y no una consulta.
+ *
+ * Reusa la tabla `factura_link` con el id prefijado `api:` — esa tabla guarda un id de cliente en
+ * texto sin llave foránea, así que sin prefijo un cliente de API y uno de fichas con el mismo id
+ * compartirían link.
+ */
+const { db } = require('./db');
+const crypto = require('crypto');
+
+function crearLink(doc, clienteId) {
+  const cid = 'api:' + String(clienteId);
+  const mes = String(doc.mes);
+  const at = new Date().toISOString();
+  const ya = db.prepare('SELECT token FROM factura_link WHERE cliente_id=? AND mes=? AND revocado=0').get(cid, mes);
+  if (ya) {
+    // Se refresca la foto pero se conserva el token: si ya se lo mandaste, el link que tiene anda.
+    db.prepare('UPDATE factura_link SET datos=?, actualizado_at=? WHERE token=?').run(JSON.stringify(doc), at, ya.token);
+    return { token: ya.token, actualizado: true };
+  }
+  const token = crypto.randomBytes(24).toString('base64url');
+  db.prepare('INSERT INTO factura_link (token, cliente_id, mes, datos, creado_at, actualizado_at) VALUES (?,?,?,?,?,?)')
+    .run(token, cid, mes, JSON.stringify(doc), at, at);
+  return { token, actualizado: false };
+}
+
+function porToken(token) {
+  const r = db.prepare('SELECT * FROM factura_link WHERE token=?').get(String(token || ''));
+  if (!r || !String(r.cliente_id || '').startsWith('api:')) return null;
+  if (r.revocado) return { revocado: true };
+  db.prepare('UPDATE factura_link SET accesos=accesos+1, ultimo_acceso=? WHERE token=?').run(new Date().toISOString(), r.token);
+  try { return { doc: JSON.parse(r.datos), creado_at: r.creado_at, actualizado_at: r.actualizado_at }; }
+  catch (e) { return null; }
+}
+
+module.exports = { documento, aTexto, crearLink, porToken, LINEA_CLIENTE, DIVISA_CLIENTE };

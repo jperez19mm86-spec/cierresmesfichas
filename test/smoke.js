@@ -485,7 +485,7 @@ async function main() {
       { divisa: 'ARS', tc_cliente: '1000', tc_proveedor: '1100', tc_proveedor_varios: false,
         ggr: '2000000', ggr_usd: '2000', usdt_cliente: '200', usdt_proveedor: '80', usdt_empresa: '120',
         lineas: ls },
-    ], usdt_cliente: '200', usdt_proveedor: '80', usdt_empresa: '120', sinVerificar: 0 });
+    ], usdt_cliente: '200', usdt_proveedor: '77.77', usdt_empresa: '133.33', sinVerificar: 0 });
     const propio = bloque([linea('SL', 'ARS', '1200000', '1200', '120', '48')]);
     const caja = bloque([linea('XG', 'ARS', '800000', '800', '80', '32')]);
     const cuenta = { cliente_id: 'P1', login: 'Padre', propio,
@@ -509,7 +509,7 @@ async function main() {
       doc.documento({ cuenta, mes: '2026-07', vista: 'cliente', alcance: 'caja', caja_id: 'C1' }).secciones.length === 1);
     const dInt = doc.documento({ cuenta, mes: '2026-07', vista: 'interno', alcance: 'total' });
     check('API/doc: la interna sí lleva el proveedor y la empresa',
-      dInt.usdt_proveedor === '80' && dInt.usdt_empresa === '120', JSON.stringify([dInt.usdt_proveedor, dInt.usdt_empresa]));
+      dInt.usdt_proveedor === '77.77' && dInt.usdt_empresa === '133.33', JSON.stringify([dInt.usdt_proveedor, dInt.usdt_empresa]));
     const dCaja = doc.documento({ cuenta, mes: '2026-07', vista: 'cliente', alcance: 'caja', caja_id: 'C1' });
     check('API/doc: se puede pedir sólo la caja', dCaja.ok && dCaja.caja === 'LaCaja' && dCaja.usdt_cliente === '200', JSON.stringify(dCaja.caja));
     const dProp = doc.documento({ cuenta, mes: '2026-07', vista: 'interno', alcance: 'propio' });
@@ -527,10 +527,32 @@ async function main() {
     const txtCli = doc.aTexto(dCli, { titulo: 'Nacho' });
     check('API/telegram: el texto no lleva nada del proveedor ni del reparto',
       !/proveedor|empresa|henry|central|costo/i.test(txtCli), txtCli.slice(0, 200));
-    check('API/telegram: lleva el total y el detalle por divisa',
-      /TOTAL A PAGAR/.test(txtCli) && /ARS/.test(txtCli) && /tipo de cambio/.test(txtCli));
-    check('API/telegram: con dos proyectos, los separa', /▸ Padre/.test(txtCli) && /▸ LaCaja/.test(txtCli),
-      txtCli.slice(0, 300));
+    // El mensaje es un RESUMEN: el desglose vive en la página del link. 40 líneas con subtotales
+    // por divisa no se leen en un chat, y Telegram encima las parte en varios mensajes.
+    check('API/telegram: el mensaje es corto, con el mes en castellano y el total',
+      /Cuenta de consumo TBS Julio-2026/.test(txtCli) && /Total a pagar/.test(txtCli), txtCli.slice(0, 160));
+    check('API/telegram: con dos proyectos, lista cada uno con su total',
+      /· Padre: /.test(txtCli) && /· LaCaja: /.test(txtCli), txtCli.slice(0, 300));
+    check('API/telegram: el desglose por divisa NO va en el mensaje',
+      !/tipo de cambio/.test(txtCli), txtCli.slice(0, 200));
+    const conLink = doc.aTexto(dCli, { titulo: 'Nacho', link: 'https://x.test/cuenta/abc' });
+    check('API/telegram: el link va como enlace, no pegado como texto',
+      /<a href="https:\/\/x\.test\/cuenta\/abc">/.test(conLink), conLink.slice(-140));
+
+    // ── la página: un solo renderizador para el dueño y para el cliente ──
+    const html = require('../src/api-cuenta-html');
+    const pg = html.pagina(dCli);
+    check('API/página: sale el detalle por divisa con su subtotal',
+      /Subtotal ARS/.test(pg) && /tipo de cambio/.test(pg) && /Total a pagar/.test(pg));
+    // "Proveedor" SÍ aparece: es el encabezado de la columna del sello. Lo que no puede aparecer
+    // son las columnas internas ni los importes del proveedor y de la empresa.
+    check('API/página: no lleva las columnas internas',
+      !/Le pago|usdt_proveedor|usdt_empresa|pts_ib|pts_henry|costo_sello|tc_proveedor/i.test(pg), pg.slice(0, 200));
+    check('API/página: no lleva los importes del proveedor ni de la empresa',
+      !pg.includes('77,77') && !pg.includes('133,33'), 'los del fixture interno');
+    check('API/página: no la indexa un buscador', /noindex/.test(pg));
+    check('API/página: sin documento muestra un error, no se rompe',
+      /No encontramos/.test(html.pagina(null)) && /No encontramos/.test(html.pagina({ ok: false })));
     const txtInt = doc.aTexto(dInt, { titulo: 'Nacho' });
     check('API/telegram: el texto se arma igual desde la vista interna (no filtra por venir de ahí)',
       !/usdt_proveedor|pts_ib/.test(txtInt));

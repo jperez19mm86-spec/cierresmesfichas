@@ -21,6 +21,7 @@ const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
+const apiCuentaHtml = require('./api-cuenta-html');
 const apiResumen = require('./api-resumen.service');
 const tgDestino = require('./telegram-destino');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
@@ -907,7 +908,11 @@ function mount(app) {
 
     // Cinturón y tiradores: la lista blanca ya lo garantiza, pero esto sale para afuera y no hay
     // vuelta atrás. Si alguna vez alguien agrega un campo al motor, acá se frena antes de mandarlo.
-    const txt = apiCuentaDoc.aTexto(doc, { titulo: apiResumen.comoLoLlama(cl) });
+    // El link se crea SIEMPRE y guarda el documento proyectado: el mensaje lleva el resumen y el
+    // detalle vive en la página, que es la que el dueño venía mandando.
+    const l = apiCuentaDoc.crearLink(doc, cl.id);
+    const txt = apiCuentaDoc.aTexto(doc, { titulo: apiResumen.comoLoLlama(cl),
+      link: `${_urlPublica(req)}/cuenta/${l.token}` });
     if (/proveedor|usdt_empresa|pts_ib|pts_henry|costo_sello/i.test(JSON.stringify(doc))) {
       return err(res, 500, 'la cuenta del cliente traía datos internos: NO se mandó nada. Avisá que esto pasó.');
     }
@@ -927,6 +932,21 @@ function mount(app) {
     }
     ok(res, { enviado: true, partes: partes.length, total_usdt: doc.usdt_cliente, destinos: hechos,
       aviso: fallaron.length ? `se mandó a ${hechos.length - fallaron.length} de ${hechos.length}: falló ${fallaron.map((x) => x.quien).join(', ')}` : null });
+  }));
+
+  // La MISMA página que va a ver el cliente, pero detrás del login. Un solo renderizador y dos
+  // puertas: si el dueño revisa una cosa y el cliente ve otra, nadie se entera hasta el reclamo.
+  app.get('/api/os/api/cuenta/:clienteId/pagina', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const r = apiCuenta.cuentas({ mes });
+    if (!r.ok) return err(res, 400, r.error);
+    const c = (r.cuentas || []).find((x) => String(x.cliente_id) === String(req.params.clienteId));
+    const d = apiCuentaDoc.documento({ cuenta: c, mes, vista: 'cliente',
+      alcance: ['propio', 'caja', 'total'].includes(req.query.alcance) ? req.query.alcance : 'total',
+      caja_id: req.query.caja_id || null });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.send(d.ok ? apiCuentaHtml.pagina(d, { nota: 'Vista previa' }) : apiCuentaHtml.paginaError(d.error));
   }));
 
   // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:

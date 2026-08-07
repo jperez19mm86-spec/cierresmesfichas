@@ -654,6 +654,21 @@ app.get('/pedir', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
 // el link tiene que seguir diciendo lo que se le mandó.
+// La cuenta del mes de un cliente de API, por link. Pública a propósito: el cliente la abre sin
+// tener usuario. Lo que se guarda en el link es el documento YA PROYECTADO (vista 'cliente'), así
+// que acá no hay forma de que se escape lo que le pagamos al proveedor.
+app.get('/cuenta/:token', (req, res) => {
+  const doc = require('./api-cuenta-doc');
+  const html = require('./api-cuenta-html');
+  const r = doc.porToken(req.params.token);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, private');   // es de una sola persona: que no la cachee un proxy
+  if (!r) return res.status(404).send(html.paginaError('No encontramos esa cuenta'));
+  if (r.revocado) return res.status(410).send(html.paginaError('Este link ya no está disponible'));
+  const cuando = String(r.actualizado_at || r.creado_at || '').slice(0, 16).replace('T', ' ');
+  res.send(html.pagina(r.doc, { nota: cuando ? 'Emitida el ' + cuando : null }));
+});
+
 app.get('/factura/:token', (req, res) => {
   const facturaSvc = require('./factura.service');
   const html = require('./factura-html');
