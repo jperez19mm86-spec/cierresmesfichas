@@ -269,7 +269,11 @@ function makeClient({ url, token, user, password } = {}) {
     };
     if (b.has('from')) b.set('from', conHora(b.get('from'), false));
     if (b.has('to')) b.set('to', conHora(b.get('to'), true));
-    if (!b.has('active_template') && autoTpl) b.append('active_template', autoTpl); // template seleccionado del usuario (auto)
+    // La plantilla que el usuario tenga elegida se manda sola. Pero ⚠️ LA PLANTILLA TRAE SU PROPIO
+    // "Agrupar por" Y LE GANA AL QUE MANDAMOS: pidiendo superagent y diller con la plantilla
+    // "Superagente por mes" seleccionada, las dos devolvieron lo mismo (46 nodos). Sin plantilla la
+    // misma consulta a nivel diller había dado 232. Por eso hace falta poder NO mandar ninguna.
+    if (!opts.sinPlantilla && !b.has('active_template') && autoTpl) b.append('active_template', autoTpl);
     if (!useSession) b.append('api_token', token);
     // ⚠️ ESTE POST VA COMO NAVEGACIÓN, NO COMO AJAX.
     // En la pantalla del casino, cambiar "Agrupar por" hace un submit NATIVO del formulario. Se
@@ -475,7 +479,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, nodoId: String(nodoId), from, to, currency, filas, debug: r.debug };
   }
 
-  async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '', filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
+  async function reporteProveedores({ from = '', to = '', currency = 'ARS', userGroupBy = 'superagent', activeTemplate = '', sinPlantilla = false, filtros = [{ column_name: 'profit', condition: '>', value: '' }] } = {}) {
     const general = !userGroupBy; // userGroupBy='' = GENERAL (toda la plataforma, sin abrir por cuenta)
     const fields = general
       ? ['provider', 'label', 'vendor', 'bet', 'win', 'profit', 'rtp']      // vista general (captura del user)
@@ -487,7 +491,7 @@ function makeClient({ url, token, user, password } = {}) {
       fields.forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to); b.append('save_template_name', '');
       if (activeTemplate) b.append('active_template', String(activeTemplate));
-    }, { filtros, from, to });
+    }, { filtros, from, to, sinPlantilla });
     if (!r.ok) return r;
     let filas = r.raw.map((x) => ({
       saId: String(x.id == null ? '' : x.id), saLogin: x.login || '',

@@ -228,7 +228,8 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
   for (const divisa of divisas.map((d) => String(d).toUpperCase())) {
     const t0 = Date.now();
     let r;
-    try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: grupo, activeTemplate: plantilla, filtros }); }
+    try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: grupo,
+        activeTemplate: plantilla === 'ninguna' ? '' : plantilla, sinPlantilla: plantilla === 'ninguna', filtros }); }
     catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
     if (!r.ok) { salida.push({ divisa, ok: false, error: r.error, segundos: seg }); if (onPaso) onPaso(salida[salida.length - 1]); continue; }
