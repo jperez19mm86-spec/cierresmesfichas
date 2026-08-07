@@ -77,6 +77,7 @@
   .nota table { margin-top:6px; }
   .nota table th { font-size:10px; }
   .nota table td { padding:4px 9px; font-size:12px; }
+  .cie-ok { background:rgba(46,160,67,.28)!important; transition:background .1s; }
   /* Cuentas de API: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
      cada bloque es una tabla cerrada con su propio subtotal y su TC en la cabecera. */
   .apidiv { margin:0 0 12px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
@@ -2667,7 +2668,14 @@ API.matriz = async () => {
 cliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · Central ${d.pts_ib||'—'} · Henry ${d.pts_henry||'—'}
 ${d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios'}">${esc(d.pct_cliente)}</td>`;
     }).join('');
-    return `<tr><td class="cie-p" title="${esc(x.nombre)}">${esc(x.corto)} <span class="muted" style="font-size:10px">${x.tipo==='postpago'?'post':'pre'} · costo ${esc(x.costo||0)}%</span></td>${tds}</tr>`;
+    // El costo del sello es EDITABLE acá. Antes era texto fijo y no había ningún lugar donde
+    // cambiarlo: si el proveedor subía o el número estaba mal cargado, no quedaba más que tocar la
+    // base. Y es el número contra el que se cruza lo que se le paga a cada cliente.
+    return `<tr><td class="cie-p" title="${esc(x.nombre)}">${esc(x.corto)}
+      <span class="muted" style="font-size:10px">${x.tipo==='postpago'?'post':'pre'} · costo
+      <input value="${esc(x.costo==null?'':x.costo)}" data-sello="${esc(x.nombre)}"
+        onchange="apiCosto(this)" title="Lo que cuesta este proveedor. Cambiarlo NO cambia lo que se le cobra a nadie: sólo lo que se descuenta como costo."
+        style="width:52px;padding:1px 4px;font-size:11px;display:inline-block;text-align:right">%</span></td>${tds}</tr>`;
   };
   const cuerpo=sellos.map(fila).join('');
   document.getElementById('api-body').innerHTML = CIE_STYLE + `
@@ -2811,6 +2819,18 @@ function apiPintarCuentas(){
       ${r.sinPrecio.map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
         <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}`;
+}
+/* Guarda el costo de un sello. Sólo toca el costo: los % de cada cliente quedan como están, así
+   que después la revisión avisa cuáles dejaron de coincidir en vez de moverlos sola. */
+async function apiCosto(inp){
+  const v=String(inp.value||'').trim().replace(',','.');
+  if(v!=='' && !(Number(v)>=0)) { toast('⚠ "'+inp.value+'" no es un costo válido'); return; }
+  const r=await api('/api/os/api/sellos',{method:'POST',
+    body:JSON.stringify({nombre:inp.dataset.sello, costo:v===''?'0':v})});
+  if(!r.ok) return;
+  inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350);
+  const rv=await api('/api/os/api/revision');
+  if((rv.avisos||[]).length) toast('⚠ '+rv.avisos[0].slice(0,150));
 }
 function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
 
