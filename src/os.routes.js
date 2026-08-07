@@ -741,6 +741,80 @@ function mount(app) {
       soloEnElGlobal: comparados.filter((x) => !x.enLaFoto && x.enElGlobal).length,
     });
   }));
+  /**
+   * ── LA PRUEBA QUE NO DEPENDE DE LO GUARDADO ───────────────────────────────────────────────────
+   *
+   * Comparar contra la foto ya sacada no alcanzó: lo único guardado de julio son superagentes
+   * medidos a nivel distribuidor (la pasada de control), o sea ninguna combinación en el nivel que
+   * le corresponde al panel. Comparar eso no dice si los dos reportes coinciden — dice que un panel
+   * medido en el nivel que no es da distinto, que es lo esperado.
+   *
+   * Acá se llaman LAS DOS EN VIVO para el mismo panel, mes, divisa y nivel:
+   *   reporteProveedoresNodo → una consulta scopeada a ese nodo (lo que hace la Foto hoy)
+   *   reporteProveedores     → una sola consulta global, partida por nodo (lo que hace la pantalla)
+   *
+   * ⚠️ EL NIVEL. reporteProveedoresNodo NO manda `reports_user_group_by`: usa el que el casino tiene
+   * guardado en la sesión. Así que la global se pide con ESE mismo nivel, leído con modoActual, o se
+   * estarían comparando dos cosas distintas y la diferencia no querría decir nada.
+   */
+  app.post('/api/os/estadisticas/comparar-vivo', wrap(async (req, res) => {
+    const b = req.body || {};
+    const mes = String(b.mes || '').slice(0, 7);
+    const cxId = String(b.conexion_id || '');
+    const divisa = String(b.divisa || 'ARS').toUpperCase();
+    const cuantos = Math.min(Number(b.limite) || 5, 15);
+    if (!/^\d{4}-\d{2}$/.test(mes) || !cxId) return err(res, 400, 'faltan mes o conexion_id');
+    const cli = casinoConex.client(cxId);
+    if (!cli) return err(res, 502, 'la conexión no responde');
+    const { from, to } = estadMes.rango(mes);
+
+    const modo = await estadMes.modoActual(cli);
+    if (!modo.ok) return err(res, 502, 'no se pudo leer cómo agrupa el casino: ' + modo.error);
+
+    const g = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: modo.valor });
+    if (!g.ok) return err(res, 502, 'la global falló: ' + g.error);
+    const porNodo = new Map();
+    (g.filas || []).forEach((f) => {
+      if (!porNodo.has(f.saId)) porNodo.set(f.saId, new Map());
+      const k = [f.provider, f.label, f.vendor].join('|');
+      porNodo.get(f.saId).set(k, (porNodo.get(f.saId).get(k) || 0) + (Number(f.profit) || 0));
+    });
+
+    // se comparan paneles del OS que la global haya traído, y que estén en el nivel que el casino
+    // tiene puesto — si no, se compara un panel contra un nivel que no le corresponde.
+    const candidatos = paneles.list()
+      .filter((p) => p.conexion_id === cxId && p.id_usuario && porNodo.has(String(p.id_usuario))
+        && estadMes.nivelDe(p) === modo.nivel)
+      .slice(0, cuantos);
+
+    const filas = [];
+    for (const p of candidatos) {
+      const r = await cli.reporteProveedoresNodo({ nodoId: p.id_usuario, from, to, currency: divisa });
+      if (!r.ok) { filas.push({ panel: p.nombre, error: r.error }); continue; }
+      const nodo = new Map();
+      (r.filas || []).forEach((f) => {
+        const k = [f.provider, f.label, f.vendor].join('|');
+        nodo.set(k, (nodo.get(k) || 0) + (Number(f.profit) || 0));
+      });
+      const glob = porNodo.get(String(p.id_usuario));
+      const sum = (m) => [...m.values()].reduce((a, x) => a + x, 0);
+      const claves = new Set([...nodo.keys(), ...glob.keys()]);
+      const difs = [];
+      claves.forEach((k) => {
+        const a = nodo.get(k) || 0, z = glob.get(k) || 0;
+        if (Math.abs(z - a) > 0.01) difs.push({ sello: k, porNodo: Number(a.toFixed(2)), global: Number(z.toFixed(2)) });
+      });
+      filas.push({ panel: p.nombre, nodo: String(p.id_usuario), nivel: p.nivel_usuario,
+        totalPorNodo: Number(sum(nodo).toFixed(2)), totalGlobal: Number(sum(glob).toFixed(2)),
+        dif: Number((sum(glob) - sum(nodo)).toFixed(2)),
+        sellosPorNodo: nodo.size, sellosGlobal: glob.size,
+        difieren: difs.length, ejemplos: difs.slice(0, 6) });
+    }
+    ok(res, { mes, divisa, nivelDelCasino: modo.nivel, valorCrudo: modo.valor,
+      nodosEnLaGlobal: porNodo.size, comparados: filas.length,
+      iguales: filas.filter((x) => x.dif !== undefined && Math.abs(x.dif) < 0.01).length, filas });
+  }));
+
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
