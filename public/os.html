@@ -2346,6 +2346,7 @@ CFG.telegram = async () => {
   const cfg = await api('/api/config');
   const cs = ((await api('/api/os/clientes')).clientes||[]).filter(c=>!c.es_vendedor);
   const con = cs.filter(c=>c.telegram&&c.telegram.chatId);
+  const sinGrupo = cs.filter(c=>!(c.telegram&&c.telegram.chatId));
   document.getElementById('cfg-body').innerHTML = `
     <div class="card"><h2>📣 Avisos y facturas por Telegram</h2>
       <div class="muted">Para que una factura salga hacen falta las <b>dos</b> cosas: el <b>bot</b> (uno solo, para todo)
@@ -2368,17 +2369,22 @@ CFG.telegram = async () => {
         4. Pegalo abajo y probá. <b>El botón Probar manda un mensaje de verdad al grupo</b>, así que avisá antes.
       </div>
     </div>
-    <div class="card"><h2>Grupos por cliente <span class="muted">(${con.length} de ${cs.length} cargados)</span></h2>
-      <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.</div>
-      <table><thead><tr><th>Cliente</th><th>chatId del grupo</th><th>Avisos automáticos</th><th></th></tr></thead><tbody>
+    <div class="card"><h2>Quién tiene grupo <span class="muted">(${con.length} de ${cs.length})</span></h2>
+      <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.
+        <b>El grupo se carga en la ficha del cliente</b>, junto a su vendedor y sus paneles — acá es sólo para ver de un
+        vistazo a quién le falta. Tocá una fila para ir a configurarlo.</div>
+      ${sinGrupo.length?`<div class="nota warn"><span class="tit">${sinGrupo.length} sin grupo</span>
+        No les llega nada: ${sinGrupo.slice(0,14).map(c=>esc(_nom(c))).join(' · ')}${sinGrupo.length>14?' …':''}</div>`:''}
+      <table><thead><tr><th>Cliente</th><th>Grupo</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
       ${cs.map(c=>{const t=c.telegram||{};
-        return `<tr><td>${_nom(c)}</td>
-          <td><input id="tgc-${c.id}" value="${esc(t.chatId||'')}" placeholder="-1001234567890" style="width:190px"></td>
-          <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
-            <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} style="width:auto"> avisar cada carga</label></td>
+        return `<tr style="cursor:pointer" onclick="abrirCliente('${c.id}','comercial')">
+          <td><b>${_nom(c)}</b></td>
+          <td>${t.chatId?`<span class="muted" style="font-family:monospace;font-size:12px">${esc(t.chatId)}</span>`
+            :'<span class="badge err">sin grupo</span>'}</td>
+          <td>${t.chatId?(t.enabled?'<span class="badge ok">sí</span>':'<span class="muted">no</span>'):'<span class="muted">—</span>'}</td>
           <td class="right" style="white-space:nowrap">
-            <button class="small" onclick="tgGuardarCli('${c.id}')">Guardar</button>
-            <button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')" ${t.chatId?'':'disabled title="cargá primero el chatId"'}>🔔 Probar</button></td></tr>`;
+            ${t.chatId?`<button class="outline small" onclick="event.stopPropagation();tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
+            <span class="muted" style="font-size:11px;margin-left:6px">configurar →</span></td></tr>`;
       }).join('')}
       </tbody></table>
     </div>`;
@@ -2388,11 +2394,8 @@ async function tgGuardarToken(){
   const r=await api('/api/config',{method:'PUT',body:JSON.stringify({telegramBotToken:v})});
   toast(r.telegramConfigured?'Bot guardado':'No se pudo guardar'); CFG.telegram();
 }
-async function tgGuardarCli(id){
-  const chatId=val('tgc-'+id), enabled=document.getElementById('tge-'+id).checked;
-  const r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId,enabled})});
-  toast(r.ok?'Guardado':'Error'); CFG.telegram();
-}
+// tgGuardarCli se fue con la tabla editable de Config: el grupo se carga en la ficha del cliente,
+// en un solo lugar. Dos formularios para el mismo dato terminan mostrando cosas distintas.
 // Sale para AFUERA: manda un mensaje de verdad al grupo del cliente. Se pregunta siempre.
 async function tgProbar(id,nombre){
   if(!confirm('Se va a mandar un mensaje de prueba al grupo de Telegram de '+nombre+'. Lo van a ver ellos. ¿Confirmás?')) return;
