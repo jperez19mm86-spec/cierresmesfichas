@@ -917,7 +917,9 @@ VIEWS.foto = async () => {
           const p = d.filter(x=>x.conexion===c.nombre && x.nivel===niv);
           const ok = p.filter(x=>x.estado==='ok').length;
           return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
-            + 'onclick="fotoSacar(\''+c.id+'\',\''+niv+'\',false)">'
+            + 'onclick="fotoSacar(\''+c.id+'\',\''+niv+'\',false)" '
+            + 'title="Saca sólo esta mitad. Le dice al casino que está agrupando por '+esc(NIV[niv])+', '
+            + 'porque el panel ya no deja leerlo: asegurate de que sea el que tenés puesto allá.">'
             + esc(c.nombre)+' · '+esc(NIV[niv])+' <span class="muted">'+ok+'/'+p.length+'</span></button></div>';
         }).join('')).join('')
     + '</div></div>'
@@ -998,8 +1000,12 @@ async function fotoSacar(cxId, nivel, refrescar){
   pintar('Arrancando…');
   while(true){
     if(_fotoCancelar){ pintar('Parado por vos'); break; }
+    // `nivel_declarado` va sólo cuando se apretó un botón de un nivel puntual: ahí el dueño está
+    // diciendo en qué nivel dejó el casino. Con "Sacar todo" no se declara nada y sigue mandando
+    // lo que el casino informe (o lo que quede esperando la otra pasada).
     const r = await api('/api/os/estadisticas/capturar',{method:'POST',
-      body:JSON.stringify({mes:_fotoMes, conexion_id:cxId, nivel, desde, limite:LOTE, refrescar})});
+      body:JSON.stringify({mes:_fotoMes, conexion_id:cxId, nivel, desde, limite:LOTE, refrescar,
+        nivel_declarado: nivel || null})});
     if(!r.ok){ lineas.push('<span style="color:var(--red)">✖ '+esc(r.error||'no respondió')+'</span>'); pintar('Se cortó'); break; }
     total = r.total;
     (r.detalle||[]).forEach(x=>{

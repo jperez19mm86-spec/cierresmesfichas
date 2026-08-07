@@ -201,6 +201,19 @@ function captura(conexionId, mes, divisa, nivel, nodo) {
  * archivada como si fuera de superagentes: números de otra gente bajo el nombre equivocado, sin que
  * nada avise.
  */
+/**
+ * EN QUÉ NIVEL ESTÁ AGRUPANDO EL CASINO.
+ *
+ * Se leía del <select name="reports_user_group_by"> de la pantalla de reportes. El casino DEJÓ DE
+ * marcar con `selected` la opción elegida de ese campo — los otros selects de la misma pantalla
+ * (statistic_type, currency, active_template) la siguen marcando, así que no es la sesión ni el
+ * idioma: es ese campo. El valor lo aplica JavaScript y no está en el HTML, ni en los inputs
+ * ocultos, ni en la plantilla activa. Comprobado en las dos conexiones.
+ *
+ * Cuando no se puede leer, el candado automático deja de existir. La alternativa NO es adivinar:
+ * es que lo diga quien lo cambió. El dueño elige el nivel a mano en el casino, así que sabe cuál
+ * está puesto; el OS le pregunta y anota que ese dato fue DECLARADO y no verificado.
+ */
 async function modoActual(cliCx) {
   try {
     const r = await cliCx.camposDeReportes();
@@ -225,7 +238,7 @@ async function modoActual(cliCx) {
  * apretado y varios minutos de nada.
  */
 async function capturar({ mes, conexionId = null, nivel = null, divisa = null,
-  desde = 0, limite = 0, refrescar = false, onPaso = null } = {}) {
+  desde = 0, limite = 0, refrescar = false, onPaso = null, nivelDeclarado = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const { from, to } = rango(m);
@@ -249,7 +262,12 @@ async function capturar({ mes, conexionId = null, nivel = null, divisa = null,
   await Promise.all([...porCx.entries()].map(async ([cxId, lista]) => {
     const cli = casinoConex.client(cxId);         // UNA sesión para toda la conexión
     // 🔒 CANDADO: si el casino está agrupando de otra forma, lo que devuelva NO es lo que dice ser.
-    const modo = cli ? await modoActual(cli) : { ok: false, error: 'la conexión no responde' };
+    let modo = cli ? await modoActual(cli) : { ok: false, error: 'la conexión no responde' };
+    // Si el casino ya no deja leerlo pero el dueño dijo en qué nivel lo puso, se le cree — y queda
+    // anotado que fue declarado. Sin esto la foto no se puede sacar más, que es peor.
+    if (!modo.ok && cli && nivelDeclarado && NIVELES.includes(nivelDeclarado)) {
+      modo = { ok: true, valor: 'declarado:' + nivelDeclarado, nivel: nivelDeclarado, declarado: true };
+    }
     if (!cli) {
       lista.forEach((t) => { _marcar(t, { estado: 'error', error: 'la conexión no responde' }); hechos.push({ ...t, estado: 'error', error: 'la conexión no responde' }); });
       return;

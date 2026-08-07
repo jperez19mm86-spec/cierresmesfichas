@@ -701,6 +701,22 @@ async function main() {
       !/\.grupo\b/.test(vista) && /\.nivel\b/.test(vista));
   }
 
+  // ── el nivel declarado: el candado cuando el casino ya no deja leerlo ──
+  // El casino dejó de marcar con `selected` la opción de reports_user_group_by. Sin eso la foto
+  // no se podía sacar más. Ahora el dueño puede declarar en qué nivel lo dejó — pero sólo vale
+  // un nivel REAL: cualquier otra cosa tiene que seguir fallando, no colarse como válida.
+  {
+    const em = require('../src/estadisticas-mes.service');
+    const niveles = em.NIVELES;
+    check('foto/nivel: declarar un nivel válido es aceptable', niveles.includes('superagente') && niveles.includes('distribuidor'));
+    check('foto/nivel: "superagent" en inglés NO es un nivel válido', !niveles.includes('superagent'));
+    // el valor queda marcado como declarado, no como leído del casino: son cosas distintas
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'estadisticas-mes.service.js'), 'utf8');
+    check('foto/nivel: lo declarado se anota como declarado', /declarado:/.test(src) && /NIVELES\.includes\(nivelDeclarado\)/.test(src));
+    check('foto/nivel: sin declaración, sigue mandando lo que diga el casino',
+      /if \(!modo\.ok && cli && nivelDeclarado/.test(src));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

@@ -501,7 +501,7 @@ function mount(app) {
       mes: b.mes, conexionId: b.conexion_id || null,
       nivel: b.nivel || null, divisa: b.divisa || null,
       desde: Number(b.desde) || 0, limite: Number(b.limite) || 0,
-      refrescar: !!b.refrescar,
+      refrescar: !!b.refrescar, nivelDeclarado: b.nivel_declarado || null,
     });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
