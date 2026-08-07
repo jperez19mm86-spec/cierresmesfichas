@@ -1380,9 +1380,13 @@ const CIE_STYLE = `<style>
     .ciet input.cie-lk{width:170px;text-align:left}
     /* Los sellos que cuestan 1% o menos: se marcan en la primera columna, que es la que queda
        fija al hacer scroll horizontal. Marcar toda la fila taparía el color de cada celda, que
-       dice otra cosa (verificado / sin verificar). */
-    .ciet tr.cie-barato td.cie-p{background:rgba(46,160,67,.10);border-left:3px solid var(--green)}
-    .ciet tr.cie-barato td.cie-p input{color:var(--green);font-weight:700}
+       dice otra cosa (verificado / sin verificar).
+       ⚠️ EL FONDO TIENE QUE SER OPACO. Esta celda es sticky: lo que scrollea por debajo se ve a
+       través de cualquier rgba() con alfa < 1, y las filas verdes quedaban con los números de
+       otras columnas encimados. Este #eaf5ec es el mismo verde .10 pero ya mezclado con el blanco
+       del fondo. Vale para cualquier celda sticky de acá. */
+    .ciet tr.cie-barato td.cie-p{background:#eaf5ec;border-left:3px solid var(--green)}
+    .ciet tr.cie-barato td.cie-p input{color:var(--green);font-weight:700;background:transparent}
     .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
     .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
     .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}.cie-x:hover{opacity:1}

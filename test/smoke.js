@@ -810,6 +810,18 @@ async function main() {
       barato({ costo: '0' }) && barato({ costo: '0.5' }) && barato({ costo: '1' }));
     check('matriz: 1,5 y más NO se marcan', !barato({ costo: '1.5' }) && !barato({ costo: '8.5' }));
     check('matriz: un sello sin costo cargado no se marca (no sé ≠ es gratis)', !barato({ costo: null }));
+
+    // Una celda sticky con fondo translúcido deja ver lo que scrollea por debajo: las filas verdes
+    // quedaban con los números de otras columnas encimados. Cualquier regla que le ponga fondo a
+    // .cie-p tiene que ser opaca.
+    const css = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    // Sólo las reglas que le pegan a la CELDA en sí. Un input adentro puede ser transparente:
+    // el que tiene que tapar lo de abajo es el td, no lo que lleva dentro.
+    const reglas = (css.match(/\.ciet[^{}]*\.cie-(p|h0)\s*\{[^}]*\}/g) || []);
+    const traslucidas = reglas.filter((x) => /background:\s*(rgba\([^)]*,\s*0?\.\d+\s*\)|transparent)/i.test(x));
+    check('matriz: la columna fija tiene fondo opaco', !traslucidas.length,
+      traslucidas.join(' | ').slice(0, 200) || reglas.length + ' regla(s) revisadas');
+    check('matriz: y hay reglas de columna fija que revisar', reglas.length >= 2, String(reglas.length));
   }
 
   // panel /os se sirve (detrás de auth)
