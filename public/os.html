@@ -973,6 +973,12 @@ VIEWS.foto = async () => {
     + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Filas guardadas</label>'
     +   '<div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
     + '<div style="flex:0"><button onclick="fotoSacar(null,null,false)">📸 Sacar todo lo que falta</button></div>'
+    + '<div style="flex:0"><label style="font-size:11px">Qué monedas</label>'
+    + '<select onchange="fotoAlcance(this.value)" style="font-size:12px">'
+    + '<option value="movidas"'+(window._fotoAlcance!=='todas'?' selected':'')+'>Sólo las que movió</option>'
+    + '<option value="todas"'+(window._fotoAlcance==='todas'?' selected':'')+'>Todas las habilitadas</option>'
+    + '</select></div>'
+    + '<div id="foto-alcance-aviso" style="flex:1 0 100%;font-size:11px"></div>'
     + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
@@ -1046,6 +1052,26 @@ async function fotoGeneral(cxId, nombre){
    pantalla no decía nada. Ahora cada tanda vuelve enseguida, se ve qué divisa se está trayendo y
    cuánto tardó, y un error de una consulta no tira abajo el resto. */
 let _fotoCancelar=false;
+/* Cuántas consultas son con cada criterio, y —lo que importa— cuáles quedan sin preguntar.
+   Una moneda que el panel empieza a mover por primera vez no está en el acumulado, así que con
+   "sólo las que movió" no se pregunta y no se descubre sola. Así se pasó UYU en 463.live. Por eso
+   el número de lo que queda afuera se muestra siempre, en vez de ahorrar callado. */
+async function fotoAlcance(v){
+  window._fotoAlcance = (v==='todas'?'todas':'movidas');
+  const caja=document.getElementById('foto-alcance-aviso'); if(caja) caja.innerHTML='<span class="muted">calculando…</span>';
+  const r=await api('/api/os/estadisticas/plan?mes='+encodeURIComponent(_fotoMes)+'&alcance='+window._fotoAlcance);
+  if(!caja) return;
+  if(!r||!r.ok){ caja.innerHTML=''; return; }
+  if(window._fotoAlcance==='todas'){
+    caja.innerHTML='<span class="muted">'+r.consultas+' consultas. No queda ninguna moneda sin preguntar — es la pasada que puede descubrir una nueva.</span>';
+    return;
+  }
+  const det=(r.fuera||[]).slice(0,6).map(x=>esc(x.panel)+' ('+esc(x.divisas.join(','))+')').join(' · ');
+  caja.innerHTML='<span class="muted">'+r.consultas+' consultas en vez de '+r.siFueranTodas+'.</span>'
+    +(r.fueraTotal?' <b>No se van a preguntar '+r.fueraTotal+' monedas</b> que están habilitadas pero nunca movieron: '
+      +'<span class="muted">'+det+(r.fuera.length>6?' y '+(r.fuera.length-6)+' paneles más':'')+'</span>'
+      +'<br><span class="muted">Si un cliente arranca en una moneda nueva, sacala con «Todas las habilitadas» o no la vas a ver.</span>':'');
+}
 async function fotoSacar(cxId, nivel, refrescar){
   if(refrescar && !confirm('¿Rehacer la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
   const cont=document.getElementById('foto-prog'); if(!cont) return;
@@ -1075,7 +1101,7 @@ async function fotoSacar(cxId, nivel, refrescar){
     // lo que el casino informe (o lo que quede esperando la otra pasada).
     const r = await api('/api/os/estadisticas/capturar',{method:'POST',
       body:JSON.stringify({mes:_fotoMes, conexion_id:cxId, nivel, desde, limite:LOTE, refrescar,
-        nivel_declarado: nivel || null})});
+        alcance:(window._fotoAlcance==='todas'?'todas':'movidas'), nivel_declarado: nivel || null})});
     if(!r.ok){ lineas.push('<span style="color:var(--red)">✖ '+esc(r.error||'no respondió')+'</span>'); pintar('Se cortó'); break; }
     total = r.total;
     (r.detalle||[]).forEach(x=>{

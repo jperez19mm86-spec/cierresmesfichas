@@ -100,15 +100,49 @@ function nivelDeModo(valor) {
  * a mano y conviene aprovechar cada pasada para todos los paneles, y tener las dos permite VER la
  * diferencia — que es exactamente la plata que el filtro profit>0 esconde en los negativos.
  */
-function plan(mes, { conexionId = null, nivel = null, divisa = null } = {}) {
+/**
+ * ── QUÉ DIVISAS SE LE PREGUNTAN A UN PANEL ────────────────────────────────────────────────────
+ *
+ * `divisas` es lo que el nodo tiene HABILITADO en el casino: es la lista correcta para facturar,
+ * pero preguntarlas todas cuesta caro. NewSkin-SA tiene 27 habilitadas y mueve dos; Henry777, 26
+ * y mueve tres. Sobre 201 paneles son 1248 consultas, y ~550 son de monedas que nadie tocó nunca.
+ *
+ * Con alcance 'movidas' se preguntan las que el panel movió de verdad en los últimos meses. Si un
+ * panel no movió NADA, no hay con qué estrechar y se le preguntan todas: "no tengo datos" no es
+ * "no usa ninguna" — 114 paneles están en ese caso y dejarlos en cero los volvería invisibles.
+ *
+ * ⚠️ LO QUE ESTO NO VE. Una moneda que el panel empieza a mover POR PRIMERA VEZ no está en el
+ * acumulado, así que con 'movidas' no se pregunta y no se descubre sola. Es exactamente cómo se
+ * pasó UYU en 463.live. Por eso: el alcance 'todas' sigue existiendo y el plan devuelve `fuera`,
+ * la lista de lo que se está dejando afuera, para que la pantalla lo diga en vez de callarlo.
+ * Conviene correr una 'todas' cada tanto, y siempre que un cliente avise que arranca en otra moneda.
+ */
+function divisasDePanel(p, alcance, usadasPorPanel) {
+  const habilitadas = (p.divisas || []).length ? p.divisas.map((d) => String(d).toUpperCase()) : ['ARS'];
+  if (alcance !== 'movidas') return { pedir: habilitadas, fuera: [] };
+  const movidas = (usadasPorPanel[p.id] || []).map((d) => String(d).toUpperCase());
+  if (!movidas.length) return { pedir: habilitadas, fuera: [] };
+  // sólo las que además siguen habilitadas: si el casino le sacó una, no tiene sentido pedirla
+  const pedir = habilitadas.filter((d) => movidas.includes(d));
+  if (!pedir.length) return { pedir: habilitadas, fuera: [] };
+  return { pedir, fuera: habilitadas.filter((d) => !movidas.includes(d)) };
+}
+
+function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = 'movidas' } = {}) {
   // list463: la Foto del mes pide nodos/reportes, que solo entiende el engine 463. Una conexión
   // TBS acá reventaría con "cli.nodos is not a function".
   const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
+  const dejadasAfuera = [];
+  const usadasPorPanel = {};
+  if (alcance === 'movidas') {
+    paneles.divisasUsadas(6).forEach((x) => { usadasPorPanel[x.panel_id] = x.usadas || []; });
+  }
   for (const cx of cxs) {
     for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario)) {
-      const divs = (p.divisas || []).length ? p.divisas : ['ARS'];
-      for (const d of divs) {
+      const { pedir, fuera } = divisasDePanel(p, alcance, usadasPorPanel);
+      if (fuera.length) dejadasAfuera.push({ panel: p.nombre, divisas: fuera });
+      for (const d of pedir) {
         if (divisa && String(d).toUpperCase() !== String(divisa).toUpperCase()) continue;
         for (const niv of NIVELES) {
           if (nivel && niv !== nivel) continue;
@@ -122,6 +156,12 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null } = {}) {
         }
       }
     }
+  }
+  // El plan viaja como array desde siempre; lo que quedó afuera se cuelga como propiedad para no
+  // romper a quien lo recorra con un for. `plan.fuera` existe sólo cuando hay algo que avisar.
+  if (dejadasAfuera.length) {
+    Object.defineProperty(out, 'fuera', { value: dejadasAfuera, enumerable: false });
+    Object.defineProperty(out, 'fueraTotal', { value: dejadasAfuera.reduce((a, x) => a + x.divisas.length, 0), enumerable: false });
   }
   return out;
 }
@@ -237,12 +277,12 @@ async function modoActual(cliCx) {
  * avance de verdad — consulta por consulta, con su divisa y sus segundos — en vez de un botón
  * apretado y varios minutos de nada.
  */
-async function capturar({ mes, conexionId = null, nivel = null, divisa = null,
+async function capturar({ mes, conexionId = null, nivel = null, divisa = null, alcance = 'movidas',
   desde = 0, limite = 0, refrescar = false, onPaso = null, nivelDeclarado = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const { from, to } = rango(m);
-  const todos = plan(m, { conexionId, nivel, divisa });
+  const todos = plan(m, { conexionId, nivel, divisa, alcance });
   if (!todos.length) return { ok: false, error: 'no hay conexiones con paneles para sacar la foto' };
   const ini = Math.max(0, Number(desde) || 0);
   const pasos = limite > 0 ? todos.slice(ini, ini + limite) : todos.slice(ini);
@@ -399,4 +439,4 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES };
+module.exports = { capturar, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};

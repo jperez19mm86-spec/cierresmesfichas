@@ -576,6 +576,7 @@ function mount(app) {
     const r = await estadMes.capturar({
       mes: b.mes, conexionId: b.conexion_id || null,
       nivel: b.nivel || null, divisa: b.divisa || null,
+      alcance: b.alcance === 'todas' ? 'todas' : 'movidas',
       desde: Number(b.desde) || 0, limite: Number(b.limite) || 0,
       refrescar: !!b.refrescar, nivelDeclarado: b.nivel_declarado || null,
     });
@@ -583,11 +584,22 @@ function mount(app) {
   }));
   // El plan del mes: cuántas consultas son y cuáles. Lo usa la pantalla para ir pidiéndolas de a
   // pedazos y mostrar el avance, en vez de apretar un botón y esperar minutos sin saber nada.
-  app.get('/api/os/estadisticas/plan', (req, res) => ok(res, {
-    plan: estadMes.plan(String(req.query.mes || mesTZ()).slice(0, 7), {
-      conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null, divisa: req.query.divisa || null,
-    }),
-  }));
+  app.get('/api/os/estadisticas/plan', (req, res) => {
+    // 'movidas' por defecto: sólo las monedas que el panel movió de verdad. 'todas' es la pasada
+    // de descubrimiento — la única que puede encontrar una moneda que arrancó este mes.
+    const alcance = req.query.alcance === 'todas' ? 'todas' : 'movidas';
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const p = estadMes.plan(mes, {
+      conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null,
+      divisa: req.query.divisa || null, alcance,
+    });
+    const completo = alcance === 'movidas'
+      ? estadMes.plan(mes, { conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null,
+        divisa: req.query.divisa || null, alcance: 'todas' }).length
+      : p.length;
+    ok(res, { plan: p, alcance, consultas: p.length, siFueranTodas: completo,
+      fuera: p.fuera || [], fueraTotal: p.fueraTotal || 0 });
+  });
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));

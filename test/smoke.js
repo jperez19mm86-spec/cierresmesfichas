@@ -939,6 +939,60 @@ async function main() {
       regla('SuperAgente', ['ARS', 'USD'], ['USD', 'ARS']) === 'no se toca (ya está igual)');
   }
 
+  // ── la política de qué divisas se le piden a un panel ──
+  // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
+  // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
+  {
+    const { divisasDePanel } = require('../src/estadisticas-mes.service');
+    const P = (divisas, id = 'p1') => ({ id, nombre: 'X', divisas });
+    const U = (usadas, id = 'p1') => ({ [id]: usadas });
+
+    let r = divisasDePanel(P(['ARS', 'BRL', 'CLP']), 'movidas', U(['ARS']));
+    check('plan: pide sólo la que movió', r.pedir.join(',') === 'ARS', r.pedir.join(','));
+    check('plan: y avisa las dos que deja afuera', r.fuera.join(',') === 'BRL,CLP', r.fuera.join(','));
+
+    r = divisasDePanel(P(['ARS', 'BRL']), 'todas', U(['ARS']));
+    check('plan: con "todas" las pide todas y no deja nada afuera',
+      r.pedir.join(',') === 'ARS,BRL' && !r.fuera.length);
+
+    // el caso que importa: sin movimiento NO se estrecha. "No tengo datos" no es "no usa ninguna".
+    r = divisasDePanel(P(['ARS', 'BRL', 'CLP']), 'movidas', U([]));
+    check('plan: un panel sin movimiento se pregunta ENTERO, no se saltea',
+      r.pedir.join(',') === 'ARS,BRL,CLP' && !r.fuera.length, r.pedir.join(','));
+
+    // movió algo que el casino ya no le habilita → no se pide esa, pero tampoco queda en cero
+    r = divisasDePanel(P(['ARS']), 'movidas', U(['MXN']));
+    check('plan: si lo movido ya no está habilitado, no queda sin consultas',
+      r.pedir.length > 0, JSON.stringify(r));
+
+    r = divisasDePanel(P([]), 'movidas', U([]));
+    check('plan: un panel sin divisas cargadas cae en ARS', r.pedir.join(',') === 'ARS', r.pedir.join(','));
+  }
+
+  // ── el plan de la Foto pregunta sólo lo que el panel movió, pero dice qué deja afuera ──
+  {
+    const rt = await get('/api/os/estadisticas/plan?mes=2026-07&alcance=todas');
+    const rm = await get('/api/os/estadisticas/plan?mes=2026-07&alcance=movidas');
+    const T = rt.data.consultas, M = rm.data.consultas;
+    check('plan: "movidas" pide menos que "todas"', M <= T, M + ' vs ' + T);
+    check('plan: "todas" no deja nada afuera', rt.data.fueraTotal === 0, String(rt.data.fueraTotal));
+    check('plan: dice cuántas serían si se pidieran todas', rm.data.siFueranTodas === T, rm.data.siFueranTodas + ' vs ' + T);
+    // Lo que se está cuidando: un panel sin movimiento NO puede quedar sin consultas. "No tengo
+    // datos" no es "no usa ninguna", y dejarlo en cero lo volvería invisible para siempre.
+    const nodosT = new Set(rt.data.plan.map((x) => x.nodo));
+    const nodosM = new Set(rm.data.plan.map((x) => x.nodo));
+    const perdidos = [...nodosT].filter((n) => !nodosM.has(n));
+    check('plan: ningún panel se queda sin ninguna consulta', perdidos.length === 0, perdidos.slice(0, 5).join(','));
+    // y lo que sí se pide tiene que seguir siendo una divisa habilitada del panel
+    const pn = require('../src/paneles-store');
+    const porNodo = {}; pn.list().forEach((p) => { if (p.id_usuario) porNodo[String(p.id_usuario)] = p; });
+    const intrusa = rm.data.plan.find((x) => {
+      const p = porNodo[x.nodo]; if (!p || !(p.divisas || []).length) return false;
+      return !p.divisas.map((d) => String(d).toUpperCase()).includes(x.divisa);
+    });
+    check('plan: no pide una divisa que el panel no tiene habilitada', !intrusa, JSON.stringify(intrusa || {}).slice(0, 60));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
