@@ -650,6 +650,86 @@ function mount(app) {
     ok(res, { plan: p, alcance, consultas: p.length, siFueranTodas: completo,
       fuera: p.fuera || [], fueraTotal: p.fueraTotal || 0 });
   });
+  /**
+   * ── ¿DA LO MISMO LA LLAMADA GLOBAL QUE LA DE A UN NODO? ───────────────────────────────────────
+   *
+   * La Foto pide UNA consulta por panel y divisa (reporteProveedoresNodo). La pantalla de reportes
+   * del casino, en cambio, manda `reports_user_group_by` y devuelve TODOS los nodos de ese nivel
+   * en una sola respuesta — que es lo que hace reporteProveedores, escrita hace rato y sin usar.
+   *
+   * Los dos agrupan distinto (uno por terminal dentro del nodo, el otro por superagente/diller),
+   * asi que ANTES de reescribir la extraccion hay que probar que dan el mismo profit por panel y
+   * proveedor. Esto compara la llamada global contra lo que YA está guardado en la foto.
+   *
+   * No escribe nada: solo lee el casino y la base, y devuelve las diferencias.
+   */
+  app.post('/api/os/estadisticas/comparar-global', wrap(async (req, res) => {
+    const b = req.body || {};
+    const mes = String(b.mes || '').slice(0, 7);
+    const nivel = b.nivel === 'superagente' ? 'superagente' : 'distribuidor';
+    const grupoCasino = nivel === 'superagente' ? 'superagent' : 'diller';
+    const cxId = String(b.conexion_id || '');
+    const divisa = String(b.divisa || 'ARS').toUpperCase();
+    if (!/^\d{4}-\d{2}$/.test(mes) || !cxId) return err(res, 400, 'faltan mes o conexion_id');
+    const cli = casinoConex.client(cxId);
+    if (!cli) return err(res, 502, 'la conexión no responde');
+    const { from, to } = estadMes.rango(mes);
+
+    const t0 = Date.now();
+    const r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: grupoCasino });
+    const segundos = Number(((Date.now() - t0) / 1000).toFixed(1));
+    if (!r.ok) return err(res, 502, r.error);
+
+    // lo global, partido por nodo
+    const global = new Map();
+    (r.filas || []).forEach((f) => {
+      if (!global.has(f.saId)) global.set(f.saId, new Map());
+      const k = [f.provider, f.label, f.vendor].join('|');
+      const m = global.get(f.saId);
+      m.set(k, (m.get(k) || 0) + (Number(f.profit) || 0));
+    });
+
+    // lo guardado, panel por panel, de la foto ya sacada
+    const comparados = [];
+    paneles.list().filter((p) => p.conexion_id === cxId && p.id_usuario).forEach((p) => {
+      const guardadas = estadMes.filasDe({ conexionId: cxId, nodoId: p.id_usuario, mes, divisa, nivel });
+      const g = global.get(String(p.id_usuario));
+      if (!guardadas && !g) return;                       // ni foto ni global: no hay qué comparar
+      const suma = (arr) => (arr || []).reduce((a, x) => a + (Number(x.profit) || 0), 0);
+      const totalFoto = suma(guardadas);
+      const totalGlobal = g ? [...g.values()].reduce((a, x) => a + x, 0) : null;
+      const fila = { panel: p.nombre, nodo: String(p.id_usuario),
+        enLaFoto: !!guardadas, enElGlobal: !!g,
+        filasFoto: (guardadas || []).length, filasGlobal: g ? g.size : 0,
+        totalFoto: guardadas ? Number(totalFoto.toFixed(2)) : null,
+        totalGlobal: g ? Number(totalGlobal.toFixed(2)) : null };
+      if (guardadas && g) {
+        fila.dif = Number((totalGlobal - totalFoto).toFixed(2));
+        // dónde difiere, proveedor por proveedor
+        const porProv = [];
+        const claves = new Set([...(guardadas || []).map((x) => [x.provider, x.label, x.vendor].join('|')), ...g.keys()]);
+        claves.forEach((k) => {
+          const a = (guardadas || []).filter((x) => [x.provider, x.label, x.vendor].join('|') === k)
+            .reduce((z, x) => z + (Number(x.profit) || 0), 0);
+          const z = g.get(k) || 0;
+          if (Math.abs(z - a) > 0.01) porProv.push({ sello: k, foto: Number(a.toFixed(2)), global: Number(z.toFixed(2)) });
+        });
+        fila.proveedoresQueDifieren = porProv.slice(0, 8);
+      }
+      comparados.push(fila);
+    });
+
+    const ambos = comparados.filter((x) => x.enLaFoto && x.enElGlobal);
+    ok(res, { mes, divisa, nivel, segundos,
+      filasQueTrajoLaGlobal: (r.filas || []).length,
+      nodosQueTrajoLaGlobal: global.size,
+      comparables: ambos.length,
+      iguales: ambos.filter((x) => Math.abs(x.dif) < 0.01).length,
+      distintos: ambos.filter((x) => Math.abs(x.dif) >= 0.01),
+      soloEnLaFoto: comparados.filter((x) => x.enLaFoto && !x.enElGlobal).map((x) => x.panel),
+      soloEnElGlobal: comparados.filter((x) => !x.enLaFoto && x.enElGlobal).length,
+    });
+  }));
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
