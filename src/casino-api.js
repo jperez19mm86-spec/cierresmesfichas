@@ -339,7 +339,15 @@ function makeClient({ url, token, user, password } = {}) {
     // juntamos ese total, el reporte FALLA en vez de devolver algo corto.
     const PAGINA = Number(process.env.CASINO_REPORT_PAGINA) || 1000;
     const MAX_PAGINAS = 300;                       // 300.000 filas: freno por si algo se va de mano
-    if (!/[?&]sort=/.test(path)) path += '&sort=provider&order=desc';
+    // ⚠️ ORDENAR POR `id`, NO POR `provider`.
+    // El motor sólo acepta ordenar por una columna QUE ESTÉ en el resultado, y las columnas dependen
+    // de cómo esté agrupando el panel. Agrupando por Distributor no hay columna `provider`, y el
+    // motor no lo dice: contesta una página HTML "Unknown error occurred." a cualquier pedido —
+    // idéntica en las dos conexiones, con o sin filtro, con o sin nodo, con cualquier rango. Semanas
+    // pareciendo un motor caído por un parámetro de ordenamiento.
+    // `id` está siempre, agrupe como agrupe, y es lo que manda el panel del casino.
+    // El orden acá no importa: las filas se agregan por proveedor más adelante.
+    if (!/[?&]sort=/.test(path)) path += '&search=&sort=id&order=desc';
     if (!/[?&]offset=/.test(path)) path += '&offset=0';
     if (!/[?&]limit=/.test(path)) path += `&limit=${PAGINA}`;
     if (!useSession) path += '&api_token=' + encodeURIComponent(token);
