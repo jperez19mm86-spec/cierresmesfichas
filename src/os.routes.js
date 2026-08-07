@@ -818,12 +818,27 @@ function mount(app) {
   /** La extracción nueva: una llamada por divisa. Con guardar:false no escribe nada. */
   app.post('/api/os/estadisticas/capturar-global', wrap(async (req, res) => {
     const b = req.body || {};
+    const mes = String(b.mes || '').slice(0, 7);
+    // Sin `divisas` explícitas se sacan las del plan: todas las habilitadas de esa conexión. Ya no
+    // hay que elegir — cada divisa es UNA consulta, no decenas.
+    let divisas = Array.isArray(b.divisas) ? b.divisas : null;
+    if (!divisas) {
+      divisas = [...new Set(estadMes.planGlobal(mes, { conexionId: b.conexion_id })
+        .filter((x) => !b.conexion_id || x.conexion_id === b.conexion_id).map((x) => x.divisa))];
+    }
+    // Troceado por divisa: son 1 a 3 segundos cada una y el proxy corta a los 5 minutos.
+    const desde = Number(b.desde) || 0;
+    const limite = Number(b.limite) || 12;
+    const tanda = divisas.slice(desde, desde + limite);
     const r = await estadMes.capturarGlobal({
-      mes: b.mes, conexionId: b.conexion_id, nivel: b.nivel === 'distribuidor' ? 'distribuidor' : 'superagente',
-      divisas: Array.isArray(b.divisas) ? b.divisas : [],
-      plantilla: b.plantilla || '', guardar: !!b.guardar,
+      mes, conexionId: b.conexion_id,
+      // sin nivel declarado, se usa el que tenga el casino; con nivel, se rechaza si no coincide
+      nivel: b.nivel === 'distribuidor' ? 'distribuidor' : (b.nivel === 'superagente' ? 'superagente' : null),
+      divisas: tanda, plantilla: b.plantilla || '', guardar: b.guardar !== false,
     });
-    r.ok ? ok(res, r) : err(res, 502, r.error);
+    if (!r.ok) return err(res, 502, r.error);
+    ok(res, { ...r, totalDivisas: divisas.length, desde, devueltos: tanda.length,
+      hay_mas: desde + tanda.length < divisas.length });
   }));
 
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });

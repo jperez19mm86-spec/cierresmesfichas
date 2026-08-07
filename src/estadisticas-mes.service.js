@@ -190,6 +190,36 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
 }
 
 /**
+ * ── EL PLAN NUEVO: UNA CONSULTA POR CONEXIÓN Y DIVISA ──────────────────────────────────────────
+ *
+ * Antes la unidad era el PANEL: una consulta por panel y divisa, 347 en total. Ahora una sola
+ * consulta trae todos los nodos de ese nivel, así que la unidad es la DIVISA.
+ *
+ * Se piden TODAS las divisas que algún panel de esa conexión tenga habilitada, no sólo las que
+ * movieron. Antes había que elegir porque cada divisa costaba decenas de consultas; ahora cuesta
+ * una, y pedirlas todas hace desaparecer el punto ciego: una moneda que un cliente empieza a
+ * mover este mes aparece sola, sin que nadie se acuerde de ir a buscarla. Así se pasó UYU.
+ *
+ * El NIVEL no se elige acá. El casino lo toma de lo que el dueño dejó puesto en el panel —probado:
+ * la misma consulta dio 46 nodos con la pantalla en Superagente y 232 en Distribuidor, mande lo
+ * que mande el pedido—. Se lee con modoActual y se guarda con esa etiqueta, nunca con otra.
+ */
+function planGlobal(mes, { conexionId = null } = {}) {
+  const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
+  const out = [];
+  cxs.forEach((cx) => {
+    const divs = new Set();
+    paneles.list().filter((p) => p.conexion_id === cx.id && p.id_usuario && p.en_foto !== false)
+      .forEach((p) => ((p.divisas || []).length ? p.divisas : ['ARS'])
+        .forEach((d) => divs.add(String(d).toUpperCase())));
+    [...divs].sort().forEach((divisa) => NIVELES.forEach((nivel) => {
+      out.push({ conexion_id: cx.id, conexion: cx.nombre, mes, divisa, nivel });
+    }));
+  });
+  return out;
+}
+
+/**
  * ── LA EXTRACCIÓN NUEVA: UNA LLAMADA POR DIVISA, NO UNA POR PANEL ─────────────────────────────
  *
  * La pantalla de reportes del casino manda `reports_user_group_by` y devuelve TODOS los nodos de
@@ -219,7 +249,19 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
   const cli = casinoConex.client(conexionId);
   if (!cli) return { ok: false, error: 'la conexión no responde' };
   const { from, to } = rango(m);
-  const grupo = nivel === 'superagente' ? 'superagent' : 'diller';
+
+  // 🔒 EL NIVEL LO DICE EL CASINO, NO NOSOTROS. Probado contra producción: la misma consulta, con
+  // la pantalla en Superagente, devolvió 46 nodos; con la pantalla en Distribuidor, 232 — mande el
+  // pedido 'superagent' o 'diller', con plantilla o sin ella. Lo que llega es lo que el dueño dejó
+  // puesto. Guardar esas filas con la etiqueta del otro nivel sería cobrar el número equivocado.
+  const modo = await modoActual(cli);
+  if (!modo.ok) return { ok: false, error: 'no se pudo leer cómo agrupa el casino: ' + modo.error };
+  if (nivel && modo.nivel !== nivel) {
+    return { ok: false, error: `el casino está agrupando por ${modo.nivel}, no por ${nivel}. `
+      + 'Cambiá "Agrupar por" en el panel y volvé.', nivelDelCasino: modo.nivel };
+  }
+  nivel = modo.nivel;
+  const grupo = modo.valor;
   // Ganancia mayor a cero, explícito. Antes iba `profit > ''` (valor vacío), que deja al casino
   // decidir qué significa. El dueño lo pidió así: profit > 0.
   const filtros = [{ column_name: 'profit', condition: '>', value: '0' }];
@@ -232,7 +274,12 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
         activeTemplate: plantilla === 'ninguna' ? '' : plantilla, sinPlantilla: plantilla === 'ninguna', filtros }); }
     catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
     const seg = Number(((Date.now() - t0) / 1000).toFixed(1));
-    if (!r.ok) { salida.push({ divisa, ok: false, error: r.error, segundos: seg }); if (onPaso) onPaso(salida[salida.length - 1]); continue; }
+    if (!r.ok) {
+      if (guardar) _marcar({ conexion_id: conexionId, mes: m, divisa, nivel, nodo: '' },
+        { estado: 'error', error: r.error, segundos: seg, modo: grupo });
+      salida.push({ divisa, ok: false, error: r.error, segundos: seg });
+      if (onPaso) onPaso(salida[salida.length - 1]); continue;
+    }
 
     // partir por nodo: la respuesta trae todos juntos
     const porNodo = new Map();
@@ -257,6 +304,10 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
       } else filas += fs.length;
       guardados++;
     });
+    // La unidad del plan es la DIVISA: se marca con nodo vacío para distinguirla de las capturas
+    // por panel, que siguen existiendo y son las que lee filasDe.
+    if (guardar) _marcar({ conexion_id: conexionId, mes: m, divisa, nivel, nodo: '' },
+      { estado: 'ok', filas, nodos: guardados, segundos: seg, modo: grupo });
     salida.push({ divisa, ok: true, segundos: seg, filasQueTrajo: (r.filas || []).length,
       nodosQueTrajo: porNodo.size, panelesNuestros: guardados, filasGuardadas: filas,
       nodosAjenos: sinPanel.length });
@@ -505,10 +556,10 @@ function filasDe({ conexionId, nodoId, mes, divisa, nivel = 'superagente' }) {
 /** Cómo está la foto de un mes: qué se sacó, qué falta y qué falló. */
 function estado(mes) {
   const m = String(mes || '').slice(0, 7);
-  const pasos = plan(m);
+  const pasos = planGlobal(m);
   const nom = {}; casinoConex.list().forEach((c) => { nom[c.id] = c.nombre; });
   const filas = pasos.map((p) => {
-    const c = captura(p.conexion_id, m, p.divisa, p.nivel, p.nodo);
+    const c = captura(p.conexion_id, m, p.divisa, p.nivel, p.nodo || '');
     return {
       conexion: nom[p.conexion_id] || p.conexion_id, conexion_id: p.conexion_id,
       divisa: p.divisa, nivel: p.nivel, nodo: p.nodo || null, panel: p.panel || null,
@@ -550,4 +601,4 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, capturarGlobal, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};
+module.exports = { capturar, capturarGlobal, planGlobal, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};
