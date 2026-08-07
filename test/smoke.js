@@ -559,6 +559,26 @@ async function main() {
     cfg.setApiGrupoMatriz('');
   }
 
+  // ── editar un precio de la matriz ──
+  // Las celdas nunca habían sido editables: los precios sólo entraban por importación y una
+  // corrección puntual obligaba a tocar la base. Vaciar BORRA, que no es lo mismo que poner 0.
+  {
+    const a5 = require('../src/api-store');
+    a5.saveSello({ nombre: 'Sello edit', grupo_id: '99', corto: 'SE', costo: '2' });
+    a5.saveCliente({ id: 'TE', login: 'ClienteEdit', activo: 1 });
+    a5.setPct('TE', 'Sello edit', { pct_cliente: '5', pct_proveedor: '2', origen: 'planilla' });
+    check('matriz: se puede cambiar el % de una celda',
+      (() => { a5.setPct('TE', 'Sello edit', { pct_cliente: '7', pct_proveedor: '2', origen: 'planilla' });
+        return a5.getPct('TE', 'Sello edit').pct_cliente === '7'; })());
+    check('matriz: 0 es un precio válido (cobrarle cero a propósito)',
+      (() => { a5.setPct('TE', 'Sello edit', { pct_cliente: '0', pct_proveedor: '2', origen: 'planilla' });
+        return a5.getPct('TE', 'Sello edit').pct_cliente === '0'; })());
+    a5.removePct('TE', 'Sello edit');
+    check('matriz: borrar el precio lo saca de la matriz, no lo deja en 0',
+      a5.getPct('TE', 'Sello edit') === null, JSON.stringify(a5.getPct('TE', 'Sello edit')));
+    a5.removeCliente('TE'); a5.removeSello('Sello edit');
+  }
+
   // ── el cierre del mes: elegir qué entra en el total, y que la decisión sea por MES ──
   // En junio la caja de Nacho quedó afuera por un acuerdo puntual y en julio entra. Si la decisión
   // fuera una propiedad del cliente, sacar el cierre de junio otra vez daría otro número.

@@ -2935,15 +2935,22 @@ API.matriz = async () => {
   let ver=0,pla=0,vac=0;
   const fila=(x)=>{
     const tds=cs.map(c=>{
+      // CADA CELDA ES EDITABLE. Antes era texto: los precios sólo entraban por importación, y una
+      // corrección puntual —como la de SA Gaming— obligaba a tocar la base. Se guarda al salir del
+      // campo; vaciarlo BORRA el precio (ese cliente deja de pagar ese sello).
       const d=(cel[c.id]||{})[x.nombre];
-      if(!d||d.pct_cliente==null){ vac++; return '<td class="muted" style="text-align:center">·</td>'; }
-      d.origen==='verificado'?ver++:pla++;
-      const est=d.origen==='verificado'
-        ? 'background:rgba(0,160,70,.16);font-weight:700'
-        : 'background:rgba(210,160,0,.16);color:var(--muted)';
-      return `<td style="text-align:center;${est}" title="${c.login} · ${esc(x.corto)}
-cliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · Central ${d.pts_ib||'—'} · Henry ${d.pts_henry||'—'}
-${d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios'}">${esc(d.pct_cliente)}</td>`;
+      const val = (d && d.pct_cliente!=null) ? d.pct_cliente : '';
+      if(val==='') vac++; else { d.origen==='verificado'?ver++:pla++; }
+      const est = val==='' ? ''
+        : (d.origen==='verificado' ? 'background:rgba(0,160,70,.16)' : 'background:rgba(210,160,0,.16)');
+      const tit = val===''
+        ? `${c.login} · ${esc(x.corto)}\nsin precio: no se le cobra. Escribí un % para cobrárselo.`
+        : `${c.login} · ${esc(x.corto)}\ncliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · el sello cuesta ${x.costo==null?'—':x.costo}%\n`
+          + (d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios')
+          + (d.nota?`\nnota: ${esc(d.nota)}`:'') + '\n\nVaciar el campo borra el precio.';
+      return `<td style="${est}"><input value="${esc(val)}" title="${tit}"
+        data-cli="${esc(c.id)}" data-sello="${esc(x.nombre)}" onchange="apiPct(this)"
+        ${d&&d.origen==='verificado'?'style="font-weight:700"':''}></td>`;
     }).join('');
     // El costo del sello es EDITABLE acá. Antes era texto fijo y no había ningún lugar donde
     // cambiarlo: si el proveedor subía o el número estaba mal cargado, no quedaba más que tocar la
@@ -3108,6 +3115,35 @@ function apiPintarCuentas(){
       ${r.sinPrecio.map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
         <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}`;
+}
+/* Guarda lo que UN cliente paga por UN sello.
+   Vaciar el campo BORRA el precio: ese cliente deja de pagar ese sello, y su GGR pasa a figurar en
+   "sellos con GGR y sin precio" — visible, no facturado. Es distinto de poner 0, que es cobrarle
+   cero a propósito.
+   El % del proveedor no se toca acá: sale del costo del sello y la revisión avisa si no coinciden.
+   Corregirlo solo sería decidir por el dueño cuál de los dos lados está bien. */
+async function apiPct(inp){
+  const cli=inp.dataset.cli, sello=inp.dataset.sello;
+  const v=String(inp.value||'').trim().replace(',','.');
+  if(v!=='' && !(Number(v)>=0)){ toast('⚠ "'+inp.value+'" no es un porcentaje'); return API.matriz(); }
+  let r;
+  if(v===''){
+    if(!confirm('¿Borrar el precio de este sello para ese cliente?\n\nDeja de pagarlo: su GGR va a aparecer como "sin precio".')) return API.matriz();
+    r=await api('/api/os/api/pct/'+encodeURIComponent(cli)+'/'+encodeURIComponent(sello),{method:'DELETE'});
+  } else {
+    const m=await api('/api/os/api/matriz');
+    const s=(m.sellos||[]).find(x=>x.nombre===sello)||{};
+    const d=((m.celdas||{})[cli]||{})[sello]||{};
+    r=await api('/api/os/api/pct',{method:'POST',body:JSON.stringify({cliente_id:cli, sello,
+      pct_cliente:v,
+      // si la celda es nueva, el proveedor arranca en lo que cuesta el sello
+      pct_proveedor: d.pct_proveedor!=null ? d.pct_proveedor : (s.costo!=null?String(s.costo):'0'),
+      pts_ib:null, pts_henry:null, origen: d.origen||'planilla'})});
+  }
+  if(!r.ok) return API.matriz();
+  inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350);
+  const rv=await api('/api/os/api/revision');
+  if((rv.avisos||[]).length) toast('⚠ '+rv.avisos[0].slice(0,150));
 }
 /* Guarda el costo de un sello. Sólo toca el costo: los % de cada cliente quedan como están, así
    que después la revisión avisa cuáles dejaron de coincidir en vez de moverlos sola. */
