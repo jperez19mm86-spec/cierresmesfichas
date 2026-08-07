@@ -316,10 +316,15 @@ function makeClient({ url, token, user, password } = {}) {
     // ⚠️ Lo mismo con las FECHAS: el motor embebe en esa URL las del estado de la página, NO las que
     // mandamos en el POST. Sin pisarlas, el reporte devuelve SIEMPRE el mismo período — verificado:
     // un día, un mes y dos años daban las mismas 53 filas y el mismo profit.
+    // El espacio de la fecha va como `+`, NO como `%20`. Los dos son válidos en una query string,
+    // pero este motor sólo desarma el `+`: con `%20` le llega "2026-07-01%2000:00:00" como texto,
+    // no lo puede leer como fecha, y contesta la página "Unknown error occurred." sin decir cuál
+    // es el parámetro. Es exactamente lo que manda el panel del casino desde el navegador.
+    const q = (v) => encodeURIComponent(v).replace(/%20/g, '+');
     const pisar = (p, k, v) => ((v === '' || v == null) ? p
       : (new RegExp(`[?&]${k}=`).test(p)
-        ? p.replace(new RegExp(`([?&]${k}=)[^&]*`), `$1${encodeURIComponent(v)}`)
-        : `${p}&${k}=${encodeURIComponent(v)}`));
+        ? p.replace(new RegExp(`([?&]${k}=)[^&]*`), `$1${q(v)}`)
+        : `${p}&${k}=${q(v)}`));
     // La URL de la tabla también lleva las fechas, y también con hora.
     path = pisar(path, 'from', conHora(opts.from, false));
     path = pisar(path, 'to', conHora(opts.to, true));
