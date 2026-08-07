@@ -684,6 +684,23 @@ async function main() {
       String((leer('Eli -1001234567890') || {}).chatId));
   }
 
+  // ── Foto del mes: los nombres de nivel que devuelve el servicio y los que dibuja la pantalla ──
+  // La pantalla leía `x.grupo` (que no existe; el campo es `nivel`) y mapeaba superagent/distributor
+  // en inglés contra superagente/distribuidor en español. Resultado: cada bloque decía "undefined".
+  {
+    const em = require('../src/estadisticas-mes.service');
+    const niveles = em.NIVELES || [];
+    check('foto: los niveles son superagente y distribuidor',
+      niveles.length === 2 && niveles.includes('superagente') && niveles.includes('distribuidor'),
+      JSON.stringify(niveles));
+    const html = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const vista = html.slice(html.indexOf('VIEWS.foto ='), html.indexOf('async function fotoSacar'));
+    check('foto: la pantalla mapea EXACTAMENTE esos nombres',
+      niveles.every((n) => vista.includes(n + ':')), JSON.stringify(niveles.filter((n) => !vista.includes(n + ':'))));
+    check('foto: la pantalla ya no lee el campo inexistente `grupo`',
+      !/\.grupo\b/.test(vista) && /\.nivel\b/.test(vista));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

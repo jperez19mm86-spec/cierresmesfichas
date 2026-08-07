@@ -855,47 +855,81 @@ async function delPanel(id){
 // Un mes cerrado ya no cambia. Se le pregunta al casino UNA vez y queda guardado; después armar
 // el reporte de cualquier cliente es leer la base. Antes cada reporte eran 525 consultas en vivo.
 let _fotoMes = new Date().toISOString().slice(0,7);
+/* ── 📸 LA FOTO DEL MES ──────────────────────────────────────────────────────────────────────
+   No es una pantalla de mantenimiento: es lo que hace que el reporte de proveedores externos
+   salga. Sin foto, ese reporte le pregunta al casino panel por panel y divisa por divisa — 525
+   consultas de entre 2 y 16 segundos cada una — y con un cliente multidivisa no termina nunca.
+   La pantalla antes mostraba 472 chips de divisas y las tripas de las dos pasadas, pero no
+   decía para qué servía ni qué pasa si no se saca. Ahora lo primero es eso. */
 VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
   const ms = (await api('/api/os/estadisticas/meses')).meses||[];
   const d = r.detalle||[];
+  const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores'};
+  const errs = d.filter(x=>x.estado==='error');
+  const pn = r.porNivel||{}, sa = pn.superagente||{}, di = pn.distribuidor||{};
+  const hecha = r.listas>0;
+
+  // El detalle por conexión y divisa queda plegado: son cientos de chips y sólo importan cuando
+  // algo falla. El campo es `nivel` — antes la pantalla leía `grupo`, que no existe, y por eso
+  // el título de cada bloque decía "undefined".
   const porCx = {};
   d.forEach(x=>{ (porCx[x.conexion]=porCx[x.conexion]||[]).push(x); });
-  const chip=(x)=>{ const col = x.estado==='ok'?'#3c9':(x.estado==='error'?'var(--red)':'#666');
+  const chip=(x)=>{ const col = x.estado==='ok'?'var(--green)':(x.estado==='error'?'var(--red)':'var(--muted)');
     const tit = x.estado==='ok' ? (x.filas+' filas · '+x.nodos+' nodos · '+x.segundos+'s') : (x.error||'todavía no se sacó');
-    return '<span class="pill" style="background:'+col+';color:#000;margin:2px;font-size:10.5px" title="'+esc(tit)+'">'+esc(x.divisa)+'</span>'; };
-  const grupoNom = {superagent:'Superagentes', distributor:'Distribuidores', agent:'Agentes'};
-  let cuerpo = '';
-  for (const [cx, filas] of Object.entries(porCx)) {
-    const porGrupo = {}; filas.forEach(f=>{ (porGrupo[f.grupo]=porGrupo[f.grupo]||[]).push(f); });
-    cuerpo += '<div class="card"><h2>'+esc(cx)+'</h2>'
-      + Object.entries(porGrupo).map(([g,fs2])=>{
+    return '<span class="pill" style="background:'+col+';color:#fff;margin:2px;font-size:10.5px" title="'+esc(tit)+'">'+esc(x.divisa)+'</span>'; };
+  const detalle = Object.entries(porCx).map(([cx, filas])=>{
+    const porNiv = {}; filas.forEach(f=>{ (porNiv[f.nivel]=porNiv[f.nivel]||[]).push(f); });
+    return '<div style="margin:10px 0"><b>'+esc(cx)+'</b>'
+      + Object.entries(porNiv).map(([niv,fs2])=>{
           const ok = fs2.filter(x=>x.estado==='ok').length;
-          return '<div style="margin:6px 0"><b>'+esc(grupoNom[g]||g)+'</b> <span class="muted">'+ok+'/'+fs2.length+' divisas</span><div style="margin-top:3px">'+fs2.map(chip).join('')+'</div></div>';
-        }).join('')
-      + '</div>';
-  }
-  const errs = d.filter(x=>x.estado==='error');
-  document.getElementById('main').innerHTML = '<div class="card"><h2>📸 Foto del mes</h2>'
-    + '<div class="muted">Un mes cerrado ya no cambia, así que se le pregunta al casino <b>una sola vez</b> y queda guardado. Después el reporte de cualquier cliente sale de la base: instantáneo, y anda aunque el casino esté caído. Sacala a principio del mes siguiente.</div>'
-    + '<div class="row" style="margin-top:8px;align-items:flex-end">'
+          return '<div style="margin:5px 0"><span class="muted">'+esc(NIV[niv]||niv)+' — '+ok+'/'+fs2.length+' divisas</span>'
+               + '<div style="margin-top:3px">'+fs2.map(chip).join('')+'</div></div>';
+        }).join('') + '</div>';
+  }).join('');
+
+  document.getElementById('main').innerHTML =
+      '<div class="card"><h2>📸 Foto del mes</h2>'
+    + '<div class="nota"><b>Para qué es.</b> El reporte de <b>proveedores externos</b> necesita saber cuánto ganó cada '
+    + 'proveedor en cada panel. Preguntárselo al casino en vivo son ~525 consultas de hasta 16 segundos: con un cliente '
+    + 'multidivisa el reporte no llega a terminar. Como <b>un mes cerrado ya no cambia</b>, se le pregunta una sola vez, '
+    + 'queda guardado, y después cualquier reporte sale de la base al instante — aunque el casino esté caído.'
+    + '<div style="margin-top:6px"><b>Cuándo se saca:</b> a principio del mes siguiente, una vez. '
+    + 'Si un mes no tiene foto, su reporte de externos igual funciona, pero lento y puede fallar.</div></div>'
+    + '<div class="row" style="margin-top:10px;align-items:flex-end">'
     + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
-    + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Listas</label><div style="font-size:22px;font-weight:800;color:'+(r.completa?'#3c9':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
-    + '<div class="card" style="flex:0 0 150px;background:var(--bg3);margin:0"><label>Filas guardadas</label><div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
+    + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Consultas listas</label>'
+    +   '<div style="font-size:22px;font-weight:800;color:'+(r.completa?'var(--green)':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
+    + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Filas guardadas</label>'
+    +   '<div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
     + '<div style="flex:0"><button onclick="fotoSacar(false)">📸 Sacar lo que falta</button></div>'
-    + '<div style="flex:0"><button class="outline" onclick="fotoSacar(true)">🔄 Rehacer todo</button></div>'
+    + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
-    + (function(){ var pn=r.porNivel||{}; var sa=pn.superagente||{}; var di=pn.distribuidor||{};
-        return '<div class="card" style="background:var(--bg3);margin-top:8px"><b>Las dos pasadas</b>'
-          + '<div class="muted" style="margin-top:4px">El casino agrupa en un nivel por vez y se cambia a mano. Se saca una pasada, se cambia el ajuste y se saca la otra. <b>No es lo mismo:</b> el filtro de ganancias esconde los negativos distinto en cada nivel.</div>'
-          + '<div class="row" style="margin-top:8px">'
-          + '<div class="card" style="flex:1;margin:0"><label>Por superagente</label><div style="font-size:19px;font-weight:800;color:'+((sa.listas===sa.total&&sa.total)?'#3c9':'inherit')+'">'+(sa.listas||0)+' / '+(sa.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Superagent</div></div>'
-          + '<div class="card" style="flex:1;margin:0"><label>Por distribuidor</label><div style="font-size:19px;font-weight:800;color:'+((di.listas===di.total&&di.total)?'#3c9':'inherit')+'">'+(di.listas||0)+' / '+(di.total||0)+'</div><div class="muted" style="font-size:11px">Agrupar por → Distributor</div></div>'
-          + '</div></div>'; })()
-    + (errs.length ? '<div class="card" style="background:rgba(196,86,173,.07);border-color:var(--red);margin-top:8px"><b style="color:var(--red)">⚠ '+errs.length+' con error</b><div class="muted" style="margin-top:4px">'+[...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div></div>' : '')
-    + '</div>' + cuerpo
-    + (ms.length ? '<div class="card"><h2>Meses guardados</h2><table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'+ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')+'</tbody></table></div>' : '');
+    + (r.completa ? '<div class="nota ok" style="margin-top:10px"><span class="tit">Mes listo</span>'
+        + 'El reporte de externos de '+esc(_fotoMes)+' sale de la base, al instante.</div>'
+      : hecha ? '<div class="nota warn" style="margin-top:10px"><span class="tit">Foto a medias</span>'
+        + 'Falta '+(r.total-r.listas)+' de '+r.total+'. Lo que falta se le pregunta al casino en vivo cada vez que se pide el reporte.</div>'
+      : '<div class="nota warn" style="margin-top:10px"><span class="tit">Sin foto</span>'
+        + esc(_fotoMes)+' no tiene nada guardado: cada reporte de externos de este mes va a preguntarle al casino las '
+        + r.total+' consultas, y puede no terminar.</div>')
+    + (errs.length ? '<div class="nota err" style="margin-top:8px"><span class="tit">'+errs.length+' con error</span>'
+        + [...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div>' : '')
+    + '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Cómo se saca, y el detalle por divisa</summary>'
+    + '<div class="nota" style="margin-top:8px"><b>Son dos pasadas y hay que cambiar un ajuste en el casino entre una y otra.</b> '
+    + 'El casino agrupa por un nivel a la vez y eso <b>no se puede cambiar desde acá</b>: se cambia a mano en su pantalla '
+    + '(Estadísticas → Agrupar por). Y los dos niveles no dan lo mismo — el filtro de ganancias esconde los negativos '
+    + 'distinto en cada uno — así que hacen falta las dos.'
+    + '<div class="row" style="margin-top:8px">'
+    + '<div class="card" style="flex:1;margin:0"><label>1 · Agrupar por Superagent</label><div style="font-size:19px;font-weight:800;color:'+((sa.listas===sa.total&&sa.total)?'var(--green)':'inherit')+'">'+(sa.listas||0)+' / '+(sa.total||0)+'</div></div>'
+    + '<div class="card" style="flex:1;margin:0"><label>2 · Agrupar por Distributor</label><div style="font-size:19px;font-weight:800;color:'+((di.listas===di.total&&di.total)?'var(--green)':'inherit')+'">'+(di.listas||0)+' / '+(di.total||0)+'</div></div>'
+    + '</div></div>'
+    + (detalle?'<div class="muted" style="margin-top:10px">Verde = guardada · rojo = falló · gris = falta. Pasá el mouse para ver filas y segundos.</div>'+detalle:'')
+    + '</details></div>'
+    + (ms.length ? '<div class="card"><h2>Meses con foto</h2>'
+        + '<table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'
+        + ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')
+        + '</tbody></table></div>' : '');
 };
 async function fotoSacar(refrescar){
   if(refrescar && !confirm('¿Rehacer TODA la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
