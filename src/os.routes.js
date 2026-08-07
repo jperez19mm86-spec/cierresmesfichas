@@ -495,11 +495,22 @@ function mount(app) {
   // salen de la base. Antes cada reporte eran 525 consultas en vivo; ahora son 180, una vez al mes.
   app.get('/api/os/estadisticas/estado', (req, res) => ok(res, estadMes.estado(req.query.mes || mesTZ())));
   app.get('/api/os/estadisticas/meses', (_req, res) => ok(res, { meses: estadMes.meses() }));
-  app.get('/api/os/estadisticas/plan', (req, res) => ok(res, { plan: estadMes.plan(req.query.mes || mesTZ()) }));
   app.post('/api/os/estadisticas/capturar', wrap(async (req, res) => {
     const b = req.body || {};
-    const r = await estadMes.capturar({ mes: b.mes, conexionId: b.conexion_id || null, refrescar: !!b.refrescar });
+    const r = await estadMes.capturar({
+      mes: b.mes, conexionId: b.conexion_id || null,
+      nivel: b.nivel || null, divisa: b.divisa || null,
+      desde: Number(b.desde) || 0, limite: Number(b.limite) || 0,
+      refrescar: !!b.refrescar,
+    });
     r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // El plan del mes: cuántas consultas son y cuáles. Lo usa la pantalla para ir pidiéndolas de a
+  // pedazos y mostrar el avance, en vez de apretar un botón y esperar minutos sin saber nada.
+  app.get('/api/os/estadisticas/plan', (req, res) => ok(res, {
+    plan: estadMes.plan(String(req.query.mes || mesTZ()).slice(0, 7), {
+      conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null, divisa: req.query.divisa || null,
+    }),
   }));
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────

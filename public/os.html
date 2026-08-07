@@ -904,9 +904,24 @@ VIEWS.foto = async () => {
     +   '<div style="font-size:22px;font-weight:800;color:'+(r.completa?'var(--green)':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
     + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Filas guardadas</label>'
     +   '<div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
-    + '<div style="flex:0"><button onclick="fotoSacar(false)">📸 Sacar lo que falta</button></div>'
-    + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(true)">🔄 Rehacer todo</button></div>':'')
+    + '<div style="flex:0"><button onclick="fotoSacar(null,null,false)">📸 Sacar todo lo que falta</button></div>'
+    + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
+    // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
+    // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
+    + '<div class="nota" style="margin-top:10px"><span class="tit">O de a poco, que es más liviano</span>'
+    + 'El casino agrupa por un nivel a la vez. Sacá el que tenga puesto ahora, cambiá el ajuste allá y volvé por el otro.'
+    + '<div class="row" style="margin-top:8px;flex-wrap:wrap">'
+    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>
+        Object.keys(NIV).map(niv=>{
+          const p = d.filter(x=>x.conexion===c.nombre && x.nivel===niv);
+          const ok = p.filter(x=>x.estado==='ok').length;
+          return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
+            + 'onclick="fotoSacar(\''+c.id+'\',\''+niv+'\',false)">'
+            + esc(c.nombre)+' · '+esc(NIV[niv])+' <span class="muted">'+ok+'/'+p.length+'</span></button></div>';
+        }).join('')).join('')
+    + '</div></div>'
+    + '<div id="foto-prog" style="margin-top:10px"></div>'
     + (r.completa ? '<div class="nota ok" style="margin-top:10px"><span class="tit">Mes listo</span>'
         + 'El reporte de externos de '+esc(_fotoMes)+' sale de la base, al instante.</div>'
       : hecha ? '<div class="nota warn" style="margin-top:10px"><span class="tit">Foto a medias</span>'
@@ -954,13 +969,53 @@ async function fotoGeneral(cxId, nombre){
       +(r.avisos&&r.avisos.length?' · <span style="color:var(--red)">'+r.avisos.map(esc).join(' · ')+'</span>':'')
     : '<span class="badge err">'+esc(nombre)+'</span> '+esc(r.error||'no se pudo');
 }
-async function fotoSacar(refrescar){
-  if(refrescar && !confirm('¿Rehacer TODA la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
-  toast('Sacando la foto… puede tardar varios minutos');
-  const r = await api('/api/os/estadisticas/capturar',{method:'POST',body:JSON.stringify({mes:_fotoMes, refrescar})});
-  if(!r.ok) return toast('Error: '+(r.error||''));
-  toast(r.logradas+' de '+r.consultas+' listas · '+money(r.filas,0)+' filas'+(r.fallidas?' · '+r.fallidas+' fallaron':''));
+/* Saca la foto DE A PEDAZOS, pidiendo de a pocas consultas y pintando el avance de cada una.
+   Antes era un solo POST: el proxy de Railway lo cortaba a los ~5 minutos y, mientras tanto, la
+   pantalla no decía nada. Ahora cada tanda vuelve enseguida, se ve qué divisa se está trayendo y
+   cuánto tardó, y un error de una consulta no tira abajo el resto. */
+let _fotoCancelar=false;
+async function fotoSacar(cxId, nivel, refrescar){
+  if(refrescar && !confirm('¿Rehacer la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
+  const cont=document.getElementById('foto-prog'); if(!cont) return;
+  _fotoCancelar=false;
+  const LOTE=6;                       // consultas por tanda: corto para que se vea moverse
+  let desde=0, total=null, ok=0, err=0, filas=0, otro=0;
+  const lineas=[];
+  const pintar=(estado)=>{
+    const pct = total ? Math.round(desde*100/total) : 0;
+    cont.innerHTML = '<div class="nota'+(err?' err':'')+'">'
+      + '<span class="tit">'+esc(estado)+'</span>'
+      + '<div style="background:var(--bg3);border-radius:6px;height:9px;overflow:hidden;margin:4px 0 7px">'
+      +   '<div style="background:var(--gold);height:100%;width:'+pct+'%;transition:width .2s"></div></div>'
+      + '<b>'+desde+' de '+(total==null?'?':total)+'</b> consultas · '+ok+' ok'
+      + (otro?' · '+otro+' esperando el otro nivel':'') + (err?' · <span style="color:var(--red)">'+err+' con error</span>':'')
+      + ' · '+money(filas,0)+' filas'
+      + '<div style="max-height:190px;overflow:auto;margin-top:7px;font-size:12px;font-family:monospace">'
+      +   lineas.slice(-40).join('<br>')+'</div>'
+      + (total!==null && desde<total ? '<div style="margin-top:8px"><button class="outline small" onclick="_fotoCancelar=true">Parar</button></div>' : '')
+      + '</div>';
+  };
+  pintar('Arrancando…');
+  while(true){
+    if(_fotoCancelar){ pintar('Parado por vos'); break; }
+    const r = await api('/api/os/estadisticas/capturar',{method:'POST',
+      body:JSON.stringify({mes:_fotoMes, conexion_id:cxId, nivel, desde, limite:LOTE, refrescar})});
+    if(!r.ok){ lineas.push('<span style="color:var(--red)">✖ '+esc(r.error||'no respondió')+'</span>'); pintar('Se cortó'); break; }
+    total = r.total;
+    (r.detalle||[]).forEach(x=>{
+      if(x.estado==='ok'){ ok++; filas+=x.filas||0;
+        lineas.push('<span style="color:var(--green)">✔</span> '+esc(x.conexion)+' · '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+(x.filas||0)+' filas, '+(x.segundos||0)+'s'); }
+      else if(x.estado==='ya estaba'){ ok++; lineas.push('<span class="muted">• '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — ya estaba</span>'); }
+      else if(x.estado==='otro-nivel'){ otro++; lineas.push('<span class="muted">↷ '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+esc(x.error||'otro nivel')+'</span>'); }
+      else { err++; lineas.push('<span style="color:var(--red)">✖</span> '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+esc(x.error||'falló')); }
+    });
+    desde = r.hechas;
+    pintar(r.faltan ? 'Sacando…' : 'Terminado');
+    if(!r.faltan) break;
+  }
   VIEWS.foto();
+  // VIEWS.foto() repinta todo y se lleva el detalle puesto: se vuelve a poner después.
+  setTimeout(()=>{ const c2=document.getElementById('foto-prog'); if(c2) c2.innerHTML=cont.innerHTML; },50);
 }
 
 

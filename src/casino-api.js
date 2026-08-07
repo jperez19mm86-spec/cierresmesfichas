@@ -550,7 +550,18 @@ function makeClient({ url, token, user, password } = {}) {
       const nombre = (m[1].match(/\bname=["']([^"']+)["']/i) || [])[1];
       if (nombre) ocultos.push({ name: nombre, value: (m[1].match(/\bvalue=["']([^"']*)["']/i) || [])[1] ?? '' });
     }
-    return { ok: true, selects, ocultos, bytes: html.length };
+    // ── DÓNDE ESTÁ EL VALOR DE LA AGRUPACIÓN ──────────────────────────────────────────────────
+    // El casino dejó de marcar con `selected` la opción elegida de `reports_user_group_by` (los
+    // otros selects de la misma pantalla sí la marcan). El valor lo aplica JavaScript al cargar,
+    // así que leer el HTML del <select> ya no alcanza. Esto devuelve los pedazos de la página que
+    // nombran el campo, para poder encontrar de dónde sacarlo sin adivinar.
+    const pistas = [];
+    const reP = /reports_user_group_by/gi;
+    let pm;
+    while ((pm = reP.exec(html)) !== null && pistas.length < 12) {
+      pistas.push(html.slice(Math.max(0, pm.index - 160), pm.index + 200).replace(/\s+/g, ' ').trim());
+    }
+    return { ok: true, selects, ocultos, pistas, bytes: html.length };
   }
 
   /**

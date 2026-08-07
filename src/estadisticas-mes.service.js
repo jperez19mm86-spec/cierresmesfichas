@@ -100,7 +100,7 @@ function nivelDeModo(valor) {
  * a mano y conviene aprovechar cada pasada para todos los paneles, y tener las dos permite VER la
  * diferencia — que es exactamente la plata que el filtro profit>0 esconde en los negativos.
  */
-function plan(mes, { conexionId = null, nivel = null } = {}) {
+function plan(mes, { conexionId = null, nivel = null, divisa = null } = {}) {
   // list463: la Foto del mes pide nodos/reportes, que solo entiende el engine 463. Una conexión
   // TBS acá reventaría con "cli.nodos is not a function".
   const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
@@ -109,6 +109,7 @@ function plan(mes, { conexionId = null, nivel = null } = {}) {
     for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario)) {
       const divs = (p.divisas || []).length ? p.divisas : ['ARS'];
       for (const d of divs) {
+        if (divisa && String(d).toUpperCase() !== String(divisa).toUpperCase()) continue;
         for (const niv of NIVELES) {
           if (nivel && niv !== nivel) continue;
           out.push({
@@ -214,20 +215,35 @@ async function modoActual(cliCx) {
   }
 }
 
-async function capturar({ mes, conexionId = null, refrescar = false, onPaso = null } = {}) {
+/**
+ * @param {number} o.desde   desde qué paso arrancar — para pedir la foto DE A PEDAZOS
+ * @param {number} o.limite  cuántos pasos hacer en esta llamada (0 = todos)
+ *
+ * El troceado existe por dos razones. Una es el proxy de Railway, que corta a los ~5 minutos y
+ * hacía que una foto grande no terminara nunca. La otra es que así el navegador puede mostrar el
+ * avance de verdad — consulta por consulta, con su divisa y sus segundos — en vez de un botón
+ * apretado y varios minutos de nada.
+ */
+async function capturar({ mes, conexionId = null, nivel = null, divisa = null,
+  desde = 0, limite = 0, refrescar = false, onPaso = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const { from, to } = rango(m);
-  const pasos = plan(m, { conexionId });
-  if (!pasos.length) return { ok: false, error: 'no hay conexiones con paneles para sacar la foto' };
+  const todos = plan(m, { conexionId, nivel, divisa });
+  if (!todos.length) return { ok: false, error: 'no hay conexiones con paneles para sacar la foto' };
+  const ini = Math.max(0, Number(desde) || 0);
+  const pasos = limite > 0 ? todos.slice(ini, ini + limite) : todos.slice(ini);
 
   const porCx = new Map();
   pasos.forEach((p) => { if (!porCx.has(p.conexion_id)) porCx.set(p.conexion_id, []); porCx.get(p.conexion_id).push(p); });
 
   // Las agrupaciones 'distributor' y 'agent' fueron un intento que no sirvió (el casino devolvía
   // lo mismo que 'superagent'): si quedaron filas de esa época, se limpian.
-  db.prepare("DELETE FROM estad_mes WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
-  db.prepare("DELETE FROM estad_captura WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
+  // Sólo en el primer pedazo: con la foto troceada esto correría en cada llamada al pedo.
+  if (ini === 0) {
+    db.prepare("DELETE FROM estad_mes WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
+    db.prepare("DELETE FROM estad_captura WHERE mes=? AND grupo NOT IN ('superagent','nodo')").run(m);
+  }
 
   const hechos = [];
   await Promise.all([...porCx.entries()].map(async ([cxId, lista]) => {
@@ -281,11 +297,14 @@ async function capturar({ mes, conexionId = null, refrescar = false, onPaso = nu
   const modos = {};
   const ok = hechos.filter((h) => h.estado === 'ok' || h.estado === 'ya estaba').length;
   const otroNivel = hechos.filter((h) => h.estado === 'otro-nivel').length;
+  const hechas = ini + pasos.length;
   return {
     ok: true, mes: m, consultas: pasos.length, logradas: ok,
     esperandoElOtroNivel: otroNivel,
     fallidas: hechos.length - ok - otroNivel,
     filas: hechos.reduce((s, h) => s + (h.filas || 0), 0),
+    // para que el navegador sepa si tiene que seguir pidiendo
+    total: todos.length, hechas, faltan: Math.max(0, todos.length - hechas),
     detalle: hechos,
   };
 }
