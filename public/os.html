@@ -338,7 +338,6 @@ function bloquePaneles(c){
      <div style="min-width:120px"><label>Panel nuevo</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
      <div style="flex:0"><label>Sistema</label><select id="pn-sis-${c.id}"><option>Casino</option><option>Europa</option></select></div>
      <div style="flex:0"><label>Nivel</label><select id="pn-niv-${c.id}"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
-     <div style="flex:0"><label>Tipo</label><select id="pn-tipo-${c.id}"><option>exclusivo</option><option>franquicia</option></select></div>
      <div style="flex:0"><label>Divisas</label><input id="pn-div-${c.id}" placeholder="ARS" style="width:80px"/></div>
      <div style="flex:0"><label>Conexión</label><select id="pn-cx-${c.id}"><option value="">— sin linkear —</option>${cxs.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
      <div style="flex:0"><label>ID nodo</label><input id="pn-idu-${c.id}" placeholder="186350" style="width:95px"/></div>
@@ -788,7 +787,9 @@ async function addPanel(cid){
   const r = await api('/api/os/paneles',{method:'POST',body:JSON.stringify({
     cliente_id: cid,
     nombre: val('pn-nombre-'+cid), sistema: val('pn-sis-'+cid), nivel_usuario: val('pn-niv-'+cid),
-    tipo: val('pn-tipo-'+cid), id_usuario: val('pn-idu-'+cid), divisas: val('pn-div-'+cid),
+    // 'tipo' salió del formulario: los 201 paneles estaban en 'exclusivo' y ningún cálculo lo lee.
+    // Se sigue guardando ese valor para no ensuciar la columna con nulls.
+    tipo: 'exclusivo', id_usuario: val('pn-idu-'+cid), divisas: val('pn-div-'+cid),
     conexion_id: val('pn-cx-'+cid),
   })});
   if(r.ok){ _cliAbiertos.add(cid); toast('Panel creado'); VIEWS.clientes(); }
@@ -2369,26 +2370,72 @@ CFG.telegram = async () => {
         4. Pegalo abajo y probá. <b>El botón Probar manda un mensaje de verdad al grupo</b>, así que avisá antes.
       </div>
     </div>
-    <div class="card"><h2>Quién tiene grupo <span class="muted">(${con.length} de ${cs.length})</span></h2>
+    <div class="card"><h2>Grupos por cliente <span class="muted">(${con.length} de ${cs.length})</span></h2>
       <div class="muted" style="margin-bottom:8px">Sin chatId, ese cliente no recibe ni la factura ni los avisos de carga.
-        <b>El grupo se carga en la ficha del cliente</b>, junto a su vendedor y sus paneles — acá es sólo para ver de un
-        vistazo a quién le falta. Tocá una fila para ir a configurarlo.</div>
+        Se escribe acá o en la ficha del cliente: <b>es el mismo dato</b>, se guarda solo al salir del campo.</div>
       ${sinGrupo.length?`<div class="nota warn"><span class="tit">${sinGrupo.length} sin grupo</span>
         No les llega nada: ${sinGrupo.slice(0,14).map(c=>esc(_nom(c))).join(' · ')}${sinGrupo.length>14?' …':''}</div>`:''}
-      <table><thead><tr><th>Cliente</th><th>Grupo</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
+
+      <details style="margin:10px 0" ${sinGrupo.length>3?'open':''}>
+        <summary style="cursor:pointer;font-weight:700">📋 Pegar varios de una vez</summary>
+        <div class="muted" style="margin:6px 0">Una línea por cliente, el nombre y el chatId separados por lo que sea
+          — un espacio, un tab, una coma. Sirve pegar directo de una planilla. Los que no se reconozcan se listan y no se tocan.</div>
+        <textarea id="tg-pegar" rows="5" placeholder="Eli        -1001234567890&#10;Titan      -1009876543210&#10;Crazy-duck -1005555555555"
+          style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        <div class="row" style="margin-top:6px"><div style="flex:0"><button onclick="tgPegar()">Cargar los que reconozca</button></div>
+          <div class="muted" style="flex:1;align-self:center">No manda ningún mensaje: sólo guarda los grupos.</div></div>
+        <div id="tg-pegar-res"></div>
+      </details>
+
+      <table><thead><tr><th>Cliente</th><th>chatId del grupo</th><th>Avisos de carga</th><th></th></tr></thead><tbody>
       ${cs.map(c=>{const t=c.telegram||{};
-        return `<tr style="cursor:pointer" onclick="abrirCliente('${c.id}','comercial')">
-          <td><b>${_nom(c)}</b></td>
-          <td>${t.chatId?`<span class="muted" style="font-family:monospace;font-size:12px">${esc(t.chatId)}</span>`
-            :'<span class="badge err">sin grupo</span>'}</td>
-          <td>${t.chatId?(t.enabled?'<span class="badge ok">sí</span>':'<span class="muted">no</span>'):'<span class="muted">—</span>'}</td>
+        return `<tr><td><b>${_nom(c)}</b></td>
+          <td><input id="tgc-${c.id}" value="${esc(t.chatId||'')}" placeholder="-1001234567890"
+            onchange="tgFila('${c.id}')" style="width:190px;font-family:monospace;font-size:12px"></td>
+          <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+            <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} onchange="tgFila('${c.id}')" style="width:auto">
+            avisar cada carga</label></td>
           <td class="right" style="white-space:nowrap">
-            ${t.chatId?`<button class="outline small" onclick="event.stopPropagation();tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
-            <span class="muted" style="font-size:11px;margin-left:6px">configurar →</span></td></tr>`;
+            ${t.chatId?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
+            <button class="outline small" onclick="abrirCliente('${c.id}','comercial')">Ficha</button></td></tr>`;
       }).join('')}
       </tbody></table>
     </div>`;
 };
+/* Guarda una fila al salir del campo. Es el MISMO endpoint que usa la ficha del cliente, así que
+   no son dos configuraciones: es un atajo de carga sobre el mismo dato. */
+async function tgFila(id){
+  const chatId=val('tgc-'+id), enabled=document.getElementById('tge-'+id).checked;
+  const r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId,enabled})});
+  const inp=document.getElementById('tgc-'+id);
+  if(r.ok){ inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350); }
+}
+/* Pegar de a muchos. Reconoce por nombre, por código y por los "otros nombres" del cliente, sin
+   acentos ni mayúsculas, porque de una planilla nunca vienen escritos igual. */
+async function tgPegar(){
+  const txt=(document.getElementById('tg-pegar').value||'').trim();
+  const out=document.getElementById('tg-pegar-res');
+  if(!txt) return out.innerHTML='';
+  const cs=((await api('/api/os/clientes')).clientes||[]).filter(c=>!c.es_vendedor);
+  const K=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const ix={};
+  cs.forEach(c=>{ [c.nombre,c.codigo,...(c.alias||[])].filter(Boolean).forEach(n=>{ if(K(n)) ix[K(n)]=c; }); });
+  const ok=[], no=[];
+  for(const linea of txt.split(/\n+/)){
+    const l=linea.trim(); if(!l) continue;
+    const m=l.match(/(-?\d{6,})\s*$/);                       // el chatId es lo último de la línea
+    if(!m){ no.push(l+'  (no encontré un chatId)'); continue; }
+    const chatId=m[1], nombre=l.slice(0,m.index).trim().replace(/[,;\t]+$/,'');
+    const c=ix[K(nombre)];
+    if(!c){ no.push(l+'  (no reconozco "'+nombre+'")'); continue; }
+    const r=await api('/api/clientes/'+c.id+'/telegram',{method:'PUT',
+      body:JSON.stringify({chatId, enabled:!!(c.telegram||{}).enabled})});
+    (r.ok?ok:no).push((r.ok?'':'no se guardó: ')+(c.nombre||c.codigo)+' → '+chatId);
+  }
+  out.innerHTML=`${ok.length?`<div class="nota ok"><span class="tit">${ok.length} cargado(s)</span>${ok.map(esc).join('<br>')}</div>`:''}
+    ${no.length?`<div class="nota err"><span class="tit">${no.length} sin cargar</span>${no.map(esc).join('<br>')}</div>`:''}`;
+  if(ok.length){ document.getElementById('tg-pegar').value=no.length?no.join('\n'):''; setTimeout(()=>CFG.telegram(),1200); }
+}
 async function tgGuardarToken(){
   const v=val('tg-token'); if(!v) return toast('Pegá el token');
   const r=await api('/api/config',{method:'PUT',body:JSON.stringify({telegramBotToken:v})});

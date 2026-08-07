@@ -610,6 +610,32 @@ async function main() {
     require('../src/db').db.prepare('DELETE FROM config_valores WHERE entidad_id=?').run(eid);
   }
 
+  // ── pegar varios chatId de Telegram de una vez ──
+  // De una planilla nunca vienen escritos igual: con tab, con coma, con acentos, con espacios de
+  // más. Si el parseo falla en silencio, el grupo queda sin cargar y ese cliente no recibe nada.
+  {
+    const K = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const ix = {}; ['Eli', 'Crazy-duck', 'Titán', 'PalmaReal', 'GA-Mati'].forEach((n) => { ix[K(n)] = n; });
+    const leer = (l) => {
+      const m = String(l).trim().match(/(-?\d{6,})\s*$/);
+      if (!m) return null;
+      const nombre = String(l).trim().slice(0, m.index).trim().replace(/[,;\t]+$/, '');
+      return ix[K(nombre)] ? { cliente: ix[K(nombre)], chatId: m[1] } : null;
+    };
+    const casos = [
+      ['Eli -1001234567890', 'Eli'], ['Crazy-duck\t-1009876543210', 'Crazy-duck'],
+      ['Titan, -1005555555555', 'Titán'], ['  PalmaReal   -100111222333  ', 'PalmaReal'],
+      ['GA MATI -100999888777', 'GA-Mati'], ['ga-mati;-100444', 'GA-Mati'],
+    ];
+    const bien = casos.filter(([l, esperado]) => (leer(l) || {}).cliente === esperado).length;
+    check('telegram/pegar: reconoce tab, coma, acentos y espacios de más', bien === casos.length,
+      bien + '/' + casos.length);
+    check('telegram/pegar: un cliente que no existe no se carga', leer('Desconocido -100000') === null);
+    check('telegram/pegar: una línea sin chatId no se carga', leer('Eli sin numero') === null);
+    check('telegram/pegar: el chatId sale entero', (leer('Eli -1001234567890') || {}).chatId === '-1001234567890',
+      String((leer('Eli -1001234567890') || {}).chatId));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
