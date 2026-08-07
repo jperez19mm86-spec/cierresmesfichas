@@ -358,7 +358,14 @@ function makeClient({ url, token, user, password } = {}) {
         if (t < 4) await new Promise((r) => setTimeout(r, 2500));
       }
       // Sano → array (a veces objeto keyed por índice). Error del motor → STRING (HTML "Unknown error occurred").
-      if (typeof d === 'string') return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)', debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' ') } };
+      if (typeof d === 'string') {
+        // El casino contesta una PÁGINA de error, no JSON. Lo que sirve está en el cuerpo, no en
+        // el <head>: se le saca el head, los scripts y los estilos, y queda el mensaje de verdad.
+        const cuerpo = d.replace(/<head[\s\S]*?<\/head>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        return { ok: false, error: 'el motor de reportes del casino devolvió un error (probá de nuevo en un rato)',
+          debug: { rsSnippet: d.slice(0, 160).replace(/\s+/g, ' '), mensaje: cuerpo.slice(0, 600), bytes: d.length } };
+      }
       const trozo = Array.isArray(d) ? d
         : (d && typeof d === 'object' ? (Array.isArray(d.rows) ? d.rows : (Array.isArray(d.data) ? d.data : Object.values(d).filter((v) => v && typeof v === 'object'))) : null);
       if (!Array.isArray(trozo)) return { ok: false, error: 'respuesta inesperada del reporte del casino' };
