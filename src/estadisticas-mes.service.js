@@ -451,10 +451,17 @@ async function modoActual(cliCx) {
     const r = await cliCx.camposDeReportes();
     if (!r.ok) return { ok: false, error: r.error };
     const s = (r.selects || []).find((x) => x.name === 'reports_user_group_by');
-    const sel = s && (s.opciones || []).find((o) => o.seleccionada);
-    if (!sel) return { ok: false, error: 'no se pudo leer cómo está agrupando el casino' };
+    if (!s || !(s.opciones || []).length) return { ok: false, error: 'no se pudo leer cómo está agrupando el casino' };
+    // ⚠️ CON "DATOS GENERALES" NO VIENE NINGÚN `selected`.
+    // El casino sólo marca la opción cuando NO es la primera. Verificado en el HTML crudo: con
+    // Datos generales elegido, las 9 <option> vienen sin el atributo y el navegador cae en la
+    // primera por defecto, que es justamente ésa (value=""). Leer "ninguna marcada" como error
+    // hacía que la vista general no se pudiera sacar nunca.
+    // Que el <select> EXISTA y tenga opciones es lo que separa este caso de un parseo roto.
+    const sel = (s.opciones || []).find((o) => o.seleccionada) || s.opciones[0];
     // 'diller' es como el casino escribe "dealer" (sic)
-    return { ok: true, valor: sel.value, nivel: nivelDeModo(sel.value) };
+    return { ok: true, valor: sel.value, nivel: nivelDeModo(sel.value),
+      porDefecto: !(s.opciones || []).some((o) => o.seleccionada) };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }

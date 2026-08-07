@@ -1003,6 +1003,33 @@ async function main() {
     check('lista SA: nadie aparece dos veces', ![...hijos].some((id) => sueltos.has(id)));
   }
 
+  // ── leer cómo agrupa el casino cuando NO viene ningún `selected` ──
+  // Con "Datos generales" elegido, el casino manda las 9 <option> sin el atributo selected y el
+  // navegador cae en la primera, que es esa misma. Tomar "ninguna marcada" como error dejaba la
+  // vista general afuera de la foto para siempre.
+  {
+    const leer = (opciones) => {
+      if (!opciones || !opciones.length) return { ok: false };
+      const sel = opciones.find((o) => o.seleccionada) || opciones[0];
+      return { ok: true, valor: sel.value, porDefecto: !opciones.some((o) => o.seleccionada) };
+    };
+    const OPS = [{ value: '', texto: 'Datos generales' }, { value: 'superagent', texto: 'Superagente' },
+      { value: 'diller', texto: 'Distributor' }];
+    let r = leer(OPS);
+    check('modo: sin ningún selected cae en la primera (Datos generales)',
+      r.ok && r.valor === '' && r.porDefecto === true, JSON.stringify(r));
+    r = leer(OPS.map((o) => ({ ...o, seleccionada: o.value === 'diller' })));
+    check('modo: con selected gana el marcado, no el primero',
+      r.ok && r.valor === 'diller' && r.porDefecto === false, JSON.stringify(r));
+    check('modo: sin opciones sigue siendo error (eso sí es un parseo roto)', leer([]).ok === false);
+
+    const em = require('../src/estadisticas-mes.service');
+    check('modo: el valor vacío es el nivel "general"', em.nivelDeModo('') === 'general');
+    check('modo: superagent y diller no cambiaron', em.nivelDeModo('superagent') === 'superagente'
+      && em.nivelDeModo('diller') === 'distribuidor');
+    check('modo: un valor que no sirve para la foto sigue dando null', em.nivelDeModo('terminal') === null);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
