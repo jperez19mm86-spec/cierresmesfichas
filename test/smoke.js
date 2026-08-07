@@ -840,6 +840,28 @@ async function main() {
       rp.status === 302 || rp.status === 401 || /login/i.test(String(rp.headers.location || '')), String(rp.status));
   }
 
+  // ── las divisas de un panel se pueden editar, y "sin datos" no es "no las usa" ──
+  {
+    // Se lee por la API y no por el store: el store cacheado dentro del proceso del test no ve lo
+    // que escribió el server (está anotado más arriba, para el reparto).
+    const pid = (await post('/api/os/paneles', { cliente_id: cli.id, nombre: 'PanelDiv',
+      sistema: 'Casino', nivel_usuario: 'Agente', id_usuario: '999001', divisas: 'ARS,BRL,CLP' })).data.panel.id;
+    const div = async () => (((await get('/api/os/paneles')).data.paneles || [])
+      .find((x) => x.id === pid) || {}).divisas || [];
+    check('divisas: se guardan como lista', (await div()).join(',') === 'ARS,BRL,CLP', JSON.stringify(await div()));
+    await put('/api/os/paneles/' + pid, { divisas: 'ars , brl' });
+    check('divisas: se normalizan a mayúsculas y sin espacios', (await div()).join(',') === 'ARS,BRL', JSON.stringify(await div()));
+    await put('/api/os/paneles/' + pid, { nombre: 'PanelDiv2' });
+    check('divisas: un PUT que no las manda NO las borra', (await div()).join(',') === 'ARS,BRL', JSON.stringify(await div()));
+    // La regla del diagnóstico: si el panel no movió nada, no se puede afirmar que le sobren.
+    const sinDatos = { usadas: [], sobran: ['ARS', 'BRL'] };
+    const conDatos = { usadas: ['ARS'], sobran: ['BRL'] };
+    const proponer = (g) => ((g.usadas && g.usadas.length) ? (g.sobran || []) : []);
+    check('divisas: sin movimiento no se propone sacar ninguna', proponer(sinDatos).length === 0);
+    check('divisas: con movimiento sí se propone', proponer(conDatos).join(',') === 'BRL');
+    await axios.delete(BASE + '/api/os/paneles/' + pid, H());
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

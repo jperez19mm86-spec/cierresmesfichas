@@ -289,10 +289,14 @@ function cliFilas(n, prof=0){
 VIEWS.clientes = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
-  const [d, dp, dc] = await Promise.all([
+  // El cuarto pedido es el diagnóstico de divisas: compara lo guardado contra lo que cada panel
+  // movió de verdad. Sale del acumulado que ya está en la base, así que no consulta al casino.
+  const [d, dp, dc, dv] = await Promise.all([
     api('/api/os/clientes'), api('/api/os/paneles'), api('/api/os/casino/conexiones'),
+    api('/api/os/paneles/divisas?meses=6'),
   ]);
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
+  window._divDiag = {}; ((dv&&dv.paneles)||[]).forEach(x=>{ window._divDiag[x.panel_id]=x; });
   const sinDueno = _paneles.filter(p=>!_clientes.some(c=>c.id===p.cliente_id));
   const sinLinkear = _paneles.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
 
@@ -337,6 +341,16 @@ VIEWS.clientes = async () => {
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
+/* Guarda las divisas de un panel. Vinieron del casino al linkearlo —son las HABILITADAS, no las
+   que mueve— y nadie las volvió a tocar: hay paneles con 25 monedas que operan en una sola. Cada
+   una de más es una consulta de más en la Foto del mes y una alerta de "moneda sin tipo de cambio". */
+async function setDivisas(id, v){
+  const limpio=[...new Set(String(v||'').toUpperCase().split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean))];
+  if(!limpio.length && !confirm('¿Dejar el panel SIN ninguna divisa?\n\nNo se le va a poder pedir nada ni va a entrar en la Foto del mes.')) return VIEWS.clientes();
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({divisas:limpio.join(',')})});
+  if(r.ok){ _paneles=(await api('/api/os/paneles')).paneles||_paneles; renderClientes&&0; }
+  VIEWS.clientes();
+}
 function bloquePaneles(c){
   const ps = _paneles.filter(p=>p.cliente_id===c.id);
   const cxs = window._cxs||[];
@@ -348,7 +362,17 @@ function bloquePaneles(c){
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
-       <td class="muted divs" title="${esc(p.divisas||'')}">${esc(p.divisas||'—')}</td>
+       <td>${(()=>{ const g=(window._divDiag||{})[p.id]||{};
+          // "sobran" sólo si el panel MOVIÓ algo: sin datos no se puede afirmar que no las use.
+          const sobran=(g.usadas&&g.usadas.length)?(g.sobran||[]):[];
+          return `<input value="${esc((p.divisas||[]).join(','))}" placeholder="ARS"
+            style="width:190px;font-size:11px;font-family:monospace"
+            title="Las monedas que este panel puede mover. Vinieron del casino cuando se linkeó: son las que la cuenta tiene HABILITADAS, no las que usa. Separá con comas. Cada una de más es una consulta de más en la Foto del mes y una alerta de 'moneda sin tipo de cambio'."
+            onchange="setDivisas('${p.id}', this.value)">`
+          + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
+               title="En 6 meses este panel movió sólo ${esc(g.usadas.join(', '))}. Tocá para dejar esas."
+               onclick="setDivisas('${p.id}','${esc(g.usadas.join(','))}')">sobran ${sobran.length} → dejar ${esc(g.usadas.join(','))}</span></div>`:'');
+        })()}</td>
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
