@@ -89,6 +89,10 @@ function mount(app) {
   // Panel del OS (HTML estático, detrás del gate de auth)
   const path = require('path');
   app.get('/os', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'os.html')));
+  // TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
+  // proveedores y otro cierre de mes. Sirve el MISMO archivo — duplicarlo para no compartir los
+  // helpers habría sido peor — y la página se arma distinto según por dónde se entró.
+  app.get('/tbs', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'os.html')));
 
   // ───────── CLIENTES (comercial) ─────────
   app.get('/api/os/clientes', (_req, res) => {

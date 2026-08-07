@@ -125,11 +125,8 @@
 </head>
 <body>
 <header>
-  <h1>🎰 LATAM Games <small>OS — núcleo comercial</small></h1>
-  <div style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center">
-    <a href="/" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">↩ Operativo</button></a>
-    <button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>
-  </div>
+  <h1>🎰 LATAM Games <small id="hd-sub"></small></h1>
+  <div id="hd-nav" style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center"></div>
 </header>
 <nav class="nav" id="nav"></nav>
 <main id="main"></main>
@@ -143,15 +140,33 @@
 //   · Comprobantes→ una solapa de Movimientos (un comprobante aprobado ES un movimiento)
 //   · Revisión    → adentro de Config, que es donde vive el diagnóstico
 // La etiqueta puede ser una función: así Movimientos muestra cuántos comprobantes esperan.
-const TABS = [
+/* ── TRES ESPACIOS DE TRABAJO, NO UNO CON 12 PESTAÑAS ────────────────────────────────────────
+   TBS no es una pestaña más del núcleo comercial: es OTRO negocio. Otros clientes, otros
+   proveedores, otra forma de cobrar (por sello y no por % base) y otro cierre de mes. Tenerlo
+   como una solapa entre "Proveedores" y "Tipos de cambio" lo escondía y mezclaba dos cabezas
+   distintas en la misma barra.
+   Ahora son tres: Operativo (/), Comercial (/os) y TBS (/tbs). Mismo archivo y mismos helpers
+   —duplicarlos habría sido peor— pero cada uno con su barra y su nombre. */
+const TABS_COMERCIAL = [
   ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'],
   ['movimientos', ()=>'💸 Movimientos' + (_cmpPend ? ' <span class="nb">'+_cmpPend+'</span>' : '')],
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
-  ['proveedores','🏷 Proveedores'], ['api','🔌 API (TBS)'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
+  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
-let _tab = 'clientes';
+// Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
+// de API se convierten con él: sin eso habría que saltar al otro espacio para revisar un TC.
+const TABS_TBS = [
+  ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Cuentas de API'],
+  '|',
+  ['tbscuentas','🧾 Cuentas del mes'], ['tbsresumen','📊 Cierre del mes'],
+  '|',
+  ['tc','💱 Tipos de cambio'],
+];
+const ES_TBS = location.pathname.replace(/\/+$/,'') === '/tbs';
+const TABS = ES_TBS ? TABS_TBS : TABS_COMERCIAL;
+let _tab = ES_TBS ? 'tbsmatriz' : 'clientes';
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'revision';
 let _repSub = 'mes', _repCli = '';   // Reparto: qué subpantalla y qué cliente se está editando
 let _cxSel = '', _cxNodos = [];
@@ -168,7 +183,16 @@ async function api(path, opts={}){
 }
 function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
 
+function renderHeader(){
+  document.getElementById('hd-sub').textContent = ES_TBS ? 'TBS — el sistema de API' : 'OS — núcleo comercial';
+  const otros = [['/','↩ Operativo'], ['/os','🎰 Comercial'], ['/tbs','🔌 TBS']]
+    .filter(([h])=>h !== (ES_TBS?'/tbs':'/os'));
+  document.getElementById('hd-nav').innerHTML =
+    otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
+    + '<button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>';
+}
 function renderNav(){
+  renderHeader();
   document.getElementById('nav').innerHTML = TABS.map(t=>
     t==='|' ? '<span class="navsep"></span>'
             : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
@@ -2732,6 +2756,11 @@ async function calcularFac(vivo){
    alguien anotó alguna vez. */
 let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
 VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
+// En el espacio TBS cada subpantalla es una pestaña propia: la barra de arriba ya cumple el rol
+// que cumplían los botones de adentro, y tenerlos dos veces era ruido.
+['matriz','clientes','cuentas','resumen'].forEach(k=>{
+  VIEWS['tbs'+k] = () => { _apiSub=k; document.getElementById('main').innerHTML = '<div id="api-body"></div>'; API[k](); };
+});
 function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
 function apiHeader(){
   const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Cuentas de API'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
@@ -3670,7 +3699,7 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
 // estés en otra pantalla, que es todo el punto de haberlos metido ahí adentro.
-renderNav(); go('acumulado'); refrescarPendientes();
+renderNav(); go(ES_TBS ? 'tbsmatriz' : 'acumulado'); if(!ES_TBS) refrescarPendientes();
 </script>
 </body>
 </html>

@@ -687,6 +687,17 @@ async function main() {
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
+  // TBS es su propio espacio: misma página, pero la barra se arma según por dónde se entró.
+  r = await axios.get(BASE + '/tbs', H());
+  check('panel /tbs sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /TABS_TBS/.test(r.data));
+  check('/tbs decide el modo por la URL, no por un flag guardado',
+    /location\.pathname[\s\S]{0,60}\/tbs/.test(r.data), 'ES_TBS sale de location.pathname');
+  check('la pestaña API ya no está en el comercial', !/'api','🔌 API \(TBS\)'/.test(r.data));
+  // sin sesión no se entra a ninguno de los dos
+  const sinCookie = { validateStatus: () => true, maxRedirects: 0 };
+  const rt = await axios.get(BASE + '/tbs', sinCookie);
+  check('/tbs está detrás de auth igual que /os', rt.status === 302 || rt.status === 401 || /login/i.test(String(rt.headers.location || '')),
+    String(rt.status) + ' ' + String(rt.headers.location || ''));
 
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
