@@ -396,6 +396,13 @@ ensureColumns('paneles', { conexion_id: 'TEXT' });
 // sin tener que renombrar nada en el casino, que es donde el nombre no lo elegimos nosotros.
 ensureColumns('paneles', { alias: 'TEXT' });   // JSON array de nombres alternativos
 
+// ¿Este panel entra en la Foto del mes? La Foto existe para no tener que preguntarle al casino en
+// vivo cuando se saca el reporte de externos. Sacar un panel de la Foto NO rompe nada: su reporte
+// sigue saliendo, sólo que preguntando en vivo — más lento y puede fallar, que es exactamente lo
+// que dice el cartel de la pantalla. Por eso se puede elegir panel por panel.
+// NULL = sí (los 201 que ya existían siguen entrando, nadie se queda afuera por una migración).
+ensureColumns('paneles', { en_foto: 'INTEGER' });
+
 // Jerarquía REAL del panel en el casino (SuperAgente → Distribuidor → Agente). Hace falta para
 // cargar: las fichas se bajan nivel por nivel, así que hay que saber por qué padres pasar.
 // Lo resuelve arbol.service.js contra el árbol del casino; no se carga a mano.

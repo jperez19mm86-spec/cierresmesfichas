@@ -965,6 +965,44 @@ async function main() {
     db.prepare('DELETE FROM estad_mes WHERE mes=?').run(MES);
   }
 
+  // ── los dos recortes de la Foto: nivel propio, y paneles marcados ──
+  {
+    const pid = (await post('/api/os/paneles', { cliente_id: cli.id, nombre: 'PanelFoto',
+      sistema: 'Casino', nivel_usuario: 'Distribuidor', id_usuario: '999002', divisas: 'ARS' })).data.panel.id;
+    const leer = async () => (((await get('/api/os/paneles')).data.paneles || []).find((x) => x.id === pid) || {});
+    check('foto: un panel nuevo entra en la Foto por defecto', (await leer()).en_foto === true, JSON.stringify((await leer()).en_foto));
+    await put('/api/os/paneles/' + pid, { en_foto: false });
+    check('foto: se puede sacar de la Foto', (await leer()).en_foto === false);
+    await put('/api/os/paneles/' + pid, { nombre: 'PanelFoto2' });
+    check('foto: un PUT que no lo manda NO lo vuelve a meter', (await leer()).en_foto === false);
+    await put('/api/os/paneles/' + pid, { en_foto: true });
+    check('foto: se puede volver a meter', (await leer()).en_foto === true);
+    await axios.delete(BASE + '/api/os/paneles/' + pid, H());
+  }
+
+  // ── la lista de superagentes para elegir sus distribuidores ──
+  {
+    const r = (await get('/api/os/paneles/foto-distribuidores')).data;
+    check('lista SA: viene por conexión', Array.isArray(r.conexiones));
+    const todos = require('../src/paneles-store').list().filter((p) => p.id_usuario);
+    const enLista = new Set();
+    (r.conexiones || []).forEach((cx) => {
+      (cx.superagentes || []).forEach((sa) => { enLista.add(sa.id); (sa.hijos || []).forEach((h) => enLista.add(h.id)); });
+      (cx.sueltos || []).forEach((x) => enLista.add(x.id));
+    });
+    // Lo que se cuida: un distribuidor que no cuelgue de ningún superagente cargado NO puede
+    // desaparecer de la lista. Si no se ve, no se puede marcar, y "no lo veo" pasaría a ser
+    // "no lo saco" sin que nadie lo haya decidido.
+    const noSuper = todos.filter((p) => !/superagente/i.test(String(p.nivel_usuario || '')));
+    const invisibles = noSuper.filter((p) => !enLista.has(p.id));
+    check('lista SA: ningún distribuidor queda invisible', invisibles.length === 0,
+      invisibles.slice(0, 5).map((x) => x.nombre).join(','));
+    // y un hijo no puede aparecer además como suelto
+    const sueltos = new Set((r.conexiones || []).flatMap((cx) => (cx.sueltos || []).map((x) => x.id)));
+    const hijos = new Set((r.conexiones || []).flatMap((cx) => (cx.superagentes || []).flatMap((sa) => (sa.hijos || []).map((h) => h.id))));
+    check('lista SA: nadie aparece dos veces', ![...hijos].some((id) => sueltos.has(id)));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

@@ -355,6 +355,56 @@ function mount(app) {
     ok(res, { total, desde, devueltos: tanda.length, hay_mas: desde + tanda.length < total, paneles: filas });
   }));
 
+  /**
+   * ── LOS SUPERAGENTES, PARA ELEGIR DE CUÁLES SE SACAN LOS DISTRIBUIDORES ───────────────────────
+   *
+   * De los distribuidores el dueño necesita muy pocos, pero la Foto los sacaba todos. Acá se lista
+   * cada superagente con los distribuidores que le cuelgan, para marcar de a grupos en vez de
+   * panel por panel.
+   *
+   * El vínculo sale de `sa_id`/`padre_id`, que los resuelve arbol.service contra el árbol del
+   * casino. 2 de los 68 no cuelgan de ningún superagente cargado en el OS: van aparte y NO se
+   * esconden — si quedaran fuera de la lista no habría forma de marcarlos, y "no lo veo" se
+   * volvería "no lo saco" sin que nadie lo haya decidido.
+   */
+  app.get('/api/os/paneles/foto-distribuidores', (_req, res) => {
+    const todos = paneles.list();
+    const porNodo = new Map();
+    todos.forEach((p) => { if (p.id_usuario) porNodo.set(String(p.id_usuario), p); });
+    const esSuper = (p) => /superagente/i.test(String(p.nivel_usuario || ''));
+    const hijosDe = new Map();
+    const sueltos = [];
+    todos.filter((p) => !esSuper(p) && p.id_usuario).forEach((p) => {
+      const sa = porNodo.get(String(p.sa_id || '')) || porNodo.get(String(p.padre_id || ''));
+      if (sa && sa.id !== p.id) {
+        if (!hijosDe.has(sa.id)) hijosDe.set(sa.id, []);
+        hijosDe.get(sa.id).push({ id: p.id, nombre: p.nombre, nivel: p.nivel_usuario, en_foto: p.en_foto !== false });
+      } else sueltos.push({ id: p.id, nombre: p.nombre, nivel: p.nivel_usuario, en_foto: p.en_foto !== false,
+        conexion_id: p.conexion_id });
+    });
+    const conexiones = casinoConex.list463().map((cx) => ({
+      id: cx.id, nombre: cx.nombre,
+      superagentes: todos.filter((p) => esSuper(p) && p.conexion_id === cx.id && p.id_usuario)
+        .map((p) => ({ id: p.id, nombre: p.nombre, nodo: p.id_usuario, en_foto: p.en_foto !== false,
+          hijos: (hijosDe.get(p.id) || []).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })) }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })),
+      sueltos: sueltos.filter((x) => x.conexion_id === cx.id),
+    }));
+    ok(res, { conexiones });
+  });
+
+  /** Marca o desmarca de una todos los distribuidores que cuelgan de un superagente. */
+  app.post('/api/os/paneles/foto-distribuidores', wrap((req, res) => {
+    const b = req.body || {};
+    const ids = Array.isArray(b.panel_ids) ? b.panel_ids : (b.panel_id ? [b.panel_id] : []);
+    const val = !!b.en_foto;
+    const hechos = ids.filter((id) => paneles.get(id)).map((id) => {
+      paneles.update(id, { en_foto: val });
+      return paneles.get(id).nombre;
+    });
+    ok(res, { cambiados: hechos.length, paneles: hechos, en_foto: val });
+  }));
+
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
   app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
     const b = req.body || {};
@@ -576,7 +626,7 @@ function mount(app) {
     const r = await estadMes.capturar({
       mes: b.mes, conexionId: b.conexion_id || null,
       nivel: b.nivel || null, divisa: b.divisa || null,
-      alcance: b.alcance === 'todas' ? 'todas' : 'movidas',
+      alcance: b.alcance === 'todas' ? 'todas' : 'movidas', control: !!b.control,
       desde: Number(b.desde) || 0, limite: Number(b.limite) || 0,
       refrescar: !!b.refrescar, nivelDeclarado: b.nivel_declarado || null,
     });
@@ -591,7 +641,7 @@ function mount(app) {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     const p = estadMes.plan(mes, {
       conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null,
-      divisa: req.query.divisa || null, alcance,
+      divisa: req.query.divisa || null, alcance, control: req.query.control === '1',
     });
     const completo = alcance === 'movidas'
       ? estadMes.plan(mes, { conexionId: req.query.conexion_id || null, nivel: req.query.nivel || null,

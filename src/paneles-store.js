@@ -19,6 +19,8 @@ function obj(r) {
     ...r,
     usa_config_cliente: !!r.usa_config_cliente,
     divisas: parseJson(r.divisas, []),
+    // NULL = sí: un panel que ya existía antes de que esto se pudiera elegir sigue entrando.
+    en_foto: r.en_foto === null || r.en_foto === undefined ? true : !!r.en_foto,
     alias: parseJson(r.alias, []),
     montosRapidos: parseJson(r.montosRapidos, []),
     escala: parseJson(r.escala, []),
@@ -91,12 +93,14 @@ function update(id, patch) {
   // Igual que en create(): NO recortar por nivel. Clave acá porque linkPanel() hace un update
   // con solo {conexion_id, id_usuario} y el recorte borraba las divisas ya cargadas.
   const divisas = patch.divisas !== undefined ? normDivisas(patch.divisas) : p.divisas;
+  const enFoto = patch.en_foto !== undefined ? (patch.en_foto ? 1 : 0) : (p.en_foto ? 1 : 0);
   const alias = patch.alias !== undefined ? normAlias(patch.alias) : (p.alias || []);
   db.prepare(`UPDATE paneles SET cliente_id=@cli,nombre=@nombre,sistema=@sistema,tipo=@tipo,nivel_usuario=@nivel,
-      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,alias=@alias,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid WHERE id=@id`).run({
+      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,alias=@alias,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid,en_foto=@enfoto WHERE id=@id`).run({
     id, cli: f('cliente_id', p.cliente_id), nombre: String(f('nombre', p.nombre)).trim(), sistema: f('sistema', p.sistema),
     tipo: f('tipo', p.tipo), nivel, idu: String(f('id_usuario', p.id_usuario)).trim(),
     ucc: (patch.usa_config_cliente !== undefined ? (patch.usa_config_cliente ? 1 : 0) : (p.usa_config_cliente ? 1 : 0)),
+    enfoto: enFoto,
     div: JSON.stringify(divisas), alias: JSON.stringify(alias), usuario: String(f('usuario', p.usuario)).trim(),
     montos: JSON.stringify(f('montosRapidos', p.montosRapidos)), notas: String(f('notas', p.notas)).trim(),
     cxid: f('conexion_id', p.conexion_id),

@@ -334,9 +334,12 @@ VIEWS.clientes = async () => {
     </div>
     ${sinDueno.length ? `<div class="card"><h2>⚠ Paneles sin cliente <span class="muted">(${sinDueno.length})</span></h2>
       <div class="muted" style="margin-bottom:6px">Su cliente ya no existe. No se le facturan a nadie: asignalos o borralos.</div>
-      <table><thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Casino (nodo)</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th></th></tr></thead><tbody>
       ${sinDueno.map(p=>`<tr><td><b>${esc(p.nombre)}</b></td><td>${esc(p.sistema||'')}</td><td>${esc(p.nivel_usuario||'')}</td>
-        <td>${p.conexion_id&&p.id_usuario?'<span class="pill">'+esc(p.id_usuario)+'</span>':'<span class="badge warn">sin linkear</span>'}</td>
+        <td><input type="checkbox" ${p.en_foto===false?'':'checked'}
+            title="Si entra en la Foto del mes. Un distribuidor que no necesitás sacar todos los meses se puede destildar: el reporte igual funciona, preguntando en vivo."
+            onchange="setEnFoto('${p.id}', this.checked)"></td>
+       <td>${p.conexion_id&&p.id_usuario?'<span class="pill">'+esc(p.id_usuario)+'</span>':'<span class="badge warn">sin linkear</span>'}</td>
         <td class="right"><select style="width:auto;display:inline-block" onchange="moverPanel('${p.id}',this.value)"><option value="">— asignar a —</option>${_clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)}</option>`).join('')}</select>
         <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`).join('')}
       </tbody></table></div>` : ''}
@@ -347,6 +350,14 @@ VIEWS.clientes = async () => {
 /* Guarda las divisas de un panel. Vinieron del casino al linkearlo —son las HABILITADAS, no las
    que mueve— y nadie las volvió a tocar: hay paneles con 25 monedas que operan en una sola. Cada
    una de más es una consulta de más en la Foto del mes y una alerta de "moneda sin tipo de cambio". */
+/* Saca o mete un panel en la Foto del mes. No borra nada de lo ya sacado: sólo cambia qué se le
+   va a pedir al casino la próxima vez. Un panel afuera de la Foto sigue teniendo reporte — se le
+   pregunta en vivo, que es más lento y puede fallar, igual que un mes sin foto. */
+async function setEnFoto(id, v){
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({en_foto:!!v})});
+  if(r&&r.ok) _paneles=(await api('/api/os/paneles')).paneles||_paneles;
+  VIEWS.clientes();
+}
 async function setDivisas(id, v){
   const limpio=[...new Set(String(v||'').toUpperCase().split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean))];
   if(!limpio.length && !confirm('¿Dejar el panel SIN ninguna divisa?\n\nNo se le va a poder pedir nada ni va a entrar en la Foto del mes.')) return VIEWS.clientes();
@@ -402,7 +413,7 @@ function bloquePaneles(c){
   return `
    <div class="subwrap">
    <table>
-     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th>Casino (nodo)</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
+     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
@@ -417,6 +428,9 @@ function bloquePaneles(c){
                title="En 6 meses este panel movió sólo ${esc(g.usadas.join(', '))}. Tocá para dejar esas."
                onclick="setDivisas('${p.id}','${esc(g.usadas.join(','))}')">sobran ${sobran.length} → dejar ${esc(g.usadas.join(','))}</span></div>`:'');
         })()}</td>
+       <td><input type="checkbox" ${p.en_foto===false?'':'checked'}
+            title="Si entra en la Foto del mes. Un distribuidor que no necesitás sacar todos los meses se puede destildar: el reporte igual funciona, preguntando en vivo."
+            onchange="setEnFoto('${p.id}', this.checked)"></td>
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
@@ -979,6 +993,8 @@ VIEWS.foto = async () => {
     + '<option value="todas"'+(window._fotoAlcance==='todas'?' selected':'')+'>Todas las habilitadas</option>'
     + '</select></div>'
     + '<div id="foto-alcance-aviso" style="flex:1 0 100%;font-size:11px"></div>'
+    + '<div style="flex:0"><button class="outline small" onclick="fotoDist()">👥 Elegir de qué superagentes sacar los distribuidores</button></div>'
+    + '<div id="foto-dist" style="flex:1 0 100%"></div>'
     + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
@@ -1071,6 +1087,55 @@ async function fotoAlcance(v){
     +(r.fueraTotal?' <b>No se van a preguntar '+r.fueraTotal+' monedas</b> que están habilitadas pero nunca movieron: '
       +'<span class="muted">'+det+(r.fuera.length>6?' y '+(r.fuera.length-6)+' paneles más':'')+'</span>'
       +'<br><span class="muted">Si un cliente arranca en una moneda nueva, sacala con «Todas las habilitadas» o no la vas a ver.</span>':'');
+}
+/* La lista de superagentes para elegir de cuáles se sacan los distribuidores. De los distris el
+   dueño necesita muy pocos, así que se marca por grupo en vez de panel por panel: tildar un
+   superagente mete a TODOS sus distribuidores en la Foto, destildarlo los saca.
+   Los que no cuelgan de ningún superagente cargado en el OS van aparte y no se esconden: si no
+   estuvieran en la lista no habría forma de marcarlos, y "no lo veo" pasaría a ser "no lo saco". */
+async function fotoDist(){
+  const caja=document.getElementById('foto-dist'); if(!caja) return;
+  if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
+  caja.dataset.abierto='1';
+  caja.innerHTML='<div class="nota">Cargando…</div>';
+  const r=await api('/api/os/paneles/foto-distribuidores');
+  if(!r||!r.ok){ caja.innerHTML='<div class="nota nota-err">'+esc((r&&r.error)||'no respondió')+'</div>'; return; }
+  const bloque=(cx)=>{
+    const conHijos=cx.superagentes.filter(sa=>sa.hijos.length);
+    const sinHijos=cx.superagentes.filter(sa=>!sa.hijos.length);
+    const fila=(sa)=>{
+      const dentro=sa.hijos.filter(h=>h.en_foto).length;
+      const todos=dentro===sa.hijos.length, nada=dentro===0;
+      return `<tr>
+        <td style="width:26px"><input type="checkbox" ${todos?'checked':''} ${(!todos&&!nada)?'data-medio="1"':''}
+          onchange="fotoDistSet('${sa.hijos.map(h=>h.id).join(',')}', this.checked)"></td>
+        <td><b>${esc(sa.nombre)}</b> <span class="muted" style="font-size:11px">nodo ${esc(sa.nodo)}</span></td>
+        <td class="muted" style="font-size:11px">${sa.hijos.length} distribuidor${sa.hijos.length===1?'':'es'}:
+          ${sa.hijos.map(h=>(h.en_foto?'<b>':'<span class="muted">')+esc(h.nombre)+(h.en_foto?'</b>':'</span>')).join(', ')}</td>
+        <td class="right muted" style="font-size:11px;white-space:nowrap">${dentro}/${sa.hijos.length} en la Foto</td></tr>`;
+    };
+    return `<h4 style="margin:14px 0 4px">${esc(cx.nombre)}
+        <span class="muted" style="font-weight:400">${conHijos.length} superagentes con distribuidores · ${sinHijos.length} sin ninguno</span></h4>
+      ${conHijos.length?`<table><tbody>${conHijos.map(fila).join('')}</tbody></table>`
+        :'<div class="muted" style="font-size:11px">Ningún superagente de esta conexión tiene distribuidores cargados.</div>'}
+      ${cx.sueltos.length?`<div style="margin-top:8px"><b style="font-size:12px">No cuelgan de ningún superagente del OS</b>
+        <table><tbody>${cx.sueltos.map(x=>`<tr><td style="width:26px"><input type="checkbox" ${x.en_foto?'checked':''}
+          onchange="fotoDistSet('${x.id}', this.checked)"></td><td>${esc(x.nombre)}</td>
+          <td class="muted" style="font-size:11px">${esc(x.nivel||'')}</td></tr>`).join('')}</tbody></table></div>`:''}`;
+  };
+  caja.innerHTML='<div class="nota"><b>De qué superagentes se sacan los distribuidores</b>'
+    +'<div class="muted" style="font-size:11px;margin:2px 0 6px">Tildar mete a todos sus distribuidores en la Foto; destildar los saca. '
+    +'Un panel afuera de la Foto <b>no pierde su reporte</b>: se le pregunta al casino en vivo, más lento y puede fallar.</div>'
+    +r.conexiones.map(bloque).join('')+'</div>';
+}
+async function fotoDistSet(ids, v){
+  const lista=String(ids||'').split(',').filter(Boolean);
+  if(!lista.length) return;
+  await api('/api/os/paneles/foto-distribuidores',{method:'POST',
+    body:JSON.stringify({panel_ids:lista, en_foto:!!v})});
+  const caja=document.getElementById('foto-dist'); if(caja) caja.dataset.abierto='';
+  await fotoDist();
+  fotoAlcance(window._fotoAlcance||'movidas');
 }
 async function fotoSacar(cxId, nivel, refrescar){
   if(refrescar && !confirm('¿Rehacer la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;

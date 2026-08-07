@@ -128,7 +128,28 @@ function divisasDePanel(p, alcance, usadasPorPanel) {
   return { pedir, fuera: habilitadas.filter((d) => !movidas.includes(d)) };
 }
 
-function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = 'movidas' } = {}) {
+/**
+ * ── QUÉ ENTRA EN LA FOTO ──────────────────────────────────────────────────────────────────────
+ *
+ * Dos recortes, y los dos importan más que el de las divisas:
+ *
+ * 1. SÓLO EL NIVEL PROPIO DE CADA PANEL. El nivel no viaja en la consulta: es el ajuste global
+ *    "Agrupar por" del casino, y el plan listaba cada panel DOS veces, una por nivel. La segunda
+ *    era una pasada de control para poder ver cuánto esconde el filtro profit>0 — pero nadie la
+ *    lee: externos.service pide `filasDe(..., nivelDe(panel))`, o sea el propio y nada más. Eran
+ *    347 consultas de 694 que se guardaban y no las miraba ningún reporte. Con `control:true`
+ *    vuelven, para cuando se quiera medir esa diferencia a propósito.
+ *
+ * 2. SÓLO LOS PANELES MARCADOS. `en_foto` en false saca al panel del plan. No rompe nada: su
+ *    reporte de externos sigue saliendo, preguntándole al casino en vivo — más lento y puede
+ *    fallar, que es lo que ya avisa el cartel de la pantalla para los meses sin foto. Sirve para
+ *    lo que pidió el dueño: de los distribuidores sólo necesita unos contados.
+ *
+ * Las dos pasadas por el casino se siguen necesitando igual: con el ajuste en superagentes salen
+ * los paneles superagentes, y con el ajuste en distribuidores, los distribuidores.
+ */
+function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = 'movidas',
+  control = false } = {}) {
   // list463: la Foto del mes pide nodos/reportes, que solo entiende el engine 463. Una conexión
   // TBS acá reventaría con "cli.nodos is not a function".
   const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
@@ -139,13 +160,15 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
     paneles.divisasUsadas(6).forEach((x) => { usadasPorPanel[x.panel_id] = x.usadas || []; });
   }
   for (const cx of cxs) {
-    for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario)) {
+    for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario && x.en_foto !== false)) {
       const { pedir, fuera } = divisasDePanel(p, alcance, usadasPorPanel);
       if (fuera.length) dejadasAfuera.push({ panel: p.nombre, divisas: fuera });
       for (const d of pedir) {
         if (divisa && String(d).toUpperCase() !== String(divisa).toUpperCase()) continue;
         for (const niv of NIVELES) {
           if (nivel && niv !== nivel) continue;
+          // sin `control`, a cada panel se le pide sólo el nivel en el que factura
+          if (!control && niv !== nivelDe(p)) continue;
           out.push({
             conexion_id: cx.id, conexion: cx.nombre, mes,
             divisa: String(d).toUpperCase(), nivel: niv,
@@ -278,11 +301,11 @@ async function modoActual(cliCx) {
  * apretado y varios minutos de nada.
  */
 async function capturar({ mes, conexionId = null, nivel = null, divisa = null, alcance = 'movidas',
-  desde = 0, limite = 0, refrescar = false, onPaso = null, nivelDeclarado = null } = {}) {
+  control = false, desde = 0, limite = 0, refrescar = false, onPaso = null, nivelDeclarado = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const { from, to } = rango(m);
-  const todos = plan(m, { conexionId, nivel, divisa, alcance });
+  const todos = plan(m, { conexionId, nivel, divisa, alcance, control });
   if (!todos.length) return { ok: false, error: 'no hay conexiones con paneles para sacar la foto' };
   const ini = Math.max(0, Number(desde) || 0);
   const pasos = limite > 0 ? todos.slice(ini, ini + limite) : todos.slice(ini);
