@@ -862,6 +862,45 @@ async function main() {
     await axios.delete(BASE + '/api/os/paneles/' + pid, H());
   }
 
+  // ── leer del casino qué divisas tiene habilitado un nodo ──
+  // Se prueba contra un casino de mentira que sirve el MISMO html que la pantalla real (463.life,
+  // nodo 2628233). Lo que se está cuidando acá no es el parseo sino qué pasa cuando falla: quien
+  // llame va a comparar contra lo guardado, y una lista vacía leída como "no tiene ninguna divisa"
+  // le borraría al panel las que sí tiene.
+  {
+    const http = require('http');
+    const REAL = ['ARS', 'BRL', 'CLP', 'DOP', 'EUR', 'MXN', 'PEN', 'USD', 'UYU', 'VEF'];
+    const PAGINA = REAL.map((d) => `<input type="hidden" name="currency" value="${d}">`).join('\n')
+      + '<select name="add_currency"><option value="ADA">ADA</option><option value="AED">AED</option></select>';
+    let modo = 'ok';
+    const posts = [];
+    const srv = http.createServer((rq, rs) => {
+      if (rq.method !== 'GET') { posts.push(rq.url); rs.writeHead(200); return rs.end('guardado'); }
+      if (modo === 'login') { rs.writeHead(200, { 'Content-Type': 'text/html' }); return rs.end('<form><input name="login"><input name="password"></form>'); }
+      if (modo === 'redirect') { rs.writeHead(302, { Location: '/index.php?act=admin&area=login' }); return rs.end(); }
+      if (modo === 'vacio') { rs.writeHead(200); return rs.end(''); }
+      rs.writeHead(200, { 'Content-Type': 'text/html' }); rs.end(PAGINA);
+    });
+    await new Promise((r) => srv.listen(0, r));
+    const cli = require('../src/casino-api').makeClient({ url: `http://127.0.0.1:${srv.address().port}/index.php`, token: 'x' });
+
+    const r1 = await cli.divisasDeNodo('2628233');
+    check('divisas casino: lee las 10 de 463.life', r1.ok && r1.divisas.join(',') === REAL.join(','), JSON.stringify(r1.divisas));
+    check('divisas casino: no cuenta las del selector de agregar', r1.ok && !r1.divisas.includes('ADA'));
+
+    // los tres modos de falla NO pueden devolver ok con lista vacía
+    for (const m of ['login', 'redirect', 'vacio']) {
+      modo = m;
+      const r = await cli.divisasDeNodo('2628233');
+      check(`divisas casino: si ${m} → error, NUNCA lista vacía`, r.ok === false && !!r.error, JSON.stringify(r).slice(0, 70));
+    }
+    modo = 'ok';
+    check('divisas casino: id no numérico se rechaza', (await cli.divisasDeNodo('../etc')).ok === false);
+    // Lo más importante: esa pantalla también GUARDA (form por divisa + Guardar). Sólo se lee.
+    check('divisas casino: NO manda ningún POST al casino', posts.length === 0, 'posts=' + posts.length);
+    await new Promise((r) => srv.close(r));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));

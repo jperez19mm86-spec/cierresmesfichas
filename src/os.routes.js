@@ -280,6 +280,65 @@ function mount(app) {
       sinDatos: filas.filter((f) => f.sinDatos).length,
     });
   });
+  /**
+   * ── EL CRUCE DE VERDAD: LO QUE EL CASINO TIENE HABILITADO ─────────────────────────────────────
+   *
+   * /paneles/divisas compara lo guardado contra lo que el panel MOVIÓ. Eso sólo detecta las que
+   * sobran, y de las que faltan no sabe nada. Este cruce trae la tercera lista —la que el casino
+   * tiene HABILITADA— leyendo la pantalla de divisas de cada nodo. Con las tres se puede decir:
+   *
+   *   habilitada + movida + guardada  → está bien
+   *   habilitada + movida + NO guardada → FALTA, y es la peor: mueve plata y el OS no la lista
+   *   habilitada + no movida + guardada → sobra, se puede sacar
+   *   NO habilitada + guardada          → sobra seguro, el casino ni siquiera la acepta
+   *
+   * Va TROCEADO (desde/limite) porque es un pedido HTTP por panel y son 200: de una sola vez se
+   * come los 5 minutos que aguanta el proxy de Railway y se corta a la mitad sin decir dónde quedó.
+   *
+   * SÓLO LEE. La pantalla que consulta también guarda —tiene un form por divisa con los proveedores
+   * y su botón Guardar—, así que divisasDeNodo hace GET y nada más. Ver el comentario allá.
+   */
+  app.post('/api/os/paneles/divisas/casino', wrap(async (req, res) => {
+    const b = req.body || {};
+    const desde = Number(b.desde) || 0;
+    const limite = Number(b.limite) || 25;
+    let lista = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
+    if (b.conexion_id) lista = lista.filter((p) => p.conexion_id === b.conexion_id);
+    if (b.panel_id) lista = lista.filter((p) => p.id === b.panel_id);
+    lista.sort((a, z) => String(a.nombre || '').localeCompare(String(z.nombre || ''), 'es', { sensitivity: 'base' }));
+    const total = lista.length;
+    const tanda = lista.slice(desde, desde + limite);
+    const usadasPorPanel = {};
+    paneles.divisasUsadas(Number(b.meses) || 6).forEach((x) => { usadasPorPanel[x.panel_id] = x.usadas || []; });
+
+    const porConexion = {};
+    const filas = [];
+    for (const p of tanda) {
+      // client() elige el módulo según el motor. Una conexión de TBS devuelve el cliente de TBS,
+      // que no tiene esta pantalla — de ahí el chequeo de la función y no sólo del cliente.
+      if (porConexion[p.conexion_id] === undefined) porConexion[p.conexion_id] = casinoConex.client(p.conexion_id);
+      const cli = porConexion[p.conexion_id];
+      if (!cli) { filas.push({ panel_id: p.id, nombre: p.nombre, error: 'sin conexión configurada' }); continue; }
+      if (typeof cli.divisasDeNodo !== 'function') {
+        filas.push({ panel_id: p.id, nombre: p.nombre, error: 'esa conexión no es del motor Imperia' }); continue;
+      }
+      const r = await cli.divisasDeNodo(p.id_usuario);
+      if (!r.ok) { filas.push({ panel_id: p.id, nombre: p.nombre, error: r.error }); continue; }
+      const guardadas = (p.divisas || []).map((x) => String(x).toUpperCase());
+      const usadas = usadasPorPanel[p.id] || [];
+      filas.push({
+        panel_id: p.id, nombre: p.nombre, nodo: p.id_usuario,
+        habilitadas: r.divisas, guardadas, usadas,
+        // faltan primero: es lo único de acá que puede estar costando plata
+        faltan: r.divisas.filter((d) => !guardadas.includes(d)),
+        faltanYMueven: r.divisas.filter((d) => !guardadas.includes(d) && usadas.includes(d)),
+        sobran: guardadas.filter((d) => !r.divisas.includes(d)),
+        sinUsar: guardadas.filter((d) => r.divisas.includes(d) && usadas.length && !usadas.includes(d)),
+      });
+    }
+    ok(res, { total, desde, devueltos: tanda.length, hay_mas: desde + tanda.length < total, paneles: filas });
+  }));
+
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
   app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
     const b = req.body || {};

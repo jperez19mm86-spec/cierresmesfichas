@@ -314,7 +314,10 @@ VIEWS.clientes = async () => {
       <h2>Clientes por vendedor <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
         <span style="float:right;display:flex;gap:6px">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
-          <button class="outline small" onclick="togglePanTodos()">Paneles</button></span></h2>
+          <button class="outline small" onclick="togglePanTodos()">Paneles</button>
+          <button class="outline small" onclick="divisasCasino()"
+            title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
+       <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
       <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
         La <b>base</b> es lo único de esta tabla que factura.
         A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
@@ -350,6 +353,47 @@ async function setDivisas(id, v){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({divisas:limpio.join(',')})});
   if(r.ok){ _paneles=(await api('/api/os/paneles')).paneles||_paneles; renderClientes&&0; }
   VIEWS.clientes();
+}
+/* Lee del casino, panel por panel, qué divisas tiene HABILITADAS y lo cruza con lo guardado.
+   Va de a tandas: es un pedido HTTP por panel y son 200 — de una sola vez se come los 5 minutos
+   que aguanta el proxy y se corta sin decir dónde quedó. Cada tanda deja el avance en pantalla. */
+async function divisasCasino(conexion_id, panel_id){
+  const caja=document.getElementById('div-cruce'); if(!caja) return;
+  const filas=[]; let desde=0, total=null;
+  caja.style.display='block';
+  for(;;){
+    caja.innerHTML='<b>Leyendo del casino…</b> '+(total==null?'':desde+' de '+total)
+      +'<div class="muted" style="font-size:11px">Se puede cerrar esta pantalla, no se pierde nada: sólo lee.</div>';
+    let r;
+    try{ r=await api('/api/os/paneles/divisas/casino',{method:'POST',
+      body:JSON.stringify({conexion_id,panel_id,desde,limite:20})}); }
+    catch(e){ caja.innerHTML='<b class="badge err">Se cortó</b> '+esc(e.message)
+      +'<div class="muted">Lo leído hasta acá vale; volvé a darle y sigue.</div>'; break; }
+    if(!r||!r.ok){ caja.innerHTML='<b class="badge err">Error</b> '+esc((r&&r.error)||'sin respuesta'); break; }
+    total=r.total; filas.push(...(r.paneles||[])); desde+=r.devueltos;
+    if(!r.hay_mas) break;
+  }
+  if(!filas.length) return;
+  const err=filas.filter(x=>x.error);
+  const mueven=filas.filter(x=>!x.error&&x.faltanYMueven&&x.faltanYMueven.length);
+  const faltan=filas.filter(x=>!x.error&&x.faltan.length&&!(x.faltanYMueven||[]).length);
+  const sobran=filas.filter(x=>!x.error&&x.sobran.length);
+  const linea=(x,campo)=>`<tr><td><b>${esc(x.nombre)}</b> <span class="muted">nodo ${esc(x.nodo)}</span></td>
+     <td><code>${esc(x[campo].join(','))}</code></td>
+     <td class="muted" style="font-size:11px">habilitadas: ${esc(x.habilitadas.join(','))}<br>
+       guardadas: ${esc(x.guardadas.join(',')||'—')} · movió: ${esc(x.usadas.join(',')||'sin datos')}</td>
+     <td><button class="small" onclick="setDivisas('${x.panel_id}','${esc(x.habilitadas.join(','))}')">poner las del casino</button></td></tr>`;
+  caja.innerHTML=`<h3 style="margin:0 0 4px">Cruce con el casino <span class="muted" style="font-weight:400">${filas.length} paneles</span></h3>
+    ${mueven.length?`<div class="nota nota-err" style="margin:8px 0"><b>⚠️ ${mueven.length} paneles mueven una divisa que el OS no tiene en la lista.</b>
+      Es lo único de acá que puede estar costando plata: el panel factura en esa moneda y el OS no la sabe.</div>
+      <table><tbody>${mueven.map(x=>linea(x,'faltanYMueven')).join('')}</tbody></table>`:''}
+    ${faltan.length?`<h4 style="margin:14px 0 2px">Habilitadas en el casino y no guardadas <span class="muted">(${faltan.length}) — todavía sin movimiento</span></h4>
+      <table><tbody>${faltan.map(x=>linea(x,'faltan')).join('')}</tbody></table>`:''}
+    ${sobran.length?`<h4 style="margin:14px 0 2px">Guardadas que el casino no tiene habilitadas <span class="muted">(${sobran.length}) — se pueden sacar</span></h4>
+      <table><tbody>${sobran.map(x=>linea(x,'sobran')).join('')}</tbody></table>`:''}
+    ${err.length?`<h4 style="margin:14px 0 2px">No se pudieron leer <span class="muted">(${err.length})</span></h4>
+      <div class="muted" style="font-size:11px">${err.slice(0,20).map(x=>esc(x.nombre)+': '+esc(x.error)).join('<br>')}</div>`:''}
+    ${!mueven.length&&!faltan.length&&!sobran.length&&!err.length?'<div class="badge ok">Todo coincide.</div>':''}`;
 }
 function bloquePaneles(c){
   const ps = _paneles.filter(p=>p.cliente_id===c.id);

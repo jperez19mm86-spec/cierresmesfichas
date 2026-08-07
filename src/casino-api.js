@@ -674,6 +674,55 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, activa: act ? act[1] : (lista.find((o) => o.seleccionada) || {}).id || null, plantillas: lista };
   }
 
+
+  /**
+   * ── LAS DIVISAS QUE UN NODO TIENE HABILITADAS, LEÍDAS DEL CASINO ──────────────────────────────
+   *
+   * Pantalla "Divisas y sistemas de juegos": index.php?act=admin&area=editgamessystem&id=<nodo>.
+   * Cada divisa habilitada aparece ahí como <input type="hidden" name="currency" value="ARS">, una
+   * por bloque. Las que NO están habilitadas viven en el <select name="add_currency">, así que las
+   * dos listas salen de la misma página y una sirve para verificar la otra.
+   *
+   * ⚠️ ESTA PANTALLA GUARDA. Cada bloque es un <form> POST con currency + providers[...] y un botón
+   * Guardar: un POST acá le cambia al cliente qué proveedores ve en cada moneda. Por eso esta
+   * función hace GET Y NADA MÁS. No mandar nunca add_currency, currency ni providers[...] — es el
+   * mismo cuidado que con area=balance, que además de mostrar el saldo carga fichas.
+   *
+   * SI LA LECTURA FALLA, DEVUELVE ERROR — NUNCA UNA LISTA VACÍA. Es lo que más importa acá: quien
+   * llame va a comparar contra lo guardado, y una lista vacía leída como "este panel no tiene
+   * ninguna divisa" borraría las que sí tiene. Sesión caída, id inexistente y panel sin divisas se
+   * distinguen, y sólo el último es un caso real.
+   */
+  async function divisasDeNodo(nodoId) {
+    if (!base) return { ok: false, error: 'URL del casino no configurada' };
+    const id = String(nodoId || '').trim();
+    if (!/^\d+$/.test(id)) return { ok: false, error: 'id de nodo inválido: ' + id };
+    if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
+    const url = `${base}/index.php?act=admin&area=editgamessystem&id=${encodeURIComponent(id)}`
+      + (useSession ? '' : `&api_token=${encodeURIComponent(token)}`);
+    let html = '';
+    try {
+      const g = await axios.get(url, { headers: { 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) },
+        timeout: 60000, validateStatus: () => true, maxRedirects: 0 });
+      if (g.status >= 300 && g.status < 400) return { ok: false, error: 'la sesión del casino se cayó (redirigió al login)' };
+      html = String(g.data || '');
+    } catch (e) { return { ok: false, error: 'no se pudo abrir la pantalla de divisas: ' + e.message }; }
+    if (!html) return { ok: false, error: 'la pantalla de divisas vino vacía (¿sesión caída?)' };
+    if (/name=["\']?(login|password)["\']?/i.test(html) && !/add_currency/i.test(html)) {
+      return { ok: false, error: 'el casino devolvió el login, no la pantalla de divisas' };
+    }
+
+    const sacar = (re) => { const out = []; let m; while ((m = re.exec(html)) !== null) out.push(m[1].toUpperCase()); return [...new Set(out)]; };
+    const habilitadas = sacar(/<input[^>]*name=["\']?currency["\']?[^>]*value=["\']([A-Z]{2,6})["\']/gi);
+    // El <select> de agregar: las disponibles. Sirve de prueba de que la página es la correcta —
+    // si no aparece, no estamos leyendo lo que creemos.
+    const bloqueSel = (html.match(/<select[^>]*name=["\']?add_currency["\']?[^>]*>([\s\S]*?)<\/select>/i) || [])[1] || '';
+    const disponibles = [...new Set((bloqueSel.match(/value=["\']([A-Za-z]{2,6})["\']/g) || [])
+      .map((x) => (x.match(/["\']([A-Za-z]{2,6})["\']/) || [])[1]).filter(Boolean))];
+    if (!bloqueSel) return { ok: false, error: 'esa página no parece la de divisas (no está el selector para agregar)' };
+    return { ok: true, nodo: id, divisas: habilitadas.sort(), disponibles: disponibles.length };
+  }
+
   /** Test de conexión: trae login + balances de la cuenta. */
   async function test() {
     const r = await apiCall('info', {});
@@ -682,7 +731,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
+  return { apiCall, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES };
