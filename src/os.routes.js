@@ -875,10 +875,27 @@ function mount(app) {
     const mes = String(b.mes || mesTZ()).slice(0, 7);
     const cl = apiStore.listClientes().find((x) => String(x.id) === String(req.params.clienteId));
     if (!cl) return err(res, 404, 'cuenta de API no encontrada');
-    const chat = (cl.telegram_chat_id || '').trim();
-    if (!chat) return err(res, 400, `${cl.login} no tiene grupo de Telegram cargado (se pone en 👥 Cuentas de API)`);
     const tok = configStore.getTelegramToken();
     if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
+
+    // DOS DESTINOS, Y NO SON LO MISMO.
+    // La MATRIZ recibe todas las cuentas siempre: es la copia interna de lo que se emitió.
+    // El grupo del CLIENTE es una decisión por vez — el dueño manda algunas y otras no — así que
+    // hay que pedirlo explícitamente. Que el destino de afuera necesite un pedido expreso y el de
+    // adentro no, es a propósito: un clic de más no puede terminar en el chat de un cliente.
+    const matriz = configStore.getApiGrupoMatriz();
+    const alCliente = b.al_cliente === true;
+    const chatCli = (cl.telegram_chat_id || '').trim();
+    const destinos = [];
+    if (matriz) destinos.push({ chat: matriz, quien: 'matriz' });
+    if (alCliente) {
+      if (!chatCli) return err(res, 400, `${cl.login} no tiene grupo propio cargado (se pone en 👥 Cuentas de API). Sin marcar "también al cliente" igual se manda a la matriz.`);
+      if (chatCli !== matriz) destinos.push({ chat: chatCli, quien: cl.login });
+    }
+    if (!destinos.length) {
+      return err(res, 400, 'no hay a dónde mandar: falta el grupo matriz (⚙ Config → Telegram) '
+        + 'y no se pidió mandarlo al cliente');
+    }
 
     const r = apiCuenta.cuentas({ mes });
     if (!r.ok) return err(res, 400, r.error);
@@ -895,12 +912,21 @@ function mount(app) {
       return err(res, 500, 'la cuenta del cliente traía datos internos: NO se mandó nada. Avisá que esto pasó.');
     }
     const partes = facturaSvc.partir(txt);
-    const enviados = [];
-    for (const p of partes) { const x = await telegram.sendMessage(tok, chat, p); enviados.push(x); if (!x.ok) break; }
-    const fallo = enviados.find((x) => !x.ok);
-    if (fallo) return err(res, 502, `se mandaron ${enviados.length - 1} de ${partes.length} partes: ${fallo.error}`);
-    console.log(`[API] cuenta enviada a ${cl.login} (${mes}) · ${partes.length} mensaje(s)`);
-    ok(res, { enviado: true, partes: partes.length, total_usdt: doc.usdt_cliente });
+    // Se manda a un destino por vez y se informa CADA UNO. Si falla el segundo, el primero ya salió
+    // y hay que decirlo: dar un error a secas dejaría creyendo que no se mandó nada.
+    const hechos = [];
+    for (const d of destinos) {
+      let error = null;
+      for (const p of partes) { const x = await telegram.sendMessage(tok, d.chat, p); if (!x.ok) { error = x.error; break; } }
+      hechos.push({ quien: d.quien, chat: d.chat, ok: !error, error });
+      console.log(`[API] cuenta de ${cl.login} (${mes}) → ${d.quien}: ${error ? 'FALLÓ ' + error : partes.length + ' mensaje(s)'}`);
+    }
+    const fallaron = hechos.filter((x) => !x.ok);
+    if (fallaron.length === hechos.length) {
+      return err(res, 502, `no se pudo mandar a ninguno: ${fallaron.map((x) => x.quien + ' — ' + x.error).join(' · ')}`, { destinos: hechos });
+    }
+    ok(res, { enviado: true, partes: partes.length, total_usdt: doc.usdt_cliente, destinos: hechos,
+      aviso: fallaron.length ? `se mandó a ${hechos.length - fallaron.length} de ${hechos.length}: falló ${fallaron.map((x) => x.quien).join(', ')}` : null });
   }));
 
   // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:

@@ -2519,6 +2519,14 @@ CFG.telegram = async () => {
           ? '<span class="badge ok">bot cargado '+esc(cfg.telegramTokenHint||'')+'</span>'
           : '<span class="badge err">todavía no hay bot: no se puede mandar nada</span>'}</div>
       </div>
+      <div class="row" style="margin-top:12px;align-items:flex-end">
+        <div style="flex:0 0 260px"><label>Grupo matriz de las cuentas de API</label>
+          <input id="tg-matriz" value="${esc(cfg.apiGrupoMatriz||'')}" placeholder="-4721694040"
+            style="font-family:monospace"></div>
+        <div style="flex:0"><button onclick="tgGuardarMatriz()">Guardar</button></div>
+        <div class="muted" style="flex:1;align-self:center">Toda cuenta de TBS que se manda va <b>siempre</b> acá —
+          es tu copia de lo que se emitió. Mandarla además al grupo del cliente es un botón aparte.</div>
+      </div>
       <div class="muted" style="margin-top:8px;border-left:3px solid var(--gold);padding-left:8px">
         <b>Cómo se saca cada cosa:</b><br>
         1. En Telegram, escribile a <span class="pill">@BotFather</span> → <span class="pill">/newbot</span> → te da un token. Ese va arriba.<br>
@@ -2641,6 +2649,11 @@ async function tgPegar(){
   out.innerHTML=`${ok.length?`<div class="nota ok"><span class="tit">${ok.length} cargado(s)</span>${ok.map(esc).join('<br>')}</div>`:''}
     ${no.length?`<div class="nota err"><span class="tit">${no.length} sin cargar</span>${no.map(esc).join('<br>')}</div>`:''}`;
   if(ok.length){ document.getElementById('tg-pegar').value=no.length?no.join('\n'):''; setTimeout(()=>CFG.telegram(),1200); }
+}
+async function tgGuardarMatriz(){
+  const v=val('tg-matriz');
+  const r=await api('/api/config',{method:'PUT',body:JSON.stringify({apiGrupoMatriz:v})});
+  toast(r.ok?('Grupo matriz: '+(r.apiGrupoMatriz||'(vacío)')):'No se pudo guardar');
 }
 async function tgGuardarToken(){
   const v=val('tg-token'); if(!v) return toast('Pegá el token');
@@ -3055,7 +3068,8 @@ function apiPintarCuentas(){
       <div class="row" style="margin:0 0 8px">
         <button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','${c.cajas&&c.cajas.length?'total':'propio'}')">📄 Cuenta del cliente</button>
         ${(c.cajas||[]).map(k=>`<button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','caja','${k.cliente_id}')">📄 Sólo ${esc(k.login)}</button>`).join('')}
-        <button class="small" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}')">📤 Enviar por Telegram</button>
+        <button class="small" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}',false)">📤 Enviar a la matriz</button>
+        <button class="small outline" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}',true)">📤 …y al cliente</button>
         <span style="flex:1"></span>
         <span class="muted" id="apienv-${id}" style="align-self:center"></span>
       </div>
@@ -3244,20 +3258,29 @@ async function apiTgGuardar(id){
 }
 /* SALE PARA AFUERA: le manda al cliente su cuenta del mes por Telegram. Se pregunta siempre y se
    dice a qué grupo va, porque un mensaje mandado no se puede volver atrás. */
-async function apiEnviar(id, nombre, alcance){
+/* SALE PARA AFUERA. Dos botones y no uno con un tilde: el que incluye al cliente tiene que ser un
+   acto aparte. Con un tilde que queda puesto de la vez anterior, el segundo envío se va al chat del
+   cliente sin que nadie lo haya decidido esta vez. */
+async function apiEnviar(id, nombre, alcance, alCliente){
   const mes=document.getElementById('api-mes').value;
+  const cfg=await api('/api/config');
+  const matriz=(cfg.apiGrupoMatriz||'').trim();
   const cs=(await api('/api/os/api/clientes')).clientes||[];
   const c=cs.find(x=>String(x.id)===String(id));
-  const chat=(c&&c.telegram_chat_id||'').trim();
-  if(!chat) return alert(nombre+' no tiene grupo de Telegram cargado.\n\nSe pone en 👥 Cuentas de API.');
-  if(!confirm('¿Mandarle a '+nombre+' su cuenta de '+mes+'?\n\nVa al grupo '+chat+'.\nEs un mensaje de verdad: no se puede deshacer.')) return;
-  const out=document.getElementById('apiev-'+id)||document.getElementById('apienv-'+id);
+  const chat=((c&&c.telegram_chat_id)||'').trim();
+  if(!matriz && !alCliente) return alert('Falta el grupo matriz.\n\nSe carga en ⚙ Config → 📣 Telegram.');
+  if(alCliente && !chat) return alert(nombre+' no tiene grupo propio cargado.\n\nSe pone en 👥 Cuentas de API.\nSin eso igual podés mandarla a la matriz.');
+  const van=[matriz?'la matriz ('+matriz+')':null, (alCliente&&chat&&chat!==matriz)?nombre+' ('+chat+')':null].filter(Boolean);
+  if(!confirm('¿Mandar la cuenta de '+nombre+' de '+mes+'?\n\nVa a: '+van.join('\ny a: ')
+    +'\n\nSon mensajes de verdad: no se pueden deshacer.')) return;
   const marca=(t)=>{const e=document.getElementById('apienv-'+id); if(e) e.innerHTML=t;};
   marca('<span class="muted">Mandando…</span>');
   const r=await api('/api/os/api/cuenta/'+encodeURIComponent(id)+'/enviar',
-    {method:'POST',body:JSON.stringify({mes, alcance})});
-  marca(r.ok?'<span class="badge ok">enviado</span> '+r.partes+' mensaje(s) · '+money(r.total_usdt,2)+' USDT'
-           :'<span class="badge err">no se envió</span> '+esc(r.error||''));
+    {method:'POST',body:JSON.stringify({mes, alcance, al_cliente:!!alCliente})});
+  if(!r.ok) return marca('<span class="badge err">no se envió</span> '+esc(r.error||''));
+  // Se dice a QUIÉN llegó y a quién no: si uno de los dos falla, saber cuál es lo único que importa.
+  marca((r.destinos||[]).map(d=>(d.ok?'<span class="badge ok">'+esc(d.quien)+'</span>':'<span class="badge err">'+esc(d.quien)+': '+esc(d.error||'')+'</span>')).join(' ')
+    +' <span class="muted">· '+r.partes+' mensaje(s) · '+money(r.total_usdt,2)+' USDT</span>');
 }
 /* La cuenta del cliente la arma el SERVIDOR: lo que le pagamos al proveedor no viaja al navegador.
    Por eso esto pide el documento en vez de esconder columnas de lo que ya está en pantalla. */

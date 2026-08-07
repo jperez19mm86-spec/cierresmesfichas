@@ -245,14 +245,19 @@ app.post('/api/clientes/import', (req, res) => {
 
 app.get('/api/config', (_req, res) => {
   const tok = config.getTelegramToken();
-  res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '' });
+  res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
+    apiGrupoMatriz: config.getApiGrupoMatriz() });
 });
 
 app.put('/api/config', (req, res) => {
-  const { telegramBotToken } = req.body || {};
+  const { telegramBotToken, apiGrupoMatriz } = req.body || {};
   if (telegramBotToken !== undefined) config.setTelegramToken(telegramBotToken);
+  // El grupo matriz de las cuentas de API: uno solo para todas. Va acá y no en cada cliente porque
+  // si viviera copiado en las 16 cuentas, cambiarlo obligaría a acordarse de tocar las 16.
+  if (apiGrupoMatriz !== undefined) config.setApiGrupoMatriz(apiGrupoMatriz);
   const tok = config.getTelegramToken();
-  res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '' });
+  res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
+    apiGrupoMatriz: config.getApiGrupoMatriz() });
 });
 
 // Configurar el grupo de Telegram de un cliente (aviso automático al cargar).

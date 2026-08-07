@@ -540,6 +540,25 @@ async function main() {
     check('API/telegram: un nombre con HTML se escapa', /&lt;b&gt;hack/.test(doc.aTexto(raro)), doc.aTexto(raro).slice(0, 80));
   }
 
+  // ── el grupo matriz: va siempre; el del cliente, sólo si se pide ──
+  {
+    const cfg = require('../src/config-store');
+    cfg.setApiGrupoMatriz('-4721694040');
+    check('API/matriz: el grupo matriz se guarda en la config global', cfg.getApiGrupoMatriz() === '-4721694040');
+    cfg.setApiGrupoMatriz('  -111  ');
+    check('API/matriz: se limpian los espacios', cfg.getApiGrupoMatriz() === '-111');
+    cfg.setApiGrupoMatriz('');
+    check('API/matriz: se puede vaciar', cfg.getApiGrupoMatriz() === '');
+    // La regla que importa: mandar al cliente tiene que ser un pedido EXPLÍCITO. Si alcanzara con
+    // que el cliente tenga grupo cargado, cargarle el grupo a alguien lo pondría a recibir facturas.
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('API/matriz: al cliente sólo con al_cliente === true', /const alCliente = b\.al_cliente === true;/.test(src));
+    check('API/matriz: la matriz entra sola cuando está cargada', /if \(matriz\) destinos\.push/.test(src));
+    check('API/matriz: no se manda dos veces si el cliente ES la matriz', /chatCli !== matriz/.test(src));
+    check('API/matriz: sin ningún destino no manda y lo dice', /no hay a dónde mandar/.test(src));
+    cfg.setApiGrupoMatriz('');
+  }
+
   // ── el cierre del mes: elegir qué entra en el total, y que la decisión sea por MES ──
   // En junio la caja de Nacho quedó afuera por un acuerdo puntual y en julio entra. Si la decisión
   // fuera una propiedad del cliente, sacar el cierre de junio otra vez daría otro número.
