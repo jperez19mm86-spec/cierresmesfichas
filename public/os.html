@@ -987,31 +987,27 @@ VIEWS.foto = async () => {
     + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Filas guardadas</label>'
     +   '<div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
     + '<div style="flex:0"><button onclick="fotoSacar(null,null,false)">📸 Sacar todo lo que falta</button></div>'
-    + '<div style="flex:0"><label style="font-size:11px">Qué monedas</label>'
-    + '<select onchange="fotoAlcance(this.value)" style="font-size:12px">'
-    + '<option value="movidas"'+(window._fotoAlcance!=='todas'?' selected':'')+'>Sólo las que movió</option>'
-    + '<option value="todas"'+(window._fotoAlcance==='todas'?' selected':'')+'>Todas las habilitadas</option>'
-    + '</select></div>'
-    + '<div id="foto-alcance-aviso" style="flex:1 0 100%;font-size:11px"></div>'
-    + '<div style="flex:0"><button class="outline small" onclick="fotoDist()">👥 Elegir de qué superagentes sacar los distribuidores</button></div>'
-    + '<div id="foto-dist" style="flex:1 0 100%"></div>'
+
     + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
     // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
-    + '<div class="nota" style="margin-top:10px"><span class="tit">O de a poco, que es más liviano</span>'
-    + 'El casino agrupa por un nivel a la vez. Sacá el que tenga puesto ahora, cambiá el ajuste allá y volvé por el otro.'
+    + '<div class="nota" style="margin-top:10px"><span class="tit">Una conexión a la vez</span>'
+    + 'El nivel lo decide lo que tengas puesto en <b>Agrupar por</b> dentro del casino: el OS lee cómo está '
+    + 'y saca esa vuelta. Para completar el mes hay que pasar por Superagente, Distribuidor y Datos generales.'
     + '<div class="row" style="margin-top:8px;flex-wrap:wrap">'
-    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>
-        Object.keys(NIV).map(niv=>{
-          const p = d.filter(x=>x.conexion===c.nombre && x.nivel===niv);
-          const ok = p.filter(x=>x.estado==='ok').length;
-          return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
-            + 'onclick="fotoSacar(\''+c.id+'\',\''+niv+'\',false)" '
-            + 'title="Saca sólo esta mitad. Le dice al casino que está agrupando por '+esc(NIV[niv])+', '
-            + 'porque el panel ya no deja leerlo: asegurate de que sea el que tenés puesto allá.">'
-            + esc(c.nombre)+' · '+esc(NIV[niv])+' <span class="muted">'+ok+'/'+p.length+'</span></button></div>';
-        }).join('')).join('')
+    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>{
+        const p = d.filter(x=>x.conexion===c.nombre);
+        const ok = p.filter(x=>x.estado==='ok').length;
+        const detalle = Object.keys(NIV).map(niv=>{
+          const q = p.filter(x=>x.nivel===niv);
+          return esc(NIV[niv])+' '+q.filter(x=>x.estado==='ok').length+'/'+q.length;
+        }).join(' · ');
+        return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
+          + 'onclick="fotoSacar(\''+c.id+'\',null,false)" '
+          + 'title="Saca todas las divisas de esta conexión, en el nivel que el casino tenga puesto ahora.">'
+          + esc(c.nombre)+' <span class="muted">'+detalle+'</span></button></div>';
+      }).join('')
     + '</div></div>'
     + '<div id="foto-prog" style="margin-top:10px"></div>'
     + (r.completa ? '<div class="nota ok" style="margin-top:10px"><span class="tit">Mes listo</span>'
@@ -1062,80 +1058,6 @@ async function fotoGeneral(cxId, nombre){
     ? '<span class="badge ok">'+esc(nombre)+'</span> '+(r.yaEstaba?'ya estaba sacado':'listo')
       +(r.avisos&&r.avisos.length?' · <span style="color:var(--red)">'+r.avisos.map(esc).join(' · ')+'</span>':'')
     : '<span class="badge err">'+esc(nombre)+'</span> '+esc(r.error||'no se pudo');
-}
-/* Saca la foto DE A PEDAZOS, pidiendo de a pocas consultas y pintando el avance de cada una.
-   Antes era un solo POST: el proxy de Railway lo cortaba a los ~5 minutos y, mientras tanto, la
-   pantalla no decía nada. Ahora cada tanda vuelve enseguida, se ve qué divisa se está trayendo y
-   cuánto tardó, y un error de una consulta no tira abajo el resto. */
-let _fotoCancelar=false;
-/* Cuántas consultas son con cada criterio, y —lo que importa— cuáles quedan sin preguntar.
-   Una moneda que el panel empieza a mover por primera vez no está en el acumulado, así que con
-   "sólo las que movió" no se pregunta y no se descubre sola. Así se pasó UYU en 463.live. Por eso
-   el número de lo que queda afuera se muestra siempre, en vez de ahorrar callado. */
-async function fotoAlcance(v){
-  window._fotoAlcance = (v==='todas'?'todas':'movidas');
-  const caja=document.getElementById('foto-alcance-aviso'); if(caja) caja.innerHTML='<span class="muted">calculando…</span>';
-  const r=await api('/api/os/estadisticas/plan?mes='+encodeURIComponent(_fotoMes)+'&alcance='+window._fotoAlcance);
-  if(!caja) return;
-  if(!r||!r.ok){ caja.innerHTML=''; return; }
-  if(window._fotoAlcance==='todas'){
-    caja.innerHTML='<span class="muted">'+r.consultas+' consultas. No queda ninguna moneda sin preguntar — es la pasada que puede descubrir una nueva.</span>';
-    return;
-  }
-  const det=(r.fuera||[]).slice(0,6).map(x=>esc(x.panel)+' ('+esc(x.divisas.join(','))+')').join(' · ');
-  caja.innerHTML='<span class="muted">'+r.consultas+' consultas en vez de '+r.siFueranTodas+'.</span>'
-    +(r.fueraTotal?' <b>No se van a preguntar '+r.fueraTotal+' monedas</b> que están habilitadas pero nunca movieron: '
-      +'<span class="muted">'+det+(r.fuera.length>6?' y '+(r.fuera.length-6)+' paneles más':'')+'</span>'
-      +'<br><span class="muted">Si un cliente arranca en una moneda nueva, sacala con «Todas las habilitadas» o no la vas a ver.</span>':'');
-}
-/* La lista de superagentes para elegir de cuáles se sacan los distribuidores. De los distris el
-   dueño necesita muy pocos, así que se marca por grupo en vez de panel por panel: tildar un
-   superagente mete a TODOS sus distribuidores en la Foto, destildarlo los saca.
-   Los que no cuelgan de ningún superagente cargado en el OS van aparte y no se esconden: si no
-   estuvieran en la lista no habría forma de marcarlos, y "no lo veo" pasaría a ser "no lo saco". */
-async function fotoDist(){
-  const caja=document.getElementById('foto-dist'); if(!caja) return;
-  if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
-  caja.dataset.abierto='1';
-  caja.innerHTML='<div class="nota">Cargando…</div>';
-  const r=await api('/api/os/paneles/foto-distribuidores');
-  if(!r||!r.ok){ caja.innerHTML='<div class="nota nota-err">'+esc((r&&r.error)||'no respondió')+'</div>'; return; }
-  const bloque=(cx)=>{
-    const conHijos=cx.superagentes.filter(sa=>sa.hijos.length);
-    const sinHijos=cx.superagentes.filter(sa=>!sa.hijos.length);
-    const fila=(sa)=>{
-      const dentro=sa.hijos.filter(h=>h.en_foto).length;
-      const todos=dentro===sa.hijos.length, nada=dentro===0;
-      return `<tr>
-        <td style="width:26px"><input type="checkbox" ${todos?'checked':''} ${(!todos&&!nada)?'data-medio="1"':''}
-          onchange="fotoDistSet('${sa.hijos.map(h=>h.id).join(',')}', this.checked)"></td>
-        <td><b>${esc(sa.nombre)}</b> <span class="muted" style="font-size:11px">nodo ${esc(sa.nodo)}</span></td>
-        <td class="muted" style="font-size:11px">${sa.hijos.length} distribuidor${sa.hijos.length===1?'':'es'}:
-          ${sa.hijos.map(h=>(h.en_foto?'<b>':'<span class="muted">')+esc(h.nombre)+(h.en_foto?'</b>':'</span>')).join(', ')}</td>
-        <td class="right muted" style="font-size:11px;white-space:nowrap">${dentro}/${sa.hijos.length} en la Foto</td></tr>`;
-    };
-    return `<h4 style="margin:14px 0 4px">${esc(cx.nombre)}
-        <span class="muted" style="font-weight:400">${conHijos.length} superagentes con distribuidores · ${sinHijos.length} sin ninguno</span></h4>
-      ${conHijos.length?`<table><tbody>${conHijos.map(fila).join('')}</tbody></table>`
-        :'<div class="muted" style="font-size:11px">Ningún superagente de esta conexión tiene distribuidores cargados.</div>'}
-      ${cx.sueltos.length?`<div style="margin-top:8px"><b style="font-size:12px">No cuelgan de ningún superagente del OS</b>
-        <table><tbody>${cx.sueltos.map(x=>`<tr><td style="width:26px"><input type="checkbox" ${x.en_foto?'checked':''}
-          onchange="fotoDistSet('${x.id}', this.checked)"></td><td>${esc(x.nombre)}</td>
-          <td class="muted" style="font-size:11px">${esc(x.nivel||'')}</td></tr>`).join('')}</tbody></table></div>`:''}`;
-  };
-  caja.innerHTML='<div class="nota"><b>De qué superagentes se sacan los distribuidores</b>'
-    +'<div class="muted" style="font-size:11px;margin:2px 0 6px">Tildar mete a todos sus distribuidores en la Foto; destildar los saca. '
-    +'Un panel afuera de la Foto <b>no pierde su reporte</b>: se le pregunta al casino en vivo, más lento y puede fallar.</div>'
-    +r.conexiones.map(bloque).join('')+'</div>';
-}
-async function fotoDistSet(ids, v){
-  const lista=String(ids||'').split(',').filter(Boolean);
-  if(!lista.length) return;
-  await api('/api/os/paneles/foto-distribuidores',{method:'POST',
-    body:JSON.stringify({panel_ids:lista, en_foto:!!v})});
-  const caja=document.getElementById('foto-dist'); if(caja) caja.dataset.abierto='';
-  await fotoDist();
-  fotoAlcance(window._fotoAlcance||'movidas');
 }
 async function fotoSacar(cxId, nivel, refrescar){
   // `nivel` ya no se manda: lo decide el casino. Se deja el parámetro porque los botones viejos

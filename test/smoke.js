@@ -1053,6 +1053,24 @@ async function main() {
     check('orden: ya no está hardcodeado sort=id', !/sort=id&order=desc/.test(src));
   }
 
+  // ── la pantalla de la Foto no puede quedar llamando a lo que ya no existe ──
+  // Los botones seguían apuntando a la extracción por panel y por eso daba error al apretar. Y al
+  // sacar la sección de elegir superagentes hay que sacar TAMBIÉN sus funciones: una función que
+  // quedó sin botón no molesta, pero un botón sin función revienta recién cuando alguien lo toca.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    check('foto: la pantalla usa capturar-global', /capturar-global/.test(js));
+    check('foto: ya no llama a la extracción por panel', !/estadisticas\/capturar['"?]/.test(js));
+    ['fotoDist', 'fotoDistSet', 'fotoAlcance'].forEach((fn) => {
+      check(`foto: ${fn} no quedó ni definida ni llamada`, !new RegExp('\\b' + fn + '\\b').test(html), fn);
+    });
+    // toda función que un onclick invoque tiene que existir
+    const llamadas = [...js.matchAll(/onclick=\\?["']([a-zA-Z_$][\w$]*)\(/g)].map((m) => m[1]);
+    const faltan = [...new Set(llamadas)].filter((fn) => !new RegExp('function\\s+' + fn + '\\b').test(js));
+    check('foto: no hay botones que llamen a funciones inexistentes', faltan.length === 0, faltan.join(','));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
