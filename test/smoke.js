@@ -1207,7 +1207,13 @@ async function main() {
   // convertiría "EVOLUTION LIVE DEALERS" en "DEALERS".
   {
     const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG', 'SZ']);
+    const A_MANO = [
+      { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
+      { busca: /^\s*sportbetting\b/i, etiqueta: 'SPORTBETTING' },
+    ];
     const deducir = (nombre) => {
+      const aMano = A_MANO.find((r) => r.busca.test(String(nombre || '')));
+      if (aMano) return aMano.etiqueta;
       const limpio = String(nombre || '').replace(/\s*\(TBS\)\s*$/i, '')
         .replace(/[_·]+/g, ' ').replace(/\s+/g, ' ').trim();
       const partes = limpio.split(' ');
@@ -1236,8 +1242,15 @@ async function main() {
     check('etiqueta: también al principio (SZ · Slot Zona)',
       deducir('SZ · Slot Zona (TBS)') === 'SZ', String(deducir('SZ · Slot Zona (TBS)')));
     // y sigue sin inventar cuando no hay evidencia
-    check('etiqueta: SPORTBETTING_ImperiumBet queda sin etiqueta',
-      deducir('SPORTBETTING_ImperiumBet (TBS)') === null, String(deducir('SPORTBETTING_ImperiumBet (TBS)')));
+    // Las que el dueño confirmó a mano: el casino no las informa y el nombre no las delata.
+    check('etiqueta: SPORTBETTING_ImperiumBet → SPORTBETTING',
+      deducir('SPORTBETTING_ImperiumBet (TBS)') === 'SPORTBETTING', String(deducir('SPORTBETTING_ImperiumBet (TBS)')));
+    check('etiqueta: los _Original_Dima_Li → OR',
+      deducir('BOOMING_ASIA_KN_Original_Dima_Li (TBS)') === 'OR'
+      && deducir('WS_SPORTS_Original_Dima_Li (TBS)') === 'OR');
+    // y una regla a mano no puede pisar lo que el casino informa de verdad
+    check('etiqueta: lo dicho a mano no se aplica a nombres que no le pegan',
+      deducir('PRAGMATIC SL2') === 'SL2' && deducir('BOOMING OP (TBS)') === 'OP');
   }
 
   // ── la hoja de pago a proveedores es INTERNA ──

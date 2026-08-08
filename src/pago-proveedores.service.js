@@ -449,7 +449,23 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
     if (l.etiqueta && l.etiqueta !== '—') etiquetasReales.add(l.etiqueta.toUpperCase());
   }));
+  // ── LAS QUE NO SE PUEDEN DEDUCIR, DICHAS A MANO ─────────────────────────────────────────────
+  //
+  // El casino no informa estas dos como `vendor`, y el nombre no las delata: "Original_Dima_Li" no
+  // se parece a "OR", y "SPORTBETTING_ImperiumBet" tiene la etiqueta adelante pero SPORTBETTING no
+  // aparece nunca entre los vendors, así que la deducción no la acepta.
+  //
+  // Van explícitas porque las confirmó el dueño, no porque el código las haya adivinado. Ese es
+  // justo el motivo de tenerlas separadas de la deducción: si mañana el número de alguna de estas
+  // dos sale raro, se sabe que salió de acá y no de una regla que acertó de casualidad.
+  const A_MANO = [
+    { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
+    { busca: /^\s*sportbetting\b/i, etiqueta: 'SPORTBETTING' },
+  ];
+
   const deducir = (nombreProv) => {
+    const aMano = A_MANO.find((r) => r.busca.test(String(nombreProv || '')));
+    if (aMano) return aMano.etiqueta;
     // Los nombres de TBS separan con guión bajo o con "·", no siempre con espacio: "Platipus_OP",
     // "SZ · Slot Zona". Se normaliza antes de mirar, si no "Platipus_OP" es una sola palabra.
     const limpio = String(nombreProv || '').replace(/\s*\(TBS\)\s*$/i, '')
