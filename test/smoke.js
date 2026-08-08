@@ -1143,6 +1143,44 @@ async function main() {
       /vta-ahora/.test(js) && /es \? '<button/.test(js));
   }
 
+  // ── las tres vistas de la factura de proveedores son la misma plata ──
+  // Por proveedor, por etiqueta (SL2, OP, XG…) y por divisa. Si no dan el mismo total hay un error
+  // de cálculo, y hasta ahora no había forma de notarlo: la planilla vieja se revisaba a ojo.
+  {
+    const money = require('../src/lib/money');
+    const PROV = [
+      { proveedor: 'PRAGMATIC SL2', usdt: '30.00', lineas: [
+        { conexion: 'Casino', divisa: 'ARS', etiqueta: 'SL2', monto: '30000', tc: '1000', usdt: '30.00' }] },
+      { proveedor: 'AMATIC BVS', usdt: '12.00', lineas: [
+        { conexion: 'Europa', divisa: 'ARS', etiqueta: 'BVS', monto: '12000', tc: '1000', usdt: '12.00' }] },
+      { proveedor: 'PLAYSON XG', usdt: '8.00', lineas: [
+        { conexion: 'Casino', divisa: 'USD', etiqueta: 'XG', monto: '8', tc: '1', usdt: '5.00' },
+        { conexion: 'Europa', divisa: 'ARS', etiqueta: 'XG', monto: '3000', tc: '1000', usdt: '3.00' }] },
+    ];
+    const armar = (clave) => {
+      const g = new Map();
+      PROV.forEach((p) => p.lineas.forEach((l) => {
+        const k = clave(l, p) || '—';
+        const a = g.get(k) || { clave: k, usdt: '0' };
+        a.usdt = money.add(a.usdt, l.usdt); g.set(k, a);
+      }));
+      return [...g.values()].map((a) => ({ ...a, usdt: money.round(a.usdt, 2) }));
+    };
+    const sum = (arr) => money.round(money.sum(arr.map((x) => x.usdt)), 2);
+    const porEtiqueta = armar((l) => l.etiqueta);
+    const porDivisa = armar((l) => l.divisa);
+    const totalProv = money.round(money.sum(PROV.map((p) => p.usdt)), 2);
+
+    check('factura: por etiqueta agrupa SL2/BVS/XG', porEtiqueta.length === 3, JSON.stringify(porEtiqueta.map((x) => x.clave)));
+    check('factura: por divisa junta las dos conexiones', porDivisa.length === 2, JSON.stringify(porDivisa.map((x) => x.clave)));
+    check('factura: las tres vistas dan el mismo total',
+      sum(porEtiqueta) === totalProv && sum(porDivisa) === totalProv,
+      `prov ${totalProv} · etiq ${sum(porEtiqueta)} · div ${sum(porDivisa)}`);
+    // un proveedor repartido en dos divisas no puede contarse dos veces en la vista por etiqueta
+    const xg = porEtiqueta.find((x) => x.clave === 'XG');
+    check('factura: un proveedor en dos divisas suma una sola vez por etiqueta', xg.usdt === '8', xg.usdt);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

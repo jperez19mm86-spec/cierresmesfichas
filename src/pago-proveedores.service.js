@@ -213,7 +213,11 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
           const monto = money.round(money.pct(profit, fila.costo), 2);
           const usdt = money.round(money.div(monto, tc.valor), 2);
           a.usdt = money.add(a.usdt, usdt);
-          a.lineas.push({ conexion: cx.nombre, divisa, profit: money.round(profit, 2), monto, tc: tc.valor, usdt });
+          // La ETIQUETA (SL2, OP, XG, BVS, SLOT_ZONA…) es lo que el casino manda en `vendor`. Se
+        // guarda en la línea y no se deduce del nombre de la matriz: "PRAGMATIC SL2" se puede
+        // partir por el último espacio, pero "EVOLUTION LIVE DEALERS" o "SLOT ZONA" no.
+        a.lineas.push({ conexion: cx.nombre, divisa, etiqueta: String(fila.vendor || '').trim() || '—',
+          profit: money.round(profit, 2), monto, tc: tc.valor, usdt });
         }
         if (!a.lineas.length) continue;
         a.usdt = money.round(a.usdt, 2);
@@ -369,7 +373,11 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
         const usdt = money.round(money.div(monto, tc.valor), 2);
         const a = acc.get(nombre) || { proveedor: nombre, costo: String(costo), usdt: '0', lineas: [] };
         a.usdt = money.add(a.usdt, usdt);
-        a.lineas.push({ conexion: cx.nombre, divisa, profit: money.round(profit, 2), monto, tc: tc.valor, usdt });
+        // La ETIQUETA (SL2, OP, XG, BVS, SLOT_ZONA…) es lo que el casino manda en `vendor`. Se
+        // guarda en la línea y no se deduce del nombre de la matriz: "PRAGMATIC SL2" se puede
+        // partir por el último espacio, pero "EVOLUTION LIVE DEALERS" o "SLOT ZONA" no.
+        a.lineas.push({ conexion: cx.nombre, divisa, etiqueta: String(fila.vendor || '').trim() || '—',
+          profit: money.round(profit, 2), monto, tc: tc.valor, usdt });
         acc.set(nombre, a);
         porConexion[cx.nombre].usdt = money.add(porConexion[cx.nombre].usdt, usdt);
         porConexion[cx.nombre].filas += 1;
@@ -401,10 +409,57 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
 
   const total = money.round(money.sum(proveedores.map((p) => p.usdt)), 2);
 
+  // ── LAS OTRAS DOS FORMAS DE MIRAR LA MISMA PLATA ─────────────────────────────────────────────
+  //
+  // La cuenta que el dueño venía recibiendo trae tres vistas: por proveedor, por ETIQUETA (SL2,
+  // SLOT_ZONA, OP, BVS…) y por DIVISA. Son la misma plata partida distinto, así que las tres tienen
+  // que dar el mismo total — y eso es lo más útil que se puede agregar: si no cuadran, hay un error,
+  // y hasta ahora no había forma de notarlo.
+  //
+  // La planilla vieja traía 129 renglones en cero sobre 200 (ATOMIC1..29, proveedores que nadie usó,
+  // 70 divisas sin movimiento). Acá no se listan: si no tiene plata, no es una línea de una factura.
+  const armar = (clave) => {
+    const g = new Map();
+    proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
+      const k = clave(l, p) || '—';
+      const a = g.get(k) || { clave: k, usdt: '0', porConexion: {}, divisas: new Set(), proveedores: new Set(), lineas: 0 };
+      a.usdt = money.add(a.usdt, l.usdt);
+      a.porConexion[l.conexion] = money.add(a.porConexion[l.conexion] || '0', l.usdt);
+      a.divisas.add(l.divisa); a.proveedores.add(p.proveedor); a.lineas += 1;
+      g.set(k, a);
+    }));
+    return [...g.values()].map((a) => ({
+      clave: a.clave, usdt: money.round(a.usdt, 2), lineas: a.lineas,
+      porConexion: Object.fromEntries(Object.entries(a.porConexion).map(([k, v]) => [k, money.round(v, 2)])),
+      divisas: [...a.divisas].sort(), proveedores: [...a.proveedores].sort(),
+    })).sort((x, y) => Number(y.usdt) - Number(x.usdt));
+  };
+
+  const porEtiqueta = armar((l) => l.etiqueta);
+  const porDivisa = armar((l) => l.divisa);
+  // En la vista por divisa interesa además cuánto se movió EN ESA MONEDA y con qué TC se pasó a
+  // dólares: la diferencia contra la planilla del proveedor casi siempre es el tipo de cambio, y
+  // sin verlo hay que adivinar de dónde sale.
+  porDivisa.forEach((d) => {
+    const ls = proveedores.flatMap((p) => (p.lineas || []).filter((l) => l.divisa === d.clave));
+    d.montoLocal = money.round(money.sum(ls.map((l) => l.monto)), 2);
+    const tcs = [...new Set(ls.map((l) => String(l.tc)))];
+    d.tc = tcs.length === 1 ? tcs[0] : null;      // null = se usó más de uno (SL2/BVS van con otro)
+    d.tcs = tcs.length > 1 ? tcs : undefined;
+  });
+
+  const sumar = (arr) => money.round(money.sum(arr.map((x) => x.usdt)), 2);
+  const cuadre = { proveedores: total, etiquetas: sumar(porEtiqueta), divisas: sumar(porDivisa) };
+  cuadre.cuadra = cuadre.proveedores === cuadre.etiquetas && cuadre.proveedores === cuadre.divisas;
+  if (!cuadre.cuadra) {
+    avisos.push(`⚠️ Las tres vistas no dan lo mismo: por proveedor ${cuadre.proveedores}, `
+      + `por etiqueta ${cuadre.etiquetas}, por divisa ${cuadre.divisas}. Es un error de cálculo, no de datos.`);
+  }
+
   return {
     ok: true, mes: m, desde, hasta,
     congelado: !!(precios && precios.congelado),
-    proveedores, porConexion,
+    proveedores, porConexion, porEtiqueta, porDivisa, cuadre,
     tbsSinMapear: tbs.sinMapear,
     totales: { usdt: total, proveedores: proveedores.length },
     sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), conexiones: [...v.conexiones] }))
