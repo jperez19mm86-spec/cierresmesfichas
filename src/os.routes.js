@@ -841,6 +841,23 @@ function mount(app) {
       hay_mas: desde + tanda.length < divisas.length });
   }));
 
+  /**
+   * En qué nivel está agrupando cada casino AHORA. Es lo que decide qué vuelta sale al apretar
+   * "sacar": el nivel no se elige desde el OS, se lee. Sin esto hay que apretar para enterarse.
+   */
+  app.get('/api/os/estadisticas/modos', wrap(async (_req, res) => {
+    const out = [];
+    for (const cx of casinoConex.list463()) {
+      const cli = casinoConex.client(cx.id);
+      if (!cli) { out.push({ id: cx.id, nombre: cx.nombre, error: 'la conexión no responde' }); continue; }
+      const m = await estadMes.modoActual(cli);
+      out.push({ id: cx.id, nombre: cx.nombre,
+        nivel: m.ok ? m.nivel : null, valor: m.ok ? m.valor : null,
+        porDefecto: m.ok ? !!m.porDefecto : null, error: m.ok ? null : m.error });
+    }
+    ok(res, { conexiones: out });
+  }));
+
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));

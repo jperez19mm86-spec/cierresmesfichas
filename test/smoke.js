@@ -1071,6 +1071,19 @@ async function main() {
     check('foto: no hay botones que llamen a funciones inexistentes', faltan.length === 0, faltan.join(','));
   }
 
+  // ── una pantalla no puede depender de datos que carga OTRA pantalla ──
+  // fotoSacar leía window._cxs, que llena la vista de Clientes. Entrando directo a la Foto la lista
+  // venía vacía y el botón contestaba "No hay conexiones para sacar" — parecía que no había
+  // conexiones configuradas cuando el problema era el orden en que se abrieron las pantallas.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    const cuerpo = (js.match(/async function fotoSacar[\s\S]*?\n}\n/) || [''])[0];
+    check('foto: fotoSacar existe y se pudo aislar', cuerpo.length > 100, String(cuerpo.length));
+    check('foto: fotoSacar NO lee window._cxs', !/window\._cxs/.test(cuerpo));
+    check('foto: fotoSacar pide las conexiones por su cuenta', /casino\/conexiones/.test(cuerpo));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

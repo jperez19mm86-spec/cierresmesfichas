@@ -943,6 +943,17 @@ let _fotoMes = new Date().toISOString().slice(0,7);
    consultas de entre 2 y 16 segundos cada una — y con un cliente multidivisa no termina nunca.
    La pantalla antes mostraba 472 chips de divisas y las tripas de las dos pasadas, pero no
    decía para qué servía ni qué pasa si no se saca. Ahora lo primero es eso. */
+/* En qué nivel está cada casino AHORA. El nivel no se elige desde acá: lo decide "Agrupar por"
+   dentro del panel, y al apretar sale esa vuelta. Mostrarlo evita apretar para enterarse. */
+async function fotoModos(){
+  const r=await api('/api/os/estadisticas/modos');
+  if(!r||!r.ok) return;
+  (r.conexiones||[]).forEach(c=>{
+    const el=document.getElementById('modo-'+c.id); if(!el) return;
+    el.innerHTML = c.error ? '<span style="color:var(--red)">'+esc(String(c.error).slice(0,40))+'</span>'
+      : 'ahora en <b>'+esc(c.nivel==='general'?'Datos generales':(c.nivel||'?'))+'</b>';
+  });
+}
 VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
@@ -952,6 +963,7 @@ VIEWS.foto = async () => {
   const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores'};
   const errs = d.filter(x=>x.estado==='error');
   const pn = r.porNivel||{}, sa = pn.superagente||{}, di = pn.distribuidor||{};
+  setTimeout(fotoModos, 0);   // no bloquea el pintado: son dos consultas al casino
   const hecha = r.listas>0;
 
   // El detalle por conexión y divisa queda plegado: son cientos de chips y sólo importan cuando
@@ -1006,7 +1018,8 @@ VIEWS.foto = async () => {
         return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
           + 'onclick="fotoSacar(\''+c.id+'\',null,false)" '
           + 'title="Saca todas las divisas de esta conexión, en el nivel que el casino tenga puesto ahora.">'
-          + esc(c.nombre)+' <span class="muted">'+detalle+'</span></button></div>';
+          + esc(c.nombre)+' <span class="muted">'+detalle+'</span>'
+          + '<div id="modo-'+esc(c.id)+'" class="muted" style="font-size:11px"></div></button></div>';
       }).join('')
     + '</div></div>'
     + '<div id="foto-prog" style="margin-top:10px"></div>'
@@ -1064,7 +1077,10 @@ async function fotoSacar(cxId, nivel, refrescar){
   // todavía lo pasan, y mandarlo haría que el server rechace la pasada si no coincide.
   const cont=document.getElementById('foto-prog'); if(!cont) return;
   _fotoCancelar=false;
-  const cxs=(window._cxs||[]).filter(c=>(c.motor||'463')==='463').filter(c=>!cxId||c.id===cxId);
+  // Se piden acá y no se usa window._cxs: eso lo llena la pantalla de Clientes, así que entrando
+  // directo a la Foto la lista venía vacía y el botón decía "No hay conexiones para sacar".
+  const todas=((await api('/api/os/casino/conexiones')).conexiones)||[];
+  const cxs=todas.filter(c=>c.activa!==false && (c.motor||'463')==='463').filter(c=>!cxId||c.id===cxId);
   if(!cxs.length){ cont.innerHTML='<div class="nota nota-err">No hay conexiones para sacar.</div>'; return; }
   const lineas=[]; let ok=0, errores=0, filas=0, ceros=0;
   const pintar=(t)=>{ cont.innerHTML='<div class="nota"><b>'+esc(t)+'</b>'
