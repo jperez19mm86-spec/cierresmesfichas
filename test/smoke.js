@@ -1209,7 +1209,7 @@ async function main() {
     const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG', 'SZ']);
     const A_MANO = [
       { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
-      { busca: /^\s*sportbetting\b/i, etiqueta: 'SPORTBETTING' },
+      { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'SPORTBETTING' },
     ];
     const deducir = (nombre) => {
       const aMano = A_MANO.find((r) => r.busca.test(String(nombre || '')));

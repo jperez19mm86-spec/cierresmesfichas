@@ -460,7 +460,9 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // dos sale raro, se sabe que salió de acá y no de una regla que acertó de casualidad.
   const A_MANO = [
     { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
-    { busca: /^\s*sportbetting\b/i, etiqueta: 'SPORTBETTING' },
+    // \b no sirve acá: el guión bajo cuenta como letra, así que entre "SPORTBETTING" y "_Imperium"
+    // no hay borde de palabra y la regla no pegaba nunca.
+    { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'SPORTBETTING' },
   ];
 
   const deducir = (nombreProv) => {
