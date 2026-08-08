@@ -1209,7 +1209,7 @@ async function main() {
     const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG', 'SZ']);
     const A_MANO = [
       { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
-      { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'SPORTBETTING' },
+      { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'ImperiumBet' },
     ];
     const deducir = (nombre) => {
       const aMano = A_MANO.find((r) => r.busca.test(String(nombre || '')));
@@ -1243,8 +1243,9 @@ async function main() {
       deducir('SZ · Slot Zona (TBS)') === 'SZ', String(deducir('SZ · Slot Zona (TBS)')));
     // y sigue sin inventar cuando no hay evidencia
     // Las que el dueño confirmó a mano: el casino no las informa y el nombre no las delata.
-    check('etiqueta: SPORTBETTING_ImperiumBet → SPORTBETTING',
-      deducir('SPORTBETTING_ImperiumBet (TBS)') === 'SPORTBETTING', String(deducir('SPORTBETTING_ImperiumBet (TBS)')));
+    // La etiqueta es ImperiumBet: SPORTBETTING es el tipo de juego, no el proveedor.
+    check('etiqueta: SPORTBETTING_ImperiumBet → ImperiumBet',
+      deducir('SPORTBETTING_ImperiumBet (TBS)') === 'ImperiumBet', String(deducir('SPORTBETTING_ImperiumBet (TBS)')));
     check('etiqueta: los _Original_Dima_Li → OR',
       deducir('BOOMING_ASIA_KN_Original_Dima_Li (TBS)') === 'OR'
       && deducir('WS_SPORTS_Original_Dima_Li (TBS)') === 'OR');

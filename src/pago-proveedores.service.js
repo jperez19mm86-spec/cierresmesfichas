@@ -452,8 +452,8 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // ── LAS QUE NO SE PUEDEN DEDUCIR, DICHAS A MANO ─────────────────────────────────────────────
   //
   // El casino no informa estas dos como `vendor`, y el nombre no las delata: "Original_Dima_Li" no
-  // se parece a "OR", y "SPORTBETTING_ImperiumBet" tiene la etiqueta adelante pero SPORTBETTING no
-  // aparece nunca entre los vendors, así que la deducción no la acepta.
+  // se parece a "OR", y en "SPORTBETTING_ImperiumBet" la etiqueta es ImperiumBet — SPORTBETTING es
+  // el tipo de juego, no el proveedor. Leyéndolo de afuera parece al revés, y así lo puse primero.
   //
   // Van explícitas porque las confirmó el dueño, no porque el código las haya adivinado. Ese es
   // justo el motivo de tenerlas separadas de la deducción: si mañana el número de alguna de estas
@@ -462,7 +462,7 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
     // \b no sirve acá: el guión bajo cuenta como letra, así que entre "SPORTBETTING" y "_Imperium"
     // no hay borde de palabra y la regla no pegaba nunca.
-    { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'SPORTBETTING' },
+    { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'ImperiumBet' },
   ];
 
   const deducir = (nombreProv) => {
