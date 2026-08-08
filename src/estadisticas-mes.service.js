@@ -81,6 +81,10 @@ function divisasDe(conexionId) {
  * como el otro.
  */
 const NIVELES = ['superagente', 'distribuidor'];
+// Las vueltas que hay que dar para tener el mes entero. 'nodo' es la vista general (Datos
+// generales): NIVELES son los niveles de cuenta, y la general no es un nivel de cuenta — no abre
+// por nadie. Se guarda con ese nombre desde antes y por eso sobrevive a la limpieza de grupos.
+const VUELTAS = [...NIVELES, 'nodo'];
 
 /** El nivel de captura que le corresponde a un panel. */
 function nivelDe(panel) {
@@ -217,7 +221,9 @@ function planGlobal(mes, { conexionId = null } = {}) {
     paneles.list().filter((p) => p.conexion_id === cx.id && p.id_usuario && p.en_foto !== false)
       .forEach((p) => ((p.divisas || []).length ? p.divisas : ['ARS'])
         .forEach((d) => divs.add(String(d).toUpperCase())));
-    [...divs].sort().forEach((divisa) => NIVELES.forEach((nivel) => {
+    // Los TRES niveles, no dos. 'nodo' es la vista general: sin contarla, el mes daba "completa"
+    // faltando justamente la que dice cuánto le debemos al proveedor.
+    [...divs].sort().forEach((divisa) => VUELTAS.forEach((nivel) => {
       out.push({ conexion_id: cx.id, conexion: cx.nombre, mes, divisa, nivel });
     }));
   });
@@ -633,7 +639,7 @@ function estado(mes) {
   });
   const listas = filas.filter((f) => f.estado === 'ok').length;
   const porNivel = {};
-  NIVELES.forEach((niv) => {
+  VUELTAS.forEach((niv) => {
     const dela = filas.filter((f) => f.nivel === niv);
     porNivel[niv] = { total: dela.length, listas: dela.filter((f) => f.estado === 'ok').length };
   });
@@ -664,4 +670,4 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, capturarGlobal, planGlobal, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};
+module.exports = { capturar, capturarGlobal, planGlobal, VUELTAS, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};

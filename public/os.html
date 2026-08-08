@@ -960,7 +960,7 @@ VIEWS.foto = async () => {
   const ms = (await api('/api/os/estadisticas/meses')).meses||[];
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   const d = r.detalle||[];
-  const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores'};
+  const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores', nodo:'Datos generales'};
   const errs = d.filter(x=>x.estado==='error');
   const pn = r.porNivel||{}, sa = pn.superagente||{}, di = pn.distribuidor||{};
   setTimeout(fotoModos, 0);   // no bloquea el pintado: son dos consultas al casino

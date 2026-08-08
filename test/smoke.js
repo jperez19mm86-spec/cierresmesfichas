@@ -1104,6 +1104,21 @@ async function main() {
     check('general: el bloque de conexiones sigue en pie', /Una conexión a la vez/.test(html));
   }
 
+  // ── el mes son TRES vueltas, no dos ──
+  // El plan contaba sólo superagente y distribuidor, así que un mes decía "completa" faltando
+  // Datos generales — justo la que dice cuánto le debemos nosotros al proveedor.
+  {
+    const em = require('../src/estadisticas-mes.service');
+    check('vueltas: son tres', (em.VUELTAS || []).length === 3, JSON.stringify(em.VUELTAS));
+    check('vueltas: incluye la general', (em.VUELTAS || []).includes('nodo'));
+    // y NIVELES sigue siendo sólo los niveles de cuenta: lo usa la limpieza de grupos viejos, y
+    // meterle 'nodo' ahí no cambia nada, pero sacárselo borraría la vista general entera.
+    check('vueltas: NIVELES sigue con los dos niveles de cuenta',
+      (em.NIVELES || []).join(',') === 'superagente,distribuidor', JSON.stringify(em.NIVELES));
+    check('vueltas: la limpieza conserva la general',
+      [...em.NIVELES, 'nodo'].includes('nodo'));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
