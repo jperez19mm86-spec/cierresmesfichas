@@ -1206,13 +1206,18 @@ async function main() {
   // SÓLO contra etiquetas que el casino informó de verdad: partir por el último espacio a secas
   // convertiría "EVOLUTION LIVE DEALERS" en "DEALERS".
   {
-    const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG']);
+    const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG', 'SZ']);
     const deducir = (nombre) => {
-      const limpio = String(nombre || '').replace(/\s*\(TBS\)\s*$/i, '').trim();
-      const partes = limpio.split(/\s+/);
+      const limpio = String(nombre || '').replace(/\s*\(TBS\)\s*$/i, '')
+        .replace(/[_·]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const partes = limpio.split(' ');
+      const arriba = limpio.toUpperCase();
+      if (reales.has(arriba)) return arriba;
       for (let n = Math.min(3, partes.length - 1); n >= 1; n--) {
-        const cand = partes.slice(-n).join(' ').toUpperCase();
-        if (reales.has(cand)) return cand;
+        const fin = partes.slice(-n).join(' ').toUpperCase();
+        if (reales.has(fin)) return fin;
+        const ini = partes.slice(0, n).join(' ').toUpperCase();
+        if (reales.has(ini)) return ini;
       }
       return null;
     };
@@ -1225,6 +1230,14 @@ async function main() {
       String(deducir('EVOLUTION LIVE DEALERS')));
     check('etiqueta: no inventa con SLOT ZONA', deducir('SLOT ZONA') === null, String(deducir('SLOT ZONA')));
     check('etiqueta: un nombre de una sola palabra no se parte', deducir('Jacktop') === null, String(deducir('Jacktop')));
+    // los nombres de TBS separan con guión bajo o con · , no siempre con espacio
+    check('etiqueta: Platipus_OP (TBS) → OP', deducir('Platipus_OP (TBS)') === 'OP', String(deducir('Platipus_OP (TBS)')));
+    check('etiqueta: el nombre que ES la etiqueta', deducir('SL2 (TBS)') === 'SL2', String(deducir('SL2 (TBS)')));
+    check('etiqueta: también al principio (SZ · Slot Zona)',
+      deducir('SZ · Slot Zona (TBS)') === 'SZ', String(deducir('SZ · Slot Zona (TBS)')));
+    // y sigue sin inventar cuando no hay evidencia
+    check('etiqueta: SPORTBETTING_ImperiumBet queda sin etiqueta',
+      deducir('SPORTBETTING_ImperiumBet (TBS)') === null, String(deducir('SPORTBETTING_ImperiumBet (TBS)')));
   }
 
   // ── la hoja de pago a proveedores es INTERNA ──

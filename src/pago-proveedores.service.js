@@ -450,12 +450,20 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     if (l.etiqueta && l.etiqueta !== '—') etiquetasReales.add(l.etiqueta.toUpperCase());
   }));
   const deducir = (nombreProv) => {
-    const limpio = String(nombreProv || '').replace(/\s*\(TBS\)\s*$/i, '').trim();
-    // se prueban los sufijos de más largo a más corto: "HUB OR" antes que "OR"
-    const partes = limpio.split(/\s+/);
+    // Los nombres de TBS separan con guión bajo o con "·", no siempre con espacio: "Platipus_OP",
+    // "SZ · Slot Zona". Se normaliza antes de mirar, si no "Platipus_OP" es una sola palabra.
+    const limpio = String(nombreProv || '').replace(/\s*\(TBS\)\s*$/i, '')
+      .replace(/[_·]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const partes = limpio.split(' ');
+    const arriba = limpio.toUpperCase();
+    if (etiquetasReales.has(arriba)) return arriba;              // el nombre ES la etiqueta: "SL2"
+    // De más largo a más corto para que "HUB OR" gane sobre "OR". Al final y al principio: unos
+    // vienen "<PROVEEDOR> <ETIQUETA>" (Platipus OP) y otros al revés (SZ · Slot Zona).
     for (let n = Math.min(3, partes.length - 1); n >= 1; n--) {
-      const cand = partes.slice(-n).join(' ').toUpperCase();
-      if (etiquetasReales.has(cand)) return cand;
+      const fin = partes.slice(-n).join(' ').toUpperCase();
+      if (etiquetasReales.has(fin)) return fin;
+      const ini = partes.slice(0, n).join(' ').toUpperCase();
+      if (etiquetasReales.has(ini)) return ini;
     }
     return null;
   };
