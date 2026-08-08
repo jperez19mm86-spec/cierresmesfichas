@@ -1088,6 +1088,22 @@ async function main() {
     check('foto: fotoSacar pide las conexiones por su cuenta', /casino\/conexiones/.test(cuerpo));
   }
 
+  // ── la vista general va al MISMO lugar que la Foto, y a la vez al caché del pago a proveedores ──
+  // Antes eran dos botones pidiéndole lo mismo al casino y guardando en almacenes distintos: un mes
+  // podía figurar sacado en una pantalla y faltante en la otra.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'estadisticas-mes.service.js'), 'utf8');
+    check('general: la pasada escribe también el caché del pago a proveedores',
+      /_pago_general/.test(src) && /ganCache\.set/.test(src));
+    // va troceado por divisa: cada tanda tiene que SUMAR, no pisar lo de las anteriores
+    check('general: acumula por divisa en vez de pisar', /ganCache\.get\([^)]*_pago_general/.test(src));
+
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('general: ya no hay una sección aparte en la pantalla',
+      !/fotoGeneral|foto-gen/.test(html));
+    check('general: el bloque de conexiones sigue en pie', /Una conexión a la vez/.test(html));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

@@ -36,6 +36,7 @@
 const { db } = require('./db');
 const nowISO = () => new Date().toISOString();
 const paneles = require('./paneles-store');
+const ganCache = require('./ganancias-cache');
 const casinoConex = require('./casino-conexiones-store');
 
 const K = (s) => String(s || '').trim();
@@ -296,7 +297,19 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
     if (esGeneral) {
       const t = { conexion_id: conexionId, mes: m, divisa, nivel: 'nodo', nodo: '' };
       const n = guardar ? _guardar(t, r.filas || []) : (r.filas || []).length;
-      if (guardar) _marcar(t, { estado: 'ok', filas: n, nodos: 0, segundos: seg, modo: 'general' });
+      if (guardar) {
+        _marcar(t, { estado: 'ok', filas: n, nodos: 0, segundos: seg, modo: 'general' });
+        // ── Y TAMBIÉN AL CACHÉ QUE LEE "cuánto le pago al proveedor" ──────────────────────────
+        // Esa pantalla tenía su propia precarga, contra el mismo reporte y el mismo mes, guardando
+        // en otro lado (ganCache/_pago_general). Eran dos botones pidiéndole lo mismo al casino y
+        // un mes podía quedar sacado en una vista y no en la otra. Una pasada llena las dos.
+        // Se lee y se vuelve a escribir porque esto va troceado por divisa: cada tanda suma la suya
+        // en vez de pisar lo que trajeron las anteriores.
+        const ya = ganCache.get(conexionId, '_pago_general', m, '_todas', { refrescar: false });
+        const monedas = (ya && ya.filas && typeof ya.filas === 'object' && !Array.isArray(ya.filas)) ? ya.filas : {};
+        monedas[divisa] = { ok: true, filas: r.filas || [] };
+        ganCache.set(conexionId, '_pago_general', m, '_todas', monedas);
+      }
       salida.push({ divisa, ok: true, segundos: seg, filasQueTrajo: (r.filas || []).length,
         nodosQueTrajo: 0, panelesNuestros: 0, filasGuardadas: n, panelesEnCero: 0, nodosAjenos: 0, general: true });
       if (onPaso) onPaso(salida[salida.length - 1]);
