@@ -121,6 +121,26 @@
   /* Las filas de cliente se despliegan al hacer clic: que se note que son vivas. */
   #main tbody tr:not(.sub):hover > td { background:var(--bg); }
   #car-wrap, [id^="car-"] { display:inline-block; transition:transform .15s ease; }
+
+/* ── Las tres vueltas de la Foto ──────────────────────────────────────────────────────────────
+   Antes esto era un botón relleno de magenta con el detalle adentro en gris: el texto no se leía.
+   Acá el relleno se usa SÓLO para el estado (verde = esa vuelta está), y el texto va siempre
+   oscuro sobre claro. Los fondos son opacos a propósito. */
+.vcx{flex:0 0 auto;min-width:230px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--bg2)}
+.vcx-ok{border-color:var(--green)}
+.vcx-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+       padding:7px 10px;background:#f3edf6;border-bottom:1px solid var(--line)}
+.vcx-ok .vcx-h{background:#eaf5ec}
+table.vtab{width:100%;border-collapse:collapse;margin:0}
+table.vtab td{padding:5px 10px;border-bottom:1px solid #f3e9f1;font-size:12px}
+table.vtab tr:last-child td{border-bottom:none}
+tr.vta-ok td{background:#eaf5ec}
+tr.vta-ok b{color:var(--green)}
+td.vta-i{width:22px;text-align:center}
+td.vta-a{width:1%;white-space:nowrap;padding-right:8px}
+/* la vuelta que el casino tiene puesta AHORA: es la única que se puede sacar en este momento */
+tr.vta-ahora td{background:#fdf3d6}
+tr.vta-ahora.vta-ok td{background:#eaf5ec}
 </style>
 </head>
 <body>
@@ -949,9 +969,18 @@ async function fotoModos(){
   const r=await api('/api/os/estadisticas/modos');
   if(!r||!r.ok) return;
   (r.conexiones||[]).forEach(c=>{
-    const el=document.getElementById('modo-'+c.id); if(!el) return;
-    el.innerHTML = c.error ? '<span style="color:var(--red)">'+esc(String(c.error).slice(0,40))+'</span>'
-      : 'ahora en <b>'+esc(c.nivel==='general'?'Datos generales':(c.nivel||'?'))+'</b>';
+    const el=document.getElementById('modo-'+c.id);
+    if(el) el.innerHTML = c.error ? '<span style="color:var(--red)">'+esc(String(c.error).slice(0,40))+'</span>'
+      : 'puesto en <b>'+esc(c.nivel==='general'?'Datos generales':(c.nivel||'?'))+'</b>';
+    // Sólo se puede sacar la vuelta que el casino tenga puesta: el botón va en ESA fila y en
+    // ninguna otra. Poner un botón en las tres invitaría a apretar la que el server va a rechazar.
+    const clave = c.nivel==='general' ? 'nodo' : c.nivel;
+    document.querySelectorAll('tr.vta[data-cx="'+c.id+'"]').forEach(tr=>{
+      const es = tr.getAttribute('data-niv')===clave;
+      tr.classList.toggle('vta-ahora', es);
+      const td=tr.querySelector('.vta-a'); if(!td) return;
+      td.innerHTML = es ? '<button class="small" onclick="fotoSacar(\''+c.id+'\',null,false)">Sacar</button>' : '';
+    });
   });
 }
 VIEWS.foto = async () => {
@@ -1004,25 +1033,30 @@ VIEWS.foto = async () => {
     + '</div>'
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
     // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
-    + '<div class="nota" style="margin-top:10px"><span class="tit">Una conexión a la vez</span>'
-    + 'El nivel lo decide lo que tengas puesto en <b>Agrupar por</b> dentro del casino: el OS lee cómo está '
-    + 'y saca esa vuelta. El mes se completa pasando por los tres.<br>'
-    + '<b>Superagente</b> y <b>Distribuidor</b> dicen <i>quién consumió qué</i> y sirven para cobrarle a cada cliente. '
-    + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: eso es lo que <i>vos</i> le debés al proveedor. '
-    + 'Abajo de cada casino dice en cuál está ahora.'
-    + '<div class="row" style="margin-top:8px;flex-wrap:wrap">'
+    + '<div class="nota" style="margin-top:10px"><span class="tit">Las tres vueltas</span>'
+    + 'El nivel no se elige acá: lo decide <b>Agrupar por</b> dentro del casino. El OS lee cómo está y saca esa vuelta, '
+    + 'así que para completar el mes hay que pasar por las tres.<br>'
+    + '<b>Superagente</b> y <b>Distribuidor</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente. '
+    + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.'
+    + '<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">'
     + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>{
         const p = d.filter(x=>x.conexion===c.nombre);
-        const ok = p.filter(x=>x.estado==='ok').length;
-        const detalle = Object.keys(NIV).map(niv=>{
+        const listo = p.length && p.every(x=>x.estado==='ok');
+        const filas = Object.keys(NIV).map(niv=>{
           const q = p.filter(x=>x.nivel===niv);
-          return esc(NIV[niv])+' '+q.filter(x=>x.estado==='ok').length+'/'+q.length;
-        }).join(' · ');
-        return '<div style="flex:0"><button class="'+(ok===p.length&&p.length?'outline ':'')+'small" '
-          + 'onclick="fotoSacar(\''+c.id+'\',null,false)" '
-          + 'title="Saca todas las divisas de esta conexión, en el nivel que el casino tenga puesto ahora.">'
-          + esc(c.nombre)+' <span class="muted">'+detalle+'</span>'
-          + '<div id="modo-'+esc(c.id)+'" class="muted" style="font-size:11px"></div></button></div>';
+          const ok = q.filter(x=>x.estado==='ok').length;
+          const err = q.filter(x=>x.estado==='error').length;
+          const completa = q.length && ok===q.length;
+          return '<tr class="vta'+(completa?' vta-ok':'')+'" data-niv="'+esc(niv)+'" data-cx="'+esc(c.id)+'">'
+            + '<td class="vta-i">'+(completa?'✅':(err?'⚠️':'○'))+'</td>'
+            + '<td>'+esc(NIV[niv])+'</td>'
+            + '<td class="right"><b>'+ok+'</b><span class="muted">/'+q.length+'</span></td>'
+            + '<td class="vta-a"></td></tr>';
+        }).join('');
+        return '<div class="vcx'+(listo?' vcx-ok':'')+'">'
+          + '<div class="vcx-h"><b>'+esc(c.nombre)+'</b>'
+          + '<span id="modo-'+esc(c.id)+'" class="muted" style="font-size:11px"></span></div>'
+          + '<table class="vtab"><tbody>'+filas+'</tbody></table></div>';
       }).join('')
     + '</div></div>'
     + '<div id="foto-prog" style="margin-top:10px"></div>'

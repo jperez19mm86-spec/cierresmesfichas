@@ -1101,7 +1101,13 @@ async function main() {
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('general: ya no hay una sección aparte en la pantalla',
       !/fotoGeneral|foto-gen/.test(html));
-    check('general: el bloque de conexiones sigue en pie', /Una conexión a la vez/.test(html));
+    // Se mira la ESTRUCTURA, no el título: el texto se reescribió una vez y el test se cayó por
+    // eso, no porque el bloque hubiera desaparecido. Un test que se rompe al cambiar una palabra
+    // enseña a ignorarlo.
+    check('general: el bloque de conexiones sigue en pie',
+      /class="vcx/.test(html) && /fotoSacar\(/.test(html));
+    // y la vista general tiene que ser una de las vueltas que se muestran
+    check('general: aparece como una vuelta más en la pantalla', /Datos generales/.test(html));
   }
 
   // ── el mes son TRES vueltas, no dos ──
@@ -1117,6 +1123,24 @@ async function main() {
       (em.NIVELES || []).join(',') === 'superagente,distribuidor', JSON.stringify(em.NIVELES));
     check('vueltas: la limpieza conserva la general',
       [...em.NIVELES, 'nodo'].includes('nodo'));
+  }
+
+  // ── que el estado de cada vuelta SE LEA ──
+  // Antes era un botón relleno de magenta con el detalle adentro en gris: el texto no se veía. La
+  // regla que quedó es que el relleno marca el estado y el texto va oscuro sobre claro.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+    const reglas = [...css.matchAll(/\.(vcx|vtab|vta)[^{}]*\{[^}]*\}/g)].map((x) => x[0]);
+    check('vueltas: hay reglas de estilo para el bloque', reglas.length > 5, String(reglas.length));
+    const conAlfa = reglas.filter((r) => /background:\s*rgba\([^)]*0?\.\d+\)/.test(r));
+    check('vueltas: ningún fondo translúcido', conAlfa.length === 0, conAlfa.join(' | ').slice(0, 90));
+    // el estado tiene que distinguirse por algo más que el color: hay gente que no lo ve
+    check('vueltas: el estado también se marca con un símbolo', /✅/.test(html) && /○/.test(html));
+    // el botón va sólo en la vuelta que el casino tiene puesta
+    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    check('vueltas: el botón Sacar va sólo en la vuelta activa',
+      /vta-ahora/.test(js) && /es \? '<button/.test(js));
   }
 
   // ── la política de qué divisas se le piden a un panel ──
