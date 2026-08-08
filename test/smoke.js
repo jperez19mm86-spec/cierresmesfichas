@@ -1078,8 +1078,12 @@ async function main() {
   {
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
-    const cuerpo = (js.match(/async function fotoSacar[\s\S]*?\n}\n/) || [''])[0];
-    check('foto: fotoSacar existe y se pudo aislar', cuerpo.length > 100, String(cuerpo.length));
+    const crudo = (js.match(/async function fotoSacar[\s\S]*?\n}\n/) || [''])[0];
+    // sin comentarios: el propio comentario que explica por qué NO se usa window._cxs lo nombra,
+    // y el test lo leía como si fuera código. Una regla que se dispara con su propia explicación
+    // es una regla que van a terminar borrando.
+    const cuerpo = crudo.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    check('foto: fotoSacar existe y se pudo aislar', crudo.length > 100, String(crudo.length));
     check('foto: fotoSacar NO lee window._cxs', !/window\._cxs/.test(cuerpo));
     check('foto: fotoSacar pide las conexiones por su cuenta', /casino\/conexiones/.test(cuerpo));
   }
