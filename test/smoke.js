@@ -1200,6 +1200,56 @@ async function main() {
       inventados.length === 0, inventados.join(','));
   }
 
+  // ── deducir la etiqueta de las líneas de TBS, sin inventarla ──
+  // El casino manda `vendor`; TBS no. Caían 17 proveedores en "—" por 10.781 USDT, varios
+  // evidentemente OP. Se deduce del nombre de la matriz, que va "<PROVEEDOR> <ETIQUETA>", pero
+  // SÓLO contra etiquetas que el casino informó de verdad: partir por el último espacio a secas
+  // convertiría "EVOLUTION LIVE DEALERS" en "DEALERS".
+  {
+    const reales = new Set(['OP', 'SL2', 'BVS', 'HUB OR', 'OR', 'XG']);
+    const deducir = (nombre) => {
+      const limpio = String(nombre || '').replace(/\s*\(TBS\)\s*$/i, '').trim();
+      const partes = limpio.split(/\s+/);
+      for (let n = Math.min(3, partes.length - 1); n >= 1; n--) {
+        const cand = partes.slice(-n).join(' ').toUpperCase();
+        if (reales.has(cand)) return cand;
+      }
+      return null;
+    };
+    check('etiqueta: BOOMING OP (TBS) → OP', deducir('BOOMING OP (TBS)') === 'OP', String(deducir('BOOMING OP (TBS)')));
+    check('etiqueta: PRAGMATIC SL2 → SL2', deducir('PRAGMATIC SL2') === 'SL2');
+    check('etiqueta: prefiere el sufijo largo (HUB OR, no OR)',
+      deducir('SA GAMING HUB OR') === 'HUB OR', String(deducir('SA GAMING HUB OR')));
+    // lo que NO tiene que hacer
+    check('etiqueta: no inventa con EVOLUTION LIVE DEALERS', deducir('EVOLUTION LIVE DEALERS') === null,
+      String(deducir('EVOLUTION LIVE DEALERS')));
+    check('etiqueta: no inventa con SLOT ZONA', deducir('SLOT ZONA') === null, String(deducir('SLOT ZONA')));
+    check('etiqueta: un nombre de una sola palabra no se parte', deducir('Jacktop') === null, String(deducir('Jacktop')));
+  }
+
+  // ── la hoja de pago a proveedores es INTERNA ──
+  // Dice cuánto se le paga a cada proveedor y a qué costo: el margen del negocio. A diferencia de
+  // la cuenta de un cliente, NO puede tener link público — si mañana alguien agrega uno hay que
+  // decidir antes qué columnas se muestran, como se hizo con la de TBS.
+  {
+    const auth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    const publicas = (auth.match(/const PUBLIC = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('hoja: la ruta de pago a proveedores NO está entre las públicas',
+      !/pago-proveedores/.test(publicas));
+    const rc = await axios.get(BASE + '/api/os/pago-proveedores/hoja?mes=2026-07',
+      { validateStatus: () => true, maxRedirects: 0 });
+    check('hoja: sin sesión no se sirve', rc.status === 401 || rc.status === 302, String(rc.status));
+
+    // y que arme algo legible aunque el reporte venga vacío
+    const { hoja } = require('../src/pago-proveedores-html');
+    const vacio = hoja({ ok: true, mes: '2026-07', proveedores: [], porEtiqueta: [], porDivisa: [],
+      porConexion: {}, cuadre: { proveedores: '0', etiquetas: '0', divisas: '0', cuadra: true } });
+    check('hoja: se arma con un mes vacío', /Pago a proveedores/.test(vacio) && vacio.length > 400);
+    const roto = hoja({ ok: true, mes: '2026-07', proveedores: [], porEtiqueta: [], porDivisa: [],
+      porConexion: {}, cuadre: { proveedores: '10', etiquetas: '9', divisas: '10', cuadra: false } });
+    check('hoja: si no cuadra lo dice y avisa que no se pague', /NO cuadra/.test(roto) && /no pagar/i.test(roto));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

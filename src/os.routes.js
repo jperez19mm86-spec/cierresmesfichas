@@ -22,6 +22,7 @@ const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
+const pagoProvHtml = require('./pago-proveedores-html');
 const apiResumen = require('./api-resumen.service');
 const tgDestino = require('./telegram-destino');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
@@ -856,6 +857,17 @@ function mount(app) {
         porDefecto: m.ok ? !!m.porDefecto : null, error: m.ok ? null : m.error });
     }
     ok(res, { conexiones: out });
+  }));
+
+  /**
+   * La factura de proveedores como hoja, para imprimir o mandar.
+   *
+   * ⚠️ Va DETRÁS DEL LOGIN, sin token público como la cuenta de un cliente: dice cuánto se le paga
+   * a cada proveedor y a qué costo, o sea el margen del negocio.
+   */
+  app.get('/api/os/pago-proveedores/hoja', wrap(async (req, res) => {
+    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
+    res.type('html').send(pagoProvHtml.hoja(r));
   }));
 
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });

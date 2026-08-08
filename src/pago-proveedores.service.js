@@ -435,6 +435,37 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     })).sort((x, y) => Number(y.usdt) - Number(x.usdt));
   };
 
+  // ── LAS LÍNEAS DE TBS NO TRAEN ETIQUETA, Y CAÍAN TODAS EN "—" ────────────────────────────────
+  //
+  // El casino manda `vendor` y ahí está la etiqueta; TBS es otro motor y no la manda. Resultado:
+  // 17 proveedores juntos en "—" por 10.781,48 USDT, con cosas como "BOOMING OP (TBS)" que
+  // evidentemente son OP.
+  //
+  // Se deduce del nombre de la matriz, que se escribe "<PROVEEDOR> <ETIQUETA>" — pero SÓLO contra
+  // las etiquetas que el casino informó de verdad este mes. Partir el nombre por el último espacio
+  // a secas convertiría "EVOLUTION LIVE DEALERS" en la etiqueta "DEALERS" y "SLOT ZONA" en "ZONA":
+  // inventaría etiquetas que no existen, que es peor que dejarlas en "—".
+  const etiquetasReales = new Set();
+  proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
+    if (l.etiqueta && l.etiqueta !== '—') etiquetasReales.add(l.etiqueta.toUpperCase());
+  }));
+  const deducir = (nombreProv) => {
+    const limpio = String(nombreProv || '').replace(/\s*\(TBS\)\s*$/i, '').trim();
+    // se prueban los sufijos de más largo a más corto: "HUB OR" antes que "OR"
+    const partes = limpio.split(/\s+/);
+    for (let n = Math.min(3, partes.length - 1); n >= 1; n--) {
+      const cand = partes.slice(-n).join(' ').toUpperCase();
+      if (etiquetasReales.has(cand)) return cand;
+    }
+    return null;
+  };
+  let deducidas = 0;
+  proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
+    if (l.etiqueta && l.etiqueta !== '—') return;
+    const e = deducir(p.proveedor);
+    if (e) { l.etiqueta = e; l.etiquetaDeducida = true; deducidas += 1; }
+  }));
+
   const porEtiqueta = armar((l) => l.etiqueta);
   const porDivisa = armar((l) => l.divisa);
   // En la vista por divisa interesa además cuánto se movió EN ESA MONEDA y con qué TC se pasó a
@@ -449,7 +480,8 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   });
 
   const sumar = (arr) => money.round(money.sum(arr.map((x) => x.usdt)), 2);
-  const cuadre = { proveedores: total, etiquetas: sumar(porEtiqueta), divisas: sumar(porDivisa) };
+  const cuadre = { proveedores: total, etiquetas: sumar(porEtiqueta), divisas: sumar(porDivisa),
+    etiquetasDeducidas: deducidas };
   cuadre.cuadra = cuadre.proveedores === cuadre.etiquetas && cuadre.proveedores === cuadre.divisas;
   if (!cuadre.cuadra) {
     avisos.push(`⚠️ Las tres vistas no dan lo mismo: por proveedor ${cuadre.proveedores}, `

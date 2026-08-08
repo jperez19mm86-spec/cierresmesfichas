@@ -1544,7 +1544,7 @@ async function ciePago(){
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
         <div style="flex:1;min-width:0"></div>
         <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoRefrescar()">↻ Volver a consultar</button></div>
-        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button> <button class="outline small" onclick="pagoHoja()">🖨 Hoja para imprimir</button></div>
       </div>
       <div class="muted" style="margin-top:6px">La primera vez de cada mes consulta los tres paneles y tarda varios minutos; después sale de lo guardado.
         <b>Volver a consultar</b> los pregunta de nuevo. Un mes <b>congelado</b> usa los precios de ese mes.</div>
@@ -1670,6 +1670,7 @@ function pagoVistas(r){
 }
 function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
 function pagoRefrescar(){ _pagoRefrescar=true; pagoCalcular(); }
+function pagoHoja(){ window.open('/api/os/pago-proveedores/hoja?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
 function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
 
 /* ── sub-vista 🤝 CUENTA DE VENDEDORES ─────────────────────────────────────────────────
