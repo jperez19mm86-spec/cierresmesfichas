@@ -415,7 +415,7 @@ async function divisasCasino(conexion_id, panel_id){
        guardadas: ${esc(x.guardadas.join(',')||'—')} · movió: ${esc(x.usadas.join(',')||'sin datos')}</td>
      <td><button class="small" onclick="setDivisas('${x.panel_id}','${esc(x.habilitadas.join(','))}')">poner las del casino</button></td></tr>`;
   caja.innerHTML=`<h3 style="margin:0 0 4px">Cruce con el casino <span class="muted" style="font-weight:400">${filas.length} paneles</span></h3>
-    ${mueven.length?`<div class="nota nota-err" style="margin:8px 0"><b>⚠️ ${mueven.length} paneles mueven una divisa que el OS no tiene en la lista.</b>
+    ${mueven.length?`<div class="nota err" style="margin:8px 0"><b>⚠️ ${mueven.length} paneles mueven una divisa que el OS no tiene en la lista.</b>
       Es lo único de acá que puede estar costando plata: el panel factura en esa moneda y el OS no la sabe.</div>
       <table><tbody>${mueven.map(x=>linea(x,'faltanYMueven')).join('')}</tbody></table>`:''}
     ${faltan.length?`<h4 style="margin:14px 0 2px">Habilitadas en el casino y no guardadas <span class="muted">(${faltan.length}) — todavía sin movimiento</span></h4>
@@ -1094,7 +1094,7 @@ async function fotoSacar(cxId, nivel, refrescar){
   // directo a la Foto la lista venía vacía y el botón decía "No hay conexiones para sacar".
   const todas=((await api('/api/os/casino/conexiones')).conexiones)||[];
   const cxs=todas.filter(c=>c.activa!==false && (c.motor||'463')==='463').filter(c=>!cxId||c.id===cxId);
-  if(!cxs.length){ cont.innerHTML='<div class="nota nota-err">No hay conexiones para sacar.</div>'; return; }
+  if(!cxs.length){ cont.innerHTML='<div class="nota err">No hay conexiones para sacar.</div>'; return; }
   const lineas=[]; let ok=0, errores=0, filas=0, ceros=0;
   const pintar=(t)=>{ cont.innerHTML='<div class="nota"><b>'+esc(t)+'</b>'
     +' <span class="muted">'+ok+' divisas · '+money(filas,0)+' filas · '+ceros+' en cero'
@@ -1613,6 +1613,8 @@ function pagoPintar(){
       ${conex.map(([n,v])=>`<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>${esc(n)}</label><div style="font-size:20px;font-weight:800">${money(v.usdt)}</div><div class="muted" style="font-size:11px">${v.filas} líneas</div></div>`).join('')}
     </div>
     ${r.congelado?'<div class="muted" style="margin-bottom:8px">🧊 mes congelado: usa los precios de ESE mes</div>':'<div class="muted" style="margin-bottom:8px">⚠ mes sin congelar: usa los precios de HOY</div>'}
+    ${pagoCuadre(r)}
+    ${pagoVistas(r)}
     <table><thead><tr><th>Proveedor</th><th class="right">Costo</th><th></th><th class="right">A pagar (USDT)</th></tr></thead><tbody>
     ${filas||'<tr><td colspan="4" class="empty">Sin ganancia para cobrar este mes.</td></tr>'}
     </tbody></table>
@@ -1623,6 +1625,48 @@ function pagoPintar(){
     ${(r.sinCosto||[]).length?`<div class="muted" style="margin-top:8px">Sin costo cargado (no se les paga): ${r.sinCosto.slice(0,25).map(esc).join(' · ')}</div>`:''}
     ${(r.sinTC||[]).length?`<div class="badge err" style="margin-top:8px">Sin tipo de cambio: ${r.sinTC.map(esc).join(', ')}</div>`:''}
     ${(r.avisos||[]).length?`<div class="muted" style="margin-top:8px">${r.avisos.map(esc).join('<br>')}</div>`:''}`;
+}
+
+/* ── EL CUADRE ────────────────────────────────────────────────────────────────────────────────
+   Las tres vistas son la MISMA plata partida distinto, así que tienen que dar el mismo total. Si
+   no dan, hay un error de cálculo y no de datos. Va arriba de todo y no escondido, porque es lo
+   único de esta pantalla que puede decir "este número está mal" antes de que lo pagues. */
+function pagoCuadre(r){
+  const c=r.cuadre; if(!c) return '';
+  if(c.cuadra) return '<div class="nota ok" style="margin-bottom:10px">'
+    +'✅ <b>Cuadra.</b> <span class="muted">Por proveedor, por etiqueta y por divisa dan lo mismo: '
+    +money(c.proveedores)+' USDT.</span></div>';
+  return '<div class="nota err" style="margin-bottom:10px"><b>⚠️ Las tres vistas NO dan lo mismo.</b>'
+    +'<div class="muted">por proveedor '+money(c.proveedores)+' · por etiqueta '+money(c.etiquetas)
+    +' · por divisa '+money(c.divisas)+'. Es un error de cálculo, no de datos: no pagues con esto.</div></div>';
+}
+/* Las otras dos formas de leer la misma factura. Plegadas: la de proveedores es la que se usa
+   para pagar; estas dos son para conciliar contra lo que manda el proveedor. */
+function pagoVistas(r){
+  const et=r.porEtiqueta||[], dv=r.porDivisa||[];
+  if(!et.length && !dv.length) return '';
+  const ab=window._pagoVistas||'';
+  const tab=(k,t,n)=>'<button class="'+(ab===k?'':'outline ')+'small" onclick="_pagoVistas='
+    +(ab===k?"''":"'"+k+"'")+';pagoPintar()">'+t+' <span class="muted">'+n+'</span></button>';
+  let cuerpo='';
+  if(ab==='et') cuerpo='<table><thead><tr><th>Etiqueta</th><th class="right">A pagar (USDT)</th>'
+    +'<th>Proveedores</th><th>Divisas</th></tr></thead><tbody>'
+    +et.map(e=>'<tr><td><b>'+esc(e.clave)+'</b></td><td class="right"><b>'+money(e.usdt)+'</b></td>'
+      +'<td class="muted" style="font-size:11px">'+e.proveedores.length+': '+esc(e.proveedores.slice(0,6).join(', '))
+      +(e.proveedores.length>6?'…':'')+'</td>'
+      +'<td class="muted" style="font-size:11px">'+esc(e.divisas.join(', '))+'</td></tr>').join('')
+    +'</tbody></table>';
+  if(ab==='dv') cuerpo='<table><thead><tr><th>Divisa</th><th class="right">Movido en la moneda</th>'
+    +'<th class="right">TC</th><th class="right">A pagar (USDT)</th></tr></thead><tbody>'
+    +dv.map(d=>'<tr><td><b>'+esc(d.clave)+'</b></td>'
+      +'<td class="right muted">'+money(d.montoLocal)+'</td>'
+      +'<td class="right '+(d.tc?'muted':'')+'">'+(d.tc?esc(d.tc)
+        :'<span title="SL2 y BVS se pasan con el promedio del mes; el resto con el TC del proveedor">'
+         +esc((d.tcs||[]).join(' / '))+'</span>')+'</td>'
+      +'<td class="right"><b>'+money(d.usdt)+'</b></td></tr>').join('')
+    +'</tbody></table>';
+  return '<div style="margin-bottom:10px"><div class="row" style="gap:6px;margin-bottom:6px">'
+    +tab('et','Por etiqueta',et.length)+tab('dv','Por divisa',dv.length)+'</div>'+cuerpo+'</div>';
 }
 function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
 function pagoRefrescar(){ _pagoRefrescar=true; pagoCalcular(); }

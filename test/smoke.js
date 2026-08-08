@@ -1181,6 +1181,25 @@ async function main() {
     check('factura: un proveedor en dos divisas suma una sola vez por etiqueta', xg.usdt === '8', xg.usdt);
   }
 
+  // ── no inventar clases de CSS ──
+  // Escribí `class="nota nota-err"` cuatro veces; la clase real es `.nota.err`. No rompe nada:
+  // el bloque se dibuja igual pero SIN el color, así que un aviso de error se ve como uno común.
+  // Es el peor tipo de error de estilo — no falla, sólo deja de avisar.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+    // los modificadores que la hoja de estilos define para .nota
+    const definidos = new Set([...css.matchAll(/\.nota\.([a-z0-9-]+)/g)].map((m) => m[1]));
+    check('css: la hoja define modificadores de .nota', definidos.size >= 2, [...definidos].join(','));
+    const usados = new Set();
+    [...html.matchAll(/class="nota ([^"]*)"/g)].forEach((m) => {
+      m[1].split(/\s+/).filter(Boolean).forEach((c) => usados.add(c));
+    });
+    const inventados = [...usados].filter((c) => !definidos.has(c));
+    check('css: ningún class="nota …" usa un modificador inexistente',
+      inventados.length === 0, inventados.join(','));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
