@@ -1138,51 +1138,49 @@ async function fotoDistSet(ids, v){
   fotoAlcance(window._fotoAlcance||'movidas');
 }
 async function fotoSacar(cxId, nivel, refrescar){
-  if(refrescar && !confirm('¿Rehacer la foto de '+_fotoMes+'? Vuelve a preguntarle al casino todo, aunque ya esté sacado.')) return;
+  // `nivel` ya no se manda: lo decide el casino. Se deja el parámetro porque los botones viejos
+  // todavía lo pasan, y mandarlo haría que el server rechace la pasada si no coincide.
   const cont=document.getElementById('foto-prog'); if(!cont) return;
   _fotoCancelar=false;
-  const LOTE=6;                       // consultas por tanda: corto para que se vea moverse
-  let desde=0, total=null, ok=0, err=0, filas=0, otro=0;
-  const lineas=[];
-  const pintar=(estado)=>{
-    const pct = total ? Math.round(desde*100/total) : 0;
-    cont.innerHTML = '<div class="nota'+(err?' err':'')+'">'
-      + '<span class="tit">'+esc(estado)+'</span>'
-      + '<div style="background:var(--bg3);border-radius:6px;height:9px;overflow:hidden;margin:4px 0 7px">'
-      +   '<div style="background:var(--gold);height:100%;width:'+pct+'%;transition:width .2s"></div></div>'
-      + '<b>'+desde+' de '+(total==null?'?':total)+'</b> consultas · '+ok+' ok'
-      + (otro?' · '+otro+' esperando el otro nivel':'') + (err?' · <span style="color:var(--red)">'+err+' con error</span>':'')
-      + ' · '+money(filas,0)+' filas'
-      + '<div style="max-height:190px;overflow:auto;margin-top:7px;font-size:12px;font-family:monospace">'
-      +   lineas.slice(-40).join('<br>')+'</div>'
-      + (total!==null && desde<total ? '<div style="margin-top:8px"><button class="outline small" onclick="_fotoCancelar=true">Parar</button></div>' : '')
-      + '</div>';
-  };
+  const cxs=(window._cxs||[]).filter(c=>(c.motor||'463')==='463').filter(c=>!cxId||c.id===cxId);
+  if(!cxs.length){ cont.innerHTML='<div class="nota nota-err">No hay conexiones para sacar.</div>'; return; }
+  const lineas=[]; let ok=0, errores=0, filas=0, ceros=0;
+  const pintar=(t)=>{ cont.innerHTML='<div class="nota"><b>'+esc(t)+'</b>'
+    +' <span class="muted">'+ok+' divisas · '+money(filas,0)+' filas · '+ceros+' en cero'
+    +(errores?' · <span style="color:var(--red)">'+errores+' con error</span>':'')+'</span>'
+    +'<div style="margin-top:6px;font-size:11px;font-family:monospace;max-height:260px;overflow:auto">'
+    +lineas.slice(-40).join('<br>')+'</div>'
+    +'<button class="outline small" style="margin-top:6px" onclick="_fotoCancelar=true">Parar</button></div>'; };
   pintar('Arrancando…');
-  while(true){
-    if(_fotoCancelar){ pintar('Parado por vos'); break; }
-    // `nivel_declarado` va sólo cuando se apretó un botón de un nivel puntual: ahí el dueño está
-    // diciendo en qué nivel dejó el casino. Con "Sacar todo" no se declara nada y sigue mandando
-    // lo que el casino informe (o lo que quede esperando la otra pasada).
-    const r = await api('/api/os/estadisticas/capturar',{method:'POST',
-      body:JSON.stringify({mes:_fotoMes, conexion_id:cxId, nivel, desde, limite:LOTE, refrescar,
-        alcance:(window._fotoAlcance==='todas'?'todas':'movidas'), nivel_declarado: nivel || null})});
-    if(!r.ok){ lineas.push('<span style="color:var(--red)">✖ '+esc(r.error||'no respondió')+'</span>'); pintar('Se cortó'); break; }
-    total = r.total;
-    (r.detalle||[]).forEach(x=>{
-      if(x.estado==='ok'){ ok++; filas+=x.filas||0;
-        lineas.push('<span style="color:var(--green)">✔</span> '+esc(x.conexion)+' · '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+(x.filas||0)+' filas, '+(x.segundos||0)+'s'); }
-      else if(x.estado==='ya estaba'){ ok++; lineas.push('<span class="muted">• '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — ya estaba</span>'); }
-      else if(x.estado==='otro-nivel'){ otro++; lineas.push('<span class="muted">↷ '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+esc(x.error||'otro nivel')+'</span>'); }
-      else { err++; lineas.push('<span style="color:var(--red)">✖</span> '+esc(x.divisa)+' · '+esc(x.panel||x.nodo)+' — '+esc(x.error||'falló')); }
-    });
-    desde = r.hechas;
-    pintar(r.faltan ? 'Sacando…' : 'Terminado');
-    if(!r.faltan) break;
+  for(const cx of cxs){
+    if(_fotoCancelar) break;
+    let desde=0;
+    for(;;){
+      if(_fotoCancelar){ lineas.push('— parado por vos'); break; }
+      let r;
+      try{ r=await api('/api/os/estadisticas/capturar-global',{method:'POST',
+        body:JSON.stringify({mes:_fotoMes, conexion_id:cx.id, desde, limite:8, guardar:true})}); }
+      catch(e){ lineas.push('<span style="color:var(--red)">✖ '+esc(cx.nombre)+': '+esc(e.message)+'</span>'); errores++; break; }
+      if(!r||!r.ok){
+        // El server rechaza si el casino está agrupando de otra forma que la pedida. No es un
+        // error a arreglar: es la otra vuelta, y hay que ir a cambiar "Agrupar por" en el panel.
+        lineas.push('<span style="color:var(--red)">✖ '+esc(cx.nombre)+': '+esc((r&&r.error)||'no respondió')+'</span>');
+        errores++; break;
+      }
+      if(desde===0) lineas.push('<b>'+esc(cx.nombre)+'</b> — el casino está agrupando por <b>'+esc(r.nivel)+'</b>');
+      (r.divisas||[]).forEach(d=>{
+        if(d.ok){ ok++; filas+=d.filasGuardadas||0; ceros+=d.panelesEnCero||0;
+          if(d.filasGuardadas||d.panelesEnCero) lineas.push('&nbsp;&nbsp;'+esc(d.divisa)+' · '+d.segundos+'s · '
+            +(d.filasGuardadas||0)+' filas'+(d.panelesEnCero?' · '+d.panelesEnCero+' en cero':'')); }
+        else { errores++; lineas.push('&nbsp;&nbsp;<span style="color:var(--red)">'+esc(d.divisa)+' ✖ '+esc(String(d.detalle||d.error).slice(0,70))+'</span>'); }
+      });
+      pintar('Sacando '+cx.nombre+'…');
+      desde+=r.devueltos;
+      if(!r.hay_mas) break;
+    }
   }
-  VIEWS.foto();
-  // VIEWS.foto() repinta todo y se lleva el detalle puesto: se vuelve a poner después.
-  setTimeout(()=>{ const c2=document.getElementById('foto-prog'); if(c2) c2.innerHTML=cont.innerHTML; },50);
+  pintar(errores?'Terminado con errores':'Listo');
+  VIEWS.foto&&VIEWS.foto();
 }
 
 
