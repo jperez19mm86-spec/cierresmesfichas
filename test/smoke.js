@@ -1326,25 +1326,90 @@ async function main() {
     check('grupos: WS SPORTS default → OR', grupoDe('default', 'WS SPORTS default') === 'OR');
   }
 
-  // ── la hoja se lee para conciliar: alfabético, y el detalle abajo ──
+  // ── la hoja es un DOCUMENTO: una vista por página, cada una con su resumen adelante ──
+  //
+  // Los checks miran DENTRO de cada sección y no en el documento entero: las etiquetas ahora
+  // aparecen en tres hojas distintas (proveedor, etiqueta, sistema), así que un indexOf global
+  // mide cualquier cosa. Fue justo lo que pasó cuando la hoja pasó de tres tablas corridas a seis
+  // páginas: el test seguía en verde por casualidad o en rojo sin que nada estuviera mal.
   {
     const { hoja } = require('../src/pago-proveedores-html');
-    const h = hoja({ ok: true, mes: '2026-06', congelado: true, porConexion: { Casino: { usdt: '10' } },
-      proveedores: [{ proveedor: 'ZETA OP', costo: '6', usdt: '2', lineas: [{ etiqueta: 'OP' }] },
-        { proveedor: 'ALFA SL2', costo: '9', usdt: '8', lineas: [{ etiqueta: 'SL2' }] }],
+    const REP = { ok: true, mes: '2026-06', congelado: true,
+      porConexion: { Casino: { usdt: '6', filas: 1 }, TBS: { usdt: '4', filas: 1 } },
+      proveedores: [
+        { proveedor: 'ZETA OP', costo: '6', usdt: '2', lineas: [{ etiqueta: 'OP', conexion: 'Casino', divisa: 'USD', monto: '2', tc: '1', usdt: '2' }] },
+        { proveedor: 'ALFA SL2', costo: '9', usdt: '8', lineas: [{ etiqueta: 'SL2', conexion: 'TBS', divisa: 'ARS', monto: '8000', tc: '1000', usdt: '8' }] }],
       porEtiqueta: [{ clave: 'SL2', usdt: '8', proveedores: ['ALFA SL2'], divisas: ['ARS'] },
-        { clave: 'OP', usdt: '2', proveedores: ['ZETA OP'], divisas: ['ARS'] }],
+        { clave: 'OP', usdt: '2', proveedores: ['ZETA OP'], divisas: ['USD'] }],
       porDivisa: [{ clave: 'USD', usdt: '2', montoLocal: '2', tc: '1' },
         { clave: 'ARS', usdt: '8', montoLocal: '8000', tc: '1000' }],
-      cuadre: { proveedores: '10', etiquetas: '10', divisas: '10', cuadra: true } });
+      porSistema: [{ clave: 'TBS', usdt: '8', proveedores: ['ALFA SL2'], divisas: ['ARS'] },
+        { clave: 'Casino', usdt: '2', proveedores: ['ZETA OP'], divisas: ['USD'] }],
+      tiposDeCambio: [
+        { divisa: 'ARS', tcs: [{ tc: '1000', montoLocal: '8000', usdt: '8', cuantos: 1, proveedores: ['ALFA SL2'] }] },
+        { divisa: 'USD', tcs: [{ tc: '1', montoLocal: '2', usdt: '2', cuantos: 1, proveedores: ['ZETA OP'] }] }],
+      otros: [{ origen: 'TBS', nombre: 'ig', ref: 'grupo 2', motivo: 'grupo sin equivalencia en la matriz',
+        porDivisa: { ARS: '342487.30' }, gananciaUsdt: '241.19', faltanTC: [] }],
+      otrosTotal: { gananciaUsdt: '241.19', cuantos: 1 },
+      totales: { usdt: '10', proveedores: 2 }, avisos: [],
+      cuadre: { proveedores: '10', etiquetas: '10', divisas: '10', sistemas: '10', cuadra: true } };
+    const h = hoja(REP);
+    // el trozo de HTML de UNA sección, para no medir contra el documento entero
+    const seccion = (titulo) => {
+      const i0 = h.indexOf('<b>' + titulo + '</b>');
+      if (i0 < 0) return '';
+      const i1 = h.indexOf('<div class="pg">', i0);
+      return h.slice(i0, i1 < 0 ? h.length : i1);
+    };
+    const ordenEn = (titulo, a, b) => { const t = seccion(titulo); return t.indexOf(a) >= 0 && t.indexOf(a) < t.indexOf(b); };
+
+    check('hoja: una página por vista', ['Por proveedor', 'Por etiqueta', 'Por sistema', 'Por divisa']
+      .every((t) => seccion(t).length > 0));
+    check('hoja: las páginas se separan al imprimir', /\.pg\{page-break-before:always/.test(h));
     // el reporte llega ordenado por monto (SL2 8 antes que OP 2); la hoja tiene que darlo vuelta
-    check('hoja: etiquetas en orden alfabético', h.indexOf('>OP<') < h.indexOf('>SL2<'));
-    check('hoja: divisas en orden alfabético', h.indexOf('>ARS<') < h.indexOf('>USD<'));
-    check('hoja: proveedores en orden alfabético', h.indexOf('ALFA SL2') < h.indexOf('ZETA OP'));
-    check('hoja: el detalle de cada etiqueta va al pie', /Qué incluye cada etiqueta/.test(h));
-    // y ese detalle tiene que estar DESPUÉS de las tablas de números, no antes
-    check('hoja: el pie va después de los totales',
-      h.indexOf('Qué incluye cada etiqueta') > h.indexOf('Por divisa'));
+    check('hoja: etiquetas en orden alfabético', ordenEn('Por etiqueta', '>OP<', '>SL2<'));
+    check('hoja: divisas en orden alfabético', ordenEn('Por divisa', '>ARS<', '>USD<'));
+    check('hoja: proveedores en orden alfabético', ordenEn('Por proveedor', 'ALFA SL2', 'ZETA OP'));
+    check('hoja: el detalle de cada etiqueta va al pie de SU hoja',
+      /Qué incluye cada etiqueta/.test(seccion('Por etiqueta')));
+    // y ese detalle tiene que estar DESPUÉS de la tabla de números, no antes
+    check('hoja: el detalle va después de los totales de la etiqueta',
+      ordenEn('Por etiqueta', '>Total<', 'Qué incluye cada etiqueta'));
+
+    // ── el resumen va ANTES de los datos, en TODAS las secciones ──
+    // Es lo que pidió el dueño con estas palabras: "en todas las secciones antes de los datos, algo
+    // visible con los resúmenes". Si una sección se agrega después sin resumen, esto lo cachea.
+    ['Por proveedor', 'Por etiqueta', 'Por sistema', 'Por divisa', 'Otros'].forEach((t) => {
+      const sec = seccion(t);
+      check(`hoja: ${t} lleva resumen antes de la tabla`,
+        sec.indexOf('<div class="sum">') >= 0 && sec.indexOf('<div class="sum">') < sec.indexOf('<table>'));
+    });
+
+    // ── por sistema: tabla cruzada proveedor × panel ──
+    check('hoja: por sistema cruza proveedor contra cada panel',
+      /<th class="r">Casino<\/th>/.test(seccion('Por sistema')) && /<th class="r">TBS<\/th>/.test(seccion('Por sistema')));
+
+    // ── el pie con los TC usados ──
+    check('hoja: al pie están los tipos de cambio usados', /Tipos de cambio usados/.test(h));
+    check('hoja: el pie de TC va último', h.indexOf('Tipos de cambio usados') > h.indexOf('<b>Por divisa</b>'));
+
+    // ── "Otros": se ve, y NO se suma al total ──
+    // Es plata que existe pero de la que no se sabe el costo. Que aparezca es lo que pidió el dueño;
+    // que NO entre al total es lo que impide pagar un número inventado.
+    const otros = seccion('Otros');
+    check('hoja: Otros lista lo que no se paga', /grupo sin equivalencia/.test(otros) && />ig</.test(otros));
+    check('hoja: Otros dice que es ganancia y no lo que se debe', /[Gg]anancia/.test(otros));
+    check('hoja: Otros NO entra en el total a pagar',
+      /Total a pagar<\/div><div class="v">10,00 USDT/.test(h) && !/251/.test(h));
+
+    // ── el resumen de la portada ──
+    check('hoja: la portada abre con el total y los tres sistemas',
+      /Total a pagar/.test(h) && /Casino/.test(h) && /TBS/.test(h));
+    check('hoja: el cuadre nombra las cuatro vistas', /cuatro vistas/.test(h));
+
+    // una hoja sin "otros" no inventa la sección
+    const hSin = hoja({ ...REP, otros: [], otrosTotal: { gananciaUsdt: '0', cuantos: 0 } });
+    check('hoja: sin Otros, no aparece la hoja de Otros', !/<b>Otros<\/b>/.test(hSin));
   }
 
   // ── la vista general no se puede cachear si el casino está en otro nivel ──

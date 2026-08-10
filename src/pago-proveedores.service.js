@@ -354,9 +354,24 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
 
   const acc = new Map();         // nombreMatriz → { proveedor, costo, lineas[], usdt }
   const porConexion = {};
+  // ── LO QUE NO SE PAGA, PERO TIENE GANANCIA ───────────────────────────────────────────────────
+  // Antes esto se guardaba como un nombre suelto y nada más, así que en la hoja no se veía y en el
+  // total no estaba: plata que existe y que el documento no mencionaba. Ahora se guarda POR DIVISA,
+  // que es lo único que permite después decir cuánto es — sin la divisa un profit es un número sin
+  // unidad, y ARS 342.487 y USD 342.487 no son remotamente lo mismo.
+  //
+  // No entra al total y no puede entrar: sin el % de costo no se sabe cuánto se le paga. Va a la
+  // página "Otros" con el motivo escrito, para que se vea y se pueda resolver.
   const sinVincular = new Map(); // lo que el casino informa y no está en la matriz
-  const sinCosto = new Set();    // está en la matriz pero sin costo cargado
+  const sinCosto = new Map();    // está en la matriz pero sin costo cargado
   const sinTC = new Set();
+  const sumarDivisa = (mapa, clave, nombre, divisa, profit, conexion) => {
+    const v = mapa.get(clave) || { nombre, profit: '0', porDivisa: {}, conexiones: new Set() };
+    v.profit = money.add(v.profit, profit);
+    v.porDivisa[divisa] = money.add(v.porDivisa[divisa] || '0', profit);
+    v.conexiones.add(conexion);
+    mapa.set(clave, v);
+  };
   const avisos = [];
 
   // listDeReportes y no list463: las conexiones de carga (Europa_Fichas) no facturan a nadie, y
@@ -398,13 +413,11 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
         const nombre = traducir(fila);
         if (!nombre) {
           const k = `${fila.label || fila.provider || ''} ${fila.vendor || ''}`.trim();
-          const v = sinVincular.get(k) || { nombre: k, profit: '0', conexiones: new Set() };
-          v.profit = money.add(v.profit, profit); v.conexiones.add(cx.nombre);
-          sinVincular.set(k, v);
+          sumarDivisa(sinVincular, k, k, divisa, profit, cx.nombre);
           continue;
         }
         const costo = costoDe[K(nombre)];
-        if (costo == null || costo === '') { sinCosto.add(nombre); continue; }
+        if (costo == null || costo === '') { sumarDivisa(sinCosto, nombre, nombre, divisa, profit, cx.nombre); continue; }
         if (!money.isPos(String(costo))) continue;             // costo 0 = no nos cobra nada
         // El MISMO TC que usa la factura del cliente: en pesos, el del proveedor, salvo SL2 y BVS
         // que van con el promedio del mes. Las dos caras del negocio tienen que convertir igual.
@@ -442,7 +455,7 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   }));
   tbs.conexiones.forEach((n) => { porConexion[n].usdt = money.round(porConexion[n].usdt, 2); });
   if (tbs.sinMapear.length) {
-    avisos.push(`TBS: ${tbs.sinMapear.length} grupo(s) con ganancia quedaron afuera del total porque no se sabe qué fila de la matriz les corresponde (ver "TBS sin mapear").`);
+    avisos.push(`TBS: ${tbs.sinMapear.length} grupo(s) con ganancia no entran al total porque no se sabe qué fila de la matriz les corresponde — están listados en "Otros".`);
   }
 
   const proveedores = [...acc.values()]
@@ -597,24 +610,104 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     d.tcs = tcs.length > 1 ? tcs : undefined;
   });
 
+  // ── POR SISTEMA ──────────────────────────────────────────────────────────────────────────────
+  // La cuarta forma de mirar la misma plata: cuánto se paga en Europa, en Casino y en TBS. Ya
+  // existía como `porConexion` (tres totales sueltos), pero no dejaba ver QUÉ proveedor pesa en
+  // cada sistema, que es lo que se necesita cuando un panel se cae o se renegocia un contrato.
+  const porSistema = armar((l) => l.conexion);
+
+  // ── LOS TIPOS DE CAMBIO QUE SE USARON, AL PIE ────────────────────────────────────────────────
+  // La diferencia contra la planilla del proveedor casi siempre es el TC. Que estén escritos en el
+  // documento convierte una discusión ("a mí me da otra cosa") en una comparación de una línea.
+  // Se agrupan por divisa Y por valor: cuando hay dos, es porque SL2 y BVS se pasan a dólares con
+  // el promedio del mes y el resto con el del proveedor — dos acuerdos distintos, no un error.
+  const tiposDeCambio = (() => {
+    const g = new Map();
+    proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
+      if (!g.has(l.divisa)) g.set(l.divisa, new Map());
+      const porTc = g.get(l.divisa);
+      const a = porTc.get(String(l.tc)) || { tc: String(l.tc), montoLocal: '0', usdt: '0', proveedores: new Set() };
+      a.montoLocal = money.add(a.montoLocal, l.monto);
+      a.usdt = money.add(a.usdt, l.usdt);
+      a.proveedores.add(p.proveedor);
+      porTc.set(String(l.tc), a);
+    }));
+    return [...g.entries()].map(([divisa, porTc]) => ({
+      divisa,
+      tcs: [...porTc.values()]
+        .map((a) => ({ tc: a.tc, montoLocal: money.round(a.montoLocal, 2), usdt: money.round(a.usdt, 2),
+          cuantos: a.proveedores.size, proveedores: [...a.proveedores].sort() }))
+        .sort((x, y) => Number(y.usdt) - Number(x.usdt)),
+    })).sort((a, b) => a.divisa.localeCompare(b.divisa, 'es'));
+  })();
+
+  // ── "OTROS": LO QUE TIENE GANANCIA Y NO SE PAGA ──────────────────────────────────────────────
+  //
+  // Tres cosas distintas terminaban en el mismo lugar — afuera y sin decir nada:
+  //   · grupos de TBS que no se sabe a qué fila de la matriz corresponden;
+  //   · proveedores que el casino informa y no están en la matriz;
+  //   · filas que SÍ están en la matriz pero sin el % de costo cargado.
+  //
+  // Ninguna puede entrar al total, y esto no es una limitación que se pueda sortear: sin el costo
+  // no hay forma de saber cuánto se le paga. Inventar un porcentaje sería inventar plata.
+  //
+  // Lo que sí se puede es DECIR CUÁNTO ES. Se convierte la ganancia a dólares al TC del mes para
+  // dar la magnitud — sirve para decidir si vale la pena ir a buscar el costo o si son 39 centavos.
+  // Va rotulado como GANANCIA, nunca como "a pagar": son dos números que se parecen y no lo son.
+  const aUsdt = (porDivisa, nombre) => {
+    let t = '0'; const faltanTC = [];
+    Object.entries(porDivisa || {}).forEach(([d, pf]) => {
+      const tc = tcUnico.tcExternos(d, m, nombre);
+      if (!tc.valor) { faltanTC.push(d); return; }
+      t = money.add(t, money.div(pf, tc.valor));
+    });
+    return { usdt: money.round(t, 2), faltanTC };
+  };
+  const otros = [];
+  (tbs.sinMapear || []).forEach((x) => {
+    const c = aUsdt(x.porDivisa, x.grupo);
+    otros.push({ origen: 'TBS', nombre: x.grupo, ref: `grupo ${x.id}`, motivo: x.motivo,
+      porDivisa: x.porDivisa, gananciaUsdt: c.usdt, faltanTC: c.faltanTC });
+  });
+  [...sinVincular.values()].forEach((v) => {
+    const c = aUsdt(v.porDivisa, v.nombre);
+    otros.push({ origen: [...v.conexiones].sort().join(', '), nombre: v.nombre, ref: '',
+      motivo: 'el casino lo informa pero no está en la matriz de proveedores',
+      porDivisa: v.porDivisa, gananciaUsdt: c.usdt, faltanTC: c.faltanTC });
+  });
+  [...sinCosto.values()].forEach((v) => {
+    const c = aUsdt(v.porDivisa, v.nombre);
+    otros.push({ origen: [...v.conexiones].sort().join(', '), nombre: v.nombre, ref: '',
+      motivo: 'está en la matriz pero no tiene el % de costo cargado',
+      porDivisa: v.porDivisa, gananciaUsdt: c.usdt, faltanTC: c.faltanTC });
+  });
+  otros.sort((a, b) => Number(b.gananciaUsdt) - Number(a.gananciaUsdt));
+  const otrosTotal = { gananciaUsdt: money.round(money.sum(otros.map((o) => o.gananciaUsdt)), 2), cuantos: otros.length };
+
   const sumar = (arr) => money.round(money.sum(arr.map((x) => x.usdt)), 2);
   const cuadre = { proveedores: total, etiquetas: sumar(porEtiqueta), divisas: sumar(porDivisa),
-    etiquetasDeducidas: deducidas };
-  cuadre.cuadra = cuadre.proveedores === cuadre.etiquetas && cuadre.proveedores === cuadre.divisas;
+    sistemas: sumar(porSistema), etiquetasDeducidas: deducidas };
+  // Las CUATRO vistas son la misma plata partida distinto: si alguna no da igual, hay un error de
+  // cálculo. Entra la nueva por sistema con el mismo derecho que las otras — una vista que no se
+  // controla es una vista en la que un error puede vivir tranquilo.
+  cuadre.cuadra = cuadre.proveedores === cuadre.etiquetas && cuadre.proveedores === cuadre.divisas
+    && cuadre.proveedores === cuadre.sistemas;
   if (!cuadre.cuadra) {
-    avisos.push(`⚠️ Las tres vistas no dan lo mismo: por proveedor ${cuadre.proveedores}, `
-      + `por etiqueta ${cuadre.etiquetas}, por divisa ${cuadre.divisas}. Es un error de cálculo, no de datos.`);
+    avisos.push(`⚠️ Las cuatro vistas no dan lo mismo: por proveedor ${cuadre.proveedores}, `
+      + `por etiqueta ${cuadre.etiquetas}, por divisa ${cuadre.divisas}, por sistema ${cuadre.sistemas}. `
+      + 'Es un error de cálculo, no de datos.');
   }
 
   return {
     ok: true, mes: m, desde, hasta,
     congelado: !!(precios && precios.congelado),
-    proveedores, porConexion, porEtiqueta, porDivisa, cuadre,
+    proveedores, porConexion, porEtiqueta, porDivisa, porSistema, cuadre,
+    tiposDeCambio, otros, otrosTotal,
     tbsSinMapear: tbs.sinMapear,
     totales: { usdt: total, proveedores: proveedores.length },
-    sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), conexiones: [...v.conexiones] }))
+    sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), porDivisa: v.porDivisa, conexiones: [...v.conexiones] }))
       .sort((a, b) => Number(b.profit) - Number(a.profit)),
-    sinCosto: [...sinCosto], sinTC: [...sinTC], avisos,
+    sinCosto: [...sinCosto.keys()], sinTC: [...sinTC], avisos,
   };
 }
 
