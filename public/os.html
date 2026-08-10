@@ -4434,8 +4434,36 @@ AC.pulso = async () => {
       }).join('') : '<div class="empty">✅ Nada raro en este filtro.</div>'}
     </div>
 
+    <!-- ── QUIÉN VENDE MENOS ────────────────────────────────────────────────────────────────────
+         Va ARRIBA del top de ganancia a propósito: el top dice de dónde sale la plata hoy, y esto
+         dice de dónde va a dejar de salir. Ordenado por DÓLARES perdidos y no por porcentaje —
+         caer 80% sobre 200 USDT importa menos que caer 15% sobre 40.000. -->
+    <div class="card"><h2>Quién está vendiendo menos
+        <span class="muted">— lo que le cargan sus jugadores (el IN), en USDT</span></h2>
+      <div class="muted" style="margin-bottom:8px">Comparado contra <b>los mismos ${esc((p.comparacion||{}).hastaDia||'')} días</b> de ${esc(p.mesPrev)},
+        no contra el mes entero: si no, el que lleva menos días siempre parece que cae.
+        ${(p.comparacion||{}).desparejo?'<b style="color:var(--red)">⚠ Al mes anterior le faltan días capturados en ese tramo, así que la comparación se inclina sola.</b>':''}</div>
+      ${(() => {
+        const cv=(p.clientesVenta||[]).filter(c=>c.inPrev>500||c.in>500);
+        const bajan=cv.filter(c=>c.caidaUsdt>0), suben=cv.filter(c=>c.caidaUsdt<0);
+        if(!cv.length) return '<div class="empty">Sin datos suficientes para comparar.</div>';
+        const fila=(c)=>`<tr>
+          <td><b>${esc(c.cliente)}</b> <span class="muted">${c.paneles} panel${c.paneles===1?'':'es'}</span></td>
+          <td class="right">${money(c.in,0)}</td>
+          <td class="right muted">${money(c.inPrev,0)}</td>
+          <td class="right"><b>${c.caidaUsdt>0?'−':'+'}${money(Math.abs(c.caidaUsdt),0)}</b></td>
+          <td class="right">${flecha(c.varIn)}</td></tr>`;
+        return '<table><thead><tr><th>Cliente</th><th class="right">Vende ahora</th>'
+          +'<th class="right">Vendía</th><th class="right">Diferencia</th><th class="right">%</th></tr></thead><tbody>'
+          +bajan.map(fila).join('')
+          +(suben.length?'<tr><td colspan="5" class="muted" style="padding-top:12px"><b>Los que crecen</b></td></tr>'+suben.reverse().map(fila).join(''):'')
+          +'</tbody></table>'
+          +`<div class="muted" style="margin-top:8px">Neto: se perdieron <b>${money(bajan.reduce((t,c)=>t+c.caidaUsdt,0),0)}</b> USDT de venta y se ganaron <b>${money(suben.reduce((t,c)=>t-c.caidaUsdt,0),0)}</b>.</div>`;
+      })()}
+    </div>
+
     <div class="card"><h2>De dónde sale la ganancia <span class="muted">(top 12)</span></h2>
-      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
+      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}${(p.comparacion||{}).hastaDia?' <span class="muted">(1-'+esc(p.comparacion.hastaDia)+')</span>':''}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
       ${p.top.slice(0,12).map(t=>`<tr>
         <td>${sisPill(t.sistema)}</td>
         <td><b>${esc(t.login)}</b></td><td class="muted">${esc(t.cliente||'—')}</td><td class="muted">${esc(t.moneda)}</td>
