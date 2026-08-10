@@ -214,6 +214,28 @@ app.get('/api/clientes', (_req, res) => {
 });
 
 const casinoConexStore = require('./casino-conexiones-store');
+
+/**
+ * ── CON QUÉ CREDENCIALES SE CARGA EN UN SISTEMA ───────────────────────────────────────────────
+ *
+ * Esto estaba copiado en TRES rutas —cargar, la cascada y anular— y al agregar las conexiones del
+ * OS arreglé una sola: el pedido se veía, pero la vista previa contestaba "Sistema Casino no
+ * configurado" y el botón no servía. Una regla escrita tres veces se corrige una vez y falla en
+ * las otras dos.
+ *
+ * Orden: primero una conexión del OS marcada para cargar en ESE sistema; si no hay, el almacén
+ * viejo (Operativo → Sistemas). Son cuentas distintas de las de lectura a propósito —Alexa_support
+ * no puede bajar fichas— y por eso hay un henry_support aparte.
+ */
+function sistemaParaCargar(nombreSistema) {
+  const cx = casinoConexStore.paraCargar(nombreSistema);
+  if (cx) {
+    const conClave = casinoConexStore.get(cx.id, true) || {};
+    return { name: cx.nombre, url: cx.url, user: cx.usuario, password: conClave.password, origen: 'OS' };
+  }
+  const s = store.list().systems.find((x) => String(x.name).toLowerCase() === String(nombreSistema).toLowerCase());
+  return s ? { ...s, origen: 'Sistemas' } : null;
+}
 const clientesCascada = require('./clientes-cascada');
 const comprobantes = require('./comprobantes-store');
 
@@ -524,7 +546,7 @@ app.post('/api/pedidos/:id/devolver-trabadas', async (req, res) => {
   const cxCarga = casinoConexStore.paraCargar(p.sistema);
   const sys = cxCarga
     ? { name: cxCarga.nombre, url: cxCarga.url, user: cxCarga.usuario, password: casinoConexStore.get(cxCarga.id, true).password }
-    : store.list().systems.find((s) => String(s.name).toLowerCase() === String(p.sistema).toLowerCase());
+    : sistemaParaCargar(p.sistema);
   if (!sys || !sys.password) {
     return res.status(400).json({ ok: false,
       error: `No hay con qué cargar en "${p.sistema}". Marcá una conexión del OS con "carga fichas de ${p.sistema}", `
@@ -545,8 +567,8 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
   if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
   if (p.estado !== 'pendiente') return res.status(400).json({ ok: false, error: `el pedido ya está "${p.estado}"` });
 
-  const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p.sistema).toLowerCase());
-  if (!sys) return res.status(400).json({ ok: false, error: `Sistema "${p.sistema}" no configurado (cargalo en 🔌 Sistemas)` });
+  const sys = sistemaParaCargar(p.sistema);
+  if (!sys) return res.status(400).json({ ok: false, error: `No hay con qué cargar en "${p.sistema}". Marcá una conexión en 🏛 Comercial → Casino con "carga fichas de ${p.sistema}".` });
   if (!sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p.sistema}" sin contraseña guardada` });
   if (!p.userId) return res.status(400).json({ ok: false, error: 'La caja no tiene user_id (ID del casino) — completalo en 👥 Clientes' });
 
@@ -658,8 +680,8 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
   }
 
   // Validaciones que NO mutan (antes de tomar el lock).
-  const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p0.sistema).toLowerCase());
-  if (!sys) return res.status(400).json({ ok: false, error: `Sistema "${p0.sistema}" no configurado (🔌 Sistemas)` });
+  const sys = sistemaParaCargar(p0.sistema);
+  if (!sys) return res.status(400).json({ ok: false, error: `No hay con qué cargar en "${p0.sistema}". Marcá una conexión en 🏛 Comercial → Casino con "carga fichas de ${p0.sistema}".` });
   if (!sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p0.sistema}" sin contraseña guardada` });
   if (!p0.userId) return res.status(400).json({ ok: false, error: 'La caja no tiene user_id del casino' });
 

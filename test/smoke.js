@@ -1629,6 +1629,22 @@ async function main() {
     await axios.delete(BASE + '/api/os/paneles/' + pid, H());
   }
 
+  // ── una sola forma de resolver con qué se carga ──
+  // Estaba copiada en TRES rutas (cargar, cascada, anular). Al agregar las conexiones del OS
+  // arreglé una sola: el pedido se veía pero la vista previa decía "Sistema Casino no configurado"
+  // y el botón no servía. Una regla escrita tres veces se corrige una vez y falla en las otras dos.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    const copias = (src.match(/store\.list\(\)\.systems\.find/g) || []).length;
+    check('carga: la búsqueda del sistema está en UN solo lugar', copias === 1, copias + ' copias');
+    const usos = (src.match(/sistemaParaCargar\(/g) || []).length;
+    check('carga: y las rutas la usan', usos >= 4, String(usos));
+    check('carga: la conexión del OS tiene prioridad', /paraCargar\(nombreSistema\)/.test(src));
+    // el mensaje viejo mandaba a un lugar donde ya no se configura
+    check('carga: el error apunta a donde se configura hoy',
+      !/no configurado \(cargalo en/.test(src) && /carga fichas de/.test(src));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
