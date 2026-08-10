@@ -431,8 +431,9 @@ async function movimientosPanel(){
   if(!ms.length){ caja.innerHTML='<div class="nota">Ningún cliente pidió mover fichas todavía.</div>'; return; }
   const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose…',a_medias:'A MEDIAS — la cadena se cortó',hecho:'hecho',rechazado:'rechazado'};
   caja.innerHTML='<div class="nota"><span class="tit">🔀 Mover fichas entre paneles de un cliente</span>'
-    +'Se retira del origen y se carga en el destino. Si el retiro falla no se movió nada; si falla la carga, '
-    +'las fichas quedan en la cuenta con la que cargamos y <b>Reintentar</b> manda sólo esa mitad — el retiro nunca se repite.'
+    +'Las fichas suben del panel de origen hasta el ancestro que los dos comparten y bajan hasta el destino: '
+    +'no se crea ni se destruye ninguna. Si la cadena se corta, quedan en el último eslabón que sí se movió y '
+    +'<b>Reintentar</b> retoma desde ahí — lo que ya salió no se repite.'
     +'<table style="margin-top:8px"><thead><tr><th>Cliente</th><th>De → a</th><th class="right">Monto</th>'
     +'<th>Estado</th><th>Pedido</th><th></th></tr></thead><tbody>'
     +ms.map(m=>{
@@ -450,7 +451,7 @@ async function movimientosPanel(){
           ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')"'+(m.problema?' disabled title="'+esc(m.problema)+'"':'')+'>Aprobar y mover</button> '
             +'<button class="outline small" onclick="movRechazar(\''+m.id+'\')">Rechazar</button>'
           : m.estado==='a_medias'
-          ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')">Reintentar la carga</button>'
+          ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')">Reintentar desde donde se cortó</button>'
           : m.estado==='ejecutando'
           ? '<button class="outline small" onclick="movDestrabar(\''+m.id+'\')" title="Sólo si el proceso se cortó: devuelve el movimiento al estado que corresponda">Destrabar</button>'
           : '')
