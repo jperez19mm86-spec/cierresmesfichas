@@ -295,6 +295,35 @@ function pulso({ mes, minDias = 5 } = {}) {
     caidaUsdt: Math.round(c.prev - c.in),          // positivo = perdió; negativo = creció
   })).sort((a, b) => b.caidaUsdt - a.caidaUsdt);
 
+  // ── PANELES QUE SE APAGARON ─────────────────────────────────────────────────────────────────
+  //
+  // Nadie avisa cuando un panel deja de operar. Las alertas miran a los que BAJAN, y un panel que
+  // pasó a cero no baja: desaparece de la lista y el mes siguiente parece que nunca existió. En el
+  // mismo tramo de julio había 26 así.
+  //
+  // Se compara contra el MISMO tramo, igual que todo lo demás: uno que movía el 20 de julio y
+  // todavía no movió el 9 de agosto no está apagado, es que no le llegó el turno del mes.
+  const activosPrev = sPrev.filter((x) => x.in > 0 || x.out > 0);
+  const hoyActivos = new Set(activos.map((x) => x.key));
+  const apagados = activosPrev.filter((x) => !hoyActivos.has(x.key)).map((x) => {
+    const n2 = nombre(x);
+    return { ...n2, moneda: x.moneda, movia: Math.round(x.in), moviaUsdt: Math.round(aUsdt(x.in, x.moneda) || 0),
+      dias: x.activos, ultimo: Object.keys(x.dias).filter((f) => x.dias[f].in > 0 || x.dias[f].out > 0).sort().pop() || null };
+  }).sort((a, b) => b.moviaUsdt - a.moviaUsdt);
+
+  // ── PANELES QUE MUEVEN Y NO SON DE NADIE ────────────────────────────────────────────────────
+  //
+  // Están en el reporte del casino y no tienen panel en el OS, así que su ganancia no se le factura
+  // a nadie. No es un problema de datos: es plata sin dueño. Se lista aparte de "los que bajan"
+  // porque la acción es otra — no hay a quién preguntarle, hay que asignarlo.
+  const sinDueno = activos.filter((x) => !nombre(x).cliente).map((x) => {
+    const n2 = nombre(x);
+    return { login: x.login, moneda: x.moneda, sistema: n2.sistema, conexion: n2.conexion,
+      nodo: x.sa_id, conexion_id: x.conexion_id,
+      in: Math.round(x.in), inUsdt: Math.round(aUsdt(x.in, x.moneda) || 0),
+      profitUsdt: Math.round(aUsdt(x.profit, x.moneda) || 0), dias: x.activos };
+  }).sort((a, b) => b.inUsdt - a.inUsdt);
+
   // Serie diaria en USDT: es la única forma honesta de juntar monedas en un gráfico.
   const serieDia = dias.map((f) => {
     let inn = 0, pr = 0, falta = false;
@@ -373,6 +402,8 @@ function pulso({ mes, minDias = 5 } = {}) {
     // Contra qué se comparó, para que la pantalla lo pueda decir en vez de dejarlo implícito.
     // Quién vende menos y quién más, ya sumado por cliente y en dólares.
     clientesVenta,
+    apagados,       // operaban en el mismo tramo del mes pasado y este mes no movieron nada
+    sinDueno,       // mueven plata y no tienen panel en el OS: no se le factura a nadie
     comparacion: {
       hastaDia: ultimoDiaMes,
       diasMes: dias.length,

@@ -1461,6 +1461,16 @@ async function main() {
       /sort\(\(a, b\) => b\.caidaUsdt - a\.caidaUsdt\)/.test(src));
     check('pulso: una moneda sin TC no se suma como cero', /sinTC \+= 1/.test(src));
 
+    // Las dos vistas que faltaban: un panel que BAJA sale en las alertas, pero uno que pasó a CERO
+    // desaparece de la lista y el mes siguiente parece que nunca existió. Y uno sin panel en el OS
+    // mueve plata que no se le factura a nadie.
+    check('pulso: lista los paneles que se apagaron', /const apagados =/.test(src));
+    check('pulso: los apagados se miden contra el MISMO tramo', /activosPrev = sPrev\.filter/.test(src));
+    check('pulso: lista los que mueven y no son de nadie', /const sinDueno =/.test(src));
+    check('pulso: los sin dueño se detectan por no tener cliente', /!nombre\(x\)\.cliente/.test(src));
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('pulso: la pantalla muestra las dos', /Se apagaron/.test(html) && /Mueven y no son de nadie/.test(html));
+
     // El módulo tiene que CARGAR. Este check existe porque una vez declaré dos veces la misma
     // variable y el archivo dejó de parsear: los tests de arriba leen el texto, no lo ejecutan.
     let carga = true; try { require('../src/pulso.service'); } catch (e) { carga = String(e.message); }

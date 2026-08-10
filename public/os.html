@@ -4462,6 +4462,37 @@ AC.pulso = async () => {
       })()}
     </div>
 
+    <!-- ── SE APAGARON ──────────────────────────────────────────────────────────────────────────
+         Un panel que baja aparece en las alertas; uno que pasó a CERO desaparece de la lista y el
+         mes siguiente parece que nunca existió. -->
+    ${(p.apagados||[]).length?`<div class="card"><h2>Se apagaron <span class="muted">(${p.apagados.length})</span></h2>
+      <div class="muted" style="margin-bottom:8px">Operaban en los mismos ${esc((p.comparacion||{}).hastaDia||'')} días de ${esc(p.mesPrev)} y este mes <b>no movieron nada</b>.
+        Juntos movían ${money(p.apagados.reduce((t,x)=>t+x.moviaUsdt,0),0)} USDT.</div>
+      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Movía (USDT)</th><th class="right">Días</th><th>Último movimiento</th></tr></thead><tbody>
+      ${p.apagados.slice(0,20).map(x=>`<tr>
+        <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
+        <td class="muted">${esc(x.cliente||'—')}</td><td class="muted">${esc(x.moneda)}</td>
+        <td class="right"><b>${money(x.moviaUsdt,0)}</b></td>
+        <td class="right muted">${x.dias}</td>
+        <td class="muted">${esc(x.ultimo||'—')}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
+
+    <!-- ── SIN DUEÑO ────────────────────────────────────────────────────────────────────────────
+         Están en el reporte del casino y no tienen panel en el OS: su ganancia no se le factura a
+         nadie. Es plata sin dueño, y la acción no es preguntar sino asignar. -->
+    ${(p.sinDueno||[]).length?`<div class="card" style="border-left:3px solid var(--gold)"><h2>Mueven y no son de nadie <span class="muted">(${p.sinDueno.length})</span></h2>
+      <div class="muted" style="margin-bottom:8px">Aparecen en el casino y <b>no tienen panel en el OS</b>, así que su ganancia no entra en la factura de ningún cliente.
+        Juntos movieron ${money(p.sinDueno.reduce((t,x)=>t+x.inUsdt,0),0)} USDT este mes.
+        Se arreglan creándoles el panel en 👥 Clientes.</div>
+      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Nodo</th><th>Mon.</th><th class="right">Movió (USDT)</th><th class="right">Ganancia</th><th class="right">Días</th></tr></thead><tbody>
+      ${p.sinDueno.map(x=>`<tr>
+        <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
+        <td class="muted">${esc(x.nodo)}</td><td class="muted">${esc(x.moneda)}</td>
+        <td class="right"><b>${money(x.inUsdt,0)}</b></td>
+        <td class="right">${money(x.profitUsdt,0)}</td>
+        <td class="right muted">${x.dias}</td></tr>`).join('')}
+      </tbody></table></div>`:''}
+
     <div class="card"><h2>De dónde sale la ganancia <span class="muted">(top 12)</span></h2>
       <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}${(p.comparacion||{}).hastaDia?' <span class="muted">(1-'+esc(p.comparacion.hastaDia)+')</span>':''}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
       ${p.top.slice(0,12).map(t=>`<tr>
