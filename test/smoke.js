@@ -1418,6 +1418,20 @@ async function main() {
     const permitido = await axios.get(B2 + '/api/pedidos', H2);
     check('operador real: ve los pedidos', permitido.status === 200, String(permitido.status));
 
+    // Una PÁGINA que explica, no un redirect en silencio: volver al inicio sin decir nada hace
+    // pensar que el botón está roto.
+    for (const pag of ['/os', '/tbs']) {
+      const rp = await axios.get(B2 + pag, H2);
+      check(`operador real: ${pag} explica que no tiene permiso`,
+        rp.status === 403 && /No tenés permiso/.test(String(rp.data)), String(rp.status));
+      check(`operador real: ${pag} NO redirige en silencio`, rp.status !== 302, String(rp.status));
+    }
+    // y el dueño sí entra
+    const rl2 = await axios.post(B2 + '/api/login', { user: 'admin', password: 'admin' }, { validateStatus: () => true });
+    const ckAdmin = (rl2.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    const ro = await axios.get(B2 + '/os', { headers: { Cookie: ckAdmin }, validateStatus: () => true, maxRedirects: 0 });
+    check('operador real: el dueño SÍ entra al comercial', ro.status === 200, String(ro.status));
+
     for (const ruta of ['/api/os/clientes', '/api/clientes', '/api/systems', '/api/config',
       '/api/_backup', '/api/os/pago-proveedores?mes=2026-06', '/api/os/api/matriz']) {
       const r2 = await axios.get(B2 + ruta, H2);

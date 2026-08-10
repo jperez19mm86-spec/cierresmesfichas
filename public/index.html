@@ -118,6 +118,13 @@
     table.hist td { border: none; padding: 3px 0; }
     table.hist td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 11px; text-transform: uppercase; margin-right: 6px; }
   }
+
+  /* El operador mira la lista de clientes para saber a quién le está cargando; editarla no le
+     corresponde y el server se lo negaría igual. Se esconde lo que no puede usar en vez de
+     dejarle botones que dan error. */
+  body.solo-despacho .cli-editar,
+  body.solo-despacho .cli-borrar,
+  body.solo-despacho .caja-editar { display: none !important; }
 </style>
 </head>
 <body>
@@ -136,12 +143,27 @@
   <button class="navbtn active" id="nav-pedidos" onclick="switchView('pedidos')">📥 Pedidos <span class="pedbadge" id="pedBadge" style="display:none">0</span></button>
   <button class="navbtn" id="nav-historial" onclick="switchView('historial')">📜 Historial</button>
   <button class="navbtn" id="nav-clientes" onclick="switchView('clientes')">👥 Clientes</button>
-  <button class="navbtn" id="nav-sistemas" onclick="switchView('sistemas')">🔌 Sistemas</button>
   <button class="navbtn" id="nav-config" onclick="switchView('config')">⚙️ Configuración</button>
 </nav>
 
 <main>
-<div id="view-sistemas" style="display:none">
+
+<div id="view-clientes" style="display:none">
+  <div class="card">
+    <h2>Clientes <span class="meta" id="clientesCount"></span></h2>
+    <p class="meta" style="margin-top:0">
+      Cada cliente (<strong>código + nombre</strong>) tiene sus <strong>cajas</strong> en los distintos sistemas.
+      Los <strong>montos rápidos</strong> son los botones de carga que se muestran al operar.
+    </p>
+    <input id="cliSearch" placeholder="🔍 buscar por código, nombre, usuario o user_id…" oninput="renderClientes()" style="margin-bottom:12px" />
+    <div id="clientesList"><div class="empty">Cargando…</div></div>
+  </div>
+
+
+
+</div><!-- /view-clientes -->
+
+<div id="view-config" style="display:none">
   <div class="card">
     <h2>Sistemas (páginas de agente)</h2>
     <p class="meta" style="margin-top:0">
@@ -183,24 +205,6 @@
     <div id="newResult" class="status" style="margin-top:10px"></div>
     <div class="hint">Sin <code>https://</code> está OK — se agrega solo. La contraseña se guarda solo en tu máquina (carpeta <code>data/</code>, no se sube a GitHub).</div>
   </div>
-</div><!-- /view-sistemas -->
-
-<div id="view-clientes" style="display:none">
-  <div class="card">
-    <h2>Clientes <span class="meta" id="clientesCount"></span></h2>
-    <p class="meta" style="margin-top:0">
-      Cada cliente (<strong>código + nombre</strong>) tiene sus <strong>cajas</strong> en los distintos sistemas.
-      Los <strong>montos rápidos</strong> son los botones de carga que se muestran al operar.
-    </p>
-    <input id="cliSearch" placeholder="🔍 buscar por código, nombre, usuario o user_id…" oninput="renderClientes()" style="margin-bottom:12px" />
-    <div id="clientesList"><div class="empty">Cargando…</div></div>
-  </div>
-
-
-
-</div><!-- /view-clientes -->
-
-<div id="view-config" style="display:none">
   <div class="card">
     <h2>📣 Avisos por Telegram <span class="meta" id="cfgStatus"></span></h2>
     <p class="meta" style="margin-top:0">
@@ -398,12 +402,12 @@
 
   // ═══════════ NAVEGACIÓN ═══════════
   function switchView(name) {
-    for (const v of ['sistemas', 'clientes', 'pedidos', 'historial', 'config']) {
+    for (const v of ['clientes', 'pedidos', 'historial', 'config']) {
       document.getElementById('view-' + v).style.display = name === v ? '' : 'none';
       document.getElementById('nav-' + v).classList.toggle('active', name === v);
     }
     if (name === 'clientes') { loadSystemNames().then(loadClientes); }
-    if (name === 'config') loadConfig();   // el bot vive acá desde que se movió de Clientes
+    if (name === 'config') { loadConfig(); loadSystems(); }
     if (name === 'pedidos') loadPedidos();
     if (name === 'historial') loadHistorial();
   }
@@ -420,10 +424,29 @@
     } catch { _systemNames = []; }
   }
 
+  /* El operador no puede pedir /api/clientes — ese trae margen_externos_pct, tc_proveedor y la
+     config de Telegram. Tiene su propia ruta con lo justo para despachar: código, nombre, estado
+     y las cajas. Sin esto la pantalla le mostraba "0 clientes" y parecía que no había ninguno. */
   async function loadClientes() {
-    const { body } = await api('/api/clientes');
+    const ruta = _soyOperador ? '/api/despacho/clientes' : '/api/clientes';
+    const { body } = await api(ruta);
     _clientes = body && body.ok ? body.clientes : [];
     renderClientes();
+  }
+
+  /* Quién está mirando. Se pregunta una vez al entrar: el server ya bloquea lo que no corresponde,
+     pero mostrar una pantalla que va a contestar 403 hace pensar que el sistema está roto. */
+  let _soyOperador = false;
+  async function quienSoy() {
+    try {
+      const { body } = await api('/api/quien');
+      _soyOperador = !!(body && body.rol === 'operador');
+    } catch (e) { _soyOperador = false; }
+    if (_soyOperador) {
+      const cfg = document.getElementById('nav-config');
+      if (cfg) cfg.style.display = 'none';
+      document.body.classList.add('solo-despacho');
+    }
   }
 
   function money(n) { return Number(n).toLocaleString('es-AR'); }
@@ -852,7 +875,8 @@
 
   // init
   loadSystems();          // datos de sistemas + banner del header
-  switchView('pedidos');  // SIEMPRE arranca en Pedidos al entrar a la página (fuerza la vista + carga la lista)
+  // Primero quién soy: si es el operador hay que esconder Configuración ANTES de pintar nada.
+  quienSoy().then(() => switchView('pedidos'));
   refreshPedBadge();
   setInterval(refreshPedBadge, 20000); // refrescar contador de pedidos pendientes
   registerSW().then(refreshNotifButton); // PWA + estado del botón de avisos

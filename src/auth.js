@@ -153,6 +153,28 @@ function isSecure(req) {
   return req.secure || req.headers['x-forwarded-proto'] === 'https';
 }
 
+/** Lo que ve el operador cuando toca una parte que no le corresponde. */
+function paginaSinPermiso(ruta) {
+  const donde = ruta.startsWith('/tbs') ? 'TBS' : (ruta.startsWith('/os') ? 'el OS comercial' : 'esta parte del sistema');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Sin permiso</title>
+    <style>
+      body{font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#2b2230;background:#fdf7fb;
+           display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}
+      .c{max-width:440px;background:#fff;border:1px solid #ead6e6;border-radius:12px;padding:26px 28px;
+         box-shadow:0 1px 3px rgba(0,0,0,.05)}
+      h1{font-size:19px;margin:0 0 8px}
+      p{margin:0 0 14px;color:#5c4f57}
+      a{display:inline-block;padding:9px 16px;background:#c456ad;color:#fff;text-decoration:none;border-radius:7px;font-weight:600}
+    </style></head><body><div class="c">
+    <h1>🔒 No tenés permiso para entrar acá</h1>
+    <p>Tu usuario puede <b>ver y despachar pedidos</b>, y nada más. ${donde} es del dueño.</p>
+    <p style="font-size:13px">Si necesitás entrar, pedíselo a él.</p>
+    <a href="/">← Volver a los pedidos</a>
+    </div></body></html>`;
+}
+
 /** Middleware: protege todo salvo las rutas públicas. */
 function required(req, res, next) {
   if (req.method === 'OPTIONS') return next();
@@ -165,7 +187,9 @@ function required(req, res, next) {
     if (req.path.startsWith('/api/')) {
       return res.status(403).json({ ok: false, error: 'Tu usuario sólo puede ver y despachar pedidos.' });
     }
-    return res.redirect('/');
+    // Una PÁGINA, no un redirect. Mandarlo de vuelta al inicio en silencio parece que el botón
+    // está roto: aprieta Comercial y vuelve a donde estaba, sin saber por qué. Que diga qué pasó.
+    return res.status(403).type('html').send(paginaSinPermiso(req.path));
   }
   if (rol) return next();
   if (req.path.startsWith('/api/')) {
