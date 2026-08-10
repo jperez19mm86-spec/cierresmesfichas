@@ -1373,6 +1373,26 @@ async function main() {
     check('rehacer: con datos previos y pidiéndolo, saca', decidir(true, true) === 'saca');
   }
 
+  // ── dos funciones con el mismo nombre no fallan: gana la última ──
+  // Declaré un apiToggle() para la pantalla de Clientes sin ver que ya existía otro para Cuentas
+  // del mes. No da error: JavaScript se queda con la segunda, así que las flechas de una pantalla
+  // llaman a la lógica de la otra y las dos dejan de andar, sin nada en la consola.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    const cuenta = {};
+    [...js.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)]
+      .forEach((m) => { cuenta[m[1]] = (cuenta[m[1]] || 0) + 1; });
+    const repetidas = Object.entries(cuenta).filter(([, n]) => n > 1).map(([k, n]) => `${k}×${n}`);
+    check('js: ninguna función declarada dos veces', repetidas.length === 0, repetidas.join(', '));
+    // y lo mismo para const/let en el nivel de arriba
+    const decl = {};
+    [...js.matchAll(/(?:^|\n)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g)]
+      .forEach((m) => { decl[m[1]] = (decl[m[1]] || 0) + 1; });
+    const dobles = Object.entries(decl).filter(([, n]) => n > 1).map(([k, n]) => `${k}×${n}`);
+    check('js: ninguna const/let de arriba declarada dos veces', dobles.length === 0, dobles.join(', '));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

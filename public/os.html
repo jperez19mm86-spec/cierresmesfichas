@@ -78,7 +78,7 @@
   .nota table th { font-size:10px; }
   .nota table td { padding:4px 9px; font-size:12px; }
   .cie-ok { background:rgba(46,160,67,.28)!important; transition:background .1s; }
-  /* Cuentas de API: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
+  /* Cuentas del mes de TBS: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
      cada bloque es una tabla cerrada con su propio subtotal y su TC en la cabecera. */
   .apidiv { margin:0 0 12px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
   .apidiv-h { display:flex; gap:9px; align-items:baseline; padding:6px 10px; background:var(--bg3);
@@ -178,7 +178,7 @@ const TABS_COMERCIAL = [
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
 // de API se convierten con él: sin eso habría que saltar al otro espacio para revisar un TC.
 const TABS_TBS = [
-  ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Cuentas de API'],
+  ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Clientes'],
   '|',
   ['tbscuentas','🧾 Cuentas del mes'], ['tbsresumen','📊 Cierre del mes'],
   '|',
@@ -3080,7 +3080,7 @@ VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (AP
 });
 function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
 function apiHeader(){
-  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Cuentas de API'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
+  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Clientes'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_apiSub?'':'outline'} small" onclick="apiSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="api-body"></div>`;
@@ -3091,26 +3091,48 @@ API.clientes = async () => {
   const cs=(await api('/api/os/api/clientes')).clientes||[];
   const m=await api('/api/os/api/matriz');
   document.getElementById('api-body').innerHTML=`
-    <div class="card"><h2>Cuentas de API <span class="muted">(${cs.length})</span></h2>
-      <div class="muted">Cada cuenta es un nodo del árbol de TBS. La clave es su <b>id</b>, no el nombre:
-        la planilla los escribe distinto de como los llama el panel, y por eso cada uno guarda sus <b>otros nombres</b>.</div>
-      <table style="margin-top:10px"><thead><tr><th>Cuenta en TBS</th><th>id</th><th>Otros nombres</th><th>Grupo de Telegram</th><th class="right">Sellos con precio</th><th>Estado</th></tr></thead><tbody>
+    <div class="card"><h2>Clientes <span class="muted">(${cs.length})</span></h2>
+      <div class="muted">Cada cliente es un nodo del árbol de TBS. La clave es su <b>id</b>, no el nombre.
+        Tocá la flecha para ver y editar el grupo de Telegram y los otros nombres con los que aparece.</div>
+      <table style="margin-top:10px"><thead><tr><th></th><th>Cliente</th><th>id</th>
+        <th class="right">Sellos con precio</th><th>Telegram</th><th>Estado</th></tr></thead><tbody>
       ${cs.map(c=>{
         const n=Object.keys((m.celdas||{})[c.id]||{}).length;
         const ver=Object.values((m.celdas||{})[c.id]||{}).filter(x=>x.origen==='verificado').length;
+        const ab=(window._apiAbierto||new Set()).has(c.id);
+        /* El detalle plegado: dos campos que se tocan una vez y después estorban. Los "otros
+           nombres" NO se pueden borrar aunque no se vean — el primero es el nombre que sale en el
+           cierre de mes, y la planilla encuentra al cliente por ellos cuando lo escribe distinto. */
+        const det = ab ? `<tr class="sub"><td></td><td colspan="5"><div class="subwrap" style="padding:8px 10px">
+          <div class="row" style="gap:14px;flex-wrap:wrap">
+            <div style="flex:0 0 230px"><label>Grupo de Telegram</label>
+              <input id="tgapi-${c.id}" value="${esc(c.telegram_chat_id||'')}" placeholder="-1001234567890"
+                onchange="apiTgGuardar('${c.id}')" style="width:200px;font-family:monospace;font-size:12px">
+              <div class="muted" style="font-size:11px">Donde se le manda la cuenta del mes. La matriz la recibe siempre.</div></div>
+            <div style="flex:1;min-width:220px"><label>Otros nombres</label>
+              <div class="muted" style="font-size:12px;font-family:monospace">${(c.alias||[]).join(' · ')||'—'}</div>
+              <div class="muted" style="font-size:11px">Con los que aparece en la planilla. El primero es el que se muestra en el cierre del mes.</div></div>
+            ${c.notas?`<div style="flex:1 0 100%" class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}
+          </div></div></td></tr>` : '';
         return `<tr${c.activo?'':' style="opacity:.5"'}>
-          <td><b>${esc(c.login)}</b>${c.notas?`<div class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}</td>
+          <td style="width:20px;cursor:pointer" onclick="apiCliToggle('${c.id}')"><span style="color:var(--gold)">${ab?'▾':'▸'}</span></td>
+          <td style="cursor:pointer" onclick="apiCliToggle('${c.id}')"><b>${esc(c.login)}</b></td>
           <td class="muted">${esc(c.id)}<div style="font-size:10px">cuelga de ${esc(c.agente||'—')}</div></td>
-          <td class="muted" style="font-size:11px">${(c.alias||[]).join(' · ')||'—'}</td>
-          <td><input id="tgapi-${c.id}" value="${esc(c.telegram_chat_id||'')}" placeholder="-1001234567890"
-            onchange="apiTgGuardar('${c.id}')" style="width:170px;font-family:monospace;font-size:12px">
-            ${c.telegram_chat_id?'':'<span class="badge err" style="margin-left:5px">sin grupo</span>'}</td>
           <td class="right">${n?`<b>${n}</b> <span class="muted" style="font-size:11px">(${ver} verificados)</span>`:'<span class="badge err">sin precios</span>'}</td>
-          <td>${c.activo?'<span class="badge ok">activa</span>':'<span class="muted">inactiva</span>'}</td></tr>`;
+          <td>${c.telegram_chat_id?'<span class="badge ok">grupo</span>':'<span class="badge err">sin grupo</span>'}</td>
+          <td>${c.activo?'<span class="badge ok">activa</span>':'<span class="muted">inactiva</span>'}</td></tr>`+det;
       }).join('')}
       </tbody></table></div>`;
 };
 
+window._apiAbierto = window._apiAbierto || new Set();
+/* Ojo con el nombre: ya existe un apiToggle() para la pantalla de Cuentas del mes. Dos funciones
+   con el mismo nombre no fallan — gana la última — así que las flechas de acá habrían llamado a la
+   de allá y roto las dos pantallas sin un solo error en la consola. */
+function apiCliToggle(id){
+  const S=window._apiAbierto; S.has(id)?S.delete(id):S.add(id);
+  API.clientes && API.clientes();
+}
 API.matriz = async () => {
   const m=await api('/api/os/api/matriz');
   const cs=(m.clientes||[]).filter(c=>c.activo);
@@ -3498,7 +3520,7 @@ async function apiEnviar(id, nombre, alcance, alCliente){
   const c=cs.find(x=>String(x.id)===String(id));
   const chat=((c&&c.telegram_chat_id)||'').trim();
   if(!matriz && !alCliente) return alert('Falta el grupo matriz.\n\nSe carga en ⚙ Config → 📣 Telegram.');
-  if(alCliente && !chat) return alert(nombre+' no tiene grupo propio cargado.\n\nSe pone en 👥 Cuentas de API.\nSin eso igual podés mandarla a la matriz.');
+  if(alCliente && !chat) return alert(nombre+' no tiene grupo propio cargado.\n\nSe pone en 👥 Clientes, abriendo la flecha del cliente.\nSin eso igual podés mandarla a la matriz.');
   const van=[matriz?'la matriz ('+matriz+')':null, (alCliente&&chat&&chat!==matriz)?nombre+' ('+chat+')':null].filter(Boolean);
   if(!confirm('¿Mandar la cuenta de '+nombre+' de '+mes+'?\n\nVa a: '+van.join('\ny a: ')
     +'\n\nSon mensajes de verdad: no se pueden deshacer.')) return;
