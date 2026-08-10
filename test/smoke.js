@@ -1645,6 +1645,34 @@ async function main() {
       !/no configurado \(cargalo en/.test(src) && /carga fichas de/.test(src));
   }
 
+  // ── el historial va del más nuevo al más viejo, venga de donde venga el pedido ──
+  // Antes alcanzaba el orden del array: create() mete cada uno adelante. Pero al importar los 875
+  // del sistema en línea, que ya venían del más nuevo al más viejo, cada unshift los dio vuelta y
+  // el historial mostraba 31/7 y después 1/8, avanzando hacia adelante.
+  {
+    const orden = (arr) => [...arr].sort((a, b) => {
+      const fa = String(a.createdAt || ''); const fb = String(b.createdAt || '');
+      if (fa !== fb) return fa < fb ? 1 : -1;
+      return String(b.id).localeCompare(String(a.id));
+    });
+    const desordenados = [
+      { id: 'p_a', createdAt: '2026-07-31T10:00:00.000Z' },
+      { id: 'p_b', createdAt: '2026-08-10T07:00:00.000Z' },
+      { id: 'p_c', createdAt: '2026-08-01T09:00:00.000Z' },
+    ];
+    const r = orden(desordenados).map((x) => x.id);
+    check('historial: del más nuevo al más viejo', r.join(',') === 'p_b,p_c,p_a', r.join(','));
+    // dos del mismo segundo no se pueden intercambiar entre una consulta y la siguiente
+    const empate = [{ id: 'p_1', createdAt: 'X' }, { id: 'p_2', createdAt: 'X' }];
+    check('historial: con la misma fecha el orden es estable',
+      orden(empate).map((x) => x.id).join(',') === orden(empate.slice().reverse()).map((x) => x.id).join(','));
+    // y contra el server de verdad
+    const h = (await get('/api/pedidos')).data.pedidos || [];
+    const fechas = h.map((p) => String(p.createdAt || ''));
+    const bien = fechas.every((f, i) => i === 0 || fechas[i - 1] >= f);
+    check('historial: el server los devuelve ordenados', bien, fechas.slice(0, 3).join(' | '));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

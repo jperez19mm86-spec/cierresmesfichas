@@ -178,7 +178,18 @@ function list(filters = {}) {
   let arr = load().pedidos;
   if (filters.estado) arr = arr.filter((p) => p.estado === filters.estado);
   if (filters.codigo) arr = arr.filter((p) => String(p.codigo).toLowerCase() === String(filters.codigo).toLowerCase());
-  return arr;
+  // ── EL ORDEN SALE DE LA FECHA, NO DE CÓMO ENTRARON ──────────────────────────────────────────
+  // Antes alcanzaba con el orden del array: create() mete cada pedido nuevo adelante, así que
+  // quedaba del más nuevo al más viejo solo. Pero al importar los 875 del sistema en línea, que ya
+  // venían del más nuevo al más viejo, cada unshift los fue dando vuelta: el historial mostraba
+  // 31/7 y después 1/8, avanzando hacia adelante en vez de hacia atrás.
+  // Ordenar por fecha lo arregla venga de donde venga el pedido. Empate → el id, para que dos
+  // pedidos del mismo segundo no se intercambien entre una consulta y la siguiente.
+  return [...arr].sort((a, b) => {
+    const fa = String(a.createdAt || ''); const fb = String(b.createdAt || '');
+    if (fa !== fb) return fa < fb ? 1 : -1;
+    return String(b.id).localeCompare(String(a.id));
+  });
 }
 
 function counts() {
