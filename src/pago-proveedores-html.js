@@ -38,6 +38,7 @@ const CSS = `
   .pg-h{border-bottom:2px solid #2b2230;padding-bottom:7px;margin-bottom:2px;
         display:flex;align-items:baseline;gap:10px}
   .pg-h b{font-size:19px;letter-spacing:-.01em}
+  .pg-h .mes{font-weight:600;color:#8a4d80}
   .pg-h .num{font-size:11px;font-weight:800;color:#fff;background:#8a4d80;
              border-radius:4px;padding:2px 7px;letter-spacing:.06em}
   .pg-h .cnt{margin-left:auto;font-size:11px;color:#8c7e89;white-space:nowrap}
@@ -109,9 +110,15 @@ const divisasDe = (porDivisa, tope = 4) => {
   return vistas + (xs.length > tope ? ` <i>y ${xs.length - tope} divisa(s) más</i>` : '');
 };
 
-/** El encabezado de una sección: número de hoja, título, y a la derecha el conteo. */
-const cab = (num, titulo, cnt, sub) => `<div class="pg"><div class="pg-h">`
-  + `<span class="num">HOJA ${num}</span><b>${esc(titulo)}</b>`
+/**
+ * El encabezado de una sección: número de hoja, título CON EL MES, y a la derecha el conteo.
+ *
+ * El mes va en cada título y en cada caja de total, no sólo en la portada: estas hojas se imprimen,
+ * se separan y se archivan sueltas. Una hoja que dice "Por etiqueta — 9.872,27 USDT" sin decir de
+ * cuándo es no sirve para nada arriba de un escritorio con tres meses encima.
+ */
+const cab = (num, titulo, mes, cnt, sub) => `<div class="pg"><div class="pg-h">`
+  + `<span class="num">HOJA ${num}</span><b>${esc(titulo)} <span class="mes">· ${esc(mes)}</span></b>`
   + (cnt ? `<span class="cnt">${esc(cnt)}</span>` : '') + '</div>'
   + (sub ? `<div class="pg-sub">${sub}</div>` : '');
 
@@ -165,7 +172,7 @@ function hoja(rep, emision) {
   // va a encontrar en las hojas siguientes: así se sabe si hace falta darlas vuelta o no.
   const portada = `<h1>Pago a proveedores</h1>
     <div class="mut">${esc(mesNom)}${rep.congelado ? ' · precios congelados de ese mes' : ' · precios de hoy (mes sin congelar)'}</div>
-    <div class="tot"><div class="k">Total a pagar</div><div class="v">${n(c.proveedores)} USDT</div>
+    <div class="tot"><div class="k">Total a pagar · ${esc(mesNom)}</div><div class="v">${n(c.proveedores)} USDT</div>
       <div class="porsis">${conex.map(([k, v]) => `<div><div class="k">${esc(k)}</div>`
         + `<div class="v">${n(v.usdt)}</div>`
         + `<div class="mut">${v.filas} línea(s)</div></div>`).join('')}</div></div>
@@ -198,11 +205,11 @@ function hoja(rep, emision) {
 
   // ── HOJA 2 · POR PROVEEDOR ───────────────────────────────────────────────────────────────────
   const mayorProv = mayor(provs.map((p) => ({ clave: p.proveedor, usdt: p.usdt })));
-  const tProv = cab(2, 'Por proveedor', `${provs.length} proveedores`,
+  const tProv = cab(2, 'Por proveedor', mesNom, `${provs.length} proveedores`,
     'Cada proveedor con su etiqueta y el % de costo que se le aplica. Es la vista que se concilia '
     + 'renglón por renglón contra la liquidación que manda cada uno.')
     + `<div class="sum">
-        ${box('Total a pagar', `${n(c.proveedores)} USDT`)}
+        ${box(`Total a pagar · ${mesNom}`, `${n(c.proveedores)} USDT`)}
         ${box('Proveedores', String(provs.length))}
         ${box('El más grande', mayorProv ? esc(mayorProv.clave) : '—', mayorProv ? `${n(mayorProv.usdt)} USDT` : '')}
         ${box('Promedio', `${n(provs.length ? Number(c.proveedores) / provs.length : 0)} USDT`)}
@@ -220,11 +227,11 @@ function hoja(rep, emision) {
 
   // ── HOJA 3 · POR ETIQUETA ────────────────────────────────────────────────────────────────────
   const mayorEt = mayor(etiq);
-  const tEtiq = cab(3, 'Por etiqueta', `${etiq.length} etiquetas`,
+  const tEtiq = cab(3, 'Por etiqueta', mesNom, `${etiq.length} etiquetas`,
     'Los grupos con los que se paga de verdad. Una etiqueta puede juntar varios proveedores: al pie '
     + 'de esta hoja está el detalle de qué incluye cada una.')
     + `<div class="sum">
-        ${box('Total a pagar', `${n(c.etiquetas)} USDT`)}
+        ${box(`Total a pagar · ${mesNom}`, `${n(c.etiquetas)} USDT`)}
         ${box('Etiquetas', String(etiq.length))}
         ${box('La más grande', mayorEt ? esc(mayorEt.clave) : '—', mayorEt ? `${n(mayorEt.usdt)} USDT` : '')}
         ${box('Las 3 primeras', `${n([...etiq].sort((a, b) => Number(b.usdt) - Number(a.usdt)).slice(0, 3)
@@ -251,11 +258,11 @@ function hoja(rep, emision) {
   // para responderla. Cruzada se lee de un renglón. Son 95 filas y 3 columnas: entra.
   const usdtDe = (p, s) => (p.lineas || []).filter((l) => l.conexion === s)
     .reduce((t, l) => t + Number(l.usdt), 0);
-  const tSis = cab(4, 'Por sistema', `${sis.length} sistemas · ${provs.length} proveedores`,
+  const tSis = cab(4, 'Por sistema', mesNom, `${sis.length} sistemas · ${provs.length} proveedores`,
     'La misma plata abierta por panel. La primera columna de números es el total del proveedor; las '
     + 'que siguen dicen por dónde se generó.')
     + `<div class="sum">
-        ${box('Total a pagar', `${n(c.sistemas)} USDT`)}
+        ${box(`Total a pagar · ${mesNom}`, `${n(c.sistemas)} USDT`)}
         ${sis.map((s) => box(s.clave, `${n(s.usdt)} USDT`,
     `${Math.round((Number(s.usdt) / (Number(c.sistemas) || 1)) * 100)}% · ${(s.proveedores || []).length} prov.`)).join('')}
       </div>
@@ -273,11 +280,11 @@ function hoja(rep, emision) {
 
   // ── HOJA 5 · POR DIVISA ──────────────────────────────────────────────────────────────────────
   const mayorDiv = mayor(divs);
-  const tDiv = cab(5, 'Por divisa', `${divs.length} divisas`,
+  const tDiv = cab(5, 'Por divisa', mesNom, `${divs.length} divisas`,
     'Cuánto se movió en cada moneda y con qué tipo de cambio se pasó a dólares. La diferencia contra '
     + 'la liquidación de un proveedor casi siempre está acá.')
     + `<div class="sum">
-        ${box('Total a pagar', `${n(c.divisas)} USDT`)}
+        ${box(`Total a pagar · ${mesNom}`, `${n(c.divisas)} USDT`)}
         ${box('Divisas', String(divs.length))}
         ${box('La más grande', mayorDiv ? esc(mayorDiv.clave) : '—', mayorDiv ? `${n(mayorDiv.usdt)} USDT` : '')}
         ${box('Con más de un TC', String(divs.filter((d) => !d.tc).length), 'SL2 y BVS van aparte')}
@@ -304,7 +311,7 @@ function hoja(rep, emision) {
   //
   // La columna de dólares dice GANANCIA y no "a pagar" a propósito: son dos números que se parecen
   // y no lo son. Lo que se paga es la ganancia por el % de costo, y el % es justo lo que falta.
-  const tOtros = !hayHoja6 ? '' : cab(6, 'Otros', `${otros.length + sc.length} conceptos`,
+  const tOtros = !hayHoja6 ? '' : cab(6, 'Otros', mesNom, `${otros.length + sc.length} conceptos`,
     'Todo lo que tiene ganancia y <b>no entra al total a pagar</b>. No entra porque falta el dato con '
     + 'el que se calcula —a qué proveedor corresponde, o con qué % de costo— y ponerle un porcentaje '
     + 'inventado sería inventar plata.')
@@ -357,7 +364,7 @@ function hoja(rep, emision) {
   // ("a mí me da otra cosa") pasa de ser una investigación a comparar una línea.
   const tcs = rep.tiposDeCambio || [];
   const pieTC = !tcs.length ? '' : `<div class="pg"><div class="pg-h">
-      <span class="num">PIE</span><b>Tipos de cambio usados</b>
+      <span class="num">PIE</span><b>Tipos de cambio usados <span class="mes">· ${esc(mesNom)}</span></b>
       <span class="cnt">${tcs.length} divisas</span></div>
     <div class="pg-sub">Con estos valores se pasó cada monto a dólares. Una divisa con dos filas no
       es un error: <b>SL2 y BVS</b> se convierten con el <b>promedio del mes</b> y el resto con el

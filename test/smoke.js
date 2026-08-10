@@ -1466,8 +1466,11 @@ async function main() {
       cuadre: { proveedores: '10', etiquetas: '10', divisas: '10', sistemas: '10', cuadra: true } };
     const h = hoja(REP);
     // el trozo de HTML de UNA sección, para no medir contra el documento entero
+    // El título de cada hoja lleva el mes adentro del <b> ("Por etiqueta · Junio 2026"), así que se
+    // busca por el arranque y no por el <b> cerrado.
+    const abre = (titulo) => '<b>' + titulo + ' <span class="mes">';
     const seccion = (titulo) => {
-      const i0 = h.indexOf('<b>' + titulo + '</b>');
+      const i0 = h.indexOf(abre(titulo));
       if (i0 < 0) return '';
       const i1 = h.indexOf('<div class="pg">', i0);
       return h.slice(i0, i1 < 0 ? h.length : i1);
@@ -1510,8 +1513,10 @@ async function main() {
     const otros = seccion('Otros');
     check('hoja: Otros lista lo que no se paga', /grupo sin equivalencia/.test(otros) && />ig</.test(otros));
     check('hoja: Otros dice que es ganancia y no lo que se debe', /[Gg]anancia/.test(otros));
+    // El total a pagar es 10,00 aunque "Otros" traiga 241,19 de ganancia. Si alguna vez alguien suma
+    // las dos cosas, este check es el que lo frena: 251,19 no puede aparecer en ningún lado.
     check('hoja: Otros NO entra en el total a pagar',
-      /Total a pagar<\/div><div class="v">10,00 USDT/.test(h) && !/251/.test(h));
+      /Total a pagar · Junio 2026<\/div><div class="v">10,00 USDT/.test(h) && !/251,19/.test(h));
 
     // ── el resumen de la portada ──
     check('hoja: la portada abre con el total y los tres sistemas',
@@ -1519,8 +1524,17 @@ async function main() {
     check('hoja: el cuadre nombra las cuatro vistas', /cuatro vistas/.test(h));
 
     // una hoja sin "otros" no inventa la sección
-    const hSin = hoja({ ...REP, otros: [], otrosTotal: { gananciaUsdt: '0', cuantos: 0 } });
-    check('hoja: sin Otros, no aparece la hoja de Otros', !/<b>Otros<\/b>/.test(hSin));
+    const hSin = hoja({ ...REP, otros: [], otrosTotal: { gananciaUsdt: '0', cuantos: 0 },
+      sinCostoDetalle: [], sinCostoResumen: { cuantos: 0, revisar: 0, familias: [] } });
+    check('hoja: sin Otros, no aparece la hoja de Otros', !hSin.includes(abre('Otros')));
+
+    // ── EL MES VA EN CADA HOJA ──
+    // Estas hojas se imprimen, se separan y se archivan sueltas. Una que diga "Por etiqueta —
+    // 9.872,27 USDT" sin decir de cuándo es no sirve arriba de un escritorio con tres meses encima.
+    ['Por proveedor', 'Por etiqueta', 'Por sistema', 'Por divisa', 'Otros', 'Tipos de cambio usados']
+      .forEach((t) => check(`hoja: ${t} dice de qué mes es`, /Junio 2026/.test(seccion(t).slice(0, 300))));
+    check('hoja: la caja del total dice el mes',
+      /Total a pagar · Junio 2026/.test(h));
   }
 
   // ── la vista general no se puede cachear si el casino está en otro nivel ──

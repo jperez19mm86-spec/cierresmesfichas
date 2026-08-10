@@ -99,6 +99,15 @@ const TBS_SUELTOS = {
   // planilla. Cobrarlo entero al 8% daba 52,73 USDT contra los 44,07 de su hoja; al 6,5% da 42,84,
   // que es lo más cerca que se puede estar sin poder partir el grupo.
   41: 'PLATIPUS PLATIPUS',
+  // El dueño confirmó que el grupo 24 es TH. Va contra la fila SUELTA "TOM HORN TOMHORN" (5%) y no
+  // contra la familia TH entera, por una razón concreta: las tres filas de esa familia cuestan
+  // distinto —TOM HORN TOMHORN 5, VIVO_LIVE_DEALERS_TH 6, VIVO LIVE DEALERS TOMHORN 8— así que
+  // facturar "toda la familia" sería una mezcla de la que no se sabría de dónde salió el número.
+  // Además TBS reporta las mesas en vivo en sus propios grupos (op_live, evolution_pragmatic_live),
+  // igual que pasa con Slot Zona: este grupo son los slots.
+  // ⚠️ Ojo con esas dos filas de VIVO LIVE DEALERS: parecen la misma escrita distinto y cuestan 6 y
+  // 8. Mientras sigan las dos, cualquier cosa que caiga ahí se factura al precio de la que ganó.
+  24: 'TOM HORN TOMHORN',
 };
 
 /** Para comparar nombres de proveedor: sin espacios, guiones ni mayúsculas. */
@@ -237,8 +246,9 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
   }
   out.usdt = money.round(out.usdt, 2);
   out.proveedores.sort((a, b) => Number(b.usdt) - Number(a.usdt));
-  const usados = delVivo.filter((k) => out.proveedores.some((p) => p.lineas.length && K(p.proveedor).startsWith(k)));
-  if (usados.length) avisos.push(`TBS: ${usados.length} proveedor(es) no estaban en la foto del mes congelado, así que se usó su costo de HOY: ${usados.slice(0, 8).join(', ')}${usados.length > 8 ? '…' : ''}`);
+  // El aviso de "se usó el costo de hoy" lo da ahora reporte(), una sola vez y para los tres
+  // motores. Acá quedaba a medias: sólo miraba los nombres de TBS, y el casino tenía el mismo
+  // problema sin decir nada.
   return out;
 }
 
@@ -352,6 +362,31 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     cierre.getMatriz().proveedores.forEach((p) => { costoDe[K(p.nombre)] = p.base_pct; });
   }
 
+  // ── LO QUE NO ESTABA EN LA FOTO DEL MES SE COMPLETA CON EL COSTO DE HOY ───────────────────────
+  //
+  // La foto de precios se saca el día que se congela el mes; un proveedor cargado después no está
+  // en ella. Hasta acá esas filas se caían del cálculo enteras — y no eran pocas: en junio y en
+  // julio son 40 cada uno. Treinta y ocho cuestan 0, así que no cambiaban nada; las otras dos son
+  // plata que no se estaba contando (junio: EVOLUTION LOBBY ORIGINAL PREMIUM al 17% y MICROGAMING
+  // SL2 al 0,5%).
+  //
+  // Esto YA se hacía para TBS, con este mismo argumento escrito en lineasTBS: "es la única forma de
+  // dar un número, pero no es la foto". Lo raro era que el casino no lo hiciera. Ahora es uno solo
+  // y avisa una vez, con los nombres.
+  //
+  // Se completa SÓLO lo que falta: un costo que sí está en la foto manda siempre, porque para eso
+  // se congela un mes. Y si el nombre no está tampoco en la matriz de hoy, no se inventa nada:
+  // queda listado en "Otros".
+  const costoDelVivo = [];
+  cierre.getMatriz().proveedores.forEach((p) => {
+    const k = K(p.nombre);
+    const enFoto = costoDe[k];
+    if (enFoto != null && enFoto !== '') return;
+    if (p.base_pct == null || p.base_pct === '') return;
+    costoDe[k] = p.base_pct;
+    if (money.isPos(String(p.base_pct))) costoDelVivo.push(`${p.nombre} (${p.base_pct}%)`);
+  });
+
   const acc = new Map();         // nombreMatriz → { proveedor, costo, lineas[], usdt }
   const porConexion = {};
   // ── LO QUE NO SE PAGA, PERO TIENE GANANCIA ───────────────────────────────────────────────────
@@ -439,6 +474,12 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
       }
     }
     porConexion[cx.nombre].usdt = money.round(porConexion[cx.nombre].usdt, 2);
+  }
+
+  if (costoDelVivo.length) {
+    avisos.push(`${costoDelVivo.length} proveedor(es) con costo no estaban en la foto de precios de `
+      + `${m}, así que se usó su costo de HOY: ${costoDelVivo.sort().join(', ')}. `
+      + 'Si alguno cambió de precio desde entonces, el número de este mes sale con el precio nuevo.');
   }
 
   // TBS es el tercer motor: otro protocolo, otra granularidad. Se calcula aparte y se suma acá,
@@ -695,6 +736,9 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // Lo que sí importa: las que NO son SL ni XG. En junio son dos (MICROGAMING SL2 y EVOLUTION
   // LOBBY ORIGINAL PREMIUM) y ésas sí pueden ser plata que no se está pagando, porque SL2 cuesta
   // 0,5. Se marcan con `revisar` para que salten a la vista entre las otras 38.
+  // Antes acá se adivinaba por el sufijo del nombre (SL y XG "cuestan 0"). Ya no hace falta
+  // adivinar: si una fila cuesta 0 en la matriz, el cálculo la saltea sola y no llega hasta acá.
+  // Lo que quede en esta lista es lo que no tiene costo EN NINGÚN LADO, ni en la foto ni hoy.
   const FAMILIAS_QUE_CUESTAN_CERO = ['SL', 'XG'];
   const sinCostoDetalle = [...sinCosto.values()].map((v) => {
     const c = aUsdt(v.porDivisa, v.nombre);
