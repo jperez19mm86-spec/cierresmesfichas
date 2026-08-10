@@ -119,12 +119,16 @@
     table.hist td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 11px; text-transform: uppercase; margin-right: 6px; }
   }
 
-  /* El operador mira la lista de clientes para saber a quién le está cargando; editarla no le
-     corresponde y el server se lo negaría igual. Se esconde lo que no puede usar en vez de
-     dejarle botones que dan error. */
-  body.solo-despacho .cli-editar,
-  body.solo-despacho .cli-borrar,
-  body.solo-despacho .caja-editar { display: none !important; }
+  /* "N cajas" es lo que se aprieta para verlas. En un vendedor la flecha abre a SU GENTE, así que
+     sin esto no había forma visible de llegar a las cajas: había que adivinar que el nombre era
+     clickeable. */
+  .ver-cajas{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  .ver-cajas:hover{color:var(--gold)}
+  /* Al operador se le muestran las cajas como texto: editarlas no le corresponde y el server se lo
+     negaría igual. Un formulario que al guardar da 403 es peor que no tenerlo. */
+  .caja-row-ro{padding:6px 8px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .caja-row-ro:last-child{border-bottom:none}
+  body.solo-despacho .cli-head > button{display:none !important}
 </style>
 </head>
 <body>
@@ -511,7 +515,9 @@
           <span class="cli-code" onclick="toggleCli('${c.id}')" style="cursor:pointer">${esc(String(c.codigo).toUpperCase())}</span>
           <span class="cli-name" onclick="toggleCli('${c.id}')" style="cursor:pointer">${esc(c.nombreVisible || '')}</span>
           ${c.es_vendedor ? '<span class="chip">vendedor</span>' : ''}
-          <span class="meta">· ${n} caja${n === 1 ? '' : 's'}${sub ? ` · ${sub} a cargo` : ''}</span>
+          <span class="meta">${n
+            ? `<span class="ver-cajas" onclick="toggleCli('${c.id}')" title="Ver las cajas a las que se le carga">· ${open ? '▾' : '▸'} ${n} caja${n === 1 ? '' : 's'}</span>`
+            : '· sin cajas'}${sub ? ` · ${sub} a cargo` : ''}</span>
           <span style="flex:1"></span>
           <button class="outline small" onclick="editCliente(event,'${c.id}')">✏️</button>
           <button class="danger small" onclick="deleteCliente(event,'${c.id}')">🗑</button>
@@ -527,6 +533,16 @@
   }
 
   function renderCajas(c) {
+    /* El operador mira a qué caja va la ficha; editarla no le corresponde y el server se lo negaría
+       igual. Se le muestran los datos como texto en vez de campos que al guardar dan 403. */
+    if (_soyOperador) {
+      const filas = (c.cajas || []).map(k => `
+        <div class="caja-row-ro">
+          <b>${esc(k.usuario)}</b>
+          <span class="meta">${esc(k.sistema || '')} · id ${esc(k.userId || '—')} · ${esc((k.divisas || []).join(', ') || 'ARS')}</span>
+        </div>`).join('');
+      return `<div class="cli-body">${filas || '<div class="meta">Sin cajas.</div>'}</div>`;
+    }
     const rows = (c.cajas || []).map(k => `
       <div class="caja-row" id="caja-${k.id}">
         <div><div class="caja-head">usuario</div><input id="cj-usuario-${k.id}" value="${esc(k.usuario)}" /></div>

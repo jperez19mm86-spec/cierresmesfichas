@@ -1726,6 +1726,22 @@ async function main() {
     check('push: cada aviso usa su propio tag', new Set(tags).size === tags.length && tags.length >= 2, tags.join(','));
   }
 
+  // ── las cajas se tienen que poder ver ──
+  // En un vendedor la flecha abre a SU GENTE, no sus cajas. Sin un control propio no habia forma
+  // visible de llegar a ellas: habia que adivinar que el nombre era clickeable, y Carlos mostraba
+  // "12 cajas" sin manera de ver ninguna.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    check('cajas: "N cajas" abre las cajas', /class="ver-cajas" onclick="toggleCli/.test(html));
+    check('cajas: y tiene estilo de que se puede apretar', /\.ver-cajas\{[^}]*cursor:pointer/.test(html));
+    // el operador las ve pero no las edita: un formulario que al guardar da 403 es peor que no tenerlo
+    check('cajas: el operador las ve como texto', /if \(_soyOperador\)/.test(html) && /caja-row-ro/.test(html));
+    check('cajas: y no le aparecen los botones de editar el cliente',
+      /solo-despacho \.cli-head > button\{display:none/.test(html));
+    // la flecha del vendedor sigue abriendo su gente: son dos cosas distintas y cada una su control
+    check('cajas: la flecha del vendedor sigue siendo del árbol', /sub \? `toggleVend/.test(html));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
