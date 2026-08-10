@@ -480,4 +480,55 @@ db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_mov_emision
 db.exec('DROP INDEX IF EXISTS idx_repdia');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_repdia ON reporte_diario(conexion_id, fecha, grp, sa_id, moneda)');
 
+/* ───── DOCUMENTOS EMITIDOS ─────
+   Una copia CONGELADA de un documento en el momento en que se emitió.
+
+   El problema que resuelve, con las palabras del dueño: "quiero siempre poder acceder a EXACTAMENTE
+   lo mismo que envié". Un reporte que se vuelve a calcular no sirve para eso — el mes puede
+   descongelarse, un costo puede cargarse, un TC puede corregirse, y el documento que abre en
+   diciembre ya no es el que mandó en agosto. Y él no tiene forma de saber cuál de los dos vio el
+   proveedor.
+
+   Por eso se guardan LOS BYTES del HTML, no una receta para volver a armarlo. El HTML es lo que se
+   imprimió y lo que se mandó; si el generador cambia tres veces en el año, este archivo no se
+   entera. El JSON va al lado para poder auditar de dónde salió cada número y regenerar el CSV, que
+   es una proyección del mismo dato y no otro documento.
+
+   Es de sólo agregar: no hay UPDATE ni DELETE. Emitir de nuevo el mismo mes crea otra VERSIÓN y
+   deja la anterior intacta — pisar la copia de lo que ya se envió es exactamente lo que este
+   archivo existe para impedir. */
+db.exec(`CREATE TABLE IF NOT EXISTS documento_emitido (
+  id TEXT PRIMARY KEY,
+  tipo TEXT NOT NULL,            -- 'pago-proveedores' (hoy el único)
+  mes TEXT NOT NULL,             -- YYYY-MM
+  version INTEGER NOT NULL,      -- 1, 2, 3… por (tipo, mes). Nunca se reusa.
+  emitido_at TEXT NOT NULL,
+  emitido_por TEXT,
+  total_usdt TEXT,               -- TEXT: la convención de plata de toda la base
+  hash TEXT NOT NULL,            -- sha256 del html guardado, para probar que no se tocó
+  html TEXT NOT NULL,            -- los bytes exactos que se imprimieron y se mandaron
+  datos TEXT NOT NULL,           -- el reporte en JSON: auditoría y CSV
+  nota TEXT
+);`);
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_doc_ver ON documento_emitido(tipo, mes, version)');
+db.exec('CREATE INDEX IF NOT EXISTS ix_doc_mes ON documento_emitido(tipo, mes)');
+/* El candado del "sólo agregar", en la BASE y no en un `if`.
+   El módulo no tiene UPDATE ni DELETE, pero el módulo se puede cambiar dentro de seis meses por
+   alguien apurado; la tabla no. No es a prueba de quien tenga acceso al volumen —puede dropear el
+   trigger— pero sí de la forma en que esto se rompe de verdad: una línea de código nueva. */
+db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_update BEFORE UPDATE ON documento_emitido
+  BEGIN SELECT RAISE(ABORT, 'un documento emitido no se modifica: emití una versión nueva'); END;`);
+db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_delete BEFORE DELETE ON documento_emitido
+  BEGIN SELECT RAISE(ABORT, 'un documento emitido no se borra'); END;`);
+
+/* Lo que se agregó después de la primera versión de la tabla.
+   · congelado    — si el mes tenía la foto de precios puesta al emitir. Un mes SIN congelar usa los
+                    precios de hoy, así que el mismo mes puede dar otro número el mes que viene. El
+                    documento no cambia (son bytes), pero hay que poder ver que salió de ahí.
+   · datos_hash   — sha256 del JSON. Sirve para no crear versiones gemelas: dos clics seguidos, o
+                    emitir tres días seguidos sin que haya entrado nada nuevo, no son dos documentos.
+   · csv          — la planilla congelada. Se guarda y no se regenera porque csv() puede ganar una
+                    columna mañana, y ahí la conciliación de un mes viejo se corre sola. */
+ensureColumns('documento_emitido', { congelado: 'INTEGER', datos_hash: 'TEXT', csv: 'TEXT' });
+
 module.exports = { db, DB_PATH, ensureColumns };

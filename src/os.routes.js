@@ -23,6 +23,8 @@ const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
 const pagoProvHtml = require('./pago-proveedores-html');
+const documentos = require('./documentos');
+const { rolDe } = require('./auth');
 const apiResumen = require('./api-resumen.service');
 const tgDestino = require('./telegram-destino');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
@@ -1410,6 +1412,91 @@ function mount(app) {
     });
     r.ok ? ok(res, r) : err(res, 502, r.error,
       { reintentable: !!r.reintentable, requiereConfirmar: !!r.requiereConfirmar });
+  }));
+
+  // ── EL ARCHIVO DE LO QUE SE ENVIÓ ────────────────────────────────────────────────────────────
+  //
+  // /hoja recalcula y sirve para mirar; esto CONGELA. La diferencia importa: entre que se manda un
+  // documento y que se lo vuelve a abrir pueden cargarse costos, corregirse un TC o descongelarse
+  // el mes — todo legítimo, y todo cambia el número. El dueño necesita poder abrir lo que envió,
+  // no una versión mejorada de lo que envió.
+  app.post('/api/os/documentos/pago-proveedores', wrap(async (req, res) => {
+    const b = req.body || {};
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    // Sin `refrescar`: emitir tiene que ser barato y repetible. Si falta traer el mes, se trae antes
+    // desde la pantalla — que una emisión dispare 525 consultas al casino es la forma más fácil de
+    // que se emita a medias y quede guardado así para siempre.
+    const rep = await pagoProv.reporte({ mes });
+    if (!rep.ok) return err(res, 400, rep.error);
+    // 🔒 Un documento que no cuadra no se emite. Es lo mismo que dice la hoja en rojo ("no pagar con
+    // esta hoja"), pero acá se puede impedir de verdad en vez de sólo avisarlo.
+    if (rep.cuadre && !rep.cuadre.cuadra) {
+      return err(res, 400, 'las cuatro vistas no dan el mismo total: es un error de cálculo y no se '
+        + 'puede emitir un documento así. Mirá la vista previa para ver dónde está la diferencia.');
+    }
+    // ⚠️ UN MES SIN CONGELAR USA LOS PRECIOS DE HOY. El documento en sí no cambia nunca (son bytes),
+    // pero el mismo mes recalculado el mes que viene puede dar otro número, y hay que saber que
+    // salió de ahí. Se pide confirmación una vez, igual que /precargar con requiereConfirmar.
+    if (!rep.congelado && !b.confirmar) {
+      return err(res, 400, `${mes} no está congelado: el cálculo usa los precios de HOY, así que el `
+        + 'mes que viene el mismo mes puede dar otro número. El documento que emitas no va a cambiar, '
+        + 'pero conviene congelar el mes primero. Confirmá si querés emitirlo igual.',
+      { requiereConfirmar: true });
+    }
+    const r = documentos.emitir({
+      tipo: 'pago-proveedores', mes, datos: rep, nota: b.nota,
+      por: rolDe(req) || 'admin',
+      congelado: !!rep.congelado,
+      csv: pagoProv.csv(rep),
+      render: (emision) => pagoProvHtml.hoja(rep, emision),
+    });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
+  app.get('/api/os/documentos', wrap(async (req, res) => ok(res, {
+    documentos: documentos.list({ tipo: req.query.tipo || null, mes: req.query.mes || null }),
+  })));
+
+  // Los BYTES guardados, tal cual. No se re-renderiza ni se le agrega nada: cualquier agregado, por
+  // chico que sea, ya no es el documento que se envió.
+  app.get('/api/os/documentos/:id', wrap(async (req, res) => {
+    const d = documentos.contenido(req.params.id);
+    if (!d) return err(res, 404, 'no encontré ese documento');
+    res.type('html').send(d.html);
+  }));
+
+  // El CSV congelado. Si el documento es viejo y no lo tiene guardado, se regenera del JSON — que
+  // es lo que había antes y sigue siendo correcto para esos.
+  app.get('/api/os/documentos/:id/planilla.csv', wrap(async (req, res) => {
+    const d = documentos.contenido(req.params.id);
+    if (!d) return err(res, 404, 'no encontré ese documento');
+    const texto = d.csv || (d.datos ? pagoProv.csv(d.datos) : null);
+    if (texto == null) return err(res, 404, 'ese documento no tiene planilla');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="pago-proveedores-${d.mes}-v${d.version}.csv"`);
+    res.send('\ufeff' + texto);
+  }));
+
+  // ── BAJAR EL ARCHIVO ─────────────────────────────────────────────────────────────────────────
+  // Todo esto vive en el volumen de Railway, y /api/_backup no dumpea las tablas del OS: si se
+  // pierde el volumen, se pierde el documento. Que se pueda bajar el .html a mano es la copia de
+  // seguridad que no depende de nada de acá.
+  app.get('/api/os/documentos/:id/archivo.html', wrap(async (req, res) => {
+    const d = documentos.contenido(req.params.id);
+    if (!d) return err(res, 404, 'no encontré ese documento');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="pago-proveedores-${d.mes}-v${d.version}.html"`);
+    res.send(d.html);
+  }));
+
+  // La comprobación del hash, para poder afirmar que el archivo no se tocó.
+  app.get('/api/os/documentos/:id/verificar', wrap(async (req, res) => {
+    const d = documentos.contenido(req.params.id);
+    if (!d) return err(res, 404, 'no encontré ese documento');
+    ok(res, { id: d.id, tipo: d.tipo, mes: d.mes, version: d.version, emitido_at: d.emitido_at,
+      hash: d.hash, intacto: d.intacto, bytes: Buffer.byteLength(d.html, 'utf8') });
   }));
 
   app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {

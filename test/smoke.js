@@ -1269,6 +1269,117 @@ async function main() {
       deducir('PRAGMATIC SL2') === 'SL2' && deducir('BOOMING OP (TBS)') === 'OP');
   }
 
+  // ── EL ARCHIVO DE DOCUMENTOS EMITIDOS ──
+  //
+  // Lo que este bloque protege es una sola frase del dueño: "quiero siempre poder acceder a
+  // EXACTAMENTE lo mismo que envié". Todo lo demás se puede rediseñar; esto no.
+  {
+    const docs = require('../src/documentos');
+    const { db } = require('../src/db');
+    // La base rechaza borrar (es el punto), así que para limpiar lo de la corrida anterior hay que
+    // sacar el trigger y volver a ponerlo. Que limpiar sea incómodo es exactamente lo que se buscaba.
+    db.exec('DROP TRIGGER IF EXISTS tr_doc_no_delete');
+    db.prepare("DELETE FROM documento_emitido WHERE tipo='_test'").run();
+    db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_delete BEFORE DELETE ON documento_emitido
+      BEGIN SELECT RAISE(ABORT, 'un documento emitido no se borra'); END;`);
+
+    const datos = { ok: true, mes: '2026-06', cuadre: { proveedores: '100.50', cuadra: true },
+      totales: { usdt: '100.50', proveedores: 2 } };
+    const r1 = docs.emitir({ tipo: '_test', mes: '2026-06', datos, congelado: true, csv: 'a,b\n1,2',
+      render: (e) => `<html>doc ${e.id} v${e.version}</html>`, por: 'admin', nota: 'primera' });
+    check('documentos: emitir devuelve la versión 1', r1.ok && r1.documento.version === 1);
+    check('documentos: guarda el total', r1.ok && r1.documento.total_usdt === '100.50');
+    check('documentos: guarda si el mes estaba congelado', r1.documento.congelado === 1);
+    check('documentos: guarda el CSV congelado', docs.contenido(r1.documento.id).csv === 'a,b\n1,2');
+
+    // ── EMITIR DOS VECES LO MISMO NO CREA DOS DOCUMENTOS ──
+    // Dos clics seguidos, o emitir tres días seguidos sin que haya entrado nada nuevo, son el mismo
+    // documento. Se compara el JSON y no el HTML: el HTML lleva el id y la fecha adentro, así que
+    // dos renders nunca son iguales byte a byte y compararlos no serviría de nada.
+    const rDup = docs.emitir({ tipo: '_test', mes: '2026-06', datos,
+      render: (e) => `<html>doc ${e.id} v${e.version}</html>`, por: 'admin' });
+    check('documentos: emitir el mismo dato devuelve el que ya estaba',
+      rDup.ok && rDup.yaEstaba === true && rDup.documento.id === r1.documento.id);
+    check('documentos: y no creó una versión nueva', docs.versiones('_test', '2026-06') === 1);
+
+    // ── CON DATOS DISTINTOS SÍ, Y NO PISA ──
+    // Pisar la copia de lo que ya se mandó es exactamente lo que este archivo existe para impedir.
+    const datos2 = { ...datos, cuadre: { proveedores: '200.00', cuadra: true } };
+    const r2 = docs.emitir({ tipo: '_test', mes: '2026-06', datos: datos2,
+      render: (e) => `<html>OTRA COSA ${e.version}</html>`, por: 'admin' });
+    check('documentos: con datos distintos crea la versión 2', r2.ok && r2.documento.version === 2);
+    const v1 = docs.contenido(r1.documento.id);
+    check('documentos: la versión 1 sigue diciendo lo mismo', /doc .* v1/.test(v1.html));
+    check('documentos: la versión 1 no se contaminó con la 2', !/OTRA COSA/.test(v1.html));
+
+    // ── EL SELLO VA ADENTRO ──
+    // Si el sello estuviera fuera del HTML, el papel impreso no diría cuál de las versiones es.
+    check('documentos: el sello de emisión va dentro del documento',
+      v1.html.includes(r1.documento.id) && /v1/.test(v1.html));
+
+    // ── LA BASE RECHAZA MODIFICAR Y BORRAR ──
+    // El módulo no tiene UPDATE ni DELETE, pero el módulo lo puede cambiar dentro de seis meses
+    // alguien apurado. La tabla no.
+    let bloqueoU = false; let bloqueoD = false;
+    try { db.prepare('UPDATE documento_emitido SET nota=? WHERE id=?').run('x', r1.documento.id); }
+    catch (e) { bloqueoU = /no se modifica/.test(String(e.message)); }
+    try { db.prepare('DELETE FROM documento_emitido WHERE id=?').run(r1.documento.id); }
+    catch (e) { bloqueoD = /no se borra/.test(String(e.message)); }
+    check('documentos: la base rechaza modificar un documento emitido', bloqueoU);
+    check('documentos: la base rechaza borrar un documento emitido', bloqueoD);
+
+    // ── EL HASH SE VERIFICA, NO SE CONFÍA ──
+    // Para probar que la huella delata un cambio hay que poder hacer el cambio: se saca el trigger,
+    // se ensucia y se lo vuelve a poner. Es la única forma de comprobar que la verificación sirve.
+    check('documentos: un documento recién emitido está intacto', v1.intacto === true);
+    db.exec('DROP TRIGGER tr_doc_no_update');
+    db.prepare('UPDATE documento_emitido SET html=? WHERE id=?').run('<html>manoseado</html>', r1.documento.id);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_update BEFORE UPDATE ON documento_emitido
+      BEGIN SELECT RAISE(ABORT, 'un documento emitido no se modifica: emití una versión nueva'); END;`);
+    check('documentos: si alguien toca el contenido, la huella lo delata',
+      docs.contenido(r1.documento.id).intacto === false);
+
+    check('documentos: se listan del más nuevo al más viejo',
+      docs.list({ tipo: '_test' })[0].version === 2);
+    check('documentos: list no arrastra el html ni los datos',
+      docs.list({ tipo: '_test' }).every((d) => d.html === undefined && d.datos === undefined));
+    check('documentos: versiones() cuenta las del mes', docs.versiones('_test', '2026-06') === 2);
+
+    // ── NO SE EMITE CUALQUIER COSA ──
+    const datos3 = { ...datos, cuadre: { proveedores: '300.00', cuadra: true } };
+    check('documentos: no se emite sin mes válido',
+      !docs.emitir({ tipo: '_test', mes: 'ayer', datos: datos3, render: () => 'x' }).ok);
+    check('documentos: no se emite un documento vacío',
+      !docs.emitir({ tipo: '_test', mes: '2026-06', datos: datos3, render: () => '   ' }).ok);
+    // Un render que explota no puede dejar una fila a medias en el archivo.
+    const antes = docs.list({ tipo: '_test' }).length;
+    check('documentos: si el render falla, no se guarda nada',
+      !docs.emitir({ tipo: '_test', mes: '2026-06', datos: datos3, render: () => { throw new Error('boom'); } }).ok
+      && docs.list({ tipo: '_test' }).length === antes);
+
+    // El módulo NO expone forma de borrar: es de sólo agregar, a propósito.
+    check('documentos: no hay forma de borrar un documento emitido',
+      typeof docs.remove !== 'function' && typeof docs.borrar !== 'function');
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'documentos.js'), 'utf8');
+    check('documentos: el store no hace UPDATE ni DELETE', !/UPDATE documento_emitido|DELETE FROM documento_emitido/.test(src));
+
+    db.exec('DROP TRIGGER IF EXISTS tr_doc_no_delete');
+    db.prepare("DELETE FROM documento_emitido WHERE tipo='_test'").run();
+    db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_delete BEFORE DELETE ON documento_emitido
+      BEGIN SELECT RAISE(ABORT, 'un documento emitido no se borra'); END;`);
+  }
+
+  // ── un documento emitido tampoco se sirve sin sesión: dice el margen del negocio ──
+  {
+    const rd = await axios.get(BASE + '/api/os/documentos?tipo=pago-proveedores',
+      { validateStatus: () => true, maxRedirects: 0 });
+    check('documentos: sin sesión no se listan', rd.status === 401 || rd.status === 302, String(rd.status));
+    const auth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    const opera = (auth.match(/const OPERADOR_PUEDE = \[([\s\S]*?)\];/) || [])[1] || '';
+    // El operador ve y despacha pedidos. Emitir documentos con los márgenes adentro no es su trabajo.
+    check('documentos: el operador no puede emitir ni verlos', !/documentos/.test(opera));
+  }
+
   // ── la hoja de pago a proveedores es INTERNA ──
   // Dice cuánto se le paga a cada proveedor y a qué costo: el margen del negocio. A diferencia de
   // la cuenta de un cliente, NO puede tener link público — si mañana alguien agrega uno hay que

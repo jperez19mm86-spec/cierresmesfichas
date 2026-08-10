@@ -46,7 +46,7 @@ const CSS = `
   /* ── EL RESUMEN DE CADA SECCIÓN, ANTES DE LOS DATOS ─────────────────────────────────────────
      Cuatro o cinco cajas con lo que hay que saber sin leer la tabla. */
   .sum{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-  .sum div{flex:1 1 130px;background:#faf4f9;border:1px solid #f0e2ee;border-radius:7px;padding:8px 11px}
+  .sum>div{flex:1 1 130px;background:#faf4f9;border:1px solid #f0e2ee;border-radius:7px;padding:8px 11px}
   .sum .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:#8c7e89;white-space:nowrap}
   .sum .v{font-size:16px;font-weight:800;margin-top:1px;white-space:nowrap}
   .sum .v small{font-size:11px;font-weight:600;color:#8c7e89}
@@ -64,7 +64,7 @@ const CSS = `
   .tot .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#7a5d74}
   .tot .v{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
   .porsis{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0}
-  .porsis div{flex:1 1 150px;background:#fff;border:1px solid #ead6e6;border-radius:7px;padding:9px 12px}
+  .porsis>div{flex:1 1 150px;background:#fff;border:1px solid #ead6e6;border-radius:7px;padding:9px 12px}
   .porsis .k{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8c7e89}
   .porsis .v{font-size:18px;font-weight:800;margin-top:1px}
   .cua{padding:9px 12px;border-radius:7px;margin:14px 0;font-size:12px}
@@ -72,6 +72,10 @@ const CSS = `
   .cua.mal{background:#fdeceb;border-left:3px solid #d9534f}
   .cua.avi{background:#fdf4e6;border-left:3px solid #c88a2e}
   .nota{font-size:11px;color:#8c7e89;margin:6px 0 0}
+  .sello{margin:16px 0;padding:10px 13px;border-radius:7px;font-size:12px;
+         background:#eef3fa;border-left:3px solid #4a6fa5}
+  .sello.prev{background:#fdf4e6;border-left-color:#c88a2e}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
   .pie{margin-top:26px;font-size:11px;color:#8c7e89;border-top:1px solid #f3e9f1;padding-top:10px}
   button{padding:9px 15px;font:inherit;border:1px solid #ead6e6;background:#fff;border-radius:7px;cursor:pointer}
 
@@ -79,7 +83,7 @@ const CSS = `
     button{display:none} body{padding:0;max-width:none}
     /* Los fondos del cuadre, del total y de los resúmenes tienen que salir impresos: son lo que
        distingue "esto cuadra" de "esto no cuadra" en una hoja donde no hay nada más que mire. */
-    .cua,.tot,.sum div,.pg-h .num{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .cua,.tot,.sum>div,.pg-h .num,.sello{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     /* El encabezado de la tabla se repite en cada hoja: una tabla de 95 filas ocupa tres páginas y
        en la segunda ya nadie se acuerda de qué columna era cuál. */
     thead{display:table-header-group} tfoot{display:table-footer-group}
@@ -92,14 +96,35 @@ const CSS = `
 /** Una caja del resumen. */
 const box = (k, v, sub) => `<div><div class="k">${esc(k)}</div><div class="v">${v}${sub ? ` <small>${esc(sub)}</small>` : ''}</div></div>`;
 
+/**
+ * La ganancia por divisa de una fila, en una celda.
+ *
+ * PRAGMATIC SL mueve veinte monedas y la celda se comía cinco renglones de alto, empujando la
+ * tabla a otra página. Se muestran las más grandes —que son las que deciden si vale la pena
+ * mirarlo— y se dice cuántas quedan, en vez de cortar sin avisar.
+ */
+const divisasDe = (porDivisa, tope = 4) => {
+  const xs = Object.entries(porDivisa || {}).sort((a, b) => Number(b[1]) - Number(a[1]));
+  const vistas = xs.slice(0, tope).map(([d, v]) => `${esc(d)} ${n(v)}`).join(' · ');
+  return vistas + (xs.length > tope ? ` <i>y ${xs.length - tope} divisa(s) más</i>` : '');
+};
+
 /** El encabezado de una sección: número de hoja, título, y a la derecha el conteo. */
 const cab = (num, titulo, cnt, sub) => `<div class="pg"><div class="pg-h">`
   + `<span class="num">HOJA ${num}</span><b>${esc(titulo)}</b>`
   + (cnt ? `<span class="cnt">${esc(cnt)}</span>` : '') + '</div>'
   + (sub ? `<div class="pg-sub">${sub}</div>` : '');
 
-/** @param {object} rep  lo que devuelve pago-proveedores.reporte() */
-function hoja(rep) {
+/**
+ * @param {object} rep       lo que devuelve pago-proveedores.reporte()
+ * @param {object} [emision] si el documento se está EMITIENDO: {id, version, emitido_at, emitido_por}
+ *
+ * El sello de emisión va DENTRO del documento y no en una etiqueta al costado de la pantalla: lo
+ * que se imprime y se manda es el HTML, y si el sello está afuera, en el papel no queda nada que
+ * diga cuál de las versiones es. Y sin sello se marca "vista previa" bien grande, porque un cálculo
+ * fresco y una copia de lo que se envió son dos cosas distintas que se parecen demasiado.
+ */
+function hoja(rep, emision) {
   if (!rep || !rep.ok) return `<!doctype html><meta charset="utf-8"><title>Pago a proveedores</title>
     <style>${CSS}</style><h1>No se pudo armar la hoja</h1>
     <div class="mut">${esc((rep && rep.error) || 'sin datos')}</div>`;
@@ -295,8 +320,7 @@ function hoja(rep) {
       <tbody>${otros.map((o) => `<tr>
         <td><b>${esc(o.nombre)}</b>${o.ref ? ` <span class="mut">${esc(o.ref)}</span>` : ''}</td>
         <td class="mut">${esc(o.origen)}</td>
-        <td class="mut">${Object.entries(o.porDivisa || {}).sort((a, b) => alfa(a[0], b[0]))
-    .map(([d, v]) => `${esc(d)} ${n(v)}`).join(' · ')}</td>
+        <td class="mut">${divisasDe(o.porDivisa, 6)}</td>
         <td class="mut">${esc(o.motivo)}${(o.faltanTC || []).length ? ` <i>(sin TC para ${esc(o.faltanTC.join(', '))})</i>` : ''}</td>
         <td class="r">${n(o.gananciaUsdt)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td>Ganancia total</td><td></td><td></td><td></td><td class="r">${n(oTot.gananciaUsdt)}</td></tr></tfoot></table>
@@ -322,8 +346,7 @@ function hoja(rep) {
         <td>${o.revisar ? '<b style="color:#c0392b">revisar</b>' : ''}</td>
         <td>${o.revisar ? `<b>${esc(o.nombre)}</b>` : esc(o.nombre)}</td>
         <td class="mut">${esc(o.origen)}</td>
-        <td class="mut">${Object.entries(o.porDivisa || {}).sort((a, b) => alfa(a[0], b[0]))
-    .map(([d, v]) => `${esc(d)} ${n(v)}`).join(' · ')}</td>
+        <td class="mut">${divisasDe(o.porDivisa)}</td>
         <td class="r${o.revisar ? '' : ' mut'}">${n(o.gananciaUsdt)}</td></tr>`).join('')}</tbody></table>`)
     + '</div>';
 
@@ -347,17 +370,30 @@ function hoja(rep) {
         <td class="r"><b>${esc(t.tc)}</b></td>
         <td class="r mut">${n(t.montoLocal)}</td>
         <td class="r">${n(t.usdt)}</td>
-        <td class="mut">${d.tcs.length === 1 ? `los ${t.cuantos} proveedores de esta divisa`
+        <td class="mut">${d.tcs.length === 1
+    ? (t.cuantos === 1 ? 'el único proveedor de esta divisa' : `los ${t.cuantos} proveedores de esta divisa`)
     : `${t.cuantos}: ${esc(t.proveedores.slice(0, 6).join(', '))}${t.proveedores.length > 6 ? ` y ${t.proveedores.length - 6} más` : ''}`}</td>
       </tr>`).join('')).join('')}</tbody></table></div>`;
+
+  const fechaEm = emision && emision.emitido_at
+    ? new Date(emision.emitido_at).toLocaleString('es-AR', { dateStyle: 'long', timeStyle: 'short' }) : '';
+  const sello = emision
+    ? `<div class="sello"><b>Documento emitido</b> · ${esc(fechaEm)} · versión ${esc(emision.version)}
+       · <span class="mono">${esc(emision.id)}</span><br>
+       <span class="mut">Ésta es la copia congelada: dice lo mismo hoy que el día que se envió.</span></div>`
+    : `<div class="sello prev"><b>Vista previa</b> — este documento se vuelve a calcular cada vez que
+       se abre, así que puede cambiar. Para quedarte con una copia fija de lo que enviás,
+       <b>emitilo</b> desde la pantalla de Pago a proveedores.</div>`;
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
-    <title>Pago a proveedores — ${esc(mesNom)}</title><style>${CSS}</style></head><body>
-    ${portada}${tProv}${tEtiq}${tSis}${tDiv}${tOtros}${pieTC}
+    <title>Pago a proveedores — ${esc(mesNom)}${emision ? ` (v${esc(emision.version)})` : ''}</title>
+    <style>${CSS}</style></head><body>
+    ${portada}${sello}${tProv}${tEtiq}${tSis}${tDiv}${tOtros}${pieTC}
     <button onclick="window.print()">Guardar como PDF</button>
-    <div class="pie">Latam Games · documento interno · ${esc(mesNom)}</div>
+    <div class="pie">Latam Games · documento interno · ${esc(mesNom)}${emision
+    ? ` · emitido ${esc(fechaEm)} · versión ${esc(emision.version)} · ${esc(emision.id)}` : ' · vista previa'}</div>
     </body></html>`;
 }
 

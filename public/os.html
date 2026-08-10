@@ -1628,12 +1628,19 @@ async function ciePago(){
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
         <div style="flex:1;min-width:0"></div>
         <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoRefrescar()">↻ Volver a consultar</button></div>
-        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button> <button class="outline small" onclick="pagoHoja()">🖨 Hoja para imprimir</button></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button> <button class="outline small" onclick="pagoHoja()">👁 Vista previa</button> <button class="small" onclick="pagoEmitir()">📄 Emitir documento</button></div>
       </div>
       <div class="muted" style="margin-top:6px">La primera vez de cada mes consulta los tres paneles y tarda varios minutos; después sale de lo guardado.
         <b>Volver a consultar</b> los pregunta de nuevo. Un mes <b>congelado</b> usa los precios de ese mes.</div>
+      <!-- La distinción que pidió el dueño: "quiero siempre poder acceder a EXACTAMENTE lo mismo que
+           envié". La vista previa se recalcula y puede cambiar; el documento emitido es una copia
+           congelada que no se toca nunca más. -->
+      <div class="muted" style="margin-top:4px"><b>Vista previa</b> se vuelve a calcular cada vez, así que puede cambiar.
+        <b>Emitir documento</b> guarda una copia congelada — es la que se manda y la que vas a poder volver a abrir igual dentro de un año.</div>
       <div id="pago-body" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
-    </div>`;
+    </div>
+    <div class="card" id="pago-docs"><div class="muted">Cargando documentos emitidos…</div></div>`;
+  pagoDocs();
   if(_pagoData) pagoPintar();
 }
 /* Los datos del mes se bajan UNA vez y quedan guardados; después solo se arman los números.
@@ -1714,17 +1721,22 @@ function pagoPintar(){
 }
 
 /* ── EL CUADRE ────────────────────────────────────────────────────────────────────────────────
-   Las tres vistas son la MISMA plata partida distinto, así que tienen que dar el mismo total. Si
+   Las CUATRO vistas son la MISMA plata partida distinto, así que tienen que dar el mismo total. Si
    no dan, hay un error de cálculo y no de datos. Va arriba de todo y no escondido, porque es lo
-   único de esta pantalla que puede decir "este número está mal" antes de que lo pagues. */
+   único de esta pantalla que puede decir "este número está mal" antes de que lo pagues.
+
+   Decía "las tres" mientras el servicio ya cuadraba cuatro: la de por sistema entró después y este
+   cartel se quedó contando de menos. Un cartel de control que no nombra todo lo que controla es
+   peor que no tenerlo, porque da por revisado algo que nadie miró. */
 function pagoCuadre(r){
   const c=r.cuadre; if(!c) return '';
   if(c.cuadra) return '<div class="nota ok" style="margin-bottom:10px">'
-    +'✅ <b>Cuadra.</b> <span class="muted">Por proveedor, por etiqueta y por divisa dan lo mismo: '
+    +'✅ <b>Cuadra.</b> <span class="muted">Por proveedor, por etiqueta, por sistema y por divisa dan lo mismo: '
     +money(c.proveedores)+' USDT.</span></div>';
-  return '<div class="nota err" style="margin-bottom:10px"><b>⚠️ Las tres vistas NO dan lo mismo.</b>'
+  return '<div class="nota err" style="margin-bottom:10px"><b>⚠️ Las cuatro vistas NO dan lo mismo.</b>'
     +'<div class="muted">por proveedor '+money(c.proveedores)+' · por etiqueta '+money(c.etiquetas)
-    +' · por divisa '+money(c.divisas)+'. Es un error de cálculo, no de datos: no pagues con esto.</div></div>';
+    +' · por sistema '+money(c.sistemas)+' · por divisa '+money(c.divisas)
+    +'. Es un error de cálculo, no de datos: no pagues con esto.</div></div>';
 }
 /* Las otras dos formas de leer la misma factura. Plegadas: la de proveedores es la que se usa
    para pagar; estas dos son para conciliar contra lo que manda el proveedor. */
@@ -1772,6 +1784,73 @@ function pagoVistas(r){
 function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
 function pagoRefrescar(){ _pagoRefrescar=true; pagoCalcular(); }
 function pagoHoja(){ window.open('/api/os/pago-proveedores/hoja?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
+
+/* ── EMITIR: congelar el documento ──────────────────────────────────────────────────────────────
+   Se pide confirmación siempre y no sólo cuando ya hay una versión: emitir es el acto de decir
+   "esto es lo que mandé", y hacerlo sin querer ensucia el archivo con documentos que nadie envió.
+   Cuando ya hay versiones, además se dice cuántas, porque la nueva no reemplaza a ninguna. */
+async function pagoEmitir(){
+  const mes = val('pago-mes')||_pagoMes;
+  const previas = ((await api('/api/os/documentos?tipo=pago-proveedores&mes='+encodeURIComponent(mes))).documentos)||[];
+  const aviso = previas.length
+    ? 'Este mes YA tiene '+previas.length+' documento(s) emitido(s).\n\nEl nuevo NO reemplaza a los '
+      +'anteriores: queda como versión '+(previas.length+1)+' y los otros siguen accesibles.\n\n¿Emitir igual?'
+    : 'Se va a guardar una copia congelada del pago a proveedores de '+mes+'.\n\n'
+      +'Esa copia no cambia nunca más: es la que vas a poder volver a abrir para ver exactamente lo que enviaste.';
+  if(!confirm(aviso)) return;
+  const nota = prompt('Nota para reconocerlo después (opcional). Por ejemplo: "enviado a Henry el 10/8".','')||'';
+  let r = await api('/api/os/documentos/pago-proveedores',{method:'POST',body:JSON.stringify({mes,nota})});
+  // Un mes sin congelar se puede emitir, pero se pregunta una vez: el número salió de los precios
+  // de hoy y no de la foto del mes.
+  if(!r.ok && r.requiereConfirmar){
+    if(!confirm(r.error)) return;
+    r = await api('/api/os/documentos/pago-proveedores',{method:'POST',body:JSON.stringify({mes,nota,confirmar:true})});
+  }
+  if(!r.ok){ toast(r.error||'no se pudo emitir'); return; }
+  toast(r.yaEstaba
+    ? 'Es idéntico al que ya emitiste (v'+r.documento.version+'): te abro ese'
+    : 'Emitido: versión '+r.documento.version);
+  await pagoDocs();
+  window.open('/api/os/documentos/'+r.documento.id,'_blank');
+}
+
+async function pagoDocs(){
+  const cont=document.getElementById('pago-docs'); if(!cont) return;
+  const ds=((await api('/api/os/documentos?tipo=pago-proveedores')).documentos)||[];
+  cont.innerHTML = '<h2>📄 Documentos emitidos</h2>'
+    + '<div class="muted" style="margin-bottom:10px">Cada uno es una copia congelada: se abre igual hoy que dentro de un año, '
+    + 'aunque el mes se descongele o cambie un costo. <b>Es lo que enviaste.</b></div>'
+    + (!ds.length ? '<div class="muted">Todavía no emitiste ninguno. Calculá un mes y apretá <b>Emitir documento</b>.</div>'
+      : '<table><thead><tr><th>Mes</th><th>Versión</th><th>Emitido</th><th class="right">Total USDT</th><th>Nota</th><th></th></tr></thead><tbody>'
+        + ds.map(d=>`<tr>
+            <td><b>${esc(d.mes)}</b></td>
+            <td class="muted">v${esc(d.version)}</td>
+            <td class="muted">${esc(new Date(d.emitido_at).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}))}
+              ${d.congelado===0?'<span title="el mes no estaba congelado: el cálculo usó los precios de ese día">⚠</span>':''}</td>
+            <td class="right"><b>${d.total_usdt!=null?money(d.total_usdt):'—'}</b></td>
+            <td class="muted">${esc(d.nota||'')}</td>
+            <td class="right" style="white-space:nowrap">
+              <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}','_blank')">Ver</button>
+              <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}/planilla.csv','_blank')">CSV</button>
+              <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}/archivo.html','_blank')" title="Bajar el .html para guardarlo fuera del sistema">⤓</button>
+              <button class="outline small" onclick="docVerificar('${esc(d.id)}')">Verificar</button>
+            </td></tr>`).join('')
+        + '</tbody></table>');
+}
+
+/* El hash se recalcula del lado del server y se compara contra el guardado. Es lo que convierte al
+   hash en una comprobación de verdad: guardado y nunca vuelto a mirar sería un adorno. */
+async function docVerificar(id){
+  const r = await api('/api/os/documentos/'+id+'/verificar');
+  if(!r.ok) return toast(r.error||'no se pudo verificar');
+  alert(r.intacto
+    ? 'El documento está intacto.\n\nMes '+r.mes+' · versión '+r.version
+      +'\nEmitido: '+new Date(r.emitido_at).toLocaleString('es-AR')
+      +'\nTamaño: '+r.bytes+' bytes'
+      +'\nHuella (sha256):\n'+r.hash
+    : '⚠️ EL DOCUMENTO NO COINCIDE CON SU HUELLA.\n\nAlguien o algo modificó el contenido guardado. '
+      +'No lo uses como comprobante de lo que enviaste.');
+}
 function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+encodeURIComponent(val('pago-mes')||_pagoMes),'_blank'); }
 
 /* ── sub-vista 🤝 CUENTA DE VENDEDORES ─────────────────────────────────────────────────
