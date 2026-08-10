@@ -1289,6 +1289,35 @@ async function main() {
     check('medios de pago: la pantalla muestra TODOS los valores', sinInput.length === 0, sinInput.join(','));
   }
 
+  // ── EL CACHÉ DEL PAGO NO PIERDE DIVISAS ──
+  //
+  // Tenía dos escritores con listas distintas: la Foto lo llena divisa por divisa con la lista real
+  // del panel, y el pago a proveedores lo escribía de una con CURRENCIES, diez códigos a mano que
+  // no incluyen PYG, COP, CRC, HNL, USDT, VES, ZAR ni BOB. El segundo pisaba al primero, sin fallar
+  // ni quedar a medias: un mes que parecía completo y al que le faltaban divisas enteras. En julio
+  // 2026 escondió 1.492,70 USDT de guaraníes, y apareció al cruzar contra la planilla del dueño.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pago-proveedores.service.js'), 'utf8');
+    check('pago: el caché general se fusiona, no se reemplaza',
+      /function guardarGeneral/.test(src) && /\.\.\.base, \.\.\.monedas/.test(src));
+    check('pago: ningún set directo del caché general se quedó suelto',
+      !/ganCache\.set\(cx\.id, '_pago_general'/.test(src));
+    check('pago: la consulta en vivo usa las divisas de la Foto',
+      /divisasDeLaFoto\(cx\.id, m\)/.test(src));
+    check('pago: si a un mes le faltan divisas que la Foto tiene, se rearma solo',
+      /rehacerPagoGeneralDesdeFoto/.test(src));
+
+    // Y la lista explícita del que llama no se filtra contra la constante de diez.
+    const api = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'casino-api.js'), 'utf8');
+    check('casino: una lista de divisas explícita se respeta tal cual',
+      /currencies && currencies\.length\) \? currencies\.slice\(\)/.test(api));
+    const { CURRENCIES } = require('../src/casino-api');
+    // El testigo del bug: la constante NO alcanza. Si algún día la completan, este check avisa que
+    // se puede simplificar; mientras no la completen, deja escrito por qué no se la puede usar sola.
+    check('casino: la constante de divisas sigue sin cubrir las que los paneles usan',
+      ['PYG', 'COP', 'CRC', 'HNL', 'USDT', 'VES', 'ZAR', 'BOB'].some((d) => !CURRENCIES.includes(d)));
+  }
+
   // ── UN VÍNCULO NUEVO COMPLETA HUECOS, PERO NO PISA LA FOTO ──
   //
   // Titan: estaba vinculado, se lo revinculó, y junio se movió de 7.150 a 6.628 sin que nadie lo

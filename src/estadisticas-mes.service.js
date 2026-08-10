@@ -687,4 +687,49 @@ function borrarMes(mes) {
   return true;
 }
 
-module.exports = { capturar, capturarGlobal, planGlobal, VUELTAS, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};
+/**
+ * Rehace el caché de "cuánto le pago al proveedor" A PARTIR DE LA FOTO, sin tocar el casino.
+ *
+ * ── EL PROBLEMA QUE ARREGLA ─────────────────────────────────────────────────────────────────
+ * `_pago_general` tenía DOS escritores con listas de divisas distintas:
+ *
+ *   · la Foto lo llena divisa por divisa con la lista REAL del panel (50 en Europa, 28 en Casino);
+ *   · el pago a proveedores lo escribía de una sola vez con `CURRENCIES`, diez códigos escritos a
+ *     mano en casino-api.js que NO incluyen PYG, COP, CRC, HNL, USDT, VES, ZAR ni BOB.
+ *
+ * El segundo PISABA al primero. Y no da error ni queda a medias: queda un mes entero que parece
+ * completo y al que le faltan divisas. En julio 2026 eso escondió 1.492,70 USDT de guaraníes —
+ * apareció al cruzar contra la planilla del dueño, no porque el sistema avisara nada.
+ *
+ * La Foto guarda cada fila en `estad_mes` con grupo='nodo' (la vuelta general), así que el dato
+ * está: se rearma de ahí y no se le pregunta nada al casino. Un mes cerrado no se vuelve a
+ * consultar sólo porque dos cachés se desincronizaron.
+ *
+ * @returns { ok, divisas, filas } o { ok:false, error }
+ */
+function rehacerPagoGeneralDesdeFoto(conexionId, mes) {
+  const m = String(mes || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido' };
+  const filas = db.prepare(`SELECT divisa, provider, label, vendor, bet, win, profit
+    FROM estad_mes WHERE conexion_id=? AND mes=? AND grupo='nodo'`).all(String(conexionId), m);
+  if (!filas.length) return { ok: false, error: 'la Foto de ese mes no tiene la vuelta "Datos generales"' };
+  const monedas = {};
+  filas.forEach((f) => {
+    if (!monedas[f.divisa]) monedas[f.divisa] = { ok: true, filas: [] };
+    monedas[f.divisa].filas.push({ provider: f.provider, label: f.label, vendor: f.vendor,
+      bet: f.bet, win: f.win, profit: f.profit });
+  });
+  ganCache.set(conexionId, '_pago_general', m, '_todas', monedas);
+  return { ok: true, divisas: Object.keys(monedas).sort(), filas: filas.length };
+}
+
+/** Qué divisas tiene la Foto de un mes para una conexión (vuelta general). */
+function divisasDeLaFoto(conexionId, mes) {
+  return db.prepare(`SELECT DISTINCT divisa FROM estad_mes
+    WHERE conexion_id=? AND mes=? AND grupo='nodo' ORDER BY divisa`)
+    .all(String(conexionId), String(mes || '').slice(0, 7)).map((r) => r.divisa);
+}
+
+module.exports = {
+  rehacerPagoGeneralDesdeFoto,
+  divisasDeLaFoto, capturar, capturarGlobal, planGlobal, VUELTAS, filasDe, estado, meses, plan, divisasDe, nivelDe, nivelDeModo, modoActual, captura, borrarMes, rango, NIVELES, divisasDePanel};

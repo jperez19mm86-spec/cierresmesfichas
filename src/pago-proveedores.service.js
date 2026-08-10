@@ -37,6 +37,24 @@ const money = require('./lib/money');
 const K = (s) => String(s || '').trim().toLowerCase();
 
 /**
+ * Guarda el reporte general de un panel SIN PERDER LO QUE YA HABÍA.
+ *
+ * Este caché tiene dos escritores —la Foto, divisa por divisa con la lista real del panel, y esta
+ * pantalla, de una sola vez— y antes el segundo pisaba al primero. No fallaba ni quedaba a medias:
+ * quedaba un mes que parecía completo y al que le faltaban divisas enteras. En julio 2026 escondió
+ * 1.492,70 USDT de guaraníes, y apareció recién al cruzar contra la planilla del dueño.
+ *
+ * Se fusiona por divisa. Una divisa que la consulta nueva no trajo NO se borra: que no se haya
+ * preguntado no quiere decir que no exista.
+ */
+function guardarGeneral(conexionId, mes, monedas) {
+  const previo = ganCache.get(conexionId, '_pago_general', mes, '_todas');
+  const base = (previo && previo.filas && typeof previo.filas === 'object' && !Array.isArray(previo.filas))
+    ? previo.filas : {};
+  ganCache.set(conexionId, '_pago_general', mes, '_todas', { ...base, ...monedas });
+}
+
+/**
  * ── TBS ────────────────────────────────────────────────────────────────────────────────────
  *
  * Reporta por GRUPO de proveedores, no por proveedor suelto: el panel expone 52 grupos con un
@@ -316,12 +334,14 @@ async function precargar({ mes, conexion_id, desde: desdeIdx = 0, limite = 12, r
           + 'total de la plataforma y quedaría guardado como si lo fuera.' };
     }
     let r;
-    try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: null, userGroupBy: '' }); }
+    // Las divisas de la Foto y no las diez de la constante: la Foto las leyó del panel.
+    const divisasReales = estadMes.divisasDeLaFoto(cx.id, m);
+    try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: divisasReales.length ? divisasReales : null, userGroupBy: '' }); }
     catch (e) { return { ok: false, error: `${cx.nombre}: ${String((e && e.message) || e)}` }; }
     if (!r || !r.ok) return { ok: false, error: `${cx.nombre}: ${(r && r.error) || 'no respondió'}` };
     const fallaron = Object.entries(r.monedas || {}).filter(([, x]) => !x || !x.ok).map(([d]) => d);
     if (fallaron.length) return { ok: false, error: `${cx.nombre}: el motor de reportes falló en ${fallaron.join(', ')} — probá de nuevo`, reintentable: true };
-    ganCache.set(cx.id, '_pago_general', m, '_todas', r.monedas);
+    guardarGeneral(cx.id, m, r.monedas);
     return { ok: true, conexion: cx.nombre, motor: '463', hechos: 1, total: 1, faltan: 0, avisos };
   }
 
@@ -434,7 +454,24 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     if (!cli) { avisos.push(`${cx.nombre}: sin credenciales`); continue; }
     // Lo mismo que con TBS: el casino tarda 50-120s por conexión y un mes cerrado ya no se mueve.
     let r = null;
-    const hit = ganCache.get(cx.id, '_pago_general', m, '_todas', { refrescar });
+    // ── SI LA FOTO SABE MÁS DIVISAS QUE EL CACHÉ, SE REHACE EL CACHÉ ─────────────────────────────
+    // No es una optimización: es la reparación del choque entre los dos escritores. La Foto guarda
+    // cada fila en estad_mes, así que el dato está y no hay que preguntarle nada al casino — un mes
+    // cerrado no se vuelve a consultar sólo porque dos cachés se desincronizaron.
+    const deFoto = estadMes.divisasDeLaFoto(cx.id, m);
+    let hit = ganCache.get(cx.id, '_pago_general', m, '_todas', { refrescar });
+    if (deFoto.length) {
+      const enCache = (hit && hit.filas && typeof hit.filas === 'object') ? Object.keys(hit.filas) : [];
+      const faltan = deFoto.filter((d) => !enCache.includes(d));
+      if (faltan.length) {
+        const re = estadMes.rehacerPagoGeneralDesdeFoto(cx.id, m);
+        if (re.ok) {
+          hit = ganCache.get(cx.id, '_pago_general', m, '_todas');
+          avisos.push(`${cx.nombre}: al reporte le faltaban ${faltan.length} divisa(s) que la Foto del `
+            + `mes sí tiene (${faltan.join(', ')}). Se rearmó desde la Foto, sin consultar al casino.`);
+        }
+      }
+    }
     if (hit) r = { ok: true, monedas: hit.filas };
     if (!r) {
       // Mismo candado que en precargar: sin esto se cachea el nivel equivocado como si fuera la
@@ -445,12 +482,13 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
           + `${modo.ok ? modo.nivel : '?'} y no por "Datos generales". Se usa lo que haya en la foto.`);
         continue;
       }
-      try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: monedas, userGroupBy: '' }); }
+      const divisasReales = monedas && monedas.length ? monedas : estadMes.divisasDeLaFoto(cx.id, m);
+      try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: divisasReales.length ? divisasReales : null, userGroupBy: '' }); }
       catch (e) { avisos.push(`${cx.nombre}: ${String((e && e.message) || e)}`); continue; }
       if (!r || !r.ok) { avisos.push(`${cx.nombre}: ${(r && r.error) || 'no respondió'}`); continue; }
       // Solo se guarda si vino COMPLETO: media respuesta cacheada es un número mal que se queda.
       const fallo = Object.values(r.monedas || {}).some((x) => !x || !x.ok);
-      if (!fallo) ganCache.set(cx.id, '_pago_general', m, '_todas', r.monedas);
+      if (!fallo) guardarGeneral(cx.id, m, r.monedas);
       else avisos.push(`${cx.nombre}: alguna divisa falló, así que no se guardó en caché — reintentá para completar el mes`);
     }
     if (!r || !r.ok) { avisos.push(`${cx.nombre}: no respondió`); continue; }

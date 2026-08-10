@@ -524,7 +524,12 @@ function makeClient({ url, token, user, password } = {}) {
    * Devuelve { ok, monedas: { ARS:{ok,filas}|{ok:false,error}, ... } }.
    */
   async function reporteProveedoresMonedas({ from = '', to = '', currencies = null, userGroupBy = '', activeTemplate = '' } = {}) {
-    const list = (currencies && currencies.length) ? currencies.filter((c) => CURRENCIES.includes(c)) : CURRENCIES.slice();
+    // CURRENCIES son diez códigos escritos a mano acá y es SÓLO el valor por defecto. Si el que
+    // llama pasa una lista, se respeta tal cual: esa lista sale del propio panel (la Foto lee las
+    // divisas habilitadas de cada cuenta) y sabe más que esta constante. Filtrarla contra los diez
+    // fue lo que hizo desaparecer los guaraníes de julio — PYG, COP, CRC, HNL, USDT, VES, ZAR y BOB
+    // no están en esta lista y los paneles los usan igual.
+    const list = (currencies && currencies.length) ? currencies.slice() : CURRENCIES.slice();
     const monedas = {};
     for (const cur of list) {
       const r = await reporteProveedores({ from, to, currency: cur, userGroupBy, activeTemplate });
