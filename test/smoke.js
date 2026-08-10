@@ -1756,28 +1756,38 @@ async function main() {
       !sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: 'abc', login: 'x' }).ok);
     check('solicitud: falta el login', !sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '1' }).ok);
 
-    const r1 = sc.crear({ cliente_id: cli.id, sistema: 'casino', nodo: '777001', login: 'PruebaSol' }, 'operador');
+    // ⚠️ La base del test PERSISTE entre corridas. Con un nodo fijo, la solicitud que queda
+    // pendiente al final hace fallar la corrida siguiente: "ya hay una solicitud pendiente".
+    // Se limpia al final, y además el nodo cambia en cada corrida por las dudas.
+    const { db: dbt } = require('../src/db');
+    dbt.prepare("DELETE FROM solicitud_caja WHERE login LIKE 'PruebaSol%' OR login IN ('Otra','EnEuropa','Reintento')").run();
+    const NODO = '777' + String(process.pid).slice(-3);
+    const r1 = sc.crear({ cliente_id: cli.id, sistema: 'casino', nodo: NODO, login: 'PruebaSol' }, 'operador');
     check('solicitud: se crea y queda pendiente', r1.ok && r1.solicitud.estado === 'pendiente', JSON.stringify(r1.error || ''));
     check('solicitud: normaliza el sistema', r1.ok && r1.solicitud.sistema === 'Casino', r1.ok && r1.solicitud.sistema);
     check('solicitud: anota quién la pidió', r1.ok && r1.solicitud.pedida_por === 'operador');
 
     // ⚠️ dos cajas al mismo nodo serían dos destinos idénticos: la ficha se podría cargar dos veces
-    const r2 = sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '777001', login: 'Otra' }, 'operador');
+    const r2 = sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: NODO, login: 'Otra' }, 'operador');
     check('solicitud: no se pide dos veces el mismo nodo', !r2.ok && /pendiente/.test(r2.error), r2.error);
     // pero el mismo nodo en el OTRO panel sí es otra cuenta
-    const r3 = sc.crear({ cliente_id: cli.id, sistema: 'Europa', nodo: '777001', login: 'EnEuropa' }, 'operador');
+    const r3 = sc.crear({ cliente_id: cli.id, sistema: 'Europa', nodo: NODO, login: 'EnEuropa' }, 'operador');
     check('solicitud: el mismo id en el otro panel sí se puede', r3.ok, r3.error);
 
     sc.resolver(r1.solicitud.id, { estado: 'rechazada', motivo: 'de prueba' });
     check('solicitud: al resolverla deja el motivo', sc.get(r1.solicitud.id).motivo === 'de prueba');
     check('solicitud: y libera el nodo para volver a pedirlo',
-      sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '777001', login: 'Reintento' }).ok);
+      sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: NODO, login: 'Reintento' }).ok);
     // el operador puede pedir, pero no aprobar
     const auth2 = require('../src/auth');
     check('solicitud: el operador puede pedirla',
       auth2.puedeOperador({ method: 'POST', path: '/api/despacho/solicitud-caja' }) === true);
     check('solicitud: pero NO aprobarla',
       auth2.puedeOperador({ method: 'POST', path: '/api/os/solicitudes-caja/s_1/aprobar' }) === false);
+    // no dejar nada pendiente: lo de una corrida no puede romper la siguiente
+    dbt.prepare("DELETE FROM solicitud_caja WHERE nodo=?").run(NODO);
+    check('solicitud: el test no deja nada pendiente', sc.list({ estado: 'pendiente' })
+      .filter((x) => x.nodo === NODO).length === 0);
   }
 
   // ── la política de qué divisas se le piden a un panel ──

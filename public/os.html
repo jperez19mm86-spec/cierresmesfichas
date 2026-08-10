@@ -317,6 +317,7 @@ VIEWS.clientes = async () => {
   ]);
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
   window._divDiag = {}; ((dv&&dv.paneles)||[]).forEach(x=>{ window._divDiag[x.panel_id]=x; });
+  setTimeout(solAviso, 0);   // no bloquea el pintado
   const sinDueno = _paneles.filter(p=>!_clientes.some(c=>c.id===p.cliente_id));
   const sinLinkear = _paneles.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
 
@@ -341,6 +342,7 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="divisasCasino()"
             title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
        <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
+       <div id="sol-aviso"></div>
        <div id="sol-caja" style="margin:10px 0"></div>
       <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
         La <b>base</b> es lo único de esta tabla que factura.
@@ -371,6 +373,21 @@ VIEWS.clientes = async () => {
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
+/* Si hay cajas esperando aprobación, que se vea sin tener que buscar el botón. El trabajo
+   pendiente tiene que anunciarse solo: un botón entre otros seis no lo hace. */
+async function solAviso(){
+  const r=await api('/api/os/solicitudes-caja?estado=pendiente');
+  const n=(r&&r.ok)?((r.solicitudes||[]).length):0;
+  const b=document.getElementById('sol-badge');
+  if(b) b.innerHTML = n?'<span class="badge err" style="margin-left:4px">'+n+'</span>':'';
+  const av=document.getElementById('sol-aviso'); if(!av) return;
+  if(!n){ av.innerHTML=''; return; }
+  const q=(r.solicitudes||[]).slice(0,3).map(x=>esc(x.cliente)+' → '+esc(x.login)+' ('+esc(x.sistema)+')').join(' · ');
+  av.innerHTML='<div class="nota warn" style="margin:10px 0"><span class="tit">📦 '+n+' caja'+(n===1?'':'s')+' esperando aprobación</span>'
+    +'<span class="muted">'+q+(n>3?' y '+(n-3)+' más':'')+'</span> '
+    +'<button class="small" style="margin-left:8px" onclick="solicitudesCaja()">Ver y aprobar</button></div>';
+}
+
 /* ── SOLICITUDES DE CAJA ───────────────────────────────────────────────────────────────────────
    Las pide quien despacha; se aprueban acá. Al aprobar se VERIFICA el nodo contra el casino: eso
    confirma que la cuenta existe —un id mal tipeado se descubre acá y no el día que falla una
@@ -412,6 +429,7 @@ async function solAprobar(id, forzar){
     if(r.aviso) toast(r.aviso);
     _paneles=(await api('/api/os/paneles')).paneles||_paneles;
     const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
+    solAviso();
     return solicitudesCaja();
   }
   // El casino no confirmó el nodo: puede ser un id mal tipeado. Se puede aprobar igual, pero que
@@ -427,6 +445,7 @@ async function solRechazar(id){
   if(m===null) return;
   await api('/api/os/solicitudes-caja/'+id+'/rechazar',{method:'POST',body:JSON.stringify({motivo:m})});
   const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
+  solAviso();
   solicitudesCaja();
 }
 async function setEnFoto(id, v){
