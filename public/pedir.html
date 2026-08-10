@@ -68,6 +68,7 @@
     <div class="grid">
       <div class="opt" id="optFichas" onclick="elegirCamino('fichas')">🎰 Pedir fichas<span class="small">cargar a un usuario</span></div>
       <div class="opt" id="optPago" onclick="elegirCamino('pago')">🧾 Avisar un pago<span class="small">subir el comprobante</span></div>
+      <div class="opt" id="optMover" onclick="elegirCamino('mover')">🔀 Mover fichas<span class="small">de un usuario tuyo a otro</span></div>
     </div>
   </div>
 
@@ -93,6 +94,33 @@
 
   <button class="btn full hidden" id="btnPedir" onclick="hacerPedido()" disabled>✅ Hacer el pedido</button>
   <div id="pedidoMsg" style="margin-top:12px"></div>
+
+  <!-- ─── Camino C: mover fichas entre usuarios propios ───
+       No mueve nada: deja el pedido y lo aprueban del otro lado, igual que un pedido de fichas. -->
+  <div class="card hidden" id="cardMovOrigen">
+    <div class="q">¿De qué usuario salen las fichas?</div>
+    <div class="grid" id="movOrigenGrid"></div>
+  </div>
+
+  <div class="card hidden" id="cardMovDestino">
+    <div class="q">¿A qué usuario van?</div>
+    <div class="grid" id="movDestinoGrid"></div>
+    <div id="movSinDestino" class="small" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card hidden" id="cardMovDivisa">
+    <div class="q">¿En qué moneda?</div>
+    <div class="grid" id="movDivisaGrid"></div>
+  </div>
+
+  <div class="card hidden" id="cardMovMonto">
+    <div class="q">¿Cuánto querés mover?</div>
+    <input id="movMonto" type="text" inputmode="decimal" placeholder="Monto" oninput="valMov()" />
+    <div class="small" style="margin-top:8px">Queda pedido y se revisa antes de moverlo. Te avisamos cuando esté.</div>
+  </div>
+
+  <button class="btn full hidden" id="btnMover" onclick="hacerMovimiento()" disabled>🔀 Pedir el movimiento</button>
+  <div id="movMsg" style="margin-top:12px"></div>
 
   <!-- ─── Camino B: avisar un pago ─── -->
   <div class="card hidden" id="cardVia">
@@ -126,6 +154,7 @@
 
 <script>
   let _codigo = '', _cajas = [], _selCaja = null, _selDivisa = null, _selMonto = null;
+  let _paneles = [], _movOrigen = null, _movDestino = null, _movDivisa = null;
   let _pago = null;   // datos de cobro que manda el servidor
   let _via = null;    // 'ars' | 'usdt'
 
@@ -147,11 +176,16 @@
       const d = await r.json();
       if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No encontrado') + '</div>'; return; }
       _codigo = d.cliente.codigo; _cajas = d.cajas || []; _pago = d.pago || null;
+      _paneles = d.paneles || [];
       // Avisar un pago no lo tiene cualquiera: si este cliente no lo tiene, la opción no aparece
       // y el camino queda directo a pedir fichas.
       const optPago = document.getElementById('optPago');
       const puedePago = d.puedeAvisarPago !== false;
       optPago.style.display = puedePago ? '' : 'none';
+      // Mover fichas tampoco lo tiene cualquiera, y además no tiene sentido con un solo usuario:
+      // hacen falta dos para que haya de dónde y a dónde.
+      document.getElementById('optMover').style.display =
+        (d.puedeMoverBalance && _paneles.length >= 2) ? '' : 'none';
       msg.innerHTML = '';
       const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
       document.getElementById('cliName').textContent = quien;
@@ -168,10 +202,14 @@
   function elegirCamino(cual) {
     document.getElementById('optFichas').classList.toggle('sel', cual === 'fichas');
     document.getElementById('optPago').classList.toggle('sel', cual === 'pago');
-    ['cardCaja','cardDivisa','cardMonto','btnPedir','cardVia','cardDatos','cardPago','btnPago'].forEach(i => show(i, false));
+    document.getElementById('optMover').classList.toggle('sel', cual === 'mover');
+    ['cardCaja','cardDivisa','cardMonto','btnPedir','cardVia','cardDatos','cardPago','btnPago',
+     'cardMovOrigen','cardMovDestino','cardMovDivisa','cardMovMonto','btnMover'].forEach(i => show(i, false));
+    document.getElementById('movMsg').innerHTML = '';
     document.getElementById('pagoMsg').innerHTML = '';
     document.getElementById('pedidoMsg').innerHTML = '';
     if (cual === 'fichas') { show('cardCaja', true); return; }
+    if (cual === 'mover') { movReset(); return; }
     _via = null;
     document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.remove('sel'));
     show('cardVia', true);
@@ -230,6 +268,83 @@
     const btn = document.getElementById('btnPedir');
     btn.disabled = !ok;
     btn.textContent = ok ? ('✅ Pedir ' + _selDivisa + ' $ ' + fmt(_selMonto)) : '✅ Hacer el pedido';
+  }
+
+  /* ─── MOVER FICHAS ENTRE USUARIOS PROPIOS ──────────────────────────────────────────────────
+     Cuatro pasos: de dónde, a dónde, en qué moneda y cuánto. El destino se ofrece filtrado — sólo
+     los usuarios de la misma plataforma que el origen — porque un movimiento entre plataformas
+     distintas no existe: son dos casinos. El cliente no ve nombres de plataformas, sólo que
+     algunos usuarios no aparecen como destino. */
+  function movReset() {
+    _movOrigen = null; _movDestino = null; _movDivisa = null;
+    document.getElementById('movMonto').value = '';
+    document.getElementById('movOrigenGrid').innerHTML = _paneles
+      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickOrigen(\'' + p.id + '\',this)">' + esc(p.nombre) + '</div>').join('');
+    show('cardMovOrigen', true);
+  }
+
+  function movPickOrigen(id, el) {
+    _movOrigen = _paneles.find(p => p.id === id) || null;
+    _movDestino = null; _movDivisa = null;
+    [...document.querySelectorAll('#movOrigenGrid .opt')].forEach(o => o.classList.remove('sel'));
+    if (el) el.classList.add('sel');
+    ['cardMovDivisa','cardMovMonto','btnMover'].forEach(i => show(i, false));
+
+    const destinos = _paneles.filter(p => p.id !== id && p.grupo === _movOrigen.grupo);
+    document.getElementById('movDestinoGrid').innerHTML = destinos
+      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickDestino(\'' + p.id + '\',this)">' + esc(p.nombre) + '</div>').join('');
+    document.getElementById('movSinDestino').textContent = destinos.length ? ''
+      : 'No hay otro usuario al que puedas mover desde éste.';
+    show('cardMovDestino', true);
+  }
+
+  function movPickDestino(id, el) {
+    _movDestino = _paneles.find(p => p.id === id) || null;
+    _movDivisa = null;
+    [...document.querySelectorAll('#movDestinoGrid .opt')].forEach(o => o.classList.remove('sel'));
+    if (el) el.classList.add('sel');
+    show('cardMovMonto', false); show('btnMover', false);
+    // Sólo las monedas que TIENEN LOS DOS: si el destino no la tiene, la carga falla después de
+    // haber retirado, o sea con las fichas ya afuera. Mejor no ofrecerla.
+    const comunes = (_movOrigen.divisas || []).filter(d => (_movDestino.divisas || []).includes(d));
+    document.getElementById('movDivisaGrid').innerHTML = comunes.length
+      ? comunes.map(d => '<div class="opt" onclick="movPickDivisa(\'' + d + '\',this)">' + esc(d) + '</div>').join('')
+      : '<div class="q">Estos dos usuarios no tienen ninguna moneda en común.</div>';
+    show('cardMovDivisa', true);
+  }
+
+  function movPickDivisa(d, el) {
+    _movDivisa = d;
+    [...document.querySelectorAll('#movDivisaGrid .opt')].forEach(o => o.classList.remove('sel'));
+    if (el) el.classList.add('sel');
+    show('cardMovMonto', true); show('btnMover', true); valMov();
+  }
+
+  function valMov() {
+    const m = parseFloat(String(document.getElementById('movMonto').value).replace(/\./g, '').replace(',', '.'));
+    const ok = _movOrigen && _movDestino && _movDivisa && m > 0;
+    const b = document.getElementById('btnMover');
+    b.disabled = !ok;
+    b.textContent = ok ? ('🔀 Mover ' + fmt(m) + ' ' + _movDivisa) : '🔀 Pedir el movimiento';
+  }
+
+  async function hacerMovimiento() {
+    const b = document.getElementById('btnMover'), msg = document.getElementById('movMsg');
+    const monto = parseFloat(String(document.getElementById('movMonto').value).replace(/\./g, '').replace(',', '.'));
+    if (!(monto > 0)) return;
+    b.disabled = true; msg.innerHTML = '<div class="msg">Enviando…</div>';
+    try {
+      const r = await fetch('/api/movimiento-panel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: _codigo, origen: _movOrigen.id, destino: _movDestino.id,
+          divisa: _movDivisa, monto: String(monto) }) });
+      const d = await r.json();
+      if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo') + '</div>'; b.disabled = false; return; }
+      msg.innerHTML = '<div class="msg ok">✅ Pedido enviado. Te avisamos cuando esté movido.</div>'
+        + (d.aviso ? '<div class="msg err" style="margin-top:6px">⚠️ ' + esc(d.aviso) + '</div>' : '');
+      setTimeout(() => { elegirCamino('mover'); msg.innerHTML = ''; }, 6000);
+    } catch (e) {
+      msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; b.disabled = false;
+    }
   }
 
   async function hacerPedido() {

@@ -317,7 +317,7 @@ VIEWS.clientes = async () => {
   ]);
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
   window._divDiag = {}; ((dv&&dv.paneles)||[]).forEach(x=>{ window._divDiag[x.panel_id]=x; });
-  setTimeout(solAviso, 0);   // no bloquea el pintado
+  setTimeout(solAviso, 0); setTimeout(movAviso, 0);   // no bloquean el pintado
   const sinDueno = _paneles.filter(p=>!_clientes.some(c=>c.id===p.cliente_id));
   const sinLinkear = _paneles.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
 
@@ -339,11 +339,15 @@ VIEWS.clientes = async () => {
 
           <button class="outline small" onclick="solicitudesCaja()"
             title="Cajas que pidió quien despacha. Se aprueban acá porque definen a quién se le factura.">📦 Solicitudes de caja <span id="sol-badge"></span></button>
+          <button class="outline small" onclick="movimientosPanel()"
+            title="Fichas que un cliente pide mover de un usuario suyo a otro. Se aprueban acá: mover fichas cambia dónde está el saldo y a quién se le factura.">🔀 Mover fichas <span id="mov-badge"></span></button>
           <button class="outline small" onclick="divisasCasino()"
             title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
        <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
        <div id="sol-aviso"></div>
        <div id="sol-caja" style="margin:10px 0"></div>
+       <div id="mov-aviso"></div>
+       <div id="mov-caja" style="margin:10px 0"></div>
       <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
         La <b>base</b> es lo único de esta tabla que factura.
         A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
@@ -388,6 +392,107 @@ async function solAviso(){
     +'<button class="small" style="margin-left:8px" onclick="solicitudesCaja()">Ver y aprobar</button></div>';
 }
 
+/* ── MOVER FICHAS ENTRE PANELES DE UN CLIENTE ─────────────────────────────────────────────────
+   El cliente pide, se aprueba acá. Son DOS operaciones contra el casino —retirar del origen y
+   cargar en el destino— y no hay transacción que las abrace, así que hay un estado intermedio:
+   "retirado" quiere decir que las fichas ya salieron y están en la cuenta con la que cargamos.
+   Ese estado es el que hay que mirar: no es un error, es plata esperando que la manden. */
+async function movAviso(){
+  const r=await api('/api/os/movimientos-panel');
+  const c=(r&&r.ok)?(r.counts||{}):{};
+  const n=c.requierenAtencion||0;
+  const b=document.getElementById('mov-badge');
+  if(b) b.innerHTML = n?'<span class="badge err" style="margin-left:4px">'+n+'</span>':'';
+  const av=document.getElementById('mov-aviso'); if(!av) return;
+  if(!n){ av.innerHTML=''; return; }
+  // Un movimiento a medias se anuncia distinto y más fuerte que uno pendiente: en el pendiente no
+  // se movió nada y puede esperar; en el otro las fichas ya salieron de un panel del cliente.
+  const medias=(c.retirado||0)+(c.trabados||0);
+  // La clase va escrita entera en cada rama y no interpolada: hay un control que revisa que
+  // ninguna clase "nota …" use un modificador que no existe en el CSS, y ese control no puede
+  // leer un ternario adentro del atributo. Vale más tenerlo funcionando que ahorrar tres palabras.
+  const cuerpo = '<span class="tit">'+(medias
+      ? '⚠️ '+medias+' movimiento'+(medias===1?'':'s')+' A MEDIAS: las fichas ya se retiraron y no llegaron al destino'
+      : '🔀 '+n+' movimiento'+(n===1?'':'s')+' esperando aprobación')+'</span>'
+    +(medias&&c.pendiente?'<span class="muted">y '+c.pendiente+' esperando aprobación</span> ':'')
+    +'<button class="small" style="margin-left:8px" onclick="movimientosPanel()">Ver</button>';
+  av.innerHTML = medias
+    ? '<div class="nota err" style="margin:10px 0">'+cuerpo+'</div>'
+    : '<div class="nota warn" style="margin:10px 0">'+cuerpo+'</div>';
+}
+
+async function movimientosPanel(){
+  const caja=document.getElementById('mov-caja'); if(!caja) return;
+  if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
+  caja.dataset.abierto='1'; caja.innerHTML='<div class="nota">Cargando…</div>';
+  const r=await api('/api/os/movimientos-panel');
+  if(!r.ok){ caja.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
+  const ms=r.movimientos||[];
+  if(!ms.length){ caja.innerHTML='<div class="nota">Ningún cliente pidió mover fichas todavía.</div>'; return; }
+  const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose…',retirado:'A MEDIAS — retirado, falta cargar',hecho:'hecho',rechazado:'rechazado'};
+  caja.innerHTML='<div class="nota"><span class="tit">🔀 Mover fichas entre paneles de un cliente</span>'
+    +'Se retira del origen y se carga en el destino. Si el retiro falla no se movió nada; si falla la carga, '
+    +'las fichas quedan en la cuenta con la que cargamos y <b>Reintentar</b> manda sólo esa mitad — el retiro nunca se repite.'
+    +'<table style="margin-top:8px"><thead><tr><th>Cliente</th><th>De → a</th><th class="right">Monto</th>'
+    +'<th>Estado</th><th>Pedido</th><th></th></tr></thead><tbody>'
+    +ms.map(m=>{
+      const aMedias=m.estado==='retirado';
+      return '<tr'+(aMedias?' style="background:var(--bg3)"':'')+'>'
+      +'<td><b>'+esc(m.cliente)+'</b></td>'
+      +'<td class="muted">'+esc(m.origen)+' → '+esc(m.destino)+(m.sistema?' <span style="opacity:.6">('+esc(m.sistema)+')</span>':'')+'</td>'
+      +'<td class="right"><b>'+money(m.monto)+'</b> <span class="muted">'+esc(m.divisa)+'</span></td>'
+      +'<td'+(aMedias?' style="color:var(--red);font-weight:700"':'')+'>'+esc(ETQ[m.estado]||m.estado)
+        +(m.problema?'<div class="muted" style="color:var(--red)">'+esc(m.problema)+'</div>':'')
+        +(m.error?'<div class="muted">'+esc(String(m.error).slice(0,140))+'</div>':'')+'</td>'
+      +'<td class="muted">'+esc(new Date(m.creado_at).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}))+'</td>'
+      +'<td class="right" style="white-space:nowrap">'
+        +(m.estado==='pendiente'
+          ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')"'+(m.problema?' disabled title="'+esc(m.problema)+'"':'')+'>Aprobar y mover</button> '
+            +'<button class="outline small" onclick="movRechazar(\''+m.id+'\')">Rechazar</button>'
+          : m.estado==='retirado'
+          ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')">Reintentar la carga</button>'
+          : m.estado==='ejecutando'
+          ? '<button class="outline small" onclick="movDestrabar(\''+m.id+'\')" title="Sólo si el proceso se cortó: devuelve el movimiento al estado que corresponda">Destrabar</button>'
+          : '')
+      +'</td></tr>';
+    }).join('')
+    +'</tbody></table></div>';
+}
+
+async function movEjecutar(id){
+  if(!confirm('Esto MUEVE FICHAS de verdad en el casino.\n\nSe retira del panel de origen y se carga en el de destino. '
+    +'Puede tardar: son varias llamadas al casino.\n\n¿Seguimos?')) return;
+  const caja=document.getElementById('mov-caja');
+  if(caja) caja.innerHTML='<div class="nota">Moviendo… no cierres esta pantalla.</div>';
+  const r=await api('/api/os/movimientos-panel/'+id+'/ejecutar',{method:'POST',body:'{}'});
+  if(caja) caja.dataset.abierto='';
+  if(!r.ok){
+    // El "quedó a medias" no es un toast: es plata de un cliente que salió de un panel y no llegó
+    // al otro. Tiene que frenar a quien lo lee.
+    alert(r.quedoAMedias ? ('⚠️ QUEDÓ A MEDIAS\n\n'+r.error) : ('No se pudo mover:\n\n'+r.error));
+  } else toast('Movido');
+  movAviso(); movimientosPanel();
+}
+
+async function movRechazar(id){
+  const motivo=prompt('¿Por qué se rechaza? (lo ve el cliente)','');
+  if(motivo===null) return;
+  const r=await api('/api/os/movimientos-panel/'+id+'/rechazar',{method:'POST',body:JSON.stringify({motivo})});
+  if(!r.ok) return toast(r.error||'no se pudo');
+  const c=document.getElementById('mov-caja'); if(c) c.dataset.abierto='';
+  movAviso(); movimientosPanel();
+}
+
+async function movDestrabar(id){
+  if(!confirm('Usá esto SÓLO si el proceso se cortó (por ejemplo, se reinició el servidor).\n\n'
+    +'El movimiento vuelve al estado que corresponda según si el retiro alcanzó a salir o no.\n\n¿Destrabar?')) return;
+  const r=await api('/api/os/movimientos-panel/'+id+'/destrabar',{method:'POST',body:'{}'});
+  if(!r.ok) return toast(r.error||'no se pudo');
+  toast('Volvió a "'+r.vuelveA+'"');
+  const c=document.getElementById('mov-caja'); if(c) c.dataset.abierto='';
+  movAviso(); movimientosPanel();
+}
+
 /* ── SOLICITUDES DE CAJA ───────────────────────────────────────────────────────────────────────
    Las pide quien despacha; se aprueban acá. Al aprobar se VERIFICA el nodo contra el casino: eso
    confirma que la cuenta existe —un id mal tipeado se descubre acá y no el día que falla una
@@ -429,7 +534,7 @@ async function solAprobar(id, forzar){
     if(r.aviso) toast(r.aviso);
     _paneles=(await api('/api/os/paneles')).paneles||_paneles;
     const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
-    solAviso();
+    solAviso(); movAviso();
     return solicitudesCaja();
   }
   // El casino no confirmó el nodo: puede ser un id mal tipeado. Se puede aprobar igual, pero que
@@ -445,7 +550,7 @@ async function solRechazar(id){
   if(m===null) return;
   await api('/api/os/solicitudes-caja/'+id+'/rechazar',{method:'POST',body:JSON.stringify({motivo:m})});
   const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
-  solAviso();
+  solAviso(); movAviso();
   solicitudesCaja();
 }
 async function setEnFoto(id, v){

@@ -35,6 +35,8 @@ const reporteDiarioStore = require('./reporte-diario-store');
 const pulsoSvc = require('./pulso.service');
 const pedidosStore = require('./pedidos-store');
 const solicitudes = require('./solicitudes-caja');
+const movPanel = require('./movimientos-panel');
+const movPanelSvc = require('./movimientos-panel.service');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
@@ -622,6 +624,57 @@ function mount(app) {
     solicitudes.resolver(s.id, { estado: 'aprobada', panel_id: panel.id,
       motivo: `panel y caja creados para ${cli.nombre}` });
     ok(res, { panel, divisas, aviso });
+  }));
+
+  /**
+   * ── MOVER FICHAS ENTRE PANELES DE UN CLIENTE ─────────────────────────────────────────────────
+   * El cliente pide, acá se aprueba y recién ahí se ejecuta. El porqué está en
+   * src/movimientos-panel.js; el cómo, en el .service.
+   */
+  app.get('/api/os/movimientos-panel', (req, res) => {
+    const filas = movPanel.list(req.query.estado ? { estado: req.query.estado } : {});
+    const cli = {}; clientes.list().clientes.forEach((c) => { cli[c.id] = c.nombre || c.codigo; });
+    const pan = {}; paneles.list().forEach((p) => { pan[p.id] = p; });
+    ok(res, {
+      movimientos: filas.map((m) => ({
+        ...m,
+        cliente: cli[m.cliente_id] || '(borrado)',
+        origen: (pan[m.origen_panel_id] || {}).nombre || '(panel borrado)',
+        destino: (pan[m.destino_panel_id] || {}).nombre || '(panel borrado)',
+        sistema: (pan[m.origen_panel_id] || {}).sistema || '',
+        // Por qué NO se va a poder ejecutar, dicho antes de apretar. Sólo para los que esperan algo.
+        problema: (m.estado === 'pendiente' || m.estado === 'retirado') ? movPanelSvc.revisar(m) : null,
+      })),
+      counts: movPanel.counts(),
+    });
+  });
+
+  /**
+   * Aprobar y ejecutar. La MISMA ruta reintenta uno que quedó a medias: el estado del que se lo
+   * toma decide si hay que hacer las dos mitades o sólo la que falta. Un botón menos y, sobre todo,
+   * un camino menos donde equivocarse y repetir un retiro.
+   */
+  app.post('/api/os/movimientos-panel/:id/ejecutar', wrap(async (req, res) => {
+    const r = await movPanelSvc.ejecutar(req.params.id, {
+      sistemaParaCargar: req.app.get('sistemaParaCargar'),
+      por: rolDe(req) || 'admin',
+      log: (m) => console.log(m),
+    });
+    if (r.ok) return ok(res, r);
+    return res.status(r.status || 400).json({ ok: false, error: r.error,
+      mitad: r.mitad || null, quedoAMedias: !!r.quedoAMedias });
+  }));
+
+  app.post('/api/os/movimientos-panel/:id/rechazar', wrap((req, res) => {
+    const r = movPanel.rechazar(req.params.id, (req.body || {}).motivo, rolDe(req) || 'admin');
+    if (!r) return err(res, 404, 'no encontré ese movimiento');
+    return r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
+  /** Destrabar uno que quedó tomado porque el server se reinició en el medio. */
+  app.post('/api/os/movimientos-panel/:id/destrabar', wrap((req, res) => {
+    const r = movPanel.destrabar(req.params.id);
+    return r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
 
   app.post('/api/os/solicitudes-caja/:id/rechazar', wrap((req, res) => {

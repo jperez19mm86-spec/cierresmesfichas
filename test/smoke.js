@@ -1393,6 +1393,85 @@ async function main() {
       /entity\.too\.large/.test(src) && /demasiado grande/.test(src));
   }
 
+  // ── MOVER FICHAS ENTRE PANELES ──
+  //
+  // Son DOS operaciones contra el casino sin transacción que las abrace. Todo lo que se prueba acá
+  // protege una sola cosa: que las fichas no se muevan dos veces ni se den por perdidas.
+  {
+    const mv = require('../src/movimientos-panel');
+    const svc = require('../src/movimientos-panel.service');
+    const { db } = require('../src/db');
+    db.prepare("DELETE FROM movimiento_panel WHERE cliente_id='_test'").run();
+    const base = { cliente_id: '_test', origen_panel_id: 'pA', destino_panel_id: 'pB', divisa: 'ARS', monto: '1000' };
+
+    check('mover: no se mueve a sí mismo',
+      !mv.crear({ ...base, destino_panel_id: 'pA' }).ok);
+    check('mover: el monto tiene que ser positivo', !mv.crear({ ...base, monto: '0' }).ok);
+    check('mover: hace falta la divisa', !mv.crear({ ...base, divisa: '' }).ok);
+
+    const r1 = mv.crear(base, 'cliente');
+    check('mover: se crea pendiente', r1.ok && r1.movimiento.estado === 'pendiente');
+    // Dos clics no son dos movimientos.
+    check('mover: no se puede pedir dos veces lo mismo', !mv.crear(base).ok);
+
+    // ── EL CANDADO ──
+    // Dos aprobaciones simultáneas: sólo una toma la fila. Sin esto se mueve dos veces y se
+    // factura una — la misma lección que dejó escrita pedidos-store.tomarParaCargar.
+    const t1 = mv.tomar(r1.movimiento.id, 'pendiente');
+    const t2 = mv.tomar(r1.movimiento.id, 'pendiente');
+    check('mover: el candado deja pasar a uno solo', !!t1 && !t2);
+
+    // ── EL RETIRO NO SE REPITE NUNCA ──
+    // Después de retirar, el punto de retorno deja de ser 'pendiente' para siempre: si volviera,
+    // el próximo intento sacaría el monto DOS VECES del origen.
+    mv.marcarRetiroOk(r1.movimiento.id, { newBalance: '5000' });
+    const suelto = mv.soltar(r1.movimiento.id, 'la carga falló');
+    check('mover: si falla la carga queda en "retirado", no en "pendiente"', suelto.estado === 'retirado');
+    check('mover: y no se puede volver a tomar como pendiente', !mv.tomar(r1.movimiento.id, 'pendiente'));
+    check('mover: pero sí se reintenta desde "retirado"', !!mv.tomar(r1.movimiento.id, 'retirado'));
+
+    // ── RECHAZAR SÓLO LO QUE NO MOVIÓ NADA ──
+    // Rechazar algo ya retirado lo cerraría como si no hubiera pasado, con las fichas afuera.
+    mv.soltar(r1.movimiento.id, null);
+    const rech = mv.rechazar(r1.movimiento.id, 'probando');
+    check('mover: no se rechaza uno que ya retiró las fichas', rech && rech.ok === false);
+
+    // ── DESTRABAR VUELVE AL ESTADO QUE CORRESPONDE, NO AL QUE UNO QUIERA ──
+    const r2 = mv.crear({ ...base, monto: '2000' });
+    mv.tomar(r2.movimiento.id, 'pendiente');
+    check('mover: no se destraba uno recién tomado', !mv.destrabar(r2.movimiento.id).ok);
+    db.prepare('UPDATE movimiento_panel SET tomado_at=? WHERE id=?')
+      .run(new Date(Date.now() - 60 * 60000).toISOString(), r2.movimiento.id);
+    const d2 = mv.destrabar(r2.movimiento.id);
+    check('mover: sin retiro hecho, destrabar vuelve a pendiente', d2.ok && d2.vuelveA === 'pendiente');
+    mv.tomar(r2.movimiento.id, 'pendiente');
+    mv.marcarRetiroOk(r2.movimiento.id, {});
+    db.prepare('UPDATE movimiento_panel SET tomado_at=? WHERE id=?')
+      .run(new Date(Date.now() - 60 * 60000).toISOString(), r2.movimiento.id);
+    const d3 = mv.destrabar(r2.movimiento.id);
+    check('mover: con el retiro hecho, destrabar vuelve a retirado', d3.ok && d3.vuelveA === 'retirado');
+
+    // ── LOS QUE PIDEN ATENCIÓN INCLUYEN LOS QUE QUEDARON A MEDIAS ──
+    const c = mv.counts();
+    check('mover: los "a medias" cuentan como que piden atención', c.requierenAtencion >= c.retirado);
+
+    // ── EL PERMISO SE MIRA AL MOVER, NO SÓLO AL PEDIR ──
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
+    check('mover: el permiso mover_balance se comprueba al ejecutar', /cli\.mover_balance/.test(src));
+    check('mover: se comprueba que los dos paneles sean del cliente', /no es de ese cliente/.test(src));
+    check('mover: no se cruzan sistemas', /entre sistemas distintos/.test(src));
+    check('mover: se retira ANTES de cargar', src.indexOf("'out'") < src.indexOf('cascada.ejecutar'));
+
+    // La ruta del cliente sólo CREA. Ejecutar vive en /api/os/*, que pide sesión.
+    const auth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    const publicas = (auth.match(/const PUBLIC = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('mover: pedir un movimiento es público (el cliente no tiene usuario)', /movimiento-panel/.test(publicas));
+    const opera = (auth.match(/const OPERADOR_PUEDE = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('mover: el operador no mueve fichas entre paneles', !/movimiento-panel/.test(opera));
+
+    db.prepare("DELETE FROM movimiento_panel WHERE cliente_id='_test'").run();
+  }
+
   // ── EL ARCHIVO DE DOCUMENTOS EMITIDOS ──
   //
   // Lo que este bloque protege es una sola frase del dueño: "quiero siempre poder acceder a

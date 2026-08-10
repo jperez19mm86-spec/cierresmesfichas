@@ -113,6 +113,10 @@ app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public
 app.use(auth.required);
 
 // ─────────────── LATAM Games OS — núcleo comercial/financiero (/api/os/*) ───────────────
+// Cómo se resuelve con qué credenciales se carga en un sistema vive acá (una sola vez, ver
+// `sistemaParaCargar`). Las rutas del OS lo necesitan para mover fichas, y se lo pasamos por el app
+// en vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
+app.set('sistemaParaCargar', sistemaParaCargar);
 require('./os.routes').mount(app);
 
 // ─────────────── SISTEMAS (CRUD) ───────────────
@@ -265,6 +269,8 @@ app.get('/api/clientes', (_req, res) => {
 
 const casinoConexStore = require('./casino-conexiones-store');
 const solicitudesCaja = require('./solicitudes-caja');
+const movPanel = require('./movimientos-panel');
+const movPanelSvc = require('./movimientos-panel.service');
 
 /**
  * ── CON QUÉ CREDENCIALES SE CARGA EN UN SISTEMA ───────────────────────────────────────────────
@@ -493,6 +499,24 @@ app.get('/api/pedir/:codigo', (req, res) => {
     },
     // NO exponer "sistema" al cliente (Casino/Europa = control interno). Sí las divisas (el cliente elige).
     cajas: (cli.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, divisas: (k.divisas && k.divisas.length) ? k.divisas : ['ARS'], montosRapidos: k.montosRapidos || [] })),
+    // ── MOVER FICHAS ENTRE PANELES PROPIOS ──────────────────────────────────────────────────
+    // Se manda la lista de PANELES y no la de cajas: el movimiento es entre paneles, que es lo
+    // que tiene el id del casino. Y va sólo si el cliente tiene el permiso: sin él, la pantalla
+    // no dibuja la opción (y aunque la dibujara, la ruta la rechaza).
+    //
+    // `grupo` es una etiqueta OPACA ("g1", "g2") y no el nombre del sistema. Le alcanza a la
+    // pantalla para no ofrecer un destino de otra plataforma —que fallaría— sin decirle al cliente
+    // qué plataformas hay ni cuál es cuál, que es control interno.
+    puedeMoverBalance: !!cli.mover_balance,
+    paneles: cli.mover_balance ? (() => {
+      const gr = {}; let n = 0;
+      return paneles.list({ cliente_id: cli.id }).filter((p) => p.id_usuario).map((p) => {
+        const k = String(p.sistema || '').toLowerCase();
+        if (!gr[k]) { n += 1; gr[k] = 'g' + n; }
+        return { id: p.id, nombre: p.nombre, grupo: gr[k],
+          divisas: (p.divisas && p.divisas.length) ? p.divisas : ['ARS'] };
+      });
+    })() : [],
   });
 });
 
@@ -563,6 +587,47 @@ app.post('/api/comprobante', async (req, res) => {
   }
   res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa }, aviso });
 });
+/**
+ * El cliente PIDE MOVER fichas de un panel suyo a otro. No mueve nada: queda pendiente hasta que
+ * se apruebe en el OS, igual que un pedido de fichas o una solicitud de caja.
+ *
+ * El permiso `mover_balance` se comprueba ACÁ y no sólo escondiendo el botón: esta ruta es pública
+ * (no pide login, ver auth.js) y cualquiera que sepa un código puede postearle a mano.
+ */
+app.post('/api/movimiento-panel', (req, res) => {
+  const b = req.body || {};
+  const cli = clientes.getByCodigo(b.codigo);
+  if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
+  if (!cli.mover_balance) {
+    console.log(`[Mover] RECHAZADO: ${cli.codigo} no tiene habilitado mover balance`);
+    return res.status(403).json({ ok: false, error: 'Tu cuenta no tiene habilitado mover fichas entre paneles. Escribinos y lo hacemos nosotros.' });
+  }
+  const r = movPanel.crear({
+    cliente_id: cli.id, origen_panel_id: b.origen, destino_panel_id: b.destino,
+    divisa: b.divisa, monto: b.monto, nota: b.nota,
+  }, 'cliente');
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+
+  // Se revisa lo mismo que se va a revisar al ejecutar, para poder decirle AHORA que no va a andar
+  // en vez de dejarlo esperando una aprobación que va a fallar.
+  const mal = movPanelSvc.revisar(r.movimiento);
+  const m = r.movimiento;
+  console.log(`[Mover] ${cli.codigo} pidió mover ${m.monto} ${m.divisa}${mal ? ' — con un problema: ' + mal : ''}`);
+  push.notifyNuevoMovimiento({ ...m, cliente: cli.nombreVisible || cli.nombre || cli.codigo });
+  res.json({ ok: true, movimiento: { id: m.id, estado: m.estado, monto: m.monto, divisa: m.divisa }, aviso: mal || null });
+});
+
+/** En qué quedaron los movimientos que pidió este cliente. */
+app.get('/api/movimiento-panel/:codigo', (req, res) => {
+  const cli = clientes.getByCodigo(req.params.codigo);
+  if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
+  const porId = {}; paneles.list({ cliente_id: cli.id }).forEach((p) => { porId[p.id] = p.nombre; });
+  res.json({ ok: true, movimientos: movPanel.list({ cliente_id: cli.id }).slice(0, 20).map((m) => ({
+    id: m.id, origen: porId[m.origen_panel_id] || '(panel borrado)', destino: porId[m.destino_panel_id] || '(panel borrado)',
+    divisa: m.divisa, monto: m.monto, estado: m.estado, creado_at: m.creado_at, hecho_at: m.hecho_at,
+    motivo: m.motivo })) });
+});
+
 // ─────────────── PEDIDOS — panel admin ───────────────
 
 app.get('/api/pedidos', (req, res) => {

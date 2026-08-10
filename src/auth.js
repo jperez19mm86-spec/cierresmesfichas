@@ -36,6 +36,11 @@ const PUBLIC = [
   // Solo puede CREAR uno, y queda pendiente — aprobarlo (que es lo que mueve la deuda) exige
   // estar adentro del panel.
   /^\/api\/comprobante\/?$/,
+  // Pedir mover fichas de un panel propio a otro es parte de la vista cliente, por el mismo
+  // razonamiento: sólo puede CREAR el pedido, que no mueve nada. Ejecutarlo —que sí mueve fichas—
+  // exige estar adentro del panel, y encima el cliente tiene que tener el permiso `mover_balance`,
+  // que se comprueba en el servidor y no escondiendo el botón.
+  /^\/api\/movimiento-panel(\/|$)/,
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.

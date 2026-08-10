@@ -143,5 +143,22 @@ function notifyNuevaSolicitud(s) {
   }).catch((e) => console.warn('[Push] notifyNuevaSolicitud error:', e && e.message));
 }
 
+/**
+ * Aviso de que un cliente pidió mover fichas de un panel suyo a otro.
+ *
+ * Tag propio, como los otros tres: si compartieran uno, el navegador reemplaza el aviso anterior y
+ * sólo se ve el último. Un pedido, un comprobante, una solicitud de caja y un movimiento son cuatro
+ * cosas distintas y las cuatro hay que atenderlas.
+ */
+function notifyNuevoMovimiento(m) {
+  const monto = Number(m.monto || 0).toLocaleString('es-AR');
+  return sendToAll({
+    title: '🔀 Piden mover fichas',
+    body: `${m.cliente || 'un cliente'} — ${monto} ${m.divisa || ''}`.trim(),
+    url: '/',
+    tag: 'movimiento-' + (m.id || Date.now()),
+  }).catch((e) => console.warn('[Push] notifyNuevoMovimiento error:', e && e.message));
+}
+
 module.exports = { getPublicKey, addSubscription, removeSubscription, listSubscriptions, count, sendToAll,
-  notifyNewPedido, notifyNuevoComprobante, notifyNuevaSolicitud };
+  notifyNewPedido, notifyNuevoComprobante, notifyNuevaSolicitud, notifyNuevoMovimiento };

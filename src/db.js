@@ -521,6 +521,32 @@ db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_update BEFORE UPDATE ON document
 db.exec(`CREATE TRIGGER IF NOT EXISTS tr_doc_no_delete BEFORE DELETE ON documento_emitido
   BEGIN SELECT RAISE(ABORT, 'un documento emitido no se borra'); END;`);
 
+/* ───── MOVER FICHAS DE UN PANEL A OTRO DEL MISMO CLIENTE ─────
+   El cliente lo pide, la dueña lo aprueba, y recién ahí se ejecuta. Mover fichas cambia dónde está
+   el saldo y, si un panel es de un vendedor y el otro no, cambia a quién se le factura.
+
+   Se guardan las DOS MITADES por separado (detalle_retiro y detalle_carga) porque son dos
+   operaciones distintas contra el casino y pueden terminar distinto. El estado 'retirado' es el
+   "quedó a medias": salió el retiro y falta la carga, con las fichas en la cuenta con la que
+   cargamos — que es nuestra, así que no se perdieron. Ver src/movimientos-panel.js. */
+db.exec(`CREATE TABLE IF NOT EXISTS movimiento_panel (
+  id TEXT PRIMARY KEY,
+  cliente_id TEXT,
+  origen_panel_id TEXT,
+  destino_panel_id TEXT,
+  divisa TEXT,
+  monto TEXT,                    -- TEXT: la convención de plata de toda la base
+  nota TEXT,
+  estado TEXT DEFAULT 'pendiente',  -- pendiente | ejecutando | retirado | hecho | rechazado
+  desde_estado TEXT,             -- de qué estado se tomó el lock, para poder devolverlo ahí
+  pedido_por TEXT, aprobado_por TEXT,
+  creado_at TEXT, tomado_at TEXT, retirado_at TEXT, hecho_at TEXT, resuelto_at TEXT,
+  detalle_retiro TEXT, detalle_carga TEXT,   -- lo que contestó el casino en cada mitad
+  motivo TEXT, error TEXT
+);`);
+db.exec('CREATE INDEX IF NOT EXISTS ix_movpanel_estado ON movimiento_panel(estado, creado_at)');
+db.exec('CREATE INDEX IF NOT EXISTS ix_movpanel_cli ON movimiento_panel(cliente_id)');
+
 /* Lo que se agregó después de la primera versión de la tabla.
    · congelado    — si el mes tenía la foto de precios puesta al emitir. Un mes SIN congelar usa los
                     precios de hoy, así que el mismo mes puede dar otro número el mes que viene. El
