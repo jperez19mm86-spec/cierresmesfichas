@@ -186,7 +186,12 @@ app.post('/api/test-credentials', async (req, res) => {
  *
  * Sin deuda ni saldos: el dueño decidió que el operador vea el pedido y nada más.
  */
-const DESPACHO_CLIENTE = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas'];
+// `vendedor_id` y `es_vendedor` NO son datos comerciales: dicen quién cuelga de quién, no cuánto
+// se le cobra. Sin ellos la pantalla no puede armar el árbol y le mostraba al operador los 44
+// clientes sueltos, mientras el dueño veía 6 vendedores con su gente adentro. Dos pantallas que
+// deberían decir lo mismo mostrando cosas distintas es peor que mostrar de más.
+const DESPACHO_CLIENTE = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas',
+  'vendedor_id', 'es_vendedor'];
 app.get('/api/despacho/clientes', (_req, res) => {
   const cs = clientes.list().clientes.map((c) => {
     const o = {};

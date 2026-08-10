@@ -1443,9 +1443,11 @@ async function main() {
     // ── la proyección, probada con un cliente COMPLETO ──
     // Contra el server de prueba la lista venía vacía, así que ese chequeo pasaba sin mirar nada.
     // Acá se arma un cliente con todos los campos sensibles y se aplica la misma lista blanca.
-    const CAMPOS = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas'];
+    const CAMPOS = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas',
+      'vendedor_id', 'es_vendedor'];
     const crudo = { id: 'c1', codigo: 'L1', nombreVisible: 'Lu', nombre: 'Lu', estado: 'activo',
-      divisa_fichas: 'ARS', margen_externos_pct: '12', tc_proveedor: '1400', permite_deuda: true,
+      divisa_fichas: 'ARS', vendedor_id: 'v1', es_vendedor: false,
+      margen_externos_pct: '12', tc_proveedor: '1400', permite_deuda: true,
       ajuste_usdt_pct: '-2.8', telegram: { chat: '-100123' }, momento_pago: 'despues',
       cajas: [{ id: 'k1', usuario: 'u', sistema: 'Casino', userId: '9', divisas: ['ARS'],
         montosRapidos: [1, 2], grupoId: 'g' }] };
@@ -1459,6 +1461,10 @@ async function main() {
     const salida = JSON.stringify(proyectar(crudo));
     check('proyección: pasa lo que hace falta para despachar',
       /L1/.test(salida) && /Casino/.test(salida) && /ARS/.test(salida));
+    // sin esto la pantalla no arma el arbol y el operador ve una lista plana donde el dueño ve
+    // vendedores con su gente adentro: dos pantallas que deberían decir lo mismo, distintas.
+    check('proyección: incluye de quién cuelga cada cliente',
+      /vendedor_id/.test(salida) && /es_vendedor/.test(salida));
     ['margen_externos_pct', 'tc_proveedor', 'permite_deuda', 'ajuste_usdt_pct', 'telegram',
       'momento_pago', 'grupoId'].forEach((campo) => {
       check(`proyección: NO deja pasar ${campo}`, !salida.includes(campo), salida.slice(0, 60));
