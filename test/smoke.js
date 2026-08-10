@@ -1792,6 +1792,23 @@ async function main() {
       .filter((x) => x.nodo === NODO).length === 0);
   }
 
+  // ── el botón de avisos no puede desaparecer sin explicar ──
+  // Safari en iPhone sólo expone Push a los sitios agregados a la pantalla de inicio. En una
+  // pestaña común PushManager no existe, y el botón se escondía: quedaba pareciendo que el sistema
+  // no tiene avisos, cuando lo que falta es un paso del teléfono.
+  {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    check('avisos: el botón no se esconde cuando no hay soporte',
+      !/PushManager' in window\)\) \{ btn\.style\.display = 'none'/.test(js));
+    check('avisos: explica el paso de iPhone', /Agregar a pantalla de inicio/.test(js));
+    check('avisos: detecta iPhone', /iPad\|iPhone\|iPod/.test(js));
+    // y que la app se pueda agregar a inicio, que es de lo que depende
+    const man = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'manifest.json'), 'utf8'));
+    check('avisos: el manifest permite instalarla', man.display === 'standalone' && (man.icons || []).length > 0,
+      man.display + ' · ' + (man.icons || []).length + ' iconos');
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

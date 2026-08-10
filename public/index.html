@@ -947,7 +947,27 @@
   async function refreshNotifButton() {
     const btn = document.getElementById('btnNotif');
     if (!btn) return;
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { btn.style.display = 'none'; return; }
+    /* ── EN iPHONE NO ALCANZA CON ABRIR LA WEB ────────────────────────────────────────────────
+       Safari sólo expone Push a los sitios AGREGADOS A LA PANTALLA DE INICIO. En una pestaña
+       común `PushManager` no existe, y antes el botón simplemente desaparecía: quedaba pareciendo
+       que el sistema no tenía avisos, cuando lo que falta es un paso del teléfono.
+       Ahora se queda y explica qué hacer. */
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const enInicio = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      btn.textContent = '🔔 Avisos —';
+      btn.title = esIOS ? 'Tocá para ver cómo activarlos en iPhone' : 'Este navegador no soporta avisos';
+      btn.onclick = () => alert(esIOS && !enInicio
+        ? 'Para recibir avisos en iPhone hay que abrir la app desde la pantalla de inicio:\n\n'
+          + '1. Tocá el botón Compartir (el cuadradito con la flecha)\n'
+          + '2. "Agregar a pantalla de inicio"\n'
+          + '3. Abrí LATAM Games desde ese ícono\n'
+          + '4. Ahí sí va a aparecer "Activar avisos"\n\n'
+          + 'Es una restricción de Apple: Safari no manda avisos desde una pestaña común.'
+        : 'Este navegador no soporta avisos push. Probá con Chrome o agregá la app a la pantalla de inicio.');
+      return;
+    }
     try {
       const reg = _swReg || await navigator.serviceWorker.ready;
       const sub = reg && await reg.pushManager.getSubscription();
