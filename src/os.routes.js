@@ -478,6 +478,88 @@ function mount(app) {
     ok(res, { creadas: hechas.length, hechas, saltadas });
   }));
 
+  /**
+   * ── TRAER LOS PEDIDOS DEL SISTEMA EN LÍNEA ───────────────────────────────────────────────────
+   *
+   * Para mudar app.latamgames.online acá sin perder nada. Se le pasa el array de pedidos que
+   * devuelve /api/_backup del otro lado y los mete acá.
+   *
+   * ⚠️ NO USAR /api/_restore PARA ESTO. Ese endpoint pisa clientes y sistemas enteros: se llevaría
+   * puesto todo el trabajo del OS y de TBS. Acá sólo entran pedidos.
+   *
+   * ⚠️ Y NO MANDES EL BACKUP COMPLETO A NINGÚN LADO: incluye las contraseñas del casino EN CLARO.
+   * De todo ese dump acá sólo hace falta `pedidos`.
+   *
+   * ── CÓMO SE ENGANCHA CADA PEDIDO ─────────────────────────────────────────────────────────────
+   *
+   * Los dos padrones NO comparten códigos: allá un pedido viene con "M526" y acá el cliente se
+   * llama "Marcelo". Por eso se busca en este orden:
+   *   1. el NODO del casino (sistema + userId) — el mismo dato en los dos lados, y el más confiable
+   *   2. el mapeo ventas_mapeo, que se armó justamente cruzando por el nodo
+   *   3. el código, sólo si coincide exacto
+   * Lo que no engancha por ninguna se informa y NO se importa. Un pedido colgado del cliente
+   * equivocado le carga fichas a otro.
+   */
+  app.post('/api/os/importar-pedidos', wrap((req, res) => {
+    const entrada = (req.body && (req.body.pedidos || (req.body.dump && req.body.dump.pedidos))) || [];
+    const lista = Array.isArray(entrada) ? entrada : (entrada.pedidos || []);
+    if (!Array.isArray(lista) || !lista.length) return err(res, 400, 'no vino ningún pedido');
+    const soloProbar = req.body.probar !== false && req.body.aplicar !== true;
+
+    const todos = clientes.list().clientes;
+    const porNodo = new Map();
+    todos.forEach((c) => (c.cajas || []).forEach((k) => {
+      porNodo.set(`${(k.sistema || '').toLowerCase()}|${k.userId}`, { cliente: c, caja: k });
+    }));
+    const porCodigo = new Map(todos.map((c) => [String(c.codigo || '').toUpperCase(), c]));
+    const mapeo = new Map(db.prepare('SELECT codigo, cliente_id FROM ventas_mapeo').all()
+      .map((r) => [String(r.codigo).toUpperCase(), r.cliente_id]));
+    const yaEstan = new Set(pedidosStore.list().map((x) => x.id));
+
+    const enganchados = []; const sinCliente = []; const repetidos = [];
+    lista.forEach((p) => {
+      if (p.id && yaEstan.has(p.id)) { repetidos.push(p.id); return; }
+      const clave = `${String(p.sistema || '').toLowerCase()}|${String(p.userId || '')}`;
+      let via = null; let cliente = null; let caja = null;
+      const porN = porNodo.get(clave);
+      if (porN) { cliente = porN.cliente; caja = porN.caja; via = 'nodo del casino'; }
+      if (!cliente && p.codigo && mapeo.has(String(p.codigo).toUpperCase())) {
+        cliente = todos.find((c) => c.id === mapeo.get(String(p.codigo).toUpperCase())) || null;
+        if (cliente) via = 'mapeo del sistema en línea';
+      }
+      if (!cliente && p.codigo && porCodigo.has(String(p.codigo).toUpperCase())) {
+        cliente = porCodigo.get(String(p.codigo).toUpperCase()); via = 'código igual';
+      }
+      if (!cliente) {
+        sinCliente.push({ id: p.id, codigo: p.codigo, cliente: p.clienteNombre,
+          sistema: p.sistema, userId: p.userId, monto: p.monto, estado: p.estado });
+        return;
+      }
+      enganchados.push({ p, cliente, caja, via });
+    });
+
+    if (soloProbar) {
+      const porEstado = {};
+      enganchados.forEach((x) => { porEstado[x.p.estado || '?'] = (porEstado[x.p.estado || '?'] || 0) + 1; });
+      const porVia = {};
+      enganchados.forEach((x) => { porVia[x.via] = (porVia[x.via] || 0) + 1; });
+      return ok(res, { probar: true, entraron: enganchados.length, porEstado, porVia,
+        yaEstaban: repetidos.length, sinCliente,
+        ejemplos: enganchados.slice(0, 5).map((x) => ({ codigo: x.p.codigo, va_a: x.cliente.nombre,
+          caja: x.caja ? x.caja.usuario : '(sin caja: se guarda igual con el nodo)', via: x.via })) });
+    }
+
+    // Se conserva el id, el estado y las fechas del original: si se les pusiera uno nuevo, un mes
+    // ya cerrado del otro lado volvería a figurar como recién hecho.
+    let creados = 0;
+    enganchados.forEach(({ p, cliente, caja }) => {
+      pedidosStore.importar({ ...p, codigo: cliente.codigo, clienteNombre: cliente.nombreVisible || cliente.nombre,
+        cajaId: caja ? caja.id : (p.cajaId || ''), cajaUsuario: caja ? caja.usuario : p.cajaUsuario });
+      creados += 1;
+    });
+    ok(res, { importados: creados, yaEstaban: repetidos.length, sinCliente });
+  }));
+
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
   app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
     const b = req.body || {};

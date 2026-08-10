@@ -1590,6 +1590,45 @@ async function main() {
     [a.id, b.id, t.id].forEach((id) => cxs.remove(id));
   }
 
+  // ── traer los pedidos del sistema en línea ──
+  // Los dos padrones NO comparten códigos: allá un pedido viene con "M526" y acá el cliente se
+  // llama "Marcelo". Enganchar por el NODO del casino es lo único igual en los dos lados.
+  {
+    const pn = require('../src/paneles-store');
+    const pid = (await post('/api/os/paneles', { cliente_id: cli.id, nombre: 'PanelImp',
+      sistema: 'Casino', nivel_usuario: 'Agente', id_usuario: '555111', divisas: 'ARS' })).data.panel.id;
+
+    const viejo = { id: 'p_viejo1', codigo: 'CODIGO-DE-ALLA', clienteNombre: 'Otro Nombre',
+      sistema: 'Casino', userId: '555111', divisa: 'ARS', monto: 5000, estado: 'cargado',
+      createdAt: '2026-05-10T10:00:00.000Z', resueltoAt: '2026-05-10T10:05:00.000Z' };
+
+    let r = (await post('/api/os/importar-pedidos', { pedidos: [viejo] })).data;
+    check('importar: en modo prueba no escribe', r.probar === true && r.entraron === 1, JSON.stringify(r.porVia));
+    check('importar: engancha por el nodo del casino, no por el código',
+      r.porVia && r.porVia['nodo del casino'] === 1, JSON.stringify(r.porVia));
+
+    r = (await post('/api/os/importar-pedidos', { pedidos: [viejo], aplicar: true })).data;
+    check('importar: lo trae', r.importados === 1, JSON.stringify(r));
+
+    const ped = (await get('/api/pedidos')).data.pedidos.find((x) => x.id === 'p_viejo1');
+    // ⚠️ lo que NO puede pasar: que vuelva como pendiente. Alguien lo cargaría de nuevo y serían
+    // fichas entregadas dos veces.
+    check('importar: conserva el estado original', ped && ped.estado === 'cargado', ped && ped.estado);
+    check('importar: conserva la fecha original', ped && ped.createdAt === '2026-05-10T10:00:00.000Z', ped && ped.createdAt);
+    check('importar: lo pasa al cliente de ACÁ', ped && ped.codigo === 'L210', ped && ped.codigo);
+    check('importar: queda marcado de dónde vino', ped && ped.importado_de === 'app.latamgames.online');
+
+    r = (await post('/api/os/importar-pedidos', { pedidos: [viejo], aplicar: true })).data;
+    check('importar: no lo trae dos veces', r.importados === 0 && r.yaEstaban === 1, JSON.stringify(r));
+
+    // uno cuyo nodo no existe acá: NO se importa, se informa
+    const huerfano = { id: 'p_huerf', codigo: 'XX', sistema: 'Casino', userId: '000000', monto: 1, estado: 'pendiente' };
+    r = (await post('/api/os/importar-pedidos', { pedidos: [huerfano], aplicar: true })).data;
+    check('importar: uno sin cliente NO entra', r.importados === 0 && r.sinCliente.length === 1,
+      JSON.stringify(r.sinCliente));
+    await axios.delete(BASE + '/api/os/paneles/' + pid, H());
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

@@ -32,6 +32,38 @@ const _saveTx = db.transaction((data) => {
 });
 function save(data) { _saveTx(data); }
 
+/**
+ * Mete un pedido que viene de OTRO sistema conservando su id, su estado y sus fechas.
+ *
+ * No usa create(): ése pone id nuevo, estado 'pendiente' y la fecha de hoy. Con eso, un pedido ya
+ * cargado hace tres meses volvería a aparecer como pendiente y alguien lo cargaría de nuevo —
+ * fichas entregadas dos veces. Acá se copia tal cual y se respeta lo que ya pasó.
+ */
+function importar(p) {
+  const data = load();
+  if (data.pedidos.some((x) => x.id === p.id)) return null;
+  const pedido = {
+    id: String(p.id || ('p_' + crypto.randomBytes(5).toString('hex'))),
+    codigo: String(p.codigo || '').trim(),
+    clienteNombre: String(p.clienteNombre || '').trim(),
+    cajaId: String(p.cajaId || '').trim(),
+    cajaUsuario: String(p.cajaUsuario || '').trim(),
+    sistema: String(p.sistema || '').trim(),
+    userId: String(p.userId || '').trim(),
+    divisa: String(p.divisa || 'ARS').trim(),
+    monto: Number(p.monto) || 0,
+    estado: String(p.estado || 'pendiente'),
+    createdAt: p.createdAt || new Date().toISOString(),
+    resueltoAt: p.resueltoAt || null,
+    newBalance: p.newBalance == null ? null : p.newBalance,
+    error: p.error || null,
+    importado_de: 'app.latamgames.online',
+  };
+  data.pedidos.unshift(pedido);
+  save(data);
+  return pedido;
+}
+
 function create(p) {
   const data = load();
   const pedido = {
@@ -239,4 +271,4 @@ function remove(id) {
   return { ok: true, pedido: p };
 }
 
-module.exports = { create, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
+module.exports = { create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
