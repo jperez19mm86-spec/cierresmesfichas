@@ -1439,6 +1439,43 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── EL AVISO AL GRUPO CUANDO SE MUEVEN FICHAS ──
+  //
+  // Va a un grupo REAL de un cliente, así que lo que dice importa tanto como cuándo se manda.
+  {
+    const tg = require('../src/telegram');
+    const txt = tg.movimientoText({ origen: 'LuckyDay-SA', destino: 'cash365.vip', divisa: 'ARS', monto: '150000' });
+    check('aviso mover: dice de dónde, a dónde y cuánto',
+      /LuckyDay-SA/.test(txt) && /cash365\.vip/.test(txt) && /150\.000/.test(txt) && /ARS/.test(txt));
+    // Mismo criterio que el aviso de carga: el grupo puede ser de un vendedor y servir a varios
+    // clientes. Lo que identifica el movimiento son los usuarios, que son del cliente.
+    check('aviso mover: NO lleva el nombre del cliente',
+      !/cliente/i.test(txt.replace(/Fichas movidas/i, '')));
+    // Casino/Europa es control interno y no viaja a un grupo de clientes.
+    const conSistema = tg.movimientoText({ origen: 'A', destino: 'B', divisa: 'ARS', monto: '1' });
+    check('aviso mover: no nombra la plataforma', !/casino|europa/i.test(conSistema));
+    check('aviso mover: escapa el HTML de los nombres',
+      /&lt;b&gt;/.test(tg.movimientoText({ origen: '<b>x', destino: 'y', divisa: 'ARS', monto: '1' })));
+
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
+    // SÓLO cuando terminó entero: avisar "fichas movidas" con las fichas a mitad de camino es peor
+    // que no decir nada.
+    const iHecho = src.indexOf('store.marcarHecho');
+    const iAviso = src.indexOf('avisarAlGrupo({');
+    check('aviso mover: sólo se manda cuando el movimiento terminó', iHecho > 0 && iAviso > iHecho);
+    // La primera versión de este check medía CERCANÍA EN EL TEXTO y salía en rojo con el código
+    // correcto: el camino de la falla está tres líneas arriba del aviso, pero corta con un return.
+    // Ahora se mira el flujo: el bloque de la falla tiene que terminar en return.
+    const bloqueFalla = src.slice(src.indexOf('if (!r.ok) {'), src.indexOf('store.marcarHecho'));
+    check('aviso mover: el camino de la falla corta con return, antes del aviso',
+      /return \{ ok: false/.test(bloqueFalla) && !/avisarAlGrupo/.test(bloqueFalla));
+    // Mismo grupo y mismo interruptor que las cargas: para el cliente es la misma conversación.
+    check('aviso mover: usa el destino heredado y su interruptor',
+      /tgDestino\.destinoDe/.test(src) && /dest\.enabled/.test(src));
+    // Que Telegram no conteste no puede tumbar un movimiento que YA se hizo.
+    check('aviso mover: es fire-and-forget', /\.then\(/.test(src) && /catch \(e\)/.test(src));
+  }
+
   // ── LA CADENA DE UN MOVIMIENTO ESTÁ BALANCEADA ──
   //
   // Es EL check de todo esto. La cascada de CARGA funde fichas desde el SuperAgente, que tiene

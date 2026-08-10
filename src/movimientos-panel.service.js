@@ -21,6 +21,9 @@ const cascada = require('./carga-cascada.service');
 const paneles = require('./paneles-store');
 const clientes = require('./clientes-store');
 const store = require('./movimientos-panel');
+const telegram = require('./telegram');
+const tgDestino = require('./telegram-destino');
+const config = require('./config-store');
 
 /**
  * Todo lo que hay que comprobar ANTES de tocar el casino.
@@ -127,11 +130,35 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
 
     const fin = store.marcarHecho(id, { pasos: r.pasos || null, at: new Date().toISOString() }, por);
     log(`[Mover] ${id}: HECHO`);
+    avisarAlGrupo({ m: m0, origen, destino, log });
     return { ok: true, movimiento: fin };
   } catch (e) {
     store.soltar(id, String((e && e.message) || e));
     return { ok: false, status: 500, error: String((e && e.message) || e) };
   }
+}
+
+/**
+ * Le avisa al grupo de Telegram del cliente que las fichas se movieron.
+ *
+ * SÓLO cuando el movimiento terminó entero. Uno que quedó a medias no se avisa: el cliente vería
+ * "fichas movidas" con las fichas todavía en el camino, y eso es peor que no decir nada.
+ *
+ * Va al mismo grupo y con el mismo interruptor que los avisos de carga —heredando del vendedor si
+ * el cliente no tiene el suyo— porque para el cliente es la misma conversación. Y es
+ * fire-and-forget: que Telegram no conteste no puede hacer fallar un movimiento que YA se hizo.
+ */
+function avisarAlGrupo({ m, origen, destino, log = () => {} }) {
+  try {
+    const cli = clientes.get(m.cliente_id);
+    const tok = config.getTelegramToken();
+    const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
+    if (!cli || !dest.chatId || !dest.enabled || !tok) return;
+    telegram.sendMessage(tok, dest.chatId, telegram.movimientoText({
+      origen: origen.nombre, destino: destino.nombre, divisa: m.divisa, monto: m.monto,
+    })).then((tr) => { if (!tr.ok) log(`[Telegram] aviso de movimiento falló: ${tr.error}`); })
+      .catch((e) => log(`[Telegram] aviso de movimiento error: ${e.message}`));
+  } catch (e) { log(`[Telegram] aviso de movimiento error: ${e.message}`); }
 }
 
 module.exports = { ejecutar, revisar };
