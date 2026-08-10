@@ -377,14 +377,14 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // Se completa SÓLO lo que falta: un costo que sí está en la foto manda siempre, porque para eso
   // se congela un mes. Y si el nombre no está tampoco en la matriz de hoy, no se inventa nada:
   // queda listado en "Otros".
-  const costoDelVivo = [];
+  const costoDelVivo = new Map();
   cierre.getMatriz().proveedores.forEach((p) => {
     const k = K(p.nombre);
     const enFoto = costoDe[k];
     if (enFoto != null && enFoto !== '') return;
     if (p.base_pct == null || p.base_pct === '') return;
     costoDe[k] = p.base_pct;
-    if (money.isPos(String(p.base_pct))) costoDelVivo.push(`${p.nombre} (${p.base_pct}%)`);
+    if (money.isPos(String(p.base_pct))) costoDelVivo.set(k, `${p.nombre} (${p.base_pct}%)`);
   });
 
   const acc = new Map();         // nombreMatriz → { proveedor, costo, lineas[], usdt }
@@ -476,12 +476,6 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     porConexion[cx.nombre].usdt = money.round(porConexion[cx.nombre].usdt, 2);
   }
 
-  if (costoDelVivo.length) {
-    avisos.push(`${costoDelVivo.length} proveedor(es) con costo no estaban en la foto de precios de `
-      + `${m}, así que se usó su costo de HOY: ${costoDelVivo.sort().join(', ')}. `
-      + 'Si alguno cambió de precio desde entonces, el número de este mes sale con el precio nuevo.');
-  }
-
   // TBS es el tercer motor: otro protocolo, otra granularidad. Se calcula aparte y se suma acá,
   // porque para el dueño es una sola cuenta: lo que paga en el mes.
   const tbs = await lineasTBS({ mes: m, desde, hasta, costoDe, avisos, refrescar });
@@ -504,6 +498,19 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     .sort((a, b) => Number(b.usdt) - Number(a.usdt));
 
   const total = money.round(money.sum(proveedores.map((p) => p.usdt)), 2);
+
+  // El aviso del costo tomado de hoy se arma ACÁ y no arriba, cuando ya se sabe quién facturó de
+  // verdad. Arriba salían los 57 nombres a los que les faltaba el precio en la foto — la mayoría
+  // sin un peso de ganancia en el mes. Un aviso de 57 nombres no se lee, y lo que importa son los
+  // dos o tres que efectivamente entraron al total con un precio que no es el del mes.
+  const usoVivo = [...costoDelVivo.entries()]
+    .filter(([k]) => proveedores.some((p) => K(p.proveedor).replace(/\s*\(tbs\)$/, '') === k))
+    .map(([, etiqueta]) => etiqueta).sort();
+  if (usoVivo.length) {
+    avisos.push(`${usoVivo.length} proveedor(es) que facturaron este mes no tenían su costo en la `
+      + `foto de precios de ${m} —se cargaron después de congelarlo— así que se usó el costo de HOY: `
+      + `${usoVivo.join(', ')}. Si alguno cambió de precio desde entonces, este mes sale con el nuevo.`);
+  }
 
   // ── LAS OTRAS DOS FORMAS DE MIRAR LA MISMA PLATA ─────────────────────────────────────────────
   //
