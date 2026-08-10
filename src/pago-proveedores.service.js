@@ -108,6 +108,21 @@ const TBS_SUELTOS = {
   // ⚠️ Ojo con esas dos filas de VIVO LIVE DEALERS: parecen la misma escrita distinto y cuestan 6 y
   // 8. Mientras sigan las dos, cualquier cosa que caiga ahí se factura al precio de la que ganó.
   24: 'TOM HORN TOMHORN',
+
+  // ── LOS QUE CONFIRMÓ LA DUEÑA, UNO POR UNO ───────────────────────────────────────────────────
+  // Van escritos con el nombre exacto de la fila y no por regla, igual que el resto de esta tabla:
+  // una regla que acierta por casualidad es indistinguible de una que acierta porque entendió, y
+  // acá la diferencia son puntos de costo.
+  //
+  // 67 aviatrix_asia → AVIATRIX OR (7,5%). Existe también AVIATRIX_Original_Dima_Li al mismo 7,5%,
+  //    así que el número sale igual por cualquiera de las dos; se usa la que ella nombró.
+  67: 'AVIATRIX OR',
+  // 75 evolution_asia → 11,5%. OJO con el vecino: EVOLUTION_ORIGINAL_PREMIUM_Dima_Li cuesta 17.
+  //    Elegir mal acá es un 50% de diferencia sobre ese renglón.
+  75: 'EVOLUTION_Original_Dima_Li',
+  // 71 holi_bet → categoría suelta al 5%. En la matriz hay DOS filas HoliBet, "HOLI_BET" y
+  //    "HOLIBET default", las dos al 5%: da igual cuál, pero convendría dejar una sola.
+  71: 'HOLI_BET',
 };
 
 /** Para comparar nombres de proveedor: sin espacios, guiones ni mayúsculas. */
