@@ -154,8 +154,7 @@ function isSecure(req) {
 }
 
 /** Lo que ve el operador cuando toca una parte que no le corresponde. */
-function paginaSinPermiso(ruta) {
-  const donde = ruta.startsWith('/tbs') ? 'TBS' : (ruta.startsWith('/os') ? 'el OS comercial' : 'esta parte del sistema');
+function paginaSinPermiso() {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Sin permiso</title>
@@ -169,8 +168,8 @@ function paginaSinPermiso(ruta) {
       a{display:inline-block;padding:9px 16px;background:#c456ad;color:#fff;text-decoration:none;border-radius:7px;font-weight:600}
     </style></head><body><div class="c">
     <h1>🔒 No tenés permiso para entrar acá</h1>
-    <p>Tu usuario puede <b>ver y despachar pedidos</b>, y nada más. ${donde} es del dueño.</p>
-    <p style="font-size:13px">Si necesitás entrar, pedíselo a él.</p>
+    <p>Tu usuario puede <b>ver y aceptar pedidos</b> únicamente.</p>
+    <p style="font-size:13px">Si necesitás entrar, comunicate con Alexa.</p>
     <a href="/">← Volver a los pedidos</a>
     </div></body></html>`;
 }
@@ -185,11 +184,12 @@ function required(req, res, next) {
     // Se dice qué pasó, no "no existe": esconderlo no agrega seguridad —el operador tiene una
     // sesión válida— y sí hace que un permiso mal puesto parezca un bug de la app.
     if (req.path.startsWith('/api/')) {
-      return res.status(403).json({ ok: false, error: 'Tu usuario sólo puede ver y despachar pedidos.' });
+      return res.status(403).json({ ok: false,
+        error: 'Tu usuario puede ver y aceptar pedidos únicamente. Si necesitás entrar, comunicate con Alexa.' });
     }
     // Una PÁGINA, no un redirect. Mandarlo de vuelta al inicio en silencio parece que el botón
     // está roto: aprieta Comercial y vuelve a donde estaba, sin saber por qué. Que diga qué pasó.
-    return res.status(403).type('html').send(paginaSinPermiso(req.path));
+    return res.status(403).type('html').send(paginaSinPermiso());
   }
   if (rol) return next();
   if (req.path.startsWith('/api/')) {

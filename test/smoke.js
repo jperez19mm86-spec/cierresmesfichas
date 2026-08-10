@@ -1423,7 +1423,8 @@ async function main() {
     for (const pag of ['/os', '/tbs']) {
       const rp = await axios.get(B2 + pag, H2);
       check(`operador real: ${pag} explica que no tiene permiso`,
-        rp.status === 403 && /No tenés permiso/.test(String(rp.data)), String(rp.status));
+        rp.status === 403 && /ver y aceptar pedidos/.test(String(rp.data))
+        && /comunicate con Alexa/i.test(String(rp.data)), String(rp.status));
       check(`operador real: ${pag} NO redirige en silencio`, rp.status !== 302, String(rp.status));
     }
     // y el dueño sí entra
