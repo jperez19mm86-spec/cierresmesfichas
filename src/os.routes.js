@@ -1074,7 +1074,9 @@ function mount(app) {
    */
   app.get('/api/os/estadisticas/modos', wrap(async (_req, res) => {
     const out = [];
-    for (const cx of casinoConex.list463()) {
+    // listDeReportes: preguntarle el nivel a las conexiones de carga era una consulta al casino por
+    // cada una para pintar un cartel al lado de una tarjeta que ya no se muestra.
+    for (const cx of casinoConex.listDeReportes()) {
       const cli = casinoConex.client(cx.id);
       if (!cli) { out.push({ id: cx.id, nombre: cx.nombre, error: 'la conexión no responde' }); continue; }
       const m = await estadMes.modoActual(cli);
@@ -1370,7 +1372,14 @@ function mount(app) {
   }));
 
   // ───────── CASINO (conexiones api_token + lectura de nodos) ─────────
-  app.get('/api/os/casino/conexiones', (_req, res) => ok(res, { conexiones: casinoConex.list() }));
+  // Se agrega `paneles`: cuántos cuelgan de esta conexión. Config las quiere TODAS (hay que poder
+  // editar la de carga), pero la Foto y el pago a proveedores sólo deben mirar las que facturan —
+  // con este número la pantalla filtra sin tener que saber qué conexión es cuál.
+  app.get('/api/os/casino/conexiones', (_req, res) => {
+    const cuenta = new Map();
+    paneles.list().forEach((x) => { if (x.conexion_id) cuenta.set(x.conexion_id, (cuenta.get(x.conexion_id) || 0) + 1); });
+    ok(res, { conexiones: casinoConex.list().map((c) => ({ ...c, paneles: cuenta.get(c.id) || 0 })) });
+  });
   app.post('/api/os/casino/conexiones', wrap((req, res) => ok(res, { conexion: casinoConex.create(req.body || {}) })));
   app.put('/api/os/casino/conexiones/:id', wrap((req, res) => {
     const c = casinoConex.update(req.params.id, req.body || {}); if (!c) return err(res, 404, 'conexión no encontrada'); ok(res, { conexion: c });

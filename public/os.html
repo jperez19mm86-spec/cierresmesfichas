@@ -1114,7 +1114,7 @@ VIEWS.foto = async () => {
     + '<b>Superagente</b> y <b>Distribuidor</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente. '
     + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.'
     + '<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">'
-    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs').map(c=>{
+    + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs' && c.paneles>0).map(c=>{
         const p = d.filter(x=>x.conexion===c.nombre);
         const listo = p.length && p.every(x=>x.estado==='ok');
         const filas = Object.keys(NIV).map(niv=>{
@@ -1174,7 +1174,9 @@ async function fotoSacar(cxId, nivel, rehacer){
   // Se piden acá y no se usa window._cxs: eso lo llena la pantalla de Clientes, así que entrando
   // directo a la Foto la lista venía vacía y el botón decía "No hay conexiones para sacar".
   const todas=((await api('/api/os/casino/conexiones')).conexiones)||[];
-  const cxs=todas.filter(c=>c.activa!==false && (c.motor||'463')==='463').filter(c=>!cxId||c.id===cxId);
+  // paneles>0: Europa_Fichas y Casino_Fichas son las cuentas con las que se BAJAN fichas. No
+  // facturan a nadie, no tienen un solo panel, y su plan es de cero consultas.
+  const cxs=todas.filter(c=>c.activa!==false && (c.motor||'463')==='463' && c.paneles>0).filter(c=>!cxId||c.id===cxId);
   if(!cxs.length){ cont.innerHTML='<div class="nota err">No hay conexiones para sacar.</div>'; return; }
   const lineas=[]; let ok=0, errores=0, filas=0, ceros=0;
   const pintar=(t)=>{ cont.innerHTML='<div class="nota"><b>'+esc(t)+'</b>'
@@ -1643,7 +1645,9 @@ async function pagoCalcular(){
   const paso=(t)=>{ out.innerHTML='<div class="empty">⏳ '+t+'</div>'; };
   const refrescar=_pagoRefrescar; _pagoRefrescar=false;
 
-  const cx=((await api('/api/os/casino/conexiones')).conexiones||[]).filter(c=>c.activa);
+  // paneles>0: sin esto entraba Europa_Fichas, que tiene el "Agrupar por" en distribuidor, y
+  // hacía saltar el candado del nivel — el mes no salía aunque estuviera entero en la base.
+  const cx=((await api('/api/os/casino/conexiones')).conexiones||[]).filter(c=>c.activa && c.paneles>0);
   for(const c of cx){
     let desde=0, vuelta=0;
     while(vuelta++ < 20){

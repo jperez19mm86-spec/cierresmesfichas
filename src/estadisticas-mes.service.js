@@ -214,7 +214,9 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
  * que mande el pedido—. Se lee con modoActual y se guarda con esa etiqueta, nunca con otra.
  */
 function planGlobal(mes, { conexionId = null } = {}) {
-  const cxs = casinoConex.list463().filter((c) => !conexionId || c.id === conexionId);
+  // Sin las conexiones de carga: no tienen paneles y su plan es de cero consultas, pero salían en
+  // la pantalla con las tres vueltas en 0/0 y un botón Sacar que no traía nada. Ver listDeReportes.
+  const cxs = casinoConex.listDeReportes().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
   cxs.forEach((cx) => {
     const divs = new Set();

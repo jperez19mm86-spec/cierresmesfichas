@@ -91,4 +91,25 @@ function paraCargar(sistema) {
 /** Solo las del engine 463 (Casino/Europa). Las pantallas que piden nodos/reportes usan estas. */
 function list463() { return list().filter((c) => (c.motor || '463') === '463'); }
 
-module.exports = { list, list463, get, create, update, remove, client, paraCargar, MOTORES };
+/**
+ * Las conexiones de las que SE LEEN REPORTES: las 463 que tienen al menos un panel colgando.
+ *
+ * Europa_Fichas y Casino_Fichas son la misma casa de siempre pero con el usuario que puede BAJAR
+ * fichas. No factura a nadie: no tiene un solo panel. Aun así entraba a la Foto y al pago a
+ * proveedores, que recorren "todas las conexiones", y ahí hacía dos daños:
+ *
+ *  · en la Foto aparecía con sus tres vueltas en 0/0 y un botón Sacar que no traía nada;
+ *  · en el pago a proveedores CORTABA EL REPORTE ENTERO — como esa cuenta tiene el "Agrupar por"
+ *    en distribuidor, saltaba el candado del nivel y el mes no salía, aunque estuviera completo
+ *    en la base y no hiciera falta preguntarle nada al casino.
+ *
+ * El filtro mira los PANELES y no la marca `carga_de`: si algún día una cuenta sirve para las dos
+ * cosas, entra sola acá sin que nadie se acuerde de venir a tocar esta línea.
+ */
+function listDeReportes() {
+  const paneles = require('./paneles-store'); // adentro para no atar este store al de paneles
+  const conPaneles = new Set(paneles.list().filter((p) => p.conexion_id).map((p) => p.conexion_id));
+  return list463().filter((c) => conPaneles.has(c.id));
+}
+
+module.exports = { list, list463, listDeReportes, get, create, update, remove, client, paraCargar, MOTORES };

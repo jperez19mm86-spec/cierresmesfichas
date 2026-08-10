@@ -359,7 +359,10 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   const sinTC = new Set();
   const avisos = [];
 
-  for (const cx of casinoConex.list463()) {
+  // listDeReportes y no list463: las conexiones de carga (Europa_Fichas) no facturan a nadie, y
+  // como tienen el "Agrupar por" en distribuidor hacían saltar el candado del nivel y cortaban el
+  // reporte de un mes que ya estaba entero en la base.
+  for (const cx of casinoConex.listDeReportes()) {
     if (!cx.activa) continue;
     const cli = casinoConex.client(cx.id);
     if (!cli) { avisos.push(`${cx.nombre}: sin credenciales`); continue; }

@@ -1809,6 +1809,30 @@ async function main() {
       man.display + ' · ' + (man.icons || []).length + ' iconos');
   }
 
+  // ── la Foto sólo mira las conexiones que tienen paneles ──
+  // Europa_Fichas y Casino_Fichas existen para BAJAR fichas, no para leer reportes: no tienen ningún
+  // panel, su plan es de cero consultas, y aun así aparecían con sus tres vueltas en 0/0 y un botón
+  // "Sacar" que no iba a traer nada.
+  {
+    const em = require('../src/estadisticas-mes.service');
+    const cxs = require('../src/casino-conexiones-store');
+    const pn = require('../src/paneles-store');
+    const conPaneles = new Set(pn.list().filter((p) => p.conexion_id).map((p) => p.conexion_id));
+    const plan = em.planGlobal('2026-07');
+    const enPlan = new Set(plan.map((x) => x.conexion_id));
+    const sinPaneles = cxs.list463().filter((c) => !conPaneles.has(c.id));
+    const colados = sinPaneles.filter((c) => enPlan.has(c.id));
+    check('foto: no entran conexiones sin paneles', colados.length === 0,
+      colados.map((c) => c.nombre).join(','));
+    // Y la regla vive en UN solo lugar: la Foto, el pago a proveedores y la lectura de niveles
+    // recorrían "todas las conexiones" cada una por su cuenta.
+    const fs = require('fs'); const path = require('path');
+    const leer = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8');
+    check('foto/pago: usan listDeReportes y no list463',
+      /listDeReportes\(\)/.test(leer('estadisticas-mes.service.js'))
+      && /listDeReportes\(\)/.test(leer('pago-proveedores.service.js')));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
