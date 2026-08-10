@@ -119,7 +119,7 @@ function notifyNuevoComprobante(c) {
   return sendToAll({
     title: '🧾 Nuevo comprobante de pago',
     body: `${quien} declaró ${c.divisa || ''} $${monto}`.trim(),
-    url: '/',
+    url: '/os',   // Al OS: los comprobantes se aprueban ahí, no en el panel de carga.
     tag: 'comprobante-' + (c.id || Date.now()),
   }).catch((e) => console.warn('[Push] notifyNuevoComprobante error:', e && e.message));
 }
@@ -138,7 +138,7 @@ function notifyNuevaSolicitud(s) {
   return sendToAll({
     title: '📦 Piden abrir una caja',
     body: `${s.cliente || 'un cliente'} → ${s.login || ''} (${s.sistema || ''})`.trim(),
-    url: '/',
+    url: '/os',   // Al OS: la caja la crea el dueño ahí.
     tag: 'solicitud-' + (s.id || Date.now()),
   }).catch((e) => console.warn('[Push] notifyNuevaSolicitud error:', e && e.message));
 }
@@ -155,7 +155,7 @@ function notifyNuevoMovimiento(m) {
   return sendToAll({
     title: '🔀 Piden mover fichas',
     body: `${m.cliente || 'un cliente'} — ${monto} ${m.divisa || ''}`.trim(),
-    url: '/',
+    url: '/os',   // Al OS: mover fichas se aprueba ahí.
     tag: 'movimiento-' + (m.id || Date.now()),
   }).catch((e) => console.warn('[Push] notifyNuevoMovimiento error:', e && e.message));
 }

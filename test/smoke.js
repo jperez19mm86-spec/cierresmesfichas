@@ -1416,6 +1416,29 @@ async function main() {
     if (id) await axios.delete(BASE + '/api/os/clientes/' + id, H());
   }
 
+  // ── UN AVISO TIENE QUE LLEVAR A DONDE SE RESUELVE ──
+  //
+  // Pasó de verdad: llegó el aviso de un movimiento de fichas, el aviso abría el panel de carga,
+  // ahí decía "0 pendientes" y parecía que el pedido se había perdido. Estaba, en el OS. Un aviso
+  // que anuncia algo que no se ve donde te deja es peor que no avisar.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'push.js'), 'utf8');
+    const urlDe = (fn) => {
+      const i = src.indexOf('function ' + fn);
+      const m = /url: '([^']+)'/.exec(src.slice(i, i + 700));
+      return m ? m[1] : null;
+    };
+    check('avisos: el de un pedido abre el panel de carga', urlDe('notifyNewPedido') === '/');
+    ['notifyNuevoComprobante', 'notifyNuevaSolicitud', 'notifyNuevoMovimiento'].forEach((fn) => {
+      check(`avisos: ${fn} abre el OS, que es donde se aprueba`, urlDe(fn) === '/os', String(urlDe(fn)));
+    });
+    // Y el panel de carga muestra qué está esperando en el OS, para el que ya está mirando ahí.
+    const panel = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    check('avisos: el panel dice qué espera en el OS', /function otrasColas/.test(panel));
+    check('avisos: y no se lo muestra al operador, que no entra al OS',
+      /if \(!box \|\| _soyOperador\) return;/.test(panel));
+  }
+
   // ── MOVER FICHAS ENTRE PANELES ──
   //
   // Son DOS operaciones contra el casino sin transacción que las abrace. Todo lo que se prueba acá
