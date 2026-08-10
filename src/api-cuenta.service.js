@@ -78,9 +78,18 @@ function olvidarGrupos() { _validos = null; }
  * Una consulta por sello devuelve el profit de TODAS las cuentas a la vez, así que se pide por
  * sello y no por cliente: son ~40 llamadas en vez de ~400.
  */
-async function precargar({ mes, desde: desdeIdx = 0, limite = 8, refrescar = false } = {}) {
+async function precargar({ mes, desde: desdeIdx = 0, limite = 8, refrescar = false,
+  confirmar = false } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
+  // ⚠️ Igual que la Foto del comercial: un mes cerrado ya no cambia, y volver a preguntarle a TBS
+  // reemplaza lo guardado. Si en el medio falla una llamada, lo bueno se pierde y hay que sacar los
+  // ~40 sellos de nuevo, a 2s cada uno. Rehacerlo se puede; hay que pedirlo.
+  if (refrescar && ganCache.mesCerrado(m) && !confirmar) {
+    return { ok: false, requiereConfirmar: true,
+      error: `${m} es un mes cerrado y ya está guardado. Volver a consultarle a TBS REEMPLAZA lo que hay. `
+        + 'Confirmá si querés rehacerlo igual.' };
+  }
   const c = conexionTBS();
   if (!c.ok) return c;
   const { desde, hasta } = rango(m);

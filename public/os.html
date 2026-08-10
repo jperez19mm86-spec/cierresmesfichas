@@ -3207,6 +3207,12 @@ API.cuentas = async () => {
       </div>
       <div id="api-cta" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
     </div>
+    <div class="card"><h2>💾 Lo que ya está guardado</h2>
+      <div class="muted">Consultarle a TBS es pesado —unos 2 segundos por sello, y son cerca de 40—, así que
+        cada mes se pregunta UNA vez y queda. Es lo mismo que la Foto del mes del comercial, para el otro motor.
+        Un mes que ya está acá contesta al instante, aunque TBS esté caído.</div>
+      <div id="api-guardado" class="muted" style="margin-top:8px">Cargando…</div>
+    </div>
     <div class="card"><h2>📥 Lo que le pagamos a los proveedores de TBS</h2>
       <div class="muted">Las cuentas de arriba dicen <b>qué le cobrás a cada cliente</b>. Esto es la otra mitad:
         el total que TBS le factura a la casa por cada familia de proveedores, que es lo que necesita el reporte de
@@ -3217,16 +3223,36 @@ API.cuentas = async () => {
       </div>
     </div>`;
   if(_apiCta) apiPintarCuentas();
+  apiGuardado();
 };
+/* Qué meses de TBS ya están guardados. La precarga existía desde siempre pero no se veía: para
+   saber si un mes estaba sacado había que apretar y esperar los 40 sellos. */
+async function apiGuardado(){
+  const el=document.getElementById('api-guardado'); if(!el) return;
+  const r=await api('/api/os/api/guardado');
+  if(!r||!r.ok){ el.textContent=''; return; }
+  const ms=r.meses||[];
+  if(!ms.length){ el.innerHTML='<span class="badge err">Ningún mes guardado todavía</span> '
+    +'Apretá Calcular arriba: la primera vez de cada mes tarda, después es instantáneo.'; return; }
+  el.innerHTML='<table style="margin-top:4px"><thead><tr><th>Mes</th><th class="right">Consultas guardadas</th>'
+    +'<th>Última vez</th></tr></thead><tbody>'
+    +ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.n,0)+'</td>'
+      +'<td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')
+    +'</tbody></table>';
+}
 /* TBS tarda ~2s por sello y son ~40: no entra en una sola consulta. Se trae por tandas y se
    guarda, igual que el pago a proveedores; un mes cerrado no se vuelve a preguntar. */
 async function apiCalcular(refrescar){
   _apiMes=val('api-mes')||_apiMes;
+  // Volver a consultar REEMPLAZA lo guardado. Si el mes ya está cerrado, eso sólo puede empeorarlo:
+  // son ~40 sellos a 2s cada uno y si alguno falla en el medio, lo bueno ya se perdió.
+  if(refrescar && !confirm('¿Volver a consultarle a TBS el mes '+_apiMes+'?\n\n'
+    +'Reemplaza lo que ya está guardado. Son ~40 consultas de 2s, y si alguna falla no se recupera sola.')) return;
   const out=document.getElementById('api-cta');
   let desde=0;
   for(let v=0; v<20; v++){
     out.innerHTML='<div class="empty">⏳ trayendo el GGR de TBS… '+desde+' sellos listos'+(v?'':' (la primera vez de cada mes tarda)')+'</div>';
-    const p=await api('/api/os/api/precargar',{method:'POST',body:JSON.stringify({mes:_apiMes,desde,limite:8,refrescar})});
+    const p=await api('/api/os/api/precargar',{method:'POST',body:JSON.stringify({mes:_apiMes,desde,limite:8,refrescar,confirmar:!!refrescar})});
     if(!p.ok){ out.innerHTML='<div class="badge err">'+esc(p.error||'error')+'</div>'; return; }
     if(!p.faltan) break;
     desde=p.hechos;

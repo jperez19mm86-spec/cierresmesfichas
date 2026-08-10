@@ -872,6 +872,18 @@ function mount(app) {
     res.type('html').send(pagoProvHtml.hoja(r));
   }));
 
+  /**
+   * Qué meses de TBS ya están guardados. Es el equivalente de "Meses con foto" del comercial: hasta
+   * ahora la precarga de TBS existía pero no se veía, así que para saber si un mes estaba sacado
+   * había que apretar y esperar.
+   */
+  app.get('/api/os/api/guardado', wrap((_req, res) => {
+    const filas = db.prepare(`SELECT mes, COUNT(*) n, MAX(capturedAt) ultimo
+      FROM ganancias_cache WHERE nodo LIKE 'api:%' OR nodo LIKE '_tbs%' OR nodo='_pago_general'
+      GROUP BY mes ORDER BY mes DESC`).all();
+    ok(res, { meses: filas });
+  }));
+
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
@@ -1327,7 +1339,7 @@ function mount(app) {
   // Las DOS cuentas del mes de API: la del cliente y la del proveedor, del mismo GGR.
   app.post('/api/os/api/precargar', wrap(async (req, res) => {
     const b = req.body || {};
-    const r = await apiCuenta.precargar({ mes: b.mes || mesTZ(), desde: Number(b.desde) || 0,
+    const r = await apiCuenta.precargar({ mes: b.mes || mesTZ(), confirmar: !!b.confirmar, desde: Number(b.desde) || 0,
       limite: Number(b.limite) || 8, refrescar: !!b.refrescar });
     r.ok ? ok(res, r) : err(res, 502, r.error);
   }));
