@@ -1439,6 +1439,38 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── NINGÚN NOMBRE DE CUENTA SE CONVIERTE EN UN LINK ──
+  //
+  // Telegram auto-enlaza lo que parece un dominio, y muchos paneles se llaman así: cash365.vip,
+  // Ahora463.com, Argenbets.net. Quedaba un link tocable a un sitio de afuera adentro de un aviso
+  // nuestro, en el grupo de un cliente. `<code>` es la única marca que Telegram no auto-enlaza.
+  {
+    const tg = require('../src/telegram');
+    const dominio = 'cash365.vip';
+    check('telegram: hay un helper para los nombres de cuenta', typeof tg.cuenta === 'function');
+    check('telegram: el nombre va en <code>', tg.cuenta(dominio) === `<code>${dominio}</code>`);
+    check('telegram: y sigue escapando el HTML', tg.cuenta('<b>x') === '<code>&lt;b&gt;x</code>');
+
+    // Los dos avisos que llevan nombre de cuenta lo usan.
+    const enCode = (txt, nom) => new RegExp(`<code>${nom.replace('.', '\\.')}</code>`).test(txt);
+    check('telegram: el aviso de carga no enlaza el usuario',
+      enCode(tg.cargaText({ cajaUsuario: dominio, divisa: 'ARS', monto: '1' }), dominio));
+    const mov = tg.movimientoText({ origen: dominio, destino: 'Ahora463.com', divisa: 'ARS', monto: '1' });
+    check('telegram: el aviso de movimiento no enlaza ninguno de los dos',
+      enCode(mov, dominio) && enCode(mov, 'Ahora463.com'));
+    // Un nombre con forma de dominio NO puede quedar suelto en negrita en ninguno de los dos.
+    check('telegram: ningún nombre de cuenta queda fuera de <code>',
+      !/<b>[^<]*\.(com|vip|net|online|bet)[^<]*<\/b>/i.test(mov + tg.cargaText({ cajaUsuario: dominio, divisa: 'ARS', monto: '1' })));
+
+    // Y los textos largos que también salen por Telegram: la factura y la cuenta de TBS.
+    const fs2 = require('fs'); const path2 = require('path');
+    const fac = fs2.readFileSync(path2.join(__dirname, '..', 'src', 'factura.service.js'), 'utf8');
+    const cta = fs2.readFileSync(path2.join(__dirname, '..', 'src', 'api-cuenta-doc.js'), 'utf8');
+    check('telegram: la factura pasa los nombres de panel por el helper',
+      /tg\.cuenta\(p\.panel\)/.test(fac) && /tg\.cuenta\(d\.panel\)/.test(fac));
+    check('telegram: la cuenta de TBS también', /tg\.cuenta\(titulo \|\| doc\.cuenta\)/.test(cta));
+  }
+
   // ── DOS COSAS QUE ENCONTRÓ LA REVISIÓN ADVERSARIA ──
   {
     const mv = require('../src/movimientos-panel');

@@ -18,6 +18,8 @@
  * está en la lista no existe en la respuesta. Si mañana se agrega algo al motor, no aparece acá
  * hasta que alguien lo ponga a mano — que es exactamente lo que se quiere.
  */
+// Para el nombre de la cuenta: Telegram auto-enlaza lo que parece un dominio (ver telegram.cuenta).
+const tg = require('./telegram');
 const money = require('./lib/money');
 const { MESES_ES } = require('./lib/fechas');
 
@@ -123,7 +125,7 @@ function aTexto(doc, { titulo = null, link = null } = {}) {
   const mesNom = MESES_ES[Number(m) - 1] ? `${MESES_ES[Number(m) - 1]}-${y}` : String(doc.mes);
   const L = [];
   L.push(`🧾 <b>Cuenta de consumo TBS ${esc(mesNom)}</b>`);
-  L.push(esc(titulo || doc.cuenta));
+  L.push(tg.cuenta(titulo || doc.cuenta));
   L.push('');
   L.push(`💵 <b>Total a pagar: ${n(doc.usdt_cliente)} USDT</b>`);
   // El desglose va en el LINK, no en el mensaje. Pegar 40 líneas con subtotales por divisa en un

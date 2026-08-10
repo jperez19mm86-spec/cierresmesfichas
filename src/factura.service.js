@@ -12,6 +12,8 @@
  * a la deuda. Si la factura que se manda dijera algo distinto de lo que dice el panel, no habría
  * forma de saber cuál de las dos está bien.
  */
+// Para los nombres de panel: Telegram auto-enlaza lo que parece un dominio (ver telegram.cuenta).
+const tg = require('./telegram');
 const clientes = require('./clientes-store');
 const deudaSvc = require('./deuda.service');
 const movs = require('./movimientos-store');
@@ -229,7 +231,7 @@ function aTexto(f, { detalle = false } = {}) {
   // Por panel: es el corte que el cliente entiende, porque son SUS cuentas.
   if ((f.porPanel || []).length) {
     L.push('<b>Por panel</b>');
-    f.porPanel.forEach((p) => L.push(`  ${esc(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`));
+    f.porPanel.forEach((p) => L.push(`  ${tg.cuenta(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`));
     L.push('');
   }
 
@@ -271,7 +273,7 @@ function aTexto(f, { detalle = false } = {}) {
         panelActual = k;
         const p = (f.porPanel || []).find((x) => `${x.panel}|${x.divisa}` === k);
         L.push('');
-        L.push(`▸ <b>${esc(d.panel)}</b> (${esc(d.divisa)})${p ? ` — ${p.cargas} carga(s) · ${money.fmt(p.monto, 2)}` : ''}`);
+        L.push(`▸ ${tg.cuenta(d.panel)} (${esc(d.divisa)})${p ? ` — ${p.cargas} carga(s) · ${money.fmt(p.monto, 2)}` : ''}`);
       }
       L.push(`   ${d.n}. ${esc(d.fecha.slice(8) + '/' + d.fecha.slice(5, 7))} ${esc(d.hora)} · ${money.fmt(String(d.monto), 2)}${d.anulando ? ' (anulando)' : ''}`);
     });

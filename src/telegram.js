@@ -27,7 +27,7 @@ async function sendMessage(botToken, chatId, text) {
 function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
   return `✅ <b>Carga acreditada</b>\n\n` +
-    `🎰 Usuario: <b>${escapeHtml(cajaUsuario || '')}</b>\n` +
+    `🎰 Usuario: ${cuenta(cajaUsuario)}\n` +
     `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
 }
 
@@ -45,11 +45,27 @@ function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
 function movimientoText({ origen, destino, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
   return '🔀 <b>Fichas movidas</b>\n\n'
-    + `↖️ De: <b>${escapeHtml(origen || '')}</b>\n`
-    + `↘️ A: <b>${escapeHtml(destino || '')}</b>\n`
+    + `↖️ De: ${cuenta(origen)}\n`
+    + `↘️ A: ${cuenta(destino)}\n`
     + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
 }
 
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
-module.exports = { sendMessage, cargaText, movimientoText };
+/**
+ * El nombre de una cuenta del casino, dentro de un mensaje de Telegram.
+ *
+ * ── POR QUÉ VA EN <code> Y NO EN <b> ─────────────────────────────────────────────────────────
+ * Muchos paneles se llaman como un dominio —cash365.vip, Ahora463.com, Argenbets.net— y Telegram
+ * convierte eso en un ENLACE TOCABLE solo, sin que nadie se lo pida. En el grupo de un cliente
+ * queda un link a un sitio de afuera adentro de un aviso nuestro, y alcanza con un dedo mal puesto.
+ *
+ * `<code>` es la única marca que Telegram no auto-enlaza. De paso queda en monoespaciado, que para
+ * un identificador se lee mejor que en negrita.
+ *
+ * Se usa en TODO lo que sale a un grupo: avisos de carga, de movimiento, y los nombres de panel
+ * de la factura y de la cuenta de TBS.
+ */
+function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
+
+module.exports = { sendMessage, cargaText, movimientoText, cuenta };
