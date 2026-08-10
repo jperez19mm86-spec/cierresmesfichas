@@ -271,7 +271,7 @@ function pulso({ mes, minDias = 5 } = {}) {
   // Se agrega POR CLIENTE y en USDT —única forma de sumar pesos con mexicanos— y se compara contra
   // EL MISMO TRAMO del mes anterior. Se ordena por cuántos dólares se perdieron, no por porcentaje:
   // un cliente que cae 80% sobre 200 USDT importa menos que uno que cae 15% sobre 40.000.
-  const porCliente = new Map();
+  const ventaPorCliente = new Map();
   activos.forEach((s) => {
     const n2 = nombre(s);
     const quienEs = n2.cliente || `(sin cliente) ${s.login}`;
@@ -279,16 +279,16 @@ function pulso({ mes, minDias = 5 } = {}) {
     const inU = aUsdt(s.in, s.moneda); const prU = aUsdt(s.profit, s.moneda);
     // Sin TC no se puede sumar con las otras monedas: se cuenta aparte en vez de mentir con un cero.
     if (inU == null) {
-      const c0 = porCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
-      c0.sinTC += 1; c0.monedas.add(s.moneda); porCliente.set(quienEs, c0);
+      const c0 = ventaPorCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
+      c0.sinTC += 1; c0.monedas.add(s.moneda); ventaPorCliente.set(quienEs, c0);
       return;
     }
-    const c = porCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
+    const c = ventaPorCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
     c.in += inU; c.profit += prU || 0; c.paneles += 1; c.monedas.add(s.moneda);
     if (a) c.prev += aUsdt(a.in, s.moneda) || 0;
-    porCliente.set(quienEs, c);
+    ventaPorCliente.set(quienEs, c);
   });
-  const clientesVenta = [...porCliente.values()].map((c) => ({
+  const clientesVenta = [...ventaPorCliente.values()].map((c) => ({
     cliente: c.cliente, paneles: c.paneles, sinTC: c.sinTC, monedas: [...c.monedas].sort(),
     in: Math.round(c.in), inPrev: Math.round(c.prev), profit: Math.round(c.profit),
     varIn: c.prev > 0 ? (c.in - c.prev) / c.prev : null,

@@ -1439,6 +1439,34 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── EL PULSO COMPARA VENTANAS IGUALES ──
+  //
+  // Comparaba los 9 días que lleva el mes contra los 31 del anterior: medía el calendario, no el
+  // negocio. Todo daba cerca de −71% (que es 1 − 9/31) y 95 de 100 paneles salían en rojo estando
+  // la mayoría en alza. No fallaba: daba un número, que es la forma cara de estar mal.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pulso.service.js'), 'utf8');
+    check('pulso: seriesDe puede cortarse en un día del mes', /function seriesDe\(mes, hastaDia/.test(src));
+    check('pulso: el mes anterior se corta en el mismo día',
+      /seriesDe\(prev, ultimoDiaMes\)/.test(src));
+    // Prorratear sería suponer que todos los días rinden igual, y un domingo no rinde como un martes.
+    check('pulso: NO se prorratea multiplicando por los días',
+      !/31 \/ dias|dias \/ 31|\* \(31/.test(src));
+    check('pulso: dice contra qué comparó', /comparacion: \{[\s\S]{0,200}diasPrev/.test(src));
+    check('pulso: avisa si al mes anterior le faltan días en ese tramo', /desparejo/.test(src));
+
+    // Y la vista que pidió el dueño: quién vende menos, por CLIENTE y en dólares.
+    check('pulso: hay una vista de venta por cliente', /clientesVenta/.test(src));
+    check('pulso: ordenada por dólares perdidos, no por porcentaje',
+      /sort\(\(a, b\) => b\.caidaUsdt - a\.caidaUsdt\)/.test(src));
+    check('pulso: una moneda sin TC no se suma como cero', /sinTC \+= 1/.test(src));
+
+    // El módulo tiene que CARGAR. Este check existe porque una vez declaré dos veces la misma
+    // variable y el archivo dejó de parsear: los tests de arriba leen el texto, no lo ejecutan.
+    let carga = true; try { require('../src/pulso.service'); } catch (e) { carga = String(e.message); }
+    check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
+  }
+
   // ── ANULAR CORRIGE EL AVISO QUE YA SALIÓ ──
   //
   // Al grupo le llegó "✅ Carga acreditada". Si después se retiran las fichas y no se dice nada, el
