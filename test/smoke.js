@@ -1332,6 +1332,25 @@ async function main() {
       h.indexOf('Qué incluye cada etiqueta') > h.indexOf('Por divisa'));
   }
 
+  // ── la vista general no se puede cachear si el casino está en otro nivel ──
+  // `userGroupBy: ''` NO fuerza nada: el casino usa lo que tenga puesto. Sin verificarlo, se traen
+  // datos de otro nivel y quedan guardados como si fueran el total de la plataforma. Pasó de
+  // verdad: junio quedó con Europa 5.753 en vez de 6.469 y no avisó nada.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pago-proveedores.service.js'), 'utf8');
+    // las dos puertas por las que se pide la general en vivo
+    const llamadas = (src.match(/reporteProveedoresMonedas\(/g) || []).length;
+    check('general: hay llamadas en vivo que proteger', llamadas >= 2, String(llamadas));
+    const guardas = (src.match(/modoActual\(cli\)/g) || []).length;
+    check('general: cada una tiene su chequeo de nivel', guardas >= 2, String(guardas));
+    check('general: se exige que el casino esté en "general"', /nivel !== 'general'/.test(src));
+    // el chequeo tiene que estar ANTES de la llamada, no después
+    const iGuarda = src.indexOf("modoActual(cli)");
+    const iLlamada = src.indexOf('reporteProveedoresMonedas(');
+    check('general: el chequeo va antes de preguntarle al casino', iGuarda < iLlamada,
+      iGuarda + ' vs ' + iLlamada);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

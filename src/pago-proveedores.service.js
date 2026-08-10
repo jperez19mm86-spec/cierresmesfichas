@@ -29,6 +29,7 @@ const casinoConex = require('./casino-conexiones-store');
 const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
 const externosSvc = require('./externos.service');
+const estadMes = require('./estadisticas-mes.service');
 const tcUnico = require('./tc-unico.service');
 const ganCache = require('./ganancias-cache');
 const money = require('./lib/money');
@@ -266,6 +267,20 @@ async function precargar({ mes, conexion_id, desde: desdeIdx = 0, limite = 12, r
     if (!refrescar && ganCache.get(cx.id, '_pago_general', m, '_todas')) {
       return { ok: true, conexion: cx.nombre, motor: '463', hechos: 1, total: 1, faltan: 0, yaEstaba: true, avisos };
     }
+    // 🔒 EL CANDADO QUE FALTABA ACÁ.
+    // `userGroupBy: ''` NO fuerza la vista general: el casino usa lo que tenga puesto en "Agrupar
+    // por" e ignora lo que le mandemos (probado — la misma consulta dio 46 nodos con la pantalla en
+    // Superagente y 232 en Distribuidor). Sin verificarlo, esto traía datos de OTRO nivel y los
+    // guardaba en el caché como si fueran la general. Pasó de verdad: junio quedó con Europa en
+    // 5.753 en vez de 6.469 y Casino en 10.001 en vez de 10.847, y no avisó nada.
+    const modo = await estadMes.modoActual(cli);
+    if (!modo.ok) return { ok: false, error: `${cx.nombre}: no se pudo leer cómo agrupa el casino — ${modo.error}` };
+    if (modo.nivel !== 'general') {
+      return { ok: false, reintentable: true,
+        error: `${cx.nombre} está agrupando por ${modo.nivel}. Poné "Agrupar por" en `
+          + '"Datos generales" dentro del casino y volvé a intentar — si no, lo que traiga no es el '
+          + 'total de la plataforma y quedaría guardado como si lo fuera.' };
+    }
     let r;
     try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: null, userGroupBy: '' }); }
     catch (e) { return { ok: false, error: `${cx.nombre}: ${String((e && e.message) || e)}` }; }
@@ -344,6 +359,14 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     const hit = ganCache.get(cx.id, '_pago_general', m, '_todas', { refrescar });
     if (hit) r = { ok: true, monedas: hit.filas };
     if (!r) {
+      // Mismo candado que en precargar: sin esto se cachea el nivel equivocado como si fuera la
+      // vista general, y el número queda mal para siempre sin que nadie se entere.
+      const modo = await estadMes.modoActual(cli);
+      if (!modo.ok || modo.nivel !== 'general') {
+        avisos.push(`${cx.nombre}: no se consultó en vivo porque el casino está agrupando por `
+          + `${modo.ok ? modo.nivel : '?'} y no por "Datos generales". Se usa lo que haya en la foto.`);
+        continue;
+      }
       try { r = await cli.reporteProveedoresMonedas({ from: desde, to: hasta, currencies: monedas, userGroupBy: '' }); }
       catch (e) { avisos.push(`${cx.nombre}: ${String((e && e.message) || e)}`); continue; }
       if (!r || !r.ok) { avisos.push(`${cx.nombre}: ${(r && r.error) || 'no respondió'}`); continue; }
