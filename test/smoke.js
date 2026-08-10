@@ -1393,6 +1393,29 @@ async function main() {
       /entity\.too\.large/.test(src) && /demasiado grande/.test(src));
   }
 
+  // ── LA RUTA POR LA QUE PIDEN TODOS LOS CLIENTES CONTESTA ──
+  //
+  // Este check existe por un 500 que puse yo: agregué la lista de paneles a /api/pedir y no importé
+  // el store, así que la pantalla del cliente —la que usan TODOS para pedir fichas— reventaba. Los
+  // tests de unidad no lo vieron porque nunca llamaban a la ruta. Ahora se la llama de verdad.
+  {
+    // Se crea POR LA API y no llamando al store: así el cliente existe en el proceso del server,
+    // que es el que va a atender la request. Creándolo por el store desde acá el server no se
+    // enteraba y la ruta contestaba 404, que es justo lo que este check NO quiere medir.
+    const cod = '_TESTPEDIR';
+    const creado = await post('/api/os/clientes', { codigo: cod, nombre: 'Cliente de prueba' });
+    const rp = await axios.get(BASE + '/api/pedir/' + cod, { validateStatus: () => true });
+    check('cliente: /api/pedir contesta y no explota', rp.status === 200 && rp.data && rp.data.ok === true,
+      `${rp.status} ${JSON.stringify(rp.data).slice(0, 120)}`);
+    check('cliente: /api/pedir trae lo que la pantalla necesita',
+      rp.data && Array.isArray(rp.data.cajas) && 'puedeAvisarPago' in rp.data && 'puedeMoverBalance' in rp.data);
+    // Y sin el permiso no se le mandan los paneles: son datos internos que no tiene por qué recibir.
+    check('cliente: sin permiso de mover, no recibe la lista de paneles',
+      rp.data && Array.isArray(rp.data.paneles) && rp.data.paneles.length === 0);
+    const id = creado && creado.data && (creado.data.id || (creado.data.cliente || {}).id);
+    if (id) await axios.delete(BASE + '/api/os/clientes/' + id, H());
+  }
+
   // ── MOVER FICHAS ENTRE PANELES ──
   //
   // Son DOS operaciones contra el casino sin transacción que las abrace. Todo lo que se prueba acá

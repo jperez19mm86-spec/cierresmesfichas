@@ -18,6 +18,9 @@ const store = require('./systems-store');
 const casino = require('./casino-client');
 const cascada = require('./carga-cascada.service');
 const clientes = require('./clientes-store');
+// Los PANELES los usa /api/pedir para ofrecerle al cliente entre cuáles puede mover fichas. Iba sin
+// importar y la ruta reventaba con 500 — la ruta por la que TODOS los clientes piden fichas.
+const paneles = require('./paneles-store');
 const pedidos = require('./pedidos-store');
 const config = require('./config-store');
 const telegram = require('./telegram');
