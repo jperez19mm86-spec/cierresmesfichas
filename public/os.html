@@ -1645,20 +1645,35 @@ function pagoCuadre(r){
 function pagoVistas(r){
   const et=r.porEtiqueta||[], dv=r.porDivisa||[];
   if(!et.length && !dv.length) return '';
+  // Alfabético y no por monto: esta tabla se concilia contra la del proveedor, y para eso hay que
+  // poder ir a buscar un renglón. Por monto hay que barrer la columna entera.
+  const alf=(a,b)=>String(a.clave).localeCompare(String(b.clave),'es',{sensitivity:'base'});
+  const ets=[...et].sort(alf), dvs=[...dv].sort(alf);
   const ab=window._pagoVistas||'';
   const tab=(k,t,n)=>'<button class="'+(ab===k?'':'outline ')+'small" onclick="_pagoVistas='
     +(ab===k?"''":"'"+k+"'")+';pagoPintar()">'+t+' <span class="muted">'+n+'</span></button>';
   let cuerpo='';
-  if(ab==='et') cuerpo='<table><thead><tr><th>Etiqueta</th><th class="right">A pagar (USDT)</th>'
-    +'<th>Proveedores</th><th>Divisas</th></tr></thead><tbody>'
-    +et.map(e=>'<tr><td><b>'+esc(e.clave)+'</b></td><td class="right"><b>'+money(e.usdt)+'</b></td>'
-      +'<td class="muted" style="font-size:11px">'+e.proveedores.length+': '+esc(e.proveedores.slice(0,6).join(', '))
-      +(e.proveedores.length>6?'…':'')+'</td>'
-      +'<td class="muted" style="font-size:11px">'+esc(e.divisas.join(', '))+'</td></tr>').join('')
-    +'</tbody></table>';
+  if(ab==='et'){
+    // La lista de proveedores va ABAJO, no en la fila: son hasta 33 nombres en una celda y tapaban
+    // los números, que es lo que se viene a leer.
+    cuerpo='<table><thead><tr><th>Etiqueta</th><th class="right">Proveedores</th><th>Divisas</th>'
+      +'<th class="right">A pagar (USDT)</th></tr></thead><tbody>'
+      +ets.map(e=>'<tr><td><b>'+esc(e.clave)+'</b></td>'
+        +'<td class="right muted">'+e.proveedores.length+'</td>'
+        +'<td class="muted" style="font-size:11px">'+esc(e.divisas.join(', '))+'</td>'
+        +'<td class="right"><b>'+money(e.usdt)+'</b></td></tr>').join('')
+      +'</tbody></table>'
+      +'<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:12px">'
+      +'Qué proveedores incluye cada etiqueta</summary>'
+      +'<table style="margin-top:6px"><tbody>'
+      +ets.map(e=>'<tr><td style="width:120px;vertical-align:top"><b>'+esc(e.clave)+'</b></td>'
+        +'<td class="muted" style="font-size:11px">'+esc([...e.proveedores].sort((a,b)=>
+          String(a).localeCompare(String(b),'es',{sensitivity:'base'})).join(' · '))+'</td></tr>').join('')
+      +'</tbody></table></details>';
+  }
   if(ab==='dv') cuerpo='<table><thead><tr><th>Divisa</th><th class="right">Movido en la moneda</th>'
     +'<th class="right">TC</th><th class="right">A pagar (USDT)</th></tr></thead><tbody>'
-    +dv.map(d=>'<tr><td><b>'+esc(d.clave)+'</b></td>'
+    +dvs.map(d=>'<tr><td><b>'+esc(d.clave)+'</b></td>'
       +'<td class="right muted">'+money(d.montoLocal)+'</td>'
       +'<td class="right '+(d.tc?'muted':'')+'">'+(d.tc?esc(d.tc)
         :'<span title="SL2 y BVS se pasan con el promedio del mes; el resto con el TC del proveedor">'
@@ -1666,7 +1681,7 @@ function pagoVistas(r){
       +'<td class="right"><b>'+money(d.usdt)+'</b></td></tr>').join('')
     +'</tbody></table>';
   return '<div style="margin-bottom:10px"><div class="row" style="gap:6px;margin-bottom:6px">'
-    +tab('et','Por etiqueta',et.length)+tab('dv','Por divisa',dv.length)+'</div>'+cuerpo+'</div>';
+    +tab('et','Por etiqueta',ets.length)+tab('dv','Por divisa',dvs.length)+'</div>'+cuerpo+'</div>';
 }
 function pagoToggle(p){ _pagoAbierto.has(p)?_pagoAbierto.delete(p):_pagoAbierto.add(p); pagoPintar(); }
 function pagoRefrescar(){ _pagoRefrescar=true; pagoCalcular(); }

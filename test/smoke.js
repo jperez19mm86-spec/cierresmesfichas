@@ -1286,6 +1286,7 @@ async function main() {
       { busca: /^caleta\b/i, grupo: 'Caleta' }, { busca: /^dlv\b/i, grupo: 'DLV' },
       { busca: /^flg\b/i, grupo: 'FLG' }, { busca: /^holi[\s_]*bet\b/i, grupo: 'HOLI_BET' },
       { busca: /^jacktop\b/i, grupo: 'Jacktop' }, { busca: /^sport[\s_]*betting\b/i, grupo: 'SPORTBETTING' },
+      { busca: /^ws[\s_]*sports\b/i, grupo: 'OR' },
     ];
     const grupoDe = (etiqueta, nombre) => {
       let e = etiqueta;
@@ -1307,6 +1308,28 @@ async function main() {
       grupoDe('default', 'CALETA default') !== grupoDe('default', 'DLV default'));
     // un vendor que no está en la tabla se queda con su nombre, no se mete en un grupo ajeno
     check('grupos: un vendor nuevo aparece solo', grupoDe('ZZZNUEVO', 'ALGO ZZZNUEVO') === 'ZZZNUEVO');
+    check('grupos: WS SPORTS default → OR', grupoDe('default', 'WS SPORTS default') === 'OR');
+  }
+
+  // ── la hoja se lee para conciliar: alfabético, y el detalle abajo ──
+  {
+    const { hoja } = require('../src/pago-proveedores-html');
+    const h = hoja({ ok: true, mes: '2026-06', congelado: true, porConexion: { Casino: { usdt: '10' } },
+      proveedores: [{ proveedor: 'ZETA OP', costo: '6', usdt: '2', lineas: [{ etiqueta: 'OP' }] },
+        { proveedor: 'ALFA SL2', costo: '9', usdt: '8', lineas: [{ etiqueta: 'SL2' }] }],
+      porEtiqueta: [{ clave: 'SL2', usdt: '8', proveedores: ['ALFA SL2'], divisas: ['ARS'] },
+        { clave: 'OP', usdt: '2', proveedores: ['ZETA OP'], divisas: ['ARS'] }],
+      porDivisa: [{ clave: 'USD', usdt: '2', montoLocal: '2', tc: '1' },
+        { clave: 'ARS', usdt: '8', montoLocal: '8000', tc: '1000' }],
+      cuadre: { proveedores: '10', etiquetas: '10', divisas: '10', cuadra: true } });
+    // el reporte llega ordenado por monto (SL2 8 antes que OP 2); la hoja tiene que darlo vuelta
+    check('hoja: etiquetas en orden alfabético', h.indexOf('>OP<') < h.indexOf('>SL2<'));
+    check('hoja: divisas en orden alfabético', h.indexOf('>ARS<') < h.indexOf('>USD<'));
+    check('hoja: proveedores en orden alfabético', h.indexOf('ALFA SL2') < h.indexOf('ZETA OP'));
+    check('hoja: el detalle de cada etiqueta va al pie', /Qué incluye cada etiqueta/.test(h));
+    // y ese detalle tiene que estar DESPUÉS de las tablas de números, no antes
+    check('hoja: el pie va después de los totales',
+      h.indexOf('Qué incluye cada etiqueta') > h.indexOf('Por divisa'));
   }
 
   // ── la política de qué divisas se le piden a un panel ──

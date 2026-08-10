@@ -61,32 +61,51 @@ function hoja(rep) {
     : `<div class="cua mal"><b>NO cuadra.</b> Por proveedor ${n(c.proveedores)} · por etiqueta ${n(c.etiquetas)}
        · por divisa ${n(c.divisas)}. Es un error de cálculo: no pagar con esta hoja.</div>`;
 
-  const tProv = `<h2>Por proveedor</h2><table>
-    <thead><tr><th>Proveedor</th><th class="r">Costo</th><th class="r">Líneas</th><th class="r">USDT</th></tr></thead>
-    <tbody>${(rep.proveedores || []).map((p) => `<tr><td>${esc(p.proveedor)}</td>
-      <td class="r mut">${esc(p.costo)}%</td><td class="r mut">${(p.lineas || []).length}</td>
-      <td class="r"><b>${n(p.usdt)}</b></td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>Total</td><td></td><td></td><td class="r">${n(c.proveedores)}</td></tr></tfoot></table>`;
+  // ── ALFABÉTICO, NO POR MONTO ─────────────────────────────────────────────────────────────────
+  // El reporte viene ordenado de mayor a menor, que sirve para mirar dónde está la plata. Pero esta
+  // hoja se concilia contra la del proveedor, y para eso hay que poder ir a buscar un renglón:
+  // alfabético se encuentra, por monto hay que barrer la columna entera.
+  const alf = (a, b) => String(a.clave).localeCompare(String(b.clave), 'es', { sensitivity: 'base' });
+  const etiq = [...(rep.porEtiqueta || [])].sort(alf);
+  const divs = [...(rep.porDivisa || [])].sort(alf);
+  const provs = [...(rep.proveedores || [])]
+    .sort((a, b) => String(a.proveedor).localeCompare(String(b.proveedor), 'es', { sensitivity: 'base' }));
 
   const tEtiq = `<h2>Por etiqueta</h2><table>
-    <thead><tr><th>Etiqueta</th><th class="r">USDT</th><th>Proveedores</th><th>Divisas</th></tr></thead>
-    <tbody>${(rep.porEtiqueta || []).map((e) => `<tr><td><b>${esc(e.clave)}</b></td>
-      <td class="r"><b>${n(e.usdt)}</b></td>
-      <td class="mut">${esc((e.proveedores || []).join(', '))}</td>
-      <td class="mut">${esc((e.divisas || []).join(', '))}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>Total</td><td class="r">${n(c.etiquetas)}</td><td></td><td></td></tr></tfoot></table>`;
+    <thead><tr><th>Etiqueta</th><th class="r">Proveedores</th><th>Divisas</th><th class="r">USDT</th></tr></thead>
+    <tbody>${etiq.map((e) => `<tr><td><b>${esc(e.clave)}</b></td>
+      <td class="r mut">${(e.proveedores || []).length}</td>
+      <td class="mut">${esc((e.divisas || []).join(', '))}</td>
+      <td class="r"><b>${n(e.usdt)}</b></td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>Total</td><td></td><td></td><td class="r">${n(c.etiquetas)}</td></tr></tfoot></table>`;
 
   const tDiv = `<h2>Por divisa</h2><table>
     <thead><tr><th>Divisa</th><th class="r">Movido en la moneda</th><th class="r">Tipo de cambio</th>
       <th class="r">USDT</th></tr></thead>
-    <tbody>${(rep.porDivisa || []).map((d) => `<tr><td><b>${esc(d.clave)}</b></td>
+    <tbody>${divs.map((d) => `<tr><td><b>${esc(d.clave)}</b></td>
       <td class="r mut">${n(d.montoLocal)}</td>
       <td class="r mut">${d.tc ? esc(d.tc) : esc((d.tcs || []).join(' / '))}</td>
       <td class="r"><b>${n(d.usdt)}</b></td></tr>`).join('')}</tbody>
     <tfoot><tr><td>Total</td><td></td><td></td><td class="r">${n(c.divisas)}</td></tr></tfoot></table>
-    ${(rep.porDivisa || []).some((d) => !d.tc)
+    ${divs.some((d) => !d.tc)
       ? '<div class="mut">Donde hay dos tipos de cambio: SL2 y BVS se pasan a dólares con el promedio '
         + 'del mes y el resto con el del proveedor. No es un error, son dos acuerdos distintos.</div>' : ''}`;
+
+  const tProv = `<h2>Por proveedor</h2><table>
+    <thead><tr><th>Proveedor</th><th>Etiqueta</th><th class="r">Costo</th><th class="r">USDT</th></tr></thead>
+    <tbody>${provs.map((p) => {
+    const es = [...new Set((p.lineas || []).map((l) => l.etiqueta).filter(Boolean))];
+    return `<tr><td>${esc(p.proveedor)}</td><td class="mut">${esc(es.join(', '))}</td>
+      <td class="r mut">${esc(p.costo)}%</td><td class="r"><b>${n(p.usdt)}</b></td></tr>`;
+  }).join('')}</tbody>
+    <tfoot><tr><td>Total</td><td></td><td></td><td class="r">${n(c.proveedores)}</td></tr></tfoot></table>`;
+
+  // El detalle de qué proveedor cae en qué grupo va AL PIE. Arriba estorbaba: son listas de hasta
+  // 33 nombres metidas en una celda, y tapaban los números, que es lo que se viene a leer.
+  const pie = `<h2>Qué incluye cada etiqueta</h2><table>
+    <thead><tr><th style="width:130px">Etiqueta</th><th>Proveedores</th></tr></thead>
+    <tbody>${etiq.map((e) => `<tr><td><b>${esc(e.clave)}</b></td>
+      <td class="mut">${esc([...(e.proveedores || [])].sort((a, b) => String(a).localeCompare(String(b), 'es', { sensitivity: 'base' })).join(' · '))}</td></tr>`).join('')}</tbody></table>`;
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -96,7 +115,7 @@ function hoja(rep) {
     <div class="mut">${esc(mesNom)}${rep.congelado ? ' · precios congelados de ese mes' : ' · precios de hoy (mes sin congelar)'}</div>
     <div class="tot">Total a pagar: ${n(c.proveedores)} USDT</div>
     <div class="mut" style="margin-bottom:14px">${conex.map(([k, v]) => `${esc(k)} ${n(v.usdt)}`).join(' · ')}</div>
-    ${cuadre}${tEtiq}${tDiv}${tProv}
+    ${cuadre}${tEtiq}${tDiv}${tProv}${pie}
     <button onclick="window.print()">Guardar como PDF</button>
     <div class="pie">Latam Games · documento interno</div>
     </body></html>`;

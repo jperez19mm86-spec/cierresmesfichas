@@ -490,6 +490,10 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     { busca: /^fishing[\s_]*games[\s_]*gg\b/i, grupo: 'FISHING_GAMES_GG' },
     { busca: /^playtech\b/i, grupo: 'PLAYTECH' },
     { busca: /^sport[\s_]*betting\b/i, grupo: 'SPORTBETTING' },
+    // El casino lo manda sin integración ("default") y TBS como WS_SPORTS_Original_Dima_Li: son
+    // las dos mitades del mismo proveedor. Confirmado contra la planilla de junio, donde la fila
+    // WS_SPORTS_Original_Dima_Li trae Europa 0,19 — exactamente lo que da acá.
+    { busca: /^ws[\s_]*sports\b/i, grupo: 'OR' },
   ];
 
   const A_MANO = [
