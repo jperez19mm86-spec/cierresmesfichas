@@ -1393,6 +1393,113 @@ async function main() {
     check('js: ninguna const/let de arriba declarada dos veces', dobles.length === 0, dobles.join(', '));
   }
 
+  // ── y que la regla se cumpla DE VERDAD contra el server, no sólo en la función ──
+  // La función puede estar bien y el middleware no llamarla. Se entra con un operador real y se
+  // golpean las rutas: las prohibidas tienen que dar 403, no datos.
+  {
+    const { spawn } = require('child_process');
+    const PUERTO = 3999;
+    const srv2 = spawn(process.execPath, [require('path').join(__dirname, '..', 'src', 'index.js')], {
+      env: { ...process.env, PORT: String(PUERTO), OPERADOR_USER: 'opetest', OPERADOR_PASSWORD: 'clave-de-prueba-larga',
+        DB_FILE: require('path').join(require('os').tmpdir(), 'smoke-roles-' + process.pid + '.sqlite') },
+      stdio: 'ignore',
+    });
+    const B2 = 'http://127.0.0.1:' + PUERTO;
+    for (let i = 0; i < 60; i++) {
+      try { await axios.get(B2 + '/login', { timeout: 500, validateStatus: () => true }); break; }
+      catch (e) { await new Promise((r) => setTimeout(r, 250)); }
+    }
+    const lg = await axios.post(B2 + '/api/login', { user: 'opetest', password: 'clave-de-prueba-larga' },
+      { validateStatus: () => true });
+    const ck = (lg.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    check('operador real: puede entrar', lg.status === 200 && lg.data.rol === 'operador', JSON.stringify(lg.data));
+    const H2 = { headers: { Cookie: ck }, validateStatus: () => true, maxRedirects: 0 };
+
+    const permitido = await axios.get(B2 + '/api/pedidos', H2);
+    check('operador real: ve los pedidos', permitido.status === 200, String(permitido.status));
+
+    for (const ruta of ['/api/os/clientes', '/api/clientes', '/api/systems', '/api/config',
+      '/api/_backup', '/api/os/pago-proveedores?mes=2026-06', '/api/os/api/matriz']) {
+      const r2 = await axios.get(B2 + ruta, H2);
+      check(`operador real: ${ruta} da 403`, r2.status === 403, String(r2.status));
+    }
+    srv2.kill();
+
+    // ── la proyección, probada con un cliente COMPLETO ──
+    // Contra el server de prueba la lista venía vacía, así que ese chequeo pasaba sin mirar nada.
+    // Acá se arma un cliente con todos los campos sensibles y se aplica la misma lista blanca.
+    const CAMPOS = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas'];
+    const crudo = { id: 'c1', codigo: 'L1', nombreVisible: 'Lu', nombre: 'Lu', estado: 'activo',
+      divisa_fichas: 'ARS', margen_externos_pct: '12', tc_proveedor: '1400', permite_deuda: true,
+      ajuste_usdt_pct: '-2.8', telegram: { chat: '-100123' }, momento_pago: 'despues',
+      cajas: [{ id: 'k1', usuario: 'u', sistema: 'Casino', userId: '9', divisas: ['ARS'],
+        montosRapidos: [1, 2], grupoId: 'g' }] };
+    const proyectar = (c) => {
+      const o = {};
+      CAMPOS.forEach((k) => { if (c[k] !== undefined) o[k] = c[k]; });
+      o.cajas = (c.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, sistema: k.sistema,
+        userId: k.userId, divisas: k.divisas }));
+      return o;
+    };
+    const salida = JSON.stringify(proyectar(crudo));
+    check('proyección: pasa lo que hace falta para despachar',
+      /L1/.test(salida) && /Casino/.test(salida) && /ARS/.test(salida));
+    ['margen_externos_pct', 'tc_proveedor', 'permite_deuda', 'ajuste_usdt_pct', 'telegram',
+      'momento_pago', 'grupoId'].forEach((campo) => {
+      check(`proyección: NO deja pasar ${campo}`, !salida.includes(campo), salida.slice(0, 60));
+    });
+    // lo que importa de una lista blanca: un campo NUEVO no se cuela solo
+    const conNuevo = proyectar({ ...crudo, secreto_futuro: 'no-deberia-salir' });
+    check('proyección: un campo agregado mañana no aparece solo',
+      !JSON.stringify(conNuevo).includes('secreto_futuro'));
+  }
+
+  // ── PERMISOS DEL OPERADOR ────────────────────────────────────────────────────────────────────
+  // Es el test más importante del archivo: si esto falla, alguien que sólo tenía que despachar
+  // pedidos está viendo márgenes, deudas y facturas. Se prueba la REGLA, no la pantalla — esconder
+  // un botón no esconde nada, el JSON viaja igual.
+  {
+    const auth = require('../src/auth');
+    const P = (m, path) => auth.puedeOperador({ method: m, path });
+
+    // lo que TIENE que poder: despachar
+    [['GET', '/api/pedidos'], ['GET', '/api/pedidos/p_1/cascada'],
+      ['POST', '/api/pedidos/p_1/cargar'], ['POST', '/api/pedidos/p_1/rechazar'],
+      ['POST', '/api/pedidos/p_1/anular'], ['POST', '/api/pedidos/p_1/devolver-trabadas'],
+      ['GET', '/api/historial'], ['GET', '/api/despacho/clientes'], ['GET', '/api/despacho/sistemas'],
+      ['GET', '/'], ['POST', '/api/logout']]
+      .forEach(([m, p]) => check(`operador: puede ${m} ${p}`, P(m, p) === true));
+
+    // lo que NO puede, una por cada cosa que expondría
+    [['GET', '/api/os/clientes', 'el OS comercial entero'],
+      ['GET', '/api/os/pago-proveedores', 'lo que pagás a proveedores'],
+      ['GET', '/api/os/api/matriz', 'los precios de TBS'],
+      ['GET', '/api/os/externos/Titan', 'el margen de un cliente'],
+      ['GET', '/api/clientes', 'margen_externos_pct y tc_proveedor'],
+      ['GET', '/api/systems', 'el usuario con el que se entra al casino'],
+      ['GET', '/api/config', 'el token de Telegram'],
+      ['GET', '/api/_backup', 'la base entera'],
+      ['POST', '/api/_restore', 'reemplazar la base'],
+      ['POST', '/api/clientes', 'crear clientes'],
+      ['PUT', '/api/clientes/c_1', 'editar un cliente'],
+      ['DELETE', '/api/clientes/c_1', 'borrar un cliente'],
+      ['POST', '/api/systems', 'agregar un casino'],
+      ['POST', '/api/test-credentials', 'probar credenciales'],
+      ['PUT', '/api/config', 'cambiar la configuración'],
+      ['GET', '/os', 'la pantalla comercial'], ['GET', '/tbs', 'la pantalla de TBS']]
+      .forEach(([m, p, porque]) => check(`operador: NO puede ${m} ${p} (${porque})`, P(m, p) === false));
+
+    // LA REGLA DE FONDO: lo que no está en la lista está prohibido. Una ruta inventada tiene que
+    // dar false — si diera true, cada endpoint nuevo nacería abierto.
+    check('operador: una ruta que no existe está prohibida', P('GET', '/api/loquesea') === false);
+    check('operador: y una que se agregue mañana también', P('POST', '/api/os/algo-nuevo/2027') === false);
+    // ni siquiera con otro método sobre algo permitido
+    check('operador: no puede BORRAR un pedido aunque pueda verlo', P('DELETE', '/api/pedidos/p_1') === false);
+
+    // el operador no existe si no se configuró: sin contraseña por defecto
+    check('operador: no existe sin las dos variables de entorno', auth.HAY_OPERADOR === false);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

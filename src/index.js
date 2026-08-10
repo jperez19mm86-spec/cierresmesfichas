@@ -173,6 +173,42 @@ app.post('/api/test-credentials', async (req, res) => {
 
 // ─────────────── CLIENTES + CAJAS ───────────────
 
+/**
+ * ── LO QUE VE EL OPERADOR ─────────────────────────────────────────────────────────────────────
+ *
+ * `/api/clientes` devuelve el cliente ENTERO: margen_externos_pct, ajuste_usdt_pct, tc_proveedor,
+ * permite_deuda, la config de Telegram… o sea el negocio. Esconderlo en la pantalla no serviría:
+ * el JSON viaja igual y se lee en la consola del navegador.
+ *
+ * Por eso esta ruta ARMA el objeto campo por campo desde una lista explícita, igual que la cuenta
+ * que se le manda a un cliente de TBS. Lo que no está en la lista no existe acá, y si mañana se le
+ * agrega un campo al cliente no aparece solo.
+ *
+ * Sin deuda ni saldos: el dueño decidió que el operador vea el pedido y nada más.
+ */
+const DESPACHO_CLIENTE = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas'];
+app.get('/api/despacho/clientes', (_req, res) => {
+  const cs = clientes.list().clientes.map((c) => {
+    const o = {};
+    DESPACHO_CLIENTE.forEach((k) => { if (c[k] !== undefined) o[k] = c[k]; });
+    // las cajas, sólo con lo que hace falta para saber a dónde va la ficha
+    o.cajas = (c.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, sistema: k.sistema,
+      userId: k.userId, divisas: k.divisas }));
+    return o;
+  });
+  res.json({ ok: true, clientes: cs });
+});
+
+/** Los paneles, sin la URL ni el usuario con el que el OS entra al casino. */
+app.get('/api/despacho/sistemas', (_req, res) => {
+  const data = store.list();
+  res.json({ ok: true, activeId: data.activeId,
+    systems: data.systems.map((x) => ({ id: x.id, name: x.name })) });
+});
+
+/** Quién soy: la pantalla necesita saber el rol para no ofrecer lo que el server va a rechazar. */
+app.get('/api/quien', (req, res) => res.json({ ok: true, rol: auth.rolDe(req) || null }));
+
 app.get('/api/clientes', (_req, res) => {
   res.json({ ok: true, clientes: clientes.list().clientes });
 });
