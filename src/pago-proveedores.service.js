@@ -663,6 +663,8 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     });
     return { usdt: money.round(t, 2), faltanTC };
   };
+  // "OTROS" es solo lo que NO SE SABE QUIÉN ES: grupos de TBS sin equivalencia y proveedores que el
+  // casino informa y no están en la matriz. Son pocos y cada uno es una pregunta concreta.
   const otros = [];
   (tbs.sinMapear || []).forEach((x) => {
     const c = aUsdt(x.porDivisa, x.grupo);
@@ -675,14 +677,40 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
       motivo: 'el casino lo informa pero no está en la matriz de proveedores',
       porDivisa: v.porDivisa, gananciaUsdt: c.usdt, faltanTC: c.faltanTC });
   });
-  [...sinCosto.values()].forEach((v) => {
-    const c = aUsdt(v.porDivisa, v.nombre);
-    otros.push({ origen: [...v.conexiones].sort().join(', '), nombre: v.nombre, ref: '',
-      motivo: 'está en la matriz pero no tiene el % de costo cargado',
-      porDivisa: v.porDivisa, gananciaUsdt: c.usdt, faltanTC: c.faltanTC });
-  });
   otros.sort((a, b) => Number(b.gananciaUsdt) - Number(a.gananciaUsdt));
   const otrosTotal = { gananciaUsdt: money.round(money.sum(otros.map((o) => o.gananciaUsdt)), 2), cuantos: otros.length };
+
+  // ── LAS FILAS DE LA MATRIZ SIN % DE COSTO, QUE SON OTRA COSA ─────────────────────────────────
+  //
+  // Van aparte de "Otros" por una razón de fondo: acá SÍ se sabe quién es el proveedor, lo único
+  // que falta es el porcentaje. Y en junio son 40 filas de las cuales 38 son de las familias SL y
+  // XG — las mismas que el mapeo verificado de TBS documenta como que CUESTAN 0 ("grupo 10 slgames
+  // → SL · cuesta 0", "grupo 32 xgames → XG · cuesta 0"). Si cuestan 0, no se debe nada y no hay
+  // nada que arreglar: la matriz las tiene vacías en vez de tener un 0 escrito, y es lo mismo.
+  //
+  // Mezclarlas con "Otros" arruinaba las dos cosas: PRAGMATIC SL sola tiene 2,25 millones de USDT
+  // de ganancia, así que tapaba a los 5 grupos de TBS que sí hay que resolver, y ponía un total de
+  // 3,8 millones al lado de una factura de 28 mil — un número que asusta y no quiere decir nada.
+  //
+  // Lo que sí importa: las que NO son SL ni XG. En junio son dos (MICROGAMING SL2 y EVOLUTION
+  // LOBBY ORIGINAL PREMIUM) y ésas sí pueden ser plata que no se está pagando, porque SL2 cuesta
+  // 0,5. Se marcan con `revisar` para que salten a la vista entre las otras 38.
+  const FAMILIAS_QUE_CUESTAN_CERO = ['SL', 'XG'];
+  const sinCostoDetalle = [...sinCosto.values()].map((v) => {
+    const c = aUsdt(v.porDivisa, v.nombre);
+    const familia = String(v.nombre).trim().split(/\s+/).pop().toUpperCase();
+    return { nombre: v.nombre, familia, revisar: !FAMILIAS_QUE_CUESTAN_CERO.includes(familia),
+      origen: [...v.conexiones].sort().join(', '), porDivisa: v.porDivisa,
+      gananciaUsdt: c.usdt, faltanTC: c.faltanTC };
+  }).sort((a, b) => (a.revisar === b.revisar
+    ? Number(b.gananciaUsdt) - Number(a.gananciaUsdt) : (a.revisar ? -1 : 1)));
+  const sinCostoResumen = {
+    cuantos: sinCostoDetalle.length,
+    revisar: sinCostoDetalle.filter((x) => x.revisar).length,
+    familias: [...sinCostoDetalle.reduce((mp, x) => mp.set(x.familia, (mp.get(x.familia) || 0) + 1), new Map())]
+      .map(([familia, cuantos]) => ({ familia, cuantos, cuestaCero: FAMILIAS_QUE_CUESTAN_CERO.includes(familia) }))
+      .sort((a, b) => b.cuantos - a.cuantos),
+  };
 
   const sumar = (arr) => money.round(money.sum(arr.map((x) => x.usdt)), 2);
   const cuadre = { proveedores: total, etiquetas: sumar(porEtiqueta), divisas: sumar(porDivisa),
@@ -702,7 +730,7 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     ok: true, mes: m, desde, hasta,
     congelado: !!(precios && precios.congelado),
     proveedores, porConexion, porEtiqueta, porDivisa, porSistema, cuadre,
-    tiposDeCambio, otros, otrosTotal,
+    tiposDeCambio, otros, otrosTotal, sinCostoDetalle, sinCostoResumen,
     tbsSinMapear: tbs.sinMapear,
     totales: { usdt: total, proveedores: proveedores.length },
     sinVincular: [...sinVincular.values()].map((v) => ({ nombre: v.nombre, profit: money.round(v.profit, 2), porDivisa: v.porDivisa, conexiones: [...v.conexiones] }))

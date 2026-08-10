@@ -120,6 +120,9 @@ function hoja(rep) {
   const provs = [...(rep.proveedores || [])].sort((a, b) => alfa(a.proveedor, b.proveedor));
   const otros = rep.otros || [];
   const oTot = rep.otrosTotal || { gananciaUsdt: '0', cuantos: 0 };
+  const sc = rep.sinCostoDetalle || [];
+  const scR = rep.sinCostoResumen || { cuantos: 0, revisar: 0, familias: [] };
+  const hayHoja6 = !!(otros.length || sc.length);
 
   // Los nombres de sistema en el orden en que se muestran, para las columnas de la tabla cruzada.
   const sistemas = sis.map((s) => s.clave);
@@ -154,13 +157,17 @@ function hoja(rep) {
           <td class="r mut">${sis.length}</td><td class="r"><b>${n(c.sistemas)}</b></td></tr>
         <tr><td><b>5</b></td><td>Divisa <span class="mut">— y con qué tipo de cambio se pasó a dólares</span></td>
           <td class="r mut">${divs.length}</td><td class="r"><b>${n(c.divisas)}</b></td></tr>
-        ${otros.length ? `<tr><td><b>6</b></td><td>Otros <span class="mut">— con ganancia, pero sin costo para poder pagarlo</span></td>
-          <td class="r mut">${otros.length}</td><td class="r mut">no entra al total</td></tr>` : ''}
+        ${hayHoja6 ? `<tr><td><b>6</b></td><td>Otros <span class="mut">— con ganancia, pero sin el dato para poder pagarlo</span></td>
+          <td class="r mut">${otros.length + sc.length}</td><td class="r mut">no entra al total</td></tr>` : ''}
       </tbody>
     </table>
-    ${otros.length ? `<div class="cua avi"><b>${otros.length} concepto(s) con ganancia quedan fuera del total</b>
-      — suman una ganancia de ${n(oTot.gananciaUsdt)} USDT, pero no se sabe cuánto se paga por ellos
-      porque falta el % de costo. Están detallados en la hoja 6, con el motivo de cada uno.</div>` : ''}
+    ${otros.length ? `<div class="cua avi"><b>${otros.length} concepto(s) sin equivalencia en la matriz</b>
+      — el casino o TBS informan ganancia por ellos (${n(oTot.gananciaUsdt)} USDT) pero no se sabe a qué
+      proveedor corresponden, así que no se puede saber cuánto se paga. Están en la hoja 6, con el motivo
+      de cada uno.</div>` : ''}
+    ${scR.revisar ? `<div class="cua avi"><b>${scR.revisar} fila(s) de la matriz sin % de costo, para revisar</b>
+      — el resto de las que faltan son de las familias que cuestan 0, pero éstas no. Están al pie de la
+      hoja 6, marcadas.</div>` : ''}
     ${(rep.avisos || []).length ? `<div class="pg-sub" style="margin-top:16px"><b style="color:#2b2230;font-size:13px">Avisos</b></div>`
       + `<table><tbody>${rep.avisos.map((a) => `<tr><td class="mut">${esc(a)}</td></tr>`).join('')}</tbody></table>` : ''}`;
 
@@ -265,19 +272,22 @@ function hoja(rep) {
 
   // ── HOJA 6 · OTROS ───────────────────────────────────────────────────────────────────────────
   //
-  // Lo que tiene ganancia y no se puede pagar porque falta el costo. Antes no aparecía en ningún
-  // lado: se iba en un aviso y el documento quedaba como si esa plata no existiera. La columna de
-  // dólares dice GANANCIA y no "a pagar" a propósito — son dos números que se parecen y no lo son.
-  const tOtros = !otros.length ? '' : cab(6, 'Otros', `${otros.length} conceptos`,
-    'Tienen ganancia, pero <b>no entran al total</b>: sin el % de costo no hay forma de saber cuánto '
-    + 'se paga por ellos, y ponerle un porcentaje inventado sería inventar plata. El importe en '
-    + 'dólares de la última columna es la <b>ganancia</b>, para saber de qué tamaño es cada uno — '
-    + 'no es lo que se debe.')
-    + `<div class="sum">
-        ${box('Conceptos', String(otros.length))}
-        ${box('Ganancia total', `${n(oTot.gananciaUsdt)} USDT`, 'no es lo que se paga')}
+  // Dos bloques, y la separación importa. Arriba lo que NO SE SABE QUIÉN ES: son pocos y cada uno
+  // es una pregunta concreta que se puede responder. Abajo las filas de la matriz sin % cargado,
+  // que es otra cosa — ahí el proveedor se sabe, falta el número, y casi todas son familias que
+  // cuestan 0. Juntarlas tapaba a las primeras: PRAGMATIC SL sola tiene 2,25 millones de ganancia.
+  //
+  // La columna de dólares dice GANANCIA y no "a pagar" a propósito: son dos números que se parecen
+  // y no lo son. Lo que se paga es la ganancia por el % de costo, y el % es justo lo que falta.
+  const tOtros = !hayHoja6 ? '' : cab(6, 'Otros', `${otros.length + sc.length} conceptos`,
+    'Todo lo que tiene ganancia y <b>no entra al total a pagar</b>. No entra porque falta el dato con '
+    + 'el que se calcula —a qué proveedor corresponde, o con qué % de costo— y ponerle un porcentaje '
+    + 'inventado sería inventar plata.')
+    + (!otros.length ? '' : `<div class="sum">
+        ${box('Sin equivalencia', String(otros.length), 'no se sabe quién es')}
+        ${box('Ganancia', `${n(oTot.gananciaUsdt)} USDT`, 'no es lo que se paga')}
         ${box('El más grande', esc(otros[0] ? otros[0].nombre : '—'), otros[0] ? `${n(otros[0].gananciaUsdt)} USDT` : '')}
-        ${box('Se resuelve', 'cargando el costo', 'en la matriz de proveedores')}
+        ${box('Se resuelve', 'diciendo qué fila es', 'y con qué % de costo')}
       </div>
       <table>
       <thead><tr><th>Concepto</th><th>Origen</th><th>Ganancia por divisa</th>
@@ -291,7 +301,31 @@ function hoja(rep) {
         <td class="r">${n(o.gananciaUsdt)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td>Ganancia total</td><td></td><td></td><td></td><td class="r">${n(oTot.gananciaUsdt)}</td></tr></tfoot></table>
       <div class="nota">Para que uno de estos pase a pagarse hace falta una sola cosa: decir a qué
-      fila de la matriz corresponde y con qué % de costo. A partir del mes siguiente entra solo.</div></div>`;
+      fila de la matriz corresponde y con qué % de costo. A partir de ahí entra solo.</div>`)
+    + (!sc.length ? '' : `<div class="pg-sub" style="margin-top:22px">
+        <b style="color:#2b2230;font-size:13px">Filas de la matriz sin % de costo cargado</b></div>
+      <div class="pg-sub" style="margin-top:-6px">Acá el proveedor se sabe: lo que falta es el
+        porcentaje. Las familias <b>${esc(scR.familias.filter((f) => f.cuestaCero).map((f) => f.familia).join(' y ') || '—')}</b>
+        cuestan 0, así que si es eso no se debe nada y no hay nada que hacer.
+        ${scR.revisar ? `<b>Las ${scR.revisar} marcadas para revisar no son de esas familias</b> y sí pueden
+        ser plata que no se está pagando.` : 'Ninguna queda fuera de esas familias.'}</div>
+      <div class="sum">
+        ${box('Filas sin costo', String(scR.cuantos))}
+        ${scR.familias.slice(0, 3).map((f) => box(`Familia ${f.familia}`, String(f.cuantos),
+    f.cuestaCero ? 'cuesta 0' : 'revisar')).join('')}
+        ${box('A revisar', String(scR.revisar), 'fuera de las familias que cuestan 0')}
+      </div>
+      <table>
+      <thead><tr><th></th><th>Proveedor</th><th>Panel</th><th>Ganancia por divisa</th>
+        <th class="r">Ganancia USDT</th></tr></thead>
+      <tbody>${sc.map((o) => `<tr>
+        <td>${o.revisar ? '<b style="color:#c0392b">revisar</b>' : ''}</td>
+        <td>${o.revisar ? `<b>${esc(o.nombre)}</b>` : esc(o.nombre)}</td>
+        <td class="mut">${esc(o.origen)}</td>
+        <td class="mut">${Object.entries(o.porDivisa || {}).sort((a, b) => alfa(a[0], b[0]))
+    .map(([d, v]) => `${esc(d)} ${n(v)}`).join(' · ')}</td>
+        <td class="r${o.revisar ? '' : ' mut'}">${n(o.gananciaUsdt)}</td></tr>`).join('')}</tbody></table>`)
+    + '</div>';
 
   // ── EL PIE: LOS TIPOS DE CAMBIO USADOS ───────────────────────────────────────────────────────
   //
