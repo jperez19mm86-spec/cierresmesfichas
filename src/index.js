@@ -78,7 +78,30 @@ function parseImportText(text) {
 
 const app = express();
 app.use(cors({ origin: true }));
+
+// ── EL COMPROBANTE VIENE EN EL CUERPO, Y UNA FOTO NO ENTRA EN 1 MB ───────────────────────────
+//
+// El resto de la API manda números y textos: 1 MB es de sobra y conviene que sea chico. Pero el
+// comprobante viaja como data URI dentro del JSON, y base64 infla un tercio: una foto de celular
+// de 3 MB llega como 4 MB de texto. Con el tope global, la pantalla decía "el máximo son 6 MB",
+// el store aceptaba 6 MB, y Express cortaba en 1 — el cliente veía "Unexpected token", que no le
+// dice absolutamente nada, y el pago simplemente no llegaba.
+//
+// El límite grande vale SÓLO para esta ruta. Se monta antes del parser general: express.json()
+// no vuelve a parsear un cuerpo ya leído, así que el de abajo lo deja pasar.
+app.use('/api/comprobante', express.json({ limit: '9mb' }));   // 6 MB de archivo + base64 + JSON
 app.use(express.json({ limit: '1mb' }));
+
+// Y si aun así se pasa, que lo diga en castellano. Sin esto Express contesta un HTML de error que
+// el navegador intenta leer como JSON, y el cliente recibe "Unexpected token <".
+app.use((e, req, res, next) => {
+  if (e && (e.type === 'entity.too.large' || e.status === 413)) {
+    return res.status(413).json({ ok: false,
+      error: 'El archivo es demasiado grande. El máximo son 6 MB: sacá la foto con menos calidad '
+        + 'o mandá una captura de pantalla en vez de la foto.' });
+  }
+  return next(e);
+});
 
 // ─────────────── LOGIN del panel (usuario + contraseña → cookie) ───────────────
 app.post('/api/login', auth.loginHandler);

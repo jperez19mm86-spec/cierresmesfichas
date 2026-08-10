@@ -1269,6 +1269,29 @@ async function main() {
       deducir('PRAGMATIC SL2') === 'SL2' && deducir('BOOMING OP (TBS)') === 'OP');
   }
 
+  // ── EL COMPROBANTE ENTRA AUNQUE SEA UNA FOTO DE CELULAR ──
+  //
+  // La pantalla promete 6 MB y el store acepta 6 MB, pero el parser global cortaba en 1: una foto
+  // de celular (2-4 MB, y base64 le suma un tercio) moría con "Unexpected token <", que al cliente
+  // no le dice nada y deja el pago sin avisar. El tope grande vale sólo para esta ruta.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    const iEsp = src.indexOf("'/api/comprobante', express.json");
+    const iGen = src.indexOf("app.use(express.json({ limit: '1mb' }))");
+    check('comprobante: tiene su propio límite de subida', iEsp > 0);
+    check('comprobante: su parser se monta ANTES del general', iEsp > 0 && iEsp < iGen);
+    check('comprobante: el resto de la API sigue con 1mb', iGen > 0);
+    // El tope de la ruta tiene que dar para los 6 MB que promete la pantalla, más el 33% de base64.
+    const lim = (src.match(/'\/api\/comprobante', express\.json\(\{ limit: '(\d+)mb' \}\)/) || [])[1];
+    const store = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'comprobantes-store.js'), 'utf8');
+    const maxMb = Number((store.match(/MAX_BYTES = (\d+) \* 1024 \* 1024/) || [])[1] || 0);
+    check('comprobante: el límite del parser cubre el del store más el base64',
+      Number(lim) >= Math.ceil(maxMb * 1.34), `parser ${lim}mb vs store ${maxMb}mb`);
+    // Y si se pasa igual, que conteste JSON y no un HTML que el cliente no puede leer.
+    check('comprobante: pasarse de tamaño contesta en castellano y en JSON',
+      /entity\.too\.large/.test(src) && /demasiado grande/.test(src));
+  }
+
   // ── EL ARCHIVO DE DOCUMENTOS EMITIDOS ──
   //
   // Lo que este bloque protege es una sola frase del dueño: "quiero siempre poder acceder a
