@@ -1562,6 +1562,34 @@ async function main() {
     await axios.delete(BASE + '/api/os/paneles/' + pid, H());
   }
 
+  // ── con qué conexión se cargan las fichas ──
+  // Son cuentas DISTINTAS de las de lectura a propósito: Alexa_support no puede bajar fichas. Elegir
+  // mal la conexión carga fichas en el panel equivocado, y eso no se deshace solo.
+  {
+    const cxs = require('../src/casino-conexiones-store');
+    const a = cxs.create({ nombre: 'CargaCasinoTest', url: 'https://x.test/index.php', usuario: 'u1', password: 'p1', motor: '463' });
+    check('carga: una conexión nueva no carga nada por defecto',
+      cxs.paraCargar('Casino') === null, JSON.stringify(cxs.paraCargar('Casino')));
+
+    cxs.update(a.id, { carga_de: 'Casino' });
+    const elegida = cxs.paraCargar('Casino');
+    check('carga: al marcarla, es la que se usa', elegida && elegida.id === a.id, JSON.stringify(elegida && elegida.nombre));
+    check('carga: no sirve para el otro sistema', cxs.paraCargar('Europa') === null);
+
+    // ⚠️ lo que NO puede hacer: elegir entre dos. Cargar en el panel equivocado no se deshace.
+    const b = cxs.create({ nombre: 'OtraCasinoTest', url: 'https://y.test/index.php', usuario: 'u2', password: 'p2', motor: '463' });
+    cxs.update(b.id, { carga_de: 'Casino' });
+    check('carga: con DOS marcadas no adivina, devuelve null', cxs.paraCargar('Casino') === null);
+
+    cxs.update(b.id, { carga_de: '' });
+    check('carga: al desmarcar una, vuelve a resolver', (cxs.paraCargar('Casino') || {}).id === a.id);
+    // una conexión de TBS nunca carga fichas del casino
+    const t = cxs.create({ nombre: 'TbsTest', url: 'https://t.test', usuario: 'u', password: 'p', motor: 'tbs' });
+    cxs.update(t.id, { carga_de: 'Casino' });
+    check('carga: una conexión de TBS no cuenta', (cxs.paraCargar('Casino') || {}).id === a.id);
+    [a.id, b.id, t.id].forEach((id) => cxs.remove(id));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

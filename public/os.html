@@ -2871,10 +2871,17 @@ CFG.casino = async () => {
   document.getElementById('cfg-body').innerHTML = `
     <div class="card"><h2>🎰 Paneles conectados</h2>
       <div class="muted" style="margin-bottom:10px">De acá salen las ganancias y las cargas. Las credenciales se guardan cifradas.</div>
-      <table><thead><tr><th>Panel</th><th>URL</th><th>Motor</th><th>Entra con</th><th>Estado</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Panel</th><th>URL</th><th>Motor</th><th>Entra con</th>
+        <th title="Con cuál se bajan las fichas a los clientes. La cuenta de lectura no puede cargar, por eso va aparte.">Carga fichas de</th>
+        <th>Estado</th><th></th></tr></thead><tbody>
       ${cx.map(c=>`<tr><td><b>${esc(c.nombre)}</b>${c.usuario?(' <span class="muted">('+esc(c.usuario)+')</span>'):''}</td><td class="muted">${esc(c.url)}</td>
         <td>${MOTOR_PILL(c.motor)}</td>
-        <td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">usuario</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sin paneles conectados. Agregá uno abajo.</td></tr>'}
+        <td>${(c.motor||'463')==='463' ? `<select onchange="setCargaDe('${c.id}', this.value)" style="font-size:12px">
+            <option value=""${!c.carga_de?' selected':''}>— sólo lectura —</option>
+            <option value="Casino"${c.carga_de==='Casino'?' selected':''}>Casino</option>
+            <option value="Europa"${c.carga_de==='Europa'?' selected':''}>Europa</option>
+          </select>` : '<span class="muted">—</span>'}</td>
+        <td>${c.modo==='token'?'<span class="badge ok">token</span>':(c.modo==='userpass'?'<span class="badge ok">usuario</span>':'<span class="badge err">incompleto</span>')}</td><td>${c.activa?'<span class="badge ok">activa</span>':'—'}</td><td class="right" style="white-space:nowrap"><button class="outline small" onclick="testConex('${c.id}')">🔌 Probar</button> <button class="danger small" onclick="delConex('${c.id}')">🗑</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sin paneles conectados. Agregá uno abajo.</td></tr>'}
       </tbody></table>
       <div id="cx-test" class="muted" style="margin-top:6px"></div>
     </div>
@@ -2925,6 +2932,15 @@ CFG.casino = async () => {
 };
 async function addConex(){ if(!val('cx-url'))return toast('URL requerida'); if(!val('cx-token') && !(val('cx-user')&&val('cx-pass')))return toast('Poné token O usuario+contraseña'); const r=await api('/api/os/casino/conexiones',{method:'POST',body:JSON.stringify({nombre:val('cx-nombre'),url:val('cx-url'),token:val('cx-token'),usuario:val('cx-user'),password:val('cx-pass'),motor:val('cx-motor')||'463'})}); if(r.ok)toast('Conexión agregada'); CFG.casino(); }
 async function delConex(id){ if(!confirm('¿Borrar conexión?'))return; await api('/api/os/casino/conexiones/'+id,{method:'DELETE'}); CFG.casino(); }
+/* Cuál de las conexiones baja las fichas de cada sistema. Se guarda el SISTEMA y no se deduce del
+   nombre: "Casino_Fichas" empieza con "Casino", pero "Casino Dark" también, y una conexión mal
+   elegida carga fichas en el panel equivocado. */
+async function setCargaDe(id, v){
+  const r=await api('/api/os/casino/conexiones/'+id,{method:'PUT',body:JSON.stringify({carga_de:v})});
+  if(!r||!r.ok) return toast((r&&r.error)||'no se pudo guardar');
+  toast(v?('esta conexión ahora carga las fichas de '+v):'esta conexión queda sólo para leer');
+  VIEWS.config&&VIEWS.config();
+}
 async function testConex(id){
   const el=document.getElementById('cx-test'); el.innerHTML='⏳ probando…';
   const r=await api('/api/os/casino/conexiones/'+id+'/test',{method:'POST'});

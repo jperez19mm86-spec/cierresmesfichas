@@ -16,6 +16,7 @@ function view(r, secret = false) {
     id: r.id, nombre: r.nombre, url: r.url, usuario: r.usuario || '', activa: !!r.activa, createdAt: r.createdAt,
     hasToken: !!r.token, hasPassword: !!r.password,
     motor: r.motor || '463',        // con qué cliente se le habla: '463' (Casino/Europa) o 'tbs'
+    carga_de: r.carga_de || '',     // a qué sistema le carga fichas ('' = sólo lectura)
     modo: r.token ? 'token' : ((r.usuario && r.password) ? 'userpass' : 'incompleto'),
   };
   if (secret) { o.token = decrypt(r.token); o.password = decrypt(r.password); }
@@ -48,8 +49,9 @@ function update(id, patch) {
   const password = (patch.password !== undefined && patch.password !== '') ? encrypt(patch.password) : r.password;
   const activa = patch.activa !== undefined ? (patch.activa ? 1 : 0) : r.activa;
   const motor = MOTORES.has(String(patch.motor)) ? String(patch.motor) : (r.motor || '463');
-  db.prepare('UPDATE casino_conexiones SET nombre=?, url=?, token=?, usuario=?, password=?, activa=?, motor=? WHERE id=?')
-    .run(nombre, url, token, usuario, password, activa, motor, id);
+  const cargaDe = patch.carga_de !== undefined ? String(patch.carga_de || '').trim() : (r.carga_de || '');
+  db.prepare('UPDATE casino_conexiones SET nombre=?, url=?, token=?, usuario=?, password=?, activa=?, motor=?, carga_de=? WHERE id=?')
+    .run(nombre, url, token, usuario, password, activa, motor, cargaDe, id);
   return get(id);
 }
 
@@ -71,7 +73,22 @@ function client(id) {
   return null;
 }
 
+/**
+ * La conexión con la que se CARGAN fichas en un sistema ("Casino", "Europa").
+ *
+ * Es la que tenga `carga_de` con ese nombre, esté activa y sea del engine 463. Si hay más de una
+ * se devuelve null en vez de elegir: cargar en el panel equivocado no se deshace solo, y adivinar
+ * entre dos candidatas es justo la clase de decisión que no debe tomar el código.
+ */
+function paraCargar(sistema) {
+  const s = String(sistema || '').trim().toLowerCase();
+  if (!s) return null;
+  const cs = list().filter((c) => c.activa !== false && (c.motor || '463') === '463'
+    && String(c.carga_de || '').trim().toLowerCase() === s);
+  return cs.length === 1 ? cs[0] : null;
+}
+
 /** Solo las del engine 463 (Casino/Europa). Las pantallas que piden nodos/reportes usan estas. */
 function list463() { return list().filter((c) => (c.motor || '463') === '463'); }
 
-module.exports = { list, list463, get, create, update, remove, client, MOTORES };
+module.exports = { list, list463, get, create, update, remove, client, paraCargar, MOTORES };

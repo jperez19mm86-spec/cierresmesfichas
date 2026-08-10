@@ -213,6 +213,7 @@ app.get('/api/clientes', (_req, res) => {
   res.json({ ok: true, clientes: clientes.list().clientes });
 });
 
+const casinoConexStore = require('./casino-conexiones-store');
 const clientesCascada = require('./clientes-cascada');
 const comprobantes = require('./comprobantes-store');
 
@@ -514,8 +515,21 @@ app.post('/api/pedidos/:id/devolver-trabadas', async (req, res) => {
   if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
   if (!p.trabadoEn) return res.status(400).json({ ok: false, error: 'este pedido no tiene fichas trabadas' });
   if (p.estado !== 'pendiente') return res.status(400).json({ ok: false, error: `el pedido está "${p.estado}"` });
-  const sys = store.list().systems.find((s) => String(s.name).toLowerCase() === String(p.sistema).toLowerCase());
-  if (!sys || !sys.password) return res.status(400).json({ ok: false, error: `Sistema "${p.sistema}" no configurado` });
+  // ── DE DÓNDE SALEN LAS CREDENCIALES PARA CARGAR ─────────────────────────────────────────────
+  // Primero se busca una conexión del OS marcada para cargar en ESTE sistema (carga_de). Son
+  // cuentas distintas de las de lectura a propósito: Alexa_support no puede bajar fichas, y por eso
+  // hay un henry_support aparte. Tenerlas en un solo lugar evita que el día que cambie una clave se
+  // actualice en un lado y el otro empiece a fallar sin que nadie lo note.
+  // Si no hay ninguna marcada, se cae al almacén viejo (Operativo → Sistemas), que sigue andando.
+  const cxCarga = casinoConexStore.paraCargar(p.sistema);
+  const sys = cxCarga
+    ? { name: cxCarga.nombre, url: cxCarga.url, user: cxCarga.usuario, password: casinoConexStore.get(cxCarga.id, true).password }
+    : store.list().systems.find((s) => String(s.name).toLowerCase() === String(p.sistema).toLowerCase());
+  if (!sys || !sys.password) {
+    return res.status(400).json({ ok: false,
+      error: `No hay con qué cargar en "${p.sistema}". Marcá una conexión del OS con "carga fichas de ${p.sistema}", `
+        + 'o cargá ese sistema en Operativo → Sistemas.' });
+  }
   const t = await casino.testConnection(sys.url, sys.user, sys.password);
   if (!t.ok || !t.sessionCookie) return res.status(502).json({ ok: false, error: `No se pudo autenticar a "${p.sistema}"` });
   const r = await cascada.devolver({ url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, paso: p.trabadoEn });

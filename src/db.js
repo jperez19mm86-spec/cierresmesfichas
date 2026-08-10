@@ -403,6 +403,18 @@ ensureColumns('paneles', { alias: 'TEXT' });   // JSON array de nombres alternat
 // NULL = sí (los 201 que ya existían siguen entrando, nadie se queda afuera por una migración).
 ensureColumns('paneles', { en_foto: 'INTEGER' });
 
+// ── QUÉ CONEXIÓN SE USA PARA CARGAR FICHAS ────────────────────────────────────────────────────
+// `carga_de` guarda el nombre del SISTEMA al que sirve esa conexión para cargar ("Casino", "Europa"):
+// el mismo texto que tiene la caja del cliente. Vacío = esa conexión sólo lee (reportes, la Foto).
+//
+// Hace falta porque son cuentas DISTINTAS del casino a propósito: Alexa_support es de sólo lectura
+// —no puede ni agregar una divisa— y para bajar fichas hace falta un usuario con ese permiso. Antes
+// las de carga vivían en otra tabla y había que cargar las credenciales dos veces.
+//
+// Se guarda el sistema y NO se deduce del nombre: "Casino_Fichas" empieza con "Casino" pero
+// "Casino Dark" también, y una conexión mal elegida carga fichas en el panel equivocado.
+ensureColumns('casino_conexiones', { carga_de: 'TEXT' });
+
 // Jerarquía REAL del panel en el casino (SuperAgente → Distribuidor → Agente). Hace falta para
 // cargar: las fichas se bajan nivel por nivel, así que hay que saber por qué padres pasar.
 // Lo resuelve arbol.service.js contra el árbol del casino; no se carga a mano.
