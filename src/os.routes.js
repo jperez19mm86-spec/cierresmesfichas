@@ -406,6 +406,69 @@ function mount(app) {
     ok(res, { cambiados: hechos.length, paneles: hechos, en_foto: val });
   }));
 
+  /**
+   * ── LOS PANELES QUE NADIE PUEDE PEDIR ────────────────────────────────────────────────────────
+   *
+   * Un panel del OS y una caja del operativo son la MISMA cuenta del casino guardada dos veces: las
+   * dos tienen usuario, sistema y id de nodo. La diferencia es para qué se usan — el panel factura,
+   * la caja recibe fichas — y por eso están separadas.
+   *
+   * El problema es que se desincronizan sin avisar: hoy hay 68 paneles sin caja, o sea 68 cuentas
+   * a las que ningún cliente puede pedirle fichas aunque el OS las tenga cargadas y facturadas.
+   * Los vendedores son los peores: Carlos tiene 11 paneles y 2 cajas.
+   *
+   * Desde hace un tiempo crear o editar un panel ESPEJA la caja solo (_espejarCaja). Los 68 que
+   * faltan son de antes de eso, o entraron por la importación, que no pasa por ahí. Esto es el
+   * repaso hacia atrás.
+   *
+   * Listar sólo INFORMA. Crear la caja es decidir que a esa cuenta se le pueden mandar fichas, y eso
+   * no lo adivina un endpoint: se pide panel por panel.
+   */
+  app.get('/api/os/cajas-faltantes', (_req, res) => {
+    const todosPan = paneles.list().filter((p) => p.id_usuario);
+    const out = [];
+    clientes.list().clientes.forEach((c) => {
+      const mios = todosPan.filter((p) => p.cliente_id === c.id);
+      if (!mios.length) return;
+      // MISMA identidad que usa _espejarCaja: nodo + sistema. Comparar sólo por nodo daría por
+      // cubierto un panel de Europa porque existe una caja con ese mismo id en Casino.
+      const clave = (sis, uid) => `${sis || ''}|${uid}`;
+      const conCaja = new Set((c.cajas || []).map((k) => clave(k.sistema, String(k.userId))));
+      const faltan = mios.filter((p) => !conCaja.has(clave(p.sistema, String(p.id_usuario))));
+      const nodos = new Set(mios.map((p) => clave(p.sistema, String(p.id_usuario))));
+      const huerfanas = (c.cajas || []).filter((k) => !nodos.has(clave(k.sistema, String(k.userId))));
+      if (faltan.length || huerfanas.length) {
+        out.push({ cliente_id: c.id, cliente: c.nombre, es_vendedor: !!c.es_vendedor,
+          faltan: faltan.map((p) => ({ panel_id: p.id, nombre: p.nombre, sistema: p.sistema,
+            userId: String(p.id_usuario), divisas: p.divisas || [] })),
+          huerfanas: huerfanas.map((k) => ({ id: k.id, usuario: k.usuario, sistema: k.sistema, userId: k.userId })) });
+      }
+    });
+    out.sort((a, b) => b.faltan.length - a.faltan.length);
+    ok(res, { clientes: out,
+      totalFaltan: out.reduce((a, x) => a + x.faltan.length, 0),
+      totalHuerfanas: out.reduce((a, x) => a + x.huerfanas.length, 0) });
+  });
+
+  /** Crea las cajas que falten. Se pide panel por panel: crear todas de una es una decisión grande. */
+  app.post('/api/os/cajas-faltantes', wrap((req, res) => {
+    const ids = Array.isArray(req.body && req.body.panel_ids) ? req.body.panel_ids : [];
+    if (!ids.length) return err(res, 400, 'no viene ningún panel');
+    const hechas = []; const saltadas = [];
+    ids.forEach((pid) => {
+      const p = paneles.get(pid);
+      if (!p || !p.id_usuario) { saltadas.push({ panel_id: pid, motivo: 'no existe o no está linkeado' }); return; }
+      const c = clientes.get(p.cliente_id);
+      if (!c) { saltadas.push({ panel_id: pid, motivo: 'su cliente no existe' }); return; }
+      // Se reusa _espejarCaja, la misma que corre al crear o editar un panel: es idempotente por
+      // (nodo, sistema). Escribir la caja acá a mano abriría la puerta a que las dos formas de
+      // crearla queden distintas — y una caja mal armada manda fichas al lugar equivocado.
+      if (!_espejarCaja(p)) { saltadas.push({ panel_id: pid, motivo: 'ya tiene caja' }); return; }
+      hechas.push({ cliente: c.nombre, caja: p.nombre, sistema: p.sistema, userId: String(p.id_usuario) });
+    });
+    ok(res, { creadas: hechas.length, hechas, saltadas });
+  }));
+
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
   app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
     const b = req.body || {};

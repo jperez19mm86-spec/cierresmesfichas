@@ -1500,6 +1500,45 @@ async function main() {
     check('operador: no existe sin las dos variables de entorno', auth.HAY_OPERADOR === false);
   }
 
+  // ── un panel sin caja es una cuenta a la que nadie puede pedirle fichas ──
+  // Panel y caja son la MISMA cuenta del casino guardada dos veces, y se desincronizan sin avisar.
+  {
+    const pid = (await post('/api/os/paneles', { cliente_id: cli.id, nombre: 'PanelSinCaja',
+      sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '999777', divisas: 'ARS,USD' })).data.panel.id;
+    // Crear el panel ya espeja la caja: para probar el repaso hacia atrás hay que sacarla, que es
+    // la situación real de los 68 paneles viejos, creados antes de que ese espejo existiera.
+    const antes = (await get('/api/clientes')).data.clientes.find((x) => x.id === cli.id);
+    const kaja = (antes.cajas || []).find((k) => String(k.userId) === '999777');
+    check('cajas: crear un panel ya espeja la caja', !!kaja, JSON.stringify((antes.cajas || []).length));
+    await axios.delete(BASE + '/api/clientes/' + cli.id + '/cajas/' + kaja.id, H());
+    let r = (await get('/api/os/cajas-faltantes')).data;
+    const mio = (r.clientes || []).find((x) => x.cliente_id === cli.id);
+    check('cajas: detecta el panel sin caja', !!mio && mio.faltan.some((f) => f.userId === '999777'),
+      JSON.stringify((mio || {}).faltan || []).slice(0, 80));
+
+    r = (await post('/api/os/cajas-faltantes', { panel_ids: [pid] })).data;
+    check('cajas: la crea con los datos del panel', r.creadas === 1
+      && r.hechas[0].userId === '999777' && r.hechas[0].sistema === 'Casino', JSON.stringify(r.hechas));
+
+    // ⚠️ lo que NO puede pasar: dos cajas al mismo nodo. El cliente elegiría entre dos destinos
+    // idénticos y la ficha se podría cargar dos veces.
+    r = (await post('/api/os/cajas-faltantes', { panel_ids: [pid] })).data;
+    check('cajas: no la crea dos veces', r.creadas === 0 && /ya tiene caja/.test(JSON.stringify(r.saltadas)),
+      JSON.stringify(r.saltadas));
+
+    const cl2 = (await get('/api/clientes')).data.clientes.find((x) => x.id === cli.id);
+    const alNodo = (cl2.cajas || []).filter((k) => String(k.userId) === '999777');
+    check('cajas: quedó UNA sola para ese nodo', alNodo.length === 1, String(alNodo.length));
+    check('cajas: se copiaron las divisas del panel',
+      (alNodo[0].divisas || []).join(',') === 'ARS,USD', JSON.stringify(alNodo[0].divisas));
+
+    // y ya no aparece como faltante
+    r = (await get('/api/os/cajas-faltantes')).data;
+    const m2 = (r.clientes || []).find((x) => x.cliente_id === cli.id);
+    check('cajas: deja de figurar como faltante', !m2 || !m2.faltan.some((f) => f.userId === '999777'));
+    await axios.delete(BASE + '/api/os/paneles/' + pid, H());
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
