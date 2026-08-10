@@ -260,11 +260,16 @@ function mount(app) {
     ok(res, { paneles: list });
   });
   // Espeja un panel del OS → CAJA operativa (para /pedir y las cargas de fichas). Idempotente por (userId, sistema).
-  const _espejarCaja = (p) => {
-    if (!p || !p.cliente_id || !p.id_usuario) return false;
-    const c = clientes.get(p.cliente_id); if (!c) return false;
+  // `clienteDestino` deja mandar la caja a OTRO cliente que el dueño del panel. Pasa de verdad:
+  // un panel figura a nombre del vendedor pero las fichas las pide el cliente final, o al revés.
+  // Por defecto va al dueño del panel, que es lo que corresponde casi siempre.
+  const _espejarCaja = (p, clienteDestino) => {
+    if (!p || !p.id_usuario) return false;
+    const destino = clienteDestino || p.cliente_id;
+    if (!destino) return false;
+    const c = clientes.get(destino); if (!c) return false;
     if ((c.cajas || []).some((k) => String(k.userId) === String(p.id_usuario) && (k.sistema || '') === (p.sistema || ''))) return false;
-    clientes.addCaja(p.cliente_id, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
+    clientes.addCaja(destino, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
     return true;
   };
   app.post('/api/os/paneles', wrap((req, res) => { const panel = paneles.create(req.body || {}); _espejarCaja(panel); ok(res, { panel }); }));
@@ -452,19 +457,23 @@ function mount(app) {
 
   /** Crea las cajas que falten. Se pide panel por panel: crear todas de una es una decisión grande. */
   app.post('/api/os/cajas-faltantes', wrap((req, res) => {
-    const ids = Array.isArray(req.body && req.body.panel_ids) ? req.body.panel_ids : [];
-    if (!ids.length) return err(res, 400, 'no viene ningún panel');
+    // Se acepta [{panel_id, cliente_id}] o la forma corta [id]: el destino por defecto es el dueño.
+    const crudo = (req.body && (req.body.crear || req.body.panel_ids)) || [];
+    const items = (Array.isArray(crudo) ? crudo : []).map((x) => (typeof x === 'string'
+      ? { panel_id: x, cliente_id: null } : { panel_id: x.panel_id, cliente_id: x.cliente_id || null }));
+    if (!items.length) return err(res, 400, 'no viene ningún panel');
     const hechas = []; const saltadas = [];
-    ids.forEach((pid) => {
+    items.forEach(({ panel_id: pid, cliente_id: destinoId }) => {
       const p = paneles.get(pid);
       if (!p || !p.id_usuario) { saltadas.push({ panel_id: pid, motivo: 'no existe o no está linkeado' }); return; }
-      const c = clientes.get(p.cliente_id);
-      if (!c) { saltadas.push({ panel_id: pid, motivo: 'su cliente no existe' }); return; }
+      const c = clientes.get(destinoId || p.cliente_id);
+      if (!c) { saltadas.push({ panel_id: pid, motivo: 'el cliente destino no existe' }); return; }
       // Se reusa _espejarCaja, la misma que corre al crear o editar un panel: es idempotente por
       // (nodo, sistema). Escribir la caja acá a mano abriría la puerta a que las dos formas de
       // crearla queden distintas — y una caja mal armada manda fichas al lugar equivocado.
-      if (!_espejarCaja(p)) { saltadas.push({ panel_id: pid, motivo: 'ya tiene caja' }); return; }
-      hechas.push({ cliente: c.nombre, caja: p.nombre, sistema: p.sistema, userId: String(p.id_usuario) });
+      if (!_espejarCaja(p, c.id)) { saltadas.push({ panel_id: pid, motivo: 'ya tiene caja' }); return; }
+      hechas.push({ cliente: c.nombre, caja: p.nombre, sistema: p.sistema, userId: String(p.id_usuario),
+        aOtroCliente: c.id !== p.cliente_id });
     });
     ok(res, { creadas: hechas.length, hechas, saltadas });
   }));

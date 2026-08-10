@@ -1532,6 +1532,29 @@ async function main() {
     check('cajas: se copiaron las divisas del panel',
       (alNodo[0].divisas || []).join(',') === 'ARS,USD', JSON.stringify(alNodo[0].divisas));
 
+    // ── mandar la caja a OTRO cliente que el dueño del panel ──
+    // Pasa de verdad: el panel figura a nombre del vendedor pero las fichas las pide el cliente
+    // final. Si el destino no se respetara, las fichas irían a la lista de pedidos equivocada.
+    {
+      const otro = (await post('/api/clientes', { codigo: 'OTRO9', nombreVisible: 'Otro' })).data.cliente;
+      const p2 = (await post('/api/os/paneles', { cliente_id: cli.id, nombre: 'PanelAjeno',
+        sistema: 'Europa', nivel_usuario: 'Distribuidor', id_usuario: '999888', divisas: 'ARS' })).data.panel.id;
+      // sacarle la caja que el espejo creó en su dueño
+      const d = (await get('/api/clientes')).data.clientes.find((x) => x.id === cli.id);
+      const k2 = (d.cajas || []).find((k) => String(k.userId) === '999888');
+      await axios.delete(BASE + '/api/clientes/' + cli.id + '/cajas/' + k2.id, H());
+
+      const rr = (await post('/api/os/cajas-faltantes', { crear: [{ panel_id: p2, cliente_id: otro.id }] })).data;
+      check('cajas: se puede mandar a otro cliente', rr.creadas === 1 && rr.hechas[0].aOtroCliente === true,
+        JSON.stringify(rr.hechas));
+      const dos = (await get('/api/clientes')).data.clientes;
+      const enOtro = (dos.find((x) => x.id === otro.id).cajas || []).some((k) => String(k.userId) === '999888');
+      const enDueno = (dos.find((x) => x.id === cli.id).cajas || []).some((k) => String(k.userId) === '999888');
+      check('cajas: quedó en el cliente elegido', enOtro === true);
+      check('cajas: y NO en el dueño del panel', enDueno === false);
+      await axios.delete(BASE + '/api/os/paneles/' + p2, H());
+    }
+
     // y ya no aparece como faltante
     r = (await get('/api/os/cajas-faltantes')).data;
     const m2 = (r.clientes || []).find((x) => x.cliente_id === cli.id);
