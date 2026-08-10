@@ -1112,6 +1112,22 @@ function mount(app) {
     ok(res, { meses: filas });
   }));
 
+  /**
+   * Rehacer el caché del pago a proveedores desde la Foto, a mano.
+   *
+   * La reparación automática sólo se dispara cuando al caché le FALTAN divisas. Si el caché quedó
+   * mal por otra razón —como el día que se rearmó sumando la plataforma más cada panel— hace falta
+   * poder forzarlo. No consulta al casino: sale entero de lo que la Foto ya tiene guardado.
+   */
+  app.post('/api/os/estadisticas/rehacer-pago-general', wrap((req, res) => {
+    const mes = String((req.body || {}).mes || mesTZ()).slice(0, 7);
+    const uno = (req.body || {}).conexion_id;
+    const salida = casinoConex.listDeReportes()
+      .filter((c) => !uno || c.id === uno)
+      .map((c) => ({ conexion: c.nombre, ...estadMes.rehacerPagoGeneralDesdeFoto(c.id, mes) }));
+    ok(res, { mes, conexiones: salida });
+  }));
+
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
