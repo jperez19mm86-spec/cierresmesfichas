@@ -496,7 +496,9 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
     { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
     // \b no sirve acá: el guión bajo cuenta como letra, así que entre "SPORTBETTING" y "_Imperium"
     // no hay borde de palabra y la regla no pegaba nunca.
-    { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'ImperiumBet' },
+    // ImperiumBet y SPORTBETTING van JUNTOS, confirmado por el dueño: el del casino y el de TBS
+    // son el mismo proveedor. En su planilla de junio figuran sumados en 336,81.
+    { busca: /^\s*sportbetting(?=[\s_·]|$)/i, etiqueta: 'SPORTBETTING' },
   ];
 
   const deducir = (nombreProv) => {
