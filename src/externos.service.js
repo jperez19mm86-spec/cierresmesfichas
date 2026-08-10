@@ -87,7 +87,33 @@ function traductor(precios) {
   const nombres = (precios && precios.costo) ? Object.keys(precios.costo)
     : db.prepare('SELECT nombre FROM cierre_proveedor').all().map((r) => r.nombre);
   const dela = new Set(nombres.map((n) => K(n)));
-  return (fila) => {
+
+  // ── UN VÍNCULO NUEVO SÍ ENTRA EN UN MES CERRADO, PERO SÓLO SI NO HABÍA NINGUNO ───────────────
+  //
+  // La regla de arriba existe por un caso real: Titan estaba vinculado, se lo revinculó, y junio se
+  // movió de 7.150 a 6.628 sin que nadie lo pidiera. Eso NO puede volver a pasar y por eso la foto
+  // manda siempre que la foto tenga algo que decir.
+  //
+  // Pero un nombre que la foto no sabe resolver no está "bien resuelto": no se resuelve a nada, y
+  // la ganancia de ese proveedor se cae del cálculo entera. En julio son tres —CREEDROOMZ LIVE OP,
+  // AMUSNET SZ y 3OAKS SZ— y son plata que no se le está pagando a nadie. La única forma de
+  // arreglarlo era descongelar el mes, que es peor.
+  //
+  // Entonces: los vínculos de hoy completan SÓLO los huecos. Si la foto ya resuelve ese nombre —por
+  // vínculo o porque el nombre del casino coincide con una fila— no se toca. Así este agregado sólo
+  // puede sumar lo que faltaba, nunca cambiar lo que ya estaba, que es lo que rompió a Titan.
+  const nuevos = new Set();
+  if (precios && precios.links) {
+    db.prepare('SELECT casino, matriz FROM cierre_link').all().forEach((r) => {
+      if (!r.matriz) return;
+      const k = K(r.casino);
+      if (links[k] || dela.has(k)) return;      // ya se resuelve: la foto manda
+      links[k] = r.matriz;
+      nuevos.add(k);
+    });
+  }
+
+  const fn = (fila) => {
     const marca = String(fila.label || fila.provider || '').trim();
     const vendor = String(fila.vendor || '').trim();
     const conVendor = `${marca} ${vendor}`.trim();
@@ -97,6 +123,10 @@ function traductor(precios) {
     if (dela.has(K(marca))) return marca;
     return null;                                        // sin vincular: se informa aparte
   };
+  // Qué nombres se resolvieron con un vínculo creado DESPUÉS de congelar el mes. Quien lea el
+  // reporte tiene que poder ver que ese renglón no salió de la foto, igual que con los costos.
+  fn.vinculosNuevos = nuevos;
+  return fn;
 }
 
 // ── % base confirmado por MES ────────────────────────────────────────────────

@@ -1289,6 +1289,41 @@ async function main() {
     check('medios de pago: la pantalla muestra TODOS los valores', sinInput.length === 0, sinInput.join(','));
   }
 
+  // ── UN VÍNCULO NUEVO COMPLETA HUECOS, PERO NO PISA LA FOTO ──
+  //
+  // Titan: estaba vinculado, se lo revinculó, y junio se movió de 7.150 a 6.628 sin que nadie lo
+  // pidiera. Por eso la foto manda. Pero un nombre que la foto NO resuelve no está bien resuelto:
+  // su ganancia se cae del cálculo entera. El agregado sólo puede llenar huecos.
+  {
+    const ext = require('../src/externos.service');
+    const { db } = require('../src/db');
+    db.prepare("DELETE FROM cierre_link WHERE casino LIKE '_test%'").run();
+    db.prepare("INSERT INTO cierre_link (casino, matriz) VALUES ('_test hueco', 'DESTINO NUEVO')").run();
+    db.prepare("INSERT INTO cierre_link (casino, matriz) VALUES ('_test ya', 'DESTINO DE HOY')").run();
+
+    // Una foto que YA resuelve "_test ya" de otra forma, y no sabe nada de "_test hueco".
+    const precios = { costo: { 'ALGO SL2': '0.5' }, links: [{ casino: '_test ya', matriz: 'DESTINO DE LA FOTO' }] };
+    const tr = ext.traductor(precios);
+    check('vínculos: un nombre sin resolver en la foto toma el vínculo de hoy',
+      tr({ label: '_test hueco', vendor: '' }) === 'DESTINO NUEVO');
+    check('vínculos: un nombre que la foto YA resuelve no se toca',
+      tr({ label: '_test ya', vendor: '' }) === 'DESTINO DE LA FOTO');
+    check('vínculos: se informa cuáles se completaron con el vínculo de hoy',
+      tr.vinculosNuevos.has('_test hueco') && !tr.vinculosNuevos.has('_test ya'));
+
+    // Y un nombre del casino que coincide con una fila de la foto tampoco se desvía por un vínculo.
+    db.prepare("INSERT INTO cierre_link (casino, matriz) VALUES ('_test algo sl2', 'OTRO LADO')").run();
+    const tr2 = ext.traductor({ costo: { '_test ALGO SL2': '0.5' }, links: [] });
+    check('vínculos: un nombre que ya coincide con una fila no se desvía',
+      tr2({ label: '_test ALGO', vendor: 'SL2' }) === '_test ALGO SL2');
+
+    // Sin foto (mes sin congelar) manda la tabla viva y no hay nada que completar.
+    const tr3 = ext.traductor(null);
+    check('vínculos: sin foto no hay lista de completados', tr3.vinculosNuevos.size === 0);
+
+    db.prepare("DELETE FROM cierre_link WHERE casino LIKE '_test%'").run();
+  }
+
   // ── EL COMPROBANTE ENTRA AUNQUE SEA UNA FOTO DE CELULAR ──
   //
   // La pantalla promete 6 MB y el store acepta 6 MB, pero el parser global cortaba en 1: una foto

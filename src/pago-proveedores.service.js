@@ -400,6 +400,7 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   const sinVincular = new Map(); // lo que el casino informa y no está en la matriz
   const sinCosto = new Map();    // está en la matriz pero sin costo cargado
   const sinTC = new Set();
+  const usadosDelCasino = new Set();   // qué nombres del casino entraron de verdad al cálculo
   const sumarDivisa = (mapa, clave, nombre, divisa, profit, conexion) => {
     const v = mapa.get(clave) || { nombre, profit: '0', porDivisa: {}, conexiones: new Set() };
     v.profit = money.add(v.profit, profit);
@@ -446,6 +447,12 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
         const profit = String(fila.profit ?? '0');
         if (!money.isPos(profit)) continue;                    // pérdida o cero: no se paga
         const nombre = traducir(fila);
+        if (nombre) {
+          const marca = String(fila.label || fila.provider || '').trim();
+          const vendor = String(fila.vendor || '').trim();
+          usadosDelCasino.add(K(`${marca} ${vendor}`.trim()));
+          usadosDelCasino.add(K(marca));
+        }
         if (!nombre) {
           const k = `${fila.label || fila.provider || ''} ${fila.vendor || ''}`.trim();
           sumarDivisa(sinVincular, k, k, divisa, profit, cx.nombre);
@@ -503,6 +510,15 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // verdad. Arriba salían los 57 nombres a los que les faltaba el precio en la foto — la mayoría
   // sin un peso de ganancia en el mes. Un aviso de 57 nombres no se lee, y lo que importa son los
   // dos o tres que efectivamente entraron al total con un precio que no es el del mes.
+  // Mismo criterio que con los costos: se nombra sólo lo que EFECTIVAMENTE se usó este mes.
+  const vinNuevos = [...(traducir.vinculosNuevos || [])]
+    .filter((k) => (proveedores.some((p) => (p.lineas || []).length)) && usadosDelCasino.has(k));
+  if (vinNuevos.length) {
+    avisos.push(`${vinNuevos.length} proveedor(es) que el casino informa se vincularon a la matriz `
+      + `DESPUÉS de congelar ${m}, así que este mes los toma con el vínculo de hoy: `
+      + `${vinNuevos.sort().join(', ')}. Antes su ganancia quedaba afuera del total.`);
+  }
+
   const usoVivo = [...costoDelVivo.entries()]
     .filter(([k]) => proveedores.some((p) => K(p.proveedor).replace(/\s*\(tbs\)$/, '') === k))
     .map(([, etiqueta]) => etiqueta).sort();
