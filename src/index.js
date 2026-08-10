@@ -488,6 +488,10 @@ app.post('/api/comprobante', async (req, res) => {
   const c = r.comprobante;
   console.log(`[Comprobante] ${cli.codigo}/${cli.nombreVisible} avisó un pago ${c.via.toUpperCase()} ${c.monto}`);
 
+  // Aviso al teléfono, igual que con un pedido nuevo. El de Telegram va a un grupo; éste llega a
+  // quien tiene el panel instalado, que es quien lo va a aprobar. Sin esto había que estar mirando.
+  push.notifyNuevoComprobante({ ...c, clienteNombre: cli.nombreVisible || cli.nombre, codigo: cli.codigo });
+
   // Aviso al grupo del camino que usó: ARS y USDT van a grupos distintos.
   const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();

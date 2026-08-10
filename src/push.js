@@ -103,4 +103,25 @@ function notifyNewPedido(pedido) {
   }).catch((e) => console.warn('[Push] notifyNewPedido error:', e && e.message));
 }
 
-module.exports = { getPublicKey, addSubscription, removeSubscription, listSubscriptions, count, sendToAll, notifyNewPedido };
+/**
+ * Aviso de que un cliente subió un comprobante de pago.
+ *
+ * Va aparte del de pedidos y con otro `tag`: si compartieran tag, el navegador reemplaza el aviso
+ * anterior por el nuevo y sólo se ve el último. Un pedido y un comprobante que entran juntos son
+ * dos cosas que hay que atender, no una.
+ *
+ * El monto se muestra tal como lo declaró el cliente: todavía no está aprobado, así que no es plata
+ * cobrada. Aprobarlo sigue siendo un acto tuyo — el aviso sólo dice que hay algo para mirar.
+ */
+function notifyNuevoComprobante(c) {
+  const monto = Number(c.monto || 0).toLocaleString('es-AR');
+  const quien = c.clienteNombre ? `${c.clienteNombre}${c.codigo ? ` (${c.codigo})` : ''}` : (c.codigo || 'un cliente');
+  return sendToAll({
+    title: '🧾 Nuevo comprobante de pago',
+    body: `${quien} declaró ${c.divisa || ''} $${monto}`.trim(),
+    url: '/',
+    tag: 'comprobante-' + (c.id || Date.now()),
+  }).catch((e) => console.warn('[Push] notifyNuevoComprobante error:', e && e.message));
+}
+
+module.exports = { getPublicKey, addSubscription, removeSubscription, listSubscriptions, count, sendToAll, notifyNewPedido, notifyNuevoComprobante };

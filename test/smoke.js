@@ -1673,6 +1673,23 @@ async function main() {
     check('historial: el server los devuelve ordenados', bien, fechas.slice(0, 3).join(' | '));
   }
 
+  // ── avisos al teléfono: pedidos Y comprobantes ──
+  // Los comprobantes sólo avisaban por Telegram, a un grupo. El push llega a quien tiene el panel
+  // instalado, que es quien lo va a aprobar.
+  {
+    const push = require('../src/push');
+    check('push: avisa los pedidos', typeof push.notifyNewPedido === 'function');
+    check('push: y ahora también los comprobantes', typeof push.notifyNuevoComprobante === 'function');
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('push: el alta de comprobante lo dispara', /push\.notifyNuevoComprobante\(/.test(src));
+
+    // ⚠️ tags distintos: si compartieran uno, el navegador reemplaza el aviso anterior y sólo se ve
+    // el último. Un pedido y un comprobante que entran juntos son dos cosas que atender.
+    const pj = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'push.js'), 'utf8');
+    const tags = [...pj.matchAll(/tag:\s*'([a-z-]+)'/g)].map((m) => m[1]);
+    check('push: cada aviso usa su propio tag', new Set(tags).size === tags.length && tags.length >= 2, tags.join(','));
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
