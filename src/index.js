@@ -631,7 +631,8 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
         const cli = clientes.getByCodigo(p.codigo);
         const tok = config.getTelegramToken();
         const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
-        if (cli && cli.telegram && cli.telegram.enabled && dest.chatId && tok) {
+        // El interruptor viaja en el destino: quien hereda el grupo hereda si está encendido.
+        if (cli && dest.chatId && dest.enabled && tok) {
           telegram.sendMessage(tok, dest.chatId, telegram.cargaText({
             clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })

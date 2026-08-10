@@ -29,9 +29,9 @@
  * @returns {{chatId:string|null, heredado:boolean, de:string|null}}
  */
 function destinoDe(cliente, getCliente) {
-  if (!cliente) return { chatId: null, heredado: false, de: null };
+  if (!cliente) return { chatId: null, heredado: false, de: null, enabled: false };
   const propio = ((cliente.telegram || {}).chatId || '').trim();
-  if (propio) return { chatId: propio, heredado: false, de: null };
+  if (propio) return { chatId: propio, heredado: false, de: null, enabled: !!(cliente.telegram || {}).enabled };
 
   // SUBE TODA LA CADENA, no un solo escalón. Hay vendedores que cuelgan de otro vendedor —
   // GanamosSarah y Julian son de Alexa — así que un cliente de Julian tiene que poder terminar en
@@ -43,20 +43,34 @@ function destinoDe(cliente, getCliente) {
   let actual = cliente;
   while (true) {
     const vid = actual.vendedor_id;
-    if (!vid || vistos.has(String(vid))) return { chatId: null, heredado: false, de: null };
+    if (!vid || vistos.has(String(vid))) return { chatId: null, heredado: false, de: null, enabled: false };
     vistos.add(String(vid));
     const v = typeof getCliente === 'function' ? getCliente(vid) : null;
-    if (!v) return { chatId: null, heredado: false, de: null };
+    if (!v) return { chatId: null, heredado: false, de: null, enabled: false };
     const suyo = ((v.telegram || {}).chatId || '').trim();
-    if (suyo) return { chatId: suyo, heredado: true, de: v.nombre || v.codigo || String(vid) };
+    // El interruptor viaja CON el destino: ver avisaCargas.
+    if (suyo) return { chatId: suyo, heredado: true, de: v.nombre || v.codigo || String(vid),
+      enabled: !!(v.telegram || {}).enabled };
     actual = v;
   }
 }
 
-/** ¿Se le puede avisar CADA CARGA? Hace falta el destino Y el interruptor propio prendido. */
+/**
+ * ¿Se le puede avisar CADA CARGA? Hace falta destino y que esté encendido.
+ *
+ * ── EL INTERRUPTOR SE HEREDA CON EL DESTINO (cambiado el 10-ago-2026, lo decidió el dueño) ────
+ *
+ * Antes NO se heredaba, y la razón era buena: prender el de un vendedor pondría a sus clientes a
+ * escribir de golpe en un grupo real. Pero el efecto en la práctica fue peor — 11 clientes tenían
+ * grupo asignado y no avisaban nunca, y desde afuera parecía que el grupo no estaba cargado.
+ *
+ * Se le mostró al dueño la lista exacta de quiénes empezarían a avisar y decidió que se herede.
+ * La regla queda: si el grupo lo presta el vendedor, el interruptor también es el suyo. Un cliente
+ * con chatId propio manda con SU interruptor y puede apagarlo sin afectar a nadie más.
+ */
 function avisaCargas(cliente, getCliente) {
   const d = destinoDe(cliente, getCliente);
-  return !!(d.chatId && (cliente.telegram || {}).enabled);
+  return !!(d.chatId && d.enabled);
 }
 
 module.exports = { destinoDe, avisaCargas };

@@ -728,10 +728,25 @@ async function main() {
       dest.destinoDe(N.nieto, gn).chatId === '-100ALEXA' && dest.destinoDe(N.nieto, gn).de === 'Alexa',
       JSON.stringify(dest.destinoDe(N.nieto, gn)));
     check('telegram: un ciclo entre dos no cuelga el envío', dest.destinoDe(N.a, gn).chatId === null);
-    // El INTERRUPTOR no se hereda: si se heredara, prender el del vendedor pondría a 14 clientes
-    // a escribir de golpe en un grupo real sin que nadie lo pidiera.
-    check('telegram: el aviso de carga NO se hereda, aunque el destino sí',
-      dest.avisaCargas(M.c1, g) === false && dest.destinoDe(M.c1, g).chatId === '-100HENRY');
+    // ── EL INTERRUPTOR SE HEREDA (cambiado el 10-ago-2026, lo decidió el dueño) ──
+    // Antes NO se heredaba, para que prender el de un vendedor no pusiera a sus clientes a escribir
+    // de golpe en un grupo real. En la práctica fue peor: 11 clientes tenían grupo y no avisaban
+    // nunca, y parecía que el grupo no estaba cargado. Se le mostró la lista de a quiénes afectaba
+    // y eligió que se herede.
+    const H = {
+      v: { id: 'v', nombre: 'Vendedor', es_vendedor: true, telegram: { chatId: '-100V', enabled: true } },
+      vOff: { id: 'vOff', nombre: 'VendedorOff', es_vendedor: true, telegram: { chatId: '-100W', enabled: false } },
+      hijo: { id: 'hijo', vendedor_id: 'v', telegram: {} },
+      hijoOff: { id: 'hijoOff', vendedor_id: 'vOff', telegram: {} },
+      propioOff: { id: 'propioOff', vendedor_id: 'v', telegram: { chatId: '-100P', enabled: false } },
+    };
+    const gh = (id) => H[id];
+    check('telegram: el que hereda el grupo hereda el interruptor', dest.avisaCargas(H.hijo, gh) === true);
+    check('telegram: si el del vendedor está apagado, el hijo tampoco avisa', dest.avisaCargas(H.hijoOff, gh) === false);
+    // y el propio sigue mandando sobre el heredado: se puede apagar uno sin tocar al resto
+    check('telegram: un cliente con grupo propio apagado NO avisa, aunque su vendedor esté prendido',
+      dest.avisaCargas(H.propioOff, gh) === false);
+    check('telegram: sin destino no avisa nunca', dest.avisaCargas(M.c3, g) === false);
     check('telegram: con interruptor propio prendido y destino heredado, sí avisa',
       dest.avisaCargas({ ...M.c1, telegram: { chatId: '', enabled: true } }, g) === true);
     check('telegram: sin destino no avisa aunque esté prendido', dest.avisaCargas(M.c4, g) === false);
