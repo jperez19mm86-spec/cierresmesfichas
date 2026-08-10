@@ -836,6 +836,8 @@ function mount(app) {
       // sin nivel declarado, se usa el que tenga el casino; con nivel, se rechaza si no coincide
       nivel: ['distribuidor', 'superagente', 'general'].includes(b.nivel) ? b.nivel : null,
       divisas: tanda, plantilla: b.plantilla || '', guardar: b.guardar !== false,
+      // rehacer sólo si se pide explícito: sin esto, una corrida de más pisa un mes cerrado
+      rehacer: !!b.rehacer,
     });
     if (!r.ok) return err(res, 502, r.error);
     ok(res, { ...r, totalDivisas: divisas.length, desde, devueltos: tanda.length,
@@ -1157,10 +1159,12 @@ function mount(app) {
   app.post('/api/os/pago-proveedores/precargar', wrap(async (req, res) => {
     const b = req.body || {};
     const r = await pagoProv.precargar({
+      confirmar: !!b.confirmar,
       mes: b.mes || mesTZ(), conexion_id: b.conexion_id,
       desde: Number(b.desde) || 0, limite: Number(b.limite) || 12, refrescar: !!b.refrescar,
     });
-    r.ok ? ok(res, r) : err(res, 502, r.error, { reintentable: !!r.reintentable });
+    r.ok ? ok(res, r) : err(res, 502, r.error,
+      { reintentable: !!r.reintentable, requiereConfirmar: !!r.requiereConfirmar });
   }));
 
   app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {

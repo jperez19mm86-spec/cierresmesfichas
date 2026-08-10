@@ -254,7 +254,7 @@ function planGlobal(mes, { conexionId = null } = {}) {
  * @param guardar  false = probar sin escribir nada
  */
 async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas = [], plantilla = '',
-  guardar = false, onPaso = null } = {}) {
+  guardar = false, rehacer = false, onPaso = null } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const cli = casinoConex.client(conexionId);
@@ -281,6 +281,21 @@ async function capturarGlobal({ mes, conexionId, nivel = 'superagente', divisas 
 
   const salida = [];
   for (const divisa of divisas.map((d) => String(d).toUpperCase())) {
+    // ── LO YA SACADO NO SE PISA SIN QUE ALGUIEN LO PIDA ────────────────────────────────────────
+    // Un mes cerrado ya no cambia, así que volver a preguntarle al casino sólo puede empeorarlo:
+    // si en ese momento está agrupando distinto, o si una divisa falla, lo bueno se reemplaza por
+    // lo malo y no queda rastro. Pasó de verdad — junio quedó con Europa en 5.753 en vez de 6.469
+    // por una corrida de más.
+    // Rehacer sigue siendo posible, pero hay que pedirlo: `rehacer: true`.
+    if (guardar && !rehacer) {
+      const ya = captura(conexionId, m, divisa, nivel, '');
+      if (ya && ya.estado === 'ok') {
+        salida.push({ divisa, ok: true, yaEstaba: true, segundos: 0, filasQueTrajo: ya.filas,
+          nodosQueTrajo: ya.nodos, panelesNuestros: 0, filasGuardadas: 0, panelesEnCero: 0, nodosAjenos: 0 });
+        if (onPaso) onPaso(salida[salida.length - 1]);
+        continue;
+      }
+    }
     const t0 = Date.now();
     let r;
     try { r = await cli.reporteProveedores({ from, to, currency: divisa, userGroupBy: esGeneral ? '' : grupo,

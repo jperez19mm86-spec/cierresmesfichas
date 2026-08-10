@@ -252,11 +252,20 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
  *
  * @returns { ok, conexion, motor, hechos, total, faltan, avisos }
  */
-async function precargar({ mes, conexion_id, desde: desdeIdx = 0, limite = 12, refrescar = false } = {}) {
+async function precargar({ mes, conexion_id, desde: desdeIdx = 0, limite = 12, refrescar = false,
+  confirmar = false } = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const cx = casinoConex.list().find((c) => c.id === conexion_id);
   if (!cx) return { ok: false, error: 'no encontré esa conexión' };
+  // ⚠️ REHACER UN MES CERRADO PIDE CONFIRMACIÓN. Ese mes ya no cambia: volver a preguntar sólo
+  // puede empeorarlo si el casino está agrupando distinto o si una divisa falla. Y lo que se pierde
+  // no se recupera solo — hay que volver a sacarlo con el panel en el nivel correcto.
+  if (refrescar && ganCache.mesCerrado(m) && !confirmar) {
+    return { ok: false, requiereConfirmar: true,
+      error: `${m} es un mes cerrado y ya tiene datos. Volver a preguntarle al casino los REEMPLAZA, `
+        + 'y si el panel no está en "Datos generales" quedan peores que ahora. Confirmá si querés rehacerlo igual.' };
+  }
   const cli = casinoConex.client(cx.id);
   if (!cli) return { ok: false, error: `"${cx.nombre}" no tiene credenciales cargadas` };
   const { from, to } = externosSvc.rango(m);

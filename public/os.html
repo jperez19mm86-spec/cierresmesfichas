@@ -1085,9 +1085,15 @@ VIEWS.foto = async () => {
         + ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')
         + '</tbody></table></div>' : '');
 };
-async function fotoSacar(cxId, nivel, refrescar){
+async function fotoSacar(cxId, nivel, rehacer){
   // `nivel` ya no se manda: lo decide el casino. Se deja el parámetro porque los botones viejos
   // todavía lo pasan, y mandarlo haría que el server rechace la pasada si no coincide.
+  //
+  // `rehacer` SÍ se manda: sin él, lo ya sacado no se toca. Un mes cerrado ya no cambia, así que
+  // volver a preguntar sólo puede empeorarlo — si el casino está agrupando distinto en ese momento,
+  // lo bueno se reemplaza por lo malo y no queda rastro.
+  if(rehacer && !confirm('¿Rehacer '+_fotoMes+'?\n\nVuelve a preguntarle al casino TODO y reemplaza lo que ya está guardado.\n'
+    +'Si el casino no está en el nivel correcto, los datos van a quedar peores que ahora.')) return;
   const cont=document.getElementById('foto-prog'); if(!cont) return;
   _fotoCancelar=false;
   // Se piden acá y no se usa window._cxs: eso lo llena la pantalla de Clientes, así que entrando
@@ -1110,7 +1116,7 @@ async function fotoSacar(cxId, nivel, refrescar){
       if(_fotoCancelar){ lineas.push('— parado por vos'); break; }
       let r;
       try{ r=await api('/api/os/estadisticas/capturar-global',{method:'POST',
-        body:JSON.stringify({mes:_fotoMes, conexion_id:cx.id, desde, limite:8, guardar:true})}); }
+        body:JSON.stringify({mes:_fotoMes, conexion_id:cx.id, desde, limite:8, guardar:true, rehacer:!!rehacer})}); }
       catch(e){ lineas.push('<span style="color:var(--red)">✖ '+esc(cx.nombre)+': '+esc(e.message)+'</span>'); errores++; break; }
       if(!r||!r.ok){
         // El server rechaza si el casino está agrupando de otra forma que la pedida. No es un
@@ -1121,7 +1127,8 @@ async function fotoSacar(cxId, nivel, refrescar){
       if(desde===0) lineas.push('<b>'+esc(cx.nombre)+'</b> — el casino está agrupando por <b>'+esc(r.nivel)+'</b>');
       (r.divisas||[]).forEach(d=>{
         if(d.ok){ ok++; filas+=d.filasGuardadas||0; ceros+=d.panelesEnCero||0;
-          if(d.filasGuardadas||d.panelesEnCero) lineas.push('&nbsp;&nbsp;'+esc(d.divisa)+' · '+d.segundos+'s · '
+          if(d.yaEstaba) lineas.push('&nbsp;&nbsp;<span class="muted">'+esc(d.divisa)+' · ya estaba</span>');
+          else if(d.filasGuardadas||d.panelesEnCero) lineas.push('&nbsp;&nbsp;'+esc(d.divisa)+' · '+d.segundos+'s · '
             +(d.filasGuardadas||0)+' filas'+(d.panelesEnCero?' · '+d.panelesEnCero+' en cero':'')); }
         else { errores++; lineas.push('&nbsp;&nbsp;<span style="color:var(--red)">'+esc(d.divisa)+' ✖ '+esc(String(d.detalle||d.error).slice(0,70))+'</span>'); }
       });

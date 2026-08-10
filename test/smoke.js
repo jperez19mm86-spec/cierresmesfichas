@@ -1351,6 +1351,28 @@ async function main() {
       iGuarda + ' vs ' + iLlamada);
   }
 
+  // ── lo ya sacado no se pisa sin que alguien lo pida ──
+  // Un mes cerrado ya no cambia: volver a preguntarle al casino solo puede empeorarlo. Si en ese
+  // momento esta agrupando distinto, lo bueno se reemplaza por lo malo y no queda rastro. Paso de
+  // verdad — junio quedo con Europa en 5.753 en vez de 6.469 por una corrida de mas.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'estadisticas-mes.service.js'), 'utf8');
+    check('rehacer: capturarGlobal no escribe encima si ya está ok',
+      /if \(guardar && !rehacer\)/.test(src) && /yaEstaba: true/.test(src));
+    const pp = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pago-proveedores.service.js'), 'utf8');
+    check('rehacer: un mes cerrado exige confirmación explícita',
+      /mesCerrado\(m\) && !confirmar/.test(pp) && /requiereConfirmar/.test(pp));
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('rehacer: la pantalla pregunta antes', /¿Rehacer '\+_fotoMes/.test(html));
+    check('rehacer: y manda la bandera al server', /rehacer:!!rehacer/.test(html));
+
+    // la lógica en sí
+    const decidir = (yaOk, rehacer) => (yaOk && !rehacer ? 'no toca' : 'saca');
+    check('rehacer: sin datos previos, saca', decidir(false, false) === 'saca');
+    check('rehacer: con datos previos y sin pedirlo, NO toca', decidir(true, false) === 'no toca');
+    check('rehacer: con datos previos y pidiéndolo, saca', decidir(true, true) === 'saca');
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.
