@@ -1277,6 +1277,38 @@ async function main() {
     check('hoja: si no cuadra lo dice y avisa que no se pague', /NO cuadra/.test(roto) && /no pagar/i.test(roto));
   }
 
+  // ── el agrupamiento que dictó el dueño ──
+  // El vendor del casino es mas fino que los grupos con los que el paga: unos se juntan, otros se
+  // llaman distinto, y "default" no es un grupo sino "sin integración".
+  {
+    const JUNTA = { 'OP PREMIUM': 'OP', 'HUB OR': 'GameHub', 'HUB OR PREMIUM': 'GameHub', TOMHORN: 'TH' };
+    const POR_NOMBRE = [
+      { busca: /^caleta\b/i, grupo: 'Caleta' }, { busca: /^dlv\b/i, grupo: 'DLV' },
+      { busca: /^flg\b/i, grupo: 'FLG' }, { busca: /^holi[\s_]*bet\b/i, grupo: 'HOLI_BET' },
+      { busca: /^jacktop\b/i, grupo: 'Jacktop' }, { busca: /^sport[\s_]*betting\b/i, grupo: 'SPORTBETTING' },
+    ];
+    const grupoDe = (etiqueta, nombre) => {
+      let e = etiqueta;
+      if (!e || e === '—' || /^default$/i.test(e)) {
+        const r = POR_NOMBRE.find((x) => x.busca.test(String(nombre || '').trim()));
+        if (r) e = r.grupo;
+      }
+      return JUNTA[String(e || '').toUpperCase()] || JUNTA[e] || e;
+    };
+    check('grupos: OP PREMIUM se paga con OP', grupoDe('OP PREMIUM', 'EVOLUTION LOBBY OP PREMIUM') === 'OP');
+    check('grupos: HUB OR y HUB OR PREMIUM son GameHub',
+      grupoDe('HUB OR', 'EZUGI HUB OR') === 'GameHub' && grupoDe('HUB OR PREMIUM', 'EZUGI HUB OR PREMIUM') === 'GameHub');
+    check('grupos: TOMHORN se llama TH', grupoDe('TOMHORN', 'TOM HORN TOMHORN') === 'TH');
+    // "default" se abre por nombre: los siete que caían juntos van a siete lados
+    check('grupos: CALETA default → Caleta', grupoDe('default', 'CALETA default') === 'Caleta');
+    check('grupos: JACKTOP default → Jacktop', grupoDe('default', 'JACKTOP default') === 'Jacktop');
+    check('grupos: SPORT BETTING default → SPORTBETTING', grupoDe('default', 'SPORT BETTING default') === 'SPORTBETTING');
+    check('grupos: dos "default" distintos NO terminan juntos',
+      grupoDe('default', 'CALETA default') !== grupoDe('default', 'DLV default'));
+    // un vendor que no está en la tabla se queda con su nombre, no se mete en un grupo ajeno
+    check('grupos: un vendor nuevo aparece solo', grupoDe('ZZZNUEVO', 'ALGO ZZZNUEVO') === 'ZZZNUEVO');
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

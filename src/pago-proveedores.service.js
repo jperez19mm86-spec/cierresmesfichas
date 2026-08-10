@@ -458,6 +458,40 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // Van explícitas porque las confirmó el dueño, no porque el código las haya adivinado. Ese es
   // justo el motivo de tenerlas separadas de la deducción: si mañana el número de alguna de estas
   // dos sale raro, se sabe que salió de acá y no de una regla que acertó de casualidad.
+  // ── EL AGRUPAMIENTO QUE USA EL DUEÑO ─────────────────────────────────────────────────────────
+  //
+  // El `vendor` del casino es más fino que los grupos con los que él paga. Tres casos:
+  //
+  //  · SE JUNTAN. "OP PREMIUM" es OP (EVOLUTION_LOBBY_PREMIUM_OP figura en su lista de OP), y
+  //    "HUB OR" y "HUB OR PREMIUM" son los *_GameHub, todos en un grupo.
+  //  · SE LLAMAN DISTINTO. Al de TOM_HORN + VIVO_LIVE_DEALERS_TH él le dice TH; el casino manda
+  //    TOMHORN. Mismo contenido, otro nombre — y el nombre importa porque es el que concilia.
+  //  · "default" NO ES UN GRUPO. Es lo que manda el casino cuando el proveedor no tiene
+  //    integración: adentro caen siete que van a siete lados distintos (CALETA→Caleta, DLV→DLV,
+  //    Jacktop y FLG y HOLI_BET sueltos…). Ahí hay que mirar el nombre del proveedor, no el vendor.
+  //
+  // Esta tabla la dictó el dueño. Cuando el casino agregue un vendor nuevo va a aparecer solo, con
+  // su nombre crudo, en vez de meterse callado en un grupo que no le toca.
+  const JUNTA = { 'OP PREMIUM': 'OP', 'HUB OR': 'GameHub', 'HUB OR PREMIUM': 'GameHub', TOMHORN: 'TH' };
+
+  // Para los que el casino manda como "default" (o sin vendor): el grupo sale del NOMBRE.
+  const POR_NOMBRE = [
+    { busca: /^caleta\b/i, grupo: 'Caleta' },
+    { busca: /^dlv\b/i, grupo: 'DLV' },
+    { busca: /^(cq9|fishing[\s_]*games[\s_]*cq|fishing[\s_]*tbs)\b/i, grupo: 'CQ9' },
+    { busca: /^flg\b/i, grupo: 'FLG' },
+    { busca: /^holi[\s_]*bet\b/i, grupo: 'HOLI_BET' },
+    { busca: /^jacktop\b/i, grupo: 'Jacktop' },
+    { busca: /^tombala\b/i, grupo: 'TOMBALA' },
+    { busca: /^tv[\s_]*bet\b/i, grupo: 'TVBET' },
+    { busca: /^betgames/i, grupo: 'BetGamesTV' },
+    { busca: /^evenbet/i, grupo: 'Evenbet_Poker' },
+    { busca: /^inbet$/i, grupo: 'Inbet' },
+    { busca: /^fishing[\s_]*games[\s_]*gg\b/i, grupo: 'FISHING_GAMES_GG' },
+    { busca: /^playtech\b/i, grupo: 'PLAYTECH' },
+    { busca: /^sport[\s_]*betting\b/i, grupo: 'SPORTBETTING' },
+  ];
+
   const A_MANO = [
     { busca: /original[\s_]*dima[\s_]*li/i, etiqueta: 'OR' },
     // \b no sirve acá: el guión bajo cuenta como letra, así que entre "SPORTBETTING" y "_Imperium"
@@ -487,9 +521,19 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   };
   let deducidas = 0;
   proveedores.forEach((p) => (p.lineas || []).forEach((l) => {
-    if (l.etiqueta && l.etiqueta !== '—') return;
-    const e = deducir(p.proveedor);
-    if (e) { l.etiqueta = e; l.etiquetaDeducida = true; deducidas += 1; }
+    // 1) lo que no trae etiqueta (TBS): se deduce del nombre
+    if (!l.etiqueta || l.etiqueta === '—') {
+      const e = deducir(p.proveedor);
+      if (e) { l.etiqueta = e; l.etiquetaDeducida = true; deducidas += 1; }
+    }
+    // 2) "default" no es un grupo: es "sin integración". El grupo sale del nombre del proveedor.
+    if (!l.etiqueta || l.etiqueta === '—' || /^default$/i.test(l.etiqueta)) {
+      const r = POR_NOMBRE.find((x) => x.busca.test(String(p.proveedor || '').trim()));
+      if (r) { l.etiqueta = r.grupo; l.etiquetaDeducida = true; deducidas += 1; }
+    }
+    // 3) los que el dueño paga juntos, aunque el casino los separe
+    const j = JUNTA[String(l.etiqueta || '').toUpperCase()] || JUNTA[l.etiqueta];
+    if (j) l.etiqueta = j;
   }));
 
   const porEtiqueta = armar((l) => l.etiqueta);
