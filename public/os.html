@@ -335,12 +335,10 @@ VIEWS.clientes = async () => {
         <span style="float:right;display:flex;gap:6px">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
           <button class="outline small" onclick="togglePanTodos()">Paneles</button>
-          <button class="outline small" onclick="cajasFaltan()"
-            title="Paneles del OS que no tienen caja en el operativo: nadie puede pedirles fichas.">📦 Paneles sin caja</button>
+
           <button class="outline small" onclick="divisasCasino()"
             title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
        <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
-       <div id="cajas-faltan" style="margin:10px 0"></div>
       <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
         La <b>base</b> es lo único de esta tabla que factura.
         A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
@@ -370,70 +368,6 @@ VIEWS.clientes = async () => {
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
-/* Guarda las divisas de un panel. Vinieron del casino al linkearlo —son las HABILITADAS, no las
-   que mueve— y nadie las volvió a tocar: hay paneles con 25 monedas que operan en una sola. Cada
-   una de más es una consulta de más en la Foto del mes y una alerta de "moneda sin tipo de cambio". */
-/* Saca o mete un panel en la Foto del mes. No borra nada de lo ya sacado: sólo cambia qué se le
-   va a pedir al casino la próxima vez. Un panel afuera de la Foto sigue teniendo reporte — se le
-   pregunta en vivo, que es más lento y puede fallar, igual que un mes sin foto. */
-/* ── PANELES SIN CAJA ──────────────────────────────────────────────────────────────────────────
-   Un panel del OS y una caja del operativo son la misma cuenta del casino guardada dos veces. Sin
-   caja, ese panel no aparece en /pedir y nadie puede mandarle fichas. Acá se tildan los que hay que
-   crear y se elige a qué cliente van: casi siempre el dueño del panel, pero a veces las fichas las
-   pide otro (el vendedor por su cliente, o al revés), y eso hay que poder decirlo. */
-async function cajasFaltan(){
-  const caja=document.getElementById('cajas-faltan'); if(!caja) return;
-  if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
-  caja.dataset.abierto='1'; caja.innerHTML='<div class="nota">Buscando…</div>';
-  const r=await api('/api/os/cajas-faltantes');
-  if(!r||!r.ok){ caja.innerHTML='<div class="nota err">'+esc((r&&r.error)||'no respondió')+'</div>'; return; }
-  if(!r.totalFaltan){ caja.innerHTML='<div class="nota ok">Todos los paneles tienen su caja.</div>'; return; }
-  const cls=[..._clientes].sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es',{sensitivity:'base'}));
-  const opts=(sel)=>cls.map(c=>'<option value="'+esc(c.id)+'"'+(c.id===sel?' selected':'')+'>'+esc(c.nombre)+'</option>').join('');
-  const filas=(r.clientes||[]).filter(c=>c.faltan.length).map(c=>
-    '<tr class="sub"><td colspan="4" style="padding-top:10px"><b>'+esc(c.cliente)+'</b>'
-      +(c.es_vendedor?' <span class="badge">vendedor</span>':'')
-      +' <span class="muted">'+c.faltan.length+' sin caja</span> '
-      +'<button class="outline small" onclick="cajasTildar(\''+esc(c.cliente_id)+'\')">tildar todos</button></td></tr>'
-    +c.faltan.map(f=>'<tr data-cli="'+esc(c.cliente_id)+'">'
-      +'<td style="width:24px"><input type="checkbox" class="cf-x" value="'+esc(f.panel_id)+'"></td>'
-      +'<td><b>'+esc(f.nombre)+'</b></td>'
-      +'<td class="muted" style="font-size:11px">'+esc(f.sistema)+' · nodo '+esc(f.userId)
-        +'<br>'+esc((f.divisas||[]).join(', ')||'ARS')+'</td>'
-      +'<td><select class="cf-c" data-p="'+esc(f.panel_id)+'" style="font-size:12px;max-width:180px">'
-        +opts(c.cliente_id)+'</select></td></tr>').join('')).join('');
-  caja.innerHTML='<div class="nota"><span class="tit">Paneles sin caja ('+r.totalFaltan+')</span>'
-    +'Sin caja no aparecen en la pantalla de pedidos y nadie puede mandarles fichas. '
-    +'Tildá los que correspondan y elegí a qué cliente va cada uno — por defecto, el dueño del panel.'
-    +'<table style="margin-top:8px"><tbody>'+filas+'</tbody></table>'
-    +'<div class="row" style="margin-top:10px;gap:6px">'
-    +'<button onclick="cajasCrear()">Crear las cajas marcadas</button>'
-    +'<span class="muted" id="cf-msg" style="align-self:center"></span></div></div>';
-}
-function cajasTildar(cliId){
-  document.querySelectorAll('#cajas-faltan tr[data-cli="'+cliId+'"] .cf-x').forEach(x=>{x.checked=true;});
-}
-async function cajasCrear(){
-  const marcadas=[...document.querySelectorAll('#cajas-faltan .cf-x')].filter(x=>x.checked);
-  if(!marcadas.length) return toast('No marcaste ninguno');
-  const crear=marcadas.map(x=>({panel_id:x.value,
-    cliente_id:(document.querySelector('#cajas-faltan .cf-c[data-p="'+x.value+'"]')||{}).value||null}));
-  const otros=crear.filter(c=>{
-    const tr=document.querySelector('#cajas-faltan .cf-x[value="'+c.panel_id+'"]').closest('tr');
-    return tr.getAttribute('data-cli')!==c.cliente_id;
-  }).length;
-  if(!confirm('¿Crear '+crear.length+' caja(s)?\n\n'
-    +(otros?otros+' van a un cliente distinto del dueño del panel.\n\n':'')
-    +'Cada caja es un destino al que se le pueden mandar fichas.')) return;
-  const msg=document.getElementById('cf-msg'); if(msg) msg.textContent='Creando…';
-  const r=await api('/api/os/cajas-faltantes',{method:'POST',body:JSON.stringify({crear})});
-  if(!r||!r.ok){ if(msg) msg.innerHTML='<span style="color:var(--red)">'+esc((r&&r.error)||'error')+'</span>'; return; }
-  const saltadas=(r.saltadas||[]).length;
-  toast(r.creadas+' caja(s) creadas'+(saltadas?' · '+saltadas+' salteadas':''));
-  _clientes=(await api('/api/os/clientes')).clientes||_clientes;
-  const c=document.getElementById('cajas-faltan'); if(c) c.dataset.abierto='';
-  cajasFaltan();
-}
 async function setEnFoto(id, v){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({en_foto:!!v})});
   if(r&&r.ok) _paneles=(await api('/api/os/paneles')).paneles||_paneles;

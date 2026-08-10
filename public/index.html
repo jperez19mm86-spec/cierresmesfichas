@@ -137,6 +137,7 @@
   <button class="navbtn" id="nav-historial" onclick="switchView('historial')">📜 Historial</button>
   <button class="navbtn" id="nav-clientes" onclick="switchView('clientes')">👥 Clientes</button>
   <button class="navbtn" id="nav-sistemas" onclick="switchView('sistemas')">🔌 Sistemas</button>
+  <button class="navbtn" id="nav-config" onclick="switchView('config')">⚙️ Configuración</button>
 </nav>
 
 <main>
@@ -195,36 +196,16 @@
     <div id="clientesList"><div class="empty">Cargando…</div></div>
   </div>
 
-  <div class="card">
-    <h2>➕ Agregar cliente</h2>
-    <div class="row" style="align-items:flex-end">
-      <div style="flex:0 0 170px"><label>Código</label><input id="newCliCodigo" placeholder="L210" autocomplete="off" /></div>
-      <div style="flex:1"><label>Nombre visible</label><input id="newCliNombre" placeholder="Lu" autocomplete="off" /></div>
-      <button onclick="addCliente()">Agregar</button>
-    </div>
-    <div id="newCliResult" class="status" style="margin-top:8px"></div>
-  </div>
 
-  <div class="card">
-    <h2>📋 Importar lista (pegar de la planilla)</h2>
-    <p class="meta" style="margin-top:0">
-      Pegá las filas desde la planilla (columnas separadas por TAB, en este orden):<br/>
-      <code>código · nombre · usuario · sistema · user_id · divisas · grupo_id · montos_rápidos</code>.<br/>
-      Agrupa por código y suma las cajas. Re-importar <strong>actualiza</strong> (no duplica). Probá con <strong>Previsualizar</strong> antes.
-    </p>
-    <textarea id="importText" rows="6" placeholder="L210&#9;Lu&#9;CM-21L&#9;Casino&#9;7845834&#9;ARS&#9;&#9;500000,1000000,3000000,5000000"></textarea>
-    <div class="row" style="margin-top:8px">
-      <button class="outline" onclick="importClientes(true)">👁 Previsualizar</button>
-      <button onclick="importClientes(false)">📥 Importar</button>
-    </div>
-    <div id="importResult" class="status" style="margin-top:10px"></div>
-  </div>
 
+</div><!-- /view-clientes -->
+
+<div id="view-config" style="display:none">
   <div class="card">
     <h2>📣 Avisos por Telegram <span class="meta" id="cfgStatus"></span></h2>
     <p class="meta" style="margin-top:0">
       Al aceptar un pedido (<strong>Cargar</strong>), se avisa automáticamente al <strong>grupo de Telegram</strong> de ese cliente con el monto cargado.
-      Configurá el <strong>bot</strong> una sola vez acá; el <strong>grupo (chatId)</strong> se pone en cada cliente (abrí un cliente → "📣 Grupo Telegram").
+      El <strong>bot</strong> se configura una sola vez acá; el <strong>grupo (chatId)</strong> va en cada cliente, en 👥 Clientes → abrir el cliente → "📣 Grupo Telegram".
     </p>
     <label>Token del bot de Telegram</label>
     <div style="display:flex; gap:8px">
@@ -235,7 +216,7 @@
       Creá el bot con <code>@BotFather</code>, agregalo a cada grupo de cliente, y poné el <strong>chatId</strong> del grupo en el cliente (botón "🔔 Probar" para verificar).
     </div>
   </div>
-</div><!-- /view-clientes -->
+</div><!-- /view-config -->
 
 <div id="view-pedidos">
   <div class="card">
@@ -417,11 +398,12 @@
 
   // ═══════════ NAVEGACIÓN ═══════════
   function switchView(name) {
-    for (const v of ['sistemas', 'clientes', 'pedidos', 'historial']) {
+    for (const v of ['sistemas', 'clientes', 'pedidos', 'historial', 'config']) {
       document.getElementById('view-' + v).style.display = name === v ? '' : 'none';
       document.getElementById('nav-' + v).classList.toggle('active', name === v);
     }
-    if (name === 'clientes') { loadSystemNames().then(loadClientes); loadConfig(); }
+    if (name === 'clientes') { loadSystemNames().then(loadClientes); }
+    if (name === 'config') loadConfig();   // el bot vive acá desde que se movió de Clientes
     if (name === 'pedidos') loadPedidos();
     if (name === 'historial') loadHistorial();
   }
