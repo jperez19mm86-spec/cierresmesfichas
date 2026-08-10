@@ -1716,14 +1716,16 @@ async function main() {
     const push = require('../src/push');
     check('push: avisa los pedidos', typeof push.notifyNewPedido === 'function');
     check('push: y ahora también los comprobantes', typeof push.notifyNuevoComprobante === 'function');
+    check('push: y las solicitudes de caja', typeof push.notifyNuevaSolicitud === 'function');
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('push: el alta de comprobante lo dispara', /push\.notifyNuevoComprobante\(/.test(src));
+    check('push: y el alta de solicitud también', /push\.notifyNuevaSolicitud\(/.test(src));
 
     // ⚠️ tags distintos: si compartieran uno, el navegador reemplaza el aviso anterior y sólo se ve
     // el último. Un pedido y un comprobante que entran juntos son dos cosas que atender.
     const pj = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'push.js'), 'utf8');
     const tags = [...pj.matchAll(/tag:\s*'([a-z-]+)'/g)].map((m) => m[1]);
-    check('push: cada aviso usa su propio tag', new Set(tags).size === tags.length && tags.length >= 2, tags.join(','));
+    check('push: cada aviso usa su propio tag', new Set(tags).size === tags.length && tags.length >= 3, tags.join(','));
   }
 
   // ── las cajas se tienen que poder ver ──

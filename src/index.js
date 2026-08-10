@@ -199,6 +199,9 @@ const DESPACHO_CLIENTE = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', '
 app.post('/api/despacho/solicitud-caja', (req, res) => {
   const r = solicitudesCaja.crear(req.body || {}, auth.rolDe(req) === 'operador' ? 'operador' : 'admin');
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  // Al teléfono, como los pedidos y los comprobantes: sin esto hay que acordarse de ir a mirar.
+  const c = clientes.get(r.solicitud.cliente_id) || {};
+  push.notifyNuevaSolicitud({ ...r.solicitud, cliente: c.nombre || c.nombreVisible || '' });
   res.json({ ok: true, solicitud: r.solicitud });
 });
 

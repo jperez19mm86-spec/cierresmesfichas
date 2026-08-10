@@ -124,4 +124,24 @@ function notifyNuevoComprobante(c) {
   }).catch((e) => console.warn('[Push] notifyNuevoComprobante error:', e && e.message));
 }
 
-module.exports = { getPublicKey, addSubscription, removeSubscription, listSubscriptions, count, sendToAll, notifyNewPedido, notifyNuevoComprobante };
+/**
+ * Aviso de que alguien pidió abrir una caja.
+ *
+ * Tag propio, como los otros dos: si compartieran uno, el navegador reemplaza el aviso anterior y
+ * sólo se ve el último. Un pedido, un comprobante y una solicitud son tres cosas distintas.
+ *
+ * ⚠️ Esto le llega a TODOS los que activaron avisos, incluido quien la pidió — las suscripciones no
+ * guardan de quién son. Es ruido menor y no vale la pena distinguirlas para arreglarlo; si algún
+ * día molesta, hay que guardar el rol en la suscripción.
+ */
+function notifyNuevaSolicitud(s) {
+  return sendToAll({
+    title: '📦 Piden abrir una caja',
+    body: `${s.cliente || 'un cliente'} → ${s.login || ''} (${s.sistema || ''})`.trim(),
+    url: '/',
+    tag: 'solicitud-' + (s.id || Date.now()),
+  }).catch((e) => console.warn('[Push] notifyNuevaSolicitud error:', e && e.message));
+}
+
+module.exports = { getPublicKey, addSubscription, removeSubscription, listSubscriptions, count, sendToAll,
+  notifyNewPedido, notifyNuevoComprobante, notifyNuevaSolicitud };
