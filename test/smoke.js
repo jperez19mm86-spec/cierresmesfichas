@@ -1742,6 +1742,44 @@ async function main() {
     check('cajas: la flecha del vendedor sigue siendo del árbol', /sub \? `toggleVend/.test(html));
   }
 
+  // ── solicitudes para abrir una caja ──
+  // Una caja es un destino al que se le cargan fichas y define a quién se le factura, así que quien
+  // despacha la PIDE y el dueño aprueba.
+  {
+    const sc = require('../src/solicitudes-caja');
+    // lo que no se acepta, y por qué
+    check('solicitud: sin cliente no se crea', !sc.crear({ sistema: 'Casino', nodo: '1', login: 'x' }).ok);
+    check('solicitud: el panel tiene que ser Casino o Europa',
+      !sc.crear({ cliente_id: cli.id, sistema: 'Otro', nodo: '1', login: 'x' }).ok);
+    // el id del casino es la identidad real: un nombre mal tipeado manda la ficha a otro lado
+    check('solicitud: el id tiene que ser numérico',
+      !sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: 'abc', login: 'x' }).ok);
+    check('solicitud: falta el login', !sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '1' }).ok);
+
+    const r1 = sc.crear({ cliente_id: cli.id, sistema: 'casino', nodo: '777001', login: 'PruebaSol' }, 'operador');
+    check('solicitud: se crea y queda pendiente', r1.ok && r1.solicitud.estado === 'pendiente', JSON.stringify(r1.error || ''));
+    check('solicitud: normaliza el sistema', r1.ok && r1.solicitud.sistema === 'Casino', r1.ok && r1.solicitud.sistema);
+    check('solicitud: anota quién la pidió', r1.ok && r1.solicitud.pedida_por === 'operador');
+
+    // ⚠️ dos cajas al mismo nodo serían dos destinos idénticos: la ficha se podría cargar dos veces
+    const r2 = sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '777001', login: 'Otra' }, 'operador');
+    check('solicitud: no se pide dos veces el mismo nodo', !r2.ok && /pendiente/.test(r2.error), r2.error);
+    // pero el mismo nodo en el OTRO panel sí es otra cuenta
+    const r3 = sc.crear({ cliente_id: cli.id, sistema: 'Europa', nodo: '777001', login: 'EnEuropa' }, 'operador');
+    check('solicitud: el mismo id en el otro panel sí se puede', r3.ok, r3.error);
+
+    sc.resolver(r1.solicitud.id, { estado: 'rechazada', motivo: 'de prueba' });
+    check('solicitud: al resolverla deja el motivo', sc.get(r1.solicitud.id).motivo === 'de prueba');
+    check('solicitud: y libera el nodo para volver a pedirlo',
+      sc.crear({ cliente_id: cli.id, sistema: 'Casino', nodo: '777001', login: 'Reintento' }).ok);
+    // el operador puede pedir, pero no aprobar
+    const auth2 = require('../src/auth');
+    check('solicitud: el operador puede pedirla',
+      auth2.puedeOperador({ method: 'POST', path: '/api/despacho/solicitud-caja' }) === true);
+    check('solicitud: pero NO aprobarla',
+      auth2.puedeOperador({ method: 'POST', path: '/api/os/solicitudes-caja/s_1/aprobar' }) === false);
+  }
+
   // ── la política de qué divisas se le piden a un panel ──
   // Se prueba la función sola: la base del test no tiene paneles linkeados, así que el plan sale
   // vacío y comparar 0 con 0 no prueba nada. Acá los casos son explícitos.

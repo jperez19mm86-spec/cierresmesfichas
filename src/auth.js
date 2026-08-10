@@ -75,7 +75,9 @@ const OPERADOR_PUEDE = [
   { m: 'POST', re: /^\/api\/pedidos\/[\w-]+\/(cargar|rechazar|anular|devolver-trabadas)\/?$/ },
   { m: 'GET', re: /^\/api\/historial\/?$/ },
   // la lista recortada de clientes y paneles: sólo lo que hace falta para despachar
-  { m: 'GET', re: /^\/api\/despacho\/(clientes|sistemas)\/?$/ },
+  { m: 'GET', re: /^\/api\/despacho\/(clientes|sistemas|solicitudes-caja)\/?$/ },
+  // Puede PEDIR que se abra una caja, no crearla: eso lo aprueba el dueño.
+  { m: 'POST', re: /^\/api\/despacho\/solicitud-caja\/?$/ },
   // avisos al teléfono: si no los recibe, no se entera de que hay un pedido
   { m: 'GET', re: /^\/api\/push\/vapid-key\/?$/ },
   { m: 'POST', re: /^\/api\/push\/(subscribe|unsubscribe)\/?$/ },

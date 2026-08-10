@@ -192,6 +192,25 @@ app.post('/api/test-credentials', async (req, res) => {
 // deberían decir lo mismo mostrando cosas distintas es peor que mostrar de más.
 const DESPACHO_CLIENTE = ['id', 'codigo', 'nombreVisible', 'nombre', 'estado', 'divisa_fichas',
   'vendedor_id', 'es_vendedor'];
+/**
+ * Pedir que se abra una caja. La crea quien despacha; la aprueba el dueño en el OS.
+ * No crea nada: una caja es un destino al que se le cargan fichas y define a quién se le factura.
+ */
+app.post('/api/despacho/solicitud-caja', (req, res) => {
+  const r = solicitudesCaja.crear(req.body || {}, auth.rolDe(req) === 'operador' ? 'operador' : 'admin');
+  if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  res.json({ ok: true, solicitud: r.solicitud });
+});
+
+/** Las solicitudes, para ver en qué quedaron. */
+app.get('/api/despacho/solicitudes-caja', (_req, res) => {
+  const porId = {}; clientes.list().clientes.forEach((c) => { porId[c.id] = c; });
+  res.json({ ok: true, solicitudes: solicitudesCaja.list().map((s) => ({
+    id: s.id, cliente: (porId[s.cliente_id] || {}).nombre || '(borrado)', sistema: s.sistema,
+    nodo: s.nodo, login: s.login, nota: s.nota, estado: s.estado, motivo: s.motivo,
+    creada_at: s.creada_at, resuelta_at: s.resuelta_at })) });
+});
+
 app.get('/api/despacho/clientes', (_req, res) => {
   const cs = clientes.list().clientes.map((c) => {
     const o = {};
@@ -219,6 +238,7 @@ app.get('/api/clientes', (_req, res) => {
 });
 
 const casinoConexStore = require('./casino-conexiones-store');
+const solicitudesCaja = require('./solicitudes-caja');
 
 /**
  * ── CON QUÉ CREDENCIALES SE CARGA EN UN SISTEMA ───────────────────────────────────────────────

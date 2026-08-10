@@ -415,6 +415,28 @@ ensureColumns('paneles', { en_foto: 'INTEGER' });
 // "Casino Dark" también, y una conexión mal elegida carga fichas en el panel equivocado.
 ensureColumns('casino_conexiones', { carga_de: 'TEXT' });
 
+/* ───── SOLICITUDES PARA ABRIR UNA CAJA ─────
+   El que despacha se entera antes que nadie de que un cliente necesita una caja nueva, pero no
+   puede crearla: eso mueve plata (una caja es un destino al que se le cargan fichas) y define a
+   quién se le factura. Así que la pide, y el dueño aprueba.
+
+   Se guarda el NODO del casino, que es la identidad real de la cuenta. El nombre lo escribe cada
+   sistema distinto — "463.life" vs "463.live" — y por un nombre mal tipeado la ficha va a otro lado. */
+db.exec(`CREATE TABLE IF NOT EXISTS solicitud_caja (
+  id TEXT PRIMARY KEY,
+  cliente_id TEXT,              -- a quién se le abre; puede ser el vendedor mismo
+  sistema TEXT,                 -- Casino | Europa
+  nodo TEXT,                    -- el id del casino: la identidad de verdad
+  login TEXT,                   -- cómo se llama en el panel
+  nota TEXT,
+  estado TEXT DEFAULT 'pendiente',   -- pendiente | aprobada | rechazada
+  pedida_por TEXT,              -- 'operador' | 'admin'
+  creada_at TEXT,
+  resuelta_at TEXT,
+  motivo TEXT,                  -- por qué se rechazó, o qué se creó al aprobar
+  panel_id TEXT                 -- el panel que quedó, si se aprobó
+)`);
+
 // Jerarquía REAL del panel en el casino (SuperAgente → Distribuidor → Agente). Hace falta para
 // cargar: las fichas se bajan nivel por nivel, así que hay que saber por qué padres pasar.
 // Lo resuelve arbol.service.js contra el árbol del casino; no se carga a mano.

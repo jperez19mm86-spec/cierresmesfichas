@@ -32,6 +32,7 @@ const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
 const pulsoSvc = require('./pulso.service');
 const pedidosStore = require('./pedidos-store');
+const solicitudes = require('./solicitudes-caja');
 const cierreStore = require('./cierre-store');
 const arbolSvc = require('./arbol.service');
 const externosSvc = require('./externos.service');
@@ -558,6 +559,75 @@ function mount(app) {
       creados += 1;
     });
     ok(res, { importados: creados, yaEstaban: repetidos.length, sinCliente });
+  }));
+
+  /**
+   * ── SOLICITUDES PARA ABRIR UNA CAJA ──────────────────────────────────────────────────────────
+   * Las crea quien despacha; las aprueba el dueño. Ver src/solicitudes-caja.js para el porqué.
+   */
+  app.get('/api/os/solicitudes-caja', (req, res) => {
+    const filas = solicitudes.list(req.query.estado ? { estado: req.query.estado } : {});
+    const porId = {}; clientes.list().clientes.forEach((c) => { porId[c.id] = c; });
+    ok(res, { solicitudes: filas.map((s) => ({ ...s, cliente: (porId[s.cliente_id] || {}).nombre || '(borrado)' })),
+      pendientes: solicitudes.pendientes() });
+  });
+
+  /**
+   * Aprobar: se verifica el nodo CONTRA EL CASINO antes de crear nada.
+   *
+   * Eso hace dos cosas de una: confirma que la cuenta existe —un id mal tipeado se descubre acá y
+   * no el día que una carga falla— y trae las divisas que tiene habilitadas, que es mejor que
+   * pedírselas a quien llena el formulario.
+   *
+   * Se crea el PANEL. La caja sale sola por _espejarCaja: crear sólo la caja dejaría una cuenta que
+   * recibe fichas y no se le factura a nadie.
+   */
+  app.post('/api/os/solicitudes-caja/:id/aprobar', wrap(async (req, res) => {
+    const s = solicitudes.get(req.params.id);
+    if (!s) return err(res, 404, 'no encontré esa solicitud');
+    if (s.estado !== 'pendiente') return err(res, 400, `esa solicitud ya está "${s.estado}"`);
+    const cli = clientes.get(s.cliente_id);
+    if (!cli) return err(res, 400, 'el cliente de la solicitud ya no existe');
+
+    // ¿ese nodo ya está en el OS? Dos paneles al mismo nodo se facturarían dos veces.
+    const repe = paneles.list().find((p) => String(p.id_usuario) === String(s.nodo)
+      && String(p.sistema || '').toLowerCase() === String(s.sistema).toLowerCase());
+    if (repe) {
+      solicitudes.resolver(s.id, { estado: 'rechazada', motivo: `el nodo ya es el panel "${repe.nombre}"` });
+      return err(res, 400, `Ese nodo ya está cargado como el panel "${repe.nombre}".`);
+    }
+
+    // la conexión de LECTURA de ese sistema: es la que sabe qué divisas tiene el nodo
+    const cx = casinoConex.list463().find((c) => String(c.nombre).toLowerCase() === String(s.sistema).toLowerCase());
+    let divisas = [];
+    let aviso = null;
+    if (cx) {
+      const cli463 = casinoConex.client(cx.id);
+      const r = cli463 && cli463.divisasDeNodo ? await cli463.divisasDeNodo(s.nodo) : { ok: false, error: 'la conexión no responde' };
+      if (r.ok) divisas = r.divisas;
+      else if (!req.body || !req.body.igual) {
+        // No se crea a ciegas: si el casino no confirma el nodo, puede no existir. Se puede forzar
+        // con `igual: true`, pero que sea una decisión y no un descuido.
+        return err(res, 400, `El casino no confirmó el nodo ${s.nodo}: ${r.error}. `
+          + 'Revisá el id, o aprobá igual si sabés que está bien.', { requiereForzar: true });
+      } else aviso = `no se pudieron leer las divisas (${r.error}); se creó con ARS`;
+    } else aviso = `no hay una conexión llamada "${s.sistema}" para verificar; se creó con ARS`;
+
+    const panel = paneles.create({ cliente_id: cli.id, nombre: s.login, sistema: s.sistema,
+      nivel_usuario: 'SuperAgente', id_usuario: String(s.nodo),
+      divisas: divisas.length ? divisas : ['ARS'], conexion_id: cx ? cx.id : null });
+    _espejarCaja(panel);
+    solicitudes.resolver(s.id, { estado: 'aprobada', panel_id: panel.id,
+      motivo: `panel y caja creados para ${cli.nombre}` });
+    ok(res, { panel, divisas, aviso });
+  }));
+
+  app.post('/api/os/solicitudes-caja/:id/rechazar', wrap((req, res) => {
+    const s = solicitudes.get(req.params.id);
+    if (!s) return err(res, 404, 'no encontré esa solicitud');
+    if (s.estado !== 'pendiente') return err(res, 400, `esa solicitud ya está "${s.estado}"`);
+    ok(res, { solicitud: solicitudes.resolver(s.id, { estado: 'rechazada',
+      motivo: String((req.body || {}).motivo || '').trim() || 'sin motivo' }) });
   }));
 
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.

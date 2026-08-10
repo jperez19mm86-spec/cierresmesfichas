@@ -336,9 +336,12 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
           <button class="outline small" onclick="togglePanTodos()">Paneles</button>
 
+          <button class="outline small" onclick="solicitudesCaja()"
+            title="Cajas que pidió quien despacha. Se aprueban acá porque definen a quién se le factura.">📦 Solicitudes de caja <span id="sol-badge"></span></button>
           <button class="outline small" onclick="divisasCasino()"
             title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
        <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
+       <div id="sol-caja" style="margin:10px 0"></div>
       <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
         La <b>base</b> es lo único de esta tabla que factura.
         A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
@@ -368,6 +371,64 @@ VIEWS.clientes = async () => {
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
+/* ── SOLICITUDES DE CAJA ───────────────────────────────────────────────────────────────────────
+   Las pide quien despacha; se aprueban acá. Al aprobar se VERIFICA el nodo contra el casino: eso
+   confirma que la cuenta existe —un id mal tipeado se descubre acá y no el día que falla una
+   carga— y trae las divisas que tiene habilitadas, que es mejor que pedírselas a quien llenó el
+   formulario. Se crea el PANEL; la caja sale sola por el espejo. */
+async function solicitudesCaja(){
+  const caja=document.getElementById('sol-caja'); if(!caja) return;
+  if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
+  caja.dataset.abierto='1'; caja.innerHTML='<div class="nota">Cargando…</div>';
+  const r=await api('/api/os/solicitudes-caja');
+  if(!r||!r.ok){ caja.innerHTML='<div class="nota err">'+esc((r&&r.error)||'no respondió')+'</div>'; return; }
+  const l=r.solicitudes||[];
+  if(!l.length){ caja.innerHTML='<div class="nota">Ninguna solicitud todavía.</div>'; return; }
+  const est={pendiente:'',aprobada:'ok',rechazada:'err'};
+  caja.innerHTML='<div class="nota"><span class="tit">Solicitudes de caja ('+r.pendientes+' pendientes)</span>'
+    +'Una caja es un destino al que se le cargan fichas y define a quién se le factura. '
+    +'Al aprobar se verifica el id contra el casino y se traen sus divisas.'
+    +'<table style="margin-top:8px"><thead><tr><th>Cuándo</th><th>Cliente</th><th>Panel</th><th>ID</th>'
+    +'<th>Login</th><th>Nota</th><th></th></tr></thead><tbody>'
+    +l.map(s=>'<tr><td class="muted" style="font-size:11px">'+esc(String(s.creada_at||'').slice(0,16).replace('T',' '))
+      +'<br>'+esc(s.pedida_por||'')+'</td>'
+      +'<td><b>'+esc(s.cliente)+'</b></td><td class="muted">'+esc(s.sistema)+'</td>'
+      +'<td class="muted" style="font-family:monospace">'+esc(s.nodo)+'</td>'
+      +'<td>'+esc(s.login)+'</td>'
+      +'<td class="muted" style="font-size:11px">'+esc(s.nota||'—')+'</td>'
+      +'<td class="right" style="white-space:nowrap">'+(s.estado==='pendiente'
+        ? '<button class="small" onclick="solAprobar(\''+s.id+'\')">Aprobar</button> '
+          +'<button class="danger small" onclick="solRechazar(\''+s.id+'\')">Rechazar</button>'
+        : '<span class="badge '+(est[s.estado]||'')+'">'+esc(s.estado)+'</span>'
+          +(s.motivo?'<div class="muted" style="font-size:11px">'+esc(s.motivo)+'</div>':''))
+      +'</td></tr>').join('')
+    +'</tbody></table></div>';
+}
+async function solAprobar(id, forzar){
+  const r=await api('/api/os/solicitudes-caja/'+id+'/aprobar',{method:'POST',
+    body:JSON.stringify({igual:!!forzar})});
+  if(r&&r.ok){
+    toast('Panel y caja creados'+(r.divisas&&r.divisas.length?' · divisas del casino: '+r.divisas.join(','):''));
+    if(r.aviso) toast(r.aviso);
+    _paneles=(await api('/api/os/paneles')).paneles||_paneles;
+    const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
+    return solicitudesCaja();
+  }
+  // El casino no confirmó el nodo: puede ser un id mal tipeado. Se puede aprobar igual, pero que
+  // sea una decisión y no un descuido.
+  if(r&&r.requiereForzar){
+    if(confirm(r.error+'\n\n¿Crearla igual?')) return solAprobar(id,true);
+    return;
+  }
+  toast((r&&r.error)||'no se pudo');
+}
+async function solRechazar(id){
+  const m=prompt('¿Por qué se rechaza? (queda anotado para quien la pidió)');
+  if(m===null) return;
+  await api('/api/os/solicitudes-caja/'+id+'/rechazar',{method:'POST',body:JSON.stringify({motivo:m})});
+  const c=document.getElementById('sol-caja'); if(c) c.dataset.abierto='';
+  solicitudesCaja();
+}
 async function setEnFoto(id, v){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({en_foto:!!v})});
   if(r&&r.ok) _paneles=(await api('/api/os/paneles')).paneles||_paneles;

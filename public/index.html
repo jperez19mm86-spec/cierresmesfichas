@@ -147,6 +147,7 @@
   <button class="navbtn active" id="nav-pedidos" onclick="switchView('pedidos')">📥 Pedidos <span class="pedbadge" id="pedBadge" style="display:none">0</span></button>
   <button class="navbtn" id="nav-historial" onclick="switchView('historial')">📜 Historial</button>
   <button class="navbtn" id="nav-clientes" onclick="switchView('clientes')">👥 Clientes</button>
+  <button class="navbtn" id="nav-solicitud" onclick="switchView('solicitud')">📦 Abrir una caja</button>
   <button class="navbtn" id="nav-config" onclick="switchView('config')">⚙️ Configuración</button>
 </nav>
 
@@ -166,6 +167,41 @@
 
 
 </div><!-- /view-clientes -->
+
+<div id="view-solicitud" style="display:none">
+  <div class="card">
+    <h2>📦 Solicitud para abrir una nueva caja</h2>
+    <p class="meta" style="margin-top:0">
+      Una caja es el destino al que se le cargan las fichas. Acá se <strong>pide</strong>; el alta la
+      hace Alexa, porque además define a quién se le factura.
+      <br>Las <strong>divisas no se piden</strong>: se leen del casino al aprobar, así no dependen de
+      que alguien las escriba bien.
+    </p>
+    <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+      <div style="flex:0 0 190px"><label>Vendedor <span class="meta">(para filtrar)</span></label>
+        <select id="sol-vend" onchange="solClientes()"></select></div>
+      <div style="flex:1 1 240px"><label>Cliente al que se le abre</label>
+        <select id="sol-cli"></select></div>
+      <div style="flex:0 0 150px"><label>Panel</label>
+        <select id="sol-sis"><option>Casino</option><option>Europa</option></select></div>
+    </div>
+    <div class="row" style="align-items:flex-end;flex-wrap:wrap;margin-top:8px">
+      <div style="flex:0 0 190px"><label>ID del casino</label>
+        <input id="sol-nodo" placeholder="946463" inputmode="numeric" autocomplete="off" /></div>
+      <div style="flex:1 1 200px"><label>Login en el panel</label>
+        <input id="sol-login" placeholder="RMJoseDiaz-SA" autocomplete="off" /></div>
+      <div style="flex:1 1 220px"><label>Nota <span class="meta">(opcional)</span></label>
+        <input id="sol-nota" placeholder="para qué es, quién la pidió…" autocomplete="off" /></div>
+      <button onclick="solEnviar()">Enviar solicitud</button>
+    </div>
+    <div id="sol-result" class="status" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Solicitudes enviadas</h2>
+    <div id="sol-lista"><div class="empty">Cargando…</div></div>
+  </div>
+</div><!-- /view-solicitud -->
 
 <div id="view-config" style="display:none">
   <div class="card">
@@ -406,12 +442,13 @@
 
   // ═══════════ NAVEGACIÓN ═══════════
   function switchView(name) {
-    for (const v of ['clientes', 'pedidos', 'historial', 'config']) {
+    for (const v of ['clientes', 'pedidos', 'historial', 'config', 'solicitud']) {
       document.getElementById('view-' + v).style.display = name === v ? '' : 'none';
       document.getElementById('nav-' + v).classList.toggle('active', name === v);
     }
     if (name === 'clientes') { loadSystemNames().then(loadClientes); }
     if (name === 'config') { loadConfig(); loadSystems(); }
+    if (name === 'solicitud') solCargar();
     if (name === 'pedidos') loadPedidos();
     if (name === 'historial') loadHistorial();
   }
@@ -441,6 +478,59 @@
   /* Quién está mirando. Se pregunta una vez al entrar: el server ya bloquea lo que no corresponde,
      pero mostrar una pantalla que va a contestar 403 hace pensar que el sistema está roto. */
   let _soyOperador = false;
+  /* ── SOLICITAR UNA CAJA ────────────────────────────────────────────────────────────────────
+     El vendedor es sólo un FILTRO para encontrar al cliente: el cliente ya cuelga de su vendedor,
+     y pedir las dos cosas invita a que se contradigan. Si la caja es del vendedor mismo, se lo
+     elige a él como cliente. */
+  async function solCargar() {
+    if (!_clientes.length) await loadClientes();
+    const vend = document.getElementById('sol-vend');
+    const vs = _clientes.filter(c => c.es_vendedor)
+      .sort((a, b) => String(a.nombre || a.nombreVisible).localeCompare(String(b.nombre || b.nombreVisible), 'es'));
+    vend.innerHTML = '<option value="">— todos —</option>'
+      + vs.map(v => `<option value="${esc(v.id)}">${esc(v.nombre || v.nombreVisible)}</option>`).join('');
+    solClientes();
+    solLista();
+  }
+  function solClientes() {
+    const vid = document.getElementById('sol-vend').value;
+    const sel = document.getElementById('sol-cli');
+    const l = _clientes.filter(c => !vid || c.id === vid || c.vendedor_id === vid)
+      .sort((a, b) => String(a.nombre || a.nombreVisible).localeCompare(String(b.nombre || b.nombreVisible), 'es'));
+    sel.innerHTML = l.map(c => `<option value="${esc(c.id)}">${esc(c.nombre || c.nombreVisible)} (${esc(c.codigo)})${c.es_vendedor ? ' — el vendedor' : ''}</option>`).join('')
+      || '<option value="">(ningún cliente)</option>';
+  }
+  async function solEnviar() {
+    const out = document.getElementById('sol-result');
+    const d = {
+      cliente_id: document.getElementById('sol-cli').value,
+      sistema: document.getElementById('sol-sis').value,
+      nodo: document.getElementById('sol-nodo').value.trim(),
+      login: document.getElementById('sol-login').value.trim(),
+      nota: document.getElementById('sol-nota').value.trim(),
+    };
+    out.textContent = 'Enviando…';
+    const { body } = await api('/api/despacho/solicitud-caja', { method: 'POST', body: JSON.stringify(d) });
+    if (!body || !body.ok) { out.innerHTML = '<span style="color:var(--red)">' + esc((body && body.error) || 'no se pudo') + '</span>'; return; }
+    out.innerHTML = '<span style="color:var(--green)">Solicitud enviada. Alexa la va a ver en el OS.</span>';
+    ['sol-nodo', 'sol-login', 'sol-nota'].forEach(id => { document.getElementById(id).value = ''; });
+    solLista();
+  }
+  async function solLista() {
+    const box = document.getElementById('sol-lista');
+    const { body } = await api('/api/despacho/solicitudes-caja');
+    const l = (body && body.solicitudes) || [];
+    if (!l.length) { box.innerHTML = '<div class="empty">Todavía no se pidió ninguna.</div>'; return; }
+    const color = { pendiente: 'var(--gold)', aprobada: 'var(--green)', rechazada: 'var(--red)' };
+    box.innerHTML = '<table><thead><tr><th>Cuándo</th><th>Cliente</th><th>Panel</th><th>ID</th><th>Login</th><th>Estado</th></tr></thead><tbody>'
+      + l.map(s => `<tr><td class="meta">${esc(String(s.creada_at || '').slice(0, 16).replace('T', ' '))}</td>
+        <td>${esc(s.cliente)}</td><td class="meta">${esc(s.sistema)}</td>
+        <td class="meta">${esc(s.nodo)}</td><td>${esc(s.login)}</td>
+        <td style="color:${color[s.estado] || 'inherit'}"><b>${esc(s.estado)}</b>
+          ${s.motivo ? `<div class="meta">${esc(s.motivo)}</div>` : ''}</td></tr>`).join('')
+      + '</tbody></table>';
+  }
+
   async function quienSoy() {
     try {
       const { body } = await api('/api/quien');
