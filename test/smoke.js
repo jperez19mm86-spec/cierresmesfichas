@@ -1269,6 +1269,26 @@ async function main() {
       deducir('PRAGMATIC SL2') === 'SL2' && deducir('BOOMING OP (TBS)') === 'OP');
   }
 
+  // ── LA PANTALLA DE MEDIOS DE PAGO GUARDA TODO LO QUE MUESTRA ──
+  //
+  // Guardaba 5 de los 12 valores. Los otros 7 —titular, mínimo, máximo, las dos advertencias y los
+  // dos grupos de Telegram— existían, se usaban y no tenían dónde escribirse: quedaban de la
+  // primera carga y para cambiarlos había que entrar a la API. Justo las advertencias, que son lo
+  // que el cliente lee antes de mandar plata a un CVU.
+  {
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const claves = (rutas.match(/const PAGOS_KEYS = \[([\s\S]*?)\];/) || [])[1] || '';
+    const lista = [...claves.matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
+    check('medios de pago: hay 12 valores', lista.length === 12, String(lista.length));
+    const guarda = html.slice(html.indexOf('async function savePagos()'), html.indexOf('async function savePagos()') + 900);
+    const faltan = lista.filter((k) => !guarda.includes(k + ':'));
+    check('medios de pago: la pantalla guarda TODOS los valores', faltan.length === 0, faltan.join(','));
+    const pantalla = html.slice(html.indexOf('Medios de pago (global)'), html.indexOf('async function savePagos()'));
+    const sinInput = lista.filter((k) => !pantalla.includes('p.' + k));
+    check('medios de pago: la pantalla muestra TODOS los valores', sinInput.length === 0, sinInput.join(','));
+  }
+
   // ── EL COMPROBANTE ENTRA AUNQUE SEA UNA FOTO DE CELULAR ──
   //
   // La pantalla promete 6 MB y el store acepta 6 MB, pero el parser global cortaba en 1: una foto

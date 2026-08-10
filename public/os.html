@@ -2809,19 +2809,51 @@ CFG.pagos = async () => {
     <div class="card"><h2>💳 Medios de pago (global)</h2>
       <div class="muted" style="margin-bottom:8px">Un solo lugar para todos los clientes. Cuando un cliente elige CVU o USDT, el sistema le muestra estos datos + la nota/advertencia.</div>
       <h3 style="margin:6px 0">CVU (ARS)</h3>
-      <div><label>CVU vigente</label><input id="pg-cvu" value="${esc(p.cvuVigente||'')}" placeholder="0000003100010000000000" style="width:100%;max-width:420px"></div>
-      <div style="margin-top:6px"><label>Nota / advertencia CVU</label><textarea id="pg-cvunota" rows="2" style="width:100%;max-width:560px" placeholder="ej: mínimo $X por transferencia · solo desde cuenta a nombre del titular registrado">${esc(p.cvuNota||'')}</textarea></div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:2"><label>CVU vigente</label><input id="pg-cvu" value="${esc(p.cvuVigente||'')}" placeholder="0000003100010000000000"></div>
+        <div style="flex:1"><label>Titular de la cuenta</label><input id="pg-titular" value="${esc(p.cvuTitular||'')}" placeholder="Razón social"></div>
+      </div>
+      <div class="row" style="align-items:flex-end;margin-top:6px">
+        <div style="flex:0 0 160px"><label>Mínimo por transferencia</label><input id="pg-arsmin" value="${esc(p.arsMin||'')}" placeholder="100000"></div>
+        <div style="flex:0 0 160px"><label>Máximo</label><input id="pg-arsmax" value="${esc(p.arsMax||'')}" placeholder="1500000"></div>
+      </div>
+      <div style="margin-top:6px"><label>Advertencia que lee el cliente ANTES de transferir (pesos)</label><textarea id="pg-arsaviso" rows="2" style="width:100%;max-width:560px" placeholder="ej: las transferencias son de MÍNIMO $100.000 y MÁXIMO $1.500.000">${esc(p.arsAviso||'')}</textarea></div>
+      <div style="margin-top:6px"><label>Nota / advertencia CVU</label><textarea id="pg-cvunota" rows="2" style="width:100%;max-width:560px" placeholder="ej: solo desde cuenta a nombre del titular registrado">${esc(p.cvuNota||'')}</textarea></div>
       <hr/>
       <h3 style="margin:6px 0">USDT</h3>
       <div class="row" style="align-items:flex-end">
         <div style="flex:2"><label>Dirección USDT vigente</label><input id="pg-usdt" value="${esc(p.usdtAddress||'')}" placeholder="Txxxxxxxx…"></div>
         <div style="flex:0"><label>Red</label><input id="pg-red" value="${esc(p.usdtRed||'')}" placeholder="TRC20" style="width:110px"></div>
       </div>
-      <div style="margin-top:6px"><label>Nota / advertencia USDT</label><textarea id="pg-usdtnota" rows="2" style="width:100%;max-width:560px" placeholder="ej: transferir SOLO por la misma red (TRC20) — otra red pierde los fondos">${esc(p.usdtNota||'')}</textarea></div>
+      <div style="margin-top:6px"><label>Advertencia que lee el cliente ANTES de transferir (USDT)</label><textarea id="pg-usdtaviso" rows="2" style="width:100%;max-width:560px" placeholder="ej: verificá que la red sea TRC20 antes de enviar — otra red pierde los fondos">${esc(p.usdtAviso||'')}</textarea></div>
+      <div style="margin-top:6px"><label>Nota / advertencia USDT</label><textarea id="pg-usdtnota" rows="2" style="width:100%;max-width:560px" placeholder="ej: transferir SOLO por la misma red">${esc(p.usdtNota||'')}</textarea></div>
+      <hr/>
+      <!-- Estos dos existían y funcionaban, pero no había dónde escribirlos: quedaban de la primera
+           carga y para cambiarlos había que ir a la API. Si están vacíos, el comprobante llega por
+           push al teléfono pero no sale ningún mensaje al grupo. -->
+      <h3 style="margin:6px 0">A qué grupo de Telegram avisa cada camino</h3>
+      <div class="muted" style="margin-bottom:6px">Cuando un cliente avisa un pago, el mensaje va al grupo que corresponda. Si están vacíos, el aviso llega igual al teléfono por push, pero no a Telegram.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1"><label>Grupo para pagos en pesos</label><input id="pg-tgars" value="${esc(p.tgChatArs||'')}" placeholder="-100xxxxxxxxx"></div>
+        <div style="flex:1"><label>Grupo para pagos en USDT</label><input id="pg-tgusdt" value="${esc(p.tgChatUsdt||'')}" placeholder="-100xxxxxxxxx"></div>
+      </div>
       <div style="margin-top:12px"><button onclick="savePagos()">💾 Guardar</button></div>
     </div>`;
 };
-async function savePagos(){ await api('/api/os/config/pagos',{method:'PUT',body:JSON.stringify({cvuVigente:val('pg-cvu'),cvuNota:document.getElementById('pg-cvunota').value,usdtAddress:val('pg-usdt'),usdtRed:val('pg-red'),usdtNota:document.getElementById('pg-usdtnota').value})}); toast('Guardado'); }
+/* Se mandan los DOCE valores. Antes se mandaban cinco, y los otros siete —el titular, el mínimo y
+   el máximo, las dos advertencias y los dos grupos de Telegram— no tenían dónde escribirse: estaban
+   cargados de la primera vez y para cambiarlos había que entrar a la API. Justo las advertencias,
+   que son lo que el cliente lee antes de mover plata a un CVU. */
+async function savePagos(){
+  const t=(id)=>document.getElementById(id).value;
+  await api('/api/os/config/pagos',{method:'PUT',body:JSON.stringify({
+    cvuVigente:val('pg-cvu'), cvuTitular:val('pg-titular'), cvuNota:t('pg-cvunota'),
+    arsMin:val('pg-arsmin'), arsMax:val('pg-arsmax'), arsAviso:t('pg-arsaviso'),
+    usdtAddress:val('pg-usdt'), usdtRed:val('pg-red'), usdtNota:t('pg-usdtnota'), usdtAviso:t('pg-usdtaviso'),
+    tgChatArs:val('pg-tgars'), tgChatUsdt:val('pg-tgusdt'),
+  })});
+  toast('Guardado');
+}
 
 /* ───────── CONFIG ▸ TELEGRAM ─────────────────────────────────────────────────────────────
    Mandar una factura necesita DOS cosas, y hasta ahora se configuraban en el panel operativo:
