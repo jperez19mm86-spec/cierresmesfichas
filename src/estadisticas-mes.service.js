@@ -710,8 +710,13 @@ function borrarMes(mes) {
 function rehacerPagoGeneralDesdeFoto(conexionId, mes) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido' };
+  // ⚠️ nodo_id='' NO ES OPCIONAL. `grupo='nodo'` lo escriben DOS cosas: la vuelta general, que va
+  // con nodo_id vacío porque es la plataforma entera, y las capturas por panel, que van con el id
+  // del panel. Sin este filtro se suma la plataforma MÁS cada panel de adentro, y el mes se infla:
+  // junio pasó de 28.098,88 a 31.133,77 con las líneas de Europa cambiadas de lugar. Lo agarró la
+  // comparación contra el reporte de antes, no un error — porque el resultado seguía cuadrando.
   const filas = db.prepare(`SELECT divisa, provider, label, vendor, bet, win, profit
-    FROM estad_mes WHERE conexion_id=? AND mes=? AND grupo='nodo'`).all(String(conexionId), m);
+    FROM estad_mes WHERE conexion_id=? AND mes=? AND grupo='nodo' AND nodo_id=''`).all(String(conexionId), m);
   if (!filas.length) return { ok: false, error: 'la Foto de ese mes no tiene la vuelta "Datos generales"' };
   const monedas = {};
   filas.forEach((f) => {
@@ -726,7 +731,7 @@ function rehacerPagoGeneralDesdeFoto(conexionId, mes) {
 /** Qué divisas tiene la Foto de un mes para una conexión (vuelta general). */
 function divisasDeLaFoto(conexionId, mes) {
   return db.prepare(`SELECT DISTINCT divisa FROM estad_mes
-    WHERE conexion_id=? AND mes=? AND grupo='nodo' ORDER BY divisa`)
+    WHERE conexion_id=? AND mes=? AND grupo='nodo' AND nodo_id='' ORDER BY divisa`)
     .all(String(conexionId), String(mes || '').slice(0, 7)).map((r) => r.divisa);
 }
 

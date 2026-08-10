@@ -1289,6 +1289,21 @@ async function main() {
     check('medios de pago: la pantalla muestra TODOS los valores', sinInput.length === 0, sinInput.join(','));
   }
 
+  // ── LA VUELTA GENERAL ES LA DE nodo_id VACÍO, NO TODAS LAS DE grupo='nodo' ──
+  //
+  // `grupo='nodo'` lo escriben dos cosas: la vuelta general —la plataforma entera, con nodo_id
+  // vacío— y las capturas por panel, con el id del panel. Rearmar sin filtrar sumaba la plataforma
+  // MÁS cada panel de adentro: junio se fue de 28.098,88 a 31.133,77 y siguió cuadrando, porque
+  // las cuatro vistas estaban infladas igual. Lo agarró comparar contra el reporte anterior.
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'estadisticas-mes.service.js'), 'utf8');
+    const fn = src.slice(src.indexOf('function rehacerPagoGeneralDesdeFoto'),
+      src.indexOf('function divisasDeLaFoto') + 400);
+    const consultas = fn.match(/grupo='nodo'[^`]*/g) || [];
+    check('foto: la vuelta general se lee con nodo_id vacío', consultas.length >= 2
+      && consultas.every((q) => /nodo_id=''/.test(q)), consultas.join(' | '));
+  }
+
   // ── EL CACHÉ DEL PAGO NO PIERDE DIVISAS ──
   //
   // Tenía dos escritores con listas distintas: la Foto lo llena divisa por divisa con la lista real
