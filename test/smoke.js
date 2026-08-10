@@ -1299,9 +1299,11 @@ async function main() {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'estadisticas-mes.service.js'), 'utf8');
     const fn = src.slice(src.indexOf('function rehacerPagoGeneralDesdeFoto'),
       src.indexOf('function divisasDeLaFoto') + 400);
-    const consultas = fn.match(/grupo='nodo'[^`]*/g) || [];
-    check('foto: la vuelta general se lee con nodo_id vacío', consultas.length >= 2
-      && consultas.every((q) => /nodo_id=''/.test(q)), consultas.join(' | '));
+    // Se miran las CONSULTAS, no el texto: la primera versión de este check se enganchó con el
+    // comentario de arriba, que también dice grupo='nodo', y salió en rojo sin que nada estuviera mal.
+    const consultas = (fn.match(/FROM estad_mes[^`]*/g) || []);
+    check('foto: la vuelta general se lee con nodo_id vacío',
+      consultas.length >= 2 && consultas.every((q) => /nodo_id=''/.test(q)), consultas.join(' | '));
   }
 
   // ── EL CACHÉ DEL PAGO NO PIERDE DIVISAS ──
