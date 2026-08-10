@@ -28,33 +28,50 @@ const config = require('./config-store');
 /**
  * Todo lo que hay que comprobar ANTES de tocar el casino.
  * Se hace en el servidor y no en la pantalla: esconder un botón no impide postear a la ruta.
+ *
+ * ── DEVUELVE DOS TEXTOS, Y ESO NO ES UN CAPRICHO ─────────────────────────────────────────────
+ * `interno` es el que lee la dueña: dice todo, con nombres de paneles y de plataformas. `publico`
+ * es el que se le puede contestar al cliente en la ruta pública.
+ *
+ * Antes era un solo string y se le devolvía tal cual al cliente. El del caso de sistemas distintos
+ * decía «"juanito01" es de Casino y "juanito02" de Europa» — o sea, le mandaba a qué plataforma
+ * pertenece cada panel, que es control interno y que el resto del sistema se cuida de no mandarle
+ * (por eso la pantalla del cliente recibe un `grupo` opaco y no el nombre del sistema).
+ *
+ * Separarlo en dos campos hace que el día que se agregue un motivo nuevo haya que elegir a
+ * propósito qué se le dice al cliente, en vez de que nazca filtrando por defecto.
  */
 function revisar(m) {
+  const no = (interno, publico) => ({ interno, publico: publico || interno });
   const cli = clientes.get(m.cliente_id);
-  if (!cli) return 'el cliente ya no existe';
+  if (!cli) return no('el cliente ya no existe');
   // El permiso se mira acá, en el momento de mover. Mirarlo sólo al pedir dejaría pasar un pedido
   // viejo de alguien a quien después se le sacó el permiso.
-  if (!cli.mover_balance) return `"${cli.nombre || cli.codigo}" no tiene habilitado mover balance`;
+  if (!cli.mover_balance) {
+    return no(`"${cli.nombre || cli.codigo}" no tiene habilitado mover balance`,
+      'tu cuenta no tiene habilitado mover fichas entre usuarios');
+  }
 
   const o = paneles.get(m.origen_panel_id);
   const d = paneles.get(m.destino_panel_id);
-  if (!o) return 'el panel de origen ya no existe';
-  if (!d) return 'el panel de destino ya no existe';
-  if (String(o.cliente_id) !== String(m.cliente_id)) return `el panel "${o.nombre}" no es de ese cliente`;
-  if (String(d.cliente_id) !== String(m.cliente_id)) return `el panel "${d.nombre}" no es de ese cliente`;
-  if (!o.id_usuario) return `el panel "${o.nombre}" no tiene el id del casino cargado`;
-  if (!d.id_usuario) return `el panel "${d.nombre}" no tiene el id del casino cargado`;
+  if (!o) return no('el panel de origen ya no existe', 'ese usuario ya no está');
+  if (!d) return no('el panel de destino ya no existe', 'ese usuario ya no está');
+  if (String(o.cliente_id) !== String(m.cliente_id)) return no(`el panel "${o.nombre}" no es de ese cliente`, 'ese usuario no es tuyo');
+  if (String(d.cliente_id) !== String(m.cliente_id)) return no(`el panel "${d.nombre}" no es de ese cliente`, 'ese usuario no es tuyo');
+  if (!o.id_usuario) return no(`el panel "${o.nombre}" no tiene el id del casino cargado`, 'ese usuario no está terminado de configurar');
+  if (!d.id_usuario) return no(`el panel "${d.nombre}" no tiene el id del casino cargado`, 'ese usuario no está terminado de configurar');
 
   // Mismo sistema: las fichas de Casino no cruzan a Europa. Son dos plataformas distintas y el
   // retiro y la carga se harían contra dos sesiones que no se conocen.
   if (String(o.sistema || '').toLowerCase() !== String(d.sistema || '').toLowerCase()) {
-    return `no se puede mover entre sistemas distintos: "${o.nombre}" es de ${o.sistema} y "${d.nombre}" de ${d.sistema}`;
+    return no(`no se puede mover entre sistemas distintos: "${o.nombre}" es de ${o.sistema} y "${d.nombre}" de ${d.sistema}`,
+      'no se pueden mover fichas entre esos dos usuarios');
   }
   // Y misma divisa habilitada en los dos. Si el destino no la tiene, la carga falla DESPUÉS del
   // retiro — o sea con las fichas ya afuera. Barato comprobarlo antes.
   const tiene = (p) => !Array.isArray(p.divisas) || !p.divisas.length || p.divisas.includes(m.divisa);
-  if (!tiene(o)) return `el panel "${o.nombre}" no tiene habilitada la divisa ${m.divisa}`;
-  if (!tiene(d)) return `el panel "${d.nombre}" no tiene habilitada la divisa ${m.divisa}`;
+  if (!tiene(o)) return no(`el panel "${o.nombre}" no tiene habilitada la divisa ${m.divisa}`, `ese usuario no maneja ${m.divisa}`);
+  if (!tiene(d)) return no(`el panel "${d.nombre}" no tiene habilitada la divisa ${m.divisa}`, `ese usuario no maneja ${m.divisa}`);
   return null;
 }
 
@@ -73,7 +90,7 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
     return { ok: false, status: 400, error: `no se puede ejecutar: está "${m0.estado}"` };
   }
   const mal = revisar(m0);
-  if (mal) return { ok: false, status: 400, error: mal };
+  if (mal) return { ok: false, status: 400, error: mal.interno };
 
   const origen = paneles.get(m0.origen_panel_id);
   const destino = paneles.get(m0.destino_panel_id);
@@ -88,6 +105,9 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
   // 🔒 El candado, antes del casino. El camino son decenas de segundos.
   const tomado = store.tomar(id, m0.estado);
   if (!tomado) return { ok: false, status: 409, error: 'ese movimiento ya se está ejecutando' };
+  // Queda anotado como VIVO mientras dure, incluido el rato que pasa haciendo cola. Es lo que
+  // impide que alguien lo "destrabe" y termine ejecutándolo dos veces.
+  store.marcarEnCurso(id);
 
   try {
     // Se RETOMA lo guardado si la cadena es la misma. Si el árbol cambió entre un intento y otro,
@@ -135,6 +155,10 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
   } catch (e) {
     store.soltar(id, String((e && e.message) || e));
     return { ok: false, status: 500, error: String((e && e.message) || e) };
+  } finally {
+    // Pase lo que pase deja de estar vivo. Si esto no se limpiara, un movimiento que falló quedaría
+    // imposible de destrabar hasta reiniciar.
+    store.quitarEnCurso(id);
   }
 }
 

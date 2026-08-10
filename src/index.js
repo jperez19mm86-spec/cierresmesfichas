@@ -613,11 +613,13 @@ app.post('/api/movimiento-panel', (req, res) => {
 
   // Se revisa lo mismo que se va a revisar al ejecutar, para poder decirle AHORA que no va a andar
   // en vez de dejarlo esperando una aprobación que va a fallar.
+  // El texto PÚBLICO, no el interno: el interno nombra las plataformas (Casino/Europa) y eso no
+  // viaja al cliente. El detallado queda en el log y en la pantalla de la dueña.
   const mal = movPanelSvc.revisar(r.movimiento);
   const m = r.movimiento;
-  console.log(`[Mover] ${cli.codigo} pidió mover ${m.monto} ${m.divisa}${mal ? ' — con un problema: ' + mal : ''}`);
+  console.log(`[Mover] ${cli.codigo} pidió mover ${m.monto} ${m.divisa}${mal ? ' — con un problema: ' + mal.interno : ''}`);
   push.notifyNuevoMovimiento({ ...m, cliente: cli.nombreVisible || cli.nombre || cli.codigo });
-  res.json({ ok: true, movimiento: { id: m.id, estado: m.estado, monto: m.monto, divisa: m.divisa }, aviso: mal || null });
+  res.json({ ok: true, movimiento: { id: m.id, estado: m.estado, monto: m.monto, divisa: m.divisa }, aviso: mal ? mal.publico : null });
 });
 
 /** En qué quedaron los movimientos que pidió este cliente. */

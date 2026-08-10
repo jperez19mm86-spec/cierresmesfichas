@@ -129,18 +129,39 @@ function pasosDe(id) {
 }
 
 /**
+ * ── QUÉ MOVIMIENTOS ESTÁN CORRIENDO AHORA MISMO, EN ESTE PROCESO ─────────────────────────────
+ *
+ * El reloj NO alcanza para saber si un movimiento murió. La cadena entra a una cola serializada
+ * por superagente que COMPARTE con las cargas de fichas, y hay superagentes usados por 12 clientes:
+ * un movimiento puede pasarse minutos esperando turno, vivito, con `tomado_at` viejo.
+ *
+ * Con sólo el reloj, a los 5 minutos la pantalla lo pintaba en rojo como "la cadena se cortó" y
+ * ofrecía Destrabar. Destrabarlo mientras la corrida original sigue esperando turno larga una
+ * SEGUNDA corrida del mismo movimiento: las fichas se mueven dos veces y salen dos avisos al grupo.
+ *
+ * Este registro contesta la pregunta correcta: ¿hay una ejecución viva ACÁ? Si el proceso se murió
+ * —que es el único caso donde destrabar tiene sentido— arranca vacío, y entonces destrabar anda.
+ */
+const enCurso = new Set();
+function marcarEnCurso(id) { enCurso.add(String(id)); }
+function quitarEnCurso(id) { enCurso.delete(String(id)); }
+function estaEnCurso(id) { return enCurso.has(String(id)); }
+
+/**
  * Destrabar un movimiento que quedó en 'ejecutando' porque el server se reinició en el medio.
  *
  * Sin esto queda tomado para siempre y no hay botón que lo mueva. A dónde vuelve NO se elige: lo
- * dice `retirado_at`. Si el retiro alcanzó a salir, vuelve a 'retirado' —falta sólo la carga— y si
- * no, a 'pendiente'. Adivinar acá sería o repetir un retiro o dar por perdidas fichas que están.
- *
- * Pide que hayan pasado unos minutos: un movimiento en curso de verdad no se puede destrabar por
- * error mientras el casino todavía está contestando.
+ * dicen los pasos ya guardados. Adivinar acá sería o repetir un eslabón o dar por perdidas fichas
+ * que están.
  */
 function destrabar(id, minimoMinutos = 5) {
   const m = get(id);
   if (!m || m.estado !== 'ejecutando') return { ok: false, error: 'ese movimiento no está trabado' };
+  // 🔒 Lo primero, y no el reloj: si hay una ejecución viva, destrabar duplicaría el movimiento.
+  if (estaEnCurso(id)) {
+    return { ok: false, error: 'ese movimiento se está ejecutando AHORA (puede estar esperando turno '
+      + 'detrás de otra carga del mismo superagente). Esperá a que termine.' };
+  }
   const desde = m.tomado_at ? Date.parse(m.tomado_at) : NaN;
   if (Number.isFinite(desde) && Date.now() - desde < minimoMinutos * 60000) {
     return { ok: false, error: `se tomó hace menos de ${minimoMinutos} minutos: puede estar ejecutándose ahora mismo` };
@@ -179,12 +200,17 @@ function counts() {
   f.forEach((x) => { o[x.estado] = x.n; });
   // Un 'ejecutando' viejo es un proceso que se cortó, así que también pide atención: si no se
   // contara, un movimiento con las fichas ya retiradas podría quedar meses sin que nadie lo vea.
-  const trabados = db.prepare(`SELECT COUNT(*) n FROM movimiento_panel
+  // Trabado = 'ejecutando' viejo Y SIN una ejecución viva en este proceso. Sin la segunda mitad,
+  // un movimiento haciendo cola detrás de una carga larga se anunciaba en rojo como si se hubiera
+  // cortado, y el botón que aparecía al lado lo habría duplicado.
+  const viejos = db.prepare(`SELECT id FROM movimiento_panel
     WHERE estado='ejecutando' AND (tomado_at IS NULL OR tomado_at < ?)`)
-    .get(new Date(Date.now() - 5 * 60000).toISOString()).n;
+    .all(new Date(Date.now() - 5 * 60000).toISOString());
+  const trabados = viejos.filter((x) => !estaEnCurso(x.id)).length;
   o.trabados = trabados;
   o.requierenAtencion = o.pendiente + o.a_medias + trabados;
   return o;
 }
 
-module.exports = { crear, get, list, tomar, soltar, guardarPasos, pasosDe, destrabar, marcarHecho, rechazar, counts, queFalta };
+module.exports = { crear, get, list, tomar, soltar, guardarPasos, pasosDe, destrabar,
+  marcarEnCurso, quitarEnCurso, estaEnCurso, marcarHecho, rechazar, counts, queFalta };

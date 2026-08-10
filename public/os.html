@@ -429,7 +429,7 @@ async function movimientosPanel(){
   if(!r.ok){ caja.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
   const ms=r.movimientos||[];
   if(!ms.length){ caja.innerHTML='<div class="nota">Ningún cliente pidió mover fichas todavía.</div>'; return; }
-  const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose…',a_medias:'A MEDIAS — la cadena se cortó',hecho:'hecho',rechazado:'rechazado'};
+  const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose (puede estar esperando turno)',a_medias:'A MEDIAS — la cadena se cortó',hecho:'hecho',rechazado:'rechazado'};
   caja.innerHTML='<div class="nota"><span class="tit">🔀 Mover fichas entre paneles de un cliente</span>'
     +'Las fichas suben del panel de origen hasta el ancestro que los dos comparten y bajan hasta el destino: '
     +'no se crea ni se destruye ninguna. Si la cadena se corta, quedan en el último eslabón que sí se movió y '

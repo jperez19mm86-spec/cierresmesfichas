@@ -1439,6 +1439,46 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── DOS COSAS QUE ENCONTRÓ LA REVISIÓN ADVERSARIA ──
+  {
+    const mv = require('../src/movimientos-panel');
+    const svc = require('../src/movimientos-panel.service');
+    const { db } = require('../src/db');
+
+    // ── 1. EL MENSAJE AL CLIENTE NO NOMBRA LA PLATAFORMA ──
+    // El interno decía «"juanito01" es de Casino y "juanito02" de Europa» y se le devolvía tal cual
+    // al cliente por la ruta pública. A qué plataforma pertenece un panel es control interno: por
+    // eso la pantalla del cliente recibe un `grupo` opaco y no el nombre del sistema.
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
+    check('revisar: devuelve un texto interno y otro público', /publico: publico \|\| interno/.test(src));
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('revisar: la ruta pública manda el texto PÚBLICO', /aviso: mal \? mal\.publico : null/.test(idx));
+    // Y ninguno de los públicos puede nombrar una plataforma.
+    const publicos = [...src.matchAll(/no\([^,]+,\s*(`[^`]*`|'[^']*')/g)].map((m) => m[1]);
+    check('revisar: ningún texto público nombra Casino ni Europa',
+      publicos.length >= 5 && !publicos.some((t) => /casino|europa|sistema/i.test(t)),
+      publicos.filter((t) => /casino|europa|sistema/i.test(t)).join(' | ') || `${publicos.length} textos`);
+
+    // ── 2. NO SE PUEDE DESTRABAR ALGO QUE SIGUE VIVO ──
+    // La cadena entra a una cola serializada por superagente que comparte con las cargas, y hay
+    // superagentes usados por 12 clientes: un movimiento puede esperar minutos, vivo, con el
+    // tomado_at viejo. Destrabarlo ahí larga una SEGUNDA corrida del mismo movimiento.
+    db.prepare("DELETE FROM movimiento_panel WHERE cliente_id='_test2'").run();
+    const r = mv.crear({ cliente_id: '_test2', origen_panel_id: 'pA', destino_panel_id: 'pB', divisa: 'ARS', monto: '10' });
+    mv.tomar(r.movimiento.id, 'pendiente');
+    db.prepare('UPDATE movimiento_panel SET tomado_at=? WHERE id=?')
+      .run(new Date(Date.now() - 60 * 60000).toISOString(), r.movimiento.id);
+    mv.marcarEnCurso(r.movimiento.id);
+    const d1 = mv.destrabar(r.movimiento.id);
+    check('destrabar: se niega si la ejecución sigue viva', !d1.ok && /ejecutando AHORA/.test(d1.error));
+    check('destrabar: y no lo cuenta como trabado', mv.counts().trabados === 0);
+    mv.quitarEnCurso(r.movimiento.id);
+    check('destrabar: si el proceso murió, sí se destraba', mv.destrabar(r.movimiento.id).ok);
+    // El registro se limpia pase lo que pase, o un movimiento fallido quedaría imposible de destrabar.
+    check('destrabar: el registro se limpia en un finally', /finally \{[\s\S]{0,300}quitarEnCurso/.test(src));
+    db.prepare("DELETE FROM movimiento_panel WHERE cliente_id='_test2'").run();
+  }
+
   // ── EL AVISO AL GRUPO CUANDO SE MUEVEN FICHAS ──
   //
   // Va a un grupo REAL de un cliente, así que lo que dice importa tanto como cuándo se manda.
