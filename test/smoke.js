@@ -1439,6 +1439,64 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── LA CADENA DE UN MOVIMIENTO ESTÁ BALANCEADA ──
+  //
+  // Es EL check de todo esto. La cascada de CARGA funde fichas desde el SuperAgente, que tiene
+  // saldo ilimitado; usarla para mover regala fichas cuando los dos paneles están emparentados —
+  // si el destino cuelga del origen, la carga pasa por el origen y le devuelve lo que se le acababa
+  // de retirar. Un movimiento es un PASAJE: sube por una rama y baja por la otra, y cada nodo
+  // intermedio recibe y entrega lo mismo.
+  {
+    const cc = require('../src/carga-cascada.service');
+    const P = (nombre, id, nivel, escala) => ({ nombre, id_usuario: id, nivel_usuario: nivel,
+      escala, arbol_at: 'x', divisas: ['ARS'], usuario: nombre });
+    const cadena = (o, d) => {
+      const r = cc.pasosDeMovimiento({ origen: o, destino: d, divisa: 'ARS' });
+      return r.bloqueo ? 'BLOQUEO' : r.pasos.map((p) => `${p.op}(${p.login})`).join(' ');
+    };
+    const SA = { id: 'SA', login: 'sa', nivel: 'S' };
+    const B = { id: 'B', login: 'b', nivel: 'D' };
+
+    check('cadena: hermanos → sale de uno y entra al otro',
+      cadena(P('A', '1', 'Agente', [SA, B]), P('C', '2', 'Agente', [SA, B])) === 'out(A) in(C)');
+    check('cadena: ramas distintas → sube hasta el ancestro y baja',
+      cadena(P('A', '1', 'Agente', [SA, { id: 'B1', login: 'b1', nivel: 'D' }]),
+        P('C', '2', 'Agente', [SA, { id: 'B2', login: 'b2', nivel: 'D' }])) === 'out(A) out(b1) in(b2) in(C)');
+    // Éste es el que regalaba fichas con la cascada de carga: un solo paso, no dos.
+    check('cadena: si el destino es padre del origen, es UN solo retiro',
+      cadena(P('A', '1', 'Agente', [SA, B]), P('B', 'B', 'Distribuidor', [SA])) === 'out(A)');
+    check('cadena: si el origen es padre del destino, es UNA sola carga',
+      cadena(P('B', 'B', 'Distribuidor', [SA]), P('A', '1', 'Agente', [SA, B])) === 'in(A)');
+    check('cadena: dos SuperAgentes → la casa recibe y entrega',
+      cadena(P('A', '1', 'SuperAgente', []), P('C', '2', 'SuperAgente', [])) === 'out(A) in(C)');
+
+    // Cada nodo intermedio tiene que recibir y entregar lo mismo: si un nodo aparece sólo una vez
+    // en el medio de la cadena, alguien gana o pierde fichas.
+    const r = cc.pasosDeMovimiento({ origen: P('A', '1', 'Agente', [SA, { id: 'B1', login: 'b1', nivel: 'D' }]),
+      destino: P('C', '2', 'Agente', [SA, { id: 'B2', login: 'b2', nivel: 'D' }]), divisa: 'ARS' });
+    const salidas = r.pasos.filter((p) => p.op === 'out').length;
+    const entradas = r.pasos.filter((p) => p.op === 'in').length;
+    check('cadena: sale por una rama y entra por la otra, sin sobrantes', salidas >= 1 && entradas >= 1);
+    check('cadena: el ancestro común NO es un paso',
+      !r.pasos.some((p) => p.id === 'SA'), r.pasos.map((p) => p.id).join(','));
+
+    // Fail-closed: sin árbol conocido no se mueve nada.
+    const sinArbol = { ...P('A', '1', 'Agente', [SA, B]), arbol_at: null };
+    check('cadena: sin el árbol sincronizado, BLOQUEA',
+      cadena(sinArbol, P('C', '2', 'Agente', [SA, B])) === 'BLOQUEO');
+    // Una divisa que falta en un eslabón del camino corta antes de mover.
+    const sinDiv = P('B2', 'B2', 'Distribuidor', [SA]); sinDiv.divisas = ['USD'];
+    const conCamino = P('C', '2', 'Agente', [SA, { id: 'B2', login: 'b2', nivel: 'D', divisas: ['USD'] }]);
+    check('cadena: si a un eslabón del camino le falta la divisa, BLOQUEA',
+      cadena(P('A', '1', 'Agente', [SA, B]), conCamino) === 'BLOQUEO');
+
+    // Y el recorredor tiene que respetar la operación de cada paso.
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'carga-cascada.service.js'), 'utf8');
+    check('cadena: el recorredor respeta el op de cada paso',
+      /paso\.op === 'out' \? 'out' : 'in'/.test(src));
+    check('cadena: una carga sin op sigue siendo "in"', /const op = paso\.op/.test(src));
+  }
+
   // ── MOVER FICHAS ENTRE PANELES ──
   //
   // Son DOS operaciones contra el casino sin transacción que las abrace. Todo lo que se prueba acá
@@ -1467,14 +1525,15 @@ async function main() {
     const t2 = mv.tomar(r1.movimiento.id, 'pendiente');
     check('mover: el candado deja pasar a uno solo', !!t1 && !t2);
 
-    // ── EL RETIRO NO SE REPITE NUNCA ──
-    // Después de retirar, el punto de retorno deja de ser 'pendiente' para siempre: si volviera,
-    // el próximo intento sacaría el monto DOS VECES del origen.
-    mv.marcarRetiroOk(r1.movimiento.id, { newBalance: '5000' });
-    const suelto = mv.soltar(r1.movimiento.id, 'la carga falló');
-    check('mover: si falla la carga queda en "retirado", no en "pendiente"', suelto.estado === 'retirado');
+    // ── UN ESLABÓN QUE YA SALIÓ NO SE REPITE NUNCA ──
+    // En esta cadena repetir no es "cargar de más": es descuadrar dos cuentas.
+    mv.guardarPasos(r1.movimiento.id, [{ id: '1', op: 'out', estado: 'ok' }, { id: '2', op: 'in', estado: 'pendiente' }]);
+    const suelto = mv.soltar(r1.movimiento.id, 'la cadena se cortó');
+    check('mover: si la cadena se corta queda "a_medias", no "pendiente"', suelto.estado === 'a_medias');
     check('mover: y no se puede volver a tomar como pendiente', !mv.tomar(r1.movimiento.id, 'pendiente'));
-    check('mover: pero sí se reintenta desde "retirado"', !!mv.tomar(r1.movimiento.id, 'retirado'));
+    check('mover: pero sí se reintenta desde "a_medias"', !!mv.tomar(r1.movimiento.id, 'a_medias'));
+    check('mover: los pasos ya hechos quedan guardados',
+      (mv.pasosDe(r1.movimiento.id) || []).filter((p) => p.estado === 'ok').length === 1);
 
     // ── RECHAZAR SÓLO LO QUE NO MOVIÓ NADA ──
     // Rechazar algo ya retirado lo cerraría como si no hubiera pasado, con las fichas afuera.
@@ -1491,22 +1550,26 @@ async function main() {
     const d2 = mv.destrabar(r2.movimiento.id);
     check('mover: sin retiro hecho, destrabar vuelve a pendiente', d2.ok && d2.vuelveA === 'pendiente');
     mv.tomar(r2.movimiento.id, 'pendiente');
-    mv.marcarRetiroOk(r2.movimiento.id, {});
+    mv.guardarPasos(r2.movimiento.id, [{ id: '1', op: 'out', estado: 'ok' }]);
     db.prepare('UPDATE movimiento_panel SET tomado_at=? WHERE id=?')
       .run(new Date(Date.now() - 60 * 60000).toISOString(), r2.movimiento.id);
     const d3 = mv.destrabar(r2.movimiento.id);
-    check('mover: con el retiro hecho, destrabar vuelve a retirado', d3.ok && d3.vuelveA === 'retirado');
+    check('mover: con pasos hechos, destrabar vuelve a a_medias', d3.ok && d3.vuelveA === 'a_medias');
 
     // ── LOS QUE PIDEN ATENCIÓN INCLUYEN LOS QUE QUEDARON A MEDIAS ──
     const c = mv.counts();
-    check('mover: los "a medias" cuentan como que piden atención', c.requierenAtencion >= c.retirado);
+    check('mover: los "a medias" cuentan como que piden atención', c.requierenAtencion >= c.a_medias);
 
     // ── EL PERMISO SE MIRA AL MOVER, NO SÓLO AL PEDIR ──
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
     check('mover: el permiso mover_balance se comprueba al ejecutar', /cli\.mover_balance/.test(src));
     check('mover: se comprueba que los dos paneles sean del cliente', /no es de ese cliente/.test(src));
     check('mover: no se cruzan sistemas', /entre sistemas distintos/.test(src));
-    check('mover: se retira ANTES de cargar', src.indexOf("'out'") < src.indexOf('cascada.ejecutar'));
+    // ── LO QUE MÁS IMPORTA: UN MOVIMIENTO NO PUEDE USAR LA CASCADA DE CARGA ──
+    // Esa cascada FUNDE fichas desde el SuperAgente, que tiene saldo ilimitado. Usarla para mover
+    // regala fichas cuando los dos paneles están emparentados, y cuadra en todas las pantallas.
+    check('mover: NO se usa la cascada de carga', !/pasosDe\(\{/.test(src) && /pasosDeMovimiento/.test(src));
+    check('mover: los pasos se guardan después de cada uno', /onPaso: \(hechos\) => store\.guardarPasos/.test(src));
 
     // La ruta del cliente sólo CREA. Ejecutar vive en /api/os/*, que pide sesión.
     const auth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');

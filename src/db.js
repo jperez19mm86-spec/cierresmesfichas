@@ -557,4 +557,9 @@ db.exec('CREATE INDEX IF NOT EXISTS ix_movpanel_cli ON movimiento_panel(cliente_
                     columna mañana, y ahí la conciliación de un mes viejo se corre sola. */
 ensureColumns('documento_emitido', { congelado: 'INTEGER', datos_hash: 'TEXT', csv: 'TEXT' });
 
+/* Los pasos de la cadena de un movimiento, guardados DESPUÉS DE CADA UNO.
+   Sin esto, reintentar un movimiento a medias vuelve a recorrer los eslabones que ya salieron —
+   y en una cadena que retira y carga, repetir no es cargar de más: es descuadrar dos cuentas. */
+ensureColumns('movimiento_panel', { pasos: 'TEXT' });
+
 module.exports = { db, DB_PATH, ensureColumns };

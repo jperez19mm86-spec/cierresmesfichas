@@ -6,30 +6,27 @@
  * vendedor y el otro no, cambia a quién se le factura. Que pase por una aprobación es la diferencia
  * entre poder reconstruir qué pasó y tener que adivinar.
  *
- * ── POR QUÉ PRIMERO SE RETIRA Y DESPUÉS SE CARGA ─────────────────────────────────────────────
- * Son dos operaciones contra el casino y no hay transacción que las abrace. Hay que elegir cuál va
- * primero, y la respuesta la da un detalle del conector: NO SE PUEDE CONSULTAR EL SALDO. `loadChips`
- * es la única operación de balance que existe y devuelve el saldo DESPUÉS de operar, así que no hay
- * forma de saber de antemano si el panel origen tiene con qué.
+ * ── UN MOVIMIENTO ES UN PASAJE, NO UNA CARGA ─────────────────────────────────────────────────
+ * La primera versión de esto retiraba del origen y después usaba la cascada de CARGA para el
+ * destino. Estaba mal y podía regalar fichas: la cascada de carga las FUNDE —el SuperAgente tiene
+ * saldo ilimitado— así que si el destino colgaba del origen, la carga pasaba por el origen y le
+ * devolvía lo que se le acababa de retirar. El destino igual quedaba con +M y el cliente terminaba
+ * con M fichas de regalo. Y cuadraba en todas las pantallas, que es lo que lo hacía caro.
  *
- * Entonces se retira primero:
- *   · si el origen no tiene saldo, el casino rechaza el retiro y NO PASÓ NADA. Es la falla más
- *     probable de todas y así es la más barata.
- *   · si el retiro sale y la carga falla, las fichas no se perdieron: el retiro las sube a la CUENTA
- *     CON LA QUE CARGAMOS, que es nuestra. Quedan a la vista y se reintenta sólo la segunda mitad.
+ * Ahora es UNA sola cadena balanceada: las fichas suben del origen hasta el ancestro que los dos
+ * comparten y bajan hasta el destino. Ni una más ni una menos. La arma
+ * `carga-cascada.pasosDeMovimiento`, que es donde está explicado en detalle.
  *
- * Al revés sería mucho peor: cargar primero en el destino y no poder retirar del origen deja fichas
- * DE MÁS en la calle, que es plata regalada y no se recupera.
+ * ── EL ESTADO "a_medias" ES EL QUE IMPORTA ───────────────────────────────────────────────────
+ * La cadena puede cortarse en cualquier eslabón. Ahí las fichas no se perdieron: están en el
+ * último nodo que sí se movió, y eso queda ESCRITO paso por paso. Reintentar retoma desde el que
+ * falló — los que ya salieron no se repiten, porque repetir un eslabón de esta cadena no es cargar
+ * de más, es descuadrar dos cuentas.
  *
- * ── EL ESTADO "retirado" ES EL QUE IMPORTA ───────────────────────────────────────────────────
- * Es el "quedó a medias": salió el retiro, falta la carga. No es un error a esconder — es plata
- * nuestra esperando que se la mande a destino. Reintentar desde ahí ejecuta SÓLO la segunda mitad;
- * el retiro nunca se repite, porque repetirlo sacaría el monto dos veces del origen.
- *
- *   pendiente ──aprobar──> ejecutando ──retiro ok──> retirado ──carga ok──> hecho
- *       │                      │                        │
- *       │                      └──retiro falla──────────┘ (vuelve a pendiente, no se movió nada)
- *       └──rechazar──> rechazado                          └──carga falla──> sigue en retirado
+ *   pendiente ──aprobar──> ejecutando ──toda la cadena──> hecho
+ *       │                      │
+ *       │                      └──se corta a mitad──> a_medias ──reintentar──> ejecutando…
+ *       └──rechazar──> rechazado
  *
  * El lock `ejecutando` está en la BASE y no en la pantalla: el camino completo son decenas de
  * segundos y apretar dos veces movía las fichas dos veces. Es la misma lección que dejó escrita
@@ -61,7 +58,7 @@ function crear(d, pedidoPor) {
   // movimientos. Se corta acá y no al aprobar, que es cuando ya nadie mira el detalle.
   const ya = db.prepare(`SELECT id FROM movimiento_panel
     WHERE cliente_id=? AND origen_panel_id=? AND destino_panel_id=? AND divisa=? AND monto=?
-      AND estado IN ('pendiente','ejecutando','retirado')`)
+      AND estado IN ('pendiente','ejecutando','a_medias')`)
     .get(K(d.cliente_id), K(d.origen_panel_id), K(d.destino_panel_id), K(d.divisa).toUpperCase(), String(d.monto));
   if (ya) return { ok: false, error: 'ya hay un pedido igual esperando; no hace falta pedirlo de nuevo' };
 
@@ -111,14 +108,24 @@ function soltar(id, error) {
 }
 
 /**
- * El retiro salió. Sigue EJECUTANDO —falta la carga— pero desde acá el punto de retorno cambia:
- * si la segunda mitad falla, esto no vuelve a 'pendiente' nunca más. Volver a pendiente haría que
- * el próximo intento repita el retiro, y eso sacaría el monto DOS VECES del origen.
+ * Guarda los pasos de la cadena. Se llama DESPUÉS DE CADA UNO, no al final: si el proceso se muere
+ * en el medio, lo que ya se movió tiene que estar escrito. Si no, el reintento lo vuelve a mover.
+ *
+ * En cuanto un paso salió bien, el punto de retorno deja de ser 'pendiente' para siempre: volver
+ * ahí haría que el próximo intento repita eslabones ya hechos.
  */
-function marcarRetiroOk(id, detalle) {
-  db.prepare(`UPDATE movimiento_panel SET retirado_at=?, detalle_retiro=?, desde_estado='retirado',
-    error=NULL WHERE id=?`).run(nowISO(), JSON.stringify(detalle || {}), String(id));
+function guardarPasos(id, pasos) {
+  const algoHecho = (pasos || []).some((p) => p.estado === 'ok');
+  db.prepare(`UPDATE movimiento_panel SET pasos=?, desde_estado=? WHERE id=?`)
+    .run(JSON.stringify(pasos || []), algoHecho ? 'a_medias' : 'pendiente', String(id));
   return get(id);
+}
+
+/** Los pasos ya guardados, para retomar en vez de volver a armar la cadena desde cero. */
+function pasosDe(id) {
+  const m = get(id);
+  if (!m || !m.pasos) return null;
+  try { const p = JSON.parse(m.pasos); return Array.isArray(p) && p.length ? p : null; } catch (e) { return null; }
 }
 
 /**
@@ -138,7 +145,10 @@ function destrabar(id, minimoMinutos = 5) {
   if (Number.isFinite(desde) && Date.now() - desde < minimoMinutos * 60000) {
     return { ok: false, error: `se tomó hace menos de ${minimoMinutos} minutos: puede estar ejecutándose ahora mismo` };
   }
-  const vuelve = m.retirado_at ? 'retirado' : 'pendiente';
+  // A dónde vuelve lo dicen los PASOS, no quien aprieta: si alguno ya salió, esto quedó a medias.
+  let algoHecho = false;
+  try { algoHecho = (JSON.parse(m.pasos || '[]') || []).some((p) => p.estado === 'ok'); } catch (e) { algoHecho = !!m.retirado_at; }
+  const vuelve = algoHecho ? 'a_medias' : 'pendiente';
   db.prepare('UPDATE movimiento_panel SET estado=?, tomado_at=NULL, error=? WHERE id=?')
     .run(vuelve, 'se destrabó a mano: el proceso se cortó en el medio', String(id));
   return { ok: true, movimiento: get(id), vuelveA: vuelve };
@@ -165,7 +175,7 @@ function rechazar(id, motivo, porQuien) {
 /** Cuántos esperan algo del dueño: los pendientes y —sobre todo— los que quedaron a medias. */
 function counts() {
   const f = db.prepare(`SELECT estado, COUNT(*) n FROM movimiento_panel GROUP BY estado`).all();
-  const o = { pendiente: 0, ejecutando: 0, retirado: 0, hecho: 0, rechazado: 0 };
+  const o = { pendiente: 0, ejecutando: 0, a_medias: 0, hecho: 0, rechazado: 0 };
   f.forEach((x) => { o[x.estado] = x.n; });
   // Un 'ejecutando' viejo es un proceso que se cortó, así que también pide atención: si no se
   // contara, un movimiento con las fichas ya retiradas podría quedar meses sin que nadie lo vea.
@@ -173,8 +183,8 @@ function counts() {
     WHERE estado='ejecutando' AND (tomado_at IS NULL OR tomado_at < ?)`)
     .get(new Date(Date.now() - 5 * 60000).toISOString()).n;
   o.trabados = trabados;
-  o.requierenAtencion = o.pendiente + o.retirado + trabados;
+  o.requierenAtencion = o.pendiente + o.a_medias + trabados;
   return o;
 }
 
-module.exports = { crear, get, list, tomar, soltar, marcarRetiroOk, destrabar, marcarHecho, rechazar, counts, queFalta };
+module.exports = { crear, get, list, tomar, soltar, guardarPasos, pasosDe, destrabar, marcarHecho, rechazar, counts, queFalta };

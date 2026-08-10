@@ -643,7 +643,7 @@ function mount(app) {
         destino: (pan[m.destino_panel_id] || {}).nombre || '(panel borrado)',
         sistema: (pan[m.origen_panel_id] || {}).sistema || '',
         // Por qué NO se va a poder ejecutar, dicho antes de apretar. Sólo para los que esperan algo.
-        problema: (m.estado === 'pendiente' || m.estado === 'retirado') ? movPanelSvc.revisar(m) : null,
+        problema: (m.estado === 'pendiente' || m.estado === 'a_medias') ? movPanelSvc.revisar(m) : null,
       })),
       counts: movPanel.counts(),
     });

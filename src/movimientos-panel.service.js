@@ -1,18 +1,20 @@
 /**
  * movimientos-panel.service.js — EJECUTAR UN MOVIMIENTO DE FICHAS ENTRE PANELES.
  *
- * Toda la explicación de POR QUÉ está en `movimientos-panel.js` (el store). Acá está el cómo, que
- * es corto porque casi todo ya existía:
+ * El porqué del flujo está en `movimientos-panel.js` (el store) y el de la cadena en
+ * `carga-cascada.pasosDeMovimiento`. Acá está el pegamento.
  *
- *   1. RETIRAR del origen  →  casinoClient.loadChips(..., 'out'). Una sola llamada: retirar sube
- *      las fichas al padre, y el padre es la cuenta con la que cargamos.
- *   2. CARGAR en el destino →  la CASCADA de siempre, la misma que usa un pedido normal. No es una
- *      copia: es literalmente `cascada.ejecutar`, con su reanudación y su manejo de trabadas.
+ * ⚠️ LA PRIMERA VERSIÓN DE ESTO ESTABA MAL Y CONVIENE QUE QUEDE ESCRITO. Retiraba del origen y
+ * después usaba la cascada de CARGA para el destino. La cascada de carga funde fichas nuevas desde
+ * el SuperAgente, que tiene saldo ilimitado — perfecto para vender, y un desastre para mover: si
+ * el destino colgaba del origen, la carga pasaba por el origen y le devolvía lo que se le acababa
+ * de retirar. El destino igual terminaba con +M y el cliente se quedaba con M fichas regaladas,
+ * con todas las pantallas cuadrando.
  *
- * Que la segunda mitad sea un pedido normal es lo mejor de este diseño. Cargar en un distribuidor
- * le saca las fichas a su padre, así que hay que fundir cada eslabón de arriba hacia abajo — eso ya
- * está resuelto y probado en producción. Reimplementarlo acá habría sido escribir de nuevo la parte
- * difícil, y peor.
+ * Ahora es UNA sola cadena balanceada, y el recorredor es el mismo de siempre: cada paso dice si
+ * suma o resta (`paso.op`) y `carga-cascada.ejecutar` lo respeta. Se reusa entero su manejo de
+ * fallas —frena en el que falla, dice dónde quedaron las fichas y no repite los que salieron— que
+ * es justamente la parte difícil.
  */
 const casino = require('./casino-client');
 const cascada = require('./carga-cascada.service');
@@ -64,7 +66,7 @@ function revisar(m) {
 async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} } = {}) {
   const m0 = store.get(id);
   if (!m0) return { ok: false, status: 404, error: 'no encontré ese movimiento' };
-  if (m0.estado !== 'pendiente' && m0.estado !== 'retirado') {
+  if (m0.estado !== 'pendiente' && m0.estado !== 'a_medias') {
     return { ok: false, status: 400, error: `no se puede ejecutar: está "${m0.estado}"` };
   }
   const mal = revisar(m0);
@@ -76,63 +78,57 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
   if (!sys) return { ok: false, status: 400, error: `no hay con qué operar en "${origen.sistema}": marcá una conexión con "carga fichas de ${origen.sistema}"` };
   if (!sys.password) return { ok: false, status: 400, error: `la conexión de "${origen.sistema}" no tiene contraseña guardada` };
 
-  // 🔒 El candado, ANTES de tocar el casino. El camino son decenas de segundos.
+  // La cadena, armada ANTES de tocar nada. Si no se puede armar, no se mueve una ficha.
+  const plan = cascada.pasosDeMovimiento({ origen, destino, divisa: m0.divisa });
+  if (plan.bloqueo) return { ok: false, status: 400, error: plan.bloqueo };
+
+  // 🔒 El candado, antes del casino. El camino son decenas de segundos.
   const tomado = store.tomar(id, m0.estado);
   if (!tomado) return { ok: false, status: 409, error: 'ese movimiento ya se está ejecutando' };
 
   try {
+    // Se RETOMA lo guardado si la cadena es la misma. Si el árbol cambió entre un intento y otro,
+    // los pasos viejos ya no describen el camino: se corta en vez de mezclar dos caminos distintos.
+    const guardados = store.pasosDe(id);
+    let pasos = plan.pasos;
+    if (guardados) {
+      const misma = guardados.length === plan.pasos.length
+        && guardados.every((p, i) => String(p.id) === String(plan.pasos[i].id) && p.op === plan.pasos[i].op);
+      if (!misma) {
+        store.soltar(id, 'el árbol del casino cambió desde el intento anterior');
+        return { ok: false, status: 409, quedoAMedias: true,
+          error: 'El camino entre los dos paneles cambió desde el intento anterior, y hay pasos ya '
+            + 'hechos con el camino viejo. No se sigue solo: mirá los saldos y resolvelo a mano.' };
+      }
+      pasos = guardados;
+    }
+
     const t = await casino.testConnection(sys.url, sys.user, sys.password);
     if (!t.ok || !t.sessionCookie) {
       store.soltar(id, 'no se pudo autenticar contra el casino');
       return { ok: false, status: 502, error: `no se pudo entrar al panel de ${origen.sistema} — revisá usuario y contraseña de esa conexión` };
     }
 
-    // ── MITAD 1: RETIRAR DEL ORIGEN ───────────────────────────────────────────────────────────
-    // Sólo si no se hizo ya. Un movimiento en 'retirado' viene justamente de acá: repetirlo sacaría
-    // el monto dos veces.
-    if (m0.estado === 'pendiente') {
-      log(`[Mover] ${id}: retirando ${m0.monto} ${m0.divisa} de ${origen.nombre} (${origen.id_usuario})`);
-      const out = await casino.loadChips(sys.url, t.sessionCookie, origen.id_usuario, m0.monto, m0.divisa, 'out');
-      if (!out.ok) {
-        // No se movió nada: vuelve a pendiente y se puede reintentar entero. La causa más común es
-        // que el origen no tenga saldo, y por eso el retiro va primero.
-        store.soltar(id, out.error || 'el casino no confirmó el retiro');
-        return { ok: false, status: 502, mitad: 'retiro',
-          error: `no se pudo retirar de "${origen.nombre}": ${out.error || 'el casino no confirmó'}. No se movió nada.` };
-      }
-      store.marcarRetiroOk(id, { newBalance: out.newBalance, at: new Date().toISOString() });
-      log(`[Mover] ${id}: retiro OK, saldo del origen ${out.newBalance}`);
-    }
-
-    // ── MITAD 2: CARGAR EN EL DESTINO ─────────────────────────────────────────────────────────
-    // Es un pedido normal: la cascada funde cada eslabón de arriba hacia abajo.
-    const plan = cascada.pasosDe({
-      sistema: destino.sistema, userId: destino.id_usuario,
-      monto: m0.monto, divisa: m0.divisa, cajaUsuario: destino.usuario,
-    });
-    if (plan.bloqueo) {
-      store.soltar(id, plan.bloqueo);
-      return { ok: false, status: 400, mitad: 'carga', quedoAMedias: true,
-        error: `Las fichas YA SE RETIRARON de "${origen.nombre}" y están en la cuenta con la que cargamos, `
-          + `pero no se pueden mandar a "${destino.nombre}": ${plan.bloqueo}` };
-    }
+    log(`[Mover] ${id}: ${m0.monto} ${m0.divisa} · ${plan.pasos.map((p) => `${p.op}(${p.login})`).join(' → ')}`);
     const r = await cascada.ejecutar({
       url: sys.url, sessionCookie: t.sessionCookie, monto: m0.monto, divisa: m0.divisa,
-      pasos: plan.pasos, serie: `${destino.sistema}|${plan.superagenteId}`, log,
+      pasos, serie: `${origen.sistema}|${plan.superagenteId}`, log,
+      // Después de CADA paso, no al final: si el proceso se muere, lo ya movido tiene que estar
+      // escrito o el reintento lo repite.
+      onPaso: (hechos) => store.guardarPasos(id, hechos),
     });
     if (!r.ok) {
-      store.soltar(id, (r.error || 'la carga falló'));
-      return { ok: false, status: 502, mitad: 'carga', quedoAMedias: true,
-        error: `Las fichas YA SE RETIRARON de "${origen.nombre}" pero no llegaron a "${destino.nombre}": `
-          + `${r.error || 'la carga falló'}. Están en la cuenta con la que cargamos — reintentá y se manda sólo esa mitad.` };
+      store.soltar(id, r.error || 'la cadena se cortó');
+      const donde = r.trabadoEn ? ` Quedaron en "${r.trabadoEn.login}".` : ' No se movió nada.';
+      return { ok: false, status: 502, quedoAMedias: !!r.trabadoEn,
+        error: `El movimiento se cortó: ${r.error || 'el casino no confirmó un paso'}.${donde} `
+          + 'Reintentar retoma desde el paso que falló — los que ya salieron no se repiten.' };
     }
 
     const fin = store.marcarHecho(id, { pasos: r.pasos || null, at: new Date().toISOString() }, por);
     log(`[Mover] ${id}: HECHO`);
     return { ok: true, movimiento: fin };
   } catch (e) {
-    // Cualquier cosa inesperada suelta el candado al estado que corresponda. Sin esto un error raro
-    // dejaba el movimiento tomado para siempre.
     store.soltar(id, String((e && e.message) || e));
     return { ok: false, status: 500, error: String((e && e.message) || e) };
   }

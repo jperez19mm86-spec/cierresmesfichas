@@ -393,10 +393,10 @@ async function solAviso(){
 }
 
 /* ── MOVER FICHAS ENTRE PANELES DE UN CLIENTE ─────────────────────────────────────────────────
-   El cliente pide, se aprueba acá. Son DOS operaciones contra el casino —retirar del origen y
-   cargar en el destino— y no hay transacción que las abrace, así que hay un estado intermedio:
-   "retirado" quiere decir que las fichas ya salieron y están en la cuenta con la que cargamos.
-   Ese estado es el que hay que mirar: no es un error, es plata esperando que la manden. */
+   El cliente pide, se aprueba acá. Las fichas SUBEN del panel de origen hasta el ancestro que los
+   dos comparten y BAJAN hasta el destino: no se crea ni se destruye ninguna. Esa cadena puede
+   cortarse en cualquier eslabón, y ahí queda "a medias" — las fichas están en el último nodo que
+   sí se movió. Ese estado es el que hay que mirar: no es un error, es plata a mitad de camino. */
 async function movAviso(){
   const r=await api('/api/os/movimientos-panel');
   const c=(r&&r.ok)?(r.counts||{}):{};
@@ -407,12 +407,12 @@ async function movAviso(){
   if(!n){ av.innerHTML=''; return; }
   // Un movimiento a medias se anuncia distinto y más fuerte que uno pendiente: en el pendiente no
   // se movió nada y puede esperar; en el otro las fichas ya salieron de un panel del cliente.
-  const medias=(c.retirado||0)+(c.trabados||0);
+  const medias=(c.a_medias||0)+(c.trabados||0);
   // La clase va escrita entera en cada rama y no interpolada: hay un control que revisa que
   // ninguna clase "nota …" use un modificador que no existe en el CSS, y ese control no puede
   // leer un ternario adentro del atributo. Vale más tenerlo funcionando que ahorrar tres palabras.
   const cuerpo = '<span class="tit">'+(medias
-      ? '⚠️ '+medias+' movimiento'+(medias===1?'':'s')+' A MEDIAS: las fichas ya se retiraron y no llegaron al destino'
+      ? '⚠️ '+medias+' movimiento'+(medias===1?'':'s')+' A MEDIAS: la cadena se cortó y las fichas quedaron en el camino'
       : '🔀 '+n+' movimiento'+(n===1?'':'s')+' esperando aprobación')+'</span>'
     +(medias&&c.pendiente?'<span class="muted">y '+c.pendiente+' esperando aprobación</span> ':'')
     +'<button class="small" style="margin-left:8px" onclick="movimientosPanel()">Ver</button>';
@@ -429,14 +429,14 @@ async function movimientosPanel(){
   if(!r.ok){ caja.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
   const ms=r.movimientos||[];
   if(!ms.length){ caja.innerHTML='<div class="nota">Ningún cliente pidió mover fichas todavía.</div>'; return; }
-  const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose…',retirado:'A MEDIAS — retirado, falta cargar',hecho:'hecho',rechazado:'rechazado'};
+  const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose…',a_medias:'A MEDIAS — la cadena se cortó',hecho:'hecho',rechazado:'rechazado'};
   caja.innerHTML='<div class="nota"><span class="tit">🔀 Mover fichas entre paneles de un cliente</span>'
     +'Se retira del origen y se carga en el destino. Si el retiro falla no se movió nada; si falla la carga, '
     +'las fichas quedan en la cuenta con la que cargamos y <b>Reintentar</b> manda sólo esa mitad — el retiro nunca se repite.'
     +'<table style="margin-top:8px"><thead><tr><th>Cliente</th><th>De → a</th><th class="right">Monto</th>'
     +'<th>Estado</th><th>Pedido</th><th></th></tr></thead><tbody>'
     +ms.map(m=>{
-      const aMedias=m.estado==='retirado';
+      const aMedias=m.estado==='a_medias';
       return '<tr'+(aMedias?' style="background:var(--bg3)"':'')+'>'
       +'<td><b>'+esc(m.cliente)+'</b></td>'
       +'<td class="muted">'+esc(m.origen)+' → '+esc(m.destino)+(m.sistema?' <span style="opacity:.6">('+esc(m.sistema)+')</span>':'')+'</td>'
@@ -449,7 +449,7 @@ async function movimientosPanel(){
         +(m.estado==='pendiente'
           ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')"'+(m.problema?' disabled title="'+esc(m.problema)+'"':'')+'>Aprobar y mover</button> '
             +'<button class="outline small" onclick="movRechazar(\''+m.id+'\')">Rechazar</button>'
-          : m.estado==='retirado'
+          : m.estado==='a_medias'
           ? '<button class="small" onclick="movEjecutar(\''+m.id+'\')">Reintentar la carga</button>'
           : m.estado==='ejecutando'
           ? '<button class="outline small" onclick="movDestrabar(\''+m.id+'\')" title="Sólo si el proceso se cortó: devuelve el movimiento al estado que corresponda">Destrabar</button>'
