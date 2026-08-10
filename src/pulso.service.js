@@ -31,13 +31,21 @@ const mediana = (xs) => {
   return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
 };
 
-/** Series diarias por (panel, moneda) de un mes, desde lo guardado. */
-function seriesDe(mes) {
+/**
+ * Series diarias por (panel, moneda) de un mes, desde lo guardado.
+ *
+ * @param hastaDia  si viene, se corta ahí (día del mes, 1-31). Es lo que permite comparar el mes
+ *                  en curso contra EL MISMO TRAMO del anterior. Ver el porqué en `pulso`.
+ */
+function seriesDe(mes, hastaDia = null) {
   const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
+  const corte = Number(hastaDia) > 0 ? String(Math.min(31, Number(hastaDia))).padStart(2, '0') : null;
   const rows = db.prepare(
     "SELECT conexion_id, sa_id, login, moneda, fecha, in_amt, out_amt, profit FROM reporte_diario"
-    + " WHERE grp='superagent' AND substr(fecha,1,7)=? ORDER BY fecha ASC",
-  ).all(mes).filter((r) => validas.has(r.conexion_id));
+    + " WHERE grp='superagent' AND substr(fecha,1,7)=?"
+    + (corte ? ' AND substr(fecha,9,2)<=?' : '')
+    + ' ORDER BY fecha ASC',
+  ).all(...(corte ? [mes, corte] : [mes])).filter((r) => validas.has(r.conexion_id));
 
   const S = new Map();
   const dias = new Set();
@@ -87,7 +95,20 @@ function pulso({ mes, minDias = 5 } = {}) {
   const m = String(mes || new Date().toISOString().slice(0, 7)).slice(0, 7);
   const prev = mesAnterior(m);
   const { series, dias } = seriesDe(m);
-  const { series: sPrev } = seriesDe(prev);
+
+  // ── SE COMPARA CONTRA EL MISMO TRAMO DEL MES ANTERIOR, NO CONTRA EL MES ENTERO ───────────────
+  //
+  // Esto estaba mal y no daba un error: daba un número. El mes en curso lleva 9 días y el anterior
+  // tuvo 31, así que la resta medía el CALENDARIO y no el negocio — todo daba alrededor de −71%,
+  // que es exactamente 1 − 9/31. Peor todavía: mentía al revés. Beting-SA aparecía cayendo 61%
+  // cuando por día venía creciendo 33%, y 95 de los 100 paneles del top salían en rojo estando
+  // la mayoría en alza.
+  //
+  // Se corta el mes anterior en el mismo día del mes. No se prorratea (multiplicar por 31/9 supone
+  // que todos los días rinden igual, y los fines de semana no rinden como los martes): se comparan
+  // los mismos días del calendario contra los mismos días del calendario.
+  const ultimoDiaMes = dias.length ? Number(String(dias[dias.length - 1]).slice(8, 10)) : null;
+  const { series: sPrev, dias: diasPrev } = seriesDe(prev, ultimoDiaMes);
   const prevPor = new Map(sPrev.map((s) => [s.key, s]));
   const quien = duenos();
   const sis = sistemas();
@@ -241,6 +262,39 @@ function pulso({ mes, minDias = 5 } = {}) {
     inUsdt: aUsdt(g.in, g.moneda), profitUsdt: aUsdt(g.profit, g.moneda),
   })).sort((a, b) => (b.inUsdt || 0) - (a.inUsdt || 0));
 
+  // ── QUIÉN ESTÁ VENDIENDO MENOS ──────────────────────────────────────────────────────────────
+  //
+  // Lo que el dueño mira primero. Antes esto sólo existía como una alerta suelta POR PANEL, y por
+  // panel no se ve: un cliente con seis paneles puede tener tres subiendo y tres bajando, y la
+  // pregunta "¿este cliente me está vendiendo menos?" no la contesta ninguno de los seis.
+  //
+  // Se agrega POR CLIENTE y en USDT —única forma de sumar pesos con mexicanos— y se compara contra
+  // EL MISMO TRAMO del mes anterior. Se ordena por cuántos dólares se perdieron, no por porcentaje:
+  // un cliente que cae 80% sobre 200 USDT importa menos que uno que cae 15% sobre 40.000.
+  const porCliente = new Map();
+  activos.forEach((s) => {
+    const n2 = nombre(s);
+    const quienEs = n2.cliente || `(sin cliente) ${s.login}`;
+    const a = prevPor.get(s.key);
+    const inU = aUsdt(s.in, s.moneda); const prU = aUsdt(s.profit, s.moneda);
+    // Sin TC no se puede sumar con las otras monedas: se cuenta aparte en vez de mentir con un cero.
+    if (inU == null) {
+      const c0 = porCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
+      c0.sinTC += 1; c0.monedas.add(s.moneda); porCliente.set(quienEs, c0);
+      return;
+    }
+    const c = porCliente.get(quienEs) || { cliente: quienEs, in: 0, prev: 0, profit: 0, paneles: 0, sinTC: 0, monedas: new Set() };
+    c.in += inU; c.profit += prU || 0; c.paneles += 1; c.monedas.add(s.moneda);
+    if (a) c.prev += aUsdt(a.in, s.moneda) || 0;
+    porCliente.set(quienEs, c);
+  });
+  const clientesVenta = [...porCliente.values()].map((c) => ({
+    cliente: c.cliente, paneles: c.paneles, sinTC: c.sinTC, monedas: [...c.monedas].sort(),
+    in: Math.round(c.in), inPrev: Math.round(c.prev), profit: Math.round(c.profit),
+    varIn: c.prev > 0 ? (c.in - c.prev) / c.prev : null,
+    caidaUsdt: Math.round(c.prev - c.in),          // positivo = perdió; negativo = creció
+  })).sort((a, b) => b.caidaUsdt - a.caidaUsdt);
+
   // Serie diaria en USDT: es la única forma honesta de juntar monedas en un gráfico.
   const serieDia = dias.map((f) => {
     let inn = 0, pr = 0, falta = false;
@@ -316,6 +370,17 @@ function pulso({ mes, minDias = 5 } = {}) {
   return {
     clientes, sistemas: sistemasTot, rtp,
     ok: true, mes: m, mesPrev: prev,
+    // Contra qué se comparó, para que la pantalla lo pueda decir en vez de dejarlo implícito.
+    // Quién vende menos y quién más, ya sumado por cliente y en dólares.
+    clientesVenta,
+    comparacion: {
+      hastaDia: ultimoDiaMes,
+      diasMes: dias.length,
+      diasPrev: diasPrev.length,
+      // Si el mes anterior tiene menos días capturados en el mismo tramo, la comparación se
+      // inclina sola y hay que decirlo: no es que el negocio subió, es que faltan días.
+      desparejo: !!(ultimoDiaMes && diasPrev.length && diasPrev.length < dias.length),
+    },
     dias, ultimoDia: dias[dias.length - 1] || null, diasCapturados: dias.length,
     paneles: series.length, activos: activos.length,
     alertas, graves, avisos: alertas.filter((a) => a.nivel === 'aviso').length,
