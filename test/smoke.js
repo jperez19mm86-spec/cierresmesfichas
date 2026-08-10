@@ -1439,6 +1439,42 @@ async function main() {
       /if \(!box \|\| _soyOperador\) return;/.test(panel));
   }
 
+  // ── ANULAR CORRIGE EL AVISO QUE YA SALIÓ ──
+  //
+  // Al grupo le llegó "✅ Carga acreditada". Si después se retiran las fichas y no se dice nada, el
+  // cliente se queda con un mensaje en el teléfono que dejó de ser cierto.
+  {
+    const tg = require('../src/telegram');
+    const txt = tg.anulacionText({ cajaUsuario: 'LuckyDay-SA', divisa: 'ARS', monto: '50000' });
+    check('anular: hay un aviso de anulación', typeof tg.anulacionText === 'function');
+    check('anular: dice el usuario, el monto y que las fichas se retiraron',
+      /LuckyDay-SA/.test(txt) && /50\.000/.test(txt) && /retiraron/.test(txt));
+    check('anular: el nombre de la cuenta no queda como link', /<code>LuckyDay-SA<\/code>/.test(txt));
+
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    const trozo = (ruta) => {
+      const i = idx.indexOf(`app.post('/api/pedidos/:id/${ruta}'`);
+      const j = idx.indexOf("app.post('/api/pedidos", i + 10);
+      return idx.slice(i, j > 0 ? j : i + 4000);
+    };
+    const anular = trozo('anular');
+    check('anular: manda el aviso al grupo', /telegram\.anulacionText/.test(anular));
+    // Sólo DESPUÉS de que el casino confirmó: avisar una anulación que no se aplicó es peor que
+    // no avisar. Se mira que el aviso esté DENTRO del bloque del retiro confirmado — la primera
+    // versión de este check comparaba posiciones y se enredó con el `revertirAnulando` del rollback
+    // del lock, que está antes. Comparar índices sueltos no describe un bloque.
+    const iOk = anular.indexOf('if (r.ok) {');
+    const bloqueOk = anular.slice(iOk, anular.indexOf('\n    }', iOk));
+    check('anular: el aviso está dentro del bloque del retiro confirmado',
+      iOk > 0 && /telegram\.anulacionText/.test(bloqueOk));
+    // Mismo grupo y mismo interruptor que la carga: es la corrección del mismo mensaje.
+    check('anular: usa el destino heredado y su interruptor',
+      /tgDestino\.destinoDe/.test(anular) && /destA\.enabled/.test(anular));
+    // Y RECHAZAR no avisa: un pedido rechazado nunca se cargó, así que no hay nada que corregir.
+    // Lo decidió la dueña — prefiere hablarlo por privado.
+    check('rechazar: NO manda ningún aviso al grupo', !/telegram\.sendMessage/.test(trozo('rechazar')));
+  }
+
   // ── NINGÚN NOMBRE DE CUENTA SE CONVIERTE EN UN LINK ──
   //
   // Telegram auto-enlaza lo que parece un dominio, y muchos paneles se llaman así: cash365.vip,

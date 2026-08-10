@@ -50,6 +50,24 @@ function movimientoText({ origen, destino, divisa, monto }) {
     + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
 }
 
+/**
+ * El aviso de que una carga que YA se había avisado se dio de baja y las fichas se retiraron.
+ *
+ * Es la contracara de `cargaText` y existe porque sin él el grupo se quedaba con un "✅ Carga
+ * acreditada" que dejó de ser cierto: al cliente le sacaron las fichas del casino y en su teléfono
+ * seguía el mensaje diciendo que las tenía. Corregirlo es de quien mandó el primero.
+ *
+ * NO hay un equivalente para "rechazado": un pedido rechazado nunca se cargó, así que al grupo no
+ * le llegó nada que corregir. Eso el dueño prefiere hablarlo por privado.
+ */
+function anulacionText({ cajaUsuario, divisa, monto }) {
+  const m = Number(monto).toLocaleString('es-AR');
+  return '↩️ <b>Carga anulada</b>\n\n'
+    + `🎰 Usuario: ${cuenta(cajaUsuario)}\n`
+    + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>\n\n`
+    + 'Las fichas se retiraron de la cuenta.';
+}
+
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
 /**
@@ -68,4 +86,4 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
  */
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
-module.exports = { sendMessage, cargaText, movimientoText, cuenta };
+module.exports = { sendMessage, cargaText, movimientoText, anulacionText, cuenta };

@@ -826,6 +826,23 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
       const upd = pedidos.setEstado(p.id, 'anulado', { newBalance: r.newBalance, error: null });
       console.log(`[Pedido] ANULADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
       sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget)
+      // ── CORREGIR EL AVISO QUE YA SALIÓ ────────────────────────────────────────────────────
+      // Al grupo le llegó "✅ Carga acreditada" cuando se cargó. Si ahora se retiran las fichas y
+      // no se dice nada, el cliente se queda con un mensaje en el teléfono que dejó de ser cierto.
+      // Mismo grupo y mismo interruptor que la carga: es la corrección del mismo mensaje.
+      // Va DESPUÉS de que el casino confirmó el retiro — avisar una anulación que no se aplicó
+      // sería peor que no avisar. Fire-and-forget: Telegram no puede tumbar una anulación hecha.
+      try {
+        const cliA = clientes.getByCodigo(p.codigo);
+        const tokA = config.getTelegramToken();
+        const destA = cliA ? tgDestino.destinoDe(cliA, (id) => clientes.get(id)) : { chatId: null };
+        if (cliA && destA.chatId && destA.enabled && tokA) {
+          telegram.sendMessage(tokA, destA.chatId, telegram.anulacionText({
+            cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
+          })).then((tr) => { if (!tr.ok) console.warn('[Telegram] aviso de anulación falló:', tr.error); })
+            .catch((e) => console.warn('[Telegram] aviso de anulación error:', e.message));
+        }
+      } catch (e) { console.warn('[Telegram] aviso de anulación error:', e.message); }
       return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });
     }
     pedidos.revertirAnulando(p.id); // el casino NO confirmó el retiro (ej. saldo insuficiente) → rollback
