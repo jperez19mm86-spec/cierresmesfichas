@@ -35,6 +35,7 @@ const reporteDiarioStore = require('./reporte-diario-store');
 const pulsoSvc = require('./pulso.service');
 const pedidosStore = require('./pedidos-store');
 const solicitudes = require('./solicitudes-caja');
+const deudaCargaSvc = require('./deuda-carga.service');
 const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
 const cierreStore = require('./cierre-store');
@@ -2429,13 +2430,35 @@ function mount(app) {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
     // el mismo cálculo que muestra la pantalla, para que no puedan diferir
     const fac = await _facturacionDe(mes, { control: false });
-    const lineas = (fac.clientes || []).filter((c) => !c.sinBase).map((c) => ({
-      cliente_id: c.cliente_id, monto_usdt: c.fee_usdt, base_pct: c.base,
-      notas: `Fichas ${mes} · ${c.base}% sobre ${c.vendido_usdt} USDT vendidos`,
-    }));
+    // ── LO QUE YA ESTÁ CARGA POR CARGA NO SE VUELVE A COBRAR ──────────────────────────────────
+    //
+    // Desde que cada carga genera su deuda en el momento, el cierre del mes ya no CREA la deuda de
+    // fichas: la mayor parte ya está en la cuenta. Emitirla de nuevo cobraría el mismo consumo dos
+    // veces, y cuadraría en todas las pantallas — que es la forma cara de estar mal.
+    //
+    // El cierre pasa a CONCILIAR: para cada cliente compara lo que suman sus cargas contra lo que
+    // da el cálculo del mes. Si ya está cubierto, no emite nada y lo dice. La diferencia, cuando
+    // la hay, es la del tipo de cambio: cada carga se congeló con el suyo y el cálculo mensual usa
+    // el del mes. No se "corrige" hacia el mensual — la suma de los snapshots es la verdad, porque
+    // es a ese cambio que se cobró cada operación.
+    const yaEnCuenta = deudaCargaSvc.delMes(mes);
+    const conciliado = [];
+    const lineas = (fac.clientes || []).filter((c) => !c.sinBase).map((c) => {
+      const ya = yaEnCuenta[c.cliente_id];
+      if (ya && ya.cargas) {
+        conciliado.push({ cliente_id: c.cliente_id, codigo: c.codigo, cargas: ya.cargas,
+          enCuenta_usdt: ya.usdt, calculoMes_usdt: c.fee_usdt,
+          diferencia: money.round(money.sub(c.fee_usdt, ya.usdt), 2) });
+        return null;                       // su deuda ya está: no se emite
+      }
+      return { cliente_id: c.cliente_id, monto_usdt: c.fee_usdt, base_pct: c.base,
+        notas: `Fichas ${mes} · ${c.base}% sobre ${c.vendido_usdt} USDT vendidos` };
+    }).filter(Boolean);
     const r = emision.emitir({ mes, origen: 'facturacion', lineas });
     if (!r.ok) return err(res, 400, r.error);
-    ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos });
+    ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
+      // Quiénes ya tenían su deuda cargada carga por carga, y cuánto se aparta del cálculo mensual.
+      conciliado, yaCargaPorCarga: conciliado.length });
   }));
   // Lo mismo para Proveedores externos. Va como 'proveedor_extra', que en la cuenta corriente es
   // una columna aparte de las fichas: son dos conceptos y conviene verlos separados.

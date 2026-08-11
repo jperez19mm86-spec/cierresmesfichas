@@ -277,6 +277,7 @@ const casinoConexStore = require('./casino-conexiones-store');
 const solicitudesCaja = require('./solicitudes-caja');
 const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
+const deudaCargaSvc = require('./deuda-carga.service');
 
 /**
  * ── CON QUÉ CREDENCIALES SE CARGA EN UN SISTEMA ───────────────────────────────────────────────
@@ -806,6 +807,14 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     if (r.ok) {
       const upd = pedidos.setEstado(p.id, 'cargado', { newBalance: r.newBalance, error: null, cascada: r.pasos, trabadoEn: null });
       console.log(`[Pedido] CARGADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
+      // ── LA DEUDA NACE ACÁ, NO AL CERRAR EL MES ────────────────────────────────────────────
+      // El % base sobre lo cargado, en la divisa de la carga. Para las cuentas en dólares además
+      // se congela el TC del momento. Es idempotente por pedido: reintentar no cobra dos veces.
+      // Si falla no se tumba la carga —las fichas YA están en el casino— pero queda en el log.
+      let deudaCarga = null;
+      try { deudaCarga = await deudaCargaSvc.porCarga(upd); }
+      catch (e) { console.warn('[Deuda] no se pudo generar la deuda de la carga:', e.message); }
+      if (deudaCarga && !deudaCarga.ok) console.warn(`[Deuda] ${p.id}: ${deudaCarga.motivo}`);
       sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget, no bloquea)
       // Aviso por Telegram al grupo del cliente (si está configurado) — fire-and-forget, no bloquea.
       try {

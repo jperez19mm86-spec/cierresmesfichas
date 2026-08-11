@@ -1477,6 +1477,51 @@ async function main() {
     check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
   }
 
+  // ── CADA CARGA SUMA SU DEUDA, CON EL TC CONGELADO ──
+  //
+  // Antes la deuda nacía una vez por mes y entre carga y carga la cuenta no se movía, así que no
+  // había forma de decirle al cliente cuánto debía al acreditarle las fichas.
+  {
+    const dc = require('../src/deuda-carga.service');
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda-carga.service.js'), 'utf8');
+
+    check('deuda por carga: existe el servicio', typeof dc.porCarga === 'function');
+    // La deuda es el % base sobre lo cargado, EN LA DIVISA DE LA CARGA. Convertir es otra decisión.
+    check('deuda por carga: es el % base sobre lo cargado',
+      /money\.pct\(monto, base\)/.test(src));
+    // El TC se congela SÓLO para las cuentas en dólares: una cuenta en pesos no convierte nada.
+    check('deuda por carga: sólo congela TC si la cuenta es en dólares',
+      /if \(cuentaEn === 'USDT'\)/.test(src));
+    check('deuda por carga: una cuenta en pesos no necesita TC',
+      /cli\.moneda_cuenta === 'ARS' \? 'ARS' : 'USDT'/.test(src));
+    // Y si la fuente no contesta NO se congela con una cotización vieja: se vería igual de bien y
+    // estaría mal, y nadie va a volver a mirarla.
+    check('deuda por carga: no congela con un TC viejo', /r\.vivo && money\.isPos/.test(src));
+    check('deuda por carga: sin TC lo deja marcado en vez de inventar', /falta pasarla a dólares/.test(src));
+    // Idempotente por pedido: la ruta de cargar se puede reintentar.
+    check('deuda por carga: el mismo pedido no cobra dos veces',
+      /m\.pedido_id === pedido\.id/.test(src) && /ya estaba/.test(src));
+
+    // ── EL CIERRE DEL MES NO VUELVE A COBRAR LO QUE YA ESTÁ ──
+    // Es el riesgo grande de todo esto: emitir el mes sobre un consumo que ya está en la cuenta
+    // cobra lo mismo dos veces, y cuadra en todas las pantallas.
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('cierre: se saltea a los clientes que ya tienen su deuda carga por carga',
+      /const yaEnCuenta = deudaCargaSvc\.delMes\(mes\)/.test(rutas)
+      && /if \(ya && ya\.cargas\) \{/.test(rutas)
+      && /su deuda ya está: no se emite/.test(rutas));
+    check('cierre: informa la conciliación en vez de corregir en silencio',
+      /conciliado, yaCargaPorCarga: conciliado\.length/.test(rutas));
+    check('cierre: la diferencia que muestra es contra el cálculo del mes',
+      /diferencia: money\.round\(money\.sub\(c\.fee_usdt, ya\.usdt\), 2\)/.test(rutas));
+
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('deuda por carga: se genera al cargar las fichas', /deudaCargaSvc\.porCarga\(upd\)/.test(idx));
+    // Las fichas YA están en el casino: un problema anotando la deuda no puede deshacer eso.
+    check('deuda por carga: un fallo no tumba la carga',
+      /catch \(e\) \{ console\.warn\('\[Deuda\]/.test(idx));
+  }
+
   // ── LA FACTURACIÓN NO PUEDE CAERSE PORQUE EL SISTEMA VIEJO NO CONTESTA ──
   //
   // El puente traía los pedidos del sistema en línea. Desde la migración los 848 pedidos viven en
