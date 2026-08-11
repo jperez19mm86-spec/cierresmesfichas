@@ -1583,8 +1583,11 @@ async function main() {
     // quedaba puesta y el error era invisible — el pedido decía "anulado" y la cuenta lo cobraba.
     check('anulación: existe la baja de la deuda', typeof dc.porAnulacion === 'function');
     // Se CONTRA-ASIENTA, no se borra: borrar deja una cuenta que cuadra y una historia ilegible.
+    // El check mira SÓLO porAnulacion: el archivo tiene además un borrarMes que sí borra, y con
+    // razón — son dos cosas distintas y la primera versión de este check las confundía.
+    const fnAnul = src.slice(src.indexOf('function porAnulacion'), src.indexOf('function generarMes'));
     check('anulación: contra-asienta en vez de borrar',
-      /tipo: 'correccion'/.test(src) && !/movs\.remove/.test(src));
+      /tipo: 'correccion'/.test(fnAnul) && !/movs\.remove/.test(fnAnul));
     // Con el TC de la carga, no el de hoy: si no, anular una carga vieja deja una diferencia de
     // cambio que el cliente nunca pidió, nacida de un error administrativo.
     check('anulación: usa el TC de la carga original',
