@@ -1420,6 +1420,45 @@ async function main() {
     const iEsp = src.indexOf("'/api/comprobante', express.json");
     const iGen = src.indexOf("app.use(express.json({ limit: '1mb' }))");
     check('comprobante: tiene su propio límite de subida', iEsp > 0);
+
+    // ── LOS BOTONES DE LA PANTALLA CORREN EN EL ÁMBITO DE LA PÁGINA ─────────────────────────
+    // El botón "Aprobar y acreditar" se llama desde un onclick, o sea desde el ámbito global. Su
+    // ayudante _cmpMoneda estaba declarado con const ADENTRO de pintarComprobantes: la etiqueta
+    // "Acreditar (USDT)" se dibujaba bien —eso pasa adentro de esa función— pero al apretar el
+    // botón tiraba ReferenceError y no pasaba NADA. Sin mensaje, sin pedido al servidor.
+    // El check no mira dónde está escrito _cmpMoneda: mide lo que importa, que todo lo que usan
+    // esos handlers esté declarado donde ellos lo pueden ver.
+    {
+      const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      const cuerpoDe = (nombre) => {
+        const i = html.indexOf('function ' + nombre + '(');
+        if (i < 0) return '';
+        const j = html.slice(i + 1).search(/\n(?:async function |function |const |let )/);
+        return j < 0 ? html.slice(i) : html.slice(i, i + 1 + j);
+      };
+      // Declaraciones en columna 0 = las que ve un onclick.
+      const globales = new Set([...html.matchAll(/^(?:async )?function (\w+)|^(?:const|let) (\w+)/gm)]
+        .map((m) => m[1] || m[2]));
+      const usados = new Set();
+      ['cmpEquiv', '_cmpResolver'].forEach((fn) => {
+        [...cuerpoDe(fn).matchAll(/\b(_[a-zA-Z]\w*)\s*\(/g)].forEach((m) => usados.add(m[1]));
+      });
+      const huerfanos = [...usados].filter((u) => !globales.has(u));
+      check('comprobantes: los handlers no usan ayudantes encerrados en otra función',
+        usados.size > 0 && huerfanos.length === 0,
+        'usados=[' + [...usados] + '] fuera de alcance=[' + huerfanos + ']');
+    }
+
+    // La lista de clientes es de donde sale si la cuenta va en ARS o en USDT. Si la solapa "Por
+    // aprobar" no la carga, todos parecen USDT y se acredita con la etiqueta equivocada.
+    {
+      const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      const i = html.indexOf('async function pintarComprobantes(');
+      const j = html.indexOf('const fila = (c) =>', i);
+      check('comprobantes: la solapa carga los clientes antes de pintar',
+        i > 0 && j > i && /_clientes\.length/.test(html.slice(i, j)),
+        'no carga _clientes en pintarComprobantes');
+    }
     check('comprobante: su parser se monta ANTES del general', iEsp > 0 && iEsp < iGen);
     check('comprobante: el resto de la API sigue con 1mb', iGen > 0);
     // El tope de la ruta tiene que dar para los 6 MB que promete la pantalla, más el 33% de base64.

@@ -1466,20 +1466,33 @@ let _cmpFiltro = 'aprobado';
 // Vive adentro de 💸 Movimientos, en sus solapas. Se deja el alias por si algo llama go('comprobantes').
 VIEWS.comprobantes = () => { _movSub = 'pendientes'; go('movimientos'); };
 
+/* En qué moneda se lleva la cuenta de ese cliente. Sale de la lista de clientes que ya está
+   cargada: si no está, se asume USDT, que es como está el 98% de ellos.
+
+   ⚠️ VA ACÁ AFUERA, NO ADENTRO DE pintarComprobantes. Estaba declarada como const adentro de esa
+   función, y desde ahí la ven los botones que se dibujan pero NO cmpEquiv ni cmpResolver, que son
+   globales y se llaman desde el onclick — o sea desde el ámbito de la página, donde esa const no
+   existe. El botón "Aprobar y acreditar" tiraba ReferenceError antes de pedir la confirmación:
+   no pasaba nada, sin error visible, y "Equivale a" se quedaba en "—" por lo mismo. Si algo lo
+   usa un handler inline, tiene que vivir en el ámbito de la página. */
+function _cmpMoneda(codigo) {
+  const cl = (_clientes || []).find((x) => x.codigo === codigo);
+  return (cl && cl.moneda_cuenta === 'ARS') ? 'ARS' : 'USDT';
+}
+
 /** Pinta la lista de comprobantes en el cuerpo de Movimientos. `estado` vacío = todos. */
 async function pintarComprobantes(estado, conFiltros) {
   const dest = document.getElementById('mov-body'); if (!dest) return;
+  // La lista de clientes hace falta ACÁ, no sólo en "Cuenta y pagos": es de donde sale en qué
+  // moneda se lleva la cuenta de cada uno. Si se entra directo a "Por aprobar" sin pasar por la
+  // otra solapa, viene vacía y todos los clientes parecen estar en USDT — incluidos los que
+  // llevan la cuenta en pesos, que es justamente el caso que hay que distinguir.
+  if (!_clientes.length) { const dc = await api('/api/os/clientes'); _clientes = dc.clientes || []; }
   const r = await api('/api/os/comprobantes' + (estado ? '?estado=' + estado : ''));
   const cs = r.comprobantes || []; const c0 = r.cuentas || {};
   // El número de pendientes va a la pestaña: es lo que hace que se vea desde cualquier pantalla.
   _cmpPend = c0.pendiente || 0; renderNav();
   const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
-  /* En qué moneda se lleva la cuenta de ese cliente. Sale de la lista de clientes que ya está
-     cargada: si no está, se asume USDT, que es como está el 98% de ellos. */
-  const _cmpMoneda = (codigo) => {
-    const cl = (_clientes || []).find((x) => x.codigo === codigo);
-    return (cl && cl.moneda_cuenta === 'ARS') ? 'ARS' : 'USDT';
-  };
 
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
@@ -1560,6 +1573,13 @@ function cmpEquiv(id, codigo){
 }
 
 async function cmpResolver(id, estado, codigo) {
+  // Lo que salga mal acá se DICE. Un botón que no hace nada y no se queja es lo peor que puede
+  // pasar en esta pantalla: se vuelve a apretar, se piensa que el sistema está caído, y el error
+  // real queda escondido en la consola del navegador, que nadie mira.
+  try { await _cmpResolver(id, estado, codigo); }
+  catch (e) { toast('No se pudo: ' + ((e && e.message) || e)); throw e; }
+}
+async function _cmpResolver(id, estado, codigo) {
   const u = (document.getElementById('cmp-u-' + id) || {}).value;
   const nota = (document.getElementById('cmp-n-' + id) || {}).value;
   // La moneda de la CUENTA, no la del pago: el cliente puede pagar en USDT y llevarse la cuenta en
