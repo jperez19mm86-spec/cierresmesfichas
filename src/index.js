@@ -960,6 +960,14 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
     if (r.ok) {
       const upd = pedidos.setEstado(p.id, 'anulado', { newBalance: r.newBalance, error: null });
       console.log(`[Pedido] ANULADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
+      // ── Y SE DA DE BAJA LA DEUDA ──────────────────────────────────────────────────────────
+      // Las fichas volvieron: el cliente no las tiene, así que no las debe. Se contra-asienta con
+      // el MISMO tipo de cambio de la carga — usar el de hoy dejaría una diferencia de cambio que
+      // el cliente nunca pidió, nacida de un error administrativo.
+      try {
+        const baja = deudaCargaSvc.porAnulacion(upd);
+        if (!baja.ok) console.warn(`[Deuda] ${p.id}: no se dio de baja la deuda — ${baja.motivo}`);
+      } catch (e) { console.warn('[Deuda] error dando de baja la deuda:', e.message); }
       sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget)
       // ── CORREGIR EL AVISO QUE YA SALIÓ ────────────────────────────────────────────────────
       // Al grupo le llegó "✅ Carga acreditada" cuando se cargó. Si ahora se retiran las fichas y

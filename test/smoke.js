@@ -1563,8 +1563,24 @@ async function main() {
     check('cierre: la diferencia que muestra es contra el cálculo del mes',
       /diferencia: money\.round\(money\.sub\(c\.fee_usdt, ya\.usdt\), 2\)/.test(rutas));
 
+    // ── ANULAR DA DE BAJA LA DEUDA ──
+    // Anular retira las fichas: el cliente no las tiene, así que no las debe. Sin esto la deuda
+    // quedaba puesta y el error era invisible — el pedido decía "anulado" y la cuenta lo cobraba.
+    check('anulación: existe la baja de la deuda', typeof dc.porAnulacion === 'function');
+    // Se CONTRA-ASIENTA, no se borra: borrar deja una cuenta que cuadra y una historia ilegible.
+    check('anulación: contra-asienta en vez de borrar',
+      /tipo: 'correccion'/.test(src) && !/movs\.remove/.test(src));
+    // Con el TC de la carga, no el de hoy: si no, anular una carga vieja deja una diferencia de
+    // cambio que el cliente nunca pidió, nacida de un error administrativo.
+    check('anulación: usa el TC de la carga original',
+      /tc_momento: orig\.tc_momento/.test(src) && /el de la carga, no el de hoy/.test(src));
+    check('anulación: anular dos veces no acredita dos veces', /ya estaba dada de baja/.test(src));
+    // Un rechazado nunca llegó a 'cargado', así que nunca generó deuda: no hay nada que dar de baja.
+    check('anulación: sólo aplica a lo que había generado deuda', /esa carga no había generado deuda/.test(src));
+
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('deuda por carga: se genera al cargar las fichas', /deudaCargaSvc\.porCarga\(upd\)/.test(idx));
+    check('anulación: se dispara al anular la carga', /deudaCargaSvc\.porAnulacion\(upd\)/.test(idx));
     // Las fichas YA están en el casino: un problema anotando la deuda no puede deshacer eso.
     check('deuda por carga: un fallo no tumba la carga',
       /catch \(e\) \{ console\.warn\('\[Deuda\]/.test(idx));

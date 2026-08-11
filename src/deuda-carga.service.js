@@ -126,4 +126,42 @@ function delMes(mes) {
   return out;
 }
 
-module.exports = { porCarga, delMes, baseDe };
+/**
+ * Da de baja la deuda de una carga que se ANULÓ.
+ *
+ * Anular retira las fichas del casino: el cliente no las tiene, así que no las debe. Sin esto la
+ * deuda quedaba puesta y el error era invisible — el pedido decía "anulado" y la cuenta seguía
+ * cobrándolo.
+ *
+ * ── SE CONTRA-ASIENTA, NO SE BORRA ───────────────────────────────────────────────────────────
+ * Se crea un movimiento OPUESTO en vez de borrar el original. Borrarlo dejaría una cuenta que
+ * cuadra y una historia que no se puede leer: el mes que viene nadie sabría que hubo una carga y
+ * una anulación. Los dos renglones cuentan lo que pasó, y su suma es cero.
+ *
+ * Y va con el MISMO tipo de cambio que la carga, no con el de hoy. Si se usara el de hoy, anular
+ * una carga de hace una semana dejaría una diferencia de cambio en la cuenta del cliente que él
+ * nunca pidió — una ganancia o una pérdida nacida de un error administrativo.
+ */
+function porAnulacion(pedido) {
+  if (!pedido || !pedido.id) return { ok: false, motivo: 'sin pedido' };
+  const cli = clientes.getByCodigo(pedido.codigo);
+  if (!cli) return { ok: false, motivo: `el código ${pedido.codigo} no es de ningún cliente` };
+  const orig = movs.list({ cliente_id: cli.id, tipo: 'carga' }).find((m) => m.pedido_id === pedido.id);
+  if (!orig) return { ok: false, motivo: 'esa carga no había generado deuda' };
+  // Idempotente igual que la carga: anular dos veces no puede acreditar dos veces.
+  const yaCont = movs.list({ cliente_id: cli.id, tipo: 'correccion' })
+    .find((m) => m.pedido_id === pedido.id);
+  if (yaCont) return { ok: true, movimiento: yaCont, motivo: 'ya estaba dada de baja' };
+
+  const neg = (v) => (v == null || v === '' ? null : money.round(money.mul(String(v), '-1'), 2));
+  const mv = movs.create({
+    cliente_id: cli.id, tipo: 'correccion', pedido_id: pedido.id,
+    monto_ars: neg(orig.monto_ars), monto_usdt: neg(orig.monto_usdt),
+    tc_momento: orig.tc_momento,          // el de la carga, no el de hoy
+    base_pct_aplicado: orig.base_pct_aplicado, divisa: orig.divisa,
+    notas: `Anulación de la carga · da de baja ${orig.id}`,
+  });
+  return { ok: true, movimiento: mv, dioDeBaja: orig.id };
+}
+
+module.exports = { porCarga, porAnulacion, delMes, baseDe };
