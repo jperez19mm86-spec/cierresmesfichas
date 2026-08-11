@@ -1477,6 +1477,23 @@ async function main() {
     check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
   }
 
+  // ── LA FACTURACIÓN NO PUEDE CAERSE PORQUE EL SISTEMA VIEJO NO CONTESTA ──
+  //
+  // El puente traía los pedidos del sistema en línea. Desde la migración los 848 pedidos viven en
+  // esta base y el sistema viejo devuelve 401: la facturación mensual ENTERA cortaba con un error
+  // y no se podía emitir nada. Nadie lo notó porque nadie había intentado facturar desde entonces.
+  {
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('facturación: si el puente falla, usa los pedidos de acá', /avisoPuente = /.test(rutas));
+    check('facturación: y lo dice en vez de disimularlo', /avisoPuente,/.test(rutas));
+    // NO es un fallback silencioso: las dos fuentes son excluyentes, o los pedidos están allá o
+    // están acá. Lo que no puede pasar es que se sumen las dos.
+    check('facturación: no se mezclan las dos fuentes',
+      /if \(!Object\.keys\(ventasCli\)\.length\) \{/.test(rutas));
+    check('facturación: ya no corta con un error cuando el puente no contesta',
+      !/no se pudieron traer los pedidos del sistema en línea/.test(rutas));
+  }
+
   // ── LA CUENTA DE UN CLIENTE PUEDE LLEVARSE EN PESOS ──
   //
   // Hay clientes con los que se acuerda en pesos: pagan en USDT y lo que se lleva es el equivalente

@@ -2149,14 +2149,30 @@ function mount(app) {
     // "M526", acá "Marcelo"). Si no está configurado, se usan los pedidos locales — que en el OS
     // normalmente son cero, y por eso la factura salía vacía.
     let ventasCli = {}; let huerfanas = []; let origen = 'pedidos locales';
+    let avisoPuente = null;
     const puente = ventasOnline.getConfig();
+    // ── SI EL PUENTE FALLA, SE USAN LOS PEDIDOS DE ACÁ ──────────────────────────────────────────
+    //
+    // El puente traía los pedidos del sistema viejo. Desde la migración los 848 pedidos viven en
+    // esta base, y el sistema viejo ya no autentica: devolvía 401 y esta función cortaba con un
+    // error, o sea que la facturación mensual ENTERA estaba caída y no se podía emitir nada.
+    //
+    // No es un fallback silencioso —eso sí podría duplicar— porque las dos fuentes son
+    // excluyentes: o los pedidos están allá o están acá. Se usa lo de acá y se dice que el puente
+    // falló, para que quede claro de dónde salió el número y para que alguien lo apague.
     if (puente && puente.url) {
       const vo = await ventasOnline.ventasDelMes(mes);
-      if (!vo.ok) return { ok: false, error: `no se pudieron traer los pedidos del sistema en línea: ${vo.error}`, mes };
+      if (!vo.ok) {
+        avisoPuente = `el puente al sistema en línea no contestó (${vo.error}). Se usaron los pedidos `
+          + 'de este sistema, que desde la migración son los buenos. Conviene apagar el puente en Config.';
+        console.warn('[Facturación] ' + avisoPuente);
+      } else {
       ventasCli = vo.porCliente;
       huerfanas = (vo.sinMapeo || []).map((x) => ({ codigo: x.codigo, pedidos: x.count, porDivisa: Object.entries(x.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })) }));
       origen = 'pedidos del sistema en línea';
-    } else {
+      }
+    }
+    if (!Object.keys(ventasCli).length) {
       const locales = pedidosStore.ventasDelMes(mes);
       const porCodigo = {};
       clientes.list().clientes.forEach((c) => { porCodigo[String(c.codigo).toLowerCase()] = c.id; });
@@ -2328,7 +2344,7 @@ function mount(app) {
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
-      origen, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, vendedores, huerfanas,
+      origen, avisoPuente, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, vendedores, huerfanas,
       totales: {
         vendido_usdt: money.round(totVend, 2),
         fee_usdt: money.round(totFee, 2),
