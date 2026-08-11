@@ -136,6 +136,22 @@ function mount(app) {
     'usdtAddress', 'usdtRed', 'usdtNota', 'usdtAviso',
     'tgChatArs', 'tgChatUsdt',   // a qué grupo de Telegram avisa cada camino
   ];
+  /**
+   * ¿A qué grupo llegan los avisos de pago, y el bot llega ahí? Sólo LEE (getChat): no manda un
+   * mensaje de prueba a un grupo real. Existe porque un comprobante no llegó y no había forma de
+   * saber si el problema era el id, el bot o el permiso.
+   */
+  app.get('/api/os/config/pagos/probar', wrap(async (_req, res) => {
+    const tok = configStore.getTelegramToken();
+    const out = [];
+    for (const k of ['tgChatArs', 'tgChatUsdt']) {
+      const chat = String(configStore.getCfg(k) || '').trim();
+      if (!chat) { out.push({ clave: k, chat: null, ok: false, error: 'no hay grupo configurado' }); continue; }
+      out.push({ clave: k, chat, ...(await telegram.verChat(tok, chat)) });
+    }
+    ok(res, { bot: !!tok, destinos: out });
+  }));
+
   app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
   app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
 

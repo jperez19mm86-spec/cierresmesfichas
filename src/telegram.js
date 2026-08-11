@@ -23,6 +23,30 @@ async function sendMessage(botToken, chatId, text) {
   }
 }
 
+/**
+ * ¿El bot LLEGA a ese chat? Pregunta sin mandar nada.
+ *
+ * `getChat` es de sólo lectura: contesta si el chat existe y si el bot está adentro. Sirve para
+ * diagnosticar sin escribirle a un grupo real, que es lo que hacía falta el día que un comprobante
+ * no llegó y no había forma de saber si el problema era el id, el bot o el permiso — el envío
+ * fallaba en silencio y no quedaba registro de nada.
+ *
+ * @returns {Promise<{ok:boolean, titulo?:string, tipo?:string, error?:string}>}
+ */
+async function verChat(botToken, chatId) {
+  if (!botToken) return { ok: false, error: 'Bot de Telegram no configurado (falta el token)' };
+  if (!chatId) return { ok: false, error: 'no hay chatId configurado' };
+  try {
+    const r = await axios.post(`https://api.telegram.org/bot${botToken}/getChat`,
+      { chat_id: chatId }, { timeout: 12000, validateStatus: () => true });
+    if (r.data && r.data.ok) {
+      const c = r.data.result || {};
+      return { ok: true, titulo: c.title || c.username || String(chatId), tipo: c.type || '?' };
+    }
+    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 /** Texto del aviso de carga exitosa. */
 function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
@@ -86,4 +110,4 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
  */
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
-module.exports = { sendMessage, cargaText, movimientoText, anulacionText, cuenta };
+module.exports = { sendMessage, verChat, cargaText, movimientoText, anulacionText, cuenta };
