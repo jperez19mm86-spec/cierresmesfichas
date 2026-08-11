@@ -2712,20 +2712,42 @@ function mount(app) {
     const fecha = `${mes}-15`; // fecha media del mes para vigencias (base + participaciones)
     const nombres = {}; const esEmpresa = {};
     personas.list().forEach((p) => { nombres[p.id] = p.nombre; esEmpresa[p.id] = !!p.es_empresa; });
-    const _tc = tcUnico.tcDelMes('ARS', mes);   // misma regla que Facturación y Externos
-    const tc = _tc.valor || '1';
-    const ventas = pedidosStore.ventasCargadasMes(mes); // { codigo: { monto, ... } }
+    // ⚠️ CADA MONEDA CON SU TIPO DE CAMBIO. Acá había UN solo TC —el del peso— aplicado a
+    // `vc.monto`, que suma pesos con guaraníes y no significa nada (lo dice pedidos-store.js:237
+    // con todas las letras). Los guaraníes salían 3,8× de más y los uruguayos 39× de menos: en
+    // julio 2026 esta pantalla repartió 97.536,44 USDT cuando lo correcto era 80.748,53.
+    // Es la misma regla que ya usaba Facturación, que por eso siempre estuvo bien.
+    const _tcs = new Map();
+    const tcDe = (divisa) => {
+      const D = String(divisa || 'ARS').toUpperCase();
+      if (!_tcs.has(D)) _tcs.set(D, tcUnico.tcDelMes(D, mes));
+      return _tcs.get(D);
+    };
+    const ventas = pedidosStore.ventasCargadasMes(mes); // { codigo: { monto, porDivisa, ... } }
     let totVentas = '0', totFee = '0', totSinAsignar = '0';
     const porParticipante = {}, porCliente = [];
     const problemas = [];
     for (const c of clientes.list().clientes) {
       const vc = ventas[c.codigo];
-      const carga = vc ? String(vc.monto) : '0';
+      if (!vc) continue;
+
+      // Lo vendido, moneda por moneda, pasado a USDT con LA TASA DE CADA UNA.
+      let carga = '0'; const sinTC = [];
+      for (const [divisa, monto] of Object.entries(vc.porDivisa || {})) {
+        const m = String(monto);
+        if (!money.isPos(m)) continue;
+        const t = tcDe(divisa);
+        // Sin tasa NO se inventa una. Esa moneda queda afuera del total y se avisa: un total
+        // visiblemente incompleto se arregla, uno completado a ojo se cree y se liquida.
+        if (!t.valor || !money.isPos(String(t.valor))) { sinTC.push(divisa); continue; }
+        carga = money.add(carga, money.div(m, String(t.valor)));
+      }
+      if (sinTC.length) problemas.push({ codigo: c.codigo, estado: 'sin_tc', divisas: sinTC.join(', ') });
       if (!money.isPos(carga)) continue;
       totVentas = money.add(totVentas, carga);
 
       // UN SOLO PASO: los participantes del cliente se reparten su % base directo (§12).
-      const d = repartoSvc.distribuir(carga, c, mes, tc, fecha);
+      const d = repartoSvc.distribuir(carga, c, mes, fecha);
       totFee = money.add(totFee, d.fee_usdt);
       totSinAsignar = money.add(totSinAsignar, d.sin_asignar);
       d.items.forEach((it) => {
@@ -2747,13 +2769,18 @@ function mount(app) {
     const participantes = Object.keys(porParticipante).map((id) => ({
       persona_id: id, nombre: nombres[id] || id, es_empresa: !!esEmpresa[id], monto: money.round(porParticipante[id], 2),
     })).sort((a, b) => Number(b.monto) - Number(a.monto));
+    // Las tasas que se usaron de verdad, para que la pantalla las muestre. No hay UN tc: hay uno
+    // por moneda, y mostrarlos es lo que hace revisable el número de arriba.
+    const tcPorDivisa = [..._tcs.entries()]
+      .map(([divisa, t]) => ({ divisa, tc: t.valor || null, fuente: t.fuente || null }))
+      .sort((a, b) => a.divisa.localeCompare(b.divisa));
     ok(res, {
-      mes, tc, ventas_total: money.round(totVentas, 2),
+      mes, tcPorDivisa, ventas_total: money.round(totVentas, 2),
       total: money.round(totFee, 2),
       repartido: money.round(money.sub(totFee, totSinAsignar), 2),
       sin_asignar: money.round(totSinAsignar, 2),
       participantes, clientes: porCliente, problemas,
-      _nota: 'En USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. Un solo paso: cada participante cobra SUS PUNTOS del % base del cliente (§12). "sin_asignar" = puntos del base que todavía no tienen dueño.',
+      _nota: 'Todo en USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. Cada moneda se pasa a USDT con SU tipo de cambio (ver tcPorDivisa) — "ventas_total" es la suma ya convertida, no un monto en moneda local. Un solo paso: cada participante cobra SUS PUNTOS del % base del cliente (§12). "sin_asignar" = puntos del base que todavía no tienen dueño.',
     });
   });
 

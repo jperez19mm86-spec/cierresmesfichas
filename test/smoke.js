@@ -222,6 +222,46 @@ async function main() {
   check('el total del mes no cambió (2.2M/1476)', Math.abs(Number(r.data.total) - (2200000 / 1476)) < 0.1, 'total=' + r.data.total);
   check('nada quedó sin asignar', r.data.sin_asignar === '0', 'sin_asignar=' + r.data.sin_asignar);
 
+  // ── CADA MONEDA CON SU TIPO DE CAMBIO ────────────────────────────────────────────────────────
+  // Esta pantalla dividía TODO por el TC del peso, incluso lo vendido en guaraníes o uruguayos.
+  // En julio 2026 repartió 97.536,44 USDT cuando lo correcto eran 80.748,53 — a Fran, que vende
+  // sólo en guaraníes, le contaba 15.246,61 en vez de 3.996,42.
+  //
+  // El probe usa DOS monedas con tasas bien separadas (1476 y 6000) a propósito: con una sola no
+  // se distingue "convierte por divisa" de "convierte todo con la misma", que es justo el bug.
+  await post('/api/os/cierre/tc', { moneda: 'PYG', mes: mesTC, tasa: '6000' });
+  await post('/api/os/_dev/seed-ventas', { reset: true, items: [
+    { codigo: 'L210', monto: '20000000', divisa: 'ARS' },   // 20.000.000 / 1476 = 13.550,14 USDT
+    { codigo: 'L210', monto: '60000000', divisa: 'PYG' },   // 60.000.000 / 6000 = 10.000,00 USDT
+  ] });
+  r = await get('/api/os/reportes/distribucion?mes=' + curMes);
+  const espVentas = 20000000 / 1476 + 60000000 / 6000;      // 23.550,14 — con el TC del peso daría 54.200,54
+  check('reparto: cada divisa se pasa a USDT con SU tipo de cambio',
+    Math.abs(Number(r.data.ventas_total) - espVentas) < 0.05,
+    'ventas_total=' + r.data.ventas_total + ' esperado=' + espVentas.toFixed(2));
+  check('reparto: el fee sale del total bien convertido',
+    Math.abs(Number(r.data.total) - espVentas * 0.11) < 0.05,
+    'total=' + r.data.total + ' esperado=' + (espVentas * 0.11).toFixed(2));
+  check('reparto: informa qué tasa usó por moneda',
+    (r.data.tcPorDivisa || []).some((t) => t.divisa === 'PYG' && Number(t.tc) === 6000)
+    && (r.data.tcPorDivisa || []).some((t) => t.divisa === 'ARS' && Number(t.tc) === 1476),
+    JSON.stringify(r.data.tcPorDivisa));
+
+  // Una moneda SIN tasa cargada no se cuenta como si el TC fuera 1: se avisa y queda afuera. Antes
+  // el `|| '1'` de la ruta hacía valer cada guaraní un dólar sin decir nada.
+  await post('/api/os/_dev/seed-ventas', { reset: true, items: [
+    { codigo: 'L210', monto: '20000000', divisa: 'ARS' },
+    { codigo: 'L210', monto: '99999999', divisa: 'BOB' },   // sin TC cargado en el mes de prueba
+  ] });
+  r = await get('/api/os/reportes/distribucion?mes=' + curMes);
+  check('reparto: la moneda sin TC se avisa y NO entra en el total',
+    Math.abs(Number(r.data.ventas_total) - 20000000 / 1476) < 0.05
+    && (r.data.problemas || []).some((p) => p.estado === 'sin_tc' && /BOB/.test(p.divisas || '')),
+    'ventas_total=' + r.data.ventas_total + ' problemas=' + JSON.stringify(r.data.problemas));
+
+  // Se deja como estaba para lo que venga después.
+  await post('/api/os/_dev/seed-ventas', { reset: true, items: [{ codigo: 'L210', monto: '20000000', divisa: 'ARS' }] });
+
   // ── Corregir un costo DENTRO de una foto congelada. Lo peligroso no es el número que se
   // cambia, es todo lo que NO se tiene que mover: celdas, clientes y vínculos del mes cerrado.
   {

@@ -2668,7 +2668,9 @@ REP.mes = async () => {
     <div class="card">
       <h2>💰 Cómo se reparte el mes <span class="muted">(sobre ventas de fichas · USDT)</span>
         <input type="month" id="rep-mes" value="${esc(d.mes||mes)}" onchange="reloadDist()" style="width:auto;display:inline-block;margin-left:8px"></h2>
-      <div class="muted" style="margin-bottom:8px">💵 Vendido en el mes (prepago): <b>${money(d.ventas_total)}</b> — el % se cobra sobre lo <b>vendido</b>, usen o no las fichas.</div>
+      <div class="muted" style="margin-bottom:8px">💵 Vendido en el mes (prepago): <b>${money(d.ventas_total)} USDT</b> — el % se cobra sobre lo <b>vendido</b>, usen o no las fichas.</div>
+      <div class="muted" style="margin-bottom:8px;font-size:12px">Cada moneda se pasa a USDT con su propio tipo de cambio:
+        ${(d.tcPorDivisa||[]).map(t=>'<span class="pill" style="margin-right:3px" title="'+esc(t.fuente||'sin cargar')+'">'+esc(t.divisa)+(t.tc?' '+money(t.tc,2):' ⚠ sin TC')+'</span>').join('')||'—'}</div>
       <div class="row" style="align-items:stretch">
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Σ A cobrar</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Repartido</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(d.repartido)}</div></div>
@@ -2679,11 +2681,12 @@ REP.mes = async () => {
         <div class="muted" style="margin:4px 0 6px">Se reparte lo que está configurado; el resto figura arriba como "sin asignar".</div>
         <table><thead><tr><th>Cliente</th><th>Qué pasa</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
         ${d.problemas.map(p=>`<tr><td><span class="pill">${esc(p.codigo)}</span></td>
-          <td class="muted">${p.estado==='sin_base'?'no tiene % base cargado'
+          <td class="muted">${p.estado==='sin_tc'?('<span style="color:var(--red)">vendió en '+esc(p.divisas)+' y ese mes no tiene tipo de cambio cargado — esa moneda NO entró en el total</span>')
+            :p.estado==='sin_base'?'no tiene % base cargado'
             :p.estado==='sin_reparto'?'nadie lo cobra todavía'
             :p.estado==='excedido'?('el reparto suma '+esc(p.suma)+'% y su base es '+esc(p.base)+'% — se cobraría de más')
             :('faltan repartir '+esc(p.resto)+' de sus '+esc(p.base)+' puntos')}</td>
-          <td class="right"><b>${money(p.en_juego)}</b></td>
+          <td class="right"><b>${p.estado==='sin_tc'?'—':money(p.en_juego)}</b></td>
           </tr>`).join('')}
         </tbody></table>
         <div style="margin-top:8px"><button class="outline small" onclick="repSub('clientes')">Ir a configurarlos →</button></div>
@@ -2694,7 +2697,7 @@ REP.mes = async () => {
       ${pend?`<tr><td class="muted">— sin asignar —</td><td class="right" style="color:var(--red)"><b>${money(d.sin_asignar)}</b></td></tr>`:''}
       </tbody></table>
       <h2 style="margin-top:16px">Por cliente</h2>
-      <table><thead><tr><th>Cliente</th><th class="right">Vendido</th><th class="right">Base</th><th>Se lo llevan</th><th class="right">A cobrar</th></tr></thead><tbody>
+      <table><thead><tr><th>Cliente</th><th class="right">Vendido (USDT)</th><th class="right">Base</th><th>Se lo llevan</th><th class="right">A cobrar</th></tr></thead><tbody>
       ${(d.clientes||[]).map(c=>`<tr>
         <td><span class="pill">${esc(c.codigo)}</span></td>
         <td class="right">${money(c.ventas)}</td>

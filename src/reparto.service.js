@@ -65,9 +65,19 @@ function repartoCliente(cliente, mes, fecha) {
 
 /**
  * Reparte el fee de un cliente entre sus participantes.
- * @param ventas monto vendido en moneda local
- * @param tc     tipo de cambio del mes (para pasar a USDT)
+ * @param ventasUsdt monto vendido del mes YA EN USDT
  * @returns {{ok, estado, fee_usdt, items, sin_asignar, reparto}}
+ *
+ * ── POR QUÉ ACÁ NO HAY TIPO DE CAMBIO ────────────────────────────────────────────────────────
+ * Antes esta función recibía el monto en moneda local y UN tipo de cambio, y el que lo llamaba le
+ * pasaba siempre el del PESO. Los clientes no venden todos en pesos: los guaraníes de Fran se
+ * dividían por 1.574 en vez de 6.005 (3,8× de más) y los uruguayos de Titan por 1.574 en vez de
+ * 40 (39× de menos). En julio 2026 eso repartió 16.787,91 USDT que no existían.
+ *
+ * La conversión no se arregló acá adentro, se sacó de acá. Un solo tipo de cambio por cliente es
+ * la premisa equivocada: un cliente puede vender en tres monedas el mismo mes, y ahí no hay número
+ * único que sirva. Quien llama convierte moneda por moneda —que es donde vive el dato— y esta
+ * función recibe USDT y sólo reparte. Así el error no puede volver por otra puerta.
  *
  * 🔑 INVARIANTE: Σ items + sin_asignar = fee_usdt, exacto al centavo. Se consigue dándole al
  * ÚLTIMO renglón el residuo en vez de su propio redondeo. Calcular cada parte por separado y
@@ -76,24 +86,24 @@ function repartoCliente(cliente, mes, fecha) {
  * Con 'excedido' no se reparte nada: el reparto suma más que el % base, así que cualquier
  * número que devolviera estaría cobrando de más. Hay que arreglarlo antes.
  */
-function distribuir(ventas, cliente, mes, tc, fecha) {
+function distribuir(ventasUsdt, cliente, mes, fecha) {
   const r = repartoCliente(cliente, mes, fecha);
   const vacio = { ok: false, estado: r.estado, fee_usdt: '0', items: [], sin_asignar: '0', reparto: r };
   if (r.estado === 'sin_base') return vacio;
 
-  const feeUsdt = money.round(money.div(money.pct(ventas, r.base), tc), 2);
+  const feeUsdt = money.round(money.pct(ventasUsdt, r.base), 2);
   if (r.estado === 'excedido') return { ...vacio, fee_usdt: feeUsdt };
   if (r.estado === 'sin_reparto') return { ...vacio, fee_usdt: feeUsdt, sin_asignar: feeUsdt };
 
   // Lo que se reparte de verdad: el fee menos los puntos que todavía no tienen dueño.
-  const sinAsignar = money.round(money.div(money.pct(ventas, r.resto), tc), 2);
+  const sinAsignar = money.round(money.pct(ventasUsdt, r.resto), 2);
   const repartible = money.sub(feeUsdt, sinAsignar);
 
   const out = []; let acum = '0';
   r.items.forEach((it, i) => {
     const monto = i === r.items.length - 1
       ? money.sub(repartible, acum)                                    // el residuo, para cerrar exacto
-      : money.round(money.div(money.pct(ventas, it.pct), tc), 2);
+      : money.round(money.pct(ventasUsdt, it.pct), 2);
     acum = money.add(acum, monto);
     out.push({ ...it, monto });
   });
