@@ -577,4 +577,15 @@ ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_
    mismo campo hace que la respuesta a una rompa la otra. */
 ensureColumns('clientes', { moneda_cuenta: 'TEXT' });
 
+/* La CUENTA PROPIA de un cliente: usuario y contraseña para ver su saldo y su factura.
+   No la tienen todos, y está bien que no: la mayoría sólo pide fichas y ahí el código alcanza.
+   `acceso_clave` guarda `sal:scrypt(clave)` — nunca la clave. Ver src/cliente-acceso.js. */
+ensureColumns('clientes', {
+  acceso_habilitado: 'INTEGER',
+  acceso_usuario: 'TEXT',
+  acceso_clave: 'TEXT',
+  acceso_at: 'TEXT',
+});
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_cliente_acceso ON clientes(lower(acceso_usuario)) WHERE acceso_usuario IS NOT NULL');
+
 module.exports = { db, DB_PATH, ensureColumns };

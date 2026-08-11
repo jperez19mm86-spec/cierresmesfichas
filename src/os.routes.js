@@ -36,6 +36,7 @@ const pulsoSvc = require('./pulso.service');
 const pedidosStore = require('./pedidos-store');
 const solicitudes = require('./solicitudes-caja');
 const deudaCargaSvc = require('./deuda-carga.service');
+const acceso = require('./cliente-acceso');
 const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
 const cierreStore = require('./cierre-store');
@@ -233,6 +234,25 @@ function mount(app) {
       + `cargados en ${actual}. Cambiar la moneda no los convierte —sólo deja de sumarlos— y el saldo `
       + `quedaría en cero como si se hubiera perdido plata. Cerrá la cuenta en ${actual} con un ajuste y después cambiala.`;
   }
+
+  /**
+   * ── LA CUENTA PROPIA DE UN CLIENTE ───────────────────────────────────────────────────────────
+   * Prenderla devuelve la clave EN CLARO UNA SOLA VEZ. No hay forma de volver a verla: lo que se
+   * guarda es el hash. Si el cliente la pierde, se genera otra — eso es lo que hace que perderla
+   * sea un trámite y no una filtración.
+   */
+  app.get('/api/os/clientes/:id/acceso', (req, res) => {
+    const e = acceso.estado(req.params.id);
+    return e ? ok(res, { acceso: e }) : err(res, 404, 'no encontré ese cliente');
+  });
+  app.post('/api/os/clientes/:id/acceso', wrap((req, res) => {
+    const b = req.body || {};
+    if (b.habilitado === false) return ok(res, { ...acceso.deshabilitar(req.params.id), acceso: acceso.estado(req.params.id) });
+    const r = acceso.habilitar(req.params.id, { usuario: b.usuario, clave: b.clave });
+    if (!r.ok) return err(res, 400, r.error);
+    // La clave viaja UNA vez en esta respuesta. La pantalla la muestra y avisa que no vuelve.
+    ok(res, { ...r, acceso: acceso.estado(req.params.id) });
+  }));
 
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);

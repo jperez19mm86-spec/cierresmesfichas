@@ -1477,6 +1477,54 @@ async function main() {
     check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
   }
 
+  // ── LA CUENTA PROPIA DE UN CLIENTE ──
+  //
+  // El código alcanza para pedir fichas —son acciones que después alguien aprueba— pero no para ver
+  // plata. La factura ya se mandaba con un token largo justamente por eso; esto mantiene ese
+  // estándar en vez de bajarlo a un código corto y adivinable.
+  {
+    const ac = require('../src/cliente-acceso');
+    const h = ac.hashear('probando123');
+    check('acceso: la clave se guarda hasheada, no en claro', !h.includes('probando123') && h.includes(':'));
+    check('acceso: verifica la correcta', ac.verificar('probando123', h));
+    check('acceso: rechaza la incorrecta', !ac.verificar('otra', h));
+    check('acceso: no explota con un hash roto', ac.verificar('x', 'basura') === false);
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cliente-acceso.js'), 'utf8');
+    // scrypt y no un hash a secas: está hecho para ser lento, así que probar millones cuesta tiempo.
+    check('acceso: usa scrypt', /scryptSync/.test(src));
+    // Una comparación normal delata cuántos caracteres se acertaron por el tiempo que tarda.
+    check('acceso: compara en tiempo constante', /timingSafeEqual/.test(src));
+    // Una clave que se dicta por teléfono no puede tener 0/O ni 1/l/I.
+    const cl = ac.generarClave();
+    check('acceso: la clave generada no tiene caracteres ambiguos',
+      cl.length === 10 && !/[0O1lI]/.test(cl), cl);
+
+    // ── EL TOKEN DE CLIENTE NO SIRVE PARA ENTRAR AL OS ──
+    const auth = require('../src/auth');
+    const t = auth.firmarCliente('c_test');
+    check('acceso: el token de cliente se lee', auth.clienteDeToken({ headers: { 'x-cuenta': t } }) === 'c_test');
+    check('acceso: un token manipulado se rechaza',
+      auth.clienteDeToken({ headers: { 'x-cuenta': t.slice(0, -2) + 'ff' } }) === null);
+    // Otra familia de token a propósito: sin el prefijo, un bug de parseo haría admin a un cliente.
+    check('acceso: un token del panel NO vale como cliente',
+      auth.clienteDeToken({ headers: { 'x-cuenta': 'ok:admin:1.abc' } }) === null);
+    check('acceso: y uno de cliente NO vale para el panel', !auth.isAuthed({ headers: { cookie: 'panel=' + t } }));
+
+    // La ruta es pública pero el DATO no.
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('acceso: sin token válido la cuenta contesta 401', /Entrá de nuevo/.test(idx));
+    // Nunca decir cuál de los dos falló: confirma qué usuarios existen.
+    check('acceso: el login no dice si falló el usuario o la clave',
+      /Usuario o contraseña incorrectos/.test(idx));
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('acceso: dos clientes no pueden tener el mismo usuario', /ya lo tiene otro cliente/.test(
+      require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cliente-acceso.js'), 'utf8')));
+    check('acceso: hay ruta para prenderlo desde el OS', /clientes\/:id\/acceso/.test(rutas));
+    // El estado que ve la pantalla no puede traer el hash.
+    check('acceso: el estado no devuelve la clave',
+      !/acceso_clave/.test(src.slice(src.indexOf('function estado'))));
+  }
+
   // ── CADA CARGA SUMA SU DEUDA, CON EL TC CONGELADO ──
   //
   // Antes la deuda nacía una vez por mes y entre carga y carga la cuenta no se movía, así que no

@@ -278,6 +278,9 @@ const solicitudesCaja = require('./solicitudes-caja');
 const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
 const deudaCargaSvc = require('./deuda-carga.service');
+const accesoCli = require('./cliente-acceso');
+const deudaSvc = require('./deuda.service');
+const movsStore = require('./movimientos-store');
 
 /**
  * ── CON QUÉ CREDENCIALES SE CARGA EN UN SISTEMA ───────────────────────────────────────────────
@@ -697,6 +700,56 @@ app.get('/api/movimiento-panel/:codigo', (req, res) => {
     id: m.id, origen: porId[m.origen_panel_id] || '(panel borrado)', destino: porId[m.destino_panel_id] || '(panel borrado)',
     divisa: m.divisa, monto: m.monto, estado: m.estado, creado_at: m.creado_at, hecho_at: m.hecho_at,
     motivo: m.motivo })) });
+});
+
+/**
+ * ── EL CLIENTE ENTRA A SU CUENTA ─────────────────────────────────────────────────────────────
+ *
+ * Usuario y contraseña, no el código: acá hay plata —lo que consumió, lo que debe, lo que pagó— y
+ * el código es corto y adivinable. La factura ya se mandaba por un link con token largo justamente
+ * por eso; esto mantiene ese estándar en vez de bajarlo.
+ *
+ * No dice nunca si falló el usuario o la clave: decirlo confirma qué usuarios existen.
+ */
+app.post('/api/cuenta/login', (req, res) => {
+  const b = req.body || {};
+  const cli = accesoCli.autenticar(b.usuario, b.clave);
+  if (!cli) return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
+  // Un token firmado con el mismo secreto que el panel, pero de OTRA familia: un token de cliente
+  // nunca puede servir para entrar al OS.
+  const token = auth.firmarCliente ? auth.firmarCliente(cli.id) : null;
+  console.log(`[Cuenta] entró ${cli.codigo}`);
+  res.json({ ok: true, cliente: { codigo: cli.codigo, nombre: cli.nombre }, token });
+});
+
+/**
+ * Su cuenta: lo que consumió este mes, lo que debe y lo que pagó.
+ *
+ * Sale de lo que YA se calcula para la factura y para la cuenta corriente, así que no puede
+ * discrepar con lo que ve la dueña — que es la única forma de que un cliente y ella miren el
+ * mismo número.
+ */
+app.get('/api/cuenta/mio', (req, res) => {
+  const cid = auth.clienteDeToken ? auth.clienteDeToken(req) : null;
+  if (!cid) return res.status(401).json({ ok: false, error: 'Entrá de nuevo' });
+  const cli = clientes.get(cid);
+  if (!cli) return res.status(404).json({ ok: false, error: 'cuenta no encontrada' });
+  const mes = new Date().toISOString().slice(0, 7);
+  const cuenta = deudaSvc.cuentaCorriente(cli.id);
+  const movimientos = movsStore.list({ cliente_id: cli.id })
+    .slice(0, 40)
+    .map((m) => ({ fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
+      monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
+      divisa: m.divisa, notas: m.notas }));
+  const cargas = pedidos.list({ codigo: cli.codigo, estado: 'cargado' })
+    .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
+    .map((p) => ({ fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
+      usuario: p.cajaUsuario, monto: p.monto, divisa: p.divisa }));
+  res.json({ ok: true,
+    cliente: { codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
+    mes,
+    base_pct: cli.precio_base_pct != null ? String(cli.precio_base_pct) : null,
+    cuenta, cargas, movimientos });
 });
 
 // ─────────────── PEDIDOS — panel admin ───────────────

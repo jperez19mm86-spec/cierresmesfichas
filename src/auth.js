@@ -41,6 +41,10 @@ const PUBLIC = [
   // exige estar adentro del panel, y encima el cliente tiene que tener el permiso `mover_balance`,
   // que se comprueba en el servidor y no escondiendo el botón.
   /^\/api\/movimiento-panel(\/|$)/,
+  // La cuenta del cliente: entra con SU usuario y contraseña, no con la sesión del panel. La ruta
+  // es pública pero el dato no: sin un token de cliente válido, /api/cuenta/mio contesta 401.
+  /^\/api\/cuenta(\/|$)/,
+  /^\/cuenta\/?$/,
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.
@@ -103,6 +107,39 @@ function puedeOperador(req) {
 function sign(value) {
   const mac = crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
   return value + '.' + mac;
+}
+
+/**
+ * ── TOKEN DE CLIENTE ─────────────────────────────────────────────────────────────────────────
+ *
+ * Otra familia de token, a propósito. Va con el prefijo `cli:` y se verifica con una función
+ * distinta, así que un token de cliente NO puede entrar al OS ni al revés — aunque los dos usen el
+ * mismo secreto. Sin ese prefijo, un bug de parseo convertiría a un cliente en administrador.
+ *
+ * Dura una semana: es su cuenta, no una sesión operativa, y pedirle la clave todos los días para
+ * mirar un saldo termina en una clave escrita en un papel.
+ */
+const CLIENTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function firmarCliente(clienteId) {
+  const value = `cli:${clienteId}:${Date.now()}`;
+  const mac = crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
+  return value + '.' + mac;
+}
+
+/** El id del cliente que trae la request, o null. Lee el header o el cuerpo, nunca una cookie. */
+function clienteDeToken(req) {
+  const raw = String((req.headers && req.headers['x-cuenta']) || (req.body && req.body.token) || '').trim();
+  if (!raw || !raw.includes('.')) return null;
+  const i = raw.lastIndexOf('.');
+  const value = raw.slice(0, i); const mac = raw.slice(i + 1);
+  const esperado = crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
+  if (mac.length !== esperado.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(esperado))) return null;
+  const m = /^cli:([\w-]+):(\d+)$/.exec(value);
+  if (!m) return null;
+  if (Date.now() - Number(m[2]) > CLIENTE_TTL_MS) return null;
+  return m[1];
 }
 
 function verifyToken(token) {
@@ -236,4 +273,5 @@ function logoutHandler(req, res) {
 }
 
 module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador,
+  firmarCliente, clienteDeToken,
   USING_DEFAULT_PASSWORD, PANEL_USER, HAY_OPERADOR };
