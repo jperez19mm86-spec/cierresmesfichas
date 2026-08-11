@@ -568,4 +568,13 @@ ensureColumns('movimiento_panel', { pasos: 'TEXT' });
    que permite verlo en la pantalla y reintentarlo en vez de descubrirlo por un reclamo. */
 ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_at: 'TEXT' });
 
+/* En qué MONEDA se lleva la cuenta corriente de un cliente: 'USDT' (lo normal) o 'ARS'.
+   Vacío = USDT, que es como estaban los 45 clientes el día que esto se agregó.
+
+   NO se reusó `moneda_cobro`, que ya existía: ese vino de la planilla y tiene valores 'cvu',
+   'usdt', 'variable', 'no_aplica' y doce vacíos — describe CÓMO paga el cliente (por CVU, en
+   cripto), no en qué moneda se le lleva la cuenta. Son dos preguntas distintas y meterlas en el
+   mismo campo hace que la respuesta a una rompa la otra. */
+ensureColumns('clientes', { moneda_cuenta: 'TEXT' });
+
 module.exports = { db, DB_PATH, ensureColumns };

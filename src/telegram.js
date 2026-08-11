@@ -115,9 +115,9 @@ function movimientoText({ origen, destino, divisa, monto }) {
  * 1000 y el que aprueba confirma lo que entró de verdad. Poner el declarado sería avisarle al grupo
  * un pago que capaz no es el que se registró.
  */
-function pagoText({ cliente, montoUsdt }) {
-  const m = Number(montoUsdt).toLocaleString('es-AR', { maximumFractionDigits: 2 });
-  return `✅ <b>Pago realizado</b>\n${escapeHtml(cliente || '')}\n<b>${m} USDT</b>`;
+function pagoText({ cliente, monto, moneda = 'USDT' }) {
+  const m = Number(monto).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return `✅ <b>Pago realizado</b>\n${escapeHtml(cliente || '')}\n<b>${m} ${escapeHtml(moneda)}</b>`;
 }
 
 /**

@@ -762,6 +762,11 @@ function editCli(id){
             <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
           </div>
           <div class="row" style="margin-top:6px">
+            <!-- La moneda en que se lleva la CUENTA CORRIENTE de este cliente. No es cómo paga:
+                 puede pagar en USDT y llevarse la cuenta en pesos. -->
+            <div style="flex:0"><label>Cuenta en</label><select id="e-moneda">
+              <option value="USDT" ${c.moneda_cuenta!=='ARS'?'selected':''}>USDT</option>
+              <option value="ARS" ${c.moneda_cuenta==='ARS'?'selected':''}>ARS</option></select></div>
             <div style="flex:0"><label>Mover balance</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Permite al cliente pasar fichas de un panel suyo a otro, en la misma divisa.</div>
           </div>
@@ -935,7 +940,7 @@ async function saveCli(id){
     estado:val('e-estado'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
-    mover_balance:val('e-mover')==='1', margen_externos_pct:val('e-mext'),
+    mover_balance:val('e-mover')==='1', moneda_cuenta:val('e-moneda'), margen_externos_pct:val('e-mext'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
@@ -1469,6 +1474,13 @@ async function pintarComprobantes(estado, conFiltros) {
   // El número de pendientes va a la pestaña: es lo que hace que se vea desde cualquier pantalla.
   _cmpPend = c0.pendiente || 0; renderNav();
   const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
+  /* En qué moneda se lleva la cuenta de ese cliente. Sale de la lista de clientes que ya está
+     cargada: si no está, se asume USDT, que es como está el 98% de ellos. */
+  const _cmpMoneda = (codigo) => {
+    const cl = (_clientes || []).find((x) => x.codigo === codigo);
+    return (cl && cl.moneda_cuenta === 'ARS') ? 'ARS' : 'USDT';
+  };
+
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
     const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
@@ -1492,10 +1504,13 @@ async function pintarComprobantes(estado, conFiltros) {
         : (c.aviso_ok === 1 ? '<div class="muted" style="margin-top:6px;font-size:11px">✅ avisado al grupo</div>' : ''))
       + (pend
         ? '<div class="row" style="margin-top:10px;align-items:flex-end">'
-          + '<div style="flex:0"><label>Acreditar (USDT)</label><input id="cmp-u-' + c.id + '" placeholder="ej 250" style="width:120px"></div>'
+          // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
+          // y se le lleva la cuenta en pesos. Lo que se acredita es lo que resta la deuda.
+          + '<div style="flex:0"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
+          +   '<input id="cmp-u-' + c.id + '" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
           + '<div style="flex:1"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
-          + '<div style="flex:0"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\')">✅ Aprobar y acreditar</button></div>'
-          + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\')">✖ Rechazar</button></div>'
+          + '<div style="flex:0"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+          + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
           + '</div>'
         : '<div class="muted" style="margin-top:8px">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
@@ -1521,14 +1536,17 @@ async function cmpReavisar(id){
   VIEWS.comprobantes && VIEWS.comprobantes();
 }
 
-async function cmpResolver(id, estado) {
+async function cmpResolver(id, estado, codigo) {
   const u = (document.getElementById('cmp-u-' + id) || {}).value;
   const nota = (document.getElementById('cmp-n-' + id) || {}).value;
-  if (estado === 'aprobado' && !(Number(String(u).replace(',', '.')) > 0)) return toast('Poné cuántos USDT se acreditan');
-  if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' USDT? Esto registra el pago y le baja la deuda al cliente.')) return;
-  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto_usdt: u, motivo: nota }) });
+  // La moneda de la CUENTA, no la del pago: el cliente puede pagar en USDT y llevarse la cuenta en
+  // pesos. Escribir "USDT" arriba de una cifra en pesos es peor que no poner nada.
+  const mon = _cmpMoneda(codigo);
+  if (estado === 'aprobado' && !(Number(String(u).replace(',', '.')) > 0)) return toast('Poné cuántos ' + mon + ' se acreditan');
+  if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' ' + mon + '? Esto registra el pago y le baja la deuda al cliente.')) return;
+  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto: u, motivo: nota }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
-  toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' USDT') : 'Rechazado');
+  toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();
 }
 /** El contador de la pestaña, para que un comprobante nuevo se vea sin entrar a buscarlo. */

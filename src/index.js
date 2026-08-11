@@ -589,7 +589,7 @@ app.post('/api/comprobante', async (req, res) => {
  * grupo y no había forma de saber si el problema era el id, el bot o el permiso. Ahora queda en la
  * fila y se ve en la pantalla.
  */
-async function avisarComprobante(c, cli, montoUsdt) {
+async function avisarComprobante(c, cli, monto, moneda) {
   const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();
   let aviso = null;
@@ -597,7 +597,9 @@ async function avisarComprobante(c, cli, montoUsdt) {
     aviso = { ok: false, error: !tok ? 'el bot de Telegram no está configurado' : `no hay grupo cargado para ${c.via === 'usdt' ? 'USDT' : 'pesos'}` };
   } else {
     const nombre = (cli && (cli.nombreVisible || cli.nombre)) || c.cliente_nombre || c.codigo;
-    const texto = telegram.pagoText({ cliente: nombre, montoUsdt: montoUsdt != null ? montoUsdt : c.monto });
+    const texto = telegram.pagoText({ cliente: nombre,
+      monto: monto != null ? monto : c.monto,
+      moneda: moneda || (cli && cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT') });
     // Con el comprobante adentro: el que mira el grupo no tiene que entrar al OS para verlo.
     const conArchivo = comprobantes.get(c.id, true);
     if (conArchivo && conArchivo.archivo_datos) {
@@ -638,7 +640,7 @@ function _textoViejoComprobante(c, cli) {
 /** Cuántos USDT se acreditaron de verdad: sale del movimiento que creó la aprobación. */
 function montoAcreditado(c) {
   if (!c.movimiento_id) return null;
-  try { const m = require('./movimientos-store').get(c.movimiento_id); return m ? m.monto_usdt : null; }
+  try { const m = require('./movimientos-store').get(c.movimiento_id); return m ? (m.monto_usdt || m.monto_ars) : null; }
   catch (e) { return null; }
 }
 
@@ -649,7 +651,8 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   // Sólo tiene sentido reavisar algo aprobado: es el aviso de "pago realizado".
   if (c.estado !== 'aprobado') return res.status(400).json({ ok: false, error: `ese comprobante está "${c.estado}": el aviso sale cuando se aprueba` });
   const cli = clientes.getByCodigo(c.codigo);
-  const aviso = await avisarComprobante(c, cli, montoAcreditado(c));
+  const aviso = await avisarComprobante(c, cli, montoAcreditado(c),
+    cli && cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT');
   return aviso.ok ? res.json({ ok: true, aviso }) : res.status(502).json({ ok: false, error: aviso.error });
 });
 /**

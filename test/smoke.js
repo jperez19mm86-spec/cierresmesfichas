@@ -1477,6 +1477,50 @@ async function main() {
     check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
   }
 
+  // ── LA CUENTA DE UN CLIENTE PUEDE LLEVARSE EN PESOS ──
+  //
+  // Hay clientes con los que se acuerda en pesos: pagan en USDT y lo que se lleva es el equivalente
+  // que se declara al acreditar. Todo lo de acá protege una sola cosa: que NUNCA se sumen pesos con
+  // dólares. Un total mezclado cuadra igual, y eso es lo que lo hace caro.
+  {
+    const d = require('../src/deuda.service');
+    const cta = d.cuentaCorriente('no-existe');
+    check('cuenta: dice en qué moneda está', cta.moneda === 'USDT');
+    check('cuenta: por defecto es USDT', cta.moneda === 'USDT');
+    check('cuenta: cuenta los movimientos que quedaron en la otra moneda', 'enOtraMoneda' in cta);
+
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda.service.js'), 'utf8');
+    // Suma UNA columna, la de su moneda. Nunca las dos, y nunca convierte por su cuenta.
+    check('cuenta: suma sólo la columna de su moneda',
+      /const col = moneda === 'ARS' \? 'monto_ars' : 'monto_usdt'/.test(src));
+    // La sonda anterior buscaba /tc/ y matcheaba cualquier palabra con esas letras — hasta "match".
+    // Lo que importa es que no se llame a un servicio de tipo de cambio: convertir por su cuenta
+    // sería inventar un número que nadie pidió.
+    check('cuenta: no convierte de una moneda a la otra',
+      !/tcUnico|tc-unico|tcDelMes/.test(src));
+
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('cuenta: el comprobante se acredita en la moneda del cliente',
+      /monto_usdt: moneda === 'USDT' \? monto : null/.test(rutas)
+      && /monto_ars: moneda === 'ARS' \? monto : null/.test(rutas));
+    // Cambiar la moneda no convierte nada: sólo cambia qué columna se suma. Con movimientos
+    // cargados, el saldo quedaría en cero como si se hubiera perdido plata.
+    check('cuenta: no se cambia la moneda si ya hay movimientos en la otra',
+      /function puedeCambiarMoneda/.test(rutas) && /Cerrá la cuenta en/.test(rutas));
+    check('cuenta: el candado se aplica al guardar la ficha',
+      /puedeCambiarMoneda\(req\.params\.id, req\.body\.moneda_cuenta\)/.test(rutas));
+
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('cuenta: la ficha tiene el selector', /id="e-moneda"/.test(html));
+    check('cuenta: el label de acreditar usa la moneda del cliente', /Acreditar \(' \+ esc\(_cmpMoneda/.test(html));
+    // El texto que iba fijo en "USDT" era la forma más fácil de mentir sobre una cifra en pesos.
+    check('cuenta: ya no dice USDT fijo al acreditar', !/Poné cuántos USDT se acreditan/.test(html));
+
+    const tg = require('../src/telegram');
+    check('cuenta: el aviso al grupo dice la moneda que corresponde',
+      /100\.000 ARS/.test(tg.pagoText({ cliente: 'x', monto: '100000', moneda: 'ARS' })));
+  }
+
   // ── UN AVISO QUE NO SALIÓ TIENE QUE VERSE ──
   //
   // Un comprobante no llegó al grupo porque el bot no estaba adentro. El envío falló en un
@@ -1510,7 +1554,7 @@ async function main() {
     // Una foto se recomprime y a un PDF Telegram lo rechaza como foto: no da lo mismo el método.
     check('comprobante: una imagen va como foto y lo demás como documento',
       /sendPhoto/.test(fnA) && /sendDocument/.test(fnA) && /\^image\\\//.test(fnA));
-    const txt2 = tg2.pagoText({ cliente: 'Rafael', montoUsdt: '1000' });
+    const txt2 = tg2.pagoText({ cliente: 'Rafael', monto: '1000', moneda: 'USDT' });
     check('comprobante: el texto es corto — quién y cuánto',
       /Pago realizado/.test(txt2) && /Rafael/.test(txt2) && /1\.000 USDT/.test(txt2)
       && txt2.split('\n').length === 3, JSON.stringify(txt2));

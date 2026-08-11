@@ -111,7 +111,7 @@ function mount(app) {
       divisa_fichas: c.divisa_fichas, moneda_cobro: c.moneda_cobro, momento_pago: c.momento_pago,
       disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
       // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
-      mover_balance: c.mover_balance, margen_externos_pct: c.margen_externos_pct,
+      mover_balance: c.mover_balance, moneda_cuenta: c.moneda_cuenta, margen_externos_pct: c.margen_externos_pct,
       es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, externos_modo: c.externos_modo, saldo_inicial: c.saldo_inicial,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
@@ -211,8 +211,34 @@ function mount(app) {
     ok(res, { cambiados: n, valor });
   }));
 
+  /**
+   * 🔒 NO SE CAMBIA LA MONEDA DE LA CUENTA SI YA HAY MOVIMIENTOS EN LA OTRA.
+   *
+   * Cambiarla no convierte nada: sólo cambia qué columna se suma. Un cliente con pagos cargados en
+   * dólares que pasa a pesos vería su saldo en cero —los movimientos siguen ahí, en la columna que
+   * ya no se mira— y eso parece un error de plata, no de configuración. Se corta antes.
+   *
+   * La salida no es "no se puede nunca": es cargar el ajuste que cierra la cuenta en la moneda
+   * vieja, y recién ahí cambiarla. Con la cuenta en cero no hay nada que se pueda perder.
+   */
+  function puedeCambiarMoneda(cliente_id, nueva) {
+    const actual = (clientes.get(cliente_id) || {}).moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
+    const quiere = String(nueva).toUpperCase() === 'ARS' ? 'ARS' : 'USDT';
+    if (actual === quiere) return null;
+    const col = actual === 'ARS' ? 'monto_ars' : 'monto_usdt';
+    const cuantos = movs.list({ cliente_id }).filter((m) => m[col] != null && m[col] !== '' && Number(m[col]) !== 0).length;
+    if (!cuantos) return null;
+    return `no se puede pasar la cuenta a ${quiere}: este cliente ya tiene ${cuantos} movimiento(s) `
+      + `cargados en ${actual}. Cambiar la moneda no los convierte —sólo deja de sumarlos— y el saldo `
+      + `quedaría en cero como si se hubiera perdido plata. Cerrá la cuenta en ${actual} con un ajuste y después cambiala.`;
+  }
+
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
+    if ((req.body || {}).moneda_cuenta !== undefined) {
+      const mal = puedeCambiarMoneda(req.params.id, req.body.moneda_cuenta);
+      if (mal) return err(res, 400, mal);
+    }
     const c = clientes.updateComercial(req.params.id, req.body || {});
     if (!c) return err(res, 404, 'cliente no encontrado');
     // Renombrar ARRASTRA su columna de la matriz y su % base por mes: la matriz se referencia por
@@ -935,14 +961,28 @@ function mount(app) {
       return r.ok ? ok(res, r) : err(res, 400, r.error);
     }
     if (b.estado !== 'aprobado') return err(res, 400, "estado inválido: 'aprobado' o 'rechazado'");
-    // El monto que se acredita es el que CONFIRMA el panel, no el que declaró el cliente.
-    const montoUsdt = b.monto_usdt != null ? String(b.monto_usdt) : null;
-    if (!money.isPos(montoUsdt)) return err(res, 400, 'poné cuántos USDT se acreditan');
     // getByCodigo resuelve también los códigos VIEJOS (codigosAlias): si un cliente se renombró,
     // su comprobante viejo tiene que seguir encontrándolo.
     const cli = clientes.getByCodigo(c.codigo);
     if (!cli) return err(res, 404, `el código ${c.codigo} ya no corresponde a ningún cliente`);
-    const mov = movs.create({ cliente_id: cli.id, tipo: 'pago', monto_usdt: montoUsdt, fecha: b.fecha, notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
+
+    // ── SE ACREDITA EN LA MONEDA DE LA CUENTA DEL CLIENTE ─────────────────────────────────────
+    // El cliente puede pagar en USDT y tener la cuenta en pesos: ahí lo que se acredita son los
+    // pesos que se declaran, no los dólares que llegaron. Son dos números distintos y el que manda
+    // es el de la cuenta — es el que va a restar la deuda.
+    //
+    // Se sigue aceptando `monto_usdt` porque es como se llamaba antes y hay pantallas viejas.
+    const moneda = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
+    const monto = b.monto != null ? String(b.monto) : (b.monto_usdt != null ? String(b.monto_usdt) : null);
+    if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${moneda} se acreditan`);
+    // La columna es la de SU moneda y sólo esa. Cargar las dos invitaría a que alguien sume la que
+    // no corresponde, y un total mezclado cuadra igual: es el error más caro de todos.
+    const mov = movs.create({ cliente_id: cli.id, tipo: 'pago',
+      monto_usdt: moneda === 'USDT' ? monto : null,
+      monto_ars: moneda === 'ARS' ? monto : null,
+      divisa: moneda, fecha: b.fecha,
+      notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
+    const montoUsdt = moneda === 'USDT' ? monto : null;
     const r = comprobantes.resolver(req.params.id, { estado: 'aprobado', por: 'panel', motivo: b.motivo, movimiento_id: mov.id });
     if (!r.ok) return err(res, 400, r.error);
     // ── EL AVISO AL GRUPO VA ACÁ, NO AL RECIBIRLO ────────────────────────────────────────────
@@ -953,7 +993,7 @@ function mount(app) {
     // Fire-and-forget: que Telegram no conteste no puede tumbar un pago ya registrado.
     const avisar = req.app.get('avisarComprobante');
     if (typeof avisar === 'function') {
-      Promise.resolve(avisar(comprobantes.get(req.params.id), cli, montoUsdt))
+      Promise.resolve(avisar(comprobantes.get(req.params.id), cli, monto, moneda))
         .catch((e) => console.warn('[Comprobante] aviso error:', e.message));
     }
     ok(res, { ...r, movimiento: mov, deuda: deudaSvc.cuentaCorriente(cli.id) });

@@ -10,12 +10,35 @@
  */
 const mov = require('./movimientos-store');
 const money = require('./lib/money');
+const clientes = require('./clientes-store');
 
+/**
+ * ── LA CUENTA SE LLEVA EN LA MONEDA DEL CLIENTE ───────────────────────────────────────────────
+ *
+ * Casi todos están en USDT y esa sigue siendo la regla por defecto. Pero hay clientes con los que
+ * se acuerda en pesos: pagan en dólares y lo que se lleva es el equivalente en pesos que se
+ * declara al acreditar.
+ *
+ * Devuelve la MONEDA junto con los números, y eso no es decorativo: es lo único que impide que
+ * alguien imprima "USDT" arriba de una cifra en pesos. Un total con la etiqueta equivocada es
+ * peor que un error de cálculo, porque cuadra.
+ *
+ * Y suma UNA sola columna: la de su moneda. Nunca las dos. Si un movimiento quedó cargado en la
+ * otra, no se convierte ni se ignora en silencio — se cuenta aparte en `enOtraMoneda` para que se
+ * vea que hay algo mal en vez de que el total mienta.
+ */
 function cuentaCorriente(cliente_id) {
   const movs = mov.list({ cliente_id });
+  const cli = clientes.get(cliente_id);
+  const moneda = (cli && cli.moneda_cuenta === 'ARS') ? 'ARS' : 'USDT';
+  const col = moneda === 'ARS' ? 'monto_ars' : 'monto_usdt';
+  const otra = moneda === 'ARS' ? 'monto_usdt' : 'monto_ars';
   let fichas = '0', proveedores = '0', pagos = '0', bonif = '0';
+  let enOtraMoneda = 0;
   for (const m of movs) {
-    const u = m.monto_usdt || '0';
+    const u = m[col] || '0';
+    // Un movimiento sin nada en la columna de su moneda pero con algo en la otra está mal cargado.
+    if ((m[col] == null || m[col] === '') && m[otra] != null && m[otra] !== '') enOtraMoneda += 1;
     switch (m.tipo) {
       case 'carga': fichas = money.add(fichas, u); break;
       case 'ajuste': fichas = money.add(fichas, u); break;       // ajuste puede ser +/-
@@ -32,10 +55,14 @@ function cuentaCorriente(cliente_id) {
   const total = money.sub(money.add(fichas, proveedores), pagos);
   return {
     cliente_id,
+    moneda,
     fichas_pendientes: money.round(fichas, 2),
     proveedores_pendientes: money.round(proveedores, 2),
     pagos: money.round(pagos, 2),
     total: money.round(total, 2),
+    // Cuántos movimientos quedaron cargados en la otra moneda y por eso NO entran en este total.
+    // Cero es lo normal; cualquier otro número es algo para mirar, no para tapar.
+    enOtraMoneda,
   };
 }
 
