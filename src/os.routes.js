@@ -2446,6 +2446,25 @@ function mount(app) {
   // Emitir es EXPLÍCITO y no se puede duplicar: hay un índice único en la base sobre
   // (cliente, origen, mes). Volver a emitir el mismo mes no agrega nada.
   app.get('/api/os/emision/:mes', (req, res) => ok(res, emision.emitido(req.params.mes)));
+  /**
+   * Generar hacia atrás la deuda de las cargas de un mes.
+   *
+   * Se usa una vez, el día que esto se enciende: las cargas ya hechas están en la factura pero no
+   * en la cuenta corriente, así que el saldo del cliente arranca incompleto. Cada carga se convierte
+   * con el TC de SU día — usar el de hoy le cambiaría el precio a operaciones que ya pasaron.
+   *
+   * Por defecto SIMULA. Escribir de verdad hay que pedirlo con `aplicar: true`: son movimientos de
+   * plata en la cuenta de cada cliente y conviene mirar los números antes.
+   */
+  app.post('/api/os/deuda/generar-mes', wrap(async (req, res) => {
+    const b = req.body || {};
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    const delMes = pedidosStore.list({ estado: 'cargado' })
+      .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes);
+    const r = await deudaCargaSvc.generarMes(mes, delMes, { simular: b.aplicar !== true });
+    ok(res, { ...r, simulado: b.aplicar !== true, pedidosDelMes: delMes.length });
+  }));
+
   app.post('/api/os/emision/facturacion', wrap(async (req, res) => {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
     // el mismo cálculo que muestra la pantalla, para que no puedan diferir

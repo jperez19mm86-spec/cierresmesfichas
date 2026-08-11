@@ -39,6 +39,31 @@ const clientes = require('./clientes-store');
 const money = require('./lib/money');
 const tcSvc = require('./tc.service');
 const historial = require('./historial');
+const tcStore = require('./tc-store');
+
+/**
+ * El TC de un DÍA, para las cargas que se generan hacia atrás.
+ *
+ * Una carga del 3 de agosto no se convierte con la cotización de hoy: se convierte con la de ese
+ * día, que es la que hubiera quedado congelada si el movimiento se hubiera creado en el momento.
+ * Usar la de hoy le cambiaría el precio a operaciones que ya pasaron.
+ *
+ * Si de ese día hay varias tomas se promedian: el peso se mueve todo el día y una sola foto es la
+ * de esa hora, no la del día. Si no hay ninguna, se busca hacia atrás — nunca hacia adelante, que
+ * sería usar una cotización que en ese momento no existía.
+ */
+function tcDelDia(fecha) {
+  const f = String(fecha || '').slice(0, 10);
+  if (!f) return null;
+  const delDia = tcStore.listSnapshots(f.slice(0, 7)).filter((x) => String(x.fecha).slice(0, 10) === f);
+  if (delDia.length) {
+    const suma = delDia.reduce((t, x) => money.add(t, String(x.tc_ars_usdt || '0')), '0');
+    return money.round(money.div(suma, String(delDia.length)), 4);
+  }
+  const antes = tcStore.listSnapshots().filter((x) => String(x.fecha).slice(0, 10) <= f)
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+  return antes ? String(antes.tc_ars_usdt) : null;
+}
 
 /** El % base vigente de un cliente. Es lo que convierte una carga en deuda. */
 function baseDe(cli) {
@@ -55,7 +80,7 @@ function baseDe(cli) {
  * @returns { ok, movimiento?, motivo? }  `motivo` explica por qué NO se generó, y eso no es un
  *          error: un cliente sin base cargada o una carga en cero no generan deuda.
  */
-async function porCarga(pedido) {
+async function porCarga(pedido, { tcFijo = null } = {}) {
   if (!pedido || !pedido.id) return { ok: false, motivo: 'sin pedido' };
   // 🔒 Idempotente. La ruta de cargar puede reintentarse y el pedido puede pasar por acá dos veces:
   // sin esto, la misma carga sumaría la deuda dos veces y cuadraría en todas las pantallas.
@@ -81,7 +106,8 @@ async function porCarga(pedido) {
     if (divisa === 'USDT' || divisa === 'USD') {
       enUsdt = deuda;                       // ya está en dólares, no hay nada que convertir
     } else {
-      const r = await tcSvc.tcAhora().catch(() => null);
+      // `tcFijo` lo pasa la generación hacia atrás: es el TC del día de esa carga, no el de hoy.
+      const r = tcFijo ? { tc: tcFijo, vivo: true } : await tcSvc.tcAhora().catch(() => null);
       // `vivo` distingue una cotización de AHORA de la última que quedó guardada. Sólo se congela
       // con una viva: una vieja se vería igual de bien y estaría mal.
       if (r && r.vivo && money.isPos(String(r.tc))) {
@@ -164,4 +190,49 @@ function porAnulacion(pedido) {
   return { ok: true, movimiento: mv, dioDeBaja: orig.id };
 }
 
-module.exports = { porCarga, porAnulacion, delMes, baseDe };
+/**
+ * Genera hacia atrás la deuda de las cargas de un mes que todavía no la tienen.
+ *
+ * Sirve para el mes en curso el día que esto se enciende: las cargas ya hechas están en la factura
+ * pero no en la cuenta corriente, así que el saldo del cliente arranca incompleto.
+ *
+ * Cada carga se convierte con el TC DE SU DÍA, no con el de hoy: es el que hubiera quedado
+ * congelado si el movimiento se hubiera creado en el momento. Y es idempotente por pedido, así que
+ * correrlo dos veces no cobra dos veces.
+ *
+ * `simular: true` no escribe nada y devuelve lo mismo: sirve para mirar los números antes.
+ */
+async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
+  const m = String(mes || '').slice(0, 7);
+  const out = { mes: m, generados: [], yaEstaban: 0, saltados: [], totalUsdt: '0', totalArs: '0' };
+  for (const p of pedidosDelMes || []) {
+    if (String(p.estado) !== 'cargado') continue;
+    const f = String(p.resueltoAt || p.createdAt || '');
+    if (f.slice(0, 7) !== m) continue;
+    const tc = tcDelDia(f);
+    if (simular) {
+      const cli = clientes.getByCodigo(p.codigo);
+      const base = cli ? baseDe(cli) : null;
+      if (!cli || base == null || !money.isPos(String(base))) { out.saltados.push({ pedido: p.id, motivo: 'sin cliente o sin base' }); continue; }
+      const deuda = money.round(money.pct(String(p.monto || '0'), base), 2);
+      const div = String(p.divisa || 'ARS').toUpperCase();
+      const enUsdt = (div === 'USDT' || div === 'USD') ? deuda : (tc ? money.round(money.div(deuda, tc), 2) : null);
+      out.generados.push({ pedido: p.id, cliente: cli.codigo, fecha: f.slice(0, 10), divisa: div, deuda, tc, usdt: enUsdt });
+      if (enUsdt) out.totalUsdt = money.add(out.totalUsdt, enUsdt);
+      if (div === 'ARS') out.totalArs = money.add(out.totalArs, deuda);
+      continue;
+    }
+    const r = await porCarga(p, { tcFijo: tc });
+    if (!r.ok) { out.saltados.push({ pedido: p.id, motivo: r.motivo }); continue; }
+    if (r.motivo === 'ya estaba') { out.yaEstaban += 1; continue; }
+    out.generados.push({ pedido: p.id, movimiento: r.movimiento.id, tc: r.tc,
+      usdt: r.movimiento.monto_usdt, ars: r.movimiento.monto_ars });
+    if (r.movimiento.monto_usdt) out.totalUsdt = money.add(out.totalUsdt, r.movimiento.monto_usdt);
+    if (r.movimiento.monto_ars) out.totalArs = money.add(out.totalArs, r.movimiento.monto_ars);
+  }
+  out.totalUsdt = money.round(out.totalUsdt, 2);
+  out.totalArs = money.round(out.totalArs, 2);
+  return out;
+}
+
+module.exports = { porCarga, porAnulacion, generarMes, delMes, baseDe, tcDelDia };
