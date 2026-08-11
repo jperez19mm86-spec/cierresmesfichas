@@ -1756,10 +1756,14 @@ async function main() {
     check('anular: el nombre de la cuenta no queda como link', /<code>LuckyDay-SA<\/code>/.test(txt));
 
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    // Hasta la SIGUIENTE ruta, sea cual sea. La primera versión buscaba la próxima de /api/pedidos
+    // y, para la última del grupo, caía en un tope fijo de 4000 caracteres: al crecer la ruta el
+    // check se puso en rojo con el código intacto. Un recorte por tamaño no describe un bloque.
     const trozo = (ruta) => {
       const i = idx.indexOf(`app.post('/api/pedidos/:id/${ruta}'`);
-      const j = idx.indexOf("app.post('/api/pedidos", i + 10);
-      return idx.slice(i, j > 0 ? j : i + 4000);
+      if (i < 0) return '';
+      const sig = idx.slice(i + 10).search(/\napp\.(get|post|put|delete)\(/);
+      return sig > 0 ? idx.slice(i, i + 10 + sig) : idx.slice(i);
     };
     const anular = trozo('anular');
     check('anular: manda el aviso al grupo', /telegram\.anulacionText/.test(anular));
@@ -1767,8 +1771,16 @@ async function main() {
     // no avisar. Se mira que el aviso esté DENTRO del bloque del retiro confirmado — la primera
     // versión de este check comparaba posiciones y se enredó con el `revertirAnulando` del rollback
     // del lock, que está antes. Comparar índices sueltos no describe un bloque.
+    // El bloque se recorta contando llaves, no buscando la primera '\n    }': adentro hay
+    // try/catch con su propio cierre a esa altura, y la primera versión de este check cortaba ahí
+    // — se puso en rojo al agregar la baja de la deuda, con el comportamiento intacto.
     const iOk = anular.indexOf('if (r.ok) {');
-    const bloqueOk = anular.slice(iOk, anular.indexOf('\n    }', iOk));
+    let prof = 0; let fin = iOk;
+    for (let i = anular.indexOf('{', iOk); i < anular.length; i += 1) {
+      if (anular[i] === '{') prof += 1;
+      else if (anular[i] === '}') { prof -= 1; if (prof === 0) { fin = i; break; } }
+    }
+    const bloqueOk = anular.slice(iOk, fin);
     check('anular: el aviso está dentro del bloque del retiro confirmado',
       iOk > 0 && /telegram\.anulacionText/.test(bloqueOk));
     // Mismo grupo y mismo interruptor que la carga: es la corrección del mismo mensaje.
