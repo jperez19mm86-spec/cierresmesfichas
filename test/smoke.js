@@ -1537,6 +1537,21 @@ async function main() {
     // La deuda es el % base sobre lo cargado, EN LA DIVISA DE LA CARGA. Convertir es otra decisión.
     check('deuda por carga: es el % base sobre lo cargado',
       /money\.pct\(monto, base\)/.test(src));
+
+    // ── CADA DIVISA CON SU PROPIO TIPO DE CAMBIO ──
+    // La primera versión tomaba SIEMPRE la cotización del peso y la aplicaba a cualquier moneda: a
+    // un cliente con cargas en guaraníes le quedó una deuda de 10.679 USDT cuando eran 2.815 —
+    // casi cuatro veces. Y no chillaba: daba un número perfectamente formateado.
+    check('deuda por carga: el TC se busca POR DIVISA', /function tcDelDia\(fecha, divisa/.test(src));
+    check('deuda por carga: el peso y el resto salen de tablas distintas',
+      /tcStore\.listSnapshots/.test(src) && /tcDivisas\.listDias/.test(src));
+    check('deuda por carga: tcAhora (que es sólo del peso) no se usa para otras divisas',
+      /else if \(divisa === 'ARS'\) r = await tcSvc\.tcAhora/.test(src));
+    check('deuda por carga: el dólar no se convierte', /if \(D === 'USD' \|\| D === 'USDT'\) return '1'/.test(src));
+    check('deuda por carga: la generación hacia atrás pasa la divisa', /tcDelDia\(f, p\.divisa\)/.test(src));
+    // Y si no hay TC de ninguna forma, no se convierte con cualquier cosa.
+    check('deuda por carga: sin TC devuelve null en vez de un número cualquiera',
+      /return \(t && t\.valor && money\.isPos\(String\(t\.valor\)\)\) \? String\(t\.valor\) : null/.test(src));
     // El TC se congela SÓLO para las cuentas en dólares: una cuenta en pesos no convierte nada.
     check('deuda por carga: sólo congela TC si la cuenta es en dólares',
       /if \(cuentaEn === 'USDT'\)/.test(src));

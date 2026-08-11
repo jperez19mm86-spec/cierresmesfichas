@@ -40,29 +40,48 @@ const money = require('./lib/money');
 const tcSvc = require('./tc.service');
 const historial = require('./historial');
 const tcStore = require('./tc-store');
+const tcDivisas = require('./tc-divisas.service');
+const tcUnico = require('./tc-unico.service');
 
 /**
- * El TC de un DÍA, para las cargas que se generan hacia atrás.
+ * El TC de una DIVISA en un DÍA.
  *
- * Una carga del 3 de agosto no se convierte con la cotización de hoy: se convierte con la de ese
- * día, que es la que hubiera quedado congelada si el movimiento se hubiera creado en el momento.
- * Usar la de hoy le cambiaría el precio a operaciones que ya pasaron.
+ * ⚠️ LA DIVISA NO ES OPCIONAL, Y ESTE COMENTARIO EXISTE PORQUE ME LA OLVIDÉ. La primera versión
+ * tomaba siempre la cotización del PESO y la aplicaba a cualquier moneda: a un cliente con cargas
+ * en guaraníes le quedó una deuda de 10.679 USDT cuando eran 2.815 — casi cuatro veces, por dividir
+ * guaraníes por el cambio del peso. Y no chillaba: daba un número perfectamente formateado.
  *
- * Si de ese día hay varias tomas se promedian: el peso se mueve todo el día y una sola foto es la
- * de esa hora, no la del día. Si no hay ninguna, se busca hacia atrás — nunca hacia adelante, que
- * sería usar una cotización que en ese momento no existía.
+ * Cada moneda tiene su fuente y su tabla:
+ *   · el PESO se cotiza contra el dólar cripto (tc_snapshots), varias veces por día;
+ *   · el resto sale de la fuente de cotizaciones (tc_divisa_snapshots), una por día.
+ * Mezclarlas no da un error, da una factura mal.
+ *
+ * Si de ese día hay varias tomas se promedian: la moneda se mueve todo el día y una sola foto es la
+ * de esa hora. Si no hay ninguna, se cae al TC resuelto del mes — y si tampoco hay, se devuelve
+ * null y la carga queda sin convertir en vez de convertirse mal.
  */
-function tcDelDia(fecha) {
+function tcDelDia(fecha, divisa = 'ARS') {
   const f = String(fecha || '').slice(0, 10);
+  const D = String(divisa || 'ARS').toUpperCase();
   if (!f) return null;
-  const delDia = tcStore.listSnapshots(f.slice(0, 7)).filter((x) => String(x.fecha).slice(0, 10) === f);
-  if (delDia.length) {
-    const suma = delDia.reduce((t, x) => money.add(t, String(x.tc_ars_usdt || '0')), '0');
-    return money.round(money.div(suma, String(delDia.length)), 4);
+  if (D === 'USD' || D === 'USDT') return '1';
+
+  if (D === 'ARS') {
+    const delDia = tcStore.listSnapshots(f.slice(0, 7)).filter((x) => String(x.fecha).slice(0, 10) === f);
+    if (delDia.length) {
+      const suma = delDia.reduce((t, x) => money.add(t, String(x.tc_ars_usdt || '0')), '0');
+      return money.round(money.div(suma, String(delDia.length)), 4);
+    }
+  } else {
+    const dias = tcDivisas.listDias(f.slice(0, 7), D).filter((x) => String(x.fecha).slice(0, 10) === f);
+    if (dias.length) {
+      const suma = dias.reduce((t, x) => money.add(t, String(x.tasa || '0')), '0');
+      return money.round(money.div(suma, String(dias.length)), 6);
+    }
   }
-  const antes = tcStore.listSnapshots().filter((x) => String(x.fecha).slice(0, 10) <= f)
-    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
-  return antes ? String(antes.tc_ars_usdt) : null;
+  // Sin foto de ese día: el TC resuelto del mes, que es el que usa el resto del sistema.
+  const t = tcUnico.tcDelMes(D, f.slice(0, 7));
+  return (t && t.valor && money.isPos(String(t.valor))) ? String(t.valor) : null;
 }
 
 /** El % base vigente de un cliente. Es lo que convierte una carga en deuda. */
@@ -107,7 +126,11 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
       enUsdt = deuda;                       // ya está en dólares, no hay nada que convertir
     } else {
       // `tcFijo` lo pasa la generación hacia atrás: es el TC del día de esa carga, no el de hoy.
-      const r = tcFijo ? { tc: tcFijo, vivo: true } : await tcSvc.tcAhora().catch(() => null);
+      // Y `tcAhora` es SÓLO del peso: para cualquier otra divisa hay que ir a la suya.
+      let r = null;
+      if (tcFijo) r = { tc: tcFijo, vivo: true };
+      else if (divisa === 'ARS') r = await tcSvc.tcAhora().catch(() => null);
+      else { const d = tcDelDia(new Date().toISOString(), divisa); r = d ? { tc: d, vivo: true } : null; }
       // `vivo` distingue una cotización de AHORA de la última que quedó guardada. Sólo se congela
       // con una viva: una vieja se vería igual de bien y estaría mal.
       if (r && r.vivo && money.isPos(String(r.tc))) {
@@ -209,7 +232,7 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
     if (String(p.estado) !== 'cargado') continue;
     const f = String(p.resueltoAt || p.createdAt || '');
     if (f.slice(0, 7) !== m) continue;
-    const tc = tcDelDia(f);
+    const tc = tcDelDia(f, p.divisa);
     if (simular) {
       const cli = clientes.getByCodigo(p.codigo);
       const base = cli ? baseDe(cli) : null;
@@ -235,4 +258,26 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
   return out;
 }
 
-module.exports = { porCarga, porAnulacion, generarMes, delMes, baseDe, tcDelDia };
+/**
+ * Borra la deuda generada por cargas de un mes, para poder rehacerla.
+ *
+ * Existe porque la primera corrida convirtió guaraníes con el cambio del peso. Borra SÓLO los
+ * movimientos que nacieron de una carga (tipo 'carga' con pedido_id): no toca pagos, ni ajustes, ni
+ * saldos anteriores, ni nada cargado a mano.
+ *
+ * Acá sí se borra en vez de contra-asentar, y la diferencia con una anulación es real: una
+ * anulación es algo que PASÓ y tiene que quedar en la historia; esto es un renglón que nunca
+ * debió existir con ese número. Dejar los dos sería contar como negocio un error de cálculo.
+ */
+function borrarMes(mes) {
+  const m = String(mes || '').slice(0, 7);
+  let n = 0;
+  movs.list({}).forEach((x) => {
+    if (x.tipo !== 'carga' || !x.pedido_id) return;
+    if (String(x.fecha || '').slice(0, 7) !== m) return;
+    if (movs.remove(x.id)) n += 1;
+  });
+  return { ok: true, mes: m, borrados: n };
+}
+
+module.exports = { porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia };

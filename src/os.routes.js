@@ -2465,6 +2465,18 @@ function mount(app) {
     ok(res, { ...r, simulado: b.aplicar !== true, pedidosDelMes: delMes.length });
   }));
 
+  /**
+   * Borrar la deuda generada por cargas de un mes, para poder rehacerla.
+   *
+   * Se pide con `confirmar: true` porque borra movimientos de la cuenta de los clientes. Sólo toca
+   * los que nacieron de una carga: no roza pagos, ajustes ni saldos anteriores.
+   */
+  app.post('/api/os/deuda/borrar-mes', wrap((req, res) => {
+    const b = req.body || {};
+    if (b.confirmar !== true) return err(res, 400, 'esto borra movimientos de la cuenta: mandá confirmar:true');
+    ok(res, deudaCargaSvc.borrarMes(String(b.mes || mesTZ()).slice(0, 7)));
+  }));
+
   app.post('/api/os/emision/facturacion', wrap(async (req, res) => {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
     // el mismo cálculo que muestra la pantalla, para que no puedan diferir
