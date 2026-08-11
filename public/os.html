@@ -1361,7 +1361,9 @@ async function verFactura(clienteId) {
   const cons = r.consumo ? ('<div class="card" style="margin:8px 0"><b>Cargas del mes</b>'
     + '<div class="muted" style="margin-top:4px">' + r.consumo.pedidos + ' carga(s) · ' + $(r.consumo.vendido_usdt) + ' USDT</div>'
     + '<table style="margin-top:6px"><tbody>' + (r.consumo.porDivisa||[]).map(d => '<tr><td>' + esc(d.divisa) + '</td><td class="right">' + money(d.vendido,2) + '</td><td class="right muted">TC ' + money(d.tc,2) + '</td><td class="right">' + money(d.vendidoUsdt,2) + ' USDT</td></tr>').join('') + '</tbody></table>'
-    + '<div style="margin-top:6px">Comisión <b>' + esc(r.consumo.base) + '%</b> → <b style="color:var(--gold)">' + $(r.consumo.total_usdt) + ' USDT</b></div></div>') : '';
+    + '<div style="margin-top:6px">Comisión <b>' + esc(r.consumo.base) + '%</b> → <b style="color:var(--gold)">' + $(r.consumo.total_usdt) + ' USDT</b>'
+    + (r.consumo.local ? ' <span class="muted">(' + $(r.consumo.local.comision) + ' ' + esc(r.consumo.local.divisa) + ')</span>' : '')
+    + '</div></div>') : '';
   const ex = r.externos;
   const extHtml = (ex && ex.items && ex.items.length)
     ? ('<div class="card" style="margin:8px 0"><b>Proveedores externos</b>'
@@ -1405,7 +1407,9 @@ async function verFactura(clienteId) {
     + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
     + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '') + '</div>'
     + cons + porPanel + det + extHtml
-    + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b></div>'
+    + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b>'
+    + (r.totalMes_local ? '<div style="margin-top:2px;font-weight:700;color:var(--muted)">' + (r.totalMes_local.aproximado?'≈ ':'') + $(r.totalMes_local.monto) + ' ' + esc(r.totalMes_local.divisa) + '</div>' : '')
+    + '</div>'
     + '<div class="card" style="margin:8px 0"><b>Cuenta corriente</b>'
     + '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>'
     + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo: ' + $(r.cuenta.saldo) + ' USDT</div>'

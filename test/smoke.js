@@ -262,6 +262,43 @@ async function main() {
   // Se deja como estaba para lo que venga después.
   await post('/api/os/_dev/seed-ventas', { reset: true, items: [{ codigo: 'L210', monto: '20000000', divisa: 'ARS' }] });
 
+  // ── LA FACTURA, TAMBIÉN EN LA MONEDA DEL CLIENTE ─────────────────────────────────────────────
+  // Se cobra en USDT pero el cliente vende en su moneda: quiere ver los 2.200.000 ARS al lado de
+  // los 1.490,51 USDT. La comisión local es EXACTA (el % sobre lo vendido en su moneda), no la
+  // conversión del total redondeado — convertir de vuelta da 2.200.005,64 y esos 5,64 no se
+  // pueden explicar.
+  {
+    r = await get('/api/os/factura/' + cli.id + '?mes=' + curMes);
+    const lo = (r.data.consumo || {}).local;
+    check('factura: la comisión también en la moneda del cliente',
+      !!lo && lo.divisa === 'ARS' && Math.abs(Number(lo.comision) - 2200000) < 0.01,
+      JSON.stringify(lo));
+    check('factura: la local es el % exacto, no el USDT convertido de vuelta',
+      !!lo && Number(lo.comision) !== Number((Number(r.data.consumo.total_usdt) * 1476).toFixed(2)),
+      'local=' + (lo || {}).comision + ' convertido=' + (Number(r.data.consumo.total_usdt) * 1476).toFixed(2));
+    check('factura: el total del mes lleva su equivalente local',
+      !!r.data.totalMes_local && r.data.totalMes_local.divisa === 'ARS'
+      && Math.abs(Number(r.data.totalMes_local.monto) - 2200000) < 0.01,
+      JSON.stringify(r.data.totalMes_local));
+    check('factura: el texto para mandar dice las dos monedas',
+      /1\.490,51 USDT/.test(r.data.texto) && /2\.200\.000,00 ARS/.test(r.data.texto),
+      (r.data.texto || '').split('\n').filter((l) => /USDT/.test(l)).join(' | '));
+  }
+
+  // Con DOS monedas no hay un total local que signifique nada: sumar guaraníes con pesos es el
+  // error que ya nos costó el Reparto. Se muestra el de cada renglón y NINGÚN total inventado.
+  {
+    await post('/api/os/_dev/seed-ventas', { reset: true, items: [
+      { codigo: 'L210', monto: '20000000', divisa: 'ARS' },
+      { codigo: 'L210', monto: '60000000', divisa: 'PYG' },
+    ] });
+    r = await get('/api/os/factura/' + cli.id + '?mes=' + curMes);
+    check('factura: con dos monedas NO se inventa un total local',
+      (r.data.consumo || {}).local === null && r.data.totalMes_local === null,
+      'local=' + JSON.stringify((r.data.consumo || {}).local) + ' total=' + JSON.stringify(r.data.totalMes_local));
+    await post('/api/os/_dev/seed-ventas', { reset: true, items: [{ codigo: 'L210', monto: '20000000', divisa: 'ARS' }] });
+  }
+
   // ── Corregir un costo DENTRO de una foto congelada. Lo peligroso no es el número que se
   // cambia, es todo lo que NO se tiene que mover: celdas, clientes y vínculos del mes cerrado.
   {

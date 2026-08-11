@@ -135,6 +135,8 @@ function pagina({ factura: f, actualizado_at, token }) {
  .tot{margin:10px 0 0;font-size:15px}
  .big{background:linear-gradient(180deg,#fff,#fdf6fc);border-color:var(--g)}
  .big .n{font-size:30px;font-weight:800;color:var(--g);letter-spacing:-.02em}
+ /* El mismo total en la moneda del cliente: más chico porque es el mismo cobro, no otro. */
+ .big .n2{font-size:19px;font-weight:700;color:#6b6470;margin-top:2px}
  .saldo{font-size:22px;font-weight:800}
  .pie{color:var(--m);font-size:12px;text-align:center;margin-top:26px;line-height:1.7}
  .acc{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0}
@@ -157,7 +159,7 @@ function pagina({ factura: f, actualizado_at, token }) {
  ${f.consumo ? `<div class="card"><h2>Cargas del mes</h2>
    <p class="m">${f.consumo.pedidos} carga(s) en el mes. Cada moneda se pasa a USDT con el tipo de cambio del período.</p>
    <table><tbody>${filaDiv}</tbody></table>
-   <p class="tot">Comisión <b>${esc(f.consumo.base)}%</b> sobre ${$(f.consumo.vendido_usdt)} USDT → <b>${$(f.consumo.total_usdt)} USDT</b></p>
+   <p class="tot">Comisión <b>${esc(f.consumo.base)}%</b> sobre ${$(f.consumo.vendido_usdt)} USDT → <b>${$(f.consumo.total_usdt)} USDT</b>${f.consumo.local ? ` <span class="m">(${$(f.consumo.local.comision)} ${esc(f.consumo.local.divisa)})</span>` : ''}</p>
    </div>` : ''}
 
  ${porPanel ? `<div class="card"><h2>Por panel</h2>
@@ -166,7 +168,7 @@ function pagina({ factura: f, actualizado_at, token }) {
 
  ${extHtml}
 
- <div class="card big"><h2>Total del mes</h2><div class="n">${$(f.totalMes_usdt)} USDT</div></div>
+ <div class="card big"><h2>Total del mes</h2><div class="n">${$(f.totalMes_usdt)} USDT</div>${f.totalMes_local ? `<div class="n2">${f.totalMes_local.aproximado ? '≈ ' : ''}${$(f.totalMes_local.monto)} ${esc(f.totalMes_local.divisa)}</div>` : ''}</div>
 
  <div class="card"><h2>Tu cuenta</h2>
   <table><tbody>

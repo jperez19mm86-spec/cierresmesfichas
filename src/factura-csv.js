@@ -34,6 +34,9 @@ function planilla(f) {
     L.push(fila(['Moneda', 'Cargado', 'Tipo de cambio', 'USDT']));
     (f.consumo.porDivisa || []).forEach((d) => L.push(fila([d.divisa, num(d.vendido), num(d.tc), num(d.vendidoUsdt)])));
     L.push(fila(['', '', `Comisión ${f.consumo.base}%`, num(f.consumo.total_usdt)]));
+    // La misma comisión en la moneda del cliente, en su propia columna: el que abre esto en una
+    // planilla la quiere como número, no adentro de un texto entre paréntesis.
+    if (f.consumo.local) L.push(fila(['', '', `Comisión en ${f.consumo.local.divisa}`, num(f.consumo.local.comision)]));
     L.push('');
   }
 

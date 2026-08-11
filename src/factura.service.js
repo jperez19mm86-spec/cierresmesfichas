@@ -183,6 +183,39 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
 
   const delMes = money.add(cons ? cons.total_usdt : '0', (ext && ext.total_usdt) ? ext.total_usdt : '0');
 
+  // ── 4) LO MISMO, EN LA MONEDA DEL CLIENTE ────────────────────────────────────────────────────
+  // Se cobra en USDT, pero el cliente vende en su moneda y piensa en su moneda: "2.860.000 ARS" le
+  // dice algo que "1.816,89 USDT" no. Es el mismo cobro visto de los dos lados, no otro cobro.
+  //
+  // La comisión local es EXACTA, no una conversión: es el mismo % sobre lo que vendió en su
+  // moneda, que es de donde sale el número en USDT. Convertir el total redondeado de vuelta daría
+  // 2.859.998,40 en vez de 2.860.000 y no habría forma de explicar esos 1,60.
+  //
+  // Sólo existe si vendió en UNA sola moneda. Con dos o más no hay un número local que signifique
+  // nada —sumar guaraníes con pesos es exactamente el error que nos costó el Reparto— así que ahí
+  // no se muestra ninguno y cada moneda queda con el suyo en su renglón.
+  let local = null;
+  {
+    const divs = ((cons && cons.porDivisa) || []).filter((d) => money.isPos(String(d.vendido || '0')));
+    const una = divs.length === 1 ? divs[0] : null;
+    const esLocal = una && !['USDT', 'USD'].includes(String(una.divisa || '').toUpperCase());
+    if (esLocal && money.isPos(String(una.fee || '0'))) {
+      // Los externos vienen en USDT: se pasan a la moneda con el MISMO TC de esa moneda, que es el
+      // que ya se usó para traerlos. Sin externos, el total local es la comisión y punto.
+      const extLocal = (ext && money.isPos(String(ext.total_usdt || '0')) && money.isPos(String(una.tc || '0')))
+        ? money.mul(String(ext.total_usdt), String(una.tc)) : '0';
+      local = {
+        divisa: String(una.divisa), tc: una.tc != null ? String(una.tc) : null,
+        comision: money.round(String(una.fee), 2),
+        total: money.round(money.add(String(una.fee), extLocal), 2),
+        // Con externos el total lleva una parte convertida desde USDT, y eso se dice: el cliente
+        // tiene que poder distinguir el número exacto del que salió de un tipo de cambio.
+        aproximado: money.isPos(extLocal),
+      };
+    }
+  }
+  if (cons) cons.local = local;
+
   return {
     ok: true,
     cliente: { id: cli.id, codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
@@ -193,6 +226,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
     detalle, porPanel,
     externos: ext,
     totalMes_usdt: money.round(delMes, 2),
+    totalMes_local: local ? { divisa: local.divisa, monto: local.total, aproximado: local.aproximado } : null,
     cuenta: {
       consumo_pendiente: cuenta.fichas_pendientes,
       externos_pendiente: cuenta.proveedores_pendientes,
@@ -224,7 +258,9 @@ function aTexto(f, { detalle = false } = {}) {
     L.push('<b>Cargas del mes</b>');
     L.push(`  ${f.consumo.pedidos} carga(s) · ${$(f.consumo.vendido_usdt)} USDT`);
     (f.consumo.porDivisa || []).forEach((d) => L.push(`     ${esc(d.divisa)} ${$(d.vendido)}`));
-    L.push(`  Comisión ${esc(f.consumo.base)}% → <b>${$(f.consumo.total_usdt)} USDT</b>`);
+    const lo = f.consumo.local;
+    L.push(`  Comisión ${esc(f.consumo.base)}% → <b>${$(f.consumo.total_usdt)} USDT</b>`
+      + (lo ? ` (${$(lo.comision)} ${esc(lo.divisa)})` : ''));
     L.push('');
   }
 
@@ -256,7 +292,9 @@ function aTexto(f, { detalle = false } = {}) {
     L.push('');
   }
 
-  L.push(`<b>TOTAL DEL MES: ${$(f.totalMes_usdt)} USDT</b>`);
+  const tl = f.totalMes_local;
+  L.push(`<b>TOTAL DEL MES: ${$(f.totalMes_usdt)} USDT</b>`
+    + (tl ? ` <b>(${tl.aproximado ? '≈ ' : ''}${$(tl.monto)} ${esc(tl.divisa)})</b>` : ''));
   L.push('');
   L.push(`Saldo de la cuenta: <b>${$(f.cuenta.saldo)} USDT</b>`);
   if (Number(f.pagadoMes) > 0) L.push(`(pagado este mes: ${$(f.pagadoMes)} USDT)`);
