@@ -16,10 +16,10 @@ async function sendMessage(botToken, chatId, text) {
       { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true },
       { timeout: 12000, validateStatus: () => true }
     );
-    if (r.data && r.data.ok) return { ok: true, messageId: r.data.result.message_id };
-    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status) };
+    if (r.data && r.data.ok) return { ok: true, messageId: r.data.result.message_id, metodo: 'texto' };
+    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status), metodo: 'texto' };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: e.message, metodo: 'texto' };
   }
 }
 
@@ -75,9 +75,9 @@ async function sendArchivo(botToken, chatId, { archivo, nombre, mime, caption })
       nombre || (esFoto ? 'comprobante.jpg' : 'comprobante'));
     const r = await axios.post(`https://api.telegram.org/bot${botToken}/${metodo}`, fd,
       { timeout: 30000, validateStatus: () => true });   // 30s: sube bytes, no un texto
-    if (r.data && r.data.ok) return { ok: true, messageId: r.data.result.message_id };
-    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status) };
-  } catch (e) { return { ok: false, error: e.message }; }
+    if (r.data && r.data.ok) return { ok: true, messageId: r.data.result.message_id, metodo };
+    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status), metodo };
+  } catch (e) { return { ok: false, error: e.message, metodo }; }
 }
 
 /** Texto del aviso de carga exitosa. */
