@@ -1477,6 +1477,38 @@ async function main() {
     check('pulso: el módulo carga', carga === true, carga === true ? '' : String(carga));
   }
 
+  // ── UN AVISO QUE NO SALIÓ TIENE QUE VERSE ──
+  //
+  // Un comprobante no llegó al grupo porque el bot no estaba adentro. El envío falló en un
+  // console.warn que se pierde entre despliegues: ni el cliente ni la dueña se enteraron, y lo que
+  // se nota es un reclamo semanas después. De paso apareció un tercer grupo roto que nadie sabía.
+  {
+    const cs = require('../src/comprobantes-store');
+    check('comprobante: se puede anotar si el aviso salió', typeof cs.marcarAviso === 'function');
+    const store = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'comprobantes-store.js'), 'utf8');
+    check('comprobante: la lista trae el estado del aviso', /aviso_ok, aviso_error, aviso_at/.test(store));
+
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('comprobante: el aviso vive en una función reusable', /async function avisarComprobante/.test(idx));
+    check('comprobante: se anota SIEMPRE, salga o no', /comprobantes\.marcarAviso\(c\.id, aviso\)/.test(idx));
+    // Sin grupo o sin bot no es "no se intentó": es un aviso que no salió, y hay que verlo igual.
+    check('comprobante: sin bot o sin grupo también queda anotado como fallado',
+      /el bot de Telegram no está configurado/.test(idx) && /no hay grupo cargado para/.test(idx));
+    check('comprobante: hay forma de reintentar el aviso', /\/api\/os\/comprobantes\/:id\/reavisar/.test(idx));
+
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('comprobante: la pantalla muestra que el aviso no llegó', /El aviso NO llegó al grupo/.test(html));
+    check('comprobante: y ofrece reintentarlo', /function cmpReavisar/.test(html));
+
+    // Y el diagnóstico que encontró todo esto: pregunta sin escribirle a ningún grupo.
+    const tg = require('../src/telegram');
+    check('telegram: se puede comprobar un chat sin mandarle nada', typeof tg.verChat === 'function');
+    const tgSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'telegram.js'), 'utf8');
+    const fn = tgSrc.slice(tgSrc.indexOf('async function verChat'), tgSrc.indexOf('/** Texto del aviso de carga'));
+    check('telegram: verChat usa getChat y NO sendMessage',
+      /getChat/.test(fn) && !/sendMessage/.test(fn));
+  }
+
   // ── ANULAR CORRIGE EL AVISO QUE YA SALIÓ ──
   //
   // Al grupo le llegó "✅ Carga acreditada". Si después se retiran las fichas y no se dice nada, el

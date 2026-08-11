@@ -562,4 +562,10 @@ ensureColumns('documento_emitido', { congelado: 'INTEGER', datos_hash: 'TEXT', c
    y en una cadena que retira y carga, repetir no es cargar de más: es descuadrar dos cuentas. */
 ensureColumns('movimiento_panel', { pasos: 'TEXT' });
 
+/* Si el aviso del comprobante llegó al grupo, y si no, por qué.
+   Antes esto era un console.warn que se perdía entre despliegues: un comprobante no llegaba al
+   grupo y no había forma de saber si el problema era el id, el bot o el permiso. Guardarlo es lo
+   que permite verlo en la pantalla y reintentarlo en vez de descubrirlo por un reclamo. */
+ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_at: 'TEXT' });
+
 module.exports = { db, DB_PATH, ensureColumns };

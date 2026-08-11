@@ -571,13 +571,30 @@ app.post('/api/comprobante', async (req, res) => {
   push.notifyNuevoComprobante({ ...c, clienteNombre: cli.nombreVisible || cli.nombre, codigo: cli.codigo });
 
   // Aviso al grupo del camino que usó: ARS y USDT van a grupos distintos.
+  let aviso = await avisarComprobante(c, cli);
+  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa }, aviso });
+});
+
+/**
+ * Manda al grupo el aviso de un comprobante, y DEJA ANOTADO si salió.
+ *
+ * Está aparte porque se usa dos veces: al recibirlo y al reintentar desde el panel. Antes vivía
+ * dentro de la ruta y el resultado se perdía en un console.warn — un comprobante no llegaba al
+ * grupo y no había forma de saber si el problema era el id, el bot o el permiso. Ahora queda en la
+ * fila y se ve en la pantalla.
+ */
+async function avisarComprobante(c, cli) {
   const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();
   let aviso = null;
-  if (tok && chat) {
+  if (!tok || !chat) {
+    aviso = { ok: false, error: !tok ? 'el bot de Telegram no está configurado' : `no hay grupo cargado para ${c.via === 'usdt' ? 'USDT' : 'pesos'}` };
+  } else {
     const txt = [
       `🧾 <b>Pago avisado</b> — ${c.via === 'usdt' ? 'USDT' : 'ARS'}`,
-      `Cliente: <b>${cli.nombreVisible || cli.codigo}</b> (${cli.codigo})`,
+      // `cli` puede no estar si el cliente se borró entre que avisó y que se reintenta el aviso:
+      // el comprobante igual tiene el código, que es lo que identifica al que pagó.
+      `Cliente: <b>${(cli && (cli.nombreVisible || cli.codigo)) || c.codigo}</b> (${c.codigo})`,
       `Monto declarado: <b>${c.monto} ${c.divisa}</b>`,
       c.referencia ? `Referencia: <code>${c.referencia}</code>` : null,
       c.notas ? `Nota: ${c.notas}` : null,
@@ -588,7 +605,19 @@ app.post('/api/comprobante', async (req, res) => {
     try { aviso = await telegram.sendMessage(tok, chat, txt); }
     catch (e) { aviso = { ok: false, error: String((e && e.message) || e) }; }
   }
-  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa }, aviso });
+  try { comprobantes.marcarAviso(c.id, aviso); }
+  catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso:', e.message); }
+  if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
+  return aviso;
+}
+
+/** Reintentar el aviso de un comprobante que no llegó al grupo. */
+app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
+  const c = comprobantes.get(req.params.id);
+  if (!c) return res.status(404).json({ ok: false, error: 'no encontré ese comprobante' });
+  const cli = clientes.getByCodigo(c.codigo);
+  const aviso = await avisarComprobante(c, cli);
+  return aviso.ok ? res.json({ ok: true, aviso }) : res.status(502).json({ ok: false, error: aviso.error });
 });
 /**
  * El cliente PIDE MOVER fichas de un panel suyo a otro. No mueve nada: queda pendiente hasta que

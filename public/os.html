@@ -1482,6 +1482,14 @@ async function pintarComprobantes(estado, conFiltros) {
       +   '<div style="flex:0;text-align:right"><div class="muted" style="font-size:11px">declarado</div><div style="font-size:19px;font-weight:800">' + money(c.monto,2) + ' ' + esc(c.divisa) + '</div></div>'
       + '</div>'
       + '<div style="margin-top:8px">' + arch + (c.notas ? ' <span class="muted">' + esc(c.notas) + '</span>' : '') + '</div>'
+      // ── ¿EL AVISO AL GRUPO SALIÓ? ────────────────────────────────────────────────────────────
+      // Antes esto no se veía en ningún lado: el envío fallaba, se escribía en un log que se pierde
+      // entre despliegues, y lo que se notaba era un reclamo del cliente semanas después.
+      + (c.aviso_ok === 0
+        ? '<div class="nota err" style="margin-top:8px"><span class="tit">⚠️ El aviso NO llegó al grupo</span>'
+          + esc(c.aviso_error || 'sin detalle')
+          + ' <button class="small" style="margin-left:8px" onclick="cmpReavisar(\'' + c.id + '\')">Reintentar el aviso</button></div>'
+        : (c.aviso_ok === 1 ? '<div class="muted" style="margin-top:6px;font-size:11px">✅ avisado al grupo</div>' : ''))
       + (pend
         ? '<div class="row" style="margin-top:10px;align-items:flex-end">'
           + '<div style="flex:0"><label>Acreditar (USDT)</label><input id="cmp-u-' + c.id + '" placeholder="ej 250" style="width:120px"></div>'
@@ -1502,6 +1510,15 @@ async function pintarComprobantes(estado, conFiltros) {
     + '</div>'
     + (cs.length ? cs.map(fila).join('')
       : '<div class="card"><div class="empty">' + (estado === 'pendiente' ? '✅ No hay nada esperando aprobación.' : 'No hay comprobantes acá.') + '</div></div>');
+}
+
+/* Reintentar el aviso de un comprobante que no llegó al grupo. Es el mismo envío, no uno nuevo:
+   si el motivo era el bot afuera del grupo o un id viejo, se arregla eso y con esto sale. */
+async function cmpReavisar(id){
+  const r = await api('/api/os/comprobantes/'+id+'/reavisar',{method:'POST',body:'{}'});
+  if(!r.ok) return alert('Sigue sin salir:\n\n'+(r.error||'')+'\n\nRevisá el grupo en ⚙️ Config → Medios de pago.');
+  toast('Avisado');
+  VIEWS.comprobantes && VIEWS.comprobantes();
 }
 
 async function cmpResolver(id, estado) {

@@ -65,7 +65,8 @@ function list({ estado = null, codigo = null, limite = 200 } = {}) {
   if (codigo) { donde.push('codigo=?'); args.push(String(codigo)); }
   const w = donde.length ? 'WHERE ' + donde.join(' AND ') : '';
   return db.prepare(`SELECT id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado,
-    archivo_nombre, archivo_tipo, archivo_bytes, creado_at, resuelto_at, resuelto_por, motivo, movimiento_id
+    archivo_nombre, archivo_tipo, archivo_bytes, creado_at, resuelto_at, resuelto_por, motivo, movimiento_id,
+    aviso_ok, aviso_error, aviso_at
     FROM comprobantes ${w} ORDER BY creado_at DESC LIMIT ?`).all(...args, Number(limite) || 200);
 }
 
@@ -90,4 +91,18 @@ function resolver(id, { estado, por = '', motivo = '', movimiento_id = null }) {
   return { ok: true, comprobante: get(id) };
 }
 
-module.exports = { crear, get, list, cuentas, resolver, MAX_BYTES, ESTADOS };
+/**
+ * Deja anotado si el aviso al grupo salió o no.
+ *
+ * Se guarda SIEMPRE, salió bien o mal: un aviso que no salió es una cosa que hay que hacer, y si
+ * no queda escrita no la hace nadie. El error va con el texto crudo de Telegram ("chat not found",
+ * "bot was kicked") porque es lo único que distingue un id viejo de un bot que no es miembro.
+ */
+function marcarAviso(id, { ok, error }) {
+  db.prepare('UPDATE comprobantes SET aviso_ok=?, aviso_error=?, aviso_at=? WHERE id=?')
+    .run(ok ? 1 : 0, ok ? null : String(error || 'no se pudo avisar').slice(0, 300),
+      new Date().toISOString(), String(id));
+  return get(id);
+}
+
+module.exports = { marcarAviso, crear, get, list, cuentas, resolver, MAX_BYTES, ESTADOS };
