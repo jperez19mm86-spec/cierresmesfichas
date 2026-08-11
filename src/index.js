@@ -120,6 +120,9 @@ app.use(auth.required);
 // `sistemaParaCargar`). Las rutas del OS lo necesitan para mover fichas, y se lo pasamos por el app
 // en vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
 app.set('sistemaParaCargar', sistemaParaCargar);
+// El aviso del comprobante lo dispara la aprobación, que vive en os.routes. Se pasa por el app en
+// vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
+app.set('avisarComprobante', avisarComprobante);
 require('./os.routes').mount(app);
 
 // ─────────────── SISTEMAS (CRUD) ───────────────
@@ -570,9 +573,12 @@ app.post('/api/comprobante', async (req, res) => {
   // quien tiene el panel instalado, que es quien lo va a aprobar. Sin esto había que estar mirando.
   push.notifyNuevoComprobante({ ...c, clienteNombre: cli.nombreVisible || cli.nombre, codigo: cli.codigo });
 
-  // Aviso al grupo del camino que usó: ARS y USDT van a grupos distintos.
-  let aviso = await avisarComprobante(c, cli);
-  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa }, aviso });
+  // ⚠️ ACÁ NO SE AVISA AL GRUPO. Antes sí, y el mensaje decía "queda pendiente hasta que se
+  // apruebe": el grupo se enteraba de algo que todavía no pasó y después nadie confirmaba si había
+  // pasado. El aviso va cuando el pago SE ACREDITA, que es el hecho que importa (ver el resolver
+  // en os.routes). Para que la dueña se entere de que hay uno esperando está el push, que le llega
+  // al teléfono aunque no esté mirando.
+  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa } });
 });
 
 /**
@@ -583,13 +589,37 @@ app.post('/api/comprobante', async (req, res) => {
  * grupo y no había forma de saber si el problema era el id, el bot o el permiso. Ahora queda en la
  * fila y se ve en la pantalla.
  */
-async function avisarComprobante(c, cli) {
+async function avisarComprobante(c, cli, montoUsdt) {
   const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();
   let aviso = null;
   if (!tok || !chat) {
     aviso = { ok: false, error: !tok ? 'el bot de Telegram no está configurado' : `no hay grupo cargado para ${c.via === 'usdt' ? 'USDT' : 'pesos'}` };
   } else {
+    const nombre = (cli && (cli.nombreVisible || cli.nombre)) || c.cliente_nombre || c.codigo;
+    const texto = telegram.pagoText({ cliente: nombre, montoUsdt: montoUsdt != null ? montoUsdt : c.monto });
+    // Con el comprobante adentro: el que mira el grupo no tiene que entrar al OS para verlo.
+    const conArchivo = comprobantes.get(c.id, true);
+    if (conArchivo && conArchivo.archivo_datos) {
+      try {
+        aviso = await telegram.sendArchivo(tok, chat, {
+          archivo: Buffer.from(conArchivo.archivo_datos, 'base64'),
+          nombre: conArchivo.archivo_nombre, mime: conArchivo.archivo_tipo, caption: texto,
+        });
+      } catch (e) { aviso = { ok: false, error: String((e && e.message) || e) }; }
+    } else {
+      try { aviso = await telegram.sendMessage(tok, chat, texto + '\n<i>sin comprobante adjunto</i>'); }
+      catch (e) { aviso = { ok: false, error: String((e && e.message) || e) }; }
+    }
+  }
+  try { comprobantes.marcarAviso(c.id, aviso); }
+  catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso:', e.message); }
+  if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
+  return aviso;
+}
+
+/** El texto largo de antes, que ya no se usa pero deja ver qué se dejó de mandar. */
+function _textoViejoComprobante(c, cli) {
     const txt = [
       `🧾 <b>Pago avisado</b> — ${c.via === 'usdt' ? 'USDT' : 'ARS'}`,
       // `cli` puede no estar si el cliente se borró entre que avisó y que se reintenta el aviso:
@@ -602,21 +632,24 @@ async function avisarComprobante(c, cli) {
       '',
       'Queda <b>pendiente</b> hasta que se apruebe en el panel.',
     ].filter(Boolean).join('\n');
-    try { aviso = await telegram.sendMessage(tok, chat, txt); }
-    catch (e) { aviso = { ok: false, error: String((e && e.message) || e) }; }
-  }
-  try { comprobantes.marcarAviso(c.id, aviso); }
-  catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso:', e.message); }
-  if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
-  return aviso;
+  return txt;
+}
+
+/** Cuántos USDT se acreditaron de verdad: sale del movimiento que creó la aprobación. */
+function montoAcreditado(c) {
+  if (!c.movimiento_id) return null;
+  try { const m = require('./movimientos-store').get(c.movimiento_id); return m ? m.monto_usdt : null; }
+  catch (e) { return null; }
 }
 
 /** Reintentar el aviso de un comprobante que no llegó al grupo. */
 app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   const c = comprobantes.get(req.params.id);
   if (!c) return res.status(404).json({ ok: false, error: 'no encontré ese comprobante' });
+  // Sólo tiene sentido reavisar algo aprobado: es el aviso de "pago realizado".
+  if (c.estado !== 'aprobado') return res.status(400).json({ ok: false, error: `ese comprobante está "${c.estado}": el aviso sale cuando se aprueba` });
   const cli = clientes.getByCodigo(c.codigo);
-  const aviso = await avisarComprobante(c, cli);
+  const aviso = await avisarComprobante(c, cli, montoAcreditado(c));
   return aviso.ok ? res.json({ ok: true, aviso }) : res.status(502).json({ ok: false, error: aviso.error });
 });
 /**
@@ -780,8 +813,14 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
         if (cli && dest.chatId && dest.enabled && tok) {
           telegram.sendMessage(tok, dest.chatId, telegram.cargaText({
             clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
-          })).then((tr) => { if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })
-            .catch((e) => console.warn('[Telegram] aviso error:', e.message));
+          })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })
+            .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso error:', e.message); });
+        } else {
+          // Sin grupo o sin bot NO es "no había que avisar": es un aviso que no salió, y hay que
+          // poder verlo. Antes esto no dejaba rastro de ninguna clase.
+          pedidos.marcarAviso(p.id, { ok: false,
+            error: !tok ? 'el bot de Telegram no está configurado'
+              : (!dest.chatId ? 'el cliente no tiene grupo (ni lo hereda de su vendedor)' : 'los avisos están apagados para ese grupo') });
         }
       } catch (e) { console.warn('[Telegram] aviso error:', e.message); }
       return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });
@@ -868,8 +907,12 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
         if (cliA && destA.chatId && destA.enabled && tokA) {
           telegram.sendMessage(tokA, destA.chatId, telegram.anulacionText({
             cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
-          })).then((tr) => { if (!tr.ok) console.warn('[Telegram] aviso de anulación falló:', tr.error); })
-            .catch((e) => console.warn('[Telegram] aviso de anulación error:', e.message));
+          })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso de anulación falló:', tr.error); })
+            .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso de anulación error:', e.message); });
+        } else {
+          pedidos.marcarAviso(p.id, { ok: false,
+            error: !tokA ? 'el bot de Telegram no está configurado'
+              : (!destA.chatId ? 'el cliente no tiene grupo (ni lo hereda de su vendedor)' : 'los avisos están apagados para ese grupo') });
         }
       } catch (e) { console.warn('[Telegram] aviso de anulación error:', e.message); }
       return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });

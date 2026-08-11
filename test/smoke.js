@@ -1490,6 +1490,33 @@ async function main() {
 
     const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('comprobante: el aviso vive en una función reusable', /async function avisarComprobante/.test(idx));
+
+    // ── EL AVISO SALE CUANDO SE APRUEBA, NO CUANDO SE RECIBE ──
+    // Antes salía al subirlo y decía "queda pendiente": el grupo se enteraba de algo que todavía no
+    // había pasado, y después nadie confirmaba si pasó.
+    const rutaCrear = idx.slice(idx.indexOf("app.post('/api/comprobante'"), idx.indexOf('async function avisarComprobante'));
+    check('comprobante: al RECIBIRLO ya no se avisa al grupo', !/avisarComprobante\(/.test(rutaCrear));
+    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const resolver = rutas.slice(rutas.indexOf("comprobantes/:id/resolver"), rutas.indexOf('LA FOTO DEL MES'));
+    check('comprobante: al APROBARLO sí se avisa', /avisarComprobante/.test(resolver));
+    check('comprobante: el aviso no puede tumbar un pago ya registrado',
+      /Promise\.resolve\(avisar\(/.test(resolver) && /\.catch\(/.test(resolver));
+
+    // ── VA LA FOTO, Y EL MONTO ACREDITADO ──
+    const tg2 = require('../src/telegram');
+    check('comprobante: se puede mandar el archivo al grupo', typeof tg2.sendArchivo === 'function');
+    const tgSrc2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'telegram.js'), 'utf8');
+    const fnA = tgSrc2.slice(tgSrc2.indexOf('async function sendArchivo'), tgSrc2.indexOf('/** Texto del aviso de carga'));
+    // Una foto se recomprime y a un PDF Telegram lo rechaza como foto: no da lo mismo el método.
+    check('comprobante: una imagen va como foto y lo demás como documento',
+      /sendPhoto/.test(fnA) && /sendDocument/.test(fnA) && /\^image\\\//.test(fnA));
+    const txt2 = tg2.pagoText({ cliente: 'Rafael', montoUsdt: '1000' });
+    check('comprobante: el texto es corto — quién y cuánto',
+      /Pago realizado/.test(txt2) && /Rafael/.test(txt2) && /1\.000 USDT/.test(txt2)
+      && txt2.split('\n').length === 3, JSON.stringify(txt2));
+    check('comprobante: no dice "queda pendiente" nunca más', !/queda.*pendiente/i.test(txt2));
+    // El declarado y el acreditado son dos números distintos: va el que se acreditó.
+    check('comprobante: el aviso usa el monto ACREDITADO', /montoAcreditado/.test(idx));
     check('comprobante: se anota SIEMPRE, salga o no', /comprobantes\.marcarAviso\(c\.id, aviso\)/.test(idx));
     // Sin grupo o sin bot no es "no se intentó": es un aviso que no salió, y hay que verlo igual.
     check('comprobante: sin bot o sin grupo también queda anotado como fallado',
@@ -1499,6 +1526,21 @@ async function main() {
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('comprobante: la pantalla muestra que el aviso no llegó', /El aviso NO llegó al grupo/.test(html));
     check('comprobante: y ofrece reintentarlo', /function cmpReavisar/.test(html));
+
+    // ── LA CARGA TAMBIÉN ANOTA SI AVISÓ ──
+    // Es el otro aviso que salía fire-and-forget: si no llegaba, no quedaba rastro en ningún lado.
+    const ps = require('../src/pedidos-store');
+    check('carga: se puede anotar si el aviso salió', typeof ps.marcarAviso === 'function');
+    check('carga: la carga anota el resultado del aviso', /pedidos\.marcarAviso\(p\.id, tr\)/.test(idx));
+    check('carga: sin grupo o sin bot también queda anotado',
+      /el cliente no tiene grupo \(ni lo hereda de su vendedor\)/.test(idx));
+    check('carga: la anulación anota igual',
+      (idx.match(/pedidos\.marcarAviso/g) || []).length >= 4, String((idx.match(/pedidos\.marcarAviso/g) || []).length));
+    // La factura NO necesita esto: se manda con un botón y el resultado vuelve a la pantalla en el
+    // momento. El problema del silencio es de los avisos automáticos, no de los que uno dispara.
+    const rutasF = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('factura: el envío informa el resultado en el momento',
+      /no tiene grupo de Telegram, ni él ni su vendedor/.test(rutasF));
 
     // Y el diagnóstico que encontró todo esto: pregunta sin escribirle a ningún grupo.
     const tg = require('../src/telegram');

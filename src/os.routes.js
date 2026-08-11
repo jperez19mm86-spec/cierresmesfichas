@@ -945,6 +945,17 @@ function mount(app) {
     const mov = movs.create({ cliente_id: cli.id, tipo: 'pago', monto_usdt: montoUsdt, fecha: b.fecha, notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
     const r = comprobantes.resolver(req.params.id, { estado: 'aprobado', por: 'panel', motivo: b.motivo, movimiento_id: mov.id });
     if (!r.ok) return err(res, 400, r.error);
+    // ── EL AVISO AL GRUPO VA ACÁ, NO AL RECIBIRLO ────────────────────────────────────────────
+    // Antes salía cuando el cliente subía el comprobante y decía "queda pendiente": el grupo se
+    // enteraba de algo que todavía no había pasado, y después nadie confirmaba si pasó. Ahora sale
+    // cuando el pago está ACREDITADO, con la foto adentro y con el monto que se acreditó de verdad
+    // —no el que declaró el cliente, que pueden ser dos números distintos.
+    // Fire-and-forget: que Telegram no conteste no puede tumbar un pago ya registrado.
+    const avisar = req.app.get('avisarComprobante');
+    if (typeof avisar === 'function') {
+      Promise.resolve(avisar(comprobantes.get(req.params.id), cli, montoUsdt))
+        .catch((e) => console.warn('[Comprobante] aviso error:', e.message));
+    }
     ok(res, { ...r, movimiento: mov, deuda: deudaSvc.cuentaCorriente(cli.id) });
   }));
   // ───────── 📸 LA FOTO DEL MES ─────────

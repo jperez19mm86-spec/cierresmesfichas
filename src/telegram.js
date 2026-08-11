@@ -47,6 +47,39 @@ async function verChat(botToken, chatId) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
+/**
+ * Manda un ARCHIVO al grupo, con un texto al pie.
+ *
+ * El comprobante de un pago es una imagen: mandar "adjuntó comprobante" y que haya que entrar al
+ * OS para verla convierte un aviso en una tarea. Con la foto adentro, el que mira el grupo ya sabe
+ * si el pago está bien.
+ *
+ * Se elige el método por el tipo de archivo, y no da lo mismo: `sendPhoto` RECOMPRIME la imagen —
+ * bien para una captura, y encima Telegram rechaza un PDF por ahí. Los PDF van como documento, que
+ * los deja intactos.
+ *
+ * @param archivo  Buffer con los bytes
+ */
+async function sendArchivo(botToken, chatId, { archivo, nombre, mime, caption }) {
+  if (!botToken) return { ok: false, error: 'Bot de Telegram no configurado (falta el token)' };
+  if (!chatId) return { ok: false, error: 'no hay grupo (chatId) configurado' };
+  if (!archivo || !archivo.length) return { ok: false, error: 'el comprobante no tiene archivo' };
+  const esFoto = /^image\//i.test(String(mime || ''));
+  const metodo = esFoto ? 'sendPhoto' : 'sendDocument';
+  try {
+    const fd = new FormData();
+    fd.append('chat_id', String(chatId));
+    if (caption) { fd.append('caption', caption); fd.append('parse_mode', 'HTML'); }
+    fd.append(esFoto ? 'photo' : 'document',
+      new Blob([archivo], { type: mime || 'application/octet-stream' }),
+      nombre || (esFoto ? 'comprobante.jpg' : 'comprobante'));
+    const r = await axios.post(`https://api.telegram.org/bot${botToken}/${metodo}`, fd,
+      { timeout: 30000, validateStatus: () => true });   // 30s: sube bytes, no un texto
+    if (r.data && r.data.ok) return { ok: true, messageId: r.data.result.message_id };
+    return { ok: false, error: (r.data && r.data.description) || ('HTTP ' + r.status) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 /** Texto del aviso de carga exitosa. */
 function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
@@ -72,6 +105,19 @@ function movimientoText({ origen, destino, divisa, monto }) {
     + `↖️ De: ${cuenta(origen)}\n`
     + `↘️ A: ${cuenta(destino)}\n`
     + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
+}
+
+/**
+ * El aviso de que un pago quedó acreditado. Corto a propósito: lo pidió así el dueño y tiene razón
+ * — al grupo le sirve saber QUIÉN pagó y CUÁNTO, y el resto es ruido que hay que leer igual.
+ *
+ * Va el monto ACREDITADO, no el declarado. Son dos números distintos: el cliente dice que mandó
+ * 1000 y el que aprueba confirma lo que entró de verdad. Poner el declarado sería avisarle al grupo
+ * un pago que capaz no es el que se registró.
+ */
+function pagoText({ cliente, montoUsdt }) {
+  const m = Number(montoUsdt).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return `✅ <b>Pago realizado</b>\n${escapeHtml(cliente || '')}\n<b>${m} USDT</b>`;
 }
 
 /**
@@ -110,4 +156,4 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
  */
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
-module.exports = { sendMessage, verChat, cargaText, movimientoText, anulacionText, cuenta };
+module.exports = { sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta };

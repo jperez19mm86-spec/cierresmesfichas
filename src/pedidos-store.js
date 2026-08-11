@@ -282,4 +282,21 @@ function remove(id) {
   return { ok: true, pedido: p };
 }
 
-module.exports = { create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
+/**
+ * Deja anotado si el aviso al grupo salió. Los pedidos se guardan como JSON en una sola columna,
+ * así que esto va adentro del objeto y no en una columna nueva.
+ *
+ * Se guarda salga o no: un aviso que no salió es una cosa que hay que hacer, y si no queda escrita
+ * la descubre el cliente por un reclamo. Es la misma lección que dejó el comprobante que no llegó.
+ */
+function marcarAviso(id, { ok, error }) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p) return null;
+  p.aviso = { ok: !!ok, error: ok ? null : String(error || 'no se pudo avisar').slice(0, 300),
+    at: new Date().toISOString() };
+  save(data);
+  return { ...p };
+}
+
+module.exports = { marcarAviso, create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
