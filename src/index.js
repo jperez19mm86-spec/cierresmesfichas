@@ -748,7 +748,9 @@ app.get('/api/cuenta/mio', (req, res) => {
   res.json({ ok: true,
     cliente: { codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
     mes,
-    base_pct: cli.precio_base_pct != null ? String(cli.precio_base_pct) : null,
+    // La MISMA resolución que usa el resto del sistema (el historial manda sobre el campo suelto):
+    // si el cliente ve un % distinto al que factura, la próxima conversación empieza mal.
+    base_pct: deudaCargaSvc.baseDe(cli),
     cuenta, cargas, movimientos });
 });
 
