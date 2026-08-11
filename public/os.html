@@ -1507,7 +1507,15 @@ async function pintarComprobantes(estado, conFiltros) {
           // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
           // y se le lleva la cuenta en pesos. Lo que se acredita es lo que resta la deuda.
           + '<div style="flex:0"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
-          +   '<input id="cmp-u-' + c.id + '" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
+          +   '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
+          // ── EL TIPO DE CAMBIO, A MANO ──────────────────────────────────────────────────────
+          // No es la cotización del día: es a cuánto se cambió ESA plata, que se acuerda con quien
+          // la cambió. Si no se anota en el momento, después no se reconstruye. Es la columna
+          // "Ex Rate" de la planilla, entre los pesos y los dólares.
+          + '<div style="flex:0"><label>Tipo de cambio</label>'
+          +   '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"></div>'
+          + '<div style="flex:0;min-width:150px"><label>Equivale a</label>'
+          +   '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0;font-weight:700">—</div></div>'
           + '<div style="flex:1"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
           + '<div style="flex:0"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
           + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
@@ -1536,6 +1544,21 @@ async function cmpReavisar(id){
   VIEWS.comprobantes && VIEWS.comprobantes();
 }
 
+/* El equivalente, calculado mientras se escribe: es la forma más barata de que un TC mal tipeado
+   se vea antes de acreditar y no después. Un cero de más en el cambio da un número absurdo, y
+   absurdo se nota; guardado, no. */
+function cmpEquiv(id, codigo){
+  const n = (v) => Number(String(v||'').replace(/\./g,'').replace(',','.'));
+  const monto = n((document.getElementById('cmp-u-'+id)||{}).value);
+  const tc = n((document.getElementById('cmp-tc-'+id)||{}).value);
+  const el = document.getElementById('cmp-eq-'+id); if(!el) return;
+  if(!(monto>0)||!(tc>0)){ el.textContent='—'; el.style.color=''; return; }
+  const mon = _cmpMoneda(codigo);
+  const otra = mon==='ARS' ? (monto/tc) : (monto*tc);
+  el.textContent = money(otra, mon==='ARS'?2:0) + ' ' + (mon==='ARS'?'USDT':'ARS');
+  el.style.color='var(--text)';
+}
+
 async function cmpResolver(id, estado, codigo) {
   const u = (document.getElementById('cmp-u-' + id) || {}).value;
   const nota = (document.getElementById('cmp-n-' + id) || {}).value;
@@ -1543,8 +1566,12 @@ async function cmpResolver(id, estado, codigo) {
   // pesos. Escribir "USDT" arriba de una cifra en pesos es peor que no poner nada.
   const mon = _cmpMoneda(codigo);
   if (estado === 'aprobado' && !(Number(String(u).replace(',', '.')) > 0)) return toast('Poné cuántos ' + mon + ' se acreditan');
-  if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' ' + mon + '? Esto registra el pago y le baja la deuda al cliente.')) return;
-  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto: u, motivo: nota }) });
+  const eqTxt = (document.getElementById('cmp-eq-' + id) || {}).textContent;
+  if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' ' + mon
+    + (eqTxt && eqTxt !== '—' ? ' (' + eqTxt + ')' : '')
+    + '?\n\nEsto registra el pago y le baja la deuda al cliente.')) return;
+  const tc = (document.getElementById('cmp-tc-' + id) || {}).value;
+  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto: u, tc, motivo: nota }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();

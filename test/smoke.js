@@ -1500,9 +1500,10 @@ async function main() {
       !/tcUnico|tc-unico|tcDelMes/.test(src));
 
     const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    // Lo que resta la deuda es la cara de SU moneda; la otra queda guardada igual.
     check('cuenta: el comprobante se acredita en la moneda del cliente',
-      /monto_usdt: moneda === 'USDT' \? monto : null/.test(rutas)
-      && /monto_ars: moneda === 'ARS' \? monto : null/.test(rutas));
+      /const moneda = cli\.moneda_cuenta === 'ARS' \? 'ARS' : 'USDT'/.test(rutas)
+      && /enArs = monto;/.test(rutas) && /enUsdt = monto;/.test(rutas));
     // Cambiar la moneda no convierte nada: sólo cambia qué columna se suma. Con movimientos
     // cargados, el saldo quedaría en cero como si se hubiera perdido plata.
     check('cuenta: no se cambia la moneda si ya hay movimientos en la otra',
@@ -1517,6 +1518,27 @@ async function main() {
     check('cuenta: ya no dice USDT fijo al acreditar', !/Poné cuántos USDT se acreditan/.test(html));
 
     const tg = require('../src/telegram');
+    // ── UN PAGO GUARDA LAS DOS CARAS Y EL TC ──
+    // Es como la dueña lo lleva en su planilla: cada renglón tiene los pesos, el TC y los dólares.
+    // Y el TC de un pago NO es la cotización del día — es a cuánto se cambió ESA plata, acordado
+    // con quien la cambió. Si no se anota en el momento, después no se reconstruye.
+    const rutas2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('pago: se guardan las dos caras y el tipo de cambio',
+      /monto_usdt: enUsdt, monto_ars: enArs, tc_momento: tc/.test(rutas2));
+    check('pago: con TC se completa la otra cara sola',
+      /enUsdt = money\.round\(money\.div\(monto, tc\), 2\)/.test(rutas2)
+      && /enArs = money\.round\(money\.mul\(monto, tc\), 2\)/.test(rutas2));
+    // Sin TC se guarda sólo lo declarado: un dato faltante y visible es mejor que uno inventado
+    // con la cotización del día, que NO es la que se usó.
+    check('pago: sin TC no se inventa la otra cara',
+      /const tc = b\.tc != null/.test(rutas2) && !/tcDelMes[\s\S]{0,200}enUsdt/.test(rutas2));
+    check('pago: un TC en cero o negativo se rechaza', /el tipo de cambio tiene que ser mayor a cero/.test(rutas2));
+    const html2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('pago: la pantalla pide el tipo de cambio', /cmp-tc-/.test(html2));
+    // El equivalente se muestra mientras se escribe: un cero de más en el cambio da un número
+    // absurdo, y absurdo se nota. Guardado, no.
+    check('pago: muestra el equivalente antes de acreditar', /function cmpEquiv/.test(html2));
+
     check('cuenta: el aviso al grupo dice la moneda que corresponde',
       /100\.000 ARS/.test(tg.pagoText({ cliente: 'x', monto: '100000', moneda: 'ARS' })));
   }

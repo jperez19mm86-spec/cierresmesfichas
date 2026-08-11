@@ -966,23 +966,33 @@ function mount(app) {
     const cli = clientes.getByCodigo(c.codigo);
     if (!cli) return err(res, 404, `el código ${c.codigo} ya no corresponde a ningún cliente`);
 
-    // ── SE ACREDITA EN LA MONEDA DE LA CUENTA DEL CLIENTE ─────────────────────────────────────
-    // El cliente puede pagar en USDT y tener la cuenta en pesos: ahí lo que se acredita son los
-    // pesos que se declaran, no los dólares que llegaron. Son dos números distintos y el que manda
-    // es el de la cuenta — es el que va a restar la deuda.
+    // ── UN PAGO SE GUARDA CON LAS DOS CARAS Y EL TIPO DE CAMBIO ───────────────────────────────
     //
-    // Se sigue aceptando `monto_usdt` porque es como se llamaba antes y hay pantallas viejas.
+    // Es como la dueña lo lleva en su planilla, y tiene razón: cada renglón tiene el monto en
+    // pesos, el TC al que se recibió, y los dólares. Los tres. Guardar uno solo obliga a
+    // reconstruir los otros dos después, y no se puede — el TC de un pago NO es el del día:
+    //     "si alguien sube comprobante en ARS yo debo poner a qué cambio manual recibí ese dinero
+    //      en USDT porque no es exacto al tipo de cambio del momento"
+    // Ese TC es un dato del acuerdo con quien cambió la plata, no una cotización. Si no se guarda
+    // en el momento, se pierde.
+    //
+    // `moneda` es la de la CUENTA: la que resta la deuda. La otra cara queda igual de guardada, y
+    // por eso la misma fila sirve para mirar el saldo en pesos o en dólares sin recalcular nada.
     const moneda = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
     const monto = b.monto != null ? String(b.monto) : (b.monto_usdt != null ? String(b.monto_usdt) : null);
     if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${moneda} se acreditan`);
-    // La columna es la de SU moneda y sólo esa. Cargar las dos invitaría a que alguien sume la que
-    // no corresponde, y un total mezclado cuadra igual: es el error más caro de todos.
+    // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
+    // dato faltante y visible a un número inventado con la cotización del día.
+    const tc = b.tc != null && String(b.tc).trim() !== '' ? String(b.tc).trim() : null;
+    if (tc != null && !money.isPos(tc)) return err(res, 400, 'el tipo de cambio tiene que ser mayor a cero');
+    let enArs = null; let enUsdt = null;
+    if (moneda === 'ARS') { enArs = monto; if (tc) enUsdt = money.round(money.div(monto, tc), 2); }
+    else { enUsdt = monto; if (tc) enArs = money.round(money.mul(monto, tc), 2); }
     const mov = movs.create({ cliente_id: cli.id, tipo: 'pago',
-      monto_usdt: moneda === 'USDT' ? monto : null,
-      monto_ars: moneda === 'ARS' ? monto : null,
-      divisa: moneda, fecha: b.fecha,
+      monto_usdt: enUsdt, monto_ars: enArs, tc_momento: tc,
+      divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
       notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
-    const montoUsdt = moneda === 'USDT' ? monto : null;
+    const montoUsdt = enUsdt;
     const r = comprobantes.resolver(req.params.id, { estado: 'aprobado', por: 'panel', motivo: b.motivo, movimiento_id: mov.id });
     if (!r.ok) return err(res, 400, r.error);
     // ── EL AVISO AL GRUPO VA ACÁ, NO AL RECIBIRLO ────────────────────────────────────────────
