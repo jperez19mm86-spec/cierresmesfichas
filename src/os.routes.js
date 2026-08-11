@@ -152,6 +152,40 @@ function mount(app) {
     ok(res, { bot: !!tok, destinos: out });
   }));
 
+  /**
+   * Todos los grupos configurados, comprobados de una. Sólo LEE.
+   *
+   * Un grupo que dejó de existir no avisa: los envíos fallan de a uno, en silencio, y lo que se
+   * nota meses después es que a un cliente "no le llegan las facturas". Esto los encuentra a todos
+   * juntos, y sin escribirle a ninguno.
+   */
+  app.get('/api/os/telegram/probar-grupos', wrap(async (_req, res) => {
+    const tok = configStore.getTelegramToken();
+    if (!tok) return ok(res, { bot: false, grupos: [] });
+    // Un mismo grupo puede estar en varios clientes (los vendedores lo prestan): se prueba UNA vez
+    // y se dice quiénes dependen de él, que es lo que importa para saber a quién le afecta.
+    const porChat = new Map();
+    clientes.list().clientes.forEach((c) => {
+      const id = String(((c.telegram || {}).chatId) || '').trim();
+      if (!id) return;
+      const g = porChat.get(id) || { chat: id, clientes: [], encendidos: 0 };
+      g.clientes.push(c.nombre || c.codigo);
+      if ((c.telegram || {}).enabled) g.encendidos += 1;
+      porChat.set(id, g);
+    });
+    ['tgChatArs', 'tgChatUsdt'].forEach((k) => {
+      const id = String(configStore.getCfg(k) || '').trim();
+      if (!id) return;
+      const g = porChat.get(id) || { chat: id, clientes: [], encendidos: 0 };
+      g.clientes.push(`(avisos de pago: ${k})`);
+      porChat.set(id, g);
+    });
+    const grupos = [];
+    for (const g of porChat.values()) grupos.push({ ...g, ...(await telegram.verChat(tok, g.chat)) });
+    grupos.sort((a, b) => (a.ok === b.ok ? 0 : (a.ok ? 1 : -1)));
+    ok(res, { bot: true, grupos, rotos: grupos.filter((g) => !g.ok).length });
+  }));
+
   app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
   app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
 
