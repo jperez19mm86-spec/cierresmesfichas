@@ -296,6 +296,26 @@ async function main() {
     check('factura: con dos monedas NO se inventa un total local',
       (r.data.consumo || {}).local === null && r.data.totalMes_local === null,
       'local=' + JSON.stringify((r.data.consumo || {}).local) + ' total=' + JSON.stringify(r.data.totalMes_local));
+
+    // Lo que SÍ se puede mostrar con varias monedas: la comisión exacta de cada una.
+    // ARS 20.000.000 × 11% = 2.200.000 / 1476 = 1.490,51 USDT
+    // PYG 60.000.000 × 11% = 6.600.000 / 6000 = 1.100,00 USDT
+    const cpd = (r.data.consumo || {}).comisionPorDivisa || [];
+    const porDiv = {}; cpd.forEach((c) => { porDiv[c.divisa] = c; });
+    check('factura: la comisión de cada moneda, en esa moneda',
+      cpd.length === 2
+      && Math.abs(Number((porDiv.ARS || {}).monto) - 2200000) < 0.01
+      && Math.abs(Number((porDiv.PYG || {}).monto) - 6600000) < 0.01,
+      JSON.stringify(cpd));
+    // 🔑 LA INVARIANTE: los USDT de cada moneda suman el total. Es la cuenta que el cliente rehace
+    // renglón por renglón; si no cerrara, el desglose contradiría al total de arriba.
+    check('factura: los USDT de cada moneda suman el total',
+      cpd.length > 1
+      && Math.abs(cpd.reduce((a, c) => a + Number(c.usdt || 0), 0) - Number(r.data.consumo.total_usdt)) < 0.02,
+      'suma=' + cpd.reduce((a, c) => a + Number(c.usdt || 0), 0) + ' total=' + (r.data.consumo || {}).total_usdt);
+    check('factura: el texto muestra el desglose por moneda',
+      /PYG 6\.600\.000,00 → 1\.100,00 USDT/.test(r.data.texto),
+      (r.data.texto || '').split('\n').filter((l) => /PYG|ARS/.test(l)).join(' | '));
     await post('/api/os/_dev/seed-ventas', { reset: true, items: [{ codigo: 'L210', monto: '20000000', divisa: 'ARS' }] });
   }
 

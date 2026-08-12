@@ -194,9 +194,23 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
   // Sólo existe si vendió en UNA sola moneda. Con dos o más no hay un número local que signifique
   // nada —sumar guaraníes con pesos es exactamente el error que nos costó el Reparto— así que ahí
   // no se muestra ninguno y cada moneda queda con el suyo en su renglón.
-  let local = null;
+  let local = null; let comisionPorDivisa = [];
   {
     const divs = ((cons && cons.porDivisa) || []).filter((d) => money.isPos(String(d.vendido || '0')));
+
+    // LA COMISIÓN DE CADA MONEDA, en esa moneda y en USDT. Es lo único que se puede mostrar cuando
+    // el cliente vende en varias: no hay un total local, pero sí hay un número exacto por moneda, y
+    // los USDT de cada una sí se suman entre sí —todos son la misma unidad— y dan el total de
+    // arriba. Así el cliente puede verificar la cuenta renglón por renglón en vez de creernos.
+    comisionPorDivisa = divs
+      .filter((d) => money.isPos(String(d.fee || '0')))
+      .map((d) => ({
+        divisa: String(d.divisa),
+        monto: money.round(String(d.fee), 2),
+        tc: d.tc != null ? String(d.tc) : null,
+        usdt: money.isPos(String(d.tc || '0')) ? money.round(money.div(String(d.fee), String(d.tc)), 2) : null,
+      }));
+
     const una = divs.length === 1 ? divs[0] : null;
     const esLocal = una && !['USDT', 'USD'].includes(String(una.divisa || '').toUpperCase());
     if (esLocal && money.isPos(String(una.fee || '0'))) {
@@ -214,7 +228,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
       };
     }
   }
-  if (cons) cons.local = local;
+  if (cons) { cons.local = local; cons.comisionPorDivisa = comisionPorDivisa; }
 
   return {
     ok: true,
@@ -261,6 +275,13 @@ function aTexto(f, { detalle = false } = {}) {
     const lo = f.consumo.local;
     L.push(`  Comisión ${esc(f.consumo.base)}% → <b>${$(f.consumo.total_usdt)} USDT</b>`
       + (lo ? ` (${$(lo.comision)} ${esc(lo.divisa)})` : ''));
+    // Con UNA moneda el desglose repetiría la línea de arriba. Con varias es lo único que se puede
+    // mostrar: cada moneda con su comisión exacta, y los USDT que sí suman entre sí.
+    const cpd = f.consumo.comisionPorDivisa || [];
+    if (cpd.length > 1) {
+      cpd.forEach((c) => L.push(`     ${esc(c.divisa)} ${$(c.monto)}`
+        + (c.usdt != null ? ` → ${$(c.usdt)} USDT` : '')));
+    }
     L.push('');
   }
 

@@ -1363,7 +1363,16 @@ async function verFactura(clienteId) {
     + '<table style="margin-top:6px"><tbody>' + (r.consumo.porDivisa||[]).map(d => '<tr><td>' + esc(d.divisa) + '</td><td class="right">' + money(d.vendido,2) + '</td><td class="right muted">TC ' + money(d.tc,2) + '</td><td class="right">' + money(d.vendidoUsdt,2) + ' USDT</td></tr>').join('') + '</tbody></table>'
     + '<div style="margin-top:6px">Comisión <b>' + esc(r.consumo.base) + '%</b> → <b style="color:var(--gold)">' + $(r.consumo.total_usdt) + ' USDT</b>'
     + (r.consumo.local ? ' <span class="muted">(' + $(r.consumo.local.comision) + ' ' + esc(r.consumo.local.divisa) + ')</span>' : '')
-    + '</div></div>') : '';
+    + '</div>'
+    // Con varias monedas no hay un total local, pero sí la comisión exacta de cada una. Los USDT
+    // de la derecha suman el total: es la cuenta que el cliente puede rehacer renglón por renglón.
+    + (((r.consumo.comisionPorDivisa||[]).length > 1)
+       ? '<table style="margin-top:8px"><thead><tr><th>Comisión por moneda</th><th class="right">Monto</th><th class="right">En USDT</th></tr></thead><tbody>'
+         + r.consumo.comisionPorDivisa.map(c => '<tr><td>' + esc(c.divisa) + '</td><td class="right">' + $(c.monto) + '</td><td class="right">' + (c.usdt!=null ? $(c.usdt) + ' USDT' : '—') + '</td></tr>').join('')
+         + '<tr><td></td><td class="right muted">total</td><td class="right"><b style="color:var(--gold)">' + $(r.consumo.total_usdt) + ' USDT</b></td></tr>'
+         + '</tbody></table>'
+       : '')
+    + '</div>') : '';
   const ex = r.externos;
   const extHtml = (ex && ex.items && ex.items.length)
     ? ('<div class="card" style="margin:8px 0"><b>Proveedores externos</b>'

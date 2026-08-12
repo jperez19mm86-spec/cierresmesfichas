@@ -20,6 +20,16 @@ function pagina({ factura: f, actualizado_at, token }) {
     .map((d) => `<tr><td>${esc(d.divisa)}</td><td class="r">${$(d.vendido)}</td><td class="r m">${d.tc ? 'TC ' + $(d.tc) : '—'}</td><td class="r">${d.vendidoUsdt != null ? $(d.vendidoUsdt) + ' USDT' : '—'}</td></tr>`)
     .join('');
 
+  // La comisión de cada moneda. Sólo cuando hay más de una: con una sola repetiría el renglón de
+  // arriba. Los USDT de la derecha suman el total — es la cuenta que el cliente puede rehacer.
+  const cpd = (f.consumo && f.consumo.comisionPorDivisa) || [];
+  const comDiv = cpd.length > 1
+    ? '<table class="sub"><thead><tr><th>Comisión por moneda</th><th class="r">Monto</th><th class="r">En USDT</th></tr></thead><tbody>'
+      + cpd.map((c) => `<tr><td>${esc(c.divisa)}</td><td class="r">${$(c.monto)}</td><td class="r">${c.usdt != null ? $(c.usdt) + ' USDT' : '—'}</td></tr>`).join('')
+      + `<tr class="tot"><td></td><td class="r m">total</td><td class="r"><b>${$(f.consumo.total_usdt)} USDT</b></td></tr>`
+      + '</tbody></table>'
+    : '';
+
   const porPanel = (f.porPanel || [])
     .map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td><td class="r">${$(p.monto)}</td></tr>`)
     .join('');
@@ -137,6 +147,8 @@ function pagina({ factura: f, actualizado_at, token }) {
  .big .n{font-size:30px;font-weight:800;color:var(--g);letter-spacing:-.02em}
  /* El mismo total en la moneda del cliente: más chico porque es el mismo cobro, no otro. */
  .big .n2{font-size:19px;font-weight:700;color:#6b6470;margin-top:2px}
+ table.sub{margin-top:6px;font-size:13px}
+ table.sub tr.tot td{border-top:1px solid #e7dfe9}
  .saldo{font-size:22px;font-weight:800}
  .pie{color:var(--m);font-size:12px;text-align:center;margin-top:26px;line-height:1.7}
  .acc{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0}
@@ -160,6 +172,7 @@ function pagina({ factura: f, actualizado_at, token }) {
    <p class="m">${f.consumo.pedidos} carga(s) en el mes. Cada moneda se pasa a USDT con el tipo de cambio del período.</p>
    <table><tbody>${filaDiv}</tbody></table>
    <p class="tot">Comisión <b>${esc(f.consumo.base)}%</b> sobre ${$(f.consumo.vendido_usdt)} USDT → <b>${$(f.consumo.total_usdt)} USDT</b>${f.consumo.local ? ` <span class="m">(${$(f.consumo.local.comision)} ${esc(f.consumo.local.divisa)})</span>` : ''}</p>
+   ${comDiv}
    </div>` : ''}
 
  ${porPanel ? `<div class="card"><h2>Por panel</h2>

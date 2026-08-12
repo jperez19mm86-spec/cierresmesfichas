@@ -37,6 +37,14 @@ function planilla(f) {
     // La misma comisión en la moneda del cliente, en su propia columna: el que abre esto en una
     // planilla la quiere como número, no adentro de un texto entre paréntesis.
     if (f.consumo.local) L.push(fila(['', '', `Comisión en ${f.consumo.local.divisa}`, num(f.consumo.local.comision)]));
+    // Con varias monedas, una fila por moneda: en la planilla se filtra y se suma la columna USDT.
+    const cpd = f.consumo.comisionPorDivisa || [];
+    if (cpd.length > 1) {
+      L.push(fila(['COMISIÓN POR MONEDA']));
+      L.push(fila(['Moneda', 'Comisión', 'Tipo de cambio', 'En USDT']));
+      cpd.forEach((c) => L.push(fila([c.divisa, num(c.monto), num(c.tc), num(c.usdt)])));
+      L.push(fila(['', '', 'Total', num(f.consumo.total_usdt)]));
+    }
     L.push('');
   }
 
