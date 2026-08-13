@@ -623,7 +623,7 @@ async function avisarComprobante(c, cli, monto, moneda) {
   if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
   // El segundo aviso, al cliente. Va después y aparte: que su grupo falle no puede impedir que el
   // de cobranzas quede anotado, ni al revés.
-  await avisarAbonoAlCliente(c, cli, monto, moneda);
+  await avisarAbonoAlCliente(c, cli);
   return aviso;
 }
 
@@ -637,21 +637,47 @@ async function avisarComprobante(c, cli, monto, moneda) {
  * Respeta el interruptor de avisos del cliente, igual que las cargas. Si los tiene apagados no se
  * manda nada y queda anotado POR QUÉ: es una decisión, no una falla, y hay que poder distinguirlas.
  */
-async function avisarAbonoAlCliente(c, cli, monto, moneda) {
+/**
+ * CUÁNTO Y EN QUÉ MONEDA se le dice al cliente, que NO es lo mismo que se le acredita.
+ *
+ * A la cuenta entra el equivalente en la moneda de la cuenta —USDT casi siempre— pero el cliente
+ * depositó pesos y lo que puede verificar contra su comprobante son los pesos. Decirle "126,87
+ * USDT" por un depósito de 200.000 le obliga a hacer una cuenta para saber si le llegó lo suyo.
+ *
+ * Y hay una razón más fuerte: con el TC del mes todavía abierto, ese número en USDT SE VA A MOVER
+ * cuando se cierre el cambio. Si se lo mandamos, lo anota, y después no le coincide. Los pesos que
+ * depositó no se mueven nunca.
+ *
+ * Sale del MOVIMIENTO, no de lo declarado: el que aprueba puede haber acreditado algo distinto de
+ * lo que el cliente dijo que mandó, y lo que vale es lo que se registró.
+ */
+function abonoDelCliente(c) {
+  const enUsdt = c.via === 'usdt';
+  let m = null;
+  try { if (c.movimiento_id) m = require('./movimientos-store').get(c.movimiento_id); } catch (e) { m = null; }
+  if (m) {
+    const propia = enUsdt ? 'monto_usdt' : 'monto_ars';
+    const otra = enUsdt ? 'monto_ars' : 'monto_usdt';
+    if (m[propia] != null && m[propia] !== '') return { monto: m[propia], moneda: enUsdt ? 'USDT' : 'ARS' };
+    // Sin la cara en la moneda del pago se dice la otra, con su etiqueta correcta. Un número sin su
+    // moneda, o con la equivocada, es peor que uno en la moneda que no esperaba.
+    if (m[otra] != null && m[otra] !== '') return { monto: m[otra], moneda: enUsdt ? 'ARS' : 'USDT' };
+  }
+  // Sin movimiento (no debería pasar en un aprobado) queda lo declarado, que es de él.
+  return Number(c.monto) > 0 ? { monto: c.monto, moneda: c.divisa || (enUsdt ? 'USDT' : 'ARS') } : null;
+}
+
+async function avisarAbonoAlCliente(c, cli) {
   let r;
   try {
     const tok = config.getTelegramToken();
     const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
-    const m = monto != null ? monto : c.monto;
+    const a = abonoDelCliente(c);
     if (!tok) r = { ok: false, error: 'el bot de Telegram no está configurado' };
     else if (!cli || !dest.chatId) r = { ok: false, error: 'ese cliente no tiene grupo de Telegram cargado' };
     else if (!dest.enabled) r = { ok: false, error: 'los avisos de ese cliente están apagados' };
-    else if (!(Number(m) > 0)) r = { ok: false, error: 'sin monto acreditado no se avisa' };
-    else {
-      r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText({
-        monto: m, moneda: moneda || (cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
-      }));
-    }
+    else if (!a) r = { ok: false, error: 'sin monto acreditado no se avisa' };
+    else r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText(a));
   } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
   try { comprobantes.marcarAvisoCliente(c.id, r); }
   catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso al cliente:', e.message); }
@@ -709,7 +735,7 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   // antes de que este aviso existiera: reintentar los dos les mandaría al grupo de cobranzas una
   // segunda copia de una foto que ya está ahí, y un comprobante repetido se lee como un pago nuevo.
   if (String((req.body || {}).solo || '') === 'cliente') {
-    const r = await avisarAbonoAlCliente(c, cli, ac && ac.monto, ac && ac.moneda);
+    const r = await avisarAbonoAlCliente(c, cli);
     return r.ok ? res.json({ ok: true, cliente: r }) : res.status(502).json({ ok: false, error: r.error, cliente: r });
   }
   // Por defecto, los DOS: obligar a elegir cuál falló antes de apretar es justo el trabajo que este

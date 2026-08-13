@@ -2032,6 +2032,12 @@ async function main() {
     check('abono: al cliente le llega su propio mensaje, no el de cobranzas',
       /avisarAbonoAlCliente/.test(idx) && /abonoText/.test(idx)
       && /los avisos de ese cliente están apagados/.test(idx));
+    // Al cliente se le dice lo que DEPOSITÓ, en su moneda: es lo que puede cruzar contra su
+    // comprobante, y es el único número que no se mueve cuando se cierra el TC del mes.
+    check('abono: se le dice el monto en la moneda en que pagó',
+      /function abonoDelCliente/.test(idx)
+      && /const enUsdt = c\.via === 'usdt'/.test(idx)
+      && /const propia = enUsdt \? 'monto_usdt' : 'monto_ars'/.test(idx));
     check('comprobante: y ofrece reintentarlo', /function cmpReavisar/.test(html));
 
     // ── LA CARGA TAMBIÉN ANOTA SI AVISÓ ──
