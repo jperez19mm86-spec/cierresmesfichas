@@ -1533,38 +1533,51 @@ async function pintarComprobantes(estado, conFiltros) {
           + ' <button class="small" style="margin-left:8px" onclick="cmpReavisar(\'' + c.id + '\')">Reintentar el aviso</button></div>'
         : (c.aviso_ok === 1 ? '<div class="muted" style="margin-top:6px;font-size:11px">✅ avisado al grupo</div>' : ''))
       + (pend
-        ? '<div class="row" style="margin-top:10px;align-items:flex-end">'
+        // ── DOS CAMINOS, CADA UNO CON SU CAMPO Y SU BOTÓN ────────────────────────────────────
+        // Antes eran cuatro botones en un renglón junto a dos campos rotulados en monedas
+        // distintas. En una pantalla angosta el renglón se partía, el botón del TC del mes
+        // quedaba FUERA DE LA VISTA, y lo que se apretaba era el otro — el que pide un monto en
+        // la moneda de la cuenta. Cada botón va pegado al campo que lee, y se ve cuál es cuál.
+        ? '<div style="margin-top:10px"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional" style="max-width:420px"></div>'
+
+          + '<div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">'
+          +   '<b style="font-size:12px">Ya sé a qué cambio recibí esta plata</b>'
+          +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
           // y se le lleva la cuenta en pesos. Lo que se acredita es lo que resta la deuda.
-          + '<div style="flex:0"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
-          +   '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
+          +     '<div style="flex:0 0 auto"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
+          +       '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
           // ── EL TIPO DE CAMBIO, A MANO ──────────────────────────────────────────────────────
           // No es la cotización del día: es a cuánto se cambió ESA plata, que se acuerda con quien
           // la cambió. Si no se anota en el momento, después no se reconstruye. Es la columna
           // "Ex Rate" de la planilla, entre los pesos y los dólares.
-          + '<div style="flex:0"><label>Tipo de cambio</label>'
-          +   '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"></div>'
-          + '<div style="flex:0;min-width:150px"><label>Equivale a</label>'
-          +   '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0;font-weight:700">—</div></div>'
-          + '<div style="flex:1"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
-          + '<div style="flex:0"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+          +     '<div style="flex:0 0 auto"><label>Tipo de cambio</label>'
+          +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"></div>'
+          +     '<div style="flex:0 0 auto;min-width:140px"><label>Equivale a</label>'
+          +       '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0;font-weight:700">—</div></div>'
+          +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+          +   '</div>'
+          + '</div>'
+
           // Para los que pagan en pesos todo el mes y el cambio se acuerda al cerrarlo: se acredita
           // lo que entró y el TC lo pone el cierre. No hay que inventar un número ni hacer esperar
           // al cliente figurando como deudor de algo que ya pagó.
-          + '<div style="flex:0"><button class="small outline" title="Acredita ' + esc(c.divisa || 'ARS') + ' ahora y lo pasa a la moneda de la cuenta con el tipo de cambio del mes, cuando lo cargues" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Con el TC del mes</button></div>'
-          + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          //
+          // ⚠️ ESTE CAMPO ES OTRO, y no es un capricho: el de arriba está rotulado en la moneda de
+          // la CUENTA y éste acredita en la moneda del PAGO. Cuando compartían input, escribir
+          // "1000" siguiendo la etiqueta "Acreditar (USDT)" grababa 1000 PESOS.
+          + '<div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">'
+          +   '<b style="font-size:12px">Todavía no sé el tipo de cambio</b>'
+          +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
+          +     '<div style="flex:0 0 auto"><label>Entraron (' + esc(c.divisa || 'ARS') + ')</label>'
+          +       '<input id="cmp-m-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
+          +     '<div style="flex:0 0 auto"><button class="small outline" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Aprobar con el TC del mes</button></div>'
+          +   '</div>'
+          +   '<div class="muted" style="margin-top:6px;font-size:12px">Se acredita en ' + esc(c.divisa || 'ARS')
+          +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
           + '</div>'
-          // ⚠️ EL ⏳ TIENE SU PROPIO CAMPO, Y NO ES UN CAPRICHO. El de arriba está rotulado en la
-          // moneda de la CUENTA y este camino acredita en la moneda del PAGO. Reusando el mismo
-          // input, escribir "1000" siguiendo la etiqueta "Acreditar (USDT)" grababa 1000 PESOS y
-          // el cliente quedaba debiendo casi todo lo que ya había pagado.
-          + '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px">'
-          +   '<div style="flex:0"><label>Entraron (' + esc(c.divisa || 'ARS') + ')</label>'
-          +     '<input id="cmp-m-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
-          +   '<div class="muted" style="flex:1;font-size:12px;padding-bottom:8px">'
-          +     'Con <b>⏳ Con el TC del mes</b> se acredita este monto en ' + esc(c.divisa || 'ARS')
-          +     ' y se pasa a la moneda de la cuenta con el tipo de cambio del mes, cuando lo cargues.</div>'
-          + '</div>'
+
+          + '<div style="margin-top:8px"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
         : '<div class="muted" style="margin-top:8px">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
           + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>')

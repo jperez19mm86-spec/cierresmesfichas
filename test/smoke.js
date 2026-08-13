@@ -394,6 +394,54 @@ async function main() {
     await post('/api/os/comprobantes/' + cid3 + '/resolver', { estado: 'rechazado', motivo: 'prueba' });
   }
 
+  // ── LA TARJETA DEL COMPROBANTE TIENE QUE ENTRAR EN LA PANTALLA ───────────────────────────────
+  // El CSS pone `.row > div { flex:1; min-width:120px }`, así que un renglón con 7 elementos pide
+  // 924px de mínimo. Con el panel lateral eso no entra: el renglón se partía, el botón "⏳ Con el
+  // TC del mes" quedaba FUERA DE LA VISTA y lo que se apretaba era el de al lado — que pide el
+  // monto en OTRA moneda. Un botón que no se ve es un botón que no existe.
+  //
+  // Se evalúa el trozo REAL que genera la tarjeta, no se busca texto: lo que se mide es la
+  // estructura que va a ver la dueña.
+  {
+    const html3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const ini = html3.indexOf('      + (pend\n');
+    const fin = html3.indexOf('        : \'<div class="muted" style="margin-top:8px">\' + (c.estado === \'aprobado\'');
+    const trozo = html3.slice(ini, fin) + '        : \'\')';
+    const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const _cmpMoneda = () => 'USDT';
+    const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
+    const pend = true;
+    let marca = '';
+    try { marca = eval('(function(){return \'\' ' + trozo + ';})()'); } catch (e) { marca = 'ERROR ' + e.message; }
+
+    check('comprobante: la tarjeta cierra todos sus divs',
+      (marca.match(/<div/g) || []).length === (marca.match(/<\/div>/g) || []).length,
+      (marca.match(/<div/g) || []).length + ' abiertos / ' + (marca.match(/<\/div>/g) || []).length + ' cerrados');
+
+    // Cuántos hijos DIRECTOS tiene cada .row: es lo que decide el ancho mínimo del renglón.
+    const filas = [];
+    for (let i = marca.indexOf('class="row"'); i >= 0; i = marca.indexOf('class="row"', i + 1)) {
+      let d = 0, hijos = 0, j = marca.indexOf('>', i);
+      for (let k = j; k < marca.length; k++) {
+        if (marca.startsWith('<div', k)) { if (d === 0) hijos++; d++; }
+        else if (marca.startsWith('</div>', k)) { if (d === 0) break; d--; }
+      }
+      filas.push(hijos);
+    }
+    const maxAncho = Math.max(...filas.map((n) => n * 120 + (n - 1) * 10));
+    check('comprobante: ningún renglón pide más ancho del que hay',
+      filas.length > 0 && maxAncho <= 700,
+      'hijos por renglón: [' + filas + '] → hasta ' + maxAncho + 'px de mínimo');
+
+    // Cada botón, con el campo que lee. El ⏳ acredita en la moneda del PAGO y el ✅ en la de la
+    // CUENTA: si se mezclan, se acredita un número en la moneda equivocada.
+    const iU = marca.indexOf('cmp-u-'), iOk = marca.indexOf('Aprobar y acreditar');
+    const iM = marca.indexOf('cmp-m-'), iMes = marca.indexOf('Aprobar con el TC del mes');
+    check('comprobante: cada botón va con su propio campo',
+      iU > 0 && iM > 0 && iOk > iU && iMes > iM && iM > iOk,
+      'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
+  }
+
   // El aviso al grupo saca la moneda de la columna que TIENE el dato, no de la cuenta del cliente:
   // con un pago en pesos sobre una cuenta en dólares mandaba "1.476.000 USDT" al grupo del cliente.
   {
