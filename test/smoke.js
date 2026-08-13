@@ -2024,6 +2024,11 @@ async function main() {
     // problema que no existe, y con el tiempo enseñaría a ignorar los carteles rojos.
     check('comprobante: "apagado" no se muestra como error',
       /apagados\|no tiene grupo/.test(html));
+    // Reavisar por defecto manda los dos, pero se puede pedir SÓLO el del cliente: para los pagos
+    // aprobados antes de que este aviso existiera, reintentar los dos duplicaría la foto en el
+    // grupo de cobranzas — y un comprobante repetido ahí se lee como un pago nuevo.
+    check('abono: se puede reavisar sólo al cliente, sin duplicar el de cobranzas',
+      /solo \|\| ''\) === 'cliente'/.test(idx) && /avisarAbonoAlCliente\(c, cli/.test(idx));
     check('abono: al cliente le llega su propio mensaje, no el de cobranzas',
       /avisarAbonoAlCliente/.test(idx) && /abonoText/.test(idx)
       && /los avisos de ese cliente están apagados/.test(idx));

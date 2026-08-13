@@ -705,8 +705,15 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   if (c.estado !== 'aprobado') return res.status(400).json({ ok: false, error: `ese comprobante está "${c.estado}": el aviso sale cuando se aprueba` });
   const cli = clientes.getByCodigo(c.codigo);
   const ac = montoAcreditado(c);
-  // Reintenta LOS DOS: el de cobranzas y el del cliente. Reintentar sólo uno obligaría a mirar cuál
-  // fue el que falló antes de apretar, y ese es justamente el trabajo que este botón viene a evitar.
+  // `solo:'cliente'` manda ÚNICAMENTE el aviso al cliente. Hace falta para los pagos aprobados
+  // antes de que este aviso existiera: reintentar los dos les mandaría al grupo de cobranzas una
+  // segunda copia de una foto que ya está ahí, y un comprobante repetido se lee como un pago nuevo.
+  if (String((req.body || {}).solo || '') === 'cliente') {
+    const r = await avisarAbonoAlCliente(c, cli, ac && ac.monto, ac && ac.moneda);
+    return r.ok ? res.json({ ok: true, cliente: r }) : res.status(502).json({ ok: false, error: r.error, cliente: r });
+  }
+  // Por defecto, los DOS: obligar a elegir cuál falló antes de apretar es justo el trabajo que este
+  // botón viene a evitar.
   const aviso = await avisarComprobante(c, cli, ac && ac.monto, ac && ac.moneda);
   const fin = comprobantes.get(req.params.id);
   const cliente = { ok: fin.aviso_cli_ok === 1, error: fin.aviso_cli_error || null };
