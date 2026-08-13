@@ -246,6 +246,10 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
       externos_pendiente: cuenta.proveedores_pendientes,
       pagos: cuenta.pagos,
       saldo: cuenta.total,
+      // Si hay pagos esperando el TC del cierre, el saldo es correcto pero todavía se mueve. Se
+      // dice: un número provisorio presentado como definitivo es peor que no darlo.
+      esperandoTC: cuenta.esperandoTC || 0,
+      sinValuar: cuenta.sinValuar || 0,
     },
     pagosDelMes: pagosMes,
     pagadoMes,

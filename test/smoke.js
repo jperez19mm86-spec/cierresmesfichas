@@ -319,6 +319,45 @@ async function main() {
     await post('/api/os/_dev/seed-ventas', { reset: true, items: [{ codigo: 'L210', monto: '20000000', divisa: 'ARS' }] });
   }
 
+  // ── UN PAGO QUE ESPERA EL TIPO DE CAMBIO DEL CIERRE ──────────────────────────────────────────
+  // Hay clientes que pagan en pesos todo el mes y el cambio recién se acuerda al cerrarlo. Antes
+  // había que elegir entre inventar un TC —guardando un número que no es el real— o no aprobar el
+  // pago, dejando al cliente como deudor de algo que ya pagó.
+  //
+  // Con tc_modo:'mes' se guarda SÓLO los pesos y los dólares se derivan al leer. Lo que este check
+  // mide es justamente eso: que cambiar el TC del mes cambie lo que vale el pago, SIN tocarlo.
+  {
+    const antes = Number((await get('/api/os/clientes/' + cli.id + '/cuenta')).data.cuenta.total);
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'cvu', monto: '1476000', divisa: 'ARS' });
+    const cid = r.data && r.data.comprobante && r.data.comprobante.id;
+    check('pago sin TC: el comprobante entra', !!cid, JSON.stringify(r.data).slice(0, 200));
+
+    r = await post('/api/os/comprobantes/' + cid + '/resolver', { estado: 'aprobado', monto: '1476000', tc_modo: 'mes' });
+    check('pago sin TC: se aprueba sin pedir tipo de cambio', r.status === 200 && r.data.ok, JSON.stringify(r.data.error || ''));
+    const mv = r.data.movimiento || {};
+    check('pago sin TC: guarda los pesos y NO inventa los dólares',
+      String(mv.monto_ars) === '1476000' && (mv.monto_usdt == null || mv.monto_usdt === '') && mv.tc_modo === 'mes',
+      'ars=' + mv.monto_ars + ' usdt=' + mv.monto_usdt + ' modo=' + mv.tc_modo);
+
+    // Con el TC del mes en 1476, ese pago vale 1000 USDT y baja la deuda en 1000.
+    let cta = (await get('/api/os/clientes/' + cli.id + '/cuenta')).data.cuenta;
+    check('pago sin TC: igual cuenta en el saldo, valuado con el TC del mes',
+      Math.abs((antes - Number(cta.total)) - 1000) < 0.01,
+      'antes=' + antes + ' ahora=' + cta.total + ' (esperaba bajar 1000)');
+    check('pago sin TC: con el TC cargado a mano NO figura como provisorio',
+      cta.esperandoTC === 0 && cta.sinValuar === 0,
+      'esperandoTC=' + cta.esperandoTC + ' sinValuar=' + cta.sinValuar);
+
+    // 🔑 LO QUE PIDIÓ LA DUEÑA: se carga el TC definitivo del cierre y el pago se ajusta SOLO.
+    await post('/api/os/cierre/tc', { moneda: 'ARS', mes: mesTC, tasa: '1500' });
+    cta = (await get('/api/os/clientes/' + cli.id + '/cuenta')).data.cuenta;
+    check('pago sin TC: al cambiar el TC del mes, el pago se revalúa solo',
+      Math.abs((antes - Number(cta.total)) - (1476000 / 1500)) < 0.01,
+      'bajó ' + (antes - Number(cta.total)).toFixed(2) + ', esperaba ' + (1476000 / 1500).toFixed(2));
+
+    await post('/api/os/cierre/tc', { moneda: 'ARS', mes: mesTC, tasa: '1476' });   // como estaba
+  }
+
   // ── Corregir un costo DENTRO de una foto congelada. Lo peligroso no es el número que se
   // cambia, es todo lo que NO se tiene que mover: celdas, clientes y vínculos del mes cerrado.
   {
@@ -1810,8 +1849,19 @@ async function main() {
       && /enArs = money\.round\(money\.mul\(monto, tc\), 2\)/.test(rutas2));
     // Sin TC se guarda sólo lo declarado: un dato faltante y visible es mejor que uno inventado
     // con la cotización del día, que NO es la que se usó.
+    //
+    // Hay DOS maneras de no tener TC y son distintas a propósito:
+    //   · a secas          → la otra cara queda vacía y nadie la completa.
+    //   · tc_modo:'mes'    → la otra cara se DERIVA al leer, del TC del cierre (src/valuacion.js).
+    // Lo que no puede pasar en ninguna de las dos es que se CONGELE un número sacado de la
+    // cotización del día. Por eso el check mira que las dos caras sólo se calculen `if (tc)`.
     check('pago: sin TC no se inventa la otra cara',
-      /const tc = b\.tc != null/.test(rutas2) && !/tcDelMes[\s\S]{0,200}enUsdt/.test(rutas2));
+      /const tc = !porElMes && b\.tc != null/.test(rutas2)
+      && /if \(tc\) enUsdt = money\.round/.test(rutas2)
+      && /if \(tc\) enArs = money\.round/.test(rutas2));
+    check('pago: con TC del mes NO se congela ningún tipo de cambio',
+      /tc_modo: porElMes \? 'mes' : null/.test(rutas2)
+      && /const porElMes = b\.tc_modo === 'mes'/.test(rutas2));
     check('pago: un TC en cero o negativo se rechaza', /el tipo de cambio tiene que ser mayor a cero/.test(rutas2));
     const html2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('pago: la pantalla pide el tipo de cambio', /cmp-tc-/.test(html2));

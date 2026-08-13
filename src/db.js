@@ -471,7 +471,10 @@ ensureColumns('reporte_diario', { moneda: "TEXT DEFAULT 'ARS'" });
 ensureColumns('estad_captura', { modo: 'TEXT' });
 // De dónde salió un movimiento. Si lo generó una emisión mensual lleva `origen`
 // ('facturacion' | 'externos') y `origen_ref` (el mes). Cargado a mano quedan en NULL.
-ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT' });
+// `tc_modo='mes'` = el pago se valúa con el tipo de cambio del mes, que puede no estar cargado
+// todavía. La cara que falta NO se guarda: se deriva al leer (ver src/valuacion.js), así el día
+// que se carga el TC del cierre todos los pagos que esperaban pasan a valer lo correcto solos.
+ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT', tc_modo: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

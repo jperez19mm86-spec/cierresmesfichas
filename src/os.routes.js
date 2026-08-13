@@ -1000,17 +1000,31 @@ function mount(app) {
     // `moneda` es la de la CUENTA: la que resta la deuda. La otra cara queda igual de guardada, y
     // por eso la misma fila sirve para mirar el saldo en pesos o en dólares sin recalcular nada.
     const moneda = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
+
+    // ── EL TC PUEDE QUEDAR PENDIENTE DEL CIERRE ──────────────────────────────────────────────
+    // Hay clientes que pagan en pesos todo el mes y el cambio recién se acuerda al cerrarlo. Con
+    // `tc_modo: 'mes'` se acredita lo que SÍ se sabe —los pesos que entraron— y la otra cara se
+    // deriva del TC del mes cada vez que se lee (ver src/valuacion.js): el día que se carga el TC
+    // del cierre, estos pagos pasan a valer lo correcto solos.
+    //
+    // Sin esto había que elegir entre inventar un TC —y guardar un número que no es el real— o no
+    // aprobar el pago, dejando al cliente como deudor de algo que ya pagó.
+    const porElMes = b.tc_modo === 'mes';
+    // Con TC del mes se carga la moneda en que PAGÓ, no la de la cuenta: es el único monto que se
+    // conoce de verdad. Si la cuenta ya se lleva en esa moneda, no hay nada pendiente que derivar.
+    const monedaCargada = porElMes ? (c.via === 'usdt' ? 'USDT' : 'ARS') : moneda;
     const monto = b.monto != null ? String(b.monto) : (b.monto_usdt != null ? String(b.monto_usdt) : null);
-    if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${moneda} se acreditan`);
+    if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${monedaCargada} se acreditan`);
     // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
     // dato faltante y visible a un número inventado con la cotización del día.
-    const tc = b.tc != null && String(b.tc).trim() !== '' ? String(b.tc).trim() : null;
+    const tc = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? String(b.tc).trim() : null;
     if (tc != null && !money.isPos(tc)) return err(res, 400, 'el tipo de cambio tiene que ser mayor a cero');
     let enArs = null; let enUsdt = null;
-    if (moneda === 'ARS') { enArs = monto; if (tc) enUsdt = money.round(money.div(monto, tc), 2); }
+    if (monedaCargada === 'ARS') { enArs = monto; if (tc) enUsdt = money.round(money.div(monto, tc), 2); }
     else { enUsdt = monto; if (tc) enArs = money.round(money.mul(monto, tc), 2); }
     const mov = movs.create({ cliente_id: cli.id, tipo: 'pago',
       monto_usdt: enUsdt, monto_ars: enArs, tc_momento: tc,
+      tc_modo: porElMes ? 'mes' : null,
       divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
       notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
     const montoUsdt = enUsdt;
@@ -1024,7 +1038,7 @@ function mount(app) {
     // Fire-and-forget: que Telegram no conteste no puede tumbar un pago ya registrado.
     const avisar = req.app.get('avisarComprobante');
     if (typeof avisar === 'function') {
-      Promise.resolve(avisar(comprobantes.get(req.params.id), cli, monto, moneda))
+      Promise.resolve(avisar(comprobantes.get(req.params.id), cli, monto, monedaCargada))
         .catch((e) => console.warn('[Comprobante] aviso error:', e.message));
     }
     ok(res, { ...r, movimiento: mov, deuda: deudaSvc.cuentaCorriente(cli.id) });
