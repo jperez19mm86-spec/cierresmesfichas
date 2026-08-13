@@ -121,6 +121,22 @@ function pagoText({ cliente, monto, moneda = 'USDT' }) {
 }
 
 /**
+ * EL MISMO PAGO, PERO PARA EL CLIENTE. Va a SU grupo, el de las cargas, no al de cobranzas.
+ *
+ * Son dos mensajes distintos porque son dos lectores distintos. El de cobranzas dice "Lucia pagó
+ * 200.000" y lleva la foto del comprobante: sirve para controlar. Al cliente decirle su propio
+ * nombre no le aporta nada, y mandarle de vuelta el comprobante que él acaba de mandar, menos.
+ * Lo que él quiere saber es una sola cosa: que llegó.
+ *
+ * Sin monto no se manda: "tu abono está registrado" sin decir cuánto obliga a preguntar, que es
+ * exactamente lo que este mensaje viene a evitar.
+ */
+function abonoText({ monto, moneda = 'USDT' }) {
+  const m = Number(monto).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return `✅ <b>Tu abono está registrado</b>\n<b>${m} ${escapeHtml(moneda)}</b>`;
+}
+
+/**
  * El aviso de que una carga que YA se había avisado se dio de baja y las fichas se retiraron.
  *
  * Es la contracara de `cargaText` y existe porque sin él el grupo se quedaba con un "✅ Carga
@@ -156,4 +172,5 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
  */
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
-module.exports = { sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta };
+module.exports = {
+  abonoText, sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta };

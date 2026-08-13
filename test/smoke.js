@@ -2014,7 +2014,19 @@ async function main() {
     check('comprobante: hay forma de reintentar el aviso', /\/api\/os\/comprobantes\/:id\/reavisar/.test(idx));
 
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    check('comprobante: la pantalla muestra que el aviso no llegó', /El aviso NO llegó al grupo/.test(html));
+    // Un pago avisa a DOS grupos —cobranzas y el del cliente— y fallan por separado. La pantalla
+    // tiene que mostrar los dos: con un solo cartel, el que falla queda tapado por el que salió.
+    check('comprobante: la pantalla muestra los dos avisos por separado',
+      /El aviso NO llegó /.test(html) && /c\.aviso_ok/.test(html) && /c\.aviso_cli_ok/.test(html)
+      && /al grupo de cobranzas/.test(html) && /al grupo del cliente/.test(html)
+      && /Reintentar los avisos/.test(html));
+    // Tener los avisos apagados es una DECISIÓN, no una falla: mostrarlo en rojo haría buscar un
+    // problema que no existe, y con el tiempo enseñaría a ignorar los carteles rojos.
+    check('comprobante: "apagado" no se muestra como error',
+      /apagados\|no tiene grupo/.test(html));
+    check('abono: al cliente le llega su propio mensaje, no el de cobranzas',
+      /avisarAbonoAlCliente/.test(idx) && /abonoText/.test(idx)
+      && /los avisos de ese cliente están apagados/.test(idx));
     check('comprobante: y ofrece reintentarlo', /function cmpReavisar/.test(html));
 
     // ── LA CARGA TAMBIÉN ANOTA SI AVISÓ ──

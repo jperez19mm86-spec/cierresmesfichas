@@ -569,7 +569,11 @@ ensureColumns('movimiento_panel', { pasos: 'TEXT' });
    Antes esto era un console.warn que se perdía entre despliegues: un comprobante no llegaba al
    grupo y no había forma de saber si el problema era el id, el bot o el permiso. Guardarlo es lo
    que permite verlo en la pantalla y reintentarlo en vez de descubrirlo por un reclamo. */
-ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_at: 'TEXT' });
+// Un pago genera DOS avisos a dos grupos distintos: el de cobranzas (con la foto, para controlar)
+// y el del cliente (para que sepa que llegó). Se siguen por separado porque fallan por separado:
+// que el bot esté en un grupo no dice nada de si está en el otro.
+ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_at: 'TEXT',
+  aviso_cli_ok: 'INTEGER', aviso_cli_error: 'TEXT', aviso_cli_at: 'TEXT' });
 
 /* En qué MONEDA se lleva la cuenta corriente de un cliente: 'USDT' (lo normal) o 'ARS'.
    Vacío = USDT, que es como estaban los 45 clientes el día que esto se agregó.

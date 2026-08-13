@@ -105,4 +105,12 @@ function marcarAviso(id, { ok, error }) {
   return get(id);
 }
 
-module.exports = { marcarAviso, crear, get, list, cuentas, resolver, MAX_BYTES, ESTADOS };
+/** El aviso al grupo DEL CLIENTE, que se sigue aparte del de cobranzas. */
+function marcarAvisoCliente(id, { ok, error }) {
+  db.prepare('UPDATE comprobantes SET aviso_cli_ok=?, aviso_cli_error=?, aviso_cli_at=? WHERE id=?')
+    .run(ok ? 1 : 0, ok ? null : String(error || 'no se pudo avisar').slice(0, 300),
+      new Date().toISOString(), String(id));
+  return get(id);
+}
+
+module.exports = { marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, resolver, MAX_BYTES, ESTADOS };

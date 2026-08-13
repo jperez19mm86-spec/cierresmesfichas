@@ -621,7 +621,42 @@ async function avisarComprobante(c, cli, monto, moneda) {
   try { comprobantes.marcarAviso(c.id, aviso); }
   catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso:', e.message); }
   if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
+  // El segundo aviso, al cliente. Va después y aparte: que su grupo falle no puede impedir que el
+  // de cobranzas quede anotado, ni al revés.
+  await avisarAbonoAlCliente(c, cli, monto, moneda);
   return aviso;
+}
+
+/**
+ * "Tu abono está registrado", al grupo DEL CLIENTE — el mismo donde se le avisan las cargas.
+ *
+ * Son dos avisos distintos a dos grupos distintos y por eso se siguen por separado: el de cobranzas
+ * lleva la foto y sirve para controlar; éste es para que el cliente sepa que su plata llegó, sin
+ * tener que preguntar. Que el bot esté en un grupo no dice nada de si está en el otro.
+ *
+ * Respeta el interruptor de avisos del cliente, igual que las cargas. Si los tiene apagados no se
+ * manda nada y queda anotado POR QUÉ: es una decisión, no una falla, y hay que poder distinguirlas.
+ */
+async function avisarAbonoAlCliente(c, cli, monto, moneda) {
+  let r;
+  try {
+    const tok = config.getTelegramToken();
+    const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
+    const m = monto != null ? monto : c.monto;
+    if (!tok) r = { ok: false, error: 'el bot de Telegram no está configurado' };
+    else if (!cli || !dest.chatId) r = { ok: false, error: 'ese cliente no tiene grupo de Telegram cargado' };
+    else if (!dest.enabled) r = { ok: false, error: 'los avisos de ese cliente están apagados' };
+    else if (!(Number(m) > 0)) r = { ok: false, error: 'sin monto acreditado no se avisa' };
+    else {
+      r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText({
+        monto: m, moneda: moneda || (cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
+      }));
+    }
+  } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+  try { comprobantes.marcarAvisoCliente(c.id, r); }
+  catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso al cliente:', e.message); }
+  if (!r.ok) console.warn(`[Comprobante] ${c.id}: el aviso al CLIENTE no salió — ${r.error}`);
+  return r;
 }
 
 /** El texto largo de antes, que ya no se usa pero deja ver qué se dejó de mandar. */
@@ -670,8 +705,14 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   if (c.estado !== 'aprobado') return res.status(400).json({ ok: false, error: `ese comprobante está "${c.estado}": el aviso sale cuando se aprueba` });
   const cli = clientes.getByCodigo(c.codigo);
   const ac = montoAcreditado(c);
+  // Reintenta LOS DOS: el de cobranzas y el del cliente. Reintentar sólo uno obligaría a mirar cuál
+  // fue el que falló antes de apretar, y ese es justamente el trabajo que este botón viene a evitar.
   const aviso = await avisarComprobante(c, cli, ac && ac.monto, ac && ac.moneda);
-  return aviso.ok ? res.json({ ok: true, aviso }) : res.status(502).json({ ok: false, error: aviso.error });
+  const fin = comprobantes.get(req.params.id);
+  const cliente = { ok: fin.aviso_cli_ok === 1, error: fin.aviso_cli_error || null };
+  // Con que UNO haya salido ya hay algo que contar; si fallaron los dos, se dicen los dos motivos.
+  if (aviso.ok || cliente.ok) return res.json({ ok: true, aviso, cliente });
+  return res.status(502).json({ ok: false, error: `cobranzas: ${aviso.error} · cliente: ${cliente.error}`, aviso, cliente });
 });
 /**
  * El cliente PIDE MOVER fichas de un panel suyo a otro. No mueve nada: queda pendiente hasta que
