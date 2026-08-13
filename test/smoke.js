@@ -356,6 +356,52 @@ async function main() {
       'bajó ' + (antes - Number(cta.total)).toFixed(2) + ', esperaba ' + (1476000 / 1500).toFixed(2));
 
     await post('/api/os/cierre/tc', { moneda: 'ARS', mes: mesTC, tasa: '1476' });   // como estaba
+
+    // ── LO QUE EL CLIENTE RECIBE TIENE QUE DECIR LO MISMO QUE EL SALDO ─────────────────────────
+    // La primera versión valuaba sólo en la cuenta corriente: el saldo bajaba 1.000 pero la
+    // factura listaba ese pago en "0,00" y no imprimía el renglón "pagado este mes". El documento
+    // se contradecía a sí mismo. Ahora la valuación vive en el store, así que la ve todo el mundo.
+    r = await get('/api/os/factura/' + cli.id + '?mes=' + curMes);
+    // Se busca ESTE pago por su comprobante: el mes puede tener otros y contar filas no dice nada.
+    const pg = (r.data.pagosDelMes || []).find((x) => String(x.notas || '').includes(cid));
+    check('pago sin TC: la factura lo lista por su valor, no en cero',
+      !!pg && Math.abs(Number(pg.usdt) - 1000) < 0.01,
+      'la fila de ' + cid + ' = ' + JSON.stringify(pg) + ' · todas: ' + JSON.stringify(r.data.pagosDelMes));
+    check('pago sin TC: el texto que se manda no lo muestra en 0,00',
+      !/· 0,00/.test(r.data.texto), (r.data.texto || '').split('\n').filter((l) => /0,00/.test(l)).join(' | '));
+
+    // Un pago en la MISMA moneda de la cuenta no depende de ningún TC, aunque se apriete el ⏳.
+    // Marcarlo como provisorio decía "este pago no entra en el saldo" sobre uno íntegramente
+    // contado — que es una invitación a acreditarlo dos veces.
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '50', divisa: 'USDT' });
+    const cid2 = r.data && r.data.comprobante && r.data.comprobante.id;
+    r = await post('/api/os/comprobantes/' + cid2 + '/resolver', { estado: 'aprobado', monto: '50', tc_modo: 'mes' });
+    check('pago sin TC: si pagó en la moneda de la cuenta, no queda nada pendiente',
+      r.status === 200 && r.data.ok && !r.data.movimiento.tc_modo,
+      'tc_modo=' + (r.data.movimiento || {}).tc_modo);
+    const cta2 = (await get('/api/os/clientes/' + cli.id + '/cuenta')).data.cuenta;
+    check('pago sin TC: no avisa "provisorio" sobre un pago que sí está contado',
+      cta2.esperandoTC === 0 && cta2.sinValuar === 0,
+      'esperandoTC=' + cta2.esperandoTC + ' sinValuar=' + cta2.sinValuar);
+
+    // La pantalla manda en qué moneda cree que está el monto; si no coincide, se frena. Sin esto
+    // un número en pesos entra como dólares —1.476.000 en vez de 1.000— y nadie se entera.
+    r = await post('/api/comprobante', { codigo: 'L210', via: 'cvu', monto: '100000', divisa: 'ARS' });
+    const cid3 = r.data && r.data.comprobante && r.data.comprobante.id;
+    r = await post('/api/os/comprobantes/' + cid3 + '/resolver', { estado: 'aprobado', monto: '100000', moneda: 'USDT', tc_modo: 'mes' });
+    check('pago sin TC: si la pantalla y el servidor no coinciden en la moneda, se frena',
+      r.status === 400 && /ARS/.test(r.data.error || ''), 'HTTP ' + r.status + ' ' + (r.data.error || ''));
+    await post('/api/os/comprobantes/' + cid3 + '/resolver', { estado: 'rechazado', motivo: 'prueba' });
+  }
+
+  // El aviso al grupo saca la moneda de la columna que TIENE el dato, no de la cuenta del cliente:
+  // con un pago en pesos sobre una cuenta en dólares mandaba "1.476.000 USDT" al grupo del cliente.
+  {
+    const idx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('aviso: el monto acreditado viaja con SU moneda',
+      /return \{ monto: m\.monto_usdt, moneda: 'USDT' \}/.test(idx)
+      && /return \{ monto: m\.monto_ars, moneda: 'ARS' \}/.test(idx)
+      && !/montoAcreditado\(c\),\s*\n?\s*cli && cli\.moneda_cuenta/.test(idx));
   }
 
   // ── Corregir un costo DENTRO de una foto congelada. Lo peligroso no es el número que se
@@ -1860,7 +1906,7 @@ async function main() {
       && /if \(tc\) enUsdt = money\.round/.test(rutas2)
       && /if \(tc\) enArs = money\.round/.test(rutas2));
     check('pago: con TC del mes NO se congela ningún tipo de cambio',
-      /tc_modo: porElMes \? 'mes' : null/.test(rutas2)
+      /tc_modo: \(porElMes && monedaCargada !== moneda\) \? 'mes' : null/.test(rutas2)
       && /const porElMes = b\.tc_modo === 'mes'/.test(rutas2));
     check('pago: un TC en cero o negativo se rechaza', /el tipo de cambio tiene que ser mayor a cero/.test(rutas2));
     const html2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');

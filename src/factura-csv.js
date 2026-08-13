@@ -80,6 +80,9 @@ function planilla(f) {
   L.push(fila(['Proveedores pendientes', num(f.cuenta.externos_pendiente)]));
   L.push(fila(['Pagos registrados', num(f.cuenta.pagos)]));
   L.push(fila(['Saldo', num(f.cuenta.saldo)]));
+  // Que el saldo es provisorio tiene que viajar con el saldo, también en la planilla.
+  if (Number(f.cuenta.esperandoTC || 0) > 0) L.push(fila(['', 'incluye pagos que se ajustan al cerrar el TC del mes']));
+  if (Number(f.cuenta.sinValuar || 0) > 0) L.push(fila(['', `${f.cuenta.sinValuar} pago(s) sin convertir: NO descontados`]));
 
   if ((f.pagosDelMes || []).length) {
     L.push('');

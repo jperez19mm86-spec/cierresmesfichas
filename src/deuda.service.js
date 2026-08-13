@@ -11,7 +11,6 @@
 const mov = require('./movimientos-store');
 const money = require('./lib/money');
 const clientes = require('./clientes-store');
-const valuacion = require('./valuacion');
 
 /**
  * ── LA CUENTA SE LLEVA EN LA MONEDA DEL CLIENTE ───────────────────────────────────────────────
@@ -29,9 +28,9 @@ const valuacion = require('./valuacion');
  * vea que hay algo mal en vez de que el total mienta.
  */
 function cuentaCorriente(cliente_id) {
-  // Los pagos que esperan el TC del mes se valúan ACÁ, al leer. Si no, un cliente que pagó en
-  // pesos figuraría debiendo todo hasta que se cierre el mes — debiendo plata que ya pagó.
-  const movs = valuacion.valuarLista(mov.list({ cliente_id }));
+  // Los pagos que esperan el TC del mes ya vienen valuados del store (ver movimientos-store.get):
+  // si no, un cliente que pagó en pesos figuraría debiendo todo hasta que se cierre el mes.
+  const movs = mov.list({ cliente_id });
   const cli = clientes.get(cliente_id);
   const moneda = (cli && cli.moneda_cuenta === 'ARS') ? 'ARS' : 'USDT';
   const col = moneda === 'ARS' ? 'monto_ars' : 'monto_usdt';
@@ -44,7 +43,14 @@ function cuentaCorriente(cliente_id) {
   let esperandoTC = 0, sinValuar = 0;
   for (const m of movs) {
     const u = m[col] || '0';
-    if (m.tc_modo === 'mes') { if (m.sinValuar) sinValuar += 1; else if (m.provisional) esperandoTC += 1; }
+    // ⚠️ Se mira la columna QUE SUMA, no la que se derivó. Un pago en USDT sobre una cuenta en
+    // USDT no depende de ningún tipo de cambio aunque tenga tc_modo='mes': la cara en pesos se
+    // deriva igual, pero nadie la usa. Contarlo avisaba "este pago NO entra en el saldo" sobre un
+    // pago íntegramente contado, que es una invitación a acreditarlo dos veces.
+    if (m.derivada === col) {
+      if (m.sinValuar) sinValuar += 1;          // no se pudo: ese pago NO está en el total
+      else if (m.provisional) esperandoTC += 1; // está en el total, con un TC que puede cambiar
+    }
     // Un movimiento sin nada en la columna de su moneda pero con algo en la otra está mal cargado.
     if ((m[col] == null || m[col] === '') && m[otra] != null && m[otra] !== '') enOtraMoneda += 1;
     switch (m.tipo) {

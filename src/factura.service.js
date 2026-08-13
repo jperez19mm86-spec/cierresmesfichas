@@ -322,6 +322,10 @@ function aTexto(f, { detalle = false } = {}) {
     + (tl ? ` <b>(${tl.aproximado ? '≈ ' : ''}${$(tl.monto)} ${esc(tl.divisa)})</b>` : ''));
   L.push('');
   L.push(`Saldo de la cuenta: <b>${$(f.cuenta.saldo)} USDT</b>`);
+  // Un saldo que todavía se mueve se dice que se mueve. Mandarlo como definitivo hace que el
+  // cliente lo anote y que al cerrar el mes no le coincida — y el que queda mal es el sistema.
+  if (Number(f.cuenta.esperandoTC || 0) > 0) L.push('<i>(incluye pagos en pesos que se ajustan al cerrar el tipo de cambio del mes)</i>');
+  if (Number(f.cuenta.sinValuar || 0) > 0) L.push(`<i>⚠ ${f.cuenta.sinValuar} pago(s) todavía sin convertir: no están descontados de este saldo</i>`);
   if (Number(f.pagadoMes) > 0) L.push(`(pagado este mes: ${$(f.pagadoMes)} USDT)`);
 
   if (detalle && (f.detalle || []).length) {

@@ -50,8 +50,13 @@ function valuar(m) {
 
   const mes = String(m.fecha || m.createdAt || '').slice(0, 7);
   const t = mes ? tcUnico.tcDelMes('ARS', mes) : null;
+  // `derivada` dice CUÁL de las dos caras salió de un tipo de cambio. Sin ese dato no se puede
+  // avisar bien: un pago en dólares sobre una cuenta en dólares deriva la cara en pesos, que nadie
+  // suma, y marcarlo como provisorio decía "este pago no entra en el saldo" sobre un pago
+  // íntegramente contado — que es una invitación a acreditarlo dos veces.
+  const derivada = tieneArs ? 'monto_usdt' : 'monto_ars';
   if (!t || !t.valor || !money.isPos(String(t.valor))) {
-    return { ...m, tc_usado: null, provisional: true, sinValuar: true };
+    return { ...m, tc_usado: null, derivada, provisional: true, sinValuar: true };
   }
   const tc = String(t.valor);
   const provisional = t.fuente !== ES_DEFINITIVO;
@@ -59,7 +64,7 @@ function valuar(m) {
     ...m,
     monto_ars: tieneArs ? m.monto_ars : money.round(money.mul(String(m.monto_usdt), tc), 2),
     monto_usdt: tieneUsdt ? m.monto_usdt : money.round(money.div(String(m.monto_ars), tc), 2),
-    tc_usado: tc, tcFuente: t.fuente, provisional, sinValuar: false,
+    tc_usado: tc, tcFuente: t.fuente, derivada, provisional, sinValuar: false,
   };
 }
 

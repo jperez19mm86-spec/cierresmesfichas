@@ -190,6 +190,8 @@ function pagina({ factura: f, actualizado_at, token }) {
    <tr><td>Pagos registrados</td><td class="r">− ${$(f.cuenta.pagos)}</td></tr>
   </tbody></table>
   <p class="tot">Saldo: <span class="saldo">${$(f.cuenta.saldo)} USDT</span></p>
+  ${Number(f.cuenta.esperandoTC || 0) > 0 ? '<p class="m">Incluye pagos en pesos que se ajustan cuando se cierra el tipo de cambio del mes.</p>' : ''}
+  ${Number(f.cuenta.sinValuar || 0) > 0 ? `<p class="m" style="color:#b3261e"><b>${f.cuenta.sinValuar} pago(s) todavía sin convertir</b>: no están descontados de este saldo.</p>` : ''}
   <h3>Pagos del mes</h3>${pagos}
  </div>
 

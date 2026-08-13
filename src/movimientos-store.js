@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const { db } = require('./db');
 const { nowISO } = require('./lib/fechas');
+const valuacion = require('./valuacion');
 
 const TIPOS = ['carga', 'pago', 'proveedor_extra', 'ajuste', 'correccion', 'bonificacion'];
 const newId = () => 'mov_' + crypto.randomBytes(6).toString('hex');
@@ -32,10 +33,26 @@ function create(d) {
     // 'mes' = la cara que falta se deriva del TC del mes al leer, no se congela acá.
     tcmodo: d.tc_modo === 'mes' ? 'mes' : null,
   });
-  return get(id);
+  // Devuelve lo que se GUARDÓ, sin derivar: quien acaba de escribir tiene que ver su escritura.
+  return getCrudo(id);
 }
 
-function get(id) { return db.prepare('SELECT * FROM movimientos WHERE id=?').get(id) || null; }
+/**
+ * ── LO QUE SE LEE VIENE VALUADO ──────────────────────────────────────────────────────────────
+ * Un pago con `tc_modo='mes'` guarda una sola cara: la otra se deriva del tipo de cambio del mes
+ * (ver src/valuacion.js). Esa derivación se hace ACÁ, en la lectura, y no en cada pantalla.
+ *
+ * La primera versión la hacía sólo en la cuenta corriente, y el resultado fue que el saldo bajaba
+ * bien pero la factura del cliente listaba el pago en "0,00", el historial por mes daba cero y el
+ * aviso de Telegram mandaba los pesos rotulados como dólares. Cada lector nuevo era otra chance de
+ * olvidarse. Poniéndolo en el store, olvidarse deja de ser posible.
+ *
+ * Es seguro porque nadie ACTUALIZA un movimiento: se insertan y se borran, nunca se modifican. Si
+ * algún día hiciera falta escribir uno, hay que leerlo con `getCrudo` — el valor derivado no se
+ * guarda nunca, porque el día que cambie el TC del mes tiene que cambiar con él.
+ */
+function get(id) { return valuacion.valuar(getCrudo(id)); }
+function getCrudo(id) { return db.prepare('SELECT * FROM movimientos WHERE id=?').get(id) || null; }
 
 function list(filters = {}) {
   const w = [], p = [];
@@ -44,9 +61,9 @@ function list(filters = {}) {
   if (filters.tipo) { w.push('tipo=?'); p.push(filters.tipo); }
   if (filters.mes) { w.push('substr(fecha,1,7)=?'); p.push(filters.mes); }
   const sql = 'SELECT * FROM movimientos' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY fecha DESC';
-  return db.prepare(sql).all(...p);
+  return valuacion.valuarLista(db.prepare(sql).all(...p));
 }
 
 function remove(id) { return db.prepare('DELETE FROM movimientos WHERE id=?').run(id).changes > 0; }
 
-module.exports = { TIPOS, create, get, list, remove };
+module.exports = { TIPOS, create, get, getCrudo, list, remove };

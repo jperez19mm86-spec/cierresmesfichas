@@ -642,10 +642,24 @@ function _textoViejoComprobante(c, cli) {
 }
 
 /** Cuántos USDT se acreditaron de verdad: sale del movimiento que creó la aprobación. */
+/**
+ * Lo que se acreditó de verdad, CON SU MONEDA.
+ *
+ * Antes devolvía sólo el número —`monto_usdt || monto_ars`— y quien avisaba le ponía la etiqueta
+ * de la moneda de la cuenta. Con un pago en pesos sobre una cuenta en dólares eso mandaba al grupo
+ * "1.476.000 USDT" cuando eran 1.476.000 pesos: mil veces el pago real, al cliente.
+ *
+ * La moneda sale de la columna QUE TIENE el dato, no de una suposición.
+ */
 function montoAcreditado(c) {
   if (!c.movimiento_id) return null;
-  try { const m = require('./movimientos-store').get(c.movimiento_id); return m ? (m.monto_usdt || m.monto_ars) : null; }
-  catch (e) { return null; }
+  try {
+    const m = require('./movimientos-store').get(c.movimiento_id);   // ya viene valuado
+    if (!m) return null;
+    if (m.monto_usdt != null && m.monto_usdt !== '') return { monto: m.monto_usdt, moneda: 'USDT' };
+    if (m.monto_ars != null && m.monto_ars !== '') return { monto: m.monto_ars, moneda: 'ARS' };
+    return null;
+  } catch (e) { return null; }
 }
 
 /** Reintentar el aviso de un comprobante que no llegó al grupo. */
@@ -655,8 +669,8 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
   // Sólo tiene sentido reavisar algo aprobado: es el aviso de "pago realizado".
   if (c.estado !== 'aprobado') return res.status(400).json({ ok: false, error: `ese comprobante está "${c.estado}": el aviso sale cuando se aprueba` });
   const cli = clientes.getByCodigo(c.codigo);
-  const aviso = await avisarComprobante(c, cli, montoAcreditado(c),
-    cli && cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT');
+  const ac = montoAcreditado(c);
+  const aviso = await avisarComprobante(c, cli, ac && ac.monto, ac && ac.moneda);
   return aviso.ok ? res.json({ ok: true, aviso }) : res.status(502).json({ ok: false, error: aviso.error });
 });
 /**

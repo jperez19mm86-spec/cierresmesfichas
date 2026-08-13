@@ -1551,8 +1551,19 @@ async function pintarComprobantes(estado, conFiltros) {
           // Para los que pagan en pesos todo el mes y el cambio se acuerda al cerrarlo: se acredita
           // lo que entró y el TC lo pone el cierre. No hay que inventar un número ni hacer esperar
           // al cliente figurando como deudor de algo que ya pagó.
-          + '<div style="flex:0"><button class="small outline" title="Acredita ' + esc(c.divisa || 'ARS') + ' ahora y lo pasa a USDT con el tipo de cambio del mes, cuando lo cargues" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,declarado:\'' + esc(c.monto) + '\',divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Con el TC del mes</button></div>'
+          + '<div style="flex:0"><button class="small outline" title="Acredita ' + esc(c.divisa || 'ARS') + ' ahora y lo pasa a la moneda de la cuenta con el tipo de cambio del mes, cuando lo cargues" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Con el TC del mes</button></div>'
           + '<div style="flex:0"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          + '</div>'
+          // ⚠️ EL ⏳ TIENE SU PROPIO CAMPO, Y NO ES UN CAPRICHO. El de arriba está rotulado en la
+          // moneda de la CUENTA y este camino acredita en la moneda del PAGO. Reusando el mismo
+          // input, escribir "1000" siguiendo la etiqueta "Acreditar (USDT)" grababa 1000 PESOS y
+          // el cliente quedaba debiendo casi todo lo que ya había pagado.
+          + '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px">'
+          +   '<div style="flex:0"><label>Entraron (' + esc(c.divisa || 'ARS') + ')</label>'
+          +     '<input id="cmp-m-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
+          +   '<div class="muted" style="flex:1;font-size:12px;padding-bottom:8px">'
+          +     'Con <b>⏳ Con el TC del mes</b> se acredita este monto en ' + esc(c.divisa || 'ARS')
+          +     ' y se pasa a la moneda de la cuenta con el tipo de cambio del mes, cuando lo cargues.</div>'
           + '</div>'
         : '<div class="muted" style="margin-top:8px">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
@@ -1607,14 +1618,17 @@ async function _cmpResolver(id, estado, codigo, opts) {
   // Se acredita en la moneda en que PAGÓ. Si escribió un monto lo usa —puede haber entrado algo
   // distinto de lo declarado— y si no, toma el declarado. El TC no se pide: lo pone el cierre.
   if (o.tcDelMes) {
-    const escrito = (document.getElementById('cmp-u-' + id) || {}).value;
-    const m = String(escrito || '').trim() || String(o.declarado || '');
+    // Su propio campo, rotulado en la moneda del pago. NUNCA el de "Acreditar", que está rotulado
+    // en la moneda de la cuenta y significaría otra cosa.
+    const m = String((document.getElementById('cmp-m-' + id) || {}).value || '').trim();
     if (!(Number(String(m).replace(/\./g, '').replace(',', '.')) > 0)) return toast('Poné cuántos ' + o.divisa + ' entraron');
     if (!confirm('¿Acreditar ' + money(m, 2) + ' ' + o.divisa + ' con el tipo de cambio del mes?'
       + '\n\nQueda contado en la cuenta desde ahora, con el promedio del mes. Cuando cargues el TC'
       + ' definitivo en 💱 Tipos de cambio se ajusta solo.')) return;
+    // La moneda va explícita: el servidor la compara con la que él calcula y rechaza si no coinciden.
+    // Sin eso, un desajuste entre pantalla y servidor se convierte en plata mal acreditada, callado.
     const r0 = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-      body: JSON.stringify({ estado, monto: m, tc_modo: 'mes', motivo: nota0 }) });
+      body: JSON.stringify({ estado, monto: m, moneda: o.divisa, tc_modo: 'mes', motivo: nota0 }) });
     if (!r0.ok) return toast('Error: ' + (r0.error || ''));
     toast('Acreditado · se ajusta al cerrar el mes');
     return VIEWS.movimientos();

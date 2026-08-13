@@ -1013,6 +1013,12 @@ function mount(app) {
     // Con TC del mes se carga la moneda en que PAGÓ, no la de la cuenta: es el único monto que se
     // conoce de verdad. Si la cuenta ya se lleva en esa moneda, no hay nada pendiente que derivar.
     const monedaCargada = porElMes ? (c.via === 'usdt' ? 'USDT' : 'ARS') : moneda;
+    // La pantalla manda en qué moneda cree que está el monto y acá se compara. Si alguna vez las
+    // dos puntas dejan de coincidir, esto lo frena; sin esta comprobación, un número en pesos
+    // entraría como dólares —1.476.000 en vez de 1.000— y nadie se enteraría hasta el cierre.
+    if (b.moneda && String(b.moneda).toUpperCase() !== monedaCargada) {
+      return err(res, 400, `la pantalla dice ${b.moneda} y el pago está en ${monedaCargada} — recargá la página`);
+    }
     const monto = b.monto != null ? String(b.monto) : (b.monto_usdt != null ? String(b.monto_usdt) : null);
     if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${monedaCargada} se acreditan`);
     // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
@@ -1024,7 +1030,9 @@ function mount(app) {
     else { enUsdt = monto; if (tc) enArs = money.round(money.mul(monto, tc), 2); }
     const mov = movs.create({ cliente_id: cli.id, tipo: 'pago',
       monto_usdt: enUsdt, monto_ars: enArs, tc_momento: tc,
-      tc_modo: porElMes ? 'mes' : null,
+      // Sólo si de verdad queda algo pendiente: si pagó en la misma moneda en que se lleva su
+      // cuenta, el importe que suma ya está y no depende de ningún tipo de cambio.
+      tc_modo: (porElMes && monedaCargada !== moneda) ? 'mes' : null,
       divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
       notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
     const montoUsdt = enUsdt;
