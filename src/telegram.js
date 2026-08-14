@@ -108,16 +108,27 @@ function movimientoText({ origen, destino, divisa, monto }) {
 }
 
 /**
- * El aviso de que un pago quedó acreditado. Corto a propósito: lo pidió así el dueño y tiene razón
- * — al grupo le sirve saber QUIÉN pagó y CUÁNTO, y el resto es ruido que hay que leer igual.
+ * El aviso de que un pago quedó acreditado, para el grupo de COBRANZAS. Corto a propósito: lo pidió
+ * así la dueña y tiene razón — al grupo le sirve saber de quién vino y cuánto, y el resto es ruido.
+ *
+ * ── QUIÉN SE NOMBRA, Y POR QUÉ NO ES LO MISMO EN LOS DOS GRUPOS ─────────────────────────────
+ * En PESOS va sólo el VENDEDOR. Ese grupo reconcilia por vendedor —tres nombres, no cuarenta— y
+ * el nombre del cliente ahí no aporta nada y lo expone de más.
+ * En USDT van los dos, vendedor arriba y cliente abajo: ahí sí hace falta saber de quién es cada
+ * transferencia.
+ *
+ * El vendedor es el de MÁS ARRIBA de la cadena: los clientes que cuelgan de Juli entran como Alexa.
+ * Si no hay vendedor, se nombra al cliente — un aviso sin ningún nombre no le sirve a nadie.
  *
  * Va el monto ACREDITADO, no el declarado. Son dos números distintos: el cliente dice que mandó
  * 1000 y el que aprueba confirma lo que entró de verdad. Poner el declarado sería avisarle al grupo
  * un pago que capaz no es el que se registró.
  */
-function pagoText({ cliente, monto, moneda = 'USDT' }) {
+function pagoText({ vendedor, cliente, monto, moneda = 'USDT' }) {
   const m = Number(monto).toLocaleString('es-AR', { maximumFractionDigits: 2 });
-  return `✅ <b>Pago realizado</b>\n${escapeHtml(cliente || '')}\n<b>${m} ${escapeHtml(moneda)}</b>`;
+  const quien = [vendedor || cliente || '', vendedor && cliente ? cliente : null]
+    .filter(Boolean).map((x) => escapeHtml(x)).join('\n');
+  return `✅ <b>Pago realizado</b>\n${quien}\n<b>${m} ${escapeHtml(moneda)}</b>`;
 }
 
 /**

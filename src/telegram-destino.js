@@ -56,6 +56,33 @@ function destinoDe(cliente, getCliente) {
 }
 
 /**
+ * EL VENDEDOR PRINCIPAL de un cliente: el de más arriba de la cadena.
+ *
+ * Los avisos de cobranza van a un grupo donde lo que se reconcilia es de QUIÉN vino la plata, no
+ * quién la puso. Hay clientes que cuelgan de Juli y Juli de Alexa; ahí el nombre útil es Alexa —
+ * lo decidió la dueña — porque el grupo de pesos maneja tres nombres y no cuarenta.
+ *
+ * Sube TODA la cadena, igual que `destinoDe`, con la misma protección contra ciclos: si alguien
+ * queda como vendedor de su propio vendedor, esto se colgaría, y colgar el aviso de un pago ya
+ * acreditado es peor que no encontrar el nombre.
+ *
+ * Si el cliente no tiene vendedor —es directo, o es él mismo un vendedor— devuelve null. Quien
+ * llama decide qué poner en su lugar: un aviso sin ningún nombre no le sirve a nadie.
+ */
+function vendedorPrincipal(cliente, getCliente) {
+  if (!cliente) return null;
+  const vistos = new Set([String(cliente.id)]);
+  let actual = cliente; let ultimo = null;
+  while (actual && actual.vendedor_id && !vistos.has(String(actual.vendedor_id))) {
+    vistos.add(String(actual.vendedor_id));
+    const v = typeof getCliente === 'function' ? getCliente(actual.vendedor_id) : null;
+    if (!v) break;
+    ultimo = v; actual = v;
+  }
+  return ultimo ? (ultimo.nombre || ultimo.nombreVisible || ultimo.codigo || null) : null;
+}
+
+/**
  * ¿Se le puede avisar CADA CARGA? Hace falta destino y que esté encendido.
  *
  * ── EL INTERRUPTOR SE HEREDA CON EL DESTINO (cambiado el 10-ago-2026, lo decidió el dueño) ────
@@ -73,4 +100,4 @@ function avisaCargas(cliente, getCliente) {
   return !!(d.chatId && d.enabled);
 }
 
-module.exports = { destinoDe, avisaCargas };
+module.exports = { destinoDe, vendedorPrincipal, avisaCargas };

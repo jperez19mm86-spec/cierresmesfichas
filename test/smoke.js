@@ -444,6 +444,42 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── QUIÉN SE NOMBRA EN EL AVISO DE COBRANZA ──────────────────────────────────────────────────
+  // El grupo de PESOS reconcilia por vendedor —tres nombres, no cuarenta— así que ahí va sólo el
+  // vendedor y el cliente no se nombra. En USDT van los dos, vendedor arriba y cliente abajo.
+  // El vendedor es el de MÁS ARRIBA: los que cuelgan de Juli entran como Alexa (lo decidió la dueña).
+  {
+    const tg2 = require('../src/telegram');
+    const sinTags = (x) => x.replace(/<[^>]+>/g, '');
+    const ars = sinTags(tg2.pagoText({ vendedor: 'Alexa', cliente: null, monto: '840000', moneda: 'ARS' }));
+    check('aviso ARS: nombra al vendedor y NO al cliente',
+      /Alexa/.test(ars) && !/Lucia/.test(ars) && /840\.000 ARS/.test(ars), JSON.stringify(ars));
+    const usdt = sinTags(tg2.pagoText({ vendedor: 'Alexa', cliente: 'Fran', monto: '4200', moneda: 'USDT' }));
+    check('aviso USDT: vendedor arriba y cliente abajo',
+      usdt.indexOf('Alexa') < usdt.indexOf('Fran') && /4\.200 USDT/.test(usdt), JSON.stringify(usdt));
+    // Un cliente sin vendedor no puede quedar sin ningún nombre: se lo nombra a él.
+    const solo = sinTags(tg2.pagoText({ vendedor: 'Titan', cliente: null, monto: '100', moneda: 'USDT' }));
+    check('aviso: sin vendedor se nombra al cliente, nunca queda anónimo', /Titan/.test(solo));
+
+    // La cadena se sube ENTERA y no un escalón: Fran cuelga de Juli y Juli de Alexa.
+    const td = require('../src/telegram-destino');
+    const padron = { v1: { id: 'v1', nombre: 'Juli', vendedor_id: 'v2' }, v2: { id: 'v2', nombre: 'Alexa' } };
+    check('vendedor: se sube toda la cadena, no un escalón',
+      td.vendedorPrincipal({ id: 'c1', nombre: 'Fran', vendedor_id: 'v1' }, (id) => padron[id]) === 'Alexa');
+    check('vendedor: un cliente directo no tiene vendedor',
+      td.vendedorPrincipal({ id: 'c2', nombre: 'Solo' }, () => null) === null);
+    // Si alguien queda como vendedor de su propio vendedor, esto NO puede colgarse: colgar el
+    // aviso de un pago ya acreditado es peor que no encontrar el nombre.
+    const ciclo = { a: { id: 'a', nombre: 'A', vendedor_id: 'b' }, b: { id: 'b', nombre: 'B', vendedor_id: 'a' } };
+    check('vendedor: un ciclo no cuelga el aviso',
+      ['A', 'B'].includes(td.vendedorPrincipal({ id: 'x', nombre: 'X', vendedor_id: 'a' }, (id) => ciclo[id])));
+
+    // Y la ruta: pesos sin cliente, dólares con los dos.
+    const idx4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('aviso: la regla vive en la ruta, no en el texto',
+      /vendedorPrincipal\(cli/.test(idx4) && /cliente: enUsdt && vend \? nombre : null/.test(idx4));
+  }
+
   // ── LOS ESPEJOS DE CARGA NO SON UNA FUENTE DE REPORTES ───────────────────────────────────────
   // `Europa_Fichas` y `Casino_Fichas` son otra credencial al MISMO casino: existen para cargar
   // fichas y lo dice su campo `carga_de`. El acumulado capturaba por TODAS las conexiones 463, así

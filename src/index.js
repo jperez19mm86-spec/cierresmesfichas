@@ -604,7 +604,13 @@ async function avisarComprobante(c, cli, monto, moneda) {
     aviso = { ok: false, error: !tok ? 'el bot de Telegram no está configurado' : `no hay grupo cargado para ${c.via === 'usdt' ? 'USDT' : 'pesos'}` };
   } else {
     const nombre = (cli && (cli.nombreVisible || cli.nombre)) || c.cliente_nombre || c.codigo;
-    const texto = telegram.pagoText({ cliente: nombre,
+    // El vendedor de más arriba. En PESOS es lo único que se nombra: ese grupo reconcilia por
+    // vendedor y el nombre del cliente no le aporta nada. En USDT van los dos.
+    const vend = cli ? tgDestino.vendedorPrincipal(cli, (id) => clientes.get(id)) : null;
+    const enUsdt = c.via === 'usdt';
+    const texto = telegram.pagoText({
+      vendedor: vend || nombre,
+      cliente: enUsdt && vend ? nombre : null,
       monto: monto != null ? monto : c.monto,
       moneda: moneda || (cli && cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT') });
     // Con el comprobante adentro: el que mira el grupo no tiene que entrar al OS para verlo.
