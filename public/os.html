@@ -739,7 +739,14 @@ function editCli(id){
             <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
             <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
             <div style="flex:0"><label title="Si está en no, la opción no le aparece y el servidor igual se lo rechaza">Puede avisar pagos</label><select id="e-avisa"><option value="0" ${c.avisa_pagos===false?'selected':''}>no</option><option value="1" ${c.avisa_pagos!==false?'selected':''}>sí</option></select></div>
+            <!-- Estaba abajo de todo, adentro de "Ficha de cobro (datos de referencia)". Un PERMISO
+                 no es un dato de referencia, y ahí nadie lo encuentra: se buscó al lado de "Puede
+                 avisar pagos", que es el otro permiso, y no estaba. Los permisos van juntos. -->
+            <div style="flex:0"><label title="Le permite pasar fichas de un panel suyo a otro. Pide, no ejecuta: lo aprobás vos.">Puede mover fichas</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
           </div>
+          <div class="muted" style="font-size:12px;margin-top:2px">
+            <b>Avisar pagos</b>: sube su comprobante. <b>Mover fichas</b>: pasa fichas entre paneles suyos, en la misma divisa —
+            sólo lo <i>pide</i>, se ejecuta cuando vos lo aprobás. Los dos se comprueban en el servidor, no alcanza con esconder el botón.</div>
           <!-- ── VER SU CUENTA ────────────────────────────────────────────────────────────────
                Avisar un pago se habilita con un sí/no porque no expone nada: el cliente ya sabe
                lo que pagó. VER LA CUENTA es otra cosa —ahí está lo que consumió, lo que debe y lo
@@ -797,8 +804,7 @@ function editCli(id){
             <div style="flex:0"><label>Cuenta en</label><select id="e-moneda">
               <option value="USDT" ${c.moneda_cuenta!=='ARS'?'selected':''}>USDT</option>
               <option value="ARS" ${c.moneda_cuenta==='ARS'?'selected':''}>ARS</option></select></div>
-            <div style="flex:0"><label>Mover balance</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
-            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Permite al cliente pasar fichas de un panel suyo a otro, en la misma divisa.</div>
+
           </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Externos: cobrar +</label><input id="e-mext" value="${esc(c.margen_externos_pct||'')}" placeholder="ej 3" style="width:90px"/></div>

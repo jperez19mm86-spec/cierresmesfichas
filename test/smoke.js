@@ -444,6 +444,44 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── UN COMPROBANTE QUE NO SUBE NO PUEDE PASAR DESAPERCIBIDO ──────────────────────────────────
+  // Pasó de verdad: el cliente adjuntó un PDF, el archivo no salió del teléfono, el aviso entró
+  // igual y él vio "✅ Pago avisado" — del otro lado apareció "SIN comprobante". El sistema guarda
+  // PDFs perfectamente; lo que faltaba era darse cuenta de que no llegó nada.
+  {
+    // El store acepta PDF, no sólo imágenes. Si esto se rompe, se rompe en silencio.
+    const cps = require('../src/comprobantes-store');
+    const pdf = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF');
+    const rp = cps.crear({ codigo: 'L210', clienteNombre: 'Lu', via: 'cvu', monto: '1000', divisa: 'ARS',
+      archivo: { nombre: 'recibo.pdf', tipo: 'application/pdf', base64: pdf.toString('base64') } });
+    check('comprobante: un PDF se guarda igual que una foto',
+      rp.ok && Number(rp.comprobante.archivo_bytes) === pdf.length
+      && rp.comprobante.archivo_tipo === 'application/pdf',
+      JSON.stringify(rp.ok ? { b: rp.comprobante.archivo_bytes, t: rp.comprobante.archivo_tipo } : rp.error));
+
+    // La respuesta le dice a la pantalla cuántos bytes se guardaron: sin eso no puede darse cuenta.
+    const idx5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('comprobante: la respuesta dice si el archivo llegó',
+      /archivo_bytes: c\.archivo_bytes \|\| 0/.test(idx5));
+    const ped2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    check('comprobante: la pantalla avisa si adjuntó y no subió',
+      /const sinArchivo = f && !Number\(\(d\.comprobante \|\| \{\}\)\.archivo_bytes\)/.test(ped2)
+      && /el comprobante NO se subió/.test(ped2));
+    // Un archivo que se lee vacío no se manda como si nada.
+    check('comprobante: un archivo vacío no se manda en silencio',
+      /if \(!b64\) return rej\(new Error\('el archivo llegó vacío/.test(ped2));
+
+    // Y el permiso de mover fichas, junto al otro permiso — no enterrado en "datos de referencia".
+    const h6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const iAvisa = h6.indexOf('Puede avisar pagos');
+    const iMover = h6.indexOf('Puede mover fichas');
+    // El TÍTULO de la sección, no la frase suelta: el comentario que explica la mudanza la nombra.
+    const iFicha = h6.indexOf('<h2>🧾 Ficha de cobro');
+    check('permisos: mover fichas está junto a avisar pagos, no en "datos de referencia"',
+      iMover > 0 && iAvisa > 0 && Math.abs(iMover - iAvisa) < 1200 && iMover < iFicha,
+      'avisa=' + iAvisa + ' mover=' + iMover + ' seccion-ficha=' + iFicha);
+  }
+
   // ── QUIÉN SE NOMBRA EN EL AVISO DE COBRANZA ──────────────────────────────────────────────────
   // El grupo de PESOS reconcilia por vendedor —tres nombres, no cuarenta— así que ahí va sólo el
   // vendedor y el cliente no se nombra. En USDT van los dos, vendedor arriba y cliente abajo.

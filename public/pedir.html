@@ -573,7 +573,14 @@
   function leerArchivo(f) {
     return new Promise((res, rej) => {
       const r = new FileReader();
-      r.onload = () => res({ nombre: f.name, tipo: f.type, base64: String(r.result).split(',')[1] });
+      r.onload = () => {
+        const b64 = String(r.result).split(',')[1] || '';
+        // Un archivo que se lee VACÍO no se manda como si nada: el servidor guardaría el aviso sin
+        // comprobante y el cliente se iría creyendo que lo subió. Pasa con archivos de 0 bytes o
+        // con los que el selector del teléfono entrega sin contenido.
+        if (!b64) return rej(new Error('el archivo llegó vacío — probá adjuntarlo de nuevo'));
+        res({ nombre: f.name, tipo: f.type, base64: b64 });
+      };
       r.onerror = () => rej(new Error('no se pudo leer el archivo'));
       r.readAsDataURL(f);
     });
@@ -596,7 +603,14 @@
         }) });
       const d = await r.json();
       if (d.ok) {
-        msg.innerHTML = '<div class="msg ok">✅ <strong>Pago avisado</strong><br/>Lo vamos a revisar y acreditar.<br/>Guardá tu comprobante por las dudas.</div>';
+        // Si se adjuntó algo y del otro lado no llegó nada, se dice ACÁ y AHORA — con el archivo
+        // todavía a mano. Un "pago avisado" en verde sobre un comprobante que no subió hace que el
+        // cliente se vaya tranquilo y que del otro lado aparezca "SIN comprobante".
+        const sinArchivo = f && !Number((d.comprobante || {}).archivo_bytes);
+        msg.innerHTML = sinArchivo
+          ? '<div class="msg err">⚠️ <strong>El pago se avisó, pero el comprobante NO se subió.</strong><br/>'
+            + 'Volvé a mandarlo adjuntando el archivo, o escribinos y lo cargamos nosotros.</div>'
+          : '<div class="msg ok">✅ <strong>Pago avisado</strong><br/>Lo vamos a revisar y acreditar.<br/>Guardá tu comprobante por las dudas.</div>';
         ['cardCamino','cardVia','cardDatos','cardPago','btnPago'].forEach(i => show(i, false));
         setTimeout(() => { document.getElementById('codigo').value = ''; document.getElementById('codigo').focus(); msg.innerHTML = ''; resetSel(); }, 6000);
       } else { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo enviar') + '</div>'; btn.disabled = false; }

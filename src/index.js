@@ -585,7 +585,11 @@ app.post('/api/comprobante', async (req, res) => {
   // pasado. El aviso va cuando el pago SE ACREDITA, que es el hecho que importa (ver el resolver
   // en os.routes). Para que la dueña se entere de que hay uno esperando está el push, que le llega
   // al teléfono aunque no esté mirando.
-  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa } });
+  // `archivo_bytes` viaja de vuelta para que la PANTALLA pueda comprobar que el comprobante llegó.
+  // Sin esto, un archivo que no salió del teléfono se perdía en silencio: el cliente veía "pago
+  // avisado", se iba tranquilo, y del otro lado aparecía "SIN comprobante". Pasó de verdad.
+  res.json({ ok: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa,
+    archivo_bytes: c.archivo_bytes || 0 } });
 });
 
 /**

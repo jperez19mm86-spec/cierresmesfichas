@@ -35,7 +35,10 @@ function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, a
   let bytes = 0; let datos = null; let nombre = null; let tipo = null;
   if (archivo && archivo.base64) {
     const limpio = String(archivo.base64).replace(/^data:[^;]+;base64,/, '');
-    bytes = Math.floor(limpio.length * 0.75);
+    // El tamaño EXACTO, no estimado. `largo * 0.75` ignora el relleno del base64 y devolvía de más
+    // —68 bytes contados como 69— así que el número que se muestra y el que se compara contra el
+    // máximo no eran el peso real del archivo. Decodificar cuesta nada: ya está entero en memoria.
+    bytes = Buffer.from(limpio, 'base64').length;
     if (bytes > MAX_BYTES) return { ok: false, error: `el archivo pesa ${(bytes / 1048576).toFixed(1)} MB y el máximo son ${MAX_BYTES / 1048576} MB` };
     datos = limpio; nombre = K(archivo.nombre).slice(0, 120); tipo = K(archivo.tipo).slice(0, 60);
   }
