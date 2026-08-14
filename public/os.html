@@ -730,6 +730,25 @@ function editCli(id){
             <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
             <div style="flex:0"><label title="Si está en no, la opción no le aparece y el servidor igual se lo rechaza">Puede avisar pagos</label><select id="e-avisa"><option value="0" ${c.avisa_pagos===false?'selected':''}>no</option><option value="1" ${c.avisa_pagos!==false?'selected':''}>sí</option></select></div>
           </div>
+          <!-- ── VER SU CUENTA ────────────────────────────────────────────────────────────────
+               Avisar un pago se habilita con un sí/no porque no expone nada: el cliente ya sabe
+               lo que pagó. VER LA CUENTA es otra cosa —ahí está lo que consumió, lo que debe y lo
+               que pagó— y por eso lleva usuario y contraseña, igual que la factura lleva un token
+               largo en vez del código. Bajarlo a un sí/no sería deshacer esa decisión.
+               La clave se muestra UNA vez y no se puede volver a ver: se guarda el hash, no la clave. -->
+          <div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">
+            <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
+              <div style="flex:0 0 auto"><label>Puede ver su cuenta</label>
+                <div id="acc-est-${id}" class="muted" style="padding:8px 0;font-weight:700">…</div></div>
+              <div style="flex:0 0 auto"><label>Usuario</label>
+                <input id="acc-u-${id}" placeholder="${esc((c.codigo||'').toLowerCase())}" style="width:170px"></div>
+              <div style="flex:0 0 auto"><button class="small" onclick="accHabilitar('${id}')">Dar acceso</button></div>
+              <div style="flex:0 0 auto"><button class="small danger" onclick="accQuitar('${id}')">Quitar acceso</button></div>
+              <div class="muted" style="flex:1;min-width:200px;font-size:12px;padding-bottom:8px">
+                Entra en <b>/cuenta</b> y ve su saldo, sus fichas del mes y sus movimientos. Nada más.</div>
+            </div>
+            <div id="acc-clave-${id}"></div>
+          </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
             <div><label>Su vendedor</label><select id="e-vend"><option value="">— cliente directo —</option>${
@@ -815,6 +834,7 @@ function editCli(id){
   `;
   fillDivisas(c.divisa_fichas);
   cliPintarCodigos(id);
+  accEstado(id);          // si puede ver su cuenta, y con qué usuario
   loadCliPlat(id);
   loadCliProv(id);
 }
@@ -1080,6 +1100,38 @@ async function ajustarDivisas(){
   const r=await api('/api/os/paneles/divisas/ajustar',{method:'POST',body:JSON.stringify({meses:6})});
   toast(r.ok?('Ajustados '+r.ajustados+' paneles'):(r.error||'error'));
   VIEWS.clientes();
+}
+
+/* ── EL ACCESO DEL CLIENTE A SU CUENTA ────────────────────────────────────────────────────────
+   La clave se muestra UNA vez, en pantalla, y no se puede volver a ver: lo que se guarda es
+   scrypt(clave), no la clave. Si se pierde, se genera otra — no se recupera la que había. Guardar
+   una clave recuperable es guardar una clave que alguien puede leer. */
+async function accEstado(id){
+  const el = document.getElementById('acc-est-'+id); if(!el) return;
+  const r = await api('/api/os/clientes/'+id+'/acceso');
+  const a = (r && r.acceso) || {};
+  el.innerHTML = a.habilitado
+    ? '<span style="color:var(--gold)">✅ sí</span> <span class="muted" style="font-weight:400">('+esc(a.usuario||'')+')</span>'
+    : '<span class="muted">no</span>';
+}
+async function accHabilitar(id){
+  const u = (val('acc-u-'+id)||'').trim();
+  const r = await api('/api/os/clientes/'+id+'/acceso',{method:'POST',body:JSON.stringify({usuario:u||undefined})});
+  if(!r.ok) return toast('No se pudo: '+(r.error||''));
+  // La clave va a la pantalla y NO a un toast: un toast se va solo y esto no se puede volver a ver.
+  const cont = document.getElementById('acc-clave-'+id);
+  if(cont) cont.innerHTML = '<div class="nota" style="margin-top:8px;border-left:3px solid var(--gold)">'
+    + '<span class="tit">Anotá esto ahora — no se puede volver a ver</span>'
+    + 'Usuario: <b>'+esc(r.usuario)+'</b> · Contraseña: <b style="font-family:ui-monospace,monospace;font-size:15px">'+esc(r.clave)+'</b>'
+    + '<div class="muted" style="margin-top:4px">Entra en <b>'+location.origin+'/cuenta</b>. Si la pierde, se le genera otra.</div></div>';
+  accEstado(id);
+}
+async function accQuitar(id){
+  if(!confirm('¿Sacarle el acceso a su cuenta?\n\nDeja de poder entrar. La contraseña que tenía no vuelve a servir.')) return;
+  const r = await api('/api/os/clientes/'+id+'/acceso',{method:'POST',body:JSON.stringify({habilitado:false})});
+  if(!r.ok) return toast('No se pudo: '+(r.error||''));
+  const cont = document.getElementById('acc-clave-'+id); if(cont) cont.innerHTML='';
+  toast('Acceso quitado'); accEstado(id);
 }
 
 async function avisaPagosUno(id, valor){

@@ -442,6 +442,51 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── LA CUENTA QUE VE EL CLIENTE ──────────────────────────────────────────────────────────────
+  // Es la segunda cosa que un cliente ve de este sistema, después de pedir fichas. Lo que no puede
+  // pasar es que le llegue algo que no es suyo: el nombre de la plataforma (Casino/Europa), los
+  // proveedores, el reparto entre los socios o su vendedor. El servidor ya no lo manda; esta
+  // pantalla tampoco lo pide — y el check mide las dos puntas.
+  {
+    const cta = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
+    // Sin los comentarios: lo que se mide es lo que PUEDE llegar a la pantalla, no lo que el
+    // archivo dice de sí mismo. El comentario que explica qué está prohibido nombra justamente
+    // esas palabras, y hacerlo fallar por eso enseñaría a no escribir el comentario.
+    const vivo = cta.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
+    // "Proveedores" NO está prohibido: al cliente se le cobran los proveedores externos y la
+    // factura ya se los nombra. Lo prohibido es lo que no es asunto suyo.
+    const prohibido = [/\bEuropa\b/, /\bCasino\b/i, /reparto/i, /participante/i, /vendedor/i,
+      /superagente/i, /\bTBS\b/, /profit/i, /matriz/i];
+    const cuela = prohibido.filter((re) => re.test(vivo)).map((re) => String(re));
+    check('cuenta del cliente: la pantalla no nombra nada interno', cuela.length === 0, cuela.join(' '));
+    check('cuenta del cliente: sólo pide sus propios datos',
+      /\/api\/cuenta\/login/.test(cta) && /\/api\/cuenta\/mio/.test(cta)
+      && !/\/api\/os\//.test(cta), 'no puede pedirle nada a /api/os/');
+
+    // El token del cliente es de OTRA familia que el del panel: uno nunca abre lo del otro.
+    const idx2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('cuenta del cliente: la página se sirve en /cuenta',
+      /app\.get\('\/cuenta',/.test(idx2) && /cuenta\.html/.test(idx2));
+    const au = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('cuenta del cliente: /cuenta es pública pero el dato no',
+      /\^\\\/cuenta\\\/\?\$/.test(au) && /clienteDeToken/.test(idx2));
+
+    // Sin token válido no se ve NADA. Es la comprobación que importa: la ruta es pública.
+    let r2 = await get('/api/cuenta/mio');
+    check('cuenta del cliente: sin entrar no devuelve nada', r2.status === 401, 'HTTP ' + r2.status);
+    r2 = await post('/api/cuenta/login', { usuario: 'no_existe_' + Date.now(), clave: 'x' });
+    check('cuenta del cliente: usuario inexistente da el MISMO error que clave mala',
+      r2.status === 401 && /Usuario o contraseña incorrectos/.test(r2.data.error || ''),
+      JSON.stringify(r2.data.error));
+
+    // El interruptor en el OS: dar y quitar acceso, y que la clave se muestre UNA vez.
+    const h4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('cuenta del cliente: el OS tiene el interruptor de acceso',
+      /accHabilitar/.test(h4) && /accQuitar/.test(h4) && /Puede ver su cuenta/.test(h4)
+      && /no se puede volver a ver/.test(h4));
+  }
+
   // El aviso al grupo saca la moneda de la columna que TIENE el dato, no de la cuenta del cliente:
   // con un pago en pesos sobre una cuenta en dólares mandaba "1.476.000 USDT" al grupo del cliente.
   {

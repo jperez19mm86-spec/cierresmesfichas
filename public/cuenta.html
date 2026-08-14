@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mi cuenta</title>
+<link rel="icon" href="/logo.png">
+<style>
+/*
+ * cuenta.html — LO QUE VE EL CLIENTE DE SU PROPIA CUENTA.
+ *
+ * Se mira desde el teléfono, casi siempre. Por eso una sola columna, números grandes y ningún
+ * menú: entra, mira cuánto debe, y se va.
+ *
+ * ⚠️ NO PUEDE APARECER NADA INTERNO. Ni el nombre de la plataforma (Casino / Europa), ni
+ * proveedores, ni reparto, ni el nombre de su vendedor. El servidor ya se cuida de no mandarlo;
+ * esta pantalla no lo pide y no lo muestra aunque llegara.
+ */
+:root{
+  --bg:#faf5fb; --bg2:#fff; --bg3:#f6eef8; --txt:#241f27; --mut:#6b6470;
+  --bor:#e7dfe9; --g:#c456ad; --rojo:#b3261e; --verde:#1e7a4b;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#161318; --bg2:#1e1a20; --bg3:#262029; --txt:#f2eef4; --mut:#a49bab;
+    --bor:#352e38; --g:#d977c2; --rojo:#f2837a; --verde:#63c795; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:16px;padding-bottom:40px}
+.wrap{max-width:560px;margin:0 auto}
+h1{font-size:19px;margin:0 0 2px}
+.mut{color:var(--mut);font-size:13px}
+.card{background:var(--bg2);border:1px solid var(--bor);border-radius:12px;padding:16px;margin:12px 0}
+label{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px}
+input{width:100%;padding:11px 12px;font-size:16px;border:1px solid var(--bor);border-radius:8px;
+  background:var(--bg3);color:var(--txt);outline:none}
+input:focus{border-color:var(--g)}
+button{width:100%;padding:12px;font-size:15px;font-weight:700;border:none;border-radius:8px;
+  background:var(--g);color:#fff;cursor:pointer;margin-top:12px}
+button.link{background:none;color:var(--mut);font-weight:400;font-size:13px;text-decoration:underline;margin-top:8px}
+.saldo{font-size:34px;font-weight:800;letter-spacing:-.02em;margin:2px 0}
+.chico{font-size:13px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11px;color:var(--mut);text-transform:uppercase;font-weight:600;
+  padding:0 0 6px;border-bottom:1px solid var(--bor)}
+td{padding:8px 0;border-bottom:1px solid var(--bor);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.r{text-align:right;white-space:nowrap}
+.err{background:rgba(179,38,30,.1);border:1px solid var(--rojo);color:var(--rojo);
+  padding:10px 12px;border-radius:8px;font-size:14px;margin-top:12px}
+.avi{background:var(--bg3);border-left:3px solid var(--g);padding:10px 12px;border-radius:0 8px 8px 0;
+  font-size:13px;color:var(--mut);margin-top:10px}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;background:var(--bg3);
+  font-size:11px;color:var(--mut)}
+.oculto{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="login">
+    <h1>Mi cuenta</h1>
+    <div class="mut">Entrá con el usuario y la contraseña que te pasamos.</div>
+    <div class="card">
+      <div><label>Usuario</label><input id="u" autocomplete="username" autocapitalize="off" autocorrect="off"></div>
+      <div style="margin-top:12px"><label>Contraseña</label><input id="p" type="password" autocomplete="current-password"></div>
+      <button onclick="entrar()">Entrar</button>
+      <div id="loginErr" class="err oculto"></div>
+    </div>
+  </div>
+
+  <div id="panel" class="oculto"></div>
+
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (x) => String(x == null ? '' : x)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const money = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fecha = (f) => { const [a,m,d] = String(f||'').slice(0,10).split('-'); return d ? `${d}/${m}` : ''; };
+
+/* El token vive en el navegador del cliente. Dura 7 días y sólo sirve para SU cuenta: firmado con
+   otra familia que la del panel, así que jamás abre el OS. */
+const TOKEN = 'cuenta_token';
+const tok = () => localStorage.getItem(TOKEN) || '';
+
+async function api(url, opts) {
+  const r = await fetch(url, { ...opts, headers: { 'content-type': 'application/json',
+    ...(tok() ? { authorization: 'Bearer ' + tok() } : {}), ...((opts||{}).headers||{}) } });
+  return r.json().catch(() => ({ ok: false, error: 'no se pudo leer la respuesta' }));
+}
+
+async function entrar() {
+  $('loginErr').classList.add('oculto');
+  const r = await api('/api/cuenta/login', { method: 'POST',
+    body: JSON.stringify({ usuario: $('u').value, clave: $('p').value }) });
+  if (!r.ok) { $('loginErr').textContent = r.error || 'No se pudo entrar'; $('loginErr').classList.remove('oculto'); return; }
+  localStorage.setItem(TOKEN, r.token || '');
+  cargar();
+}
+
+function salir() { localStorage.removeItem(TOKEN); location.reload(); }
+
+async function cargar() {
+  if (!tok()) return;
+  const r = await api('/api/cuenta/mio');
+  // 401 = el token venció o se lo dieron de baja: vuelve al login sin cartel de error, que sería
+  // alarmar por algo normal.
+  if (!r.ok) { localStorage.removeItem(TOKEN); return; }
+  $('login').classList.add('oculto');
+  $('panel').classList.remove('oculto');
+  pintar(r);
+}
+
+function pintar(r) {
+  const c = r.cuenta || {};
+  const mon = c.moneda || 'USDT';
+  const debe = Number(c.total || 0);
+  // A favor es un caso real —pagó de más, o de adelantado— y decirlo "saldo -120" obliga a pensar.
+  const titulo = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+
+  const movs = (r.movimientos || []).filter((m) => m.tipo !== 'correccion');
+  const nombreTipo = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste',
+    bonificacion: 'Bonificación', proveedor_extra: 'Proveedores' };
+
+  $('panel').innerHTML = `
+    <h1>${esc((r.cliente||{}).nombre || '')}</h1>
+    <div class="mut">${esc((r.cliente||{}).codigo || '')}${r.base_pct != null ? ' · trabajás al ' + esc(r.base_pct) + '%' : ''}</div>
+
+    <div class="card">
+      <label>${titulo}</label>
+      <div class="saldo" style="color:${debe > 0 ? 'var(--rojo)' : (debe < 0 ? 'var(--verde)' : 'inherit')}">
+        ${money(Math.abs(debe))} ${esc(mon)}</div>
+      <div class="chico">
+        Consumo ${money(c.fichas_pendientes)}
+        ${Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes) : ''}
+        · Pagado ${money(c.pagos)}
+      </div>
+      ${Number(c.esperandoTC||0) ? `<div class="avi">Hay ${c.esperandoTC} pago(s) en pesos que se están contando
+        con el cambio promedio del mes. Al cerrar el mes el número se ajusta.</div>` : ''}
+      ${Number(c.sinValuar||0) ? `<div class="avi" style="border-color:var(--rojo);color:var(--rojo)">
+        ${c.sinValuar} pago(s) todavía sin convertir: no están descontados de este saldo.</div>` : ''}
+    </div>
+
+    ${(r.cargas||[]).length ? `<div class="card">
+      <label>Fichas de este mes</label>
+      <table><tbody>
+      ${r.cargas.map((x) => `<tr><td class="mut">${fecha(x.fecha)}</td>
+        <td>${esc(x.usuario||'')}</td>
+        <td class="r">${money(x.monto, 0)} <span class="mut">${esc(x.divisa||'')}</span></td></tr>`).join('')}
+      </tbody></table>
+    </div>` : ''}
+
+    ${movs.length ? `<div class="card">
+      <label>Movimientos</label>
+      <table>
+        <thead><tr><th>Fecha</th><th>Concepto</th><th class="r">${esc(mon)}</th></tr></thead>
+        <tbody>
+        ${movs.map((m) => {
+          const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
+          const otro = mon === 'ARS' ? m.monto_usdt : m.monto_ars;
+          const otraMon = mon === 'ARS' ? 'USDT' : 'ARS';
+          const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
+          return `<tr>
+            <td class="mut">${fecha(m.fecha)}</td>
+            <td>${esc(nombreTipo[m.tipo] || m.tipo)}
+              ${otro != null && otro !== '' ? `<div class="mut" style="font-size:12px">${money(otro, otraMon==='ARS'?0:2)} ${esc(otraMon)}${m.tc ? ' · cambio ' + money(m.tc, 2) : ''}</div>` : ''}</td>
+            <td class="r" style="color:${baja ? 'var(--verde)' : 'inherit'}">
+              ${propio == null || propio === '' ? '<span class="mut">—</span>' : (baja ? '− ' : '') + money(propio)}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+
+    <button class="link" onclick="salir()">Salir</button>
+  `;
+}
+
+cargar();
+</script>
+</body>
+</html>

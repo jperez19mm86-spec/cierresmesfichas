@@ -1100,6 +1100,9 @@ app.get('/api/historial', (req, res) => {
 // ─────────────── Frontend estático ───────────────
 // Vista CLIENTE (público): http://localhost:PORT/pedir
 app.get('/pedir', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pedir.html')));
+// La cuenta del cliente. La página es pública; el DATO no: sin token de cliente, /api/cuenta/mio
+// contesta 401. Va antes del comodín /cuenta/:token de las cuentas de API, que sí llevan llave.
+app.get('/cuenta', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'cuenta.html')));
 
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
