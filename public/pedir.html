@@ -321,9 +321,26 @@
         + movs.map(m => {
           const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
           const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
-          return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
-            + '<span class="small">' + dia(m.fecha) + ' ' + esc(nombre[m.tipo] || m.tipo) + '</span>'
-            + '<span>' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2)) + '</span></div>';
+          // Un ajuste se explica por su nota —"deuda antes de 08/26"— y no por la palabra
+          // "Ajuste" ni por el día en que se cargó, que no significan nada para el cliente.
+          const esAjuste = m.tipo === 'ajuste' && m.notas;
+          const concepto = esAjuste ? m.notas : ((dia(m.fecha) ? dia(m.fecha) + ' ' : '') + (nombre[m.tipo] || m.tipo));
+          // La cuenta entera de la carga, para que la pueda rehacer: lo que pidió, su %, cuánto da
+          // en su moneda y a qué cambio. Sin esto el número de la derecha hay que creérselo.
+          let detalle = '';
+          if (m.tipo === 'carga' && m.cargado) {
+            detalle = money(m.cargado, 0) + ' ' + esc(m.divisa || '')
+              + (m.base_pct ? ' · ' + esc(m.base_pct) + '%' : '')
+              + (m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : '')
+              + (m.tc ? ' · TC ' + money(m.tc, 2) : '');
+          }
+          return '<div style="padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
+            + '<div style="display:flex;justify-content:space-between;gap:10px">'
+            +   '<span class="small">' + esc(concepto) + '</span>'
+            +   '<span>' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2)) + '</span>'
+            + '</div>'
+            + (detalle ? '<div class="small" style="opacity:.7">' + detalle + '</div>' : '')
+            + '</div>';
         }).join('');
     }
     h += '<button class="btn full" style="margin-top:16px" onclick="salirCuenta()">Salir de mi cuenta</button>';

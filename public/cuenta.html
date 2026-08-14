@@ -177,10 +177,22 @@ function pintar(r) {
           const otro = mon === 'ARS' ? m.monto_usdt : m.monto_ars;
           const otraMon = mon === 'ARS' ? 'USDT' : 'ARS';
           const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
+          // Un ajuste se explica por su nota —"deuda antes de 08/26"— y no por la palabra "Ajuste"
+          // ni por el día en que se cargó, que al cliente no le dicen nada.
+          const esAjuste = m.tipo === 'ajuste' && m.notas;
+          // La cuenta entera de la carga, para que la pueda rehacer: lo que pidió, su %, cuánto
+          // da en su moneda y a qué cambio. Sin esto el número de la derecha hay que creérselo.
+          const detalle = (m.tipo === 'carga' && m.cargado)
+            ? `${money(m.cargado, 0)} ${esc(m.divisa || '')}${m.base_pct ? ' · ' + esc(m.base_pct) + '%' : ''}`
+              + `${m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : ''}`
+              + `${m.tc ? ' · TC ' + money(m.tc, 2) : ''}`
+            : (otro != null && otro !== ''
+                ? `${money(otro, otraMon === 'ARS' ? 0 : 2)} ${esc(otraMon)}${m.tc ? ' · cambio ' + money(m.tc, 2) : ''}`
+                : '');
           return `<tr>
-            <td class="mut">${fecha(m.fecha)}</td>
-            <td>${esc(nombreTipo[m.tipo] || m.tipo)}
-              ${otro != null && otro !== '' ? `<div class="mut" style="font-size:12px">${money(otro, otraMon==='ARS'?0:2)} ${esc(otraMon)}${m.tc ? ' · cambio ' + money(m.tc, 2) : ''}</div>` : ''}</td>
+            <td class="mut">${esAjuste ? '' : fecha(m.fecha)}</td>
+            <td>${esc(esAjuste ? m.notas : (nombreTipo[m.tipo] || m.tipo))}
+              ${detalle ? `<div class="mut" style="font-size:12px">${detalle}</div>` : ''}</td>
             <td class="r" style="color:${baja ? 'var(--verde)' : 'inherit'}">
               ${propio == null || propio === '' ? '<span class="mut">—</span>' : (baja ? '− ' : '') + money(propio)}</td>
           </tr>`;

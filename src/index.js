@@ -827,11 +827,23 @@ app.get('/api/cuenta/mio', (req, res) => {
   if (!cli) return res.status(404).json({ ok: false, error: 'cuenta no encontrada' });
   const mes = new Date().toISOString().slice(0, 7);
   const cuenta = deudaSvc.cuentaCorriente(cli.id);
+  // ── CADA CARGA CON SU CUENTA COMPLETA ──────────────────────────────────────────────────────
+  // El cliente ve "95,25 USDT" y no puede verificar nada: no sabe de qué pedido salió, ni a qué
+  // cambio. Con lo cargado, el %, el monto en su moneda y el TC, puede rehacer la cuenta él solo —
+  // que es la diferencia entre creernos y comprobarlo.
+  //
+  // Lo cargado sale del PEDIDO, no de dividir el fee por el porcentaje: dividir un número ya
+  // redondeado devuelve 1.999.999,93 y eso, en la pantalla del que pagó, parece un error nuestro.
   const movimientos = movsStore.list({ cliente_id: cli.id })
     .slice(0, 40)
-    .map((m) => ({ fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
-      monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
-      divisa: m.divisa, notas: m.notas }));
+    .map((m) => {
+      let cargado = null;
+      if (m.pedido_id) { try { const p = pedidos.get(m.pedido_id); if (p) cargado = p.monto; } catch (e) {} }
+      return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
+        monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
+        divisa: m.divisa, notas: m.notas,
+        base_pct: m.base_pct_aplicado || null, cargado };
+    });
   const cargas = pedidos.list({ codigo: cli.codigo, estado: 'cargado' })
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
     .map((p) => ({ fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),

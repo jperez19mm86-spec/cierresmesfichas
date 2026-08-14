@@ -508,6 +508,38 @@ async function main() {
       check('cuenta del cliente: con ese token SÍ ve su cuenta',
         mio.status === 200 && mio.data.ok === true && !!mio.data.cuenta && !!mio.data.cliente,
         'HTTP ' + mio.status + ' ' + JSON.stringify(mio.data).slice(0, 140));
+      // Cada carga tiene que traer con qué rehacer la cuenta: lo cargado, el %, el monto en su
+      // moneda y el TC. Sin lo CARGADO, el cliente ve un fee suelto y no puede verificar nada.
+      // Hace falta una carga de verdad, atada a un pedido: lo cargado sale del pedido.
+      const peds = (await get('/api/pedidos?codigo=L210')).data.pedidos || [];
+      const ped1 = peds.find((x) => x.estado === 'cargado');
+      if (ped1) {
+        await post('/api/os/movimientos', { cliente_id: cli.id, tipo: 'carga', pedido_id: ped1.id,
+          base_pct_aplicado: '11', monto_ars: '2200000', monto_usdt: '1490.51', tc_momento: '1476', divisa: 'ARS' });
+      }
+      const mio2 = await get('/api/cuenta/mio', { authorization: 'Bearer ' + login.data.token });
+      const carga = (mio2.data.movimientos || []).find((m) => m.tipo === 'carga');
+      check('cuenta del cliente: cada carga trae su cuenta completa',
+        !!carga && carga.cargado != null && carga.base_pct != null && carga.tc != null,
+        'pedido base=' + (ped1 ? ped1.monto : 'sin pedido') + ' · mov=' + JSON.stringify(carga || null));
+      check('cuenta del cliente: lo cargado es el monto del pedido, exacto',
+        !!carga && !!ped1 && String(carga.cargado) === String(ped1.monto),
+        'cargado=' + (carga || {}).cargado + ' pedido=' + (ped1 || {}).monto);
+      // Lo cargado sale del PEDIDO, no de dividir el fee: dividir un redondeado da 1.999.999,93.
+      const idx3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+      check('cuenta del cliente: lo cargado sale del pedido, no de dividir el fee',
+        /pedidos\.get\(m\.pedido_id\)/.test(idx3));
+      // El saldo anterior se explica solo: "deuda antes de 08/26", sin fecha ni jerga interna.
+      const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+      // Se mira lo que se ASIGNA, no el texto del archivo: el comentario de al lado cita la
+      // etiqueta vieja justamente para explicar por qué cambió, y buscarla ahí daría rojo siempre.
+      check('saldo anterior: la etiqueta dice el período, no jerga interna',
+        /const etiqueta = `deuda antes de \$\{mm\}\/\$\{aa\.slice\(2\)\}`/.test(rt)
+        && /notas: etiqueta/.test(rt)
+        && !/notas: 'saldo anterior/.test(rt));
+      check('saldo anterior: el cliente lo ve por su nota y sin fecha',
+        /m\.tipo === 'ajuste' && m\.notas/.test(ped) && /esAjuste \? '' : fecha\(m\.fecha\)/.test(cta));
+
       // Y con el código en vez del usuario, que es como entra desde la pantalla de pedidos.
       const porCod = await post('/api/cuenta/login', { usuario: 'L210', clave: alta.data.clave });
       check('cuenta del cliente: también entra con su código', porCod.status === 200 && porCod.data.ok === true,

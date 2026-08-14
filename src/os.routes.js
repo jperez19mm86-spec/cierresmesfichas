@@ -1576,9 +1576,17 @@ function mount(app) {
 
     // Idempotente: si ya había un saldo anterior aplicado, se borra ese movimiento y se crea el nuevo.
     if (cli.saldo_inicial_mov_id) movs.remove(cli.saldo_inicial_mov_id);
+    // ── LA ETIQUETA DICE HASTA CUÁNDO ──────────────────────────────────────────────────────
+    // "saldo anterior (deuda previa al sistema)" le habla al que armó el sistema, no al cliente:
+    // él no sabe ni le importa cuándo empezamos a usar esto. Lo que necesita saber es de qué
+    // período es esa deuda, y con eso ya no pregunta. Sale del mes del propio movimiento, así que
+    // se escribe solo y no hay un texto fijo que se quede viejo el mes que viene.
+    const hoy = (req.body && req.body.fecha) ? String(req.body.fecha) : new Date().toISOString();
+    const [aa, mm] = hoy.slice(0, 7).split('-');
+    const etiqueta = `deuda antes de ${mm}/${aa.slice(2)}`;
     const movimiento = movs.create({
       cliente_id: cli.id, tipo: 'ajuste', monto_ars: div === 'ARS' ? monto : null, monto_usdt: montoUsdt,
-      tc_momento: tcUsado, divisa: div, notas: 'saldo anterior (deuda previa al sistema)',
+      tc_momento: tcUsado, divisa: div, notas: etiqueta,
     });
     clientes.updateComercial(cli.id, { saldo_inicial: String(monto), saldo_inicial_divisa: div, saldo_inicial_mov_id: movimiento.id });
     ok(res, { movimiento_id: movimiento.id, monto_usdt: montoUsdt, tc: tcUsado, deuda: deudaSvc.cuentaCorriente(cli.id) });
