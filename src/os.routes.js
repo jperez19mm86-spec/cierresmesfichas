@@ -83,6 +83,9 @@ async function _nodosCacheados(cli, key, from, to, cur, soloActivos = false) {
  * el sistema. Antes cada pantalla lo hacía a su manera y el mismo cliente-mes daba tres resultados.
  * Siempre hay que pasarle el mes que se está facturando; si no, factura con el % de hoy.
  */
+// Cuándo levantó ESTE proceso. Cambia en cada despliegue, sirva o no la variable de git.
+const ARRANQUE = new Date().toISOString();
+
 function basePctEfectivo(cliente, panel, mes = mesTZ()) {
   return externosSvc.baseDelMes(cliente, mes, panel).valor;
 }
