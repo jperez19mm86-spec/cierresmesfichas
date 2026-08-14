@@ -40,6 +40,15 @@ function load() {
       // v3.0 §7-10 (planilla). OJO: si un campo falta ACÁ, save() lo reinserta como null
       // aunque esté bien en el INSTERT → se borra solo al guardar cualquier otro cliente.
       mover_balance: !!r.mover_balance,
+      // ⚠️ EL ACCESO VIAJA ACÁ AUNQUE NADIE LO LEA DE ESTE OBJETO. El store guarda con DELETE +
+      // INSERT: una columna que load() no trae, el próximo guardado de CUALQUIER cliente la deja
+      // en NULL PARA TODOS. Estas cuatro se estaban perdiendo — o sea que editar un cliente
+      // borraba la contraseña de todos los que tenían acceso a ver su cuenta, en silencio.
+      // `acceso_clave` es el hash, nunca la clave; se copia tal cual y no se muestra en ningún lado.
+      acceso_habilitado: r.acceso_habilitado ? 1 : 0,
+      acceso_usuario: r.acceso_usuario || null,
+      acceso_clave: r.acceso_clave || null,
+      acceso_at: r.acceso_at || null,
       // Vacío = USDT: es como estaban todos antes de que esto existiera.
       moneda_cuenta: (r.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
       margen_externos_pct: r.margen_externos_pct || null,
@@ -62,10 +71,12 @@ const _saveTx = db.transaction((data) => {
   const ins = db.prepare(`INSERT INTO clientes
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
-     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,avisa_pagos,moneda_cuenta)
+     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,avisa_pagos,moneda_cuenta,
+     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
-     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@avisa,@mcta)`);
+     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@avisa,@mcta,
+     @accOn,@accU,@accC,@accAt)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -78,6 +89,7 @@ const _saveTx = db.transaction((data) => {
     mcta: c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT',
     mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
     avisa: (c.avisa_pagos === false) ? 0 : 1,
+    accOn: c.acceso_habilitado ? 1 : 0, accU: nn(c.acceso_usuario), accC: nn(c.acceso_clave), accAt: nn(c.acceso_at),
   }));
 });
 function save(data) { _saveTx(data); }
