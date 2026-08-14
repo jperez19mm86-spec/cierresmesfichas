@@ -20,7 +20,9 @@ srv.stderr.on('data', (d) => { srvlog += d; });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let cookie = '';
 const H = () => ({ validateStatus: () => true, headers: cookie ? { Cookie: cookie } : {} });
-const get = (p) => axios.get(BASE + p, H());
+// `extra` deja mandar cabeceras propias — hace falta para probar la cuenta del cliente, que va
+// con su token en Authorization y no con la cookie del panel.
+const get = (p, extra) => axios.get(BASE + p, extra ? { ...H(), headers: { ...(H().headers || {}), ...extra } } : H());
 const post = (p, b) => axios.post(BASE + p, b, H());
 const put = (p, b) => axios.put(BASE + p, b, H());
 
@@ -491,6 +493,27 @@ async function main() {
     // Sin token válido no se ve NADA. Es la comprobación que importa: la ruta es pública.
     let r2 = await get('/api/cuenta/mio');
     check('cuenta del cliente: sin entrar no devuelve nada', r2.status === 401, 'HTTP ' + r2.status);
+
+    // ── DE PUNTA A PUNTA, COMO LO HACE LA PANTALLA ─────────────────────────────────────────
+    // Entrar y DESPUÉS pedir los datos con el token, exactamente como manda el navegador. Sin
+    // este check, el login podía andar y el pedido siguiente devolver 401 —porque el servidor
+    // leía otra cabecera— y la pantalla volvía sola al formulario: "el botón no hace nada".
+    {
+      const u = 'e2e' + Date.now();
+      const alta = await post('/api/os/clientes/' + cli.id + '/acceso', { usuario: u });
+      const login = await post('/api/cuenta/login', { usuario: u, clave: alta.data.clave });
+      check('cuenta del cliente: el login devuelve token', login.status === 200 && !!login.data.token,
+        'HTTP ' + login.status);
+      const mio = await get('/api/cuenta/mio', { authorization: 'Bearer ' + login.data.token });
+      check('cuenta del cliente: con ese token SÍ ve su cuenta',
+        mio.status === 200 && mio.data.ok === true && !!mio.data.cuenta && !!mio.data.cliente,
+        'HTTP ' + mio.status + ' ' + JSON.stringify(mio.data).slice(0, 140));
+      // Y con el código en vez del usuario, que es como entra desde la pantalla de pedidos.
+      const porCod = await post('/api/cuenta/login', { usuario: 'L210', clave: alta.data.clave });
+      check('cuenta del cliente: también entra con su código', porCod.status === 200 && porCod.data.ok === true,
+        'HTTP ' + porCod.status);
+      await post('/api/os/clientes/' + cli.id + '/acceso', { habilitado: false });
+    }
     r2 = await post('/api/cuenta/login', { usuario: 'no_existe_' + Date.now(), clave: 'x' });
     check('cuenta del cliente: usuario inexistente da el MISMO error que clave mala',
       r2.status === 401 && /Usuario o contraseña incorrectos/.test(r2.data.error || ''),

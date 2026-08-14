@@ -129,7 +129,17 @@ function firmarCliente(clienteId) {
 
 /** El id del cliente que trae la request, o null. Lee el header o el cuerpo, nunca una cookie. */
 function clienteDeToken(req) {
-  const raw = String((req.headers && req.headers['x-cuenta']) || (req.body && req.body.token) || '').trim();
+  // ── DE DÓNDE SE SACA EL TOKEN ──────────────────────────────────────────────────────────────
+  // `Authorization: Bearer …` es la forma estándar y es la que manda cualquier cliente que se
+  // escriba. Al principio sólo se leía `x-cuenta`, y el resultado fue el peor de los posibles: el
+  // login entraba —devolvía el token y todo— y el pedido siguiente contestaba 401, así que la
+  // pantalla volvía sola al formulario. Para quien lo usaba, "el botón no hace nada".
+  // Se siguen aceptando las otras dos formas: ya estaban y no molestan.
+  const auth = String((req.headers && (req.headers.authorization || req.headers.Authorization)) || '').trim();
+  const bearer = /^Bearer\s+(.+)$/i.exec(auth);
+  const raw = String((bearer && bearer[1])
+    || (req.headers && req.headers['x-cuenta'])
+    || (req.body && req.body.token) || '').trim();
   if (!raw || !raw.includes('.')) return null;
   const i = raw.lastIndexOf('.');
   const value = raw.slice(0, i); const mac = raw.slice(i + 1);
