@@ -73,6 +73,47 @@ function limpiarHuerfanos() {
   return db.prepare('DELETE FROM reporte_diario WHERE conexion_id NOT IN (SELECT id FROM casino_conexiones)').run().changes;
 }
 
+/**
+ * BORRA LO QUE SE CAPTURÓ POR UN ESPEJO DE CARGA.
+ *
+ * `Europa_Fichas` y `Casino_Fichas` son otra credencial al MISMO casino. Mientras el acumulado
+ * capturó por todas las conexiones, cada nodo quedó guardado dos veces con los mismos números:
+ * el Pulso contaba doble y listaba como "sin dueño" paneles que sí lo tienen.
+ *
+ * ── SE MIRA ANTES DE BORRAR ──────────────────────────────────────────────────────────────────
+ * Una fila del espejo se borra sólo si la MISMA (conexión padre, fecha, grupo, nodo, moneda) está
+ * guardada por el lado principal. Las que no tengan par NO se tocan: serían el único registro de
+ * ese día, y borrar el único registro de algo no se deshace.
+ *
+ * `simular` (por defecto) no borra nada y devuelve las mismas cuentas. La llamada que borra tiene
+ * que ser deliberada.
+ */
+function limpiarEspejos({ simular = true } = {}) {
+  const cxs = db.prepare('SELECT id, nombre, carga_de FROM casino_conexiones').all();
+  const porNombre = new Map(cxs.map((c) => [String(c.nombre || '').trim().toLowerCase(), c.id]));
+  const espejos = cxs.filter((c) => String(c.carga_de || '').trim())
+    .map((c) => ({ ...c, padre: porNombre.get(String(c.carga_de).trim().toLowerCase()) || null }));
+
+  const detalle = []; let borradas = 0;
+  for (const e of espejos) {
+    const total = db.prepare('SELECT COUNT(*) c FROM reporte_diario WHERE conexion_id=?').get(e.id).c;
+    if (!e.padre) { detalle.push({ espejo: e.nombre, padre: null, total, conPar: 0, sinPar: total, borradas: 0 }); continue; }
+    const conPar = db.prepare(`SELECT COUNT(*) c FROM reporte_diario m WHERE m.conexion_id=?
+      AND EXISTS (SELECT 1 FROM reporte_diario p WHERE p.conexion_id=? AND p.fecha=m.fecha
+        AND p.grp=m.grp AND p.sa_id=m.sa_id AND IFNULL(p.moneda,'ARS')=IFNULL(m.moneda,'ARS'))`).get(e.id, e.padre).c;
+    let n = 0;
+    if (!simular && conPar) {
+      n = db.prepare(`DELETE FROM reporte_diario WHERE conexion_id=?
+        AND EXISTS (SELECT 1 FROM reporte_diario p WHERE p.conexion_id=? AND p.fecha=reporte_diario.fecha
+          AND p.grp=reporte_diario.grp AND p.sa_id=reporte_diario.sa_id
+          AND IFNULL(p.moneda,'ARS')=IFNULL(reporte_diario.moneda,'ARS'))`).run(e.id, e.padre).changes;
+      borradas += n;
+    }
+    detalle.push({ espejo: e.nombre, padre: e.nombre.replace(/_Fichas$/i, ''), total, conPar, sinPar: total - conPar, borradas: n });
+  }
+  return { simulado: !!simular, borradas, detalle };
+}
+
 function fechasCapturadas(conexion_id, grp) {
   return db.prepare('SELECT DISTINCT fecha FROM reporte_diario WHERE conexion_id=? AND grp=? ORDER BY fecha').all(conexion_id, grp).map((r) => r.fecha);
 }
@@ -110,4 +151,4 @@ function diasCapturados(mes) {
   return { dias: r.n || 0, desde: r.desde || null, hasta: r.hasta || null };
 }
 
-module.exports = { upsertDia, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes, diasCapturados, limpiarHuerfanos };
+module.exports = { upsertDia, limpiarEspejos, getMatriz, getMatrizTodos, monedasDisponibles, fechasCapturadas, filasPanelesMes, diasCapturados, limpiarHuerfanos };

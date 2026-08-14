@@ -2139,6 +2139,13 @@ function mount(app) {
   });
   // Limpia el acumulado de conexiones que ya no existen (IDs viejos) → saca superagentes duplicados.
   app.post('/api/os/casino/acumulado/limpiar-huerfanos', wrap((_req, res) => ok(res, { borradas: reporteDiarioStore.limpiarHuerfanos() })));
+  // Borra lo capturado por un espejo de carga (Europa_Fichas / Casino_Fichas), que es una copia
+  // exacta de lo del casino principal. SIMULA salvo que se pida borrar a propósito, y nunca toca
+  // una fila que no tenga su par del lado principal: sería el único registro de ese día.
+  app.post('/api/os/casino/acumulado/limpiar-espejos', wrap((req, res) => {
+    const simular = !((req.body || {}).confirmar === true);
+    ok(res, reporteDiarioStore.limpiarEspejos({ simular }));
+  }));
   // Capturar HOY (o un día) en TODAS las conexiones activas a la vez.
   app.post('/api/os/casino/capturar-hoy-todos', wrap(async (req, res) => {
     const dia = req.query.dia || (req.body && req.body.dia) || fechaUTC(); // casino corta días en UTC

@@ -466,6 +466,26 @@ async function main() {
       (pul.match(/conexionesDeLectura\(\)/g) || []).length >= 3);
   }
 
+  // Borrar no se deshace. La limpieza SIMULA salvo que se pida a propósito, y nunca toca una fila
+  // del espejo que no tenga su par del lado principal: sería el único registro de ese día.
+  {
+    const rd = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'reporte-diario-store.js'), 'utf8');
+    check('limpiar espejos: simula salvo que se pida borrar',
+      /function limpiarEspejos\(\{ simular = true \} = \{\}\)/.test(rd)
+      && /if \(!simular && conPar\)/.test(rd));
+    check('limpiar espejos: sólo borra lo que tiene par del lado principal',
+      /AND EXISTS \(SELECT 1 FROM reporte_diario p WHERE p\.conexion_id=\?/.test(rd)
+      && /sinPar: total - conPar/.test(rd));
+    const rt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('limpiar espejos: la ruta exige confirmar:true para borrar',
+      /const simular = !\(\(req\.body \|\| \{\}\)\.confirmar === true\)/.test(rt2));
+    // Y de punta a punta: sin confirmar no puede borrar nada.
+    const sim = await post('/api/os/casino/acumulado/limpiar-espejos', {});
+    check('limpiar espejos: sin confirmar no borra',
+      sim.status === 200 && sim.data.simulado === true && sim.data.borradas === 0,
+      JSON.stringify(sim.data).slice(0, 120));
+  }
+
   // ── 🔔 LO QUE ESPERA UNA DECISIÓN, EN UN SOLO LUGAR ──────────────────────────────────────────
   // Comprobantes, cajas y movimientos de fichas necesitan que alguien diga que sí, y vivían en
   // pantallas distintas detrás de botones que había que ir a buscar: se atendían cuando el cliente
