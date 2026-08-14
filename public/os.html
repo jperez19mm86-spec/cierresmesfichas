@@ -745,7 +745,8 @@ function editCli(id){
               <div style="flex:0 0 auto"><button class="small" onclick="accHabilitar('${id}')">Dar acceso</button></div>
               <div style="flex:0 0 auto"><button class="small danger" onclick="accQuitar('${id}')">Quitar acceso</button></div>
               <div class="muted" style="flex:1;min-width:200px;font-size:12px;padding-bottom:8px">
-                Entra en <b>/cuenta</b> y ve su saldo, sus fichas del mes y sus movimientos. Nada más.</div>
+                Le aparece <b>💳 Ver mi cuenta</b> en la misma pantalla donde pide fichas: con su código y esta
+                contraseña ve su saldo, sus fichas del mes y sus movimientos. Nada más.</div>
             </div>
             <div id="acc-clave-${id}"></div>
           </div>
@@ -1120,10 +1121,15 @@ async function accHabilitar(id){
   if(!r.ok) return toast('No se pudo: '+(r.error||''));
   // La clave va a la pantalla y NO a un toast: un toast se va solo y esto no se puede volver a ver.
   const cont = document.getElementById('acc-clave-'+id);
+  // Se le dice el camino que va a usar de verdad: la MISMA pantalla donde pide fichas. Mandarlo a
+  // /cuenta era mandarlo a otro lado a escribir otro identificador, que es lo que se sacó.
+  const cod = ((_clientes.find(x=>x.id===id)||{}).codigo)||r.usuario;
   if(cont) cont.innerHTML = '<div class="nota" style="margin-top:8px;border-left:3px solid var(--gold)">'
     + '<span class="tit">Anotá esto ahora — no se puede volver a ver</span>'
-    + 'Usuario: <b>'+esc(r.usuario)+'</b> · Contraseña: <b style="font-family:ui-monospace,monospace;font-size:15px">'+esc(r.clave)+'</b>'
-    + '<div class="muted" style="margin-top:4px">Entra en <b>'+location.origin+'/cuenta</b>. Si la pierde, se le genera otra.</div></div>';
+    + 'Contraseña: <b style="font-family:ui-monospace,monospace;font-size:16px">'+esc(r.clave)+'</b>'
+    + '<div class="muted" style="margin-top:6px">Entra donde pide fichas — <b>'+location.origin+'/pedir</b> — '
+    + 'pone su código <b>'+esc(cod)+'</b> y toca <b>💳 Ver mi cuenta</b>. Ahí le pide esta contraseña.</div>'
+    + '<div class="muted" style="margin-top:2px;font-size:11px">Si la pierde, se le genera otra: la clave no se guarda, se guarda su huella.</div></div>';
   accEstado(id);
 }
 async function accQuitar(id){

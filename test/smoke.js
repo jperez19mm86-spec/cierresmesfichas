@@ -570,6 +570,11 @@ async function main() {
     check('cuenta del cliente: el OS tiene el interruptor de acceso',
       /accHabilitar/.test(h4) && /accQuitar/.test(h4) && /Puede ver su cuenta/.test(h4)
       && /no se puede volver a ver/.test(h4));
+    // Lo que se le dicta al cliente tiene que ser el camino que va a usar. Cuando la cuenta se
+    // mudó adentro de /pedir, este cartel siguió mandándolo a /cuenta a escribir otro usuario.
+    check('acceso: el cartel manda al camino real, no a la página vieja',
+      /\/pedir/.test(h4) && /Ver mi cuenta<\/b>/.test(h4)
+      && !/Entra en <b>'\+location\.origin\+'\/cuenta/.test(h4));
   }
 
   // El aviso al grupo saca la moneda de la columna que TIENE el dato, no de la cuenta del cliente:
