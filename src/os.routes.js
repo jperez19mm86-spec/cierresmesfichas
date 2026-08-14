@@ -127,6 +127,20 @@ function mount(app) {
   });
 
   // ───────── CATÁLOGO DE DIVISAS (v3.0) ─────────
+  // ── QUÉ VERSIÓN ESTÁ CORRIENDO ────────────────────────────────────────────────────────────
+  // Sin esto, saber si un cambio ya subió era buscar algún texto nuevo en la pantalla — y varias
+  // veces esa sonda dio verde con el código VIEJO todavía arriba, porque el texto que buscaba ya
+  // existía. Un cambio que no toca ninguna pantalla no tenía forma de comprobarse.
+  //
+  // ⚠️ Y OJO CON LA SONDA: pedirle a /api/os/loquesea sin ruta devuelve 401 del middleware de
+  // sesión, no un 404. O sea que "responde algo con forma de API" NO prueba que la ruta exista.
+  // Lo que prueba es el CONTENIDO: si vuelve `arranque`, la ruta está.
+  app.get('/api/os/version', (_req, res) => ok(res, {
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || null,
+    mensaje: process.env.RAILWAY_GIT_COMMIT_MESSAGE || null,
+    despliegue: process.env.RAILWAY_DEPLOYMENT_ID || null,
+    arranque: ARRANQUE,
+  }));
   app.get('/api/os/divisas', (req, res) => ok(res, { divisas: req.query.activas === '1' ? divisasStore.listActivas() : divisasStore.list() }));
   app.post('/api/os/divisas', wrap((req, res) => { const b = req.body || {}; ok(res, { divisa: divisasStore.upsert({ codigo: b.codigo, nombre: b.nombre, activa: b.activa }) }); }));
   app.put('/api/os/divisas/:codigo/activa', wrap((req, res) => ok(res, { ok: divisasStore.setActiva(req.params.codigo, !!(req.body && req.body.activa)) })));

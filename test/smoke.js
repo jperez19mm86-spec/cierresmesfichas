@@ -442,6 +442,19 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── SABER QUÉ VERSIÓN ESTÁ CORRIENDO ─────────────────────────────────────────────────────────
+  // La primera vez que agregué esto, el script de edición abortó antes de escribir el archivo: el
+  // commit salió con el comentario y sin la ruta. Y no me di cuenta porque probé con curl y vi un
+  // JSON de error — que lo devuelve el middleware de sesión para CUALQUIER /api/os/… inexistente.
+  // Por eso el check pide el CONTENIDO, no que "conteste algo".
+  {
+    const r5 = await get('/api/os/version');
+    check('version: la ruta existe y dice cuándo arrancó',
+      r5.status === 200 && r5.data.ok === true && typeof r5.data.arranque === 'string'
+      && /^\d{4}-\d{2}-\d{2}T/.test(r5.data.arranque),
+      'HTTP ' + r5.status + ' ' + JSON.stringify(r5.data).slice(0, 120));
+  }
+
   // ── LA CUENTA QUE VE EL CLIENTE ──────────────────────────────────────────────────────────────
   // Es la segunda cosa que un cliente ve de este sistema, después de pedir fichas. Lo que no puede
   // pasar es que le llegue algo que no es suyo: el nombre de la plataforma (Casino/Europa), los
