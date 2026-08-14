@@ -84,8 +84,15 @@ function deshabilitar(cliente_id) {
 function autenticar(usuario, clave) {
   const u = String(usuario || '').trim().toLowerCase();
   if (!u) return null;
+  // ── ENTRA CON SU USUARIO O CON SU CÓDIGO ────────────────────────────────────────────────────
+  // En la pantalla de pedidos el cliente YA escribió su código: pedirle además un usuario sería
+  // hacerle recordar dos identificadores para lo mismo. El código no es un secreto y nunca lo fue
+  // —con él pide fichas— así que aceptarlo acá no baja ninguna barrera: lo que protege la cuenta
+  // es la CONTRASEÑA, y sigue siendo obligatoria.
+  //
+  // El usuario propio se sigue aceptando: es el que se le pasa a quien entra por /cuenta.
   const c = db.prepare(`SELECT id, codigo, nombre, nombreVisible, acceso_clave, acceso_habilitado
-    FROM clientes WHERE lower(acceso_usuario)=?`).get(u);
+    FROM clientes WHERE lower(acceso_usuario)=? OR lower(codigo)=?`).get(u, u);
   if (!c || !c.acceso_habilitado) return null;
   if (!verificar(clave, c.acceso_clave)) return null;
   return { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible || c.codigo };

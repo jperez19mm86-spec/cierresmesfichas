@@ -503,6 +503,9 @@ app.get('/api/pedir/:codigo', (req, res) => {
     // Con qué caminos cuenta ESTE cliente. Avisar un pago no lo tiene cualquiera: entra a la
     // cola de comprobantes y hay que revisarlo uno por uno.
     puedeAvisarPago: cli.avisa_pagos !== false,
+    // Ver la cuenta se habilita cliente por cliente, con usuario y contraseña. Si no lo tiene, la
+    // opción no aparece — y aunque se postee a mano, /api/cuenta/login lo rechaza igual.
+    puedeVerCuenta: !!cli.acceso_habilitado,
     pago: {
       ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), min: cfg('arsMin'), max: cfg('arsMax'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
       usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
@@ -833,9 +836,16 @@ app.get('/api/cuenta/mio', (req, res) => {
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
     .map((p) => ({ fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
       usuario: p.cajaUsuario, monto: p.monto, divisa: p.divisa }));
+  // ── LO QUE AVISÓ Y TODAVÍA NO SE APROBÓ ────────────────────────────────────────────────────
+  // Sin esto, el cliente sube su comprobante, ve que el saldo no se movió, y vuelve a subirlo o a
+  // preguntar. Que figure como PENDIENTE no cambia ningún número —no toca la deuda hasta que se
+  // apruebe— pero le contesta la pregunta que iba a hacer.
+  const pendientes = comprobantes.list({ codigo: cli.codigo, estado: 'pendiente' })
+    .map((c) => ({ fecha: String(c.creado_at || '').slice(0, 10),
+      monto: c.monto, divisa: c.divisa, via: c.via }));
   res.json({ ok: true,
     cliente: { codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
-    mes,
+    mes, pendientes,
     // La MISMA resolución que usa el resto del sistema (el historial manda sobre el campo suelto):
     // si el cliente ve un % distinto al que factura, la próxima conversación empieza mal.
     base_pct: deudaCargaSvc.baseDe(cli),

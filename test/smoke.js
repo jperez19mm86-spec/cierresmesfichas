@@ -462,17 +462,20 @@ async function main() {
   // pantalla tampoco lo pide — y el check mide las dos puntas.
   {
     const cta = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
-    // Sin los comentarios: lo que se mide es lo que PUEDE llegar a la pantalla, no lo que el
-    // archivo dice de sí mismo. El comentario que explica qué está prohibido nombra justamente
-    // esas palabras, y hacerlo fallar por eso enseñaría a no escribir el comentario.
-    const vivo = cta.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n').map((l) => l.replace(/(^|\s)\/\/.*$/, '')).join('\n');
+    const ped = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    // SIN PREPROCESAR. La versión anterior filtraba comentarios para que el comentario que explica
+    // qué está prohibido no hiciera fallar el check — y ese filtro se comía medio archivo, con lo
+    // cual el check pasaba siempre sobre un texto vacío. Ahora los comentarios están escritos sin
+    // usar esas palabras, y el check mira el archivo entero: no hay nada que pueda engañarlo.
+    //
     // "Proveedores" NO está prohibido: al cliente se le cobran los proveedores externos y la
     // factura ya se los nombra. Lo prohibido es lo que no es asunto suyo.
     const prohibido = [/\bEuropa\b/, /\bCasino\b/i, /reparto/i, /participante/i, /vendedor/i,
       /superagente/i, /\bTBS\b/, /profit/i, /matriz/i];
-    const cuela = prohibido.filter((re) => re.test(vivo)).map((re) => String(re));
-    check('cuenta del cliente: la pantalla no nombra nada interno', cuela.length === 0, cuela.join(' '));
+    for (const [quien, txt] of [['cuenta.html', cta], ['pedir.html', ped]]) {
+      const cuela = prohibido.filter((re) => re.test(txt)).map((re) => String(re));
+      check(`cliente: ${quien} no nombra nada interno`, cuela.length === 0, cuela.join(' '));
+    }
     check('cuenta del cliente: sólo pide sus propios datos',
       /\/api\/cuenta\/login/.test(cta) && /\/api\/cuenta\/mio/.test(cta)
       && !/\/api\/os\//.test(cta), 'no puede pedirle nada a /api/os/');
@@ -492,6 +495,40 @@ async function main() {
     check('cuenta del cliente: usuario inexistente da el MISMO error que clave mala',
       r2.status === 401 && /Usuario o contraseña incorrectos/.test(r2.data.error || ''),
       JSON.stringify(r2.data.error));
+
+    // ── LA CUENTA, DONDE EL CLIENTE YA ESTÁ ────────────────────────────────────────────────
+    // Una página aparte obliga a mandar un link y a recordar otro identificador. La cuenta vive
+    // en la MISMA pantalla donde pide fichas: ya escribió su código ahí, y sólo se le pide la
+    // contraseña. El código nunca fue secreto —con él pide fichas— y lo que protege es la clave.
+    check('cuenta en /pedir: está la opción y pide la contraseña',
+      /optCuenta/.test(ped) && /Ver mi cuenta/.test(ped) && /entrarCuenta/.test(ped)
+      && /'\/api\/cuenta\/login'/.test(ped));
+    check('cuenta en /pedir: entra con el código que ya escribió',
+      /usuario: _codigo, clave/.test(ped));
+    check('cuenta en /pedir: la opción sólo aparece si la tiene habilitada',
+      /optCuenta'\)\.style\.display = d\.puedeVerCuenta/.test(ped));
+    // El token NO va a localStorage en /pedir: el teléfono puede ser de otro, y además leer
+    // localStorage tira excepción con el almacenamiento bloqueado — que fue justo lo que dejó
+    // el botón "Entrar" sin hacer nada en la primera versión de la página suelta.
+    // Acá no hace falta filtrar nada: se busca el USO de la API (getItem/setItem/removeItem),
+    // que en prosa no aparece. Buscar la palabra suelta chocaba con el comentario que explica
+    // justamente por qué no se usa.
+    check('cuenta en /pedir: el token queda en memoria, no guardado',
+      /let _ctaTok = ''/.test(ped) && !/localStorage\.(get|set|remove)Item/.test(ped),
+      'usos reales: ' + (ped.match(/localStorage\.(get|set|remove)Item/g) || []).length);
+    const cta2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
+    check('cuenta suelta: todo acceso a localStorage va envuelto',
+      (cta2.match(/localStorage\./g) || []).length === 3
+      && /try \{ return localStorage\.getItem/.test(cta2)
+      && /try \{ localStorage\.setItem/.test(cta2)
+      && /try \{ localStorage\.removeItem/.test(cta2),
+      'usos=' + (cta2.match(/localStorage\./g) || []).length);
+    // Un pago avisado y sin aprobar tiene que VERSE. Si no, el cliente lo vuelve a subir.
+    check('cuenta: los pagos sin aprobar se muestran como pendientes',
+      /Esperando aprobación/.test(ped) && /Esperando aprobación/.test(cta2)
+      && /pendientes/.test(idx2));
+    check('cuenta: el pendiente NO se descuenta del saldo',
+      /Todavía no está descontado/.test(ped) && /Todavía no está descontado/.test(cta2));
 
     // El interruptor en el OS: dar y quitar acceso, y que la clave se muestre UNA vez.
     const h4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');

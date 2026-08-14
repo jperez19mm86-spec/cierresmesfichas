@@ -69,8 +69,21 @@
       <div class="opt" id="optFichas" onclick="elegirCamino('fichas')">🎰 Pedir fichas<span class="small">cargar a un usuario</span></div>
       <div class="opt" id="optPago" onclick="elegirCamino('pago')">🧾 Avisar un pago<span class="small">subir el comprobante</span></div>
       <div class="opt" id="optMover" onclick="elegirCamino('mover')">🔀 Mover fichas<span class="small">de un usuario tuyo a otro</span></div>
+      <div class="opt" id="optCuenta" onclick="elegirCamino('cuenta')">💳 Ver mi cuenta<span class="small">con tu contraseña</span></div>
     </div>
   </div>
+
+  <!-- ─── Camino D: ver mi cuenta ───
+       El cliente YA escribió su código arriba, así que acá sólo se le pide la contraseña. El
+       código nunca fue un secreto —con él pide fichas— y lo que protege la cuenta es la clave. -->
+  <div class="card hidden" id="cardCuenta">
+    <div class="q">Poné tu contraseña</div>
+    <input id="ctaClave" type="password" autocomplete="current-password"
+      onkeydown="if(event.key==='Enter')entrarCuenta()" placeholder="La que te pasamos" />
+    <button class="btn full" style="margin-top:12px" onclick="entrarCuenta()">Ver mi cuenta</button>
+    <div id="ctaMsg" style="margin-top:12px"></div>
+  </div>
+  <div class="card hidden" id="cardCuentaDatos"></div>
 
   <!-- ─── Camino A: pedir fichas ─── -->
   <div class="card hidden" id="cardCaja">
@@ -186,6 +199,9 @@
       // hacen falta dos para que haya de dónde y a dónde.
       document.getElementById('optMover').style.display =
         (d.puedeMoverBalance && _paneles.length >= 2) ? '' : 'none';
+      // Ver la cuenta se habilita cliente por cliente: si no lo tiene, la opción no existe.
+      document.getElementById('optCuenta').style.display = d.puedeVerCuenta ? '' : 'none';
+      _ctaTok = '';
       msg.innerHTML = '';
       const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';
       document.getElementById('cliName').textContent = quien;
@@ -203,16 +219,123 @@
     document.getElementById('optFichas').classList.toggle('sel', cual === 'fichas');
     document.getElementById('optPago').classList.toggle('sel', cual === 'pago');
     document.getElementById('optMover').classList.toggle('sel', cual === 'mover');
+    document.getElementById('optCuenta').classList.toggle('sel', cual === 'cuenta');
     ['cardCaja','cardDivisa','cardMonto','btnPedir','cardVia','cardDatos','cardPago','btnPago',
-     'cardMovOrigen','cardMovDestino','cardMovDivisa','cardMovMonto','btnMover'].forEach(i => show(i, false));
+     'cardMovOrigen','cardMovDestino','cardMovDivisa','cardMovMonto','btnMover',
+     'cardCuenta','cardCuentaDatos'].forEach(i => show(i, false));
     document.getElementById('movMsg').innerHTML = '';
     document.getElementById('pagoMsg').innerHTML = '';
     document.getElementById('pedidoMsg').innerHTML = '';
+    document.getElementById('ctaMsg').innerHTML = '';
     if (cual === 'fichas') { show('cardCaja', true); return; }
     if (cual === 'mover') { movReset(); return; }
+    if (cual === 'cuenta') {
+      document.getElementById('ctaClave').value = '';
+      show('cardCuenta', true);
+      document.getElementById('ctaClave').focus();
+      return;
+    }
     _via = null;
     document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.remove('sel'));
     show('cardVia', true);
+  }
+
+  // ─── Camino D: ver mi cuenta ──────────────────────────────────────────────
+  //
+  // ⚠️ EL TOKEN VIVE EN MEMORIA, NO EN localStorage. Dos motivos, y los dos importan:
+  //   · este teléfono puede ser compartido, y un token guardado deja la cuenta abierta al que
+  //     agarre el aparato después;
+  //   · leer localStorage TIRA EXCEPCIÓN si el navegador tiene el almacenamiento bloqueado, y
+  //     como se leía en cada llamada, el botón de entrar no hacía nada — sin error, sin nada.
+  //     Eso es exactamente lo que pasó en la primera versión de esta pantalla.
+  let _ctaTok = '';
+
+  async function entrarCuenta() {
+    const clave = document.getElementById('ctaClave').value;
+    const msg = document.getElementById('ctaMsg');
+    if (!clave) { msg.innerHTML = '<div class="msg err">Escribí tu contraseña.</div>'; return; }
+    msg.innerHTML = '<div class="msg">Entrando…</div>';
+    try {
+      // Entra con el CÓDIGO que ya escribió arriba: no tiene por qué recordar dos identificadores.
+      const r = await fetch('/api/cuenta/login', { method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ usuario: _codigo, clave }) });
+      const d = await r.json();
+      if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo entrar') + '</div>'; return; }
+      _ctaTok = d.token || '';
+      document.getElementById('ctaClave').value = '';
+      msg.innerHTML = '';
+      await verCuenta();
+    } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; }
+  }
+
+  async function verCuenta() {
+    const msg = document.getElementById('ctaMsg');
+    try {
+      const r = await fetch('/api/cuenta/mio', { headers: { authorization: 'Bearer ' + _ctaTok } });
+      const d = await r.json();
+      if (!d.ok) { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo') + '</div>'; return; }
+      show('cardCuenta', false);
+      pintarCuenta(d);
+      show('cardCuentaDatos', true);
+    } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; }
+  }
+
+  function pintarCuenta(d) {
+    const money = (x, n) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: n, maximumFractionDigits: n });
+    const dia = (f) => { const p = String(f || '').slice(0, 10).split('-'); return p[2] ? p[2] + '/' + p[1] : ''; };
+    const c = d.cuenta || {};
+    const mon = c.moneda || 'USDT';
+    const debe = Number(c.total || 0);
+    const titulo = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+    const nombre = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedores' };
+
+    let h = '<div class="q">' + titulo + '</div>'
+      + '<div style="font-size:32px;font-weight:800;margin:2px 0">' + money(Math.abs(debe), 2) + ' ' + esc(mon) + '</div>'
+      + '<div class="small">Consumo ' + money(c.fichas_pendientes, 2)
+      + (Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes, 2) : '')
+      + ' · Pagado ' + money(c.pagos, 2) + '</div>';
+
+    // Lo avisado y todavía sin aprobar. Va ARRIBA de todo: es la pregunta que el cliente tiene en
+    // la cabeza cuando entra después de mandar un comprobante.
+    if ((d.pendientes || []).length) {
+      h += '<div class="msg" style="margin-top:12px"><b>⏳ Esperando aprobación</b>'
+        + (d.pendientes || []).map(p => '<div>' + dia(p.fecha) + ' · ' + money(p.monto, 2) + ' ' + esc(p.divisa || '') + '</div>').join('')
+        + '<div class="small" style="margin-top:4px">Todavía no está descontado del saldo de arriba.</div></div>';
+    }
+    if (Number(c.esperandoTC || 0)) {
+      h += '<div class="msg" style="margin-top:10px"><div class="small">Hay ' + c.esperandoTC
+        + ' pago(s) en pesos contados con el cambio promedio del mes. Al cerrar el mes el número se ajusta.</div></div>';
+    }
+
+    if ((d.cargas || []).length) {
+      h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>'
+        + d.cargas.map(x => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
+          + '<span class="small">' + dia(x.fecha) + ' ' + esc(x.usuario || '') + '</span>'
+          + '<span>' + money(x.monto, 0) + ' ' + esc(x.divisa || '') + '</span></div>').join('');
+    }
+
+    const movs = (d.movimientos || []).filter(m => m.tipo !== 'correccion');
+    if (movs.length) {
+      h += '<div class="q" style="margin-top:16px">Movimientos</div>'
+        + movs.map(m => {
+          const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
+          const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
+          return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
+            + '<span class="small">' + dia(m.fecha) + ' ' + esc(nombre[m.tipo] || m.tipo) + '</span>'
+            + '<span>' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2)) + '</span></div>';
+        }).join('');
+    }
+    h += '<button class="btn full" style="margin-top:16px" onclick="salirCuenta()">Salir de mi cuenta</button>';
+    document.getElementById('cardCuentaDatos').innerHTML = h;
+  }
+
+  function salirCuenta() {
+    _ctaTok = '';
+    document.getElementById('cardCuentaDatos').innerHTML = '';
+    show('cardCuentaDatos', false);
+    show('cardCuenta', true);
+    document.getElementById('ctaClave').focus();
   }
 
   // ─── Camino A: pedir fichas ───────────────────────────────────────────────
