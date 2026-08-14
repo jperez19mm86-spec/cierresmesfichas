@@ -95,8 +95,15 @@ function startCron() {
       const mesAct = day.slice(0, 7);
       const mesPrev = ayer.slice(0, 7);
       const diaNum = Number(day.slice(8, 10));
+      // ⚠️ SE SALTEAN LOS ESPEJOS. `Europa_Fichas` y `Casino_Fichas` son OTRA credencial al MISMO
+      // casino —existen para cargar fichas, no para leer reportes— y `carga_de` dice de cuál son.
+      // Capturando por las dos, cada nodo quedaba guardado DOS VECES con los mismos números: el
+      // Pulso los contaba doble y además listaba 115 paneles "sin cliente asignado" que sí tenían
+      // dueño, porque el panel está registrado en la conexión principal y el dato entraba por la
+      // otra. El mismo error que ya había pasado en la Foto del mes, por el mismo motivo.
       for (const cx of casinoConex.list463()) {   // el acumulado se arma con nodos del engine 463
         if (!cx.activa) continue;
+        if (String(cx.carga_de || '').trim()) continue;
         for (const g of CRON_GROUPS) {
           try {
             await captureDia(cx.id, ayer, g);                            // 1) finalizar AYER (overwrite)

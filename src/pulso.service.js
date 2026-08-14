@@ -38,7 +38,7 @@ const mediana = (xs) => {
  *                  en curso contra EL MISMO TRAMO del anterior. Ver el porqué en `pulso`.
  */
 function seriesDe(mes, hastaDia = null) {
-  const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
+  const validas = conexionesDeLectura();
   const corte = Number(hastaDia) > 0 ? String(Math.min(31, Number(hastaDia))).padStart(2, '0') : null;
   const rows = db.prepare(
     "SELECT conexion_id, sa_id, login, moneda, fecha, in_amt, out_amt, profit FROM reporte_diario"
@@ -67,6 +67,29 @@ function seriesDe(mes, hastaDia = null) {
 }
 
 /** De qué cliente es cada panel, para poder decir "Titan dejó de operar" y no sólo el login. */
+/**
+ * Las conexiones de LECTURA — las que NO son un espejo de carga.
+ *
+ * `Europa_Fichas` y `Casino_Fichas` son otra credencial al MISMO casino: existen para cargar
+ * fichas, no para leer reportes, y `carga_de` dice de cuál son. Durante un tiempo el acumulado
+ * capturó por las dos, así que cada nodo quedó guardado DOS VECES con los mismos números.
+ *
+ * Eso hacía dos daños a la vez: duplicaba los totales, y llenaba "mueven y no son de nadie" con
+ * paneles que SÍ tienen dueño — el panel está registrado en la conexión principal y la fila entraba
+ * por la espejo, así que la clave `conexion:nodo` nunca cruzaba.
+ *
+ * El filtro vive acá, en la LECTURA, y no sólo en la captura: las filas viejas siguen en la base.
+ */
+function conexionesDeLectura() {
+  try {
+    return new Set(db.prepare('SELECT id, carga_de FROM casino_conexiones').all()
+      .filter((r) => !String(r.carga_de || '').trim()).map((r) => r.id));
+  } catch (e) {
+    // Sin la columna, mejor contar de más que no mostrar nada: el pulso es de diagnóstico.
+    return new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
+  }
+}
+
 function duenos() {
   const m = new Map();
   try {
@@ -440,7 +463,7 @@ function tendencia({ hasta, meses = 6 } = {}) {
   let [y, m] = fin.split('-').map(Number);
   for (let i = 0; i < meses; i++) { lista.unshift(`${y}-${String(m).padStart(2, '0')}`); m--; if (m < 1) { m = 12; y--; } }
 
-  const validas = new Set(db.prepare('SELECT id FROM casino_conexiones').all().map((r) => r.id));
+  const validas = conexionesDeLectura();
   const ph = lista.map(() => '?').join(',');
   const rows = db.prepare(
     "SELECT substr(fecha,1,7) AS mes, moneda, conexion_id, SUM(in_amt) AS inn, SUM(out_amt) AS outt, SUM(profit) AS pr,"

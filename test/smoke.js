@@ -444,6 +444,28 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── LOS ESPEJOS DE CARGA NO SON UNA FUENTE DE REPORTES ───────────────────────────────────────
+  // `Europa_Fichas` y `Casino_Fichas` son otra credencial al MISMO casino: existen para cargar
+  // fichas y lo dice su campo `carga_de`. El acumulado capturaba por TODAS las conexiones 463, así
+  // que cada nodo quedaba guardado dos veces con los mismos números. Verificado en producción:
+  // Beting-SA con 410.080.611 idénticos en las dos, y 115 paneles listados "sin cliente asignado"
+  // que sí tenían dueño, porque el panel vive en la conexión principal y la fila entraba por la
+  // espejo — la clave `conexion:nodo` nunca cruzaba.
+  {
+    const acu = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'acumulado.service.js'), 'utf8');
+    check('acumulado: no captura por los espejos de carga',
+      /if \(String\(cx\.carga_de \|\| ''\)\.trim\(\)\) continue;/.test(acu));
+    const pul = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pulso.service.js'), 'utf8');
+    // El filtro va también en la LECTURA: las filas duplicadas viejas siguen en la base.
+    check('pulso: ignora lo que ya se guardó por un espejo',
+      /function conexionesDeLectura/.test(pul)
+      && !/SELECT id FROM casino_conexiones'\)\.all\(\)\.map/.test(pul.replace(/catch[\s\S]*?\}/g, '')),
+      'quedó alguna lectura sin filtrar');
+    // Se aplica en TODAS las lecturas de series, no en una: el pulso y la tendencia usan la misma.
+    check('pulso: el filtro se usa en todas las lecturas de series',
+      (pul.match(/conexionesDeLectura\(\)/g) || []).length >= 3);
+  }
+
   // ── 🔔 LO QUE ESPERA UNA DECISIÓN, EN UN SOLO LUGAR ──────────────────────────────────────────
   // Comprobantes, cajas y movimientos de fichas necesitan que alguien diga que sí, y vivían en
   // pantallas distintas detrás de botones que había que ir a buscar: se atendían cuando el cliente
