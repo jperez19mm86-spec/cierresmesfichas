@@ -444,6 +444,38 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── 🔔 LO QUE ESPERA UNA DECISIÓN, EN UN SOLO LUGAR ──────────────────────────────────────────
+  // Comprobantes, cajas y movimientos de fichas necesitan que alguien diga que sí, y vivían en
+  // pantallas distintas detrás de botones que había que ir a buscar: se atendían cuando el cliente
+  // reclamaba. Ahora hay una pestaña con el total, la primera de la barra.
+  {
+    const h5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('pendientes: la pestaña existe y es la primera',
+      /\['pendientes', \(\)=>/.test(h5)
+      && h5.indexOf("['pendientes'") < h5.indexOf("['acumulado'"),
+      'orden en la barra');
+    check('pendientes: cuenta las TRES cosas',
+      /_pendTotal/.test(h5) && /comprobantes\?estado=pendiente/.test(h5)
+      && /solicitudes-caja\?estado=pendiente/.test(h5) && /movimientos-panel/.test(h5));
+    // En serie, la más lenta retrasa el número de la barra. Y si una falla, las otras se cuentan.
+    check('pendientes: las tres se piden en paralelo y una falla no tumba a las otras',
+      /Promise\.all/.test(h5) && (h5.match(/\.catch\(\(\) => null\)/g) || []).length >= 3);
+    // Los movimientos A MEDIAS son los que más urgen: las fichas ya salieron del panel del cliente.
+    check('pendientes: los movimientos a medias cuentan como pendientes',
+      /requierenAtencion/.test(h5));
+    // Reusa las funciones que ya aprueban. Reescribirlas para dos pantallas es cómo una queda vieja.
+    check('pendientes: reusa las pantallas que ya aprueban, no las duplica',
+      /VIEWS\.pendientes/.test(h5) && /solicitudesCaja\(\)/.test(h5)
+      && /movimientosPanel\(\)/.test(h5) && /pintarComprobantes\('pendiente'/.test(h5));
+    check('pendientes: se refresca solo con la pantalla abierta',
+      /setInterval\(refrescarTodoPendiente/.test(h5));
+    // Con el OS en otra pestaña del navegador, el número tiene que verse igual.
+    check('pendientes: el título del navegador lleva el número',
+      /document\.title = \(n \? '\(' \+ n \+ '\) ' : ''\)/.test(h5));
+    check('pendientes: el badge urgente tiene su estilo y respeta reduced-motion',
+      /\.nb\.urg/.test(h5) && /prefers-reduced-motion/.test(h5));
+  }
+
   // ── SABER QUÉ VERSIÓN ESTÁ CORRIENDO ─────────────────────────────────────────────────────────
   // La primera vez que agregué esto, el script de edición abortó antes de escribir el archivo: el
   // commit salió con el comentario y sin la ruta. Y no me di cuenta porque probé con curl y vi un

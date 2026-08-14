@@ -15,6 +15,11 @@
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
   .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
   .nb { background:var(--gold); color:#fff; border-radius:20px; padding:0 6px; font-size:11px; margin-left:3px; vertical-align:1px; }
+  /* El de Pendientes es rojo y late: es lo único de la barra que pide que alguien haga algo.
+     La animación es lenta a propósito — algo que parpadea rápido se tapa y se deja de ver. */
+  .nb.urg { background:var(--red); animation:latir 2.4s ease-in-out infinite; }
+  @keyframes latir { 0%,100%{opacity:1} 50%{opacity:.55} }
+  @media (prefers-reduced-motion: reduce){ .nb.urg{ animation:none } }
   /* Europa y Casino son DOS sistemas distintos, y el mismo panel puede estar en los dos
      (UPruebaLatam lo está). Sin color se leen como si fueran uno repetido. */
   :root { --sis-eu:#2f6fd0; --sis-cas:#7c4dd6; }
@@ -168,6 +173,11 @@ tr.vta-ahora.vta-ok td{background:#eaf5ec}
    Ahora son tres: Operativo (/), Comercial (/os) y TBS (/tbs). Mismo archivo y mismos helpers
    —duplicarlos habría sido peor— pero cada uno con su barra y su nombre. */
 const TABS_COMERCIAL = [
+  // 🔔 PENDIENTES VA PRIMERO, Y SIEMPRE. Las tres cosas que esperan una decisión —comprobantes,
+  // cajas y movimientos de fichas— estaban repartidas en dos pantallas y detrás de botones que
+  // había que ir a buscar. Lo que espera a alguien tiene que anunciarse solo: si hay que buscarlo,
+  // se atiende tarde. Con cero pendientes queda gris y no molesta.
+  ['pendientes', ()=>{ const n=_pendTotal(); return (n?'🔔':'✅')+' Pendientes' + (n?' <span class="nb urg">'+n+'</span>':''); }],
   ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'],
   ['movimientos', ()=>'💸 Movimientos' + (_cmpPend ? ' <span class="nb">'+_cmpPend+'</span>' : '')],
   '|',
@@ -1741,6 +1751,70 @@ async function refrescarPendientes() {
   _cmpPend = (r.cuentas && r.cuentas.pendiente) || 0;
   renderNav();
 }
+
+/* ── 🔔 TODO LO QUE ESPERA UNA DECISIÓN ───────────────────────────────────────────────────────
+   Tres cosas distintas necesitan que alguien diga que sí: un comprobante de pago, una caja nueva
+   y un movimiento de fichas entre paneles. Las tres vivían en pantallas distintas y detrás de
+   botones que había que ir a buscar, así que se atendían cuando el cliente reclamaba.
+
+   Se piden las tres juntas y en paralelo: en serie, la más lenta retrasa a las otras dos y el
+   número de la barra aparece tarde. Si una falla, las otras dos se cuentan igual — un contador
+   incompleto es mejor que ninguno, y el error se ve al entrar. */
+let _pend = { cajas: 0, movs: 0 };
+function _pendTotal(){ return (_cmpPend || 0) + (_pend.cajas || 0) + (_pend.movs || 0); }
+
+async function refrescarTodoPendiente() {
+  const [c, s, m] = await Promise.all([
+    api('/api/os/comprobantes?estado=pendiente').catch(() => null),
+    api('/api/os/solicitudes-caja?estado=pendiente').catch(() => null),
+    api('/api/os/movimientos-panel').catch(() => null),
+  ]);
+  if (c && c.ok) _cmpPend = (c.cuentas && c.cuentas.pendiente) || 0;
+  if (s && s.ok) _pend.cajas = (s.solicitudes || []).length;
+  // `requierenAtencion` y no "pendientes": incluye los que quedaron A MEDIAS, que son los que más
+  // urgen — ahí las fichas ya salieron de un panel del cliente y están a mitad de camino.
+  if (m && m.ok) _pend.movs = (m.counts || {}).requierenAtencion || 0;
+  renderNav();
+  // El título de la pestaña del navegador también, para verlo con el OS en segundo plano.
+  const n = _pendTotal();
+  document.title = (n ? '(' + n + ') ' : '') + 'LATAM Games OS';
+}
+
+VIEWS.pendientes = async () => {
+  // Se reusan los mismos contenedores e ids que en Clientes, así que las funciones que ya
+  // aprueban —solicitudesCaja, movimientosPanel, pintarComprobantes— sirven tal cual. Reescribir
+  // esas pantallas para que vivan en dos lados es la forma segura de que una quede vieja.
+  document.getElementById('main').innerHTML = `
+    <div class="card" style="padding:12px 14px">
+      <h2 style="margin:0">🔔 Lo que espera tu decisión</h2>
+      <div class="muted" style="margin-top:4px">Comprobantes de pago, cajas nuevas y movimientos de fichas. Todo junto, para no ir a buscarlo.</div>
+      <div id="pend-resumen" class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <div id="pend-vacio"></div>
+    <div id="mov-body"></div>
+    <div id="sol-aviso"></div><div id="sol-caja"></div>
+    <div id="mov-aviso"></div><div id="mov-caja"></div>`;
+  await refrescarTodoPendiente();
+
+  const chip = (n, txt, ir) => '<button class="' + (n ? '' : 'outline ') + 'small" onclick="' + ir + '">'
+    + esc(txt) + (n ? ' <span class="nb urg">' + n + '</span>' : ' <span class="muted">0</span>') + '</button>';
+  document.getElementById('pend-resumen').innerHTML =
+    chip(_cmpPend, '🧾 Comprobantes', "go('movimientos')")
+    + chip(_pend.cajas, '📦 Cajas', 'solicitudesCaja()')
+    + chip(_pend.movs, '🔀 Mover fichas', 'movimientosPanel()')
+    + '<button class="outline small" onclick="VIEWS.pendientes()">↻ Actualizar</button>';
+
+  if (!_pendTotal()) {
+    document.getElementById('pend-vacio').innerHTML =
+      '<div class="card"><div class="empty">✅ No hay nada esperando. Todo aprobado o rechazado.</div></div>';
+    return;
+  }
+  // Los comprobantes se pintan acá mismo: son los más frecuentes y los que más urgen.
+  // `pintarComprobantes` escribe en #mov-body, que ya está puesto arriba en el lugar que le toca.
+  if (_cmpPend) await pintarComprobantes('pendiente', false);
+  if (_pend.cajas) solicitudesCaja();
+  if (_pend.movs) movimientosPanel();
+};
 // ───────── 🩺 REVISIÓN ─────────
 // Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
 // Antes había que acordarse de mirar en cinco pantallas distintas.
@@ -4744,7 +4818,10 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
 // estés en otra pantalla, que es todo el punto de haberlos metido ahí adentro.
-renderNav(); go(ES_TBS ? 'tbsmatriz' : 'acumulado'); if(!ES_TBS) refrescarPendientes();
+renderNav(); go(ES_TBS ? 'tbsmatriz' : 'acumulado');
+// Se cuenta al abrir y cada 45 segundos: un pendiente que llega mientras la pantalla está
+// abierta tiene que aparecer solo. Cada 45s son tres pedidos chicos, no molesta a nadie.
+if(!ES_TBS){ refrescarTodoPendiente(); setInterval(refrescarTodoPendiente, 45000); }
 </script>
 </body>
 </html>
