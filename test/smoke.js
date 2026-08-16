@@ -477,6 +477,28 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── LA CUENTA DE CADA CLIENTE, RENGLÓN POR RENGLÓN ───────────────────────────────────────────
+  // El saldo solo no alcanza para hablar con el cliente: cuando pregunta "¿por qué debo esto?" hay
+  // que poder abrir el renglón. Estaba el TOTAL (en la tabla de Clientes y en su ficha) pero no de
+  // qué estaba hecho — para eso había que ir a la lista global de movimientos, mezclada con todos.
+  {
+    const perf = await get('/api/os/clientes/' + cli.id + '/perfil?meses=3');
+    check('perfil: trae los movimientos que arman la deuda',
+      perf.status === 200 && Array.isArray(perf.data.movimientos) && perf.data.movimientos.length > 0,
+      'n=' + ((perf.data.movimientos || []).length));
+    const mv = (perf.data.movimientos || [])[0] || {};
+    check('perfil: cada movimiento trae con qué explicarlo',
+      'fecha' in mv && 'tipo' in mv && 'monto_usdt' in mv && 'tc' in mv && 'notas' in mv,
+      JSON.stringify(Object.keys(mv)));
+    // Vienen del store, así que un pago que espera el TC del mes ya figura valuado y marcado.
+    check('perfil: un pago que espera el TC se marca como tal',
+      (perf.data.movimientos || []).every((m) => typeof m.tc_pendiente === 'boolean'));
+    const h9 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('perfil: la ficha muestra la cuenta corriente con sus renglones',
+      /💳 Cuenta corriente/.test(h9) && /r\.movimientos\.map/.test(h9)
+      && /Proveedores externos/.test(h9));
+  }
+
   // ── AL CLIENTE SE LE DICE LA DIFERENCIA, EN UNA LÍNEA ────────────────────────────────────────
   // Declaró 300.000 y se le acreditaron 205.000: sin la aclaración recibe un mensaje con un número
   // distinto al que avisó y tiene que darse cuenta solo. Si no se da cuenta, la pregunta llega
@@ -2209,8 +2231,14 @@ async function main() {
     const auth = require('../src/auth');
     const t = auth.firmarCliente('c_test');
     check('acceso: el token de cliente se lee', auth.clienteDeToken({ headers: { 'x-cuenta': t } }) === 'c_test');
+    // ⚠️ El cambio tiene que ser SIEMPRE un cambio. Antes ponía 'ff' al final, y cuando la firma
+    // ya terminaba en 'ff' —1 de cada 256 veces— el token "manipulado" era idéntico al bueno y el
+    // check fallaba sin motivo. Un test que falla a veces enseña a correrlo de nuevo en vez de
+    // mirar qué pasó, y el día que falle de verdad tampoco se va a mirar.
+    const ultimo = t.slice(-1);
+    const roto = t.slice(0, -1) + (ultimo === 'f' ? '0' : 'f');
     check('acceso: un token manipulado se rechaza',
-      auth.clienteDeToken({ headers: { 'x-cuenta': t.slice(0, -2) + 'ff' } }) === null);
+      roto !== t && auth.clienteDeToken({ headers: { 'x-cuenta': roto } }) === null);
     // Otra familia de token a propósito: sin el prefijo, un bug de parseo haría admin a un cliente.
     check('acceso: un token del panel NO vale como cliente',
       auth.clienteDeToken({ headers: { 'x-cuenta': 'ok:admin:1.abc' } }) === null);
