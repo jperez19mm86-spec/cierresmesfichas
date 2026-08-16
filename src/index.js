@@ -603,6 +603,10 @@ app.post('/api/comprobante', async (req, res) => {
 async function avisarComprobante(c, cli, monto, moneda) {
   const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();
+  // El archivo se lee UNA vez y lo usan los DOS avisos —cobranzas y el del cliente—. Va acá afuera
+  // a propósito: adentro del else queda fuera de alcance del segundo aviso, y son hasta 6 MB que
+  // no tiene sentido leer dos veces del mismo comprobante.
+  const conArchivo = comprobantes.get(c.id, true);
   let aviso = null;
   if (!tok || !chat) {
     aviso = { ok: false, error: !tok ? 'el bot de Telegram no está configurado' : `no hay grupo cargado para ${c.via === 'usdt' ? 'USDT' : 'pesos'}` };
@@ -618,7 +622,6 @@ async function avisarComprobante(c, cli, monto, moneda) {
       monto: monto != null ? monto : c.monto,
       moneda: moneda || (cli && cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT') });
     // Con el comprobante adentro: el que mira el grupo no tiene que entrar al OS para verlo.
-    const conArchivo = comprobantes.get(c.id, true);
     if (conArchivo && conArchivo.archivo_datos) {
       try {
         aviso = await telegram.sendArchivo(tok, chat, {
@@ -636,7 +639,7 @@ async function avisarComprobante(c, cli, monto, moneda) {
   if (!aviso.ok) console.warn(`[Comprobante] ${c.id}: el aviso al grupo NO salió — ${aviso.error}`);
   // El segundo aviso, al cliente. Va después y aparte: que su grupo falle no puede impedir que el
   // de cobranzas quede anotado, ni al revés.
-  await avisarAbonoAlCliente(c, cli);
+  await avisarAbonoAlCliente(c, cli, conArchivo);
   return aviso;
 }
 
@@ -680,17 +683,26 @@ function abonoDelCliente(c) {
   return Number(c.monto) > 0 ? { monto: c.monto, moneda: c.divisa || (enUsdt ? 'USDT' : 'ARS') } : null;
 }
 
-async function avisarAbonoAlCliente(c, cli) {
+async function avisarAbonoAlCliente(c, cli, conArchivo) {
   let r;
   try {
     const tok = config.getTelegramToken();
     const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
     const a = abonoDelCliente(c);
+    // El comprobante también va al grupo del cliente. Lo pidieron todos: quieren tener el respaldo
+    // —el recibo con su hora y su fecha— en la misma conversación donde ven sus cargas, sin
+    // depender de que alguien se lo reenvíe. Si no vino cargado, se lee acá (caso del reintento).
+    const arch = conArchivo !== undefined ? conArchivo : comprobantes.get(c.id, true);
     if (!tok) r = { ok: false, error: 'el bot de Telegram no está configurado' };
     else if (!cli || !dest.chatId) r = { ok: false, error: 'ese cliente no tiene grupo de Telegram cargado' };
     else if (!dest.enabled) r = { ok: false, error: 'los avisos de ese cliente están apagados' };
     else if (!a) r = { ok: false, error: 'sin monto acreditado no se avisa' };
-    else r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText(a));
+    else if (arch && arch.archivo_datos) {
+      r = await telegram.sendArchivo(tok, dest.chatId, {
+        archivo: Buffer.from(arch.archivo_datos, 'base64'),
+        nombre: arch.archivo_nombre, mime: arch.archivo_tipo, caption: telegram.abonoText(a),
+      });
+    } else r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText(a));
   } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
   try { comprobantes.marcarAvisoCliente(c.id, r); }
   catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso al cliente:', e.message); }

@@ -444,6 +444,29 @@ async function main() {
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
   }
 
+  // ── EL COMPROBANTE TAMBIÉN VA AL GRUPO DEL CLIENTE ───────────────────────────────────────────
+  // Lo pidieron los clientes: quieren el respaldo —el recibo con su hora y su fecha— en la misma
+  // conversación donde ven sus cargas, sin depender de que alguien se lo reenvíe.
+  {
+    const idx6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('abono: al grupo del cliente le va el archivo, no sólo el texto',
+      /r = await telegram\.sendArchivo\(tok, dest\.chatId, \{/.test(idx6)
+      && /caption: telegram\.abonoText\(a\)/.test(idx6));
+    check('abono: sin archivo sigue yendo el texto solo',
+      /\} else r = await telegram\.sendMessage\(tok, dest\.chatId, telegram\.abonoText\(a\)\);/.test(idx6));
+    // ⚠️ El blob se lee UNA vez para los dos avisos, y la variable tiene que estar en un alcance
+    // donde el segundo la vea: declarada adentro del else, la llamada de abajo reventaba.
+    const fn = idx6.slice(idx6.indexOf('async function avisarComprobante'), idx6.indexOf('async function avisarAbonoAlCliente'));
+    const iDecl = fn.indexOf('const conArchivo = comprobantes.get(c.id, true);');
+    const iElse = fn.indexOf('} else {');
+    check('abono: el archivo se lee una vez y en un alcance que los dos avisos ven',
+      iDecl > 0 && (iElse < 0 || iDecl < iElse)
+      && (fn.match(/comprobantes\.get\(c\.id, true\)/g) || []).length === 1,
+      'decl=' + iDecl + ' else=' + iElse + ' lecturas=' + (fn.match(/comprobantes\.get\(c\.id, true\)/g) || []).length);
+    check('abono: el reintento sólo-cliente puede leer el archivo por su cuenta',
+      /const arch = conArchivo !== undefined \? conArchivo : comprobantes\.get\(c\.id, true\)/.test(idx6));
+  }
+
   // ── UN COMPROBANTE QUE NO SUBE NO PUEDE PASAR DESAPERCIBIDO ──────────────────────────────────
   // Pasó de verdad: el cliente adjuntó un PDF, el archivo no salió del teléfono, el aviso entró
   // igual y él vio "✅ Pago avisado" — del otro lado apareció "SIN comprobante". El sistema guarda
