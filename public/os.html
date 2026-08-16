@@ -1554,6 +1554,9 @@ function facturaImprimir() {
 // escribe acá, y no se toma el que declaró el cliente.
 // Arranca en "aprobados": la solapa se llama "Ya resueltos", los que esperan tienen la suya.
 let _cmpFiltro = 'aprobado';
+// Qué cliente se está mirando ('' = todos). Sobrevive al re-render igual que la solapa: si se
+// perdiera al aprobar uno, habría que volver a elegirlo en cada aprobación.
+let _cmpCli = '';
 // Vive adentro de 💸 Movimientos, en sus solapas. Se deja el alias por si algo llama go('comprobantes').
 VIEWS.comprobantes = () => { _movSub = 'pendientes'; go('movimientos'); };
 
@@ -1579,7 +1582,11 @@ async function pintarComprobantes(estado, conFiltros) {
   // otra solapa, viene vacía y todos los clientes parecen estar en USDT — incluidos los que
   // llevan la cuenta en pesos, que es justamente el caso que hay que distinguir.
   if (!_clientes.length) { const dc = await api('/api/os/clientes'); _clientes = dc.clientes || []; }
-  const r = await api('/api/os/comprobantes' + (estado ? '?estado=' + estado : ''));
+  // El filtro por cliente va al SERVIDOR, no se recorta en pantalla: hoy son 20 comprobantes pero
+  // la lista viene con tope, y filtrando acá el día que haya 300 se estaría filtrando un pedazo.
+  const q = [estado ? 'estado=' + encodeURIComponent(estado) : '', _cmpCli ? 'codigo=' + encodeURIComponent(_cmpCli) : '']
+    .filter(Boolean).join('&');
+  const r = await api('/api/os/comprobantes' + (q ? '?' + q : ''));
   const cs = r.comprobantes || []; const c0 = r.cuentas || {};
   // El número de pendientes va a la pestaña: es lo que hace que se vea desde cualquier pantalla.
   _cmpPend = c0.pendiente || 0; renderNav();
@@ -1666,9 +1673,27 @@ async function pintarComprobantes(estado, conFiltros) {
           + '</div>'
 
           + '<div style="margin-top:8px"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
-        : '<div class="muted" style="margin-top:8px">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
+        : '<div style="margin-top:8px">'
+          // ── LO QUE SE ACREDITÓ DE VERDAD ────────────────────────────────────────────────────
+          // El cliente declara un monto y el comprobante puede decir otro. Se acredita el del
+          // comprobante, y hasta ahora ese número vivía sólo adentro del movimiento: la tarjeta
+          // mostraba lo declarado y un id, así que para saber qué se cobró había que ir a buscarlo.
+          // Cuando los dos no coinciden se marca, porque es justo el caso que hay que poder ver.
+          + (c.acreditado != null
+            ? (() => {
+                const dif = Math.abs(Number(c.acreditado) - Number(c.monto)) > 0.009;
+                return '<div style="font-weight:700' + (dif ? ';color:var(--gold)' : '') + '">'
+                  + (dif ? '⚠ ' : '') + 'acreditado ' + money(c.acreditado, 2) + ' ' + esc(c.acreditado_moneda)
+                  + (dif ? ' <span class="muted" style="font-weight:400">— el cliente había declarado ' + money(c.monto, 2) + ' ' + esc(c.divisa || '') + '</span>' : '')
+                  + '</div>'
+                  + (c.acreditado_otro ? '<div class="muted" style="font-size:12px">= ' + money(c.acreditado_otro, 2) + ' ' + esc(c.acreditado_otro_moneda)
+                      + (c.acreditado_tc ? ' · TC ' + money(c.acreditado_tc, 2) : ' · con el tipo de cambio del mes') + '</div>' : '');
+              })()
+            : '')
+          + '<div class="muted">' + (c.estado === 'aprobado' ? '✅ aprobado' : '✖ rechazado')
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
-          + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>')
+          + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>'
+          + '</div>')
       + '</div>';
   };
   dest.innerHTML = '<div class="card"><h2>🧾 ' + (estado === 'pendiente' ? 'Comprobantes por aprobar' : 'Comprobantes ya resueltos') + '</h2>'
@@ -1676,9 +1701,36 @@ async function pintarComprobantes(estado, conFiltros) {
     + (conFiltros ? '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">'
       + tabs.map(t => '<button class="' + (t[0] === _cmpFiltro ? '' : 'outline ') + 'small" onclick="_cmpFiltro=\'' + t[0] + '\';VIEWS.movimientos()">' + t[1] + (t[2] !== '' ? ' (' + t[2] + ')' : '') + '</button>').join('')
       + '</div>' : '')
+    // ── VER LO DE UN CLIENTE ──────────────────────────────────────────────────────────────────
+    // Las opciones salen del resumen del servidor, que viene ENTERO aunque se esté filtrando: si
+    // se armaran con lo que quedó en pantalla, al elegir un cliente el desplegable se quedaría con
+    // ese solo y no habría cómo volver.
+    + '<div class="row" style="margin-top:8px;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+    +   '<div style="flex:0 0 auto"><label>Cliente</label>'
+    +     '<select id="cmp-cli" onchange="_cmpCli=this.value;VIEWS.movimientos()" style="width:260px">'
+    +       '<option value="">Todos los clientes</option>'
+    +       (r.porCliente || []).map(x => '<option value="' + esc(x.codigo) + '"' + (x.codigo === _cmpCli ? ' selected' : '') + '>'
+            + esc(x.nombre || x.codigo) + ' (' + x.total + ')' + (x.pendientes ? ' · ' + x.pendientes + ' esperan' : '') + '</option>').join('')
+    +     '</select></div>'
+    +   (_cmpCli ? '<div style="flex:0 0 auto"><button class="outline small" onclick="_cmpCli=\'\';VIEWS.movimientos()">✕ ver todos</button></div>' : '')
+    // El total de lo que se está viendo, por moneda. Es "declarado": lo que dijo el cliente, que
+    // puede no ser lo acreditado — por eso va con esa palabra y no como si fuera plata cobrada.
+    +   '<div class="muted" style="flex:1;min-width:200px;padding-bottom:9px;font-size:12px">'
+    +     cs.length + ' comprobante(s)'
+    +     (cs.length ? ' · declarado ' + [...new Set(cs.map(x => x.divisa || 'ARS'))].sort().map(d =>
+            money(cs.filter(x => (x.divisa || 'ARS') === d).reduce((a, x) => a + Number(x.monto || 0), 0), 2) + ' ' + esc(d)).join(' · ') : '')
+    +   '</div>'
     + '</div>'
+    + '</div>'
+    // Con un cliente elegido, "no hay nada" a secas es mentira: hay, pero de otro. Se dice cuál
+    // está filtrado y se ofrece salir del filtro, que si no hay que ir a buscar el desplegable.
     + (cs.length ? cs.map(fila).join('')
-      : '<div class="card"><div class="empty">' + (estado === 'pendiente' ? '✅ No hay nada esperando aprobación.' : 'No hay comprobantes acá.') + '</div></div>');
+      : '<div class="card"><div class="empty">'
+        + (_cmpCli
+            ? 'Ese cliente no tiene comprobantes ' + (estado === 'pendiente' ? 'esperando aprobación' : 'acá')
+              + '. <button class="outline small" style="margin-left:6px" onclick="_cmpCli=\'\';VIEWS.movimientos()">Ver todos los clientes</button>'
+            : (estado === 'pendiente' ? '✅ No hay nada esperando aprobación.' : 'No hay comprobantes acá.'))
+        + '</div></div>');
 }
 
 /* Reintentar el aviso de un comprobante que no llegó al grupo. Es el mismo envío, no uno nuevo:

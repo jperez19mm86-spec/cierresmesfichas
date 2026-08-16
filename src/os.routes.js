@@ -977,10 +977,38 @@ function mount(app) {
   // ───────── 🧾 COMPROBANTES DE PAGO ─────────
   // Los sube el cliente desde la pantalla pública. Quedan PENDIENTES: aprobar es a mano, porque
   // acreditar un pago porque alguien subió una imagen sería confiar en la imagen.
-  app.get('/api/os/comprobantes', (req, res) => ok(res, {
-    cuentas: comprobantes.cuentas(),
-    comprobantes: comprobantes.list({ estado: req.query.estado, codigo: req.query.codigo }),
-  }));
+  app.get('/api/os/comprobantes', (req, res) => {
+    // ── LO DECLARADO Y LO ACREDITADO SON DOS NÚMEROS ─────────────────────────────────────────
+    // El cliente escribe un monto y el comprobante puede decir otro: declara 300.000 y transfirió
+    // 205.000. Se acredita lo del comprobante, y eso quedaba guardado en el movimiento — o sea,
+    // registrado pero invisible: la tarjeta mostraba lo DECLARADO y un id de movimiento, así que
+    // para saber qué se cobró de verdad había que ir a buscarlo. Ahora viaja con cada comprobante.
+    const lista = comprobantes.list({ estado: req.query.estado, codigo: req.query.codigo })
+      .map((c) => {
+        if (!c.movimiento_id) return c;
+        const m = movs.get(c.movimiento_id);            // ya viene valuado
+        if (!m) return c;
+        // En la moneda en que PAGÓ, que es la del comprobante: comparar 205.000 contra 300.000 es
+        // inmediato; contra "129,84 USDT" hay que hacer una cuenta para ver si coincide.
+        const enUsdt = c.via === 'usdt';
+        const propio = enUsdt ? m.monto_usdt : m.monto_ars;
+        const otro = enUsdt ? m.monto_ars : m.monto_usdt;
+        return { ...c,
+          acreditado: propio != null && propio !== '' ? String(propio) : null,
+          acreditado_moneda: enUsdt ? 'USDT' : 'ARS',
+          acreditado_otro: otro != null && otro !== '' ? String(otro) : null,
+          acreditado_otro_moneda: enUsdt ? 'ARS' : 'USDT',
+          acreditado_tc: m.tc_momento || m.tc_usado || null,
+        };
+      });
+    ok(res, {
+      cuentas: comprobantes.cuentas(),
+      // La lista de clientes con comprobantes va SIEMPRE completa, filtre o no: es la que llena el
+      // desplegable, y si se armara con lo que quedó filtrado no habría forma de volver a otro.
+      porCliente: comprobantes.porCliente(),
+      comprobantes: lista,
+    });
+  });
   app.get('/api/os/comprobantes/:id/archivo', (req, res) => {
     const c = comprobantes.get(req.params.id, true);
     if (!c || !c.archivo_datos) return err(res, 404, 'ese comprobante no tiene archivo');

@@ -81,6 +81,23 @@ function cuentas() {
 }
 
 /**
+ * QUIÉNES TIENEN COMPROBANTES, para poder filtrar por cliente.
+ *
+ * Sale de un GROUP BY y no de la lista ya cargada: si se armara con lo que está en pantalla, al
+ * filtrar por un cliente el desplegable se quedaría con ese solo y no habría forma de volver a
+ * otro. El desplegable tiene que ser el mismo siempre, filtre lo que filtre.
+ *
+ * Trae también cuántos esperan: es lo que deja ver de un vistazo a quién le falta aprobar algo.
+ */
+function porCliente() {
+  return db.prepare(`SELECT codigo,
+      MAX(cliente_nombre) AS nombre,
+      COUNT(*) AS total,
+      SUM(CASE WHEN estado='pendiente' THEN 1 ELSE 0 END) AS pendientes
+    FROM comprobantes GROUP BY codigo ORDER BY total DESC, codigo ASC`).all();
+}
+
+/**
  * Resolver. Es explícito y de una sola vez: un comprobante ya resuelto no se vuelve a tocar, para
  * que reintentar no pueda generar el pago dos veces.
  */
@@ -116,4 +133,4 @@ function marcarAvisoCliente(id, { ok, error }) {
   return get(id);
 }
 
-module.exports = { marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, resolver, MAX_BYTES, ESTADOS };
+module.exports = { marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, porCliente, resolver, MAX_BYTES, ESTADOS };

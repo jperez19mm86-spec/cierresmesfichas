@@ -407,8 +407,11 @@ async function main() {
   {
     const html3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     const ini = html3.indexOf('      + (pend\n');
-    const fin = html3.indexOf('        : \'<div class="muted" style="margin-top:8px">\' + (c.estado === \'aprobado\'');
-    const trozo = html3.slice(ini, fin) + '        : \'\')';
+    // El corte va por la ESTRUCTURA —el `: ` del ternario, a su indentación— y no por el texto de
+    // la rama de al lado: ese texto cambia cada vez que se toca la tarjeta resuelta, y entonces el
+    // recorte devuelve vacío. La primera versión cortaba por texto y se rompió al primer cambio.
+    const fin = html3.indexOf('\n        : ', ini);
+    const trozo = html3.slice(ini, fin) + '\n        : \'\')';
     const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const _cmpMoneda = () => 'USDT';
     const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
@@ -416,6 +419,8 @@ async function main() {
     let marca = '';
     try { marca = eval('(function(){return \'\' ' + trozo + ';})()'); } catch (e) { marca = 'ERROR ' + e.message; }
 
+    check('comprobante: el recorte de la tarjeta encontró algo que medir',
+      fin > ini && /<button/.test(marca), 'ini=' + ini + ' fin=' + fin + ' largo=' + marca.length);
     check('comprobante: la tarjeta cierra todos sus divs',
       (marca.match(/<div/g) || []).length === (marca.match(/<\/div>/g) || []).length,
       (marca.match(/<div/g) || []).length + ' abiertos / ' + (marca.match(/<\/div>/g) || []).length + ' cerrados');
@@ -442,6 +447,54 @@ async function main() {
     check('comprobante: cada botón va con su propio campo',
       iU > 0 && iM > 0 && iOk > iU && iMes > iM && iM > iOk,
       'acreditar=' + iU + ' ✅=' + iOk + ' entraron=' + iM + ' ⏳=' + iMes);
+  }
+
+  // ── VER LOS COMPROBANTES DE UN CLIENTE ───────────────────────────────────────────────────────
+  // El filtro va al SERVIDOR: la lista viene con tope, así que recortarla en pantalla filtraría
+  // sólo un pedazo el día que haya cientos. Y el desplegable se arma con un resumen aparte que
+  // viene ENTERO aunque se filtre — armado con la lista filtrada, elegir un cliente dejaría el
+  // desplegable con ese solo y no habría cómo volver a otro.
+  {
+    const todos = await get('/api/os/comprobantes');
+    check('comprobantes: la respuesta trae el resumen por cliente',
+      Array.isArray(todos.data.porCliente) && todos.data.porCliente.length > 0
+      && todos.data.porCliente.every((x) => x.codigo && typeof x.total === 'number'),
+      JSON.stringify((todos.data.porCliente || []).slice(0, 2)));
+    const filtrado = await get('/api/os/comprobantes?codigo=L210');
+    check('comprobantes: filtrar por cliente devuelve sólo los suyos',
+      (filtrado.data.comprobantes || []).length > 0
+      && (filtrado.data.comprobantes || []).every((c) => c.codigo === 'L210'),
+      'n=' + (filtrado.data.comprobantes || []).length);
+    check('comprobantes: el resumen sigue completo aunque se filtre',
+      (filtrado.data.porCliente || []).length === (todos.data.porCliente || []).length,
+      'sin filtro=' + (todos.data.porCliente || []).length + ' filtrado=' + (filtrado.data.porCliente || []).length);
+    const h7 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('comprobantes: la pantalla manda el filtro al servidor',
+      /_cmpCli \? 'codigo=' \+ encodeURIComponent\(_cmpCli\)/.test(h7)
+      && /<select id="cmp-cli"/.test(h7));
+    // "No hay nada" con un filtro puesto es mentira: hay, pero de otro cliente.
+    check('comprobantes: el vacío con filtro dice que es por el filtro',
+      /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
+  }
+
+  // ── LO DECLARADO Y LO ACREDITADO SON DOS NÚMEROS ─────────────────────────────────────────────
+  // El cliente escribe 300.000 y el comprobante dice 205.000: se acredita el del comprobante. Ese
+  // número quedaba SÓLO adentro del movimiento —registrado pero invisible— y la tarjeta mostraba
+  // el declarado y un id, así que para saber qué se cobró de verdad había que ir a buscarlo.
+  {
+    const cmps = (await get('/api/os/comprobantes?estado=aprobado')).data.comprobantes || [];
+    const conMov = cmps.find((c) => c.movimiento_id);
+    check('comprobantes: el aprobado trae lo que se acreditó, no sólo lo declarado',
+      !!conMov && conMov.acreditado != null && !!conMov.acreditado_moneda,
+      JSON.stringify(conMov ? { dec: conMov.monto, acr: conMov.acreditado, mon: conMov.acreditado_moneda } : null));
+    // En la moneda en que PAGÓ: comparar 205.000 contra 300.000 es inmediato; contra USDT no.
+    const rt3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('comprobantes: lo acreditado viene en la moneda del comprobante',
+      /const enUsdt = c\.via === 'usdt';[\s\S]{0,200}const propio = enUsdt \? m\.monto_usdt : m\.monto_ars/.test(rt3));
+    const h8 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('comprobantes: la tarjeta marca cuando declarado y acreditado no coinciden',
+      /el cliente había declarado/.test(h8)
+      && /Math\.abs\(Number\(c\.acreditado\) - Number\(c\.monto\)\) > 0\.009/.test(h8));
   }
 
   // ── EL COMPROBANTE TAMBIÉN VA AL GRUPO DEL CLIENTE ───────────────────────────────────────────
