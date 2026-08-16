@@ -674,7 +674,15 @@ function abonoDelCliente(c) {
   if (m) {
     const propia = enUsdt ? 'monto_usdt' : 'monto_ars';
     const otra = enUsdt ? 'monto_ars' : 'monto_usdt';
-    if (m[propia] != null && m[propia] !== '') return { monto: m[propia], moneda: enUsdt ? 'USDT' : 'ARS' };
+    if (m[propia] != null && m[propia] !== '') {
+      const mon = enUsdt ? 'USDT' : 'ARS';
+      // Lo DECLARADO se acompaña sólo si difiere y está en la misma moneda: comparar dos números
+      // de monedas distintas no le dice nada a nadie, y con dos iguales la aclaración es ruido.
+      const dec = (String(c.divisa || mon).toUpperCase() === mon
+        && Number(c.monto) > 0 && Math.abs(Number(c.monto) - Number(m[propia])) > 0.009)
+        ? c.monto : null;
+      return { monto: m[propia], moneda: mon, declarado: dec };
+    }
     // Sin la cara en la moneda del pago se dice la otra, con su etiqueta correcta. Un número sin su
     // moneda, o con la equivocada, es peor que uno en la moneda que no esperaba.
     if (m[otra] != null && m[otra] !== '') return { monto: m[otra], moneda: enUsdt ? 'ARS' : 'USDT' };

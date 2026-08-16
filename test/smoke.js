@@ -477,6 +477,29 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── AL CLIENTE SE LE DICE LA DIFERENCIA, EN UNA LÍNEA ────────────────────────────────────────
+  // Declaró 300.000 y se le acreditaron 205.000: sin la aclaración recibe un mensaje con un número
+  // distinto al que avisó y tiene que darse cuenta solo. Si no se da cuenta, la pregunta llega
+  // igual, más tarde y peor.
+  {
+    const tg3 = require('../src/telegram');
+    const q = (x) => x.replace(/<[^>]+>/g, '');
+    const dif = q(tg3.abonoText({ monto: '205000', moneda: 'ARS', declarado: '300000' }));
+    check('abono: cuando difiere, le dice lo que había avisado',
+      /205\.000 ARS/.test(dif) && /habías avisado 300\.000 ARS/.test(dif)
+      && dif.split('\n').length === 3, JSON.stringify(dif));
+    // Cuando coinciden NO aparece: sería ruido en todos los pagos para explicar el caso raro.
+    const igual = q(tg3.abonoText({ monto: '205000', moneda: 'ARS', declarado: null }));
+    check('abono: cuando coinciden, no agrega ninguna línea',
+      !/habías avisado/.test(igual) && igual.split('\n').length === 2, JSON.stringify(igual));
+    // Y la decisión de cuándo mandarla vive en la ruta, con las dos condiciones que importan:
+    // que difiera de verdad, y que sea la MISMA moneda (comparar entre monedas no dice nada).
+    const idx7 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('abono: sólo se aclara si difiere y es la misma moneda',
+      /String\(c\.divisa \|\| mon\)\.toUpperCase\(\) === mon/.test(idx7)
+      && /Math\.abs\(Number\(c\.monto\) - Number\(m\[propia\]\)\) > 0\.009/.test(idx7));
+  }
+
   // ── LO DECLARADO Y LO ACREDITADO SON DOS NÚMEROS ─────────────────────────────────────────────
   // El cliente escribe 300.000 y el comprobante dice 205.000: se acredita el del comprobante. Ese
   // número quedaba SÓLO adentro del movimiento —registrado pero invisible— y la tarjeta mostraba

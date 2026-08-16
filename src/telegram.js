@@ -142,9 +142,15 @@ function pagoText({ vendedor, cliente, monto, moneda = 'USDT' }) {
  * Sin monto no se manda: "tu abono está registrado" sin decir cuánto obliga a preguntar, que es
  * exactamente lo que este mensaje viene a evitar.
  */
-function abonoText({ monto, moneda = 'USDT' }) {
-  const m = Number(monto).toLocaleString('es-AR', { maximumFractionDigits: 2 });
-  return `✅ <b>Tu abono está registrado</b>\n<b>${m} ${escapeHtml(moneda)}</b>`;
+function abonoText({ monto, moneda = 'USDT', declarado = null }) {
+  const n = (x) => Number(x).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  // La tercera línea SÓLO cuando lo acreditado no coincide con lo que él avisó. Sin ella, el
+  // cliente que declaró 300.000 recibe un mensaje que dice 205.000 y tiene que darse cuenta solo —
+  // y si no se da cuenta, la pregunta llega igual, más tarde y peor. Con ella queda por escrito
+  // que la diferencia se vio. Cuando los montos coinciden no aparece: sería ruido en todos los
+  // pagos para explicar el caso raro.
+  return `✅ <b>Tu abono está registrado</b>\n<b>${n(monto)} ${escapeHtml(moneda)}</b>`
+    + (declarado != null ? `\n<i>(habías avisado ${n(declarado)} ${escapeHtml(moneda)})</i>` : '');
 }
 
 /**
