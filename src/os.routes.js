@@ -20,6 +20,7 @@ const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const tbsDiario = require('./tbs-diario-store');
+const { parseMonto } = require('./lib/monto');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
@@ -1087,11 +1088,15 @@ function mount(app) {
     if (b.moneda && String(b.moneda).toUpperCase() !== monedaCargada) {
       return err(res, 400, `la pantalla dice ${b.moneda} y el pago está en ${monedaCargada} — recargá la página`);
     }
-    const monto = b.monto != null ? String(b.monto) : (b.monto_usdt != null ? String(b.monto_usdt) : null);
+    // Entiende coma y punto igual que la pantalla: quien aprueba escribe "94,22" y eso tiene que
+    // valer. Y si escribe "94.22" se lee como 94,22, no como 9422 — el error de los 100×.
+    const montoNum = parseMonto(b.monto != null ? b.monto : b.monto_usdt);
+    const monto = montoNum == null ? null : String(montoNum);
     if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${monedaCargada} se acreditan`);
     // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
     // dato faltante y visible a un número inventado con la cotización del día.
-    const tc = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? String(b.tc).trim() : null;
+    const tcNum = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? parseMonto(b.tc) : null;
+    const tc = tcNum == null ? null : String(tcNum);
     if (tc != null && !money.isPos(tc)) return err(res, 400, 'el tipo de cambio tiene que ser mayor a cero');
     let enArs = null; let enUsdt = null;
     if (monedaCargada === 'ARS') { enArs = monto; if (tc) enUsdt = money.round(money.div(monto, tc), 2); }
@@ -2044,9 +2049,14 @@ function mount(app) {
     for (let d = 1; d <= Math.min(ult, hoy); d++) todos.push(`${mes}-${String(d).padStart(2, '0')}`);
     const listos = tbsDiario.diasCapturados(mes);
     const faltan = todos.filter((d) => !listos.includes(d));
+    // La estimación sale de lo MEDIDO, no de una constante. La primera versión usaba 54s —el
+    // tiempo de una consulta de un MES entero— y daba 28 minutos para algo que tarda dos: con ese
+    // número la decisión razonable era no hacerlo nunca.
+    const ms = tbsDiario.msPromedio();
     ok(res, { mes, dias: todos.length, capturados: listos.length, faltan,
-      // 54s por día, para que quien mire sepa a qué se está metiendo antes de empezar.
-      minutos_estimados: Math.ceil((faltan.length * 54) / 60) });
+      ms_por_dia: ms,
+      segundos_estimados: ms ? Math.ceil((faltan.length * ms) / 1000) : null,
+      medido_en: listos.length });
   });
 
   app.post('/api/os/tbs/diario/capturar', wrap(async (req, res) => {
@@ -2058,6 +2068,7 @@ function mount(app) {
     if (!b.refrescar && tbsDiario.diasCapturados(fecha.slice(0, 7)).includes(fecha)) {
       return ok(res, { fecha, saltado: true, motivo: 'ese día ya estaba capturado (refrescar:true para rehacerlo)' });
     }
+    const t0 = Date.now();
     const desde = `${fecha} 00:00:00`; const hasta = `${fecha} 23:59:59`;
     // Los agentes que se facturan, para tener el diario POR CLIENTE y no sólo el total.
     const agentes = apiStore.listClientes().filter((c) => c.activo !== 0).map((c) => String(c.id));
@@ -2078,8 +2089,9 @@ function mount(app) {
         agente_id: a.id, login: a.login, moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
       }));
     });
-    const n = tbsDiario.guardarDia(fecha, filas);
-    ok(res, { fecha, guardadas: n, agentes: Object.keys(r.porAgente || {}).length,
+    const n = tbsDiario.guardarDia(fecha, filas, Date.now() - t0);
+    ok(res, { fecha, guardadas: n, ms: Date.now() - t0,
+      agentes: Object.keys(r.porAgente || {}).length,
       faltantes: r.faltantes || [], porDivisa: tot.porDivisa });
   }));
 

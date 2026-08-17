@@ -1792,8 +1792,31 @@ async function cmpReavisar(id){
 /* El equivalente, calculado mientras se escribe: es la forma más barata de que un TC mal tipeado
    se vea antes de acreditar y no después. Un cero de más en el cambio da un número absurdo, y
    absurdo se nota; guardado, no. */
+/* ── LO MISMO QUE ESCRIBE EL CLIENTE, LO ESCRIBE QUIEN APRUEBA ────────────────────────────────
+   Acá también se borraban todos los puntos, así que tipear "94.22" para acreditar daba 9422. Y la
+   dueña dijo que ella pondría coma. El último separador manda: 1-2 dígitos detrás es decimal,
+   3 es de miles. Misma regla que src/lib/monto.js y que la pantalla del cliente. */
+function montoNum(txt){
+  let t = String(txt==null?'':txt).trim().replace(/[\s ]/g,'');
+  if(!t || !/^[\d.,]+$/.test(t)) return null;
+  const u = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+  let n;
+  if(u<0) n = Number(t);
+  else { const d = t.length-u-1;
+    n = (d===1||d===2) ? Number(t.slice(0,u).replace(/[.,]/g,'')+'.'+t.slice(u+1))
+                       : Number(t.replace(/[.,]/g,'')); }
+  return Number.isFinite(n)&&n>0 ? n : null;
+}
+function montoAmbiguo(txt){
+  const t = String(txt==null?'':txt).trim();
+  const u = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+  if(u<0) return false;
+  const d = t.length-u-1;
+  return t[u]==='.' && (d===1||d===2);
+}
+
 function cmpEquiv(id, codigo){
-  const n = (v) => Number(String(v||'').replace(/\./g,'').replace(',','.'));
+  const n = (v) => montoNum(v) || 0;
   const monto = n((document.getElementById('cmp-u-'+id)||{}).value);
   const tc = n((document.getElementById('cmp-tc-'+id)||{}).value);
   const el = document.getElementById('cmp-eq-'+id); if(!el) return;
@@ -1821,14 +1844,16 @@ async function _cmpResolver(id, estado, codigo, opts) {
     // Su propio campo, rotulado en la moneda del pago. NUNCA el de "Acreditar", que está rotulado
     // en la moneda de la cuenta y significaría otra cosa.
     const m = String((document.getElementById('cmp-m-' + id) || {}).value || '').trim();
-    if (!(Number(String(m).replace(/\./g, '').replace(',', '.')) > 0)) return toast('Poné cuántos ' + o.divisa + ' entraron');
+    const nm = montoNum(m);
+    if (nm == null) return toast('Ese monto no se entiende. Escribilo como 94,22');
+    if (montoAmbiguo(m) && !confirm('¿Son ' + money(nm, 2) + ' ' + o.divisa + '?')) return;
     if (!confirm('¿Acreditar ' + money(m, 2) + ' ' + o.divisa + ' con el tipo de cambio del mes?'
       + '\n\nQueda contado en la cuenta desde ahora, con el promedio del mes. Cuando cargues el TC'
       + ' definitivo en 💱 Tipos de cambio se ajusta solo.')) return;
     // La moneda va explícita: el servidor la compara con la que él calcula y rechaza si no coinciden.
     // Sin eso, un desajuste entre pantalla y servidor se convierte en plata mal acreditada, callado.
     const r0 = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-      body: JSON.stringify({ estado, monto: m, moneda: o.divisa, tc_modo: 'mes', motivo: nota0 }) });
+      body: JSON.stringify({ estado, monto: String(nm), moneda: o.divisa, tc_modo: 'mes', motivo: nota0 }) });
     if (!r0.ok) return toast('Error: ' + (r0.error || ''));
     toast('Acreditado · se ajusta al cerrar el mes');
     return VIEWS.movimientos();
@@ -1838,13 +1863,18 @@ async function _cmpResolver(id, estado, codigo, opts) {
   // La moneda de la CUENTA, no la del pago: el cliente puede pagar en USDT y llevarse la cuenta en
   // pesos. Escribir "USDT" arriba de una cifra en pesos es peor que no poner nada.
   const mon = _cmpMoneda(codigo);
-  if (estado === 'aprobado' && !(Number(String(u).replace(',', '.')) > 0)) return toast('Poné cuántos ' + mon + ' se acreditan');
+  // Misma regla que en todos lados. Y si el punto es ambiguo se pregunta: acreditar 9422 en vez
+  // de 94,22 es el error que se está tapando acá.
+  const nu = montoNum(u);
+  if (estado === 'aprobado' && nu == null) return toast('Poné cuántos ' + mon + ' se acreditan (ej 94,22)');
+  if (estado === 'aprobado' && montoAmbiguo(u) && !confirm('¿Son ' + money(nu, 2) + ' ' + mon + '?')) return;
   const eqTxt = (document.getElementById('cmp-eq-' + id) || {}).textContent;
   if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' ' + mon
     + (eqTxt && eqTxt !== '—' ? ' (' + eqTxt + ')' : '')
     + '?\n\nEsto registra el pago y le baja la deuda al cliente.')) return;
   const tc = (document.getElementById('cmp-tc-' + id) || {}).value;
-  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ estado, monto: u, tc, motivo: nota }) });
+  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
+    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();

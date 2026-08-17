@@ -24,7 +24,7 @@
  * El desglose por proveedor sigue estando en el Pago a proveedores, que es mensual.
  */
 const crypto = require('crypto');
-const { db } = require('./db');
+const { db, ensureColumns } = require('./db');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS tbs_diario (
@@ -35,6 +35,7 @@ db.exec(`
     moneda TEXT,
     bet TEXT, win TEXT, profit TEXT,
     salas INTEGER,
+    ms INTEGER,                  -- cuánto tardó ESA captura: la estimación sale de acá, no de una constante
     captured_at TEXT
   );
   /* Un día se puede volver a capturar —el panel corrige datos de días pasados— y tiene que
@@ -43,6 +44,8 @@ db.exec(`
     ON tbs_diario (fecha, agente_id, moneda);
   CREATE INDEX IF NOT EXISTS idx_tbs_diario_mes ON tbs_diario (substr(fecha,1,7));
 `);
+// La tabla puede existir de antes de que `ms` existiera: CREATE IF NOT EXISTS no agrega columnas.
+ensureColumns('tbs_diario', { ms: 'INTEGER' });
 
 const nowISO = () => new Date().toISOString();
 const S = (x) => (x === null || x === undefined ? null : String(x));
@@ -56,24 +59,38 @@ const S = (x) => (x === null || x === undefined ? null : String(x));
  * Todo el día se reemplaza en una transacción: si se cortara a mitad, el día quedaría con la mitad
  * vieja y la mitad nueva, que es peor que no haberlo tocado.
  */
-const _guardar = db.transaction((fecha, filas) => {
+const _guardar = db.transaction((fecha, filas, ms) => {
   db.prepare('DELETE FROM tbs_diario WHERE fecha=?').run(String(fecha));
   const ins = db.prepare(`INSERT INTO tbs_diario
-    (id,fecha,agente_id,login,moneda,bet,win,profit,salas,captured_at)
-    VALUES (@id,@fecha,@ag,@login,@mon,@bet,@win,@profit,@salas,@at)`);
+    (id,fecha,agente_id,login,moneda,bet,win,profit,salas,ms,captured_at)
+    VALUES (@id,@fecha,@ag,@login,@mon,@bet,@win,@profit,@salas,@ms,@at)`);
   let n = 0;
   for (const f of filas || []) {
     ins.run({
       id: 'tbsd_' + crypto.randomBytes(6).toString('hex'),
       fecha: String(fecha), ag: S(f.agente_id) || 'TOTAL', login: S(f.login) || '',
       mon: S(f.moneda) || '?', bet: S(f.bet) || '0', win: S(f.win) || '0',
-      profit: S(f.profit) || '0', salas: Number(f.salas) || 0, at: nowISO(),
+      profit: S(f.profit) || '0', salas: Number(f.salas) || 0,
+      ms: Number(ms) || null, at: nowISO(),
     });
     n += 1;
   }
   return n;
 });
-function guardarDia(fecha, filas) { return _guardar(fecha, filas); }
+function guardarDia(fecha, filas, ms) { return _guardar(fecha, filas, ms); }
+
+/**
+ * Cuánto tarda un día, MEDIDO.
+ *
+ * La primera versión estimaba con una constante de 54 segundos, sacada de una consulta de un MES
+ * entero. Un día solo pesa mucho menos: el primero tardó 3 segundos. Con la constante, el mes daba
+ * 28 minutos y la respuesta razonable era no hacerlo — cuando en realidad son un par de minutos.
+ * Una estimación mal calibrada no es un detalle: cambia la decisión.
+ */
+function msPromedio() {
+  const r = db.prepare('SELECT AVG(ms) a FROM (SELECT DISTINCT fecha, ms FROM tbs_diario WHERE ms > 0)').get();
+  return Math.round((r && r.a) || 0) || null;
+}
 
 /** Qué días del mes ya están capturados. Es lo que permite retomar sin repetir 54s por día. */
 function diasCapturados(mes) {
@@ -110,4 +127,4 @@ function borrarDia(fecha) {
   return db.prepare('DELETE FROM tbs_diario WHERE fecha=?').run(String(fecha)).changes;
 }
 
-module.exports = { guardarDia, diasCapturados, delMes, borrarDia };
+module.exports = { guardarDia, diasCapturados, delMes, borrarDia, msPromedio };

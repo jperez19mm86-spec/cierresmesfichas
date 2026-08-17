@@ -13,6 +13,7 @@
  * serían peores que no tenerlo).
  */
 const { db } = require('./db');
+const { parseMonto } = require('./lib/monto');
 
 const nowISO = () => new Date().toISOString();
 const K = (s) => String(s == null ? '' : s).trim();
@@ -29,8 +30,19 @@ const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
  */
 function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, archivo = null }) {
   const v = K(via).toLowerCase() === 'usdt' ? 'usdt' : 'ars';
-  const m = String(monto || '').replace(/\./g, '').replace(',', '.');
-  if (!(Number(m) > 0)) return { ok: false, error: 'el monto no es válido' };
+  // ⚠️ ACÁ ESTABA EL ERROR DE LOS 100×. Esta línea borraba TODOS los puntos antes de leer el
+  // número, así que "94.22" se guardaba como 9422 — cien veces más. Pasó de verdad: un cliente
+  // avisó 9.422 USDT por una transferencia de 94,22.
+  //
+  // `parseMonto` mira la POSICIÓN del último separador en vez de suponer qué significa: con 1 o 2
+  // dígitos detrás es decimal, con 3 es de miles. Y entiende la coma, que antes daba NaN y hacía
+  // fallar el aviso con "el monto no es válido" — la forma natural de escribir un número no puede
+  // ser la forma equivocada. La regla y sus casos están en src/lib/monto.js.
+  const num = parseMonto(monto);
+  if (num == null) return { ok: false, error: 'el monto no es válido' };
+  // Se guarda el número YA interpretado, no el texto: lo que quede en la base tiene que ser lo
+  // mismo que se le mostró a quien lo escribió.
+  const m = String(num);
 
   let bytes = 0; let datos = null; let nombre = null; let tipo = null;
   if (archivo && archivo.base64) {

@@ -477,6 +477,58 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
+  // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
+  // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir
+  // "94,22" —como se escribe acá— daba NaN y el aviso se rechazaba.
+  {
+    const { parseMonto, esAmbiguo } = require('../src/lib/monto');
+    const casos = [
+      ['94.22', 94.22, 'el caso real: punto con 2 dígitos es decimal'],
+      ['94,22', 94.22, 'la coma, que antes se rechazaba'],
+      ['9422', 9422, 'sin separador'],
+      ['200.000', 200000, 'punto con 3 dígitos es de miles'],
+      ['1.234,56', 1234.56, 'miles y decimal juntos'],
+      ['1,234.56', 1234.56, 'la convención yanqui da lo mismo'],
+      ['4.200', 4200, 'los 4200 USDT de un pago real'],
+      ['0,5', 0.5, 'menos de uno'],
+      ['abc', null, 'basura'],
+      ['-5', null, 'negativo'],
+      ['', null, 'vacío'],
+    ];
+    const mal = casos.filter(([t, esp]) => parseMonto(t) !== esp);
+    check('monto: la regla del separador resuelve los 11 casos',
+      mal.length === 0, mal.map(([t, e]) => `${t} → ${parseMonto(t)} (esperaba ${e})`).join(' · '));
+    // Se avisa SÓLO cuando el punto pudo querer decir otra cosa. Preguntar siempre enseña a
+    // apretar Aceptar sin leer, y entonces la pregunta deja de servir para nada.
+    check('monto: avisa con el punto ambiguo y calla con la coma',
+      esAmbiguo('94.22') === true && esAmbiguo('94,22') === false
+      && esAmbiguo('200.000') === false && esAmbiguo('9422') === false);
+
+    // Y el camino completo: lo que entra por la ruta pública se guarda interpretado.
+    const rp1 = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '94.22', divisa: 'USDT' });
+    check('monto: "94.22" se guarda como 94,22 y no como 9422',
+      rp1.status === 200 && Number(rp1.data.comprobante.monto) === 94.22,
+      'guardó ' + ((rp1.data.comprobante || {}).monto));
+    const rp2 = await post('/api/comprobante', { codigo: 'L210', via: 'usdt', monto: '94,22', divisa: 'USDT' });
+    check('monto: con coma ya no se rechaza',
+      rp2.status === 200 && Number(rp2.data.comprobante.monto) === 94.22,
+      'HTTP ' + rp2.status + ' ' + ((rp2.data.error) || (rp2.data.comprobante || {}).monto));
+    // Las dos pantallas usan la misma regla: si una interpreta distinto que el servidor, lo que se
+    // muestra y lo que se guarda dejan de ser el mismo número. Y el patrón viejo —borrar todos los
+    // puntos— no puede quedar en ninguna de las dos, ni siquiera en el camino de mover fichas.
+    const ped3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    const h11 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('monto: las dos pantallas usan la misma regla',
+      /function montoNum/.test(ped3) && /function montoNum/.test(h11)
+      && !/replace\(\/\\\.\/g, ''\)\.replace\(',', '\.'\)/.test(ped3));
+    check('monto: mandan el número interpretado, no el texto crudo',
+      /const monto = String\(n\);/.test(ped3) && /monto: nu == null \? u : String\(nu\)/.test(h11));
+    // Mover fichas tenía el MISMO bug: "94.22" movía 9422 fichas.
+    check('monto: mover fichas también usa la regla',
+      /const monto = montoNum\(crudoMov\);/.test(ped3));
+  }
+
   // ── EL REPORTE DIARIO DE TBS ─────────────────────────────────────────────────────────────────
   // Casino y Europa tienen su acumulado diario; TBS no, porque cada consulta tarda ~54s y armar el
   // mes en vivo son 31 llamadas. Se captura una vez por día y queda guardado.
@@ -516,11 +568,27 @@ async function main() {
     check('tbs diario: se puede borrar un día para rehacerlo', tbsd.borrarDia(dia) >= 1
       && tbsd.diasCapturados('2020-01').length === 0);
 
-    // El plan dice qué falta y CUÁNTO va a tardar: 54s por día no se puede esconder.
+    // El plan dice qué falta y cuánto va a tardar, MEDIDO. La primera versión estimaba con una
+    // constante de 54s —el tiempo de una consulta de un MES entero— y daba 28 minutos para algo
+    // que tarda dos: con ese número, la decisión razonable era no hacerlo nunca.
     const plan = await get('/api/os/tbs/diario/plan?mes=2020-01');
-    check('tbs diario: el plan dice qué días faltan y cuánto tarda',
-      plan.status === 200 && plan.data.faltan.length === 31 && plan.data.minutos_estimados === 28,
-      JSON.stringify({ f: (plan.data.faltan || []).length, min: plan.data.minutos_estimados }));
+    check('tbs diario: el plan dice qué días faltan',
+      plan.status === 200 && plan.data.faltan.length === 31,
+      JSON.stringify({ f: (plan.data.faltan || []).length }));
+    check('tbs diario: sin nada medido no inventa un tiempo',
+      plan.data.segundos_estimados === null && plan.data.medido_en === 0,
+      JSON.stringify({ seg: plan.data.segundos_estimados, medido: plan.data.medido_en }));
+    // Con un día medido, el promedio sale de ese número. Se comprueba EN PROCESO y no por HTTP:
+    // el servidor de pruebas corre con otra base, así que una escritura de acá no la ve — mezclar
+    // las dos cosas da un check que falla sin que nada esté roto.
+    tbsd.guardarDia('2020-01-02', [{ agente_id: 'TOTAL', moneda: 'ARS', bet: 1, win: 0, profit: 1, salas: 1 }], 3000);
+    check('tbs diario: el tiempo sale de lo medido, no de una constante',
+      tbsd.msPromedio() === 3000, 'promedio=' + tbsd.msPromedio());
+    tbsd.borrarDia('2020-01-02');
+    const rtP = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('tbs diario: el plan estima con el promedio medido',
+      /const ms = tbsDiario\.msPromedio\(\);/.test(rtP)
+      && /segundos_estimados: ms \? Math\.ceil\(\(faltan\.length \* ms\) \/ 1000\) : null/.test(rtP));
     // No se piden días que todavía no pasaron: vendrían vacíos y habría que rehacerlos.
     const rt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('tbs diario: el plan no pide días del futuro',
@@ -546,9 +614,9 @@ async function main() {
     check('tbs diario: la captura hace UNA llamada al panel, no dos',
       (cap.match(/await t\.cli\./g) || []).length === 1 && /diaCompleto/.test(cap),
       'llamadas=' + ((cap.match(/await t\.cli\./g) || []).length));
-    // Y el minuto estimado tiene que corresponderse con UNA llamada por día, no con dos.
-    check('tbs diario: el tiempo estimado es el de una llamada por día',
-      /faltan\.length \* 54/.test(rt4));
+    // Y la captura anota cuánto tardó: es de donde sale la estimación.
+    check('tbs diario: cada captura anota su duración',
+      /guardarDia\(fecha, filas, Date\.now\(\) - t0\)/.test(rt4));
   }
 
   // ── BUZÓN Y HISTORIAL SON DOS COSAS ──────────────────────────────────────────────────────────
@@ -2513,7 +2581,7 @@ async function main() {
     // Lo que no puede pasar en ninguna de las dos es que se CONGELE un número sacado de la
     // cotización del día. Por eso el check mira que las dos caras sólo se calculen `if (tc)`.
     check('pago: sin TC no se inventa la otra cara',
-      /const tc = !porElMes && b\.tc != null/.test(rutas2)
+      /const tcNum = !porElMes && b\.tc != null/.test(rutas2)
       && /if \(tc\) enUsdt = money\.round/.test(rutas2)
       && /if \(tc\) enArs = money\.round/.test(rutas2));
     check('pago: con TC del mes NO se congela ningún tipo de cambio',

@@ -461,7 +461,9 @@
   }
 
   function valMov() {
-    const m = parseFloat(String(document.getElementById('movMonto').value).replace(/\./g, '').replace(',', '.'));
+    // Misma regla que el resto: acá el punto también se borraba y "94.22" pasaba a ser 9422 —
+    // moviendo cien veces más fichas de las pedidas.
+    const m = montoNum(document.getElementById('movMonto').value) || 0;
     const ok = _movOrigen && _movDestino && _movDivisa && m > 0;
     const b = document.getElementById('btnMover');
     b.disabled = !ok;
@@ -470,7 +472,10 @@
 
   async function hacerMovimiento() {
     const b = document.getElementById('btnMover'), msg = document.getElementById('movMsg');
-    const monto = parseFloat(String(document.getElementById('movMonto').value).replace(/\./g, '').replace(',', '.'));
+    const crudoMov = String(document.getElementById('movMonto').value).trim();
+    const monto = montoNum(crudoMov);
+    if (monto == null) { document.getElementById('movMsg').innerHTML = '<div class="msg err">Ese monto no se entiende. Escribilo como 10000 o 94,22</div>'; return; }
+    if (montoAmbiguo(crudoMov) && !confirm('¿Mover ' + fmt(monto) + ' ' + _movDivisa + '?')) return;
     if (!(monto > 0)) return;
     b.disabled = true; msg.innerHTML = '<div class="msg">Enviando…</div>';
     try {
@@ -540,9 +545,38 @@
     else listo();
   }
 
+  /* ── LA MISMA REGLA QUE EL SERVIDOR ────────────────────────────────────────────────────────
+     Antes acá se borraban TODOS los puntos, así que "94.22" se convertía en 9422 — cien veces más.
+     Pasó de verdad. El último separador manda: con 1 o 2 dígitos detrás es decimal, con 3 es de
+     miles. Está duplicada del servidor a propósito: la pantalla tiene que poder mostrar lo que se
+     entendió ANTES de mandar, y el servidor tiene que validarlo igual aunque le posteen a mano. */
+  function montoNum(txt) {
+    let t = String(txt == null ? '' : txt).trim().replace(/[\s ]/g, '');
+    if (!t || !/^[\d.,]+$/.test(t)) return null;
+    const u = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+    let n;
+    if (u < 0) n = Number(t);
+    else {
+      const d = t.length - u - 1;
+      n = (d === 1 || d === 2)
+        ? Number(t.slice(0, u).replace(/[.,]/g, '') + '.' + t.slice(u + 1))
+        : Number(t.replace(/[.,]/g, ''));
+    }
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  /* Un PUNTO con 1-2 dígitos detrás es justo el caso del error: acá eso se escribe con coma, así
+     que quien puso "94.22" pudo querer 9422. Se pregunta sólo en ese caso; preguntar siempre
+     enseña a apretar Aceptar sin leer. */
+  function montoAmbiguo(txt) {
+    const t = String(txt == null ? '' : txt).trim();
+    const u = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+    if (u < 0) return false;
+    const d = t.length - u - 1;
+    return t[u] === '.' && (d === 1 || d === 2);
+  }
+
   function valPago() {
-    const crudo = String(document.getElementById('pagoMonto').value).replace(/\./g, '').replace(',', '.');
-    const m = Number(crudo);
+    const m = montoNum(document.getElementById('pagoMonto').value);
     const f = document.getElementById('pagoArchivo').files[0];
     const msgArch = document.getElementById('pagoArchivoMsg');
     let problema = null;
@@ -588,7 +622,13 @@
 
   async function avisarPago() {
     const btn = document.getElementById('btnPago'); const msg = document.getElementById('pagoMsg');
-    const monto = String(document.getElementById('pagoMonto').value).trim();
+    const crudo = String(document.getElementById('pagoMonto').value).trim();
+    const n = montoNum(crudo);
+    if (n == null) { msg.innerHTML = '<div class="msg err">Ese monto no se entiende. Escribilo como 94,22</div>'; return; }
+    // Se manda el número YA interpretado, no el texto: lo que se guarda tiene que ser lo mismo que
+    // se le mostró acá. Y si el punto era ambiguo, se pregunta antes — una vez, no siempre.
+    if (montoAmbiguo(crudo) && !confirm('¿Querés avisar ' + fmt(n) + ' ' + (_via === 'usdt' ? 'USDT' : 'pesos') + '?')) return;
+    const monto = String(n);
     if (!monto) return;
     btn.disabled = true; msg.innerHTML = '<div class="q">⏳ enviando…</div>';
     try {
