@@ -477,6 +477,64 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── EL REPORTE DIARIO DE TBS ─────────────────────────────────────────────────────────────────
+  // Casino y Europa tienen su acumulado diario; TBS no, porque cada consulta tarda ~54s y armar el
+  // mes en vivo son 31 llamadas. Se captura una vez por día y queda guardado.
+  {
+    const tbsd = require('../src/tbs-diario-store');
+    // ⚠️ TABLA APARTE, y esto es lo más importante de todo el bloque. En el motor 463 se guarda
+    // in/out (fichas cargadas y retiradas); en TBS bet/win (apostado y ganado). Escribir bet en la
+    // columna `in` haría que el Pulso sume apuestas como si fueran cargas, y ninguna pantalla lo
+    // delataría — es exactamente la forma del bug de los espejos, que tardó dos meses en salir.
+    const { db: dbt } = require('../src/db');
+    const colsTbs = dbt.prepare('PRAGMA table_info(tbs_diario)').all().map((x) => x.name);
+    check('tbs diario: tiene su propia tabla con bet/win, no in/out',
+      colsTbs.includes('bet') && colsTbs.includes('win') && colsTbs.includes('profit')
+      && !colsTbs.includes('in_amt'), colsTbs.join(','));
+    const rd = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'tbs-diario-store.js'), 'utf8');
+    check('tbs diario: no escribe en la tabla del motor 463',
+      !/reporte_diario/.test(rd.replace(/\/\*[\s\S]*?\*\//g, '')));
+
+    // Un día se puede recapturar y tiene que REEMPLAZAR: el panel corrige datos de días pasados.
+    const dia = '2020-01-15';   // fecha vieja a propósito: no choca con datos reales
+    tbsd.guardarDia(dia, [
+      { agente_id: 'TOTAL', login: 'TOTAL', moneda: 'ARS', bet: 1000, win: 400, profit: 600, salas: 3 },
+      { agente_id: '999', login: 'Prueba', moneda: 'ARS', bet: 500, win: 200, profit: 300, salas: 1 },
+    ]);
+    tbsd.guardarDia(dia, [
+      { agente_id: 'TOTAL', login: 'TOTAL', moneda: 'ARS', bet: 2000, win: 400, profit: 1600, salas: 3 },
+    ]);
+    const m = tbsd.delMes('2020-01');
+    check('tbs diario: recapturar un día reemplaza, no suma',
+      m.total.length === 1 && Number(m.total[0].bet) === 2000 && m.porAgente.length === 0,
+      JSON.stringify({ total: m.total.length, ag: m.porAgente.length, bet: (m.total[0] || {}).bet }));
+    // El TOTAL y los agentes van separados: sumarlos juntos contaría todo dos veces.
+    check('tbs diario: el total y los agentes vienen separados',
+      Array.isArray(m.total) && Array.isArray(m.porAgente)
+      && m.total.every((f) => f.agente_id === 'TOTAL') && m.porAgente.every((f) => f.agente_id !== 'TOTAL'));
+    check('tbs diario: dice qué días ya están', tbsd.diasCapturados('2020-01').join() === dia);
+    check('tbs diario: se puede borrar un día para rehacerlo', tbsd.borrarDia(dia) >= 1
+      && tbsd.diasCapturados('2020-01').length === 0);
+
+    // El plan dice qué falta y CUÁNTO va a tardar: 54s por día no se puede esconder.
+    const plan = await get('/api/os/tbs/diario/plan?mes=2020-01');
+    check('tbs diario: el plan dice qué días faltan y cuánto tarda',
+      plan.status === 200 && plan.data.faltan.length === 31 && plan.data.minutos_estimados === 28,
+      JSON.stringify({ f: (plan.data.faltan || []).length, min: plan.data.minutos_estimados }));
+    // No se piden días que todavía no pasaron: vendrían vacíos y habría que rehacerlos.
+    const rt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('tbs diario: el plan no pide días del futuro',
+      /Math\.min\(ult, hoy\)/.test(rt4));
+    check('tbs diario: capturar el mismo día dos veces no repite los 54s sin pedirlo',
+      /if \(!b\.refrescar && tbsDiario\.diasCapturados/.test(rt4));
+
+    // El total por divisa suma HOJAS: en TBS un padre trae su subárbol adentro.
+    const ta = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'tbs-api.js'), 'utf8');
+    check('tbs: el total por divisa reusa la suma de hojas, no recorre de nuevo',
+      /async function totalPorDivisa/.test(ta)
+      && /sumarPorDivisa\(\{ tree: r\.data\.tree \|\| \[\] \}\)/.test(ta));
+  }
+
   // ── BUZÓN Y HISTORIAL SON DOS COSAS ──────────────────────────────────────────────────────────
   // 🔔 Pendientes y los botones de 👥 Clientes llamaban a las MISMAS funciones y mostraban lo
   // mismo: las listas completas, con las aprobadas y rechazadas adentro. O sea que una de las dos

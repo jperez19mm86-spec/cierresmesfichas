@@ -162,6 +162,25 @@ function makeClient({ url, user, password, token: tokenFijo }) {
   }
 
   /**
+   * EL TOTAL DEL ÁRBOL POR DIVISA, en una sola llamada.
+   *
+   * Lo que ya había era por AGENTE (`profitDeAgentes`): útil para facturar, pero no contesta
+   * "cuánto movió TBS este mes en pesos". Esto suma las hojas de todo el árbol, que es la misma
+   * cuenta que hace el panel arriba de la tabla.
+   *
+   * Suma HOJAS, no nodos: en TBS un padre trae su subárbol adentro, así que sumar los nodos
+   * intermedios contaría la misma sala varias veces. `sumarPorDivisa` ya sube sólo las que tienen
+   * moneda propia — las hojas — y por eso se reusa tal cual.
+   */
+  async function totalPorDivisa({ desde, hasta, grupos = [] } = {}) {
+    const r = await pedir('treeGet', { fechas: [desde, hasta], proveedores: grupos });
+    if (!r.ok) return r;
+    // La raíz es un ARRAY de nodos; `sumarPorDivisa` espera uno. Se envuelve para no duplicar el
+    // recorrido, que es justo donde se cuela el doble conteo.
+    return { ok: true, porDivisa: sumarPorDivisa({ tree: r.data.tree || [] }), grupos };
+  }
+
+  /**
    * El profit de UNOS agentes puntuales, por grupo de proveedores y por moneda.
    * @param agentes  ids de los nodos que interesan (el dueño factura solo algunos)
    * @param grupos   ids de grupo de proveedores; se piden todos en la MISMA llamada
@@ -297,7 +316,7 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     return { ok: true, login: user, userId: l.userId, motor: 'tbs' };
   }
 
-  return { login, pedir, profitDeAgentes, grupos, arbol, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
+  return { login, pedir, profitDeAgentes, totalPorDivisa, grupos, arbol, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
 }
 
 module.exports = { makeClient, normUrl };

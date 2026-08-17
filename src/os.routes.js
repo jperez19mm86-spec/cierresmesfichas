@@ -19,6 +19,7 @@ const tcSvc = require('./tc.service');
 const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
+const tbsDiario = require('./tbs-diario-store');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
@@ -85,6 +86,16 @@ async function _nodosCacheados(cli, key, from, to, cur, soloActivos = false) {
  */
 // Cuándo levantó ESTE proceso. Cambia en cada despliegue, sirva o no la variable de git.
 const ARRANQUE = new Date().toISOString();
+
+/* La conexión con motor TBS y su cliente. Estaba repetido en cada ruta que le habla, y la tercera
+   copia es donde uno se olvida de comprobar que tenga credenciales. */
+function _tbsCliente(conexionId) {
+  const cx = casinoConex.list().find((c) => c.motor === 'tbs' && (!conexionId || c.id === conexionId));
+  if (!cx) return { error: 'no hay ninguna conexión con motor TBS configurada' };
+  const cli = casinoConex.client(cx.id);
+  if (!cli) return { error: `la conexión "${cx.nombre}" no tiene credenciales cargadas` };
+  return { cli, nombre: cx.nombre, id: cx.id };
+}
 
 function basePctEfectivo(cliente, panel, mes = mesTZ()) {
   return externosSvc.baseDelMes(cliente, mes, panel).valor;
@@ -1996,6 +2007,87 @@ function mount(app) {
     if (!r.ok) return err(res, 502, r.error);
     ok(res, { conexion: cx.nombre, mes, desde, hasta, ...r });
   }));
+  /**
+   * ── EL TOTAL DE TBS POR DIVISA ────────────────────────────────────────────────────────────
+   * Lo que había era por AGENTE, para facturar. Esto contesta la otra pregunta: cuánto movió TBS
+   * en cada moneda. Una sola llamada (⏱ ~54s), todos los grupos juntos.
+   */
+  app.post('/api/os/tbs/total-divisa', wrap(async (req, res) => {
+    const b = req.body || {};
+    const t = _tbsCliente(b.conexion_id);
+    if (t.error) return err(res, 400, t.error);
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    const ult = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const desde = b.desde || `${mes}-01 00:00:00`;
+    const hasta = b.hasta || `${mes}-${String(ult).padStart(2, '0')} 23:59:59`;
+    const r = await t.cli.totalPorDivisa({ desde, hasta, grupos: b.grupos || [] });
+    if (!r.ok) return err(res, 502, r.error);
+    ok(res, { conexion: t.nombre, mes, desde, hasta, porDivisa: r.porDivisa });
+  }));
+
+  /**
+   * ── EL REPORTE DIARIO DE TBS ──────────────────────────────────────────────────────────────
+   * Casino y Europa tienen su acumulado diario y de ahí sale el Pulso. TBS no lo tenía porque cada
+   * consulta tarda ~54s: armar el mes en vivo son 31 llamadas, media hora, cada vez que se abre.
+   * Se captura UNA VEZ por día y queda guardado (ver src/tbs-diario-store.js, y por qué NO va en
+   * la misma tabla que el motor 463).
+   *
+   * El plan dice qué días faltan, así que la pantalla puede ir de a uno y mostrar el avance en vez
+   * de apretar un botón y esperar media hora sin señales — el mismo patrón que la Foto del mes.
+   */
+  app.get('/api/os/tbs/diario/plan', (req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const ult = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
+    const hoy = mesTZ() === mes ? Number(new Date().toISOString().slice(8, 10)) : ult;
+    // No se piden días que todavía no pasaron: la respuesta vendría vacía y habría que rehacerlos.
+    const todos = [];
+    for (let d = 1; d <= Math.min(ult, hoy); d++) todos.push(`${mes}-${String(d).padStart(2, '0')}`);
+    const listos = tbsDiario.diasCapturados(mes);
+    const faltan = todos.filter((d) => !listos.includes(d));
+    ok(res, { mes, dias: todos.length, capturados: listos.length, faltan,
+      // 54s por día, para que quien mire sepa a qué se está metiendo antes de empezar.
+      minutos_estimados: Math.ceil((faltan.length * 54) / 60) });
+  });
+
+  app.post('/api/os/tbs/diario/capturar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const fecha = String(b.fecha || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err(res, 400, 'falta la fecha (YYYY-MM-DD)');
+    const t = _tbsCliente(b.conexion_id);
+    if (t.error) return err(res, 400, t.error);
+    if (!b.refrescar && tbsDiario.diasCapturados(fecha.slice(0, 7)).includes(fecha)) {
+      return ok(res, { fecha, saltado: true, motivo: 'ese día ya estaba capturado (refrescar:true para rehacerlo)' });
+    }
+    const desde = `${fecha} 00:00:00`; const hasta = `${fecha} 23:59:59`;
+    // Los agentes que se facturan, para tener el diario POR CLIENTE y no sólo el total.
+    const agentes = apiStore.listClientes().filter((c) => c.activo !== 0).map((c) => String(c.id));
+    // UNA sola llamada por día: trae el árbol entero y de ahí sale el total y cada agente.
+    const r = await t.cli.profitDeAgentes({ desde, hasta, agentes, grupos: b.grupos || [] });
+    if (!r.ok) return err(res, 502, r.error);
+    const tot = await t.cli.totalPorDivisa({ desde, hasta, grupos: b.grupos || [] });
+    if (!tot.ok) return err(res, 502, tot.error);
+
+    const filas = [];
+    Object.entries(tot.porDivisa || {}).forEach(([mon, v]) => filas.push({
+      agente_id: 'TOTAL', login: 'TOTAL', moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
+    }));
+    Object.values(r.porAgente || {}).forEach((a) => {
+      Object.entries(a.porDivisa || {}).forEach(([mon, v]) => filas.push({
+        agente_id: a.id, login: a.login, moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
+      }));
+    });
+    const n = tbsDiario.guardarDia(fecha, filas);
+    ok(res, { fecha, guardadas: n, agentes: Object.keys(r.porAgente || {}).length,
+      faltantes: r.faltantes || [], porDivisa: tot.porDivisa });
+  }));
+
+  app.get('/api/os/tbs/diario', (req, res) => ok(res, tbsDiario.delMes(req.query.mes || mesTZ())));
+  app.post('/api/os/tbs/diario/borrar-dia', wrap((req, res) => {
+    const fecha = String((req.body || {}).fecha || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err(res, 400, 'falta la fecha (YYYY-MM-DD)');
+    ok(res, { fecha, borradas: tbsDiario.borrarDia(fecha) });
+  }));
+
   app.post('/api/os/casino/conexiones/:id/test', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.test(); r.ok ? ok(res, { login: r.login, balances: r.balances }) : err(res, 502, r.error);
