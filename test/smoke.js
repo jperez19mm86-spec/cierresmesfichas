@@ -477,6 +477,28 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── LA PANTALLA DEL REPORTE DIARIO DE TBS ────────────────────────────────────────────────────
+  {
+    const h12 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('tbs diario: tiene su pestaña y su vista', /\['tbsdiario','📅 Reporte diario'\]/.test(h12)
+      && /VIEWS\.tbsdiario = async/.test(h12));
+    // EN SERIE y no en paralelo: son consultas caras contra el panel de un tercero, y dispararle
+    // 31 de golpe es cómo se corta la conexión o vuelve basura.
+    check('tbs diario: la captura va de a un día, en orden',
+      /for\(let i=0;i<dias\.length;i\+\+\)/.test(h12) && !/Promise\.all\(dias/.test(h12));
+    check('tbs diario: si un día falla, frena y dice cuál',
+      /Se frenó en/.test(h12) && /if\(!r\.ok\)/.test(h12));
+    // Un botón que se puede apretar dos veces dispara dos recorridas sobre el mismo panel.
+    check('tbs diario: no se puede disparar dos veces a la vez',
+      /if\(_tdCapturando\) return;/.test(h12) && /_tdCapturando = true/.test(h12));
+    // Sumar el TOTAL del árbol con los agentes contaría todo dos veces: el total ya los incluye.
+    check('tbs diario: el resumen por cliente no mezcla el total del árbol',
+      /\(dat\.porAgente\|\|\[\]\)\.forEach/.test(h12));
+    // Sin nada medido no se inventa un tiempo en la pantalla tampoco.
+    check('tbs diario: sin medición no muestra una estimación falsa',
+      /seg!=null \?/.test(h12) && /Todavía no hay ningún día medido/.test(h12));
+  }
+
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

@@ -191,6 +191,7 @@ const TABS_TBS = [
   ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Clientes'],
   '|',
   ['tbscuentas','🧾 Cuentas del mes'], ['tbsresumen','📊 Cierre del mes'],
+  ['tbsdiario','📅 Reporte diario'],
   '|',
   ['tc','💱 Tipos de cambio'],
 ];
@@ -3824,6 +3825,129 @@ VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (AP
 ['matriz','clientes','cuentas','resumen'].forEach(k=>{
   VIEWS['tbs'+k] = () => { _apiSub=k; document.getElementById('main').innerHTML = '<div id="api-body"></div>'; API[k](); };
 });
+
+/* ── 📅 EL REPORTE DIARIO DE TBS ──────────────────────────────────────────────────────────────
+   Casino y Europa tienen su acumulado día por día; TBS no lo tenía porque hay que preguntárselo al
+   panel una vez por día y guardarlo. Cada día es UNA llamada (el árbol entero, todas las monedas,
+   todos los grupos) y el primero tardó 3 segundos.
+
+   La captura va de a un día y muestra el avance: aunque hoy sea rápido, un mes son 31 pedidos y
+   una pantalla que se queda muda mientras tanto parece colgada. */
+let _tdMes = new Date().toISOString().slice(0,7);
+let _tdMoneda = 'ARS';
+let _tdCapturando = false;
+
+VIEWS.tbsdiario = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const [plan, dat] = await Promise.all([
+    api('/api/os/tbs/diario/plan?mes='+_tdMes),
+    api('/api/os/tbs/diario?mes='+_tdMes),
+  ]);
+  const monedas = Object.entries(dat.totalesPorMoneda||{})
+    .sort((a,b)=>Math.abs(b[1].profit)-Math.abs(a[1].profit));
+  if(!monedas.some(([m])=>m===_tdMoneda) && monedas.length) _tdMoneda = monedas[0][0];
+
+  // El día que falta y cuánto tardaría, con el tiempo MEDIDO — no con una constante inventada.
+  const falt = (plan.faltan||[]).length;
+  const seg = plan.segundos_estimados;
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>📅 Reporte diario <span class="muted">(TBS)</span>
+        <input type="month" value="${esc(_tdMes)}" onchange="_tdMes=this.value;VIEWS.tbsdiario()"
+          style="width:auto;display:inline-block;margin-left:8px"></h2>
+      <div class="muted">Se le pregunta al panel UNA vez por día y queda guardado. Cada día es una consulta:
+        trae el árbol entero, todas las monedas y todos los grupos de proveedores juntos.</div>
+      <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
+        <div><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días guardados</div>
+        ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ Traer los ${falt} que faltan${
+          seg!=null ? ' (~'+(seg<60?seg+' seg':Math.ceil(seg/60)+' min')+')' : ''}</button>` : '<span class="badge ok">completo</span>'}
+        <span id="td-prog" class="muted"></span>
+      </div>
+      ${falt && seg==null ? '<div class="muted" style="margin-top:4px;font-size:12px">Todavía no hay ningún día medido, así que no se puede estimar cuánto tarda. Después del primero sí.</div>' : ''}
+    </div>
+
+    ${monedas.length ? `<div class="card">
+      <h2>Total del mes por divisa <span class="muted">(${monedas.length} monedas)</span></h2>
+      <table><thead><tr><th>Divisa</th><th class="right">Apostado</th><th class="right">Ganado por jugadores</th><th class="right">Profit</th></tr></thead><tbody>
+      ${monedas.map(([m,v])=>`<tr style="cursor:pointer" onclick="_tdMoneda='${esc(m)}';VIEWS.tbsdiario()">
+        <td><b>${esc(m)}</b>${m===_tdMoneda?' <span class="badge">viendo</span>':''}</td>
+        <td class="right muted">${money(v.bet,0)}</td>
+        <td class="right muted">${money(v.win,0)}</td>
+        <td class="right"><b style="color:${v.profit<0?'var(--red)':'inherit'}">${money(v.profit,0)}</b></td></tr>`).join('')}
+      </tbody></table>
+      <div class="muted" style="margin-top:6px;font-size:12px"><b>Profit = apostado − ganado.</b> TBS no lo devuelve calculado.
+        Tocá una divisa para ver su día a día.</div>
+    </div>
+
+    <div class="card">
+      <h2>Día a día <span class="muted">en ${esc(_tdMoneda)}</span></h2>
+      ${(() => {
+        const f = (dat.total||[]).filter(x=>x.moneda===_tdMoneda)
+          .sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+        if(!f.length) return '<div class="empty">Sin datos de esa divisa en los días guardados.</div>';
+        return '<table><thead><tr><th>Día</th><th class="right">Apostado</th><th class="right">Ganado</th><th class="right">Profit</th><th class="right">Salas</th></tr></thead><tbody>'
+          + f.map(x=>`<tr><td>${esc(String(x.fecha).slice(8,10))}/${esc(String(x.fecha).slice(5,7))}</td>
+              <td class="right muted">${money(x.bet,0)}</td><td class="right muted">${money(x.win,0)}</td>
+              <td class="right"><b style="color:${Number(x.profit)<0?'var(--red)':'inherit'}">${money(x.profit,0)}</b></td>
+              <td class="right muted">${x.salas}</td></tr>`).join('')
+          + '</tbody></table>';
+      })()}
+    </div>
+
+    <div class="card">
+      <h2>Por cliente <span class="muted">(el mes guardado)</span></h2>
+      ${(() => {
+        // Se suman los días de cada cliente por moneda. El TOTAL del árbol NO entra acá: sumarlo
+        // con los agentes contaría todo dos veces — el total ya los incluye a todos adentro.
+        const acc = {};
+        (dat.porAgente||[]).forEach(x=>{
+          const k = x.login+'|'+x.moneda;
+          const a = acc[k] = acc[k] || { login:x.login, moneda:x.moneda, bet:0, win:0, profit:0 };
+          a.bet+=Number(x.bet)||0; a.win+=Number(x.win)||0; a.profit+=Number(x.profit)||0;
+        });
+        const l = Object.values(acc).sort((a,b)=>Math.abs(b.profit)-Math.abs(a.profit));
+        if(!l.length) return '<div class="empty">Todavía no hay días guardados.</div>';
+        return '<table><thead><tr><th>Cliente</th><th>Divisa</th><th class="right">Apostado</th><th class="right">Profit</th></tr></thead><tbody>'
+          + l.map(x=>`<tr><td>${esc(x.login)}</td><td class="muted">${esc(x.moneda)}</td>
+              <td class="right muted">${money(x.bet,0)}</td>
+              <td class="right"><b style="color:${x.profit<0?'var(--red)':'inherit'}">${money(x.profit,0)}</b></td></tr>`).join('')
+          + '</tbody></table>';
+      })()}
+    </div>` : '<div class="card"><div class="empty">Todavía no hay ningún día guardado de este mes.</div></div>'}
+  `;
+};
+
+/* Trae los días que faltan, DE A UNO y en orden.
+   En serie y no en paralelo a propósito: son consultas caras contra el panel de un tercero, y
+   dispararle 31 de golpe es la forma de que corte la conexión o devuelva basura. Si uno falla, se
+   frena ahí y se dice cuál — los que ya entraron quedan guardados y al reintentar no se repiten. */
+async function tdCapturar(){
+  if(_tdCapturando) return;
+  _tdCapturando = true;
+  const btn = document.getElementById('td-btn'); const prog = document.getElementById('td-prog');
+  if(btn) btn.disabled = true;
+  try {
+    const plan = await api('/api/os/tbs/diario/plan?mes='+_tdMes);
+    const dias = plan.faltan||[];
+    for(let i=0;i<dias.length;i++){
+      if(prog) prog.innerHTML = '⏳ '+(i+1)+' de '+dias.length+' — '+esc(dias[i]);
+      const r = await api('/api/os/tbs/diario/capturar',{method:'POST',body:JSON.stringify({fecha:dias[i]})});
+      if(!r.ok){
+        if(prog) prog.innerHTML = '<span style="color:var(--red)">Se frenó en '+esc(dias[i])+': '+esc(r.error||'')+'</span>';
+        toast('Se frenó en '+dias[i]);
+        return;
+      }
+    }
+    if(prog) prog.textContent = '';
+    toast(dias.length ? 'Listo: '+dias.length+' día(s)' : 'No faltaba ninguno');
+  } finally {
+    _tdCapturando = false;
+    if(btn) btn.disabled = false;
+    VIEWS.tbsdiario();
+  }
+}
 function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
 function apiHeader(){
   const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Clientes'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
