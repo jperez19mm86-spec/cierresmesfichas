@@ -491,12 +491,17 @@ async function main() {
     // Un botón que se puede apretar dos veces dispara dos recorridas sobre el mismo panel.
     check('tbs diario: no se puede disparar dos veces a la vez',
       /if\(_tdCapturando\) return;/.test(h12) && /_tdCapturando = true/.test(h12));
-    // Sumar el TOTAL del árbol con los agentes contaría todo dos veces: el total ya los incluye.
-    check('tbs diario: el resumen por cliente no mezcla el total del árbol',
-      /\(dat\.porAgente\|\|\[\]\)\.forEach/.test(h12));
-    // Sin nada medido no se inventa un tiempo en la pantalla tampoco.
-    check('tbs diario: sin medición no muestra una estimación falsa',
-      /seg!=null \?/.test(h12) && /Todavía no hay ningún día medido/.test(h12));
+    // La pantalla es POR CLIENTE: la pregunta es cómo viene cada uno, no cuánto movió el panel.
+    check('tbs diario: la pantalla arma la tabla por cliente y día',
+      /const cls = dat\.clientes\|\|\[\]/.test(h12)
+      && /Cada cliente, día a día/.test(h12)
+      && !/Total del mes por divisa/.test(h12));
+    // Sin nada medido no se inventa un tiempo.
+    check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
+    // La tendencia compara mitad nueva contra mitad vieja: el último día contra el anterior no
+    // dice nada, y todavía no hay meses anteriores con qué comparar.
+    check('tbs diario: la tendencia parte el período al medio y exige un mínimo de días',
+      /const m = Math\.floor\(v\.length\/2\)/.test(h12) && /v\.length < 4/.test(h12));
   }
 
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
@@ -579,14 +584,29 @@ async function main() {
       { agente_id: 'TOTAL', login: 'TOTAL', moneda: 'ARS', bet: 2000, win: 400, profit: 1600, salas: 3 },
     ]);
     const m = tbsd.delMes('2020-01');
+    // Sólo quedan CLIENTES: el TOTAL del árbol no es uno, y sumarlo con ellos contaría todo dos
+    // veces. Las filas viejas con ese id se ignoran al leer.
     check('tbs diario: recapturar un día reemplaza, no suma',
-      m.total.length === 1 && Number(m.total[0].bet) === 2000 && m.porAgente.length === 0,
-      JSON.stringify({ total: m.total.length, ag: m.porAgente.length, bet: (m.total[0] || {}).bet }));
-    // El TOTAL y los agentes van separados: sumarlos juntos contaría todo dos veces.
-    check('tbs diario: el total y los agentes vienen separados',
-      Array.isArray(m.total) && Array.isArray(m.porAgente)
-      && m.total.every((f) => f.agente_id === 'TOTAL') && m.porAgente.every((f) => f.agente_id !== 'TOTAL'));
+      m.clientes.length === 0, JSON.stringify({ cl: m.clientes.length }));
+    tbsd.guardarDia('2020-01-20', [
+      { agente_id: '77', login: 'Cli', moneda: 'ARS', bet: 100, win: 40, profit: 60, salas: 1 },
+      { agente_id: 'TOTAL', login: 'TOTAL', moneda: 'ARS', bet: 999, win: 0, profit: 999, salas: 9 },
+    ], 500);
+    const m2 = tbsd.delMes('2020-01');
+    check('tbs diario: el total del árbol no se mezcla con los clientes',
+      m2.clientes.length === 1 && m2.clientes[0].login === 'Cli' && m2.clientes[0].profit === 60,
+      JSON.stringify(m2.clientes.map((c) => c.login + ':' + c.profit)));
+    // Cada cliente trae su día a día: es la pregunta que el reporte tiene que contestar.
+    check('tbs diario: cada cliente trae el profit de cada día',
+      m2.clientes[0].dias['2020-01-20'] && m2.clientes[0].dias['2020-01-20'].profit === 60,
+      JSON.stringify(m2.clientes[0].dias));
+    tbsd.borrarDia('2020-01-20');
     check('tbs diario: dice qué días ya están', tbsd.diasCapturados('2020-01').join() === dia);
+    // La captura ya no pide ni guarda el total del árbol: 53 monedas por día de cuentas que no son
+    // nuestras, para una pregunta que es sobre nuestros clientes.
+    const rtT = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('tbs diario: la captura no guarda el total del árbol',
+      !/agente_id: 'TOTAL'/.test(rtT));
     check('tbs diario: se puede borrar un día para rehacerlo', tbsd.borrarDia(dia) >= 1
       && tbsd.diasCapturados('2020-01').length === 0);
 

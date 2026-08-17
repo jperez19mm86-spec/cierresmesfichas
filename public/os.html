@@ -3844,78 +3844,70 @@ VIEWS.tbsdiario = async () => {
     api('/api/os/tbs/diario/plan?mes='+_tdMes),
     api('/api/os/tbs/diario?mes='+_tdMes),
   ]);
-  const monedas = Object.entries(dat.totalesPorMoneda||{})
-    .sort((a,b)=>Math.abs(b[1].profit)-Math.abs(a[1].profit));
-  if(!monedas.some(([m])=>m===_tdMoneda) && monedas.length) _tdMoneda = monedas[0][0];
-
-  // El día que falta y cuánto tardaría, con el tiempo MEDIDO — no con una constante inventada.
+  const dias = dat.dias||[];
+  const cls = dat.clientes||[];
   const falt = (plan.faltan||[]).length;
   const seg = plan.segundos_estimados;
+  const dd = f => String(f).slice(8,10);
+
+  /* LA TENDENCIA: la mitad nueva del período contra la mitad vieja.
+     No es "el último día contra el anterior" —un día flojo no dice nada— ni el mes contra el mes
+     pasado, que todavía no tenemos. Con los días que haya, parte al medio y compara: es lo que
+     contesta "¿este cliente viene subiendo o bajando?" con lo que hay guardado. */
+  const tendencia = (c) => {
+    const v = dias.map(f => (c.dias[f]||{}).profit || 0);
+    if (v.length < 4) return null;
+    const m = Math.floor(v.length/2);
+    const vieja = v.slice(0,m).reduce((a,b)=>a+b,0);
+    const nueva = v.slice(m).reduce((a,b)=>a+b,0);
+    if (!vieja) return null;
+    return ((nueva - vieja) / Math.abs(vieja)) * 100;
+  };
 
   main.innerHTML = `
     <div class="card">
       <h2>📅 Reporte diario <span class="muted">(TBS)</span>
         <input type="month" value="${esc(_tdMes)}" onchange="_tdMes=this.value;VIEWS.tbsdiario()"
           style="width:auto;display:inline-block;margin-left:8px"></h2>
-      <div class="muted">Se le pregunta al panel UNA vez por día y queda guardado. Cada día es una consulta:
-        trae el árbol entero, todas las monedas y todos los grupos de proveedores juntos.</div>
+      <div class="muted">Cómo viene cada cliente, día por día. Se le pregunta al panel una vez por día y queda guardado.</div>
       <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
         <div><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días guardados</div>
         ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ Traer los ${falt} que faltan${
           seg!=null ? ' (~'+(seg<60?seg+' seg':Math.ceil(seg/60)+' min')+')' : ''}</button>` : '<span class="badge ok">completo</span>'}
         <span id="td-prog" class="muted"></span>
       </div>
-      ${falt && seg==null ? '<div class="muted" style="margin-top:4px;font-size:12px">Todavía no hay ningún día medido, así que no se puede estimar cuánto tarda. Después del primero sí.</div>' : ''}
     </div>
 
-    ${monedas.length ? `<div class="card">
-      <h2>Total del mes por divisa <span class="muted">(${monedas.length} monedas)</span></h2>
-      <table><thead><tr><th>Divisa</th><th class="right">Apostado</th><th class="right">Ganado por jugadores</th><th class="right">Profit</th></tr></thead><tbody>
-      ${monedas.map(([m,v])=>`<tr style="cursor:pointer" onclick="_tdMoneda='${esc(m)}';VIEWS.tbsdiario()">
-        <td><b>${esc(m)}</b>${m===_tdMoneda?' <span class="badge">viendo</span>':''}</td>
-        <td class="right muted">${money(v.bet,0)}</td>
-        <td class="right muted">${money(v.win,0)}</td>
-        <td class="right"><b style="color:${v.profit<0?'var(--red)':'inherit'}">${money(v.profit,0)}</b></td></tr>`).join('')}
+    ${!cls.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
+    <div class="card">
+      <h2>Cada cliente, día a día <span class="muted">(profit · ${cls.length} cuenta${cls.length===1?'':'s'})</span></h2>
+      <div class="muted" style="margin-bottom:8px">Un renglón por cliente y moneda — el mismo cliente puede operar en varias.
+        <b>Profit = apostado − ganado por los jugadores.</b> En rojo, los días que perdió.</div>
+      <div style="overflow-x:auto">
+      <table style="min-width:100%"><thead><tr>
+        <th style="position:sticky;left:0;background:var(--bg2)">Cliente</th><th>Div</th>
+        ${dias.map(f=>`<th class="right" style="font-size:10px">${dd(f)}</th>`).join('')}
+        <th class="right">Mes</th><th class="right">Tendencia</th>
+      </tr></thead><tbody>
+      ${cls.map(c=>{
+        const t = tendencia(c);
+        return `<tr>
+          <td style="position:sticky;left:0;background:var(--bg2)"><b>${esc(c.login)}</b></td>
+          <td class="muted">${esc(c.moneda)}</td>
+          ${dias.map(f=>{
+            const d = c.dias[f];
+            if(!d) return '<td class="right muted" style="font-size:11px">·</td>';
+            return `<td class="right" style="font-size:11px;${d.profit<0?'color:var(--red)':''}">${money(d.profit,0)}</td>`;
+          }).join('')}
+          <td class="right"><b style="${c.profit<0?'color:var(--red)':''}">${money(c.profit,0)}</b></td>
+          <td class="right">${t==null?'<span class="muted">—</span>'
+            :`<b style="color:${t<0?'var(--red)':'var(--gold)'}">${t>0?'▲':'▼'} ${money(Math.abs(t),0)}%</b>`}</td>
+        </tr>`;}).join('')}
       </tbody></table>
-      <div class="muted" style="margin-top:6px;font-size:12px"><b>Profit = apostado − ganado.</b> TBS no lo devuelve calculado.
-        Tocá una divisa para ver su día a día.</div>
-    </div>
-
-    <div class="card">
-      <h2>Día a día <span class="muted">en ${esc(_tdMoneda)}</span></h2>
-      ${(() => {
-        const f = (dat.total||[]).filter(x=>x.moneda===_tdMoneda)
-          .sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
-        if(!f.length) return '<div class="empty">Sin datos de esa divisa en los días guardados.</div>';
-        return '<table><thead><tr><th>Día</th><th class="right">Apostado</th><th class="right">Ganado</th><th class="right">Profit</th><th class="right">Salas</th></tr></thead><tbody>'
-          + f.map(x=>`<tr><td>${esc(String(x.fecha).slice(8,10))}/${esc(String(x.fecha).slice(5,7))}</td>
-              <td class="right muted">${money(x.bet,0)}</td><td class="right muted">${money(x.win,0)}</td>
-              <td class="right"><b style="color:${Number(x.profit)<0?'var(--red)':'inherit'}">${money(x.profit,0)}</b></td>
-              <td class="right muted">${x.salas}</td></tr>`).join('')
-          + '</tbody></table>';
-      })()}
-    </div>
-
-    <div class="card">
-      <h2>Por cliente <span class="muted">(el mes guardado)</span></h2>
-      ${(() => {
-        // Se suman los días de cada cliente por moneda. El TOTAL del árbol NO entra acá: sumarlo
-        // con los agentes contaría todo dos veces — el total ya los incluye a todos adentro.
-        const acc = {};
-        (dat.porAgente||[]).forEach(x=>{
-          const k = x.login+'|'+x.moneda;
-          const a = acc[k] = acc[k] || { login:x.login, moneda:x.moneda, bet:0, win:0, profit:0 };
-          a.bet+=Number(x.bet)||0; a.win+=Number(x.win)||0; a.profit+=Number(x.profit)||0;
-        });
-        const l = Object.values(acc).sort((a,b)=>Math.abs(b.profit)-Math.abs(a.profit));
-        if(!l.length) return '<div class="empty">Todavía no hay días guardados.</div>';
-        return '<table><thead><tr><th>Cliente</th><th>Divisa</th><th class="right">Apostado</th><th class="right">Profit</th></tr></thead><tbody>'
-          + l.map(x=>`<tr><td>${esc(x.login)}</td><td class="muted">${esc(x.moneda)}</td>
-              <td class="right muted">${money(x.bet,0)}</td>
-              <td class="right"><b style="color:${x.profit<0?'var(--red)':'inherit'}">${money(x.profit,0)}</b></td></tr>`).join('')
-          + '</tbody></table>';
-      })()}
-    </div>` : '<div class="card"><div class="empty">Todavía no hay ningún día guardado de este mes.</div></div>'}
+      </div>
+      <div class="muted" style="margin-top:8px;font-size:12px">La <b>tendencia</b> compara la mitad más nueva del período
+        contra la mitad más vieja. Hacen falta al menos 4 días guardados para que signifique algo.</div>
+    </div>`}
   `;
 };
 

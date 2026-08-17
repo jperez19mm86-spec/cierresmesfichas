@@ -99,27 +99,31 @@ function diasCapturados(mes) {
 }
 
 /**
- * El mes entero: filas por día, y los totales por moneda.
+ * EL MES, ARMADO PARA LA PREGUNTA QUE IMPORTA: cómo viene cada cliente día a día.
  *
- * `agente_id='TOTAL'` es el árbol completo; el resto son los nodos que se facturan. Se devuelven
- * separados porque sumar los dos juntos contaría todo dos veces.
+ * Devuelve una fila por CLIENTE × MONEDA, con el profit de cada día y el total del mes. Es la
+ * forma en que se mira —¿este cliente está subiendo o bajando?— y no una lista cronológica que
+ * habría que cruzar a mano.
+ *
+ * Las filas viejas con agente_id='TOTAL' (el árbol entero, de cuando también se guardaba) se
+ * ignoran: no son un cliente, y sumarlas con los demás contaría todo dos veces.
  */
 function delMes(mes) {
   const m = String(mes || '').slice(0, 7);
   const filas = db.prepare(`SELECT fecha, agente_id, login, moneda, bet, win, profit, salas
-    FROM tbs_diario WHERE substr(fecha,1,7)=? ORDER BY fecha ASC, login ASC`).all(m);
-  const totales = {};
-  filas.filter((f) => f.agente_id === 'TOTAL').forEach((f) => {
-    const t = totales[f.moneda] = totales[f.moneda] || { bet: 0, win: 0, profit: 0 };
-    t.bet += Number(f.bet) || 0; t.win += Number(f.win) || 0; t.profit += Number(f.profit) || 0;
-  });
-  return {
-    mes: m,
-    dias: [...new Set(filas.map((f) => f.fecha))],
-    total: filas.filter((f) => f.agente_id === 'TOTAL'),
-    porAgente: filas.filter((f) => f.agente_id !== 'TOTAL'),
-    totalesPorMoneda: totales,
-  };
+    FROM tbs_diario WHERE substr(fecha,1,7)=? AND agente_id<>'TOTAL' ORDER BY fecha ASC`).all(m);
+  const dias = [...new Set(filas.map((f) => f.fecha))].sort();
+  const porClave = new Map();
+  for (const f of filas) {
+    const k = `${f.agente_id}|${f.moneda}`;
+    let c = porClave.get(k);
+    if (!c) porClave.set(k, c = { agente_id: f.agente_id, login: f.login, moneda: f.moneda,
+      dias: {}, bet: 0, win: 0, profit: 0 });
+    c.dias[f.fecha] = { bet: Number(f.bet) || 0, win: Number(f.win) || 0, profit: Number(f.profit) || 0, salas: f.salas };
+    c.bet += Number(f.bet) || 0; c.win += Number(f.win) || 0; c.profit += Number(f.profit) || 0;
+  }
+  const clientes = [...porClave.values()].sort((a, b) => Math.abs(b.profit) - Math.abs(a.profit));
+  return { mes: m, dias, clientes };
 }
 
 /** Borra un día. Para rehacerlo cuando el panel corrigió datos viejos. */

@@ -2078,12 +2078,13 @@ function mount(app) {
     // exactamente la misma pregunta.
     const r = await t.cli.diaCompleto({ desde, hasta, agentes, grupos: b.grupos || [] });
     if (!r.ok) return err(res, 502, r.error);
-    const tot = { porDivisa: r.porDivisa };
 
+    // ── SÓLO LOS CLIENTES ──────────────────────────────────────────────────────────────────
+    // Antes se guardaba también el TOTAL del árbol entero: 53 monedas por día de un panel que
+    // incluye cuentas que no son nuestras. No sirve para lo que este reporte tiene que contestar
+    // —cómo viene cada cliente, día a día— y encima invitaba a sumarlo con los agentes, que es
+    // contar todo dos veces. El total del árbol sigue estando en vivo, en /api/os/tbs/total-divisa.
     const filas = [];
-    Object.entries(tot.porDivisa || {}).forEach(([mon, v]) => filas.push({
-      agente_id: 'TOTAL', login: 'TOTAL', moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
-    }));
     Object.values(r.porAgente || {}).forEach((a) => {
       Object.entries(a.porDivisa || {}).forEach(([mon, v]) => filas.push({
         agente_id: a.id, login: a.login, moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
@@ -2092,7 +2093,7 @@ function mount(app) {
     const n = tbsDiario.guardarDia(fecha, filas, Date.now() - t0);
     ok(res, { fecha, guardadas: n, ms: Date.now() - t0,
       agentes: Object.keys(r.porAgente || {}).length,
-      faltantes: r.faltantes || [], porDivisa: tot.porDivisa });
+      faltantes: r.faltantes || [] });
   }));
 
   app.get('/api/os/tbs/diario', (req, res) => ok(res, tbsDiario.delMes(req.query.mes || mesTZ())));
