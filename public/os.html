@@ -348,9 +348,9 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="togglePanTodos()">Paneles</button>
 
           <button class="outline small" onclick="solicitudesCaja()"
-            title="Cajas que pidió quien despacha. Se aprueban acá porque definen a quién se le factura.">📦 Solicitudes de caja <span id="sol-badge"></span></button>
+            title="TODAS las solicitudes con su estado y su motivo — el historial. Lo que está esperando una decisión se atiende en 🔔 Pendientes.">📦 Solicitudes de caja <span class="muted" style="font-weight:400">(historial)</span> <span id="sol-badge"></span></button>
           <button class="outline small" onclick="movimientosPanel()"
-            title="Fichas que un cliente pide mover de un usuario suyo a otro. Se aprueban acá: mover fichas cambia dónde está el saldo y a quién se le factura.">🔀 Mover fichas <span id="mov-badge"></span></button>
+            title="TODOS los movimientos con su estado — el historial. Lo que está esperando o quedó a medias se atiende en 🔔 Pendientes.">🔀 Mover fichas <span class="muted" style="font-weight:400">(historial)</span> <span id="mov-badge"></span></button>
           <button class="outline small" onclick="divisasCasino()"
             title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
        <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
@@ -431,14 +431,20 @@ async function movAviso(){
     : '<div class="nota warn" style="margin:10px 0">'+cuerpo+'</div>';
 }
 
-async function movimientosPanel(){
+/* `soloPendientes`: mismo criterio que en las cajas — buzón en Pendientes, historial en Clientes.
+   Se filtra por los estados que REQUIEREN ALGO: el que espera, el que quedó a medias (ahí las
+   fichas están a mitad de camino) y el que se trabó ejecutando. 'hecho' y 'rechazado' no piden
+   nada, y en un buzón sólo tapan. */
+async function movimientosPanel(soloPendientes){
+  if(soloPendientes===undefined) soloPendientes = (_tab==='pendientes');
   const caja=document.getElementById('mov-caja'); if(!caja) return;
   if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
   caja.dataset.abierto='1'; caja.innerHTML='<div class="nota">Cargando…</div>';
   const r=await api('/api/os/movimientos-panel');
   if(!r.ok){ caja.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
-  const ms=r.movimientos||[];
-  if(!ms.length){ caja.innerHTML='<div class="nota">Ningún cliente pidió mover fichas todavía.</div>'; return; }
+  let ms=r.movimientos||[];
+  if(soloPendientes) ms=ms.filter(m=>['pendiente','a_medias','ejecutando'].includes(m.estado));
+  if(!ms.length){ caja.innerHTML='<div class="nota">'+(soloPendientes?'Ningún movimiento esperando.':'Ningún cliente pidió mover fichas todavía.')+'</div>'; return; }
   const ETQ={pendiente:'esperando aprobación',ejecutando:'ejecutándose (puede estar esperando turno)',a_medias:'A MEDIAS — la cadena se cortó',hecho:'hecho',rechazado:'rechazado'};
   caja.innerHTML='<div class="nota"><span class="tit">🔀 Mover fichas entre paneles de un cliente</span>'
     +'Las fichas suben del panel de origen hasta el ancestro que los dos comparten y bajan hasta el destino: '
@@ -509,16 +515,26 @@ async function movDestrabar(id){
    confirma que la cuenta existe —un id mal tipeado se descubre acá y no el día que falla una
    carga— y trae las divisas que tiene habilitadas, que es mejor que pedírselas a quien llenó el
    formulario. Se crea el PANEL; la caja sale sola por el espejo. */
-async function solicitudesCaja(){
+/* `soloPendientes` cambia para qué sirve la lista, y por eso existe:
+   · en 🔔 Pendientes es un BUZÓN — sólo lo que espera una decisión. Con las resueltas adentro,
+     el buzón deja de ser un buzón: hay que buscar lo que falta entre lo que ya se hizo.
+   · en 👥 Clientes es el HISTORIAL — todas, con su estado y su motivo.
+   Antes las dos pantallas llamaban a esto igual y mostraban lo mismo, así que una de las dos no
+   servía para nada. */
+async function solicitudesCaja(soloPendientes){
+  // Si no se dice, se deduce de la pestaña. Los refrescos de después de aprobar llaman a esto sin
+  // argumento —solAprobar, solRechazar— y pasándolo a mano alguno se iba a olvidar: la lista
+  // volvería al historial completo en medio del buzón, justo después de aprobar una.
+  if(soloPendientes===undefined) soloPendientes = (_tab==='pendientes');
   const caja=document.getElementById('sol-caja'); if(!caja) return;
   if(caja.dataset.abierto==='1'){ caja.innerHTML=''; caja.dataset.abierto=''; return; }
   caja.dataset.abierto='1'; caja.innerHTML='<div class="nota">Cargando…</div>';
-  const r=await api('/api/os/solicitudes-caja');
+  const r=await api('/api/os/solicitudes-caja'+(soloPendientes?'?estado=pendiente':''));
   if(!r||!r.ok){ caja.innerHTML='<div class="nota err">'+esc((r&&r.error)||'no respondió')+'</div>'; return; }
   const l=r.solicitudes||[];
-  if(!l.length){ caja.innerHTML='<div class="nota">Ninguna solicitud todavía.</div>'; return; }
+  if(!l.length){ caja.innerHTML='<div class="nota">'+(soloPendientes?'Ninguna caja esperando aprobación.':'Ninguna solicitud todavía.')+'</div>'; return; }
   const est={pendiente:'',aprobada:'ok',rechazada:'err'};
-  caja.innerHTML='<div class="nota"><span class="tit">Solicitudes de caja ('+r.pendientes+' pendientes)</span>'
+  caja.innerHTML='<div class="nota"><span class="tit">'+(soloPendientes?'Cajas esperando aprobación ('+l.length+')':'Solicitudes de caja ('+r.pendientes+' pendientes)')+'</span>'
     +'Una caja es un destino al que se le cargan fichas y define a quién se le factura. '
     +'Al aprobar se verifica el id contra el casino y se traen sus divisas.'
     +'<table style="margin-top:8px"><thead><tr><th>Cuándo</th><th>Cliente</th><th>Panel</th><th>ID</th>'
@@ -1900,6 +1916,8 @@ VIEWS.pendientes = async () => {
   // Los comprobantes se pintan acá mismo: son los más frecuentes y los que más urgen.
   // `pintarComprobantes` escribe en #mov-body, que ya está puesto arriba en el lugar que le toca.
   if (_cmpPend) await pintarComprobantes('pendiente', false);
+  // En modo BUZÓN: sólo lo que espera. Acá adentro, una lista con las resueltas mezcladas hace
+  // que haya que buscar lo que falta entre lo que ya se hizo — justo lo que esta pantalla evita.
   if (_pend.cajas) solicitudesCaja();
   if (_pend.movs) movimientosPanel();
 };

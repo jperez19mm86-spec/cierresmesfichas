@@ -477,6 +477,30 @@ async function main() {
       /Ese cliente no tiene comprobantes/.test(h7) && /Ver todos los clientes/.test(h7));
   }
 
+  // ── BUZÓN Y HISTORIAL SON DOS COSAS ──────────────────────────────────────────────────────────
+  // 🔔 Pendientes y los botones de 👥 Clientes llamaban a las MISMAS funciones y mostraban lo
+  // mismo: las listas completas, con las aprobadas y rechazadas adentro. O sea que una de las dos
+  // pantallas no servía, y peor: en el buzón había que buscar lo que falta entre lo que ya se hizo.
+  {
+    const h10 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('pendientes: las listas saben si son buzón o historial',
+      /async function solicitudesCaja\(soloPendientes\)/.test(h10)
+      && /async function movimientosPanel\(soloPendientes\)/.test(h10));
+    // El modo se DEDUCE de la pestaña: pasándolo a mano, algún refresco se lo iba a olvidar y la
+    // lista volvería al historial completo justo después de aprobar una.
+    check('pendientes: el modo sale de la pestaña, no se pasa a mano',
+      (h10.match(/if\(soloPendientes===undefined\) soloPendientes = \(_tab==='pendientes'\);/g) || []).length === 2);
+    check('pendientes: el buzón pide sólo lo que espera',
+      /'\/api\/os\/solicitudes-caja'\+\(soloPendientes\?'\?estado=pendiente':''\)/.test(h10)
+      && /ms=ms\.filter\(m=>\['pendiente','a_medias','ejecutando'\]\.includes\(m\.estado\)\)/.test(h10));
+    // Un movimiento A MEDIAS entra al buzón: ahí las fichas están a mitad de camino.
+    check('pendientes: lo que quedó a medias cuenta como pendiente',
+      /'pendiente','a_medias','ejecutando'/.test(h10));
+    // Y en Clientes se dice que eso es el historial, para que no parezca lo mismo.
+    check('clientes: los botones aclaran que son el historial',
+      (h10.match(/\(historial\)/g) || []).length >= 2 && /se atiende en 🔔 Pendientes/.test(h10));
+  }
+
   // ── LA CUENTA DE CADA CLIENTE, RENGLÓN POR RENGLÓN ───────────────────────────────────────────
   // El saldo solo no alcanza para hablar con el cliente: cuando pregunta "¿por qué debo esto?" hay
   // que poder abrir el renglón. Estaba el TOTAL (en la tabla de Clientes y en su ficha) pero no de
