@@ -162,6 +162,30 @@ function makeClient({ url, user, password, token: tokenFijo }) {
   }
 
   /**
+   * TODO LO DE UN RANGO, EN UNA SOLA LLAMADA.
+   *
+   * La respuesta de `treeGet` ya trae TODO: el árbol completo, con cada hoja y su moneda. El total
+   * por divisa y el desglose por agente NO son dos consultas — son dos lecturas del mismo árbol.
+   *
+   * Existe porque la primera versión de la captura diaria llamaba a `totalPorDivisa` y a
+   * `profitDeAgentes` una detrás de la otra: dos veces lo mismo, 108 segundos por día en vez de 54,
+   * y un mes de 56 minutos en vez de 28. Con una función que hace la llamada UNA vez, esa
+   * duplicación deja de ser posible por distracción.
+   */
+  async function diaCompleto({ desde, hasta, agentes = [], grupos = [] } = {}) {
+    const r = await pedir('treeGet', { fechas: [desde, hasta], proveedores: grupos });
+    if (!r.ok) return r;
+    const raiz = r.data.tree || [];
+    const porAgente = {}; const faltantes = [];
+    for (const id of agentes) {
+      const n = buscarNodo(raiz, id);
+      if (!n) { faltantes.push(String(id)); continue; }
+      porAgente[String(id)] = { id: String(id), login: n.login || '', porDivisa: sumarPorDivisa(n) };
+    }
+    return { ok: true, porDivisa: sumarPorDivisa({ tree: raiz }), porAgente, faltantes, grupos };
+  }
+
+  /**
    * EL TOTAL DEL ÁRBOL POR DIVISA, en una sola llamada.
    *
    * Lo que ya había era por AGENTE (`profitDeAgentes`): útil para facturar, pero no contesta
@@ -316,7 +340,7 @@ function makeClient({ url, user, password, token: tokenFijo }) {
     return { ok: true, login: user, userId: l.userId, motor: 'tbs' };
   }
 
-  return { login, pedir, profitDeAgentes, totalPorDivisa, grupos, arbol, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
+  return { login, pedir, profitDeAgentes, totalPorDivisa, diaCompleto, grupos, arbol, buscarNodo, sumarPorDivisa, test, get token() { return token; } };
 }
 
 module.exports = { makeClient, normUrl };

@@ -2061,11 +2061,13 @@ function mount(app) {
     const desde = `${fecha} 00:00:00`; const hasta = `${fecha} 23:59:59`;
     // Los agentes que se facturan, para tener el diario POR CLIENTE y no sólo el total.
     const agentes = apiStore.listClientes().filter((c) => c.activo !== 0).map((c) => String(c.id));
-    // UNA sola llamada por día: trae el árbol entero y de ahí sale el total y cada agente.
-    const r = await t.cli.profitDeAgentes({ desde, hasta, agentes, grupos: b.grupos || [] });
+    // ⚠️ UNA SOLA LLAMADA. La respuesta trae el árbol entero, y de ahí salen el total por divisa Y
+    // cada agente: no son dos consultas. La primera versión pedía las dos cosas por separado —108
+    // segundos por día en vez de 54, un mes de 56 minutos en vez de 28— haciendo dos veces
+    // exactamente la misma pregunta.
+    const r = await t.cli.diaCompleto({ desde, hasta, agentes, grupos: b.grupos || [] });
     if (!r.ok) return err(res, 502, r.error);
-    const tot = await t.cli.totalPorDivisa({ desde, hasta, grupos: b.grupos || [] });
-    if (!tot.ok) return err(res, 502, tot.error);
+    const tot = { porDivisa: r.porDivisa };
 
     const filas = [];
     Object.entries(tot.porDivisa || {}).forEach(([mon, v]) => filas.push({

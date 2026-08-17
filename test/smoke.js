@@ -533,6 +533,22 @@ async function main() {
     check('tbs: el total por divisa reusa la suma de hojas, no recorre de nuevo',
       /async function totalPorDivisa/.test(ta)
       && /sumarPorDivisa\(\{ tree: r\.data\.tree \|\| \[\] \}\)/.test(ta));
+
+    // ⚠️ EL DÍA SE PIDE UNA VEZ. La respuesta trae el árbol entero: el total por divisa y el
+    // desglose por agente son dos LECTURAS del mismo árbol, no dos consultas. La primera versión
+    // llamaba a las dos funciones seguidas — 108 segundos por día en vez de 54, y un mes de 56
+    // minutos en vez de 28, preguntando dos veces exactamente lo mismo.
+    check('tbs: hay una función que trae todo el día de una sola llamada',
+      /async function diaCompleto/.test(ta)
+      && /porDivisa: sumarPorDivisa\(\{ tree: raiz \}\), porAgente, faltantes/.test(ta));
+    const cap = rt4.slice(rt4.indexOf("app.post('/api/os/tbs/diario/capturar'"),
+      rt4.indexOf("app.get('/api/os/tbs/diario'"));
+    check('tbs diario: la captura hace UNA llamada al panel, no dos',
+      (cap.match(/await t\.cli\./g) || []).length === 1 && /diaCompleto/.test(cap),
+      'llamadas=' + ((cap.match(/await t\.cli\./g) || []).length));
+    // Y el minuto estimado tiene que corresponderse con UNA llamada por día, no con dos.
+    check('tbs diario: el tiempo estimado es el de una llamada por día',
+      /faltan\.length \* 54/.test(rt4));
   }
 
   // ── BUZÓN Y HISTORIAL SON DOS COSAS ──────────────────────────────────────────────────────────
