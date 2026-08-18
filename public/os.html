@@ -3837,6 +3837,8 @@ let _tdMes = new Date().toISOString().slice(0,7);
 let _tdMoneda = 'ARS';
 let _tdCapturando = false;
 
+let _tdAbiertos = new Set();      // qué clientes quedaron desplegados
+
 VIEWS.tbsdiario = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
@@ -3845,15 +3847,13 @@ VIEWS.tbsdiario = async () => {
     api('/api/os/tbs/diario?mes='+_tdMes),
   ]);
   const dias = dat.dias||[];
-  const cls = dat.clientes||[];
   const falt = (plan.faltan||[]).length;
   const seg = plan.segundos_estimados;
   const dd = f => String(f).slice(8,10);
 
   /* LA TENDENCIA: la mitad nueva del período contra la mitad vieja.
-     No es "el último día contra el anterior" —un día flojo no dice nada— ni el mes contra el mes
-     pasado, que todavía no tenemos. Con los días que haya, parte al medio y compara: es lo que
-     contesta "¿este cliente viene subiendo o bajando?" con lo que hay guardado. */
+     No es el último día contra el anterior —un día flojo es ruido— ni contra el mes pasado, que
+     todavía no existe guardado. */
   const tendencia = (c) => {
     const v = dias.map(f => (c.dias[f]||{}).profit || 0);
     if (v.length < 4) return null;
@@ -3864,12 +3864,50 @@ VIEWS.tbsdiario = async () => {
     return ((nueva - vieja) / Math.abs(vieja)) * 100;
   };
 
+  /* ── UN RENGLÓN POR CLIENTE, NO POR MONEDA ────────────────────────────────────────────────
+     Un cliente puede operar en cinco monedas y cuatro de ellas mover monedas sueltas. Con una
+     fila cada una, las importantes quedaban perdidas entre el ruido y el orden por caída lo
+     empeoraba: un cliente que pasó de 82 a 1 dólar encabeza la lista con -98% sin que a nadie le
+     importe. Ahora manda la moneda PRINCIPAL de cada cliente —la de mayor movimiento— y las demás
+     se despliegan si se quieren ver.
+
+     Y se esconde lo que no movió NADA en todo el mes: una fila de ceros no es información. */
+  const vivos = (dat.clientes||[]).filter(c => c.bet !== 0 || c.win !== 0 || c.profit !== 0);
+  const escondidas = (dat.clientes||[]).length - vivos.length;
+  const porCliente = new Map();
+  vivos.forEach(c => {
+    const g = porCliente.get(c.login) || { login: c.login, filas: [] };
+    g.filas.push(c); porCliente.set(c.login, g);
+  });
+  const grupos = [...porCliente.values()].map(g => {
+    g.filas.sort((a,b)=>Math.abs(b.profit)-Math.abs(a.profit));
+    g.principal = g.filas[0];
+    g.otras = g.filas.slice(1);
+    g.tend = tendencia(g.principal);
+    return g;
+  });
+  /* Orden POR CAÍDA: primero los que más bajaron. Los que no tienen tendencia calculable van al
+     final — no es que estén bien, es que no se sabe, y mezclarlos con los que subieron sería
+     decir algo que no se comprobó. */
+  grupos.sort((a,b)=>{
+    if(a.tend==null && b.tend==null) return Math.abs(b.principal.profit)-Math.abs(a.principal.profit);
+    if(a.tend==null) return 1;
+    if(b.tend==null) return -1;
+    return a.tend - b.tend;
+  });
+
+  const celdas = (c) => dias.map(f=>{
+    const d = c.dias[f];
+    if(!d) return '<td class="right muted" style="font-size:11px">·</td>';
+    return `<td class="right" style="font-size:11px;${d.profit<0?'color:var(--red)':''}">${money(d.profit,0)}</td>`;
+  }).join('');
+
   main.innerHTML = `
     <div class="card">
       <h2>📅 Reporte diario <span class="muted">(TBS)</span>
         <input type="month" value="${esc(_tdMes)}" onchange="_tdMes=this.value;VIEWS.tbsdiario()"
           style="width:auto;display:inline-block;margin-left:8px"></h2>
-      <div class="muted">Cómo viene cada cliente, día por día. Se le pregunta al panel una vez por día y queda guardado.</div>
+      <div class="muted">Cómo viene cada cliente, día por día. <b>Ordenado por caída:</b> primero los que más bajaron.</div>
       <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
         <div><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días guardados</div>
         ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ Traer los ${falt} que faltan${
@@ -3878,38 +3916,45 @@ VIEWS.tbsdiario = async () => {
       </div>
     </div>
 
-    ${!cls.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
+    ${!grupos.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
     <div class="card">
-      <h2>Cada cliente, día a día <span class="muted">(profit · ${cls.length} cuenta${cls.length===1?'':'s'})</span></h2>
-      <div class="muted" style="margin-bottom:8px">Un renglón por cliente y moneda — el mismo cliente puede operar en varias.
-        <b>Profit = apostado − ganado por los jugadores.</b> En rojo, los días que perdió.</div>
+      <h2>Cada cliente, día a día <span class="muted">(profit · ${grupos.length} cliente${grupos.length===1?'':'s'})</span></h2>
+      <div class="muted" style="margin-bottom:8px">Se muestra la moneda de mayor movimiento de cada uno.
+        Tocá el nombre para ver sus otras monedas. <b>Profit = apostado − ganado por los jugadores</b>; en rojo, los días que perdió.</div>
       <div style="overflow-x:auto">
       <table style="min-width:100%"><thead><tr>
         <th style="position:sticky;left:0;background:var(--bg2)">Cliente</th><th>Div</th>
         ${dias.map(f=>`<th class="right" style="font-size:10px">${dd(f)}</th>`).join('')}
         <th class="right">Mes</th><th class="right">Tendencia</th>
       </tr></thead><tbody>
-      ${cls.map(c=>{
-        const t = tendencia(c);
-        return `<tr>
-          <td style="position:sticky;left:0;background:var(--bg2)"><b>${esc(c.login)}</b></td>
-          <td class="muted">${esc(c.moneda)}</td>
-          ${dias.map(f=>{
-            const d = c.dias[f];
-            if(!d) return '<td class="right muted" style="font-size:11px">·</td>';
-            return `<td class="right" style="font-size:11px;${d.profit<0?'color:var(--red)':''}">${money(d.profit,0)}</td>`;
-          }).join('')}
-          <td class="right"><b style="${c.profit<0?'color:var(--red)':''}">${money(c.profit,0)}</b></td>
-          <td class="right">${t==null?'<span class="muted">—</span>'
-            :`<b style="color:${t<0?'var(--red)':'var(--gold)'}">${t>0?'▲':'▼'} ${money(Math.abs(t),0)}%</b>`}</td>
-        </tr>`;}).join('')}
+      ${grupos.map(g=>{
+        const ab = _tdAbiertos.has(g.login);
+        return `<tr${g.tend!=null&&g.tend<0?' style="background:rgba(217,83,79,.05)"':''}>
+          <td style="position:sticky;left:0;background:var(--bg2);${g.otras.length?'cursor:pointer':''}"
+            ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
+            ${g.otras.length?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
+            ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}</td>
+          <td class="muted">${esc(g.principal.moneda)}</td>
+          ${celdas(g.principal)}
+          <td class="right"><b style="${g.principal.profit<0?'color:var(--red)':''}">${money(g.principal.profit,0)}</b></td>
+          <td class="right">${g.tend==null?'<span class="muted">—</span>'
+            :`<b style="color:${g.tend<0?'var(--red)':'var(--gold)'}">${g.tend>0?'▲':'▼'} ${money(Math.abs(g.tend),0)}%</b>`}</td>
+        </tr>` + (ab ? g.otras.map(o=>`<tr class="sub">
+          <td style="position:sticky;left:0;background:var(--bg2)"></td>
+          <td class="muted">${esc(o.moneda)}</td>
+          ${celdas(o)}
+          <td class="right muted">${money(o.profit,0)}</td><td></td>
+        </tr>`).join('') : '');
+      }).join('')}
       </tbody></table>
       </div>
-      <div class="muted" style="margin-top:8px;font-size:12px">La <b>tendencia</b> compara la mitad más nueva del período
-        contra la mitad más vieja. Hacen falta al menos 4 días guardados para que signifique algo.</div>
+      <div class="muted" style="margin-top:8px;font-size:12px">
+        La <b>tendencia</b> compara la mitad más nueva del período contra la mitad más vieja; hacen falta 4 días o más.
+        ${escondidas?`<br>Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada en todo el mes.`:''}</div>
     </div>`}
   `;
 };
+function tdToggle(login){ if(_tdAbiertos.has(login)) _tdAbiertos.delete(login); else _tdAbiertos.add(login); VIEWS.tbsdiario(); }
 
 /* Trae los días que faltan, DE A UNO y en orden.
    En serie y no en paralelo a propósito: son consultas caras contra el panel de un tercero, y

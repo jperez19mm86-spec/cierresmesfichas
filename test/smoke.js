@@ -493,9 +493,24 @@ async function main() {
       /if\(_tdCapturando\) return;/.test(h12) && /_tdCapturando = true/.test(h12));
     // La pantalla es POR CLIENTE: la pregunta es cómo viene cada uno, no cuánto movió el panel.
     check('tbs diario: la pantalla arma la tabla por cliente y día',
-      /const cls = dat\.clientes\|\|\[\]/.test(h12)
+      /const vivos = \(dat\.clientes\|\|\[\]\)/.test(h12)
       && /Cada cliente, día a día/.test(h12)
       && !/Total del mes por divisa/.test(h12));
+    // Un renglón por CLIENTE con su moneda principal; las demás se despliegan. Con una fila por
+    // moneda, las importantes quedaban perdidas y el orden por caída ponía arriba a un cliente que
+    // pasó de 82 a 1 dólar — matemáticamente cierto y sin ninguna importancia.
+    check('tbs diario: una fila por cliente, las otras monedas plegadas',
+      /g\.principal = g\.filas\[0\]/.test(h12) && /g\.otras = g\.filas\.slice\(1\)/.test(h12)
+      && /function tdToggle/.test(h12));
+    // Una fila de ceros no es información.
+    check('tbs diario: esconde lo que no movió nada en todo el mes',
+      /c\.bet !== 0 \|\| c\.win !== 0 \|\| c\.profit !== 0/.test(h12)
+      && /Se ocultaron/.test(h12));
+    // Ordenado por caída, y los que no tienen tendencia calculable van al FINAL: no es que estén
+    // bien, es que no se sabe — mezclarlos con los que subieron sería afirmar algo no comprobado.
+    check('tbs diario: ordena por caída y no supone nada de los que no se pueden medir',
+      /return a\.tend - b\.tend;/.test(h12)
+      && /if\(a\.tend==null\) return 1;/.test(h12));
     // Sin nada medido no se inventa un tiempo.
     check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
     // La tendencia compara mitad nueva contra mitad vieja: el último día contra el anterior no
