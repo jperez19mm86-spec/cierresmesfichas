@@ -650,8 +650,13 @@ async function main() {
     const rt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('tbs diario: el plan no pide días del futuro',
       /Math\.min\(ult, hoy\)/.test(rt4));
-    check('tbs diario: capturar el mismo día dos veces no repite los 54s sin pedirlo',
-      /if \(!b\.refrescar && tbsDiario\.diasCapturados/.test(rt4));
+    // La captura vive en el SERVICIO: el cron nocturno y el botón piden lo mismo, y dos copias de
+    // "cómo se arma un día" es cómo una se queda vieja sin que nadie lo note.
+    const svc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'tbs-diario.service.js'), 'utf8');
+    check('tbs diario: capturar el mismo día dos veces no lo vuelve a pedir sin querer',
+      /if \(!refrescar && tbsDiario\.diasCapturados/.test(svc));
+    check('tbs diario: la ruta y el cron usan la misma captura',
+      /tbsDiarioSvc\.capturarDia\(/.test(rt4) && /await capturarDia\(\{ fecha: ayer/.test(svc));
 
     // El total por divisa suma HOJAS: en TBS un padre trae su subárbol adentro.
     const ta = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'tbs-api.js'), 'utf8');
@@ -666,14 +671,33 @@ async function main() {
     check('tbs: hay una función que trae todo el día de una sola llamada',
       /async function diaCompleto/.test(ta)
       && /porDivisa: sumarPorDivisa\(\{ tree: raiz \}\), porAgente, faltantes/.test(ta));
-    const cap = rt4.slice(rt4.indexOf("app.post('/api/os/tbs/diario/capturar'"),
-      rt4.indexOf("app.get('/api/os/tbs/diario'"));
     check('tbs diario: la captura hace UNA llamada al panel, no dos',
-      (cap.match(/await t\.cli\./g) || []).length === 1 && /diaCompleto/.test(cap),
-      'llamadas=' + ((cap.match(/await t\.cli\./g) || []).length));
+      (svc.match(/await t\.cli\./g) || []).length === 1 && /diaCompleto/.test(svc),
+      'llamadas=' + ((svc.match(/await t\.cli\./g) || []).length));
     // Y la captura anota cuánto tardó: es de donde sale la estimación.
     check('tbs diario: cada captura anota su duración',
-      /guardarDia\(fecha, filas, Date\.now\(\) - t0\)/.test(rt4));
+      /const ms = Date\.now\(\) - t0;/.test(svc) && /guardarDia\(f, filas, ms\)/.test(svc));
+
+    // ── EL CRON DIARIO ────────────────────────────────────────────────────────────────────
+    // TBS corta sus días en la zona del PANEL (GMT+2). Preguntarle "ayer" según la hora de acá
+    // pediría un día que allá no terminó, y el día quedaría partido.
+    check('tbs diario: el cron usa la zona del panel, no la nuestra',
+      /const TZ_PANEL = process\.env\.TBS_TZ \|\| 'Africa\/Blantyre'/.test(svc)
+      && /timeZone: TZ_PANEL/.test(svc));
+    check('tbs diario: se dispara a las 6 de esa zona',
+      /Number\(process\.env\.TBS_CRON_HOUR \|\| '6'\)/.test(svc)
+      && /if \(horaPanel\(\) !== H \|\| _ultimo === hoy\) return;/.test(svc));
+    // El intervalo corre cada 5 minutos: sin el guard entraría doce veces dentro de la misma hora.
+    check('tbs diario: no se dispara doce veces dentro de la misma hora',
+      /_ultimo = hoy;/.test(svc));
+    // Un hueco que no se tapa queda para siempre: nadie mira un mes viejo hasta que lo necesita.
+    check('tbs diario: el cron tapa los huecos del mes, no sólo ayer',
+      /sanados \+= 1/.test(svc) && /if \(f >= hoy \|\| listos\.has\(f\)\) continue;/.test(svc));
+    const svcTbs = require('../src/tbs-diario.service');
+    check('tbs diario: ayer es el día anterior en la zona del panel',
+      /^\d{4}-\d{2}-\d{2}$/.test(svcTbs.ayerPanel())
+      && new Date(svcTbs.hoyPanel()) - new Date(svcTbs.ayerPanel()) === 86400000,
+      svcTbs.ayerPanel() + ' → ' + svcTbs.hoyPanel());
   }
 
   // ── BUZÓN Y HISTORIAL SON DOS COSAS ──────────────────────────────────────────────────────────

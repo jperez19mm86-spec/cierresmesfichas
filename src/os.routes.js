@@ -20,6 +20,7 @@ const tcDivisas = require('./tc-divisas.service');
 const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const tbsDiario = require('./tbs-diario-store');
+const tbsDiarioSvc = require('./tbs-diario.service');
 const { parseMonto } = require('./lib/monto');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
@@ -109,6 +110,9 @@ function mount(app) {
   tcDivisas.startScheduler();
   tcColumna.startScheduler();
   acumSvc.startCron();
+  // TBS tiene su propio cron y su propia hora: corta los días en la zona del panel (GMT+2), no en
+  // la nuestra. Pedirle "ayer" según la hora argentina traería un día que allá no terminó.
+  tbsDiarioSvc.startCron();
 
   // Panel del OS (HTML estático, detrás del gate de auth)
   const path = require('path');
@@ -2060,40 +2064,15 @@ function mount(app) {
   });
 
   app.post('/api/os/tbs/diario/capturar', wrap(async (req, res) => {
+    // La lógica vive en el servicio: el cron nocturno pide exactamente lo mismo, y dos copias de
+    // "cómo se arma un día" es cómo una se queda vieja — se arregla la que se ve y la otra sigue
+    // guardando mal, en silencio, de madrugada.
     const b = req.body || {};
-    const fecha = String(b.fecha || '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err(res, 400, 'falta la fecha (YYYY-MM-DD)');
-    const t = _tbsCliente(b.conexion_id);
-    if (t.error) return err(res, 400, t.error);
-    if (!b.refrescar && tbsDiario.diasCapturados(fecha.slice(0, 7)).includes(fecha)) {
-      return ok(res, { fecha, saltado: true, motivo: 'ese día ya estaba capturado (refrescar:true para rehacerlo)' });
-    }
-    const t0 = Date.now();
-    const desde = `${fecha} 00:00:00`; const hasta = `${fecha} 23:59:59`;
-    // Los agentes que se facturan, para tener el diario POR CLIENTE y no sólo el total.
-    const agentes = apiStore.listClientes().filter((c) => c.activo !== 0).map((c) => String(c.id));
-    // ⚠️ UNA SOLA LLAMADA. La respuesta trae el árbol entero, y de ahí salen el total por divisa Y
-    // cada agente: no son dos consultas. La primera versión pedía las dos cosas por separado —108
-    // segundos por día en vez de 54, un mes de 56 minutos en vez de 28— haciendo dos veces
-    // exactamente la misma pregunta.
-    const r = await t.cli.diaCompleto({ desde, hasta, agentes, grupos: b.grupos || [] });
-    if (!r.ok) return err(res, 502, r.error);
-
-    // ── SÓLO LOS CLIENTES ──────────────────────────────────────────────────────────────────
-    // Antes se guardaba también el TOTAL del árbol entero: 53 monedas por día de un panel que
-    // incluye cuentas que no son nuestras. No sirve para lo que este reporte tiene que contestar
-    // —cómo viene cada cliente, día a día— y encima invitaba a sumarlo con los agentes, que es
-    // contar todo dos veces. El total del árbol sigue estando en vivo, en /api/os/tbs/total-divisa.
-    const filas = [];
-    Object.values(r.porAgente || {}).forEach((a) => {
-      Object.entries(a.porDivisa || {}).forEach(([mon, v]) => filas.push({
-        agente_id: a.id, login: a.login, moneda: mon, bet: v.bet, win: v.win, profit: v.profit, salas: v.salas,
-      }));
+    const r = await tbsDiarioSvc.capturarDia({
+      fecha: b.fecha, conexionId: b.conexion_id || null,
+      grupos: b.grupos || [], refrescar: !!b.refrescar,
     });
-    const n = tbsDiario.guardarDia(fecha, filas, Date.now() - t0);
-    ok(res, { fecha, guardadas: n, ms: Date.now() - t0,
-      agentes: Object.keys(r.porAgente || {}).length,
-      faltantes: r.faltantes || [] });
+    r.ok ? ok(res, r) : err(res, r.error && /falta la fecha|conexión/.test(r.error) ? 400 : 502, r.error);
   }));
 
   app.get('/api/os/tbs/diario', (req, res) => ok(res, tbsDiario.delMes(req.query.mes || mesTZ())));
