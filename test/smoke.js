@@ -492,10 +492,30 @@ async function main() {
     check('tbs diario: no se puede disparar dos veces a la vez',
       /if\(_tdCapturando\) return;/.test(h12) && /_tdCapturando = true/.test(h12));
     // La pantalla es POR CLIENTE: la pregunta es cómo viene cada uno, no cuánto movió el panel.
-    check('tbs diario: la pantalla arma la tabla por cliente y día',
+    check('tbs diario: la pantalla arma la tabla por cliente',
       /const vivos = \(dat\.clientes\|\|\[\]\)/.test(h12)
-      && /Cada cliente, día a día/.test(h12)
       && !/Total del mes por divisa/.test(h12));
+
+    // ── LO JUGADO Y EL MARGEN, NO SÓLO EL PROFIT ──────────────────────────────────────────
+    // Un cliente baja el profit por dos motivos opuestos: trae menos jugado (se le va el negocio)
+    // o los jugadores ganaron más (racha). Con sólo el profit los dos se ven iguales y llevan a
+    // decisiones contrarias. Verificado con datos reales de agosto: TBSDavidLatam bajó el jugado
+    // 39% con el margen MEJORANDO, y NachoAPI en PYG subió el jugado 48% con el margen cayendo de
+    // 27,3% a 4,0%. Son casos opuestos y el profit solo los mostraba igual.
+    check('tbs diario: muestra lo jugado y el margen, no sólo el profit',
+      /tdMitades\(c,'bet',dias\)/.test(h12) && /const mAnt = ba \? \(pa\/ba\)\*100/.test(h12)
+      && /Jugado \(in\)/.test(h12) && /Premios \(out\)/.test(h12));
+    // El veredicto pregunta PRIMERO por el jugado: es el único de los dos que significa que el
+    // cliente se está yendo.
+    check('tbs diario: el veredicto mira primero el jugado',
+      /if \(volPct != null && volPct <= -15\) return \{ txt:'trae menos jugado'/.test(h12)
+      && /ganaron los jugadores/.test(h12));
+    // Y ordena por lo que hay que atender, no por volumen.
+    check('tbs diario: ordena por lo que hay que mirar primero',
+      /const peso = \{ mal:0, ojo:1/.test(h12));
+    // La forma se ve de un vistazo: una línea por cliente con el jugado de cada día.
+    check('tbs diario: una línea muestra la forma del jugado',
+      /function tdSpark/.test(h12) && /<polyline points=/.test(h12));
     // Un renglón por CLIENTE con su moneda principal; las demás se despliegan. Con una fila por
     // moneda, las importantes quedaban perdidas y el orden por caída ponía arriba a un cliente que
     // pasó de 82 a 1 dólar — matemáticamente cierto y sin ninguna importancia.
@@ -506,17 +526,15 @@ async function main() {
     check('tbs diario: esconde lo que no movió nada en todo el mes',
       /c\.bet !== 0 \|\| c\.win !== 0 \|\| c\.profit !== 0/.test(h12)
       && /Se ocultaron/.test(h12));
-    // Ordenado por caída, y los que no tienen tendencia calculable van al FINAL: no es que estén
-    // bien, es que no se sabe — mezclarlos con los que subieron sería afirmar algo no comprobado.
-    check('tbs diario: ordena por caída y no supone nada de los que no se pueden medir',
-      /return a\.tend - b\.tend;/.test(h12)
-      && /if\(a\.tend==null\) return 1;/.test(h12));
+    // Con menos de 4 días no se afirma una tendencia: dos días no son una tendencia, son dos días.
+    check('tbs diario: sin días suficientes no inventa una tendencia',
+      /dias\.length>=4 && ba\) \? \(\(bn-ba\)\/ba\)\*100 : null/.test(h12)
+      && /a\.vol==null\?'<span class="muted">—<\/span>'/.test(h12));
     // Sin nada medido no se inventa un tiempo.
     check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
-    // La tendencia compara mitad nueva contra mitad vieja: el último día contra el anterior no
-    // dice nada, y todavía no hay meses anteriores con qué comparar.
-    check('tbs diario: la tendencia parte el período al medio y exige un mínimo de días',
-      /const m = Math\.floor\(v\.length\/2\)/.test(h12) && /v\.length < 4/.test(h12));
+    // Se compara mitad nueva contra mitad vieja: el último día contra el anterior no dice nada.
+    check('tbs diario: la comparación parte el período al medio',
+      /const m = Math\.floor\(v\.length\/2\)/.test(h12));
   }
 
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────

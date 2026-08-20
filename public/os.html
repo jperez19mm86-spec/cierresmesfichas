@@ -3839,6 +3839,47 @@ let _tdCapturando = false;
 
 let _tdAbiertos = new Set();      // qué clientes quedaron desplegados
 
+/* ── POR QUÉ NO ALCANZA CON EL PROFIT ─────────────────────────────────────────────────────────
+   Un cliente puede bajar el profit por dos motivos completamente distintos:
+     · trae MENOS JUGADO — se le fue el negocio. Es un problema y hay que llamarlo.
+     · los jugadores GANARON MÁS — mala racha. No es un problema: se da vuelta solo.
+   Mirando sólo el profit los dos casos se ven iguales, y llevan a decisiones opuestas.
+
+   Por eso se separa en tres: lo JUGADO (in), los PREMIOS (out) y el MARGEN (profit ÷ jugado).
+   El margen es lo que saca la suerte del medio: si el jugado se mantiene y el margen cae, fue
+   suerte; si cae el jugado, se fue el negocio. Los datos ya estaban guardados — sólo se mostraba
+   el profit. */
+const tdMitades = (c, campo, dias) => {
+  const v = dias.map(f => (c.dias[f]||{})[campo] || 0);
+  const m = Math.floor(v.length/2);
+  return [v.slice(0,m).reduce((a,b)=>a+b,0), v.slice(m).reduce((a,b)=>a+b,0)];
+};
+
+/* El veredicto en castellano. El orden importa: primero se pregunta por el JUGADO, porque es el
+   único de los dos que significa que se está yendo el cliente. */
+function tdVeredicto(volPct, margenAnt, margenNue) {
+  const dpp = (margenNue!=null && margenAnt!=null) ? (margenNue - margenAnt) : null;
+  if (volPct != null && volPct <= -15) return { txt:'trae menos jugado', tono:'mal', det:'se le está yendo el negocio' };
+  if (dpp != null && dpp <= -3)        return { txt:'ganaron los jugadores', tono:'ojo', det:'el jugado se mantiene: es racha, no negocio perdido' };
+  if (volPct != null && volPct >= 15)  return { txt:'creciendo', tono:'bien', det:'está trayendo más jugado' };
+  if (dpp != null && dpp >= 3)         return { txt:'mejor racha', tono:'bien', det:'mismo jugado, mejor margen' };
+  return { txt:'estable', tono:'', det:'' };
+}
+
+/* Una línea que se lee de un vistazo: el jugado de cada día. No lleva ejes ni números —para eso
+   está la tabla— sino la FORMA: si viene cayendo, se ve cayendo. */
+function tdSpark(vals, ancho=90, alto=22) {
+  const max = Math.max(...vals, 1);
+  if (!vals.length) return '';
+  const paso = vals.length>1 ? ancho/(vals.length-1) : ancho;
+  const pts = vals.map((v,i)=>`${(i*paso).toFixed(1)},${(alto - (v/max)*(alto-2)).toFixed(1)}`).join(' ');
+  const mitad = Math.floor(vals.length/2);
+  const a = vals.slice(0,mitad).reduce((x,y)=>x+y,0), b = vals.slice(mitad).reduce((x,y)=>x+y,0);
+  const col = b<a*0.85 ? 'var(--red)' : (b>a*1.15 ? 'var(--gold)' : 'var(--muted)');
+  return `<svg width="${ancho}" height="${alto}" style="vertical-align:middle">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
 VIEWS.tbsdiario = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
@@ -3850,28 +3891,10 @@ VIEWS.tbsdiario = async () => {
   const falt = (plan.faltan||[]).length;
   const seg = plan.segundos_estimados;
   const dd = f => String(f).slice(8,10);
+  const pc = x => (x>0?'+':'')+money(x,0)+'%';
 
-  /* LA TENDENCIA: la mitad nueva del período contra la mitad vieja.
-     No es el último día contra el anterior —un día flojo es ruido— ni contra el mes pasado, que
-     todavía no existe guardado. */
-  const tendencia = (c) => {
-    const v = dias.map(f => (c.dias[f]||{}).profit || 0);
-    if (v.length < 4) return null;
-    const m = Math.floor(v.length/2);
-    const vieja = v.slice(0,m).reduce((a,b)=>a+b,0);
-    const nueva = v.slice(m).reduce((a,b)=>a+b,0);
-    if (!vieja) return null;
-    return ((nueva - vieja) / Math.abs(vieja)) * 100;
-  };
-
-  /* ── UN RENGLÓN POR CLIENTE, NO POR MONEDA ────────────────────────────────────────────────
-     Un cliente puede operar en cinco monedas y cuatro de ellas mover monedas sueltas. Con una
-     fila cada una, las importantes quedaban perdidas entre el ruido y el orden por caída lo
-     empeoraba: un cliente que pasó de 82 a 1 dólar encabeza la lista con -98% sin que a nadie le
-     importe. Ahora manda la moneda PRINCIPAL de cada cliente —la de mayor movimiento— y las demás
-     se despliegan si se quieren ver.
-
-     Y se esconde lo que no movió NADA en todo el mes: una fila de ceros no es información. */
+  // Una fila por CLIENTE con su moneda principal; las otras se despliegan. Se esconde lo que no
+  // movió nada: una fila de ceros no es información.
   const vivos = (dat.clientes||[]).filter(c => c.bet !== 0 || c.win !== 0 || c.profit !== 0);
   const escondidas = (dat.clientes||[]).length - vivos.length;
   const porCliente = new Map();
@@ -3879,78 +3902,111 @@ VIEWS.tbsdiario = async () => {
     const g = porCliente.get(c.login) || { login: c.login, filas: [] };
     g.filas.push(c); porCliente.set(c.login, g);
   });
+  const analizar = (c) => {
+    const [ba,bn] = tdMitades(c,'bet',dias);
+    const [pa,pn] = tdMitades(c,'profit',dias);
+    const vol = (dias.length>=4 && ba) ? ((bn-ba)/ba)*100 : null;
+    const mAnt = ba ? (pa/ba)*100 : null, mNue = bn ? (pn/bn)*100 : null;
+    return { vol, mAnt, mNue, v: tdVeredicto(vol, mAnt, mNue),
+      margen: c.bet ? (c.profit/c.bet)*100 : null };
+  };
   const grupos = [...porCliente.values()].map(g => {
-    g.filas.sort((a,b)=>Math.abs(b.profit)-Math.abs(a.profit));
+    g.filas.sort((a,b)=>Math.abs(b.bet)-Math.abs(a.bet));   // manda la moneda de más JUGADO
     g.principal = g.filas[0];
     g.otras = g.filas.slice(1);
-    g.tend = tendencia(g.principal);
+    g.a = analizar(g.principal);
     return g;
   });
-  /* Orden POR CAÍDA: primero los que más bajaron. Los que no tienen tendencia calculable van al
-     final — no es que estén bien, es que no se sabe, y mezclarlos con los que subieron sería
-     decir algo que no se comprobó. */
-  grupos.sort((a,b)=>{
-    if(a.tend==null && b.tend==null) return Math.abs(b.principal.profit)-Math.abs(a.principal.profit);
-    if(a.tend==null) return 1;
-    if(b.tend==null) return -1;
-    return a.tend - b.tend;
-  });
+  // Primero lo que hay que mirar: los que traen menos jugado, después los de racha, después el resto.
+  const peso = { mal:0, ojo:1, '':2, bien:3 };
+  grupos.sort((x,y)=> (peso[x.a.v.tono]-peso[y.a.v.tono]) || ((x.a.vol??0)-(y.a.vol??0)));
 
-  const celdas = (c) => dias.map(f=>{
-    const d = c.dias[f];
-    if(!d) return '<td class="right muted" style="font-size:11px">·</td>';
-    return `<td class="right" style="font-size:11px;${d.profit<0?'color:var(--red)':''}">${money(d.profit,0)}</td>`;
-  }).join('');
+  const cuenta = t => grupos.filter(g=>g.a.v.tono===t).length;
+
+  const filaCliente = (c, a, sub) => {
+    const vals = dias.map(f=>(c.dias[f]||{}).bet||0);
+    return `<td class="muted">${esc(c.moneda)}</td>
+      <td>${sub?'':tdSpark(vals)}</td>
+      <td class="right">${money(c.bet,0)}</td>
+      <td class="right">${a.vol==null?'<span class="muted">—</span>'
+        :`<b style="color:${a.vol<0?'var(--red)':(a.vol>0?'var(--gold)':'inherit')}">${pc(a.vol)}</b>`}</td>
+      <td class="right">${a.margen==null?'—':money(a.margen,1)+'%'}</td>
+      <td class="right muted" style="font-size:11px">${a.mAnt==null||a.mNue==null?'':money(a.mAnt,1)+'→'+money(a.mNue,1)}</td>
+      <td class="right"><b style="${c.profit<0?'color:var(--red)':''}">${money(c.profit,0)}</b></td>`;
+  };
 
   main.innerHTML = `
     <div class="card">
       <h2>📅 Reporte diario <span class="muted">(TBS)</span>
         <input type="month" value="${esc(_tdMes)}" onchange="_tdMes=this.value;VIEWS.tbsdiario()"
           style="width:auto;display:inline-block;margin-left:8px"></h2>
-      <div class="muted">Cómo viene cada cliente, día por día. <b>Ordenado por caída:</b> primero los que más bajaron.</div>
-      <div class="row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap">
-        <div><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días guardados</div>
+      <div class="row" style="margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="muted"><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días</div>
         ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ Traer los ${falt} que faltan${
-          seg!=null ? ' (~'+(seg<60?seg+' seg':Math.ceil(seg/60)+' min')+')' : ''}</button>` : '<span class="badge ok">completo</span>'}
+          seg!=null ? ' (~'+(seg<60?seg+' seg':Math.ceil(seg/60)+' min')+')' : ''}</button>`
+        : '<span class="badge ok">completo</span> <span class="muted" style="font-size:11px">se actualiza solo a las 6 AM (hora del panel)</span>'}
         <span id="td-prog" class="muted"></span>
       </div>
     </div>
 
     ${!grupos.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--red)">
+        <label>Traen menos jugado</label>
+        <div style="font-size:26px;font-weight:800;color:${cuenta('mal')?'var(--red)':'inherit'}">${cuenta('mal')}</div>
+        <div class="muted" style="font-size:12px">Se les está yendo el negocio. Es lo que hay que atender.</div></div>
+      <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--gold)">
+        <label>Mala racha</label>
+        <div style="font-size:26px;font-weight:800">${cuenta('ojo')}</div>
+        <div class="muted" style="font-size:12px">Mismo jugado, ganaron los jugadores. Se da vuelta solo.</div></div>
+      <div class="card" style="flex:1;min-width:200px;margin:0">
+        <label>Creciendo</label>
+        <div style="font-size:26px;font-weight:800">${cuenta('bien')}</div>
+        <div class="muted" style="font-size:12px">Más jugado o mejor margen.</div></div>
+    </div>
+
     <div class="card">
-      <h2>Cada cliente, día a día <span class="muted">(profit · ${grupos.length} cliente${grupos.length===1?'':'s'})</span></h2>
-      <div class="muted" style="margin-bottom:8px">Se muestra la moneda de mayor movimiento de cada uno.
-        Tocá el nombre para ver sus otras monedas. <b>Profit = apostado − ganado por los jugadores</b>; en rojo, los días que perdió.</div>
+      <h2>Cada cliente <span class="muted">(${grupos.length})</span></h2>
+      <div class="muted" style="margin-bottom:8px">
+        <b>Jugado</b> es lo que apostaron (el negocio que trae). <b>Margen</b> = profit ÷ jugado, y es lo que
+        saca la suerte del medio. Si cae el jugado se fue el negocio; si cae sólo el margen, fue racha.
+        Tocá el nombre para ver el día a día.</div>
       <div style="overflow-x:auto">
       <table style="min-width:100%"><thead><tr>
-        <th style="position:sticky;left:0;background:var(--bg2)">Cliente</th><th>Div</th>
-        ${dias.map(f=>`<th class="right" style="font-size:10px">${dd(f)}</th>`).join('')}
-        <th class="right">Mes</th><th class="right">Tendencia</th>
+        <th>Cliente</th><th>Div</th><th>Jugado por día</th>
+        <th class="right">Jugado</th><th class="right">vs. antes</th>
+        <th class="right">Margen</th><th class="right">antes→ahora</th>
+        <th class="right">Profit</th><th>Qué pasó</th>
       </tr></thead><tbody>
       ${grupos.map(g=>{
         const ab = _tdAbiertos.has(g.login);
-        return `<tr${g.tend!=null&&g.tend<0?' style="background:rgba(217,83,79,.05)"':''}>
-          <td style="position:sticky;left:0;background:var(--bg2);${g.otras.length?'cursor:pointer':''}"
-            ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
+        const tono = {mal:'var(--red)',ojo:'var(--gold)',bien:'',''  :''}[g.a.v.tono];
+        return `<tr${g.a.v.tono==='mal'?' style="background:rgba(217,83,79,.06)"':''}>
+          <td style="${g.otras.length?'cursor:pointer':''}" ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
             ${g.otras.length?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
             ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}</td>
-          <td class="muted">${esc(g.principal.moneda)}</td>
-          ${celdas(g.principal)}
-          <td class="right"><b style="${g.principal.profit<0?'color:var(--red)':''}">${money(g.principal.profit,0)}</b></td>
-          <td class="right">${g.tend==null?'<span class="muted">—</span>'
-            :`<b style="color:${g.tend<0?'var(--red)':'var(--gold)'}">${g.tend>0?'▲':'▼'} ${money(Math.abs(g.tend),0)}%</b>`}</td>
-        </tr>` + (ab ? g.otras.map(o=>`<tr class="sub">
-          <td style="position:sticky;left:0;background:var(--bg2)"></td>
-          <td class="muted">${esc(o.moneda)}</td>
-          ${celdas(o)}
-          <td class="right muted">${money(o.profit,0)}</td><td></td>
-        </tr>`).join('') : '');
+          ${filaCliente(g.principal, g.a, false)}
+          <td style="font-size:12px${tono?';color:'+tono:''}"><b>${esc(g.a.v.txt)}</b>
+            ${g.a.v.det?`<div class="muted" style="font-size:11px">${esc(g.a.v.det)}</div>`:''}</td>
+        </tr>`
+        + (ab ? g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
+            <td></td>${filaCliente(o, a2, true)}
+            <td class="muted" style="font-size:11px">${esc(a2.v.txt)}</td></tr>`;}).join('')
+              + `<tr class="sub"><td colspan="9" style="padding:8px 0 12px">
+                  <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>Día</th>
+                    ${dias.map(f=>`<th class="right" style="font-size:10px">${dd(f)}</th>`).join('')}</tr></thead><tbody>
+                    ${[['bet','Jugado (in)'],['win','Premios (out)'],['profit','Profit']].map(([k,lab])=>
+                      `<tr><td class="muted" style="font-size:11px">${lab}</td>${dias.map(f=>{
+                        const d=g.principal.dias[f];
+                        return `<td class="right" style="font-size:10px;${d&&k==='profit'&&d.profit<0?'color:var(--red)':''}">${d?money(d[k],0):'·'}</td>`;
+                      }).join('')}</tr>`).join('')}
+                  </tbody></table></div></td></tr>` : '');
       }).join('')}
       </tbody></table>
       </div>
       <div class="muted" style="margin-top:8px;font-size:12px">
-        La <b>tendencia</b> compara la mitad más nueva del período contra la mitad más vieja; hacen falta 4 días o más.
-        ${escondidas?`<br>Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada en todo el mes.`:''}</div>
+        Se compara la mitad más nueva del período contra la más vieja; hacen falta 4 días o más.
+        ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}</div>
     </div>`}
   `;
 };
