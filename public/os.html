@@ -3857,7 +3857,10 @@ const tdMitades = (c, campo, dias) => {
 
 /* El veredicto en castellano. El orden importa: primero se pregunta por el JUGADO, porque es el
    único de los dos que significa que se está yendo el cliente. */
-function tdVeredicto(volPct, margenAnt, margenNue) {
+function tdVeredicto(volPct, margenAnt, margenNue, nuevo) {
+  // Una cuenta que arrancó el mes en cero no tiene contra qué compararse: cualquier porcentaje que
+  // se muestre es cierto y no significa nada.
+  if (nuevo) return { txt:'arrancó de cero', tono:'bien', det:'casi no jugaba al empezar el mes' };
   const dpp = (margenNue!=null && margenAnt!=null) ? (margenNue - margenAnt) : null;
   if (volPct != null && volPct <= -15) return { txt:'trae menos jugado', tono:'mal', det:'se le está yendo el negocio' };
   if (dpp != null && dpp <= -3)        return { txt:'ganaron los jugadores', tono:'ojo', det:'el jugado se mantiene: es racha, no negocio perdido' };
@@ -3878,6 +3881,49 @@ function tdSpark(vals, ancho=90, alto=22) {
   const col = b<a*0.85 ? 'var(--red)' : (b>a*1.15 ? 'var(--gold)' : 'var(--muted)');
   return `<svg width="${ancho}" height="${alto}" style="vertical-align:middle">
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+/* EL DÍA A DÍA, HACIA ABAJO.
+   Los días eran columnas: había que barrer con la vista de izquierda a derecha, y a partir del día
+   12 la tabla se salía de la pantalla. Puestos uno debajo del otro se leen como se lee cualquier
+   lista —de arriba hacia abajo— y las tres cantidades quedan enfrentadas en la misma fila.
+
+   La barra al lado del jugado es lo que hace el trabajo: la tendencia se ve sin leer un número. */
+function tdDetalle(c, dias) {
+  const bets = dias.map(f => (c.dias[f]||{}).bet || 0);
+  const max = Math.max(...bets, 1);
+  let tb=0, tw=0, tp=0;
+  const filas = dias.map(f => {
+    const d = c.dias[f];
+    if (!d) return `<tr><td class="muted" style="font-size:11px">${String(f).slice(8,10)}</td>
+      <td colspan="5" class="muted" style="font-size:11px">sin datos</td></tr>`;
+    tb+=d.bet; tw+=d.win; tp+=d.profit;
+    const mg = d.bet ? (d.profit/d.bet)*100 : null;
+    const w = Math.round((d.bet/max)*100);
+    return `<tr>
+      <td class="muted" style="font-size:12px;width:30px">${String(f).slice(8,10)}</td>
+      <td style="width:84px;padding-right:10px"><div style="height:7px;border-radius:4px;
+        background:var(--gold);opacity:.7;width:${w}%"></div></td>
+      <td class="right" style="font-size:12px">${money(d.bet,0)}</td>
+      <td class="right muted" style="font-size:12px">${money(d.win,0)}</td>
+      <td class="right" style="font-size:12px"><b style="${d.profit<0?'color:var(--red)':''}">${money(d.profit,0)}</b></td>
+      <td class="right muted" style="font-size:11px">${mg==null?'':money(mg,1)+'%'}</td></tr>`;
+  }).join('');
+  return `<div style="max-width:620px">
+    <div class="muted" style="font-size:11px;margin:0 0 4px">Día a día · ${esc(c.moneda)}</div>
+    <table style="width:100%"><thead><tr>
+      <th style="font-size:10px">Día</th><th></th>
+      <th class="right" style="font-size:10px">Jugado (in)</th>
+      <th class="right" style="font-size:10px">Premios (out)</th>
+      <th class="right" style="font-size:10px">Profit</th>
+      <th class="right" style="font-size:10px">Margen</th>
+    </tr></thead><tbody>${filas}
+      <tr><td colspan="2" style="font-size:11px"><b>Mes</b></td>
+        <td class="right" style="font-size:12px"><b>${money(tb,0)}</b></td>
+        <td class="right" style="font-size:12px"><b>${money(tw,0)}</b></td>
+        <td class="right" style="font-size:12px"><b style="${tp<0?'color:var(--red)':''}">${money(tp,0)}</b></td>
+        <td class="right" style="font-size:11px"><b>${tb?money((tp/tb)*100,1)+'%':''}</b></td></tr>
+    </tbody></table></div>`;
 }
 
 VIEWS.tbsdiario = async () => {
@@ -3902,12 +3948,20 @@ VIEWS.tbsdiario = async () => {
     const g = porCliente.get(c.login) || { login: c.login, filas: [] };
     g.filas.push(c); porCliente.set(c.login, g);
   });
+  /* ── LAS QUE ARRANCARON DE CERO ────────────────────────────────────────────────────────────
+     Una cuenta que empezó el mes sin jugar da porcentajes que no son un error de cálculo —es
+     literalmente lo que creció— pero que igual desinforman: +25.079% al lado de un −39% sobre 98
+     millones se lleva toda la atención, y el −39% es el que importa.
+     Si la primera mitad no llega al 1% de lo jugado en todo el período, no hay contra qué
+     comparar. Se dice eso y no se inventa un número. El margen de esa mitad tampoco sirve —sale de
+     dividir por casi nada— así que también se calla. */
   const analizar = (c) => {
     const [ba,bn] = tdMitades(c,'bet',dias);
     const [pa,pn] = tdMitades(c,'profit',dias);
-    const vol = (dias.length>=4 && ba) ? ((bn-ba)/ba)*100 : null;
-    const mAnt = ba ? (pa/ba)*100 : null, mNue = bn ? (pn/bn)*100 : null;
-    return { vol, mAnt, mNue, v: tdVeredicto(vol, mAnt, mNue),
+    const nuevo = dias.length>=4 && bn>0 && ba < (ba+bn)*0.01;
+    const vol = (dias.length>=4 && ba && !nuevo) ? ((bn-ba)/ba)*100 : null;
+    const mAnt = (ba && !nuevo) ? (pa/ba)*100 : null, mNue = bn ? (pn/bn)*100 : null;
+    return { vol, mAnt, mNue, nuevo, v: tdVeredicto(vol, mAnt, mNue, nuevo),
       margen: c.bet ? (c.profit/c.bet)*100 : null };
   };
   const grupos = [...porCliente.values()].map(g => {
@@ -3928,8 +3982,9 @@ VIEWS.tbsdiario = async () => {
     return `<td class="muted">${esc(c.moneda)}</td>
       <td>${sub?'':tdSpark(vals)}</td>
       <td class="right">${money(c.bet,0)}</td>
-      <td class="right">${a.vol==null?'<span class="muted">—</span>'
-        :`<b style="color:${a.vol<0?'var(--red)':(a.vol>0?'var(--gold)':'inherit')}">${pc(a.vol)}</b>`}</td>
+      <td class="right">${a.nuevo?'<span class="muted" style="font-size:11px">arrancó de cero</span>'
+        :(a.vol==null?'<span class="muted">—</span>'
+        :`<b style="color:${a.vol<0?'var(--red)':(a.vol>0?'var(--gold)':'inherit')}">${pc(a.vol)}</b>`)}</td>
       <td class="right">${a.margen==null?'—':money(a.margen,1)+'%'}</td>
       <td class="right muted" style="font-size:11px">${a.mAnt==null||a.mNue==null?'':money(a.mAnt,1)+'→'+money(a.mNue,1)}</td>
       <td class="right"><b style="${c.profit<0?'color:var(--red)':''}">${money(c.profit,0)}</b></td>`;
@@ -3970,12 +4025,16 @@ VIEWS.tbsdiario = async () => {
       <div class="muted" style="margin-bottom:8px">
         <b>Jugado</b> es lo que apostaron (el negocio que trae). <b>Margen</b> = profit ÷ jugado, y es lo que
         saca la suerte del medio. Si cae el jugado se fue el negocio; si cae sólo el margen, fue racha.
-        Tocá el nombre para ver el día a día.</div>
+        Tocá el nombre para ver el día a día.
+        ${dias.length>=4?`<div style="margin-top:4px">Las dos columnas de comparación parten los días
+          capturados al medio: <b>${dd(dias[0])} al ${dd(dias[Math.floor(dias.length/2)-1])}</b> contra
+          <b>${dd(dias[Math.floor(dias.length/2)])} al ${dd(dias[dias.length-1])}</b> del mismo mes.
+          No es contra el mes pasado.</div>`:''}</div>
       <div style="overflow-x:auto">
       <table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Div</th><th>Jugado por día</th>
-        <th class="right">Jugado</th><th class="right">vs. antes</th>
-        <th class="right">Margen</th><th class="right">antes→ahora</th>
+        <th class="right">Jugado</th><th class="right">vs. 1ª mitad</th>
+        <th class="right">Margen</th><th class="right">margen 1ª→2ª</th>
         <th class="right">Profit</th><th>Qué pasó</th>
       </tr></thead><tbody>
       ${grupos.map(g=>{
@@ -3992,20 +4051,14 @@ VIEWS.tbsdiario = async () => {
         + (ab ? g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
             <td></td>${filaCliente(o, a2, true)}
             <td class="muted" style="font-size:11px">${esc(a2.v.txt)}</td></tr>`;}).join('')
-              + `<tr class="sub"><td colspan="9" style="padding:8px 0 12px">
-                  <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>Día</th>
-                    ${dias.map(f=>`<th class="right" style="font-size:10px">${dd(f)}</th>`).join('')}</tr></thead><tbody>
-                    ${[['bet','Jugado (in)'],['win','Premios (out)'],['profit','Profit']].map(([k,lab])=>
-                      `<tr><td class="muted" style="font-size:11px">${lab}</td>${dias.map(f=>{
-                        const d=g.principal.dias[f];
-                        return `<td class="right" style="font-size:10px;${d&&k==='profit'&&d.profit<0?'color:var(--red)':''}">${d?money(d[k],0):'·'}</td>`;
-                      }).join('')}</tr>`).join('')}
-                  </tbody></table></div></td></tr>` : '');
+              + `<tr class="sub"><td colspan="9" style="padding:8px 0 14px">
+                  ${tdDetalle(g.principal, dias)}</td></tr>` : '');
       }).join('')}
       </tbody></table>
       </div>
       <div class="muted" style="margin-top:8px;font-size:12px">
         Se compara la mitad más nueva del período contra la más vieja; hacen falta 4 días o más.
+        Las cuentas que empezaron el mes casi sin jugar dicen «arrancó de cero» en vez de un porcentaje.
         ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}</div>
     </div>`}
   `;

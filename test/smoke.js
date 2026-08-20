@@ -503,7 +503,7 @@ async function main() {
     // 39% con el margen MEJORANDO, y NachoAPI en PYG subió el jugado 48% con el margen cayendo de
     // 27,3% a 4,0%. Son casos opuestos y el profit solo los mostraba igual.
     check('tbs diario: muestra lo jugado y el margen, no sólo el profit',
-      /tdMitades\(c,'bet',dias\)/.test(h12) && /const mAnt = ba \? \(pa\/ba\)\*100/.test(h12)
+      /tdMitades\(c,'bet',dias\)/.test(h12) && /const mAnt = \(ba && !nuevo\) \? \(pa\/ba\)\*100/.test(h12)
       && /Jugado \(in\)/.test(h12) && /Premios \(out\)/.test(h12));
     // El veredicto pregunta PRIMERO por el jugado: es el único de los dos que significa que el
     // cliente se está yendo.
@@ -528,8 +528,44 @@ async function main() {
       && /Se ocultaron/.test(h12));
     // Con menos de 4 días no se afirma una tendencia: dos días no son una tendencia, son dos días.
     check('tbs diario: sin días suficientes no inventa una tendencia',
-      /dias\.length>=4 && ba\) \? \(\(bn-ba\)\/ba\)\*100 : null/.test(h12)
+      /dias\.length>=4 && ba && !nuevo\) \? \(\(bn-ba\)\/ba\)\*100 : null/.test(h12)
       && /a\.vol==null\?'<span class="muted">—<\/span>'/.test(h12));
+
+    // ── LAS QUE ARRANCARON DE CERO ────────────────────────────────────────────────────────
+    // TBSArs2716 mostraba +25.079% y una cuenta en COP +1.716.225%. No es un error de cálculo:
+    // es literalmente lo que creció una cuenta que empezó el mes en cero. Pero al lado de un
+    // −39% sobre 98 millones de colones —el caso que sí hay que atender— el ojo va al número
+    // grande. Sin primera mitad no hay contra qué comparar: se dice eso y no se inventa un
+    // porcentaje. El margen de esa mitad tampoco vale, porque sale de dividir por casi nada.
+    check('tbs diario: la que arrancó de cero lo dice, no muestra un porcentaje absurdo',
+      /const nuevo = dias\.length>=4 && bn>0 && ba < \(ba\+bn\)\*0\.01/.test(h12)
+      && /a\.nuevo\?'<span class="muted" style="font-size:11px">arrancó de cero</.test(h12)
+      && /if \(nuevo\) return \{ txt:'arrancó de cero'/.test(h12));
+    // Y el margen 1ª→2ª se calla en esos casos: comparar contra una mitad vacía es ruido.
+    check('tbs diario: la que arrancó de cero tampoco compara márgenes',
+      /const mAnt = \(ba && !nuevo\)/.test(h12));
+
+    // ── EL DÍA A DÍA, HACIA ABAJO ─────────────────────────────────────────────────────────
+    // Los días eran columnas: a partir del día 12 la tabla se salía de la pantalla y había que
+    // barrer con la vista de izquierda a derecha para seguir un solo cliente. Con los días como
+    // filas —01, 02, 03 hacia abajo— y jugado/premios/profit como columnas, las tres cantidades
+    // de un mismo día quedan enfrentadas y la tendencia se lee de arriba hacia abajo.
+    check('tbs diario: el día a día va hacia abajo, con in/out/profit arriba',
+      /function tdDetalle\(c, dias\)/.test(h12)
+      && /<th class="right" style="font-size:10px">Jugado \(in\)<\/th>/.test(h12)
+      && /<th class="right" style="font-size:10px">Premios \(out\)<\/th>/.test(h12)
+      // el día en la PRIMERA celda de la fila: es lo que lo hace una fila y no una columna
+      && /<td class="muted" style="font-size:12px;width:30px">\$\{String\(f\)\.slice\(8,10\)\}<\/td>/.test(h12)
+      // y la forma vieja —un <th> por día— ya no está
+      && !/<th class="right" style="font-size:10px">\$\{dd\(f\)\}<\/th>/.test(h12));
+    // La barra es lo que hace visible el sube y baja sin leer un número.
+    check('tbs diario: cada día lleva su barra proporcional al jugado',
+      /const max = Math\.max\(\.\.\.bets, 1\)/.test(h12)
+      && /Math\.round\(\(d\.bet\/max\)\*100\)/.test(h12));
+    // "antes→ahora" no decía antes de qué. Son las dos mitades del MISMO mes, no el mes pasado.
+    check('tbs diario: dice contra qué se compara, con las fechas',
+      /margen 1ª→2ª/.test(h12) && /vs\. 1ª mitad/.test(h12)
+      && /No es contra el mes pasado/.test(h12));
     // Sin nada medido no se inventa un tiempo.
     check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
     // Se compara mitad nueva contra mitad vieja: el último día contra el anterior no dice nada.
