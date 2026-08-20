@@ -496,29 +496,133 @@ async function main() {
       /const vivos = \(dat\.clientes\|\|\[\]\)/.test(h12)
       && !/Total del mes por divisa/.test(h12));
 
-    // ── LO JUGADO Y EL MARGEN, NO SÓLO EL PROFIT ──────────────────────────────────────────
-    // Un cliente baja el profit por dos motivos opuestos: trae menos jugado (se le va el negocio)
-    // o los jugadores ganaron más (racha). Con sólo el profit los dos se ven iguales y llevan a
-    // decisiones contrarias. Verificado con datos reales de agosto: TBSDavidLatam bajó el jugado
-    // 39% con el margen MEJORANDO, y NachoAPI en PYG subió el jugado 48% con el margen cayendo de
-    // 27,3% a 4,0%. Son casos opuestos y el profit solo los mostraba igual.
-    check('tbs diario: muestra lo jugado y el margen, no sólo el profit',
-      /tdMitades\(c,'bet',dias\)/.test(h12) && /const mAnt = \(ba && !nuevo\) \? \(pa\/ba\)\*100/.test(h12)
-      && /Jugado \(in\)/.test(h12) && /Premios \(out\)/.test(h12));
-    // El veredicto pregunta PRIMERO por el jugado: es el único de los dos que significa que el
-    // cliente se está yendo.
-    check('tbs diario: el veredicto mira primero el jugado',
-      /if \(volPct != null && volPct <= -15\) return \{ txt:'trae menos jugado'/.test(h12)
-      && /ganaron los jugadores/.test(h12));
+    /* ── LA LÓGICA, PROBADA CON NÚMEROS Y NO MIRANDO EL ARCHIVO ─────────────────────────────
+       Los checks de esta pantalla eran todos expresiones regulares sobre el HTML: verificaban
+       que el texto estuviera escrito, no que la cuenta diera bien. Las tres funciones que
+       deciden qué dice cada fila están sueltas arriba del archivo justamente para poder
+       sacarlas y correrlas. Se extraen por nombre; si alguna dejara de existir, `armar` tira y
+       el check falla, que es lo que tiene que pasar — no puede pasar en el vacío. */
+    const armar = (nombres) => {
+      const cuerpo = nombres.map((n) => {
+        const i = h12.indexOf('\nfunction ' + n + '(');
+        if (i < 0) throw new Error('no está la función ' + n);
+        // Se corta en la próxima llave que cierra a nivel 0: es JS de verdad, no un recorte por
+        // línea que se rompe con el siguiente edit.
+        let d = 0, arr = false, j = h12.indexOf('{', i);
+        for (let k = j; k < h12.length; k++) {
+          const ch = h12[k];
+          if (ch === '{') d++;
+          else if (ch === '}') { d--; if (!d) { arr = k; break; } }
+        }
+        if (arr === false) throw new Error('no cierra la función ' + n);
+        return h12.slice(i, arr + 1);
+      }).join('\n');
+      const money = (n, dd = 2) => Number(n || 0).toLocaleString('es-AR',
+        { minimumFractionDigits: dd, maximumFractionDigits: dd });
+      // eslint-disable-next-line no-new-func
+      return new Function('money', cuerpo + '\nreturn {' + nombres.join(',') + '};')(money);
+    };
+    const TD = armar(['tdMesAnterior', 'tdComparar', 'tdVeredicto', 'tdDelta']);
+
+    // El mes anterior se calcula a mano y no con Date(): 'YYYY-MM' pasado por Date se corre de mes
+    // según la zona del navegador, y el reporte compararía contra el mes equivocado.
+    check('tbs diario: el mes anterior cruza bien el año',
+      TD.tdMesAnterior('2026-08') === '2026-07' && TD.tdMesAnterior('2026-01') === '2025-12'
+      && TD.tdMesAnterior('2026-10') === '2026-09',
+      TD.tdMesAnterior('2026-01'));
+
+    /* EL CASO QUE ORIGINÓ TODO. Con datos reales de agosto contra julio: un cliente puede bajar el
+       profit por dos motivos opuestos, y con el profit solo se ven iguales.
+         · trae menos jugado  → se le está yendo el negocio, hay que llamarlo
+         · ganaron los jugadores → juega lo mismo, es racha, se da vuelta solo */
+    const seVa = TD.tdComparar({ bet: 61, win: 56, profit: 5 }, { bet: 100, win: 92, profit: 8 });
+    const racha = TD.tdComparar({ bet: 100, win: 96, profit: 4 }, { bet: 100, win: 88, profit: 12 });
+    check('tbs diario: distingue perder el negocio de perder una racha',
+      TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, seVa.nuevo, 'julio', true).txt === 'trae menos jugado'
+      && TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true).txt === 'ganaron los jugadores',
+      'jugado −39% → ' + TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, false, 'julio', true).txt
+      + ' | queda 12%→4% con el mismo jugado → ' + TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, false, 'julio', true).txt);
+    // Y el que crece, y el que no se movió.
+    const sube = TD.tdComparar({ bet: 200, win: 180, profit: 20 }, { bet: 100, win: 90, profit: 10 });
+    const igual = TD.tdComparar({ bet: 102, win: 92, profit: 10 }, { bet: 100, win: 90, profit: 10 });
+    /* El detalle de "ganaron los jugadores" decía "juega lo mismo", y era falso cuando el jugado
+       había subido ×10 —el caso real de TBSEcuaB—. La conclusión no cambia (el negocio no se fue),
+       pero el motivo escrito al lado tiene que ser el de ESTE cliente. */
+    const subeYpierde = TD.tdComparar({ bet: 6300, win: 6362, profit: -62 }, { bet: 605, win: 481, profit: 124 });
+    const vSube = TD.tdVeredicto(subeYpierde.vol, subeYpierde.qAnt, subeYpierde.qNue, subeYpierde.nuevo, 'julio', true);
+    const vIgual = TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true);
+    check('tbs diario: no dice "juega lo mismo" de uno que jugó diez veces más',
+      vSube.txt === 'ganaron los jugadores' && /trae más jugado que en julio/.test(vSube.det)
+      && vIgual.txt === 'ganaron los jugadores' && /juega lo mismo/.test(vIgual.det),
+      vSube.det + '  ·  ' + vIgual.det);
+
+    check('tbs diario: el que crece y el que no se movió',
+      TD.tdVeredicto(sube.vol, sube.qAnt, sube.qNue, sube.nuevo, 'julio', true).txt === 'creciendo'
+      && TD.tdVeredicto(igual.vol, igual.qAnt, igual.qNue, igual.nuevo, 'julio', true).txt === 'estable');
+
+    /* ── EL QUE NO JUGABA EL MES PASADO ────────────────────────────────────────────────────
+       Una cuenta que arrancó de cero daba +1.716.225% y otra +25.079%. No es un error de cálculo
+       —es literalmente lo que creció— pero al lado del −39% sobre 98 millones de colones se
+       llevaba toda la atención, y el −39% es el que hay que atender. */
+    const cero = TD.tdComparar({ bet: 100000, win: 90000, profit: 10000 }, { bet: 6, win: 5, profit: 1 });
+    check('tbs diario: el que no jugaba el mes pasado lo dice, no muestra un porcentaje absurdo',
+      cero.nuevo === true && cero.vol === null && cero.volP === null
+      && TD.tdVeredicto(cero.vol, cero.qAnt, cero.qNue, cero.nuevo, 'julio', true).txt === 'nuevo');
+    // Pero uno que sí jugaba y creció mucho NO es "nuevo": es un cliente que creció, y hay que verlo.
+    const crecio = TD.tdComparar({ bet: 1000, win: 900, profit: 100 }, { bet: 100, win: 90, profit: 10 });
+    check('tbs diario: crecer mucho no es lo mismo que arrancar de cero',
+      crecio.nuevo === false && Math.round(crecio.vol) === 900 && Math.round(crecio.rVol) === 10);
+    // Y a partir de 6 veces se cambia de unidad: "+900%" hay que traducirlo, "×10" no.
+    check('tbs diario: los saltos grandes se dicen en veces, no en porcentaje',
+      TD.tdDelta(900, 10) === '×10' && TD.tdDelta(2, 1.02) === '+2%' && TD.tdDelta(-39, 0.61) === '-39%',
+      TD.tdDelta(900, 10) + ' / ' + TD.tdDelta(2, 1.02) + ' / ' + TD.tdDelta(-39, 0.61));
+    // Redondear −0,4% daba "-0%", que se lee como una caída y no es ninguna.
+    check('tbs diario: no se moverse no se muestra como "-0%"',
+      TD.tdDelta(-0.4, 0.996) === '0%' && TD.tdDelta(0.2, 1.002) === '0%',
+      TD.tdDelta(-0.4, 0.996));
+    // Comparar el profit contra una pérdida no se entiende ("cayó 300%" desde −62).
+    const desdePerdida = TD.tdComparar({ bet: 100, win: 110, profit: -10 }, { bet: 100, win: 105, profit: -5 });
+    check('tbs diario: no compara el profit contra un mes que perdió plata',
+      desdePerdida.volP === null && desdePerdida.vol === 0);
+    /* De ganar a perder no es "−150%": es haber dado vuelta el signo. Pasó de verdad —TBSEcuaB
+       hizo +124 USD en julio y −62 en agosto— y el porcentaje ahí no dice nada. */
+    const dioVuelta = TD.tdComparar({ bet: 6300, win: 6362, profit: -62 }, { bet: 605, win: 481, profit: 124 });
+    check('tbs diario: pasar de ganancia a pérdida se dice, no se pone un porcentaje',
+      dioVuelta.aPerdida === true && /pasó a pérdida/.test(h12),
+      'profit ' + dioVuelta.volP.toFixed(0) + '% → se muestra como "pasó a pérdida"');
+    // Y el que sigue ganando menos NO es "pasó a pérdida": ahí el porcentaje sí se entiende.
+    check('tbs diario: ganar menos sigue siendo un porcentaje',
+      TD.tdComparar({ bet: 100, win: 95, profit: 5 }, { bet: 100, win: 90, profit: 10 }).aPerdida === false);
+    // Sin mes anterior no se inventa una tendencia: se dice que no hay contra qué comparar.
+    check('tbs diario: sin mes anterior no inventa una tendencia',
+      TD.tdComparar({ bet: 100, win: 90, profit: 10 }, null).hay === false
+      && TD.tdVeredicto(null, null, null, false, 'junio', false).txt === ''
+      && /No hay días guardados de/.test(h12));
+
+    /* ── CONTRA EL MISMO TRAMO DEL MES PASADO ──────────────────────────────────────────────
+       Antes se partía el mes al medio (01–09 contra 10–19) porque era lo único posible con un solo
+       mes guardado. La pregunta real es "¿cómo veníamos el mes pasado a esta altura?". */
+    check('tbs diario: compara contra el mismo tramo del mes pasado',
+      /api\('\/api\/os\/tbs\/diario\?mes='\+mesAnt\)/.test(h12)
+      && /el mismo tramo de \$\{esc\(nomAnt\)\}/.test(h12)
+      && !/1ª mitad/.test(h12) && !/tdMitades/.test(h12));
+    // Sólo los días que están en LOS DOS meses: 19 contra 18 daría una caída inventada.
+    check('tbs diario: sólo compara los días que están en los dos meses',
+      /const comunes = dias\.map\(dd\)\.filter\(x => sAnt\.has\(x\)\)/.test(h12)
+      && /for \(const n of comunes\)/.test(h12)
+      && /no entran en la\s*\n?\s*comparación de ninguno de los dos lados/.test(h12));
+    // El cruce es por agente_id, no por login: un cliente renombrado dejaría de encontrarse.
+    check('tbs diario: cruza los dos meses por id de agente, no por nombre',
+      /idxAnt\.set\(c\.agente_id\+'\|'\+c\.moneda/.test(h12)
+      && /idxAnt\.get\(c\.agente_id\+'\|'\+c\.moneda\)/.test(h12));
+
     // Y ordena por lo que hay que atender, no por volumen.
     check('tbs diario: ordena por lo que hay que mirar primero',
       /const peso = \{ mal:0, ojo:1/.test(h12));
     // La forma se ve de un vistazo: una línea por cliente con el jugado de cada día.
     check('tbs diario: una línea muestra la forma del jugado',
       /function tdSpark/.test(h12) && /<polyline points=/.test(h12));
-    // Un renglón por CLIENTE con su moneda principal; las demás se despliegan. Con una fila por
-    // moneda, las importantes quedaban perdidas y el orden por caída ponía arriba a un cliente que
-    // pasó de 82 a 1 dólar — matemáticamente cierto y sin ninguna importancia.
+    // Un renglón por CLIENTE con su moneda principal; las demás se despliegan.
     check('tbs diario: una fila por cliente, las otras monedas plegadas',
       /g\.principal = g\.filas\[0\]/.test(h12) && /g\.otras = g\.filas\.slice\(1\)/.test(h12)
       && /function tdToggle/.test(h12));
@@ -526,51 +630,40 @@ async function main() {
     check('tbs diario: esconde lo que no movió nada en todo el mes',
       /c\.bet !== 0 \|\| c\.win !== 0 \|\| c\.profit !== 0/.test(h12)
       && /Se ocultaron/.test(h12));
-    // Con menos de 4 días no se afirma una tendencia: dos días no son una tendencia, son dos días.
-    check('tbs diario: sin días suficientes no inventa una tendencia',
-      /dias\.length>=4 && ba && !nuevo\) \? \(\(bn-ba\)\/ba\)\*100 : null/.test(h12)
-      && /a\.vol==null\?'<span class="muted">—<\/span>'/.test(h12));
+    // Sin nada medido no se inventa un tiempo.
+    check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
 
-    // ── LAS QUE ARRANCARON DE CERO ────────────────────────────────────────────────────────
-    // TBSArs2716 mostraba +25.079% y una cuenta en COP +1.716.225%. No es un error de cálculo:
-    // es literalmente lo que creció una cuenta que empezó el mes en cero. Pero al lado de un
-    // −39% sobre 98 millones de colones —el caso que sí hay que atender— el ojo va al número
-    // grande. Sin primera mitad no hay contra qué comparar: se dice eso y no se inventa un
-    // porcentaje. El margen de esa mitad tampoco vale, porque sale de dividir por casi nada.
-    check('tbs diario: la que arrancó de cero lo dice, no muestra un porcentaje absurdo',
-      /const nuevo = dias\.length>=4 && bn>0 && ba < \(ba\+bn\)\*0\.01/.test(h12)
-      && /a\.nuevo\?'<span class="muted" style="font-size:11px">arrancó de cero</.test(h12)
-      && /if \(nuevo\) return \{ txt:'arrancó de cero'/.test(h12));
-    // Y el margen 1ª→2ª se calla en esos casos: comparar contra una mitad vacía es ruido.
-    check('tbs diario: la que arrancó de cero tampoco compara márgenes',
-      /const mAnt = \(ba && !nuevo\)/.test(h12));
+    /* ── JUGADO Y PROFIT, PEGADOS ──────────────────────────────────────────────────────────
+       Había cuatro columnas entre los dos números —vs, margen, margen 1ª→2ª— y leer un cliente
+       era cruzar toda la pantalla. Cada número lleva su comparación DEBAJO, en chico: lo que se
+       compara con algo va junto a ese algo. */
+    const enc = h12.slice(h12.indexOf('<th>Cliente</th><th>Div</th>'), h12.indexOf('</tr></thead><tbody>\n      ${grupos.map'));
+    check('tbs diario: jugado y profit quedan uno al lado del otro',
+      enc.indexOf('Jugado (in)') >= 0 && enc.indexOf('Profit') >= 0
+      && enc.indexOf('Profit') - enc.indexOf('Jugado (in)') < 80,
+      enc.replace(/\s+/g, ' ').slice(0, 150));
+    // "Margen" no lo entiende nadie que no lo haya estudiado. La misma cuenta dicha en castellano.
+    check('tbs diario: el margen se dice como "queda de cada 100"',
+      /de cada 100/.test(h12) && /cuánto de cada 100 jugados te quedaste/.test(h12)
+      && !/>Margen</.test(h12));
 
-    // ── EL DÍA A DÍA, HACIA ABAJO ─────────────────────────────────────────────────────────
-    // Los días eran columnas: a partir del día 12 la tabla se salía de la pantalla y había que
-    // barrer con la vista de izquierda a derecha para seguir un solo cliente. Con los días como
-    // filas —01, 02, 03 hacia abajo— y jugado/premios/profit como columnas, las tres cantidades
-    // de un mismo día quedan enfrentadas y la tendencia se lee de arriba hacia abajo.
+    /* ── EL DÍA A DÍA, HACIA ABAJO ─────────────────────────────────────────────────────────
+       Los días eran columnas: a partir del día 12 la tabla se salía de la pantalla y seguir a un
+       cliente era barrer con la vista de izquierda a derecha. */
     check('tbs diario: el día a día va hacia abajo, con in/out/profit arriba',
-      /function tdDetalle\(c, dias\)/.test(h12)
+      /function tdDetalle\(c, dias, ref\)/.test(h12)
       && /<th class="right" style="font-size:10px">Jugado \(in\)<\/th>/.test(h12)
       && /<th class="right" style="font-size:10px">Premios \(out\)<\/th>/.test(h12)
-      // el día en la PRIMERA celda de la fila: es lo que lo hace una fila y no una columna
       && /<td class="muted" style="font-size:12px;width:30px">\$\{String\(f\)\.slice\(8,10\)\}<\/td>/.test(h12)
-      // y la forma vieja —un <th> por día— ya no está
       && !/<th class="right" style="font-size:10px">\$\{dd\(f\)\}<\/th>/.test(h12));
     // La barra es lo que hace visible el sube y baja sin leer un número.
     check('tbs diario: cada día lleva su barra proporcional al jugado',
       /const max = Math\.max\(\.\.\.bets, 1\)/.test(h12)
       && /Math\.round\(\(d\.bet\/max\)\*100\)/.test(h12));
-    // "antes→ahora" no decía antes de qué. Son las dos mitades del MISMO mes, no el mes pasado.
-    check('tbs diario: dice contra qué se compara, con las fechas',
-      /margen 1ª→2ª/.test(h12) && /vs\. 1ª mitad/.test(h12)
-      && /No es contra el mes pasado/.test(h12));
-    // Sin nada medido no se inventa un tiempo.
-    check('tbs diario: sin medición no muestra una estimación falsa', /seg!=null \?/.test(h12));
-    // Se compara mitad nueva contra mitad vieja: el último día contra el anterior no dice nada.
-    check('tbs diario: la comparación parte el período al medio',
-      /const m = Math\.floor\(v\.length\/2\)/.test(h12));
+    // Y abajo los dos totales, uno debajo del otro, para el mismo tramo de los dos meses.
+    check('tbs diario: el detalle cierra con los dos meses uno debajo del otro',
+      /\$\{tot\('Este mes', tb, tw, tp, true\)\}/.test(h12)
+      && /\$\{ref \? tot\(ref\.lab, ref\.bet, ref\.win, ref\.profit, false\) : ''\}/.test(h12));
   }
 
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
