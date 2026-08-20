@@ -620,8 +620,21 @@ async function main() {
     check('tbs diario: ordena por lo que hay que mirar primero',
       /const peso = \{ mal:0, ojo:1/.test(h12));
     // La forma se ve de un vistazo: una línea por cliente con el jugado de cada día.
+    /* La línea muestra la FORMA de adentro del mes; el color lo pone el VEREDICTO de la fila.
+       Se pintaba comparando las dos mitades del mes, y contra el mes pasado eso se contradecía en
+       el mismo renglón: TBSDavidLatam trae +230% contra julio —"creciendo", en verde— y adentro de
+       agosto viene bajando desde el pico del día 6, así que la línea salía roja al lado de la
+       palabra verde. Los dos datos son ciertos; dos colores peleados en un renglón, no. */
     check('tbs diario: una línea muestra la forma del jugado',
-      /function tdSpark/.test(h12) && /<polyline points=/.test(h12));
+      /function tdSpark\(vals, tono, ancho=90, alto=22\)/.test(h12) && /<polyline points=/.test(h12));
+    check('tbs diario: el color de la línea lo pone el veredicto, no las mitades del mes',
+      /const col = \{ mal:'var\(--red\)', ojo:'var\(--gold\)', bien:'var\(--green\)' \}\[tono\]/.test(h12)
+      && /tdSpark\(vals, a\.v && a\.v\.tono\)/.test(h12)
+      // y ya no queda la comparación de mitades que la pintaba antes
+      && !/const col = b<a\*0\.85/.test(h12));
+    // "Traer los 1 que faltan" no está escrito en castellano.
+    check('tbs diario: el botón dice bien el singular',
+      /falt===1\?'Traer el día que falta'/.test(h12));
     // Un renglón por CLIENTE con su moneda principal; las demás se despliegan.
     check('tbs diario: una fila por cliente, las otras monedas plegadas',
       /g\.principal = g\.filas\[0\]/.test(h12) && /g\.otras = g\.filas\.slice\(1\)/.test(h12)

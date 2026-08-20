@@ -3926,15 +3926,21 @@ function tdVeredicto(volPct, quedaAnt, quedaNue, nuevo, nomAnt, hay) {
 }
 
 /* Una línea que se lee de un vistazo: el jugado de cada día. No lleva ejes ni números —para eso
-   está la tabla— sino la FORMA: si viene cayendo, se ve cayendo. */
-function tdSpark(vals, ancho=90, alto=22) {
+   está la tabla— sino la FORMA: si viene cayendo dentro del mes, se ve cayendo.
+
+   EL COLOR LO PONE EL VEREDICTO DE LA FILA, no la forma de la línea. Se pintaba comparando las dos
+   mitades del mes, y con la comparación contra el mes pasado eso pasó a contradecirse en la misma
+   fila: TBSDavidLatam trae +230% contra julio —dice "creciendo" en verde— y adentro de agosto viene
+   bajando desde un pico enorme del día 6, así que la línea salía ROJA al lado de la palabra verde.
+   Los dos datos son ciertos y no se pisan: la forma es de adentro del mes, el veredicto es contra
+   julio. Pero dos colores peleados en un renglón no informan, confunden. Manda el veredicto, que es
+   la conclusión; la forma sigue estando en el dibujo. */
+function tdSpark(vals, tono, ancho=90, alto=22) {
   const max = Math.max(...vals, 1);
   if (!vals.length) return '';
   const paso = vals.length>1 ? ancho/(vals.length-1) : ancho;
   const pts = vals.map((v,i)=>`${(i*paso).toFixed(1)},${(alto - (v/max)*(alto-2)).toFixed(1)}`).join(' ');
-  const mitad = Math.floor(vals.length/2);
-  const a = vals.slice(0,mitad).reduce((x,y)=>x+y,0), b = vals.slice(mitad).reduce((x,y)=>x+y,0);
-  const col = b<a*0.85 ? 'var(--red)' : (b>a*1.15 ? 'var(--green)' : 'var(--muted)');
+  const col = { mal:'var(--red)', ojo:'var(--gold)', bien:'var(--green)' }[tono] || 'var(--muted)';
   return `<svg width="${ancho}" height="${alto}" style="vertical-align:middle">
     <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 }
@@ -4052,10 +4058,10 @@ VIEWS.tbsdiario = async () => {
     ${pct==null?'':`<div style="font-size:11px;color:${pct<0?'var(--red)':(pct>0?'var(--green)':'var(--muted)')}">
       ${esc(tdDelta(pct,ratio))} <span class="muted">vs. ${esc(nomAnt)}</span></div>`}`;
 
-  const filaCliente = (c, a, sub) => {
+  const filaCliente = (c, a, sub) => {   // `a` trae el veredicto en a.v: de ahí sale el color
     const vals = dias.map(f=>(c.dias[f]||{}).bet||0);
     return `<td class="muted">${esc(c.moneda)}</td>
-      <td>${sub?'':tdSpark(vals)}</td>
+      <td>${sub?'':tdSpark(vals, a.v && a.v.tono)}</td>
       <td class="right" style="padding-right:20px">${celda(c.bet, a.vol, a.rVol, false)}
         ${a.nuevo?`<div class="muted" style="font-size:11px">no jugaba en ${esc(nomAnt)}</div>`:''}</td>
       <td class="right" style="padding-right:20px">${a.aPerdida
@@ -4073,7 +4079,7 @@ VIEWS.tbsdiario = async () => {
           style="width:auto;display:inline-block;margin-left:8px"></h2>
       <div class="row" style="margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap">
         <div class="muted"><b>${plan.capturados||0}</b> de <b>${plan.dias||0}</b> días</div>
-        ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ Traer los ${falt} que faltan${
+        ${falt ? `<button class="small" id="td-btn" onclick="tdCapturar()">⬇ ${falt===1?'Traer el día que falta':'Traer los '+falt+' que faltan'}${
           seg!=null ? ' (~'+(seg<60?seg+' seg':Math.ceil(seg/60)+' min')+')' : ''}</button>`
         : '<span class="badge ok">completo</span> <span class="muted" style="font-size:11px">se actualiza solo a las 6 AM (hora del panel)</span>'}
         <span id="td-prog" class="muted"></span>
