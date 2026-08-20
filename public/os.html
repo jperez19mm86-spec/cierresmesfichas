@@ -36,6 +36,11 @@
   input:focus,select:focus { border-color:var(--gold); }
   button { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px; font-weight:700; cursor:pointer; font-size:13px; }
   button.outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  /* Un <a> que tiene que verse como un botón. Lo usa la descarga de la copia de seguridad:
+     tiene que ser un enlace de verdad —el navegador baja el archivo solo, con la cookie de la
+     sesión— y no un fetch, que traería un archivo binario a la memoria para nada. */
+  a.btn { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px;
+    font-weight:700; cursor:pointer; font-size:13px; text-decoration:none; display:inline-block; }
   button.danger { background:transparent; border:1px solid var(--red); color:var(--red); }
   button.small { padding:5px 9px; font-size:12px; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
@@ -3210,11 +3215,90 @@ async function delPersona(id){ if(!confirm('¿Eliminar participante?'))return; a
 function renderCfgHeader(){
   // Socios, Participaciones y Tabla Split se fueron a 💰 Reparto: las tres eran la misma
   // pregunta (cómo se divide lo que paga un cliente) partida en tres pantallas.
-  const subs=[['revision','🩺 Revisión'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
+  const subs=[['revision','🩺 Revisión'],['backup','🛟 Copia de seguridad'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="cfg-body"></div>`;
 }
+/* ───────── LA COPIA DE SEGURIDAD ─────────
+   Es lo único de todo el sistema que, si falta, no se puede rehacer con trabajo: la cotización de
+   un día que ya pasó no se vuelve a pedir. Por eso está primera en Config y por eso la pantalla
+   reclama cuando hace mucho que no se baja una.
+
+   El inventario tabla por tabla no es adorno: es lo único que deja ver que la copia trae todo. Un
+   "41 tablas" no distingue una base entera de 41 tablas vacías. */
+const BK_RECLAMA_DIAS = 7;
+CFG.backup = async () => {
+  const b = document.getElementById('cfg-body');
+  b.innerHTML = '<div class="card"><div class="muted">Mirando qué hay en la base…</div></div>';
+  const r = await api('/api/os/backup/inventario');
+  if (!r || !r.ok) { b.innerHTML = '<div class="card"><span class="badge err">'+esc((r&&r.error)||'no se pudo leer')+'</span></div>'; return; }
+  const d = r.diasDesde;
+  const vieja = d === null || d >= BK_RECLAMA_DIAS;
+  const cuando = r.ultima
+    ? (d === 0 ? 'hoy' : d === 1 ? 'ayer' : 'hace ' + d + ' días') + ' · ' + esc(r.ultima.nombre)
+    : 'nunca se bajó una';
+  const conFilas = r.tablas.filter(t=>t.filas).sort((x,y)=>y.filas-x.filas);
+  const vacias = r.tablas.filter(t=>!t.filas);
+  b.innerHTML = `
+    <div class="card">
+      <h2>🛟 Copia de seguridad</h2>
+      <div class="muted" style="margin-bottom:12px;max-width:70ch">
+        Baja <b>la base entera</b> en un solo archivo: los ${r.cuantasTablas} conjuntos de datos que
+        tiene el sistema, con los ${money(r.filas,0)} registros adentro. Para volver atrás se pone
+        ese archivo en el servidor y listo.</div>
+
+      <div class="row" style="align-items:center;gap:14px;flex-wrap:wrap;padding:12px 0;
+        border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+        <a class="btn" href="/api/os/backup/archivo" download
+           style="text-decoration:none;display:inline-block">⤓ Bajar la copia</a>
+        <div${vieja?' style="color:var(--red);font-weight:600"':' class="muted"'}>
+          ${vieja?'⚠ ':''}Última copia: ${cuando}</div>
+      </div>
+
+      <div class="avi" style="margin-top:14px;border-left:3px solid var(--red);background:rgba(217,83,79,.06);
+        padding:10px 12px;border-radius:0 8px 8px 0;max-width:74ch">
+        <b>Este archivo no se comparte.</b> Adentro van las contraseñas del casino, en texto legible
+        — es a propósito, para que la copia sirva para levantar el sistema en otro servidor. Guardalo
+        en un disco tuyo: nada de mandarlo por chat, Telegram, mail ni Drive compartido.</div>
+
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer" class="muted">Qué hay adentro (${conFilas.length} con datos${vacias.length?', '+vacias.length+' vacíos':''})</summary>
+        <div style="overflow-x:auto;margin-top:8px"><table style="min-width:100%"><thead><tr>
+          <th>Qué</th><th class="right">Registros</th></tr></thead><tbody>
+          ${conFilas.map(t=>`<tr><td style="font-size:13px">${esc(BK_NOMBRES[t.nombre]||t.nombre)}</td>
+            <td class="right">${money(t.filas,0)}</td></tr>`).join('')}
+          ${vacias.length?`<tr><td colspan="2" class="muted" style="font-size:12px;padding-top:10px">
+            Vacíos: ${vacias.map(t=>esc(BK_NOMBRES[t.nombre]||t.nombre)).join(' · ')}</td></tr>`:''}
+        </tbody></table></div>
+      </details>
+
+      <div class="muted" style="margin-top:14px;font-size:12px;max-width:74ch">
+        <b>No alcanza con copiar el archivo de la base del servidor.</b> La base guarda lo más
+        reciente en un archivo aparte y todavía no lo pasó al principal: copiando sólo el principal,
+        la copia abre vacía. Este botón pide la base entera, junta las dos partes y le corre un
+        control de integridad antes de dártela.</div>
+    </div>`;
+};
+/* Los nombres de la base no le dicen nada a nadie: acá se traducen a lo que significan. Los que no
+   están en la lista se muestran con su nombre técnico, que es mejor que esconderlos. */
+const BK_NOMBRES = {
+  movimientos:'Cuenta corriente (pagos y consumos)', comprobantes:'Comprobantes de pago',
+  clientes:'Clientes', paneles:'Paneles', pedidos:'Pedidos de fichas',
+  cierre_pct:'Matriz del cierre (% por proveedor)', cierre_cliente:'Cierre por cliente',
+  cierre_mes_snapshot:'Meses congelados', cierre_tc:'Tipos de cambio del cierre',
+  cierre_proveedor:'Costos de proveedor', reporte_diario:'Acumulado diario del casino',
+  tbs_diario:'Reporte diario de TBS', tc_snapshots:'Cotizaciones del peso',
+  tc_divisa_snapshots:'Cotizaciones de las demás monedas', tc_mes:'Tipos de cambio por mes',
+  participaciones:'Reparto entre socios', personas:'Socios', proveedores:'Proveedores',
+  documento_emitido:'Facturas emitidas', historial_config:'Historial de cambios',
+  solicitud_caja:'Solicitudes de caja', movimiento_panel:'Movimientos entre paneles',
+  casino_conexiones:'Conexiones al casino', divisas:'Monedas', config:'Configuración',
+  split_base:'Tabla de reparto', externos_base_mes:'Base de externos por mes',
+  estad_mes:'Estadísticas del mes', api_cliente:'Cuentas de API', api_pct:'% de las cuentas de API',
+  systems:'Sistemas', push_subs:'Avisos al teléfono', ganancias_cache:'Caché de ganancias',
+};
+
 // ───────── Importar la planilla "BASE DE DATOS CLIENTES" ─────────
 // Siempre: previsualizar → revisar → importar. El botón de importar recién se habilita
 // después de previsualizar, y manda el hash de ESA previsualización.
@@ -3233,7 +3317,7 @@ CFG.importar = () => {
       </div>
       <div class="row" style="margin-top:12px">
         <button class="outline" onclick="impPrever()">👁 Previsualizar</button>
-        <button class="outline" onclick="impSnapshot()">⤓ Bajar respaldo</button>
+        <button class="outline" onclick="impSnapshot()" title="Sólo clientes, paneles y divisas: es el deshacer de ESTE import, no la copia de seguridad del sistema">⤓ Bajar deshacer del import</button>
         <button id="imp-go" disabled onclick="impAplicar()">📥 Importar</button>
       </div>
       <div id="imp-out" style="margin-top:14px"></div>

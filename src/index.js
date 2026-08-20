@@ -446,18 +446,43 @@ app.get('/api/_dbinfo', (_req, res) => {
 });
 
 // ─────────────── BACKUP / RESTORE (resguardo de datos) ───────────────
-// Doble seguridad además del VOLUME: el admin puede bajarse TODA la base en un JSON y volver
-// a cargarla cuando quiera. Las contraseñas de los sistemas salen EN CLARO (descifradas) para
-// que el backup sea portable entre entornos; al restaurar se vuelven a cifrar con la CRED_KEY
-// de ESTE entorno. El archivo es sensible (tiene contraseñas) → guardalo en un lugar seguro.
+/*
+ * Éste es el respaldo en JSON, legible y revisable. La copia de seguridad DE VERDAD es el archivo
+ * .sqlite entero: ⚙ Config → 🛟 Copia de seguridad (src/backup.service.js). Este JSON existe para
+ * poder mirar los datos sin abrir la base y para mudar de entorno.
+ *
+ * ── POR QUÉ AHORA SON TODAS LAS TABLAS ───────────────────────────────────────────────────────
+ * Exportaba TRES —systems, clientes, pedidos— de las 41 que hay. Se llamaba "backup" y afuera
+ * quedaban los movimientos, los comprobantes, la matriz del cierre y los tipos de cambio viejos.
+ * Ahora la lista de tablas se lee de la base, así que una tabla nueva entra sola: nombrarlas a mano
+ * es exactamente cómo esto llegó a exportar tres.
+ *
+ * ── Y POR QUÉ EL RESTORE TAMBIÉN ─────────────────────────────────────────────────────────────
+ * Un dump completo con un restore que sólo entiende tres tablas es peor que lo que había: se
+ * restaura, contesta ok, y faltan 38 tablas sin que nada lo diga. Van juntos o no van.
+ *
+ * Los dumps viejos (version 1) se siguen restaurando por el camino de antes; el nuevo declara
+ * version 2. Si un dump v2 trae una tabla que esta base no tiene, se avisa en vez de ignorarla.
+ *
+ * ⚠️ Las contraseñas de los sistemas salen EN CLARO para que el respaldo sirva para mudar de
+ * entorno. El archivo no va a un chat, ni a Telegram, ni a un Drive compartido.
+ */
+const { db } = require('./db');
+
+const backupSvc = require('./backup.service');
+
 app.get('/api/_backup', (_req, res) => {
   try {
     const dump = {
-      version: 1,
+      version: 2,
       app: 'venta-fichas',
       exportedAt: new Date().toISOString(),
-      systems: store.list(),         // { activeId, systems:[... password EN CLARO ...] }
-      clientes: clientes.list(),     // { clientes:[...] }
+      tablas: backupSvc.dumpTablas(),
+      // Las credenciales del casino viven cifradas en la tabla; acá van descifradas para que el
+      // respaldo sirva en otro entorno con otra CRED_KEY. Es la única parte que no es un SELECT.
+      systems: store.list(),
+      // Compat con los lectores del formato viejo. Salen igual dentro de `tablas`.
+      clientes: clientes.list(),
       pedidos: { pedidos: pedidos.list() },
     };
     res.json({ ok: true, dump });
@@ -479,12 +504,27 @@ app.post('/api/_restore', (req, res) => {
     if (noVacia && !body.force) {
       return res.status(409).json({ ok: false, error: 'La base NO está vacía; mandá force:true para sobrescribir.', current: cur });
     }
-    const applied = {};
-    if (dump.systems && Array.isArray(dump.systems.systems)) { store.seed(dump.systems); applied.systems = dump.systems.systems.length; }
-    if (dump.clientes && Array.isArray(dump.clientes.clientes)) { clientes.seed(dump.clientes); applied.clientes = dump.clientes.clientes.length; }
-    if (dump.pedidos && Array.isArray(dump.pedidos.pedidos)) { pedidos.seed(dump.pedidos); applied.pedidos = dump.pedidos.pedidos.length; }
-    console.log('[RESTORE] aplicado:', JSON.stringify(applied), '(antes:', JSON.stringify(cur) + ')');
-    res.json({ ok: true, applied, before: cur });
+
+    let applied = {}; let avisos = [];
+    if (dump.tablas && typeof dump.tablas === 'object') {
+      const r = backupSvc.restaurarTablas(dump.tablas);
+      applied = r.aplicado; avisos = r.avisos;
+      // Las credenciales van aparte: en la tabla están cifradas con la CRED_KEY del entorno que
+      // hizo el respaldo, que no es la de éste. `seed` las vuelve a cifrar con la de acá.
+      if (dump.systems && Array.isArray(dump.systems.systems)) {
+        store.seed(dump.systems); applied.systems = dump.systems.systems.length;
+      }
+    } else {
+      // Formato viejo (version 1): tres tablas y nada más. Se restaura, y se dice que es parcial.
+      if (dump.systems && Array.isArray(dump.systems.systems)) { store.seed(dump.systems); applied.systems = dump.systems.systems.length; }
+      if (dump.clientes && Array.isArray(dump.clientes.clientes)) { clientes.seed(dump.clientes); applied.clientes = dump.clientes.clientes.length; }
+      if (dump.pedidos && Array.isArray(dump.pedidos.pedidos)) { pedidos.seed(dump.pedidos); applied.pedidos = dump.pedidos.pedidos.length; }
+      avisos.push('respaldo de formato viejo: sólo trae systems, clientes y pedidos. '
+        + 'Todo lo demás (movimientos, comprobantes, cierre, tipos de cambio) NO se restauró.');
+    }
+
+    console.log('[RESTORE] aplicado:', Object.keys(applied).length, 'tabla(s)', avisos.length ? '· avisos: ' + avisos.length : '');
+    res.json({ ok: true, applied, avisos, parcial: !dump.tablas, before: cur });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 

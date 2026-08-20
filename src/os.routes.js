@@ -60,6 +60,7 @@ const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const telegram = require('./telegram');
 const importSheet = require('./import-sheet.service');
+const backup = require('./backup.service');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -1598,6 +1599,27 @@ function mount(app) {
   // Flujo obligado: previsualizar → revisar → aplicar con el hash de esa previsualización.
   // Nada se escribe sin haber mirado antes qué cambia, y siempre queda el snapshot para deshacer.
   app.get('/api/os/import/snapshot', (_req, res) => ok(res, { snapshot: importSheet.snapshot() }));
+
+  /* ── LA COPIA DE SEGURIDAD DE TODA LA BASE ──────────────────────────────────────────────────
+     Van bajo /api/os/* a propósito: esa rama es sólo del dueño (auth.js:81 es lista blanca, y el
+     operador no la tiene). El archivo trae las contraseñas del casino adentro — ver el comentario
+     de backup.service.js. */
+  app.get('/api/os/backup/inventario', (_req, res) => ok(res, backup.inventario()));
+
+  app.get('/api/os/backup/archivo', async (_req, res) => {
+    let snap;
+    try { snap = await backup.snapshot(); }
+    // Se responde el error EN TEXTO y no como JSON: esto se abre navegando, no con fetch, así que
+    // un JSON de error se bajaría como archivo y parecería una copia.
+    catch (e) { return res.status(500).type('text/plain; charset=utf-8')
+      .send('No se pudo generar la copia: ' + e.message); }
+    res.setHeader('Content-Type', 'application/vnd.sqlite3');
+    res.setHeader('Content-Disposition', `attachment; filename="${snap.nombre}"`);
+    res.setHeader('Content-Length', snap.bytes);
+    res.send(snap.buffer);
+    // Después de mandarla: si la descarga se cortó antes, no cuenta como copia hecha.
+    res.on('finish', () => { try { backup.registrar(snap); } catch (e) { console.warn('[Backup]', e.message); } });
+  });
 
   app.post('/api/os/import/sheet', wrap(async (req, res) => {
     const { sheetId, dryRun, confirmHash, incluirBasePct, incluirTelegram } = req.body || {};

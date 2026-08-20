@@ -679,6 +679,200 @@ async function main() {
       && /\$\{ref \? tot\(ref\.lab, ref\.bet, ref\.win, ref\.profit, false\) : ''\}/.test(h12));
   }
 
+  /* ── LA COPIA DE SEGURIDAD ───────────────────────────────────────────────────────────────────
+     Un respaldo que nadie probó restaurar no es un respaldo: es un archivo. Estos checks no miran
+     que el código esté escrito — hacen la copia, la abren y buscan la plata adentro.
+
+     El respaldo que había exportaba 3 tablas de 41. Afuera quedaban los movimientos (la cuenta
+     corriente de los 45 clientes), los comprobantes, la matriz del cierre y los tipos de cambio
+     históricos — y ésos son los únicos datos del sistema que NO se pueden reconstruir con trabajo:
+     la cotización de un día que ya pasó no se vuelve a pedir. */
+  {
+    const Database = require('better-sqlite3');
+    const bk = require('../src/backup.service');
+    const { db: baseViva } = require('../src/db');
+
+    const inv = bk.inventario();
+    // Cubre TODA la base, no una lista escrita a mano: una tabla nueva entra sola. Nombrar las
+    // tablas a mano es exactamente cómo el respaldo viejo llegó a exportar tres.
+    const enBase = baseViva.prepare(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table'
+        AND name NOT LIKE 'sqlite_%'`).get().n;
+    check('backup: el inventario cuenta TODAS las tablas de la base',
+      inv.cuantasTablas === enBase && inv.cuantasTablas > 30,
+      inv.cuantasTablas + ' tablas · ' + inv.filas + ' filas');
+    // Las que guardan plata tienen que estar sí o sí. Si alguna se renombra, este check cae.
+    const CON_PLATA = ['movimientos', 'comprobantes', 'cierre_pct', 'cierre_mes_snapshot',
+      'reporte_diario', 'tbs_diario', 'tc_snapshots', 'tc_divisa_snapshots', 'participaciones',
+      'paneles', 'clientes', 'pedidos'];
+    const nombres = new Set(inv.tablas.map((t) => t.nombre));
+    const faltan = CON_PLATA.filter((t) => !nombres.has(t));
+    check('backup: están adentro las tablas donde vive la plata', !faltan.length, faltan.join(',') || 'las 12');
+
+    /* ── LA PRUEBA DE VERDAD: IDA Y VUELTA ────────────────────────────────────────────────────
+       Se escribe un movimiento con un importe reconocible, se hace la copia, se la abre como una
+       base aparte y se busca ESE importe. Es lo único que distingue "se generó un archivo" de "se
+       puede volver atrás con este archivo". */
+    const marca = 'BK-PRUEBA-' + Date.now();
+    baseViva.prepare(`INSERT INTO movimientos (id,cliente_id,tipo,monto_usdt,fecha,notas)
+        VALUES (?,?,?,?,?,?)`).run(marca, 'c_prueba_backup', 'pago', '50098.35', '2026-08-20', marca);
+    let snap = null, err = null;
+    try { snap = await bk.snapshot(); } catch (e) { err = e.message; }
+    check('backup: la copia se genera y pasa su propio control de integridad', !!snap && !err,
+      err || (Math.round(snap.bytes / 1024) + ' KB · ' + snap.control.tablas + ' tablas · '
+        + snap.control.filas + ' filas, todas coincidiendo con la base viva'));
+
+    if (snap) {
+      /* Se escribe el Buffer a un archivo y se abre DESDE AHÍ, que es exactamente lo que va a
+         hacer ella: bajar el archivo y ponerlo en el servidor. Abrirlo como Buffer en memoria
+         probaría otra cosa — y de hecho ése fue el camino que falló: `serialize()` sobre una base
+         en WAL devuelve una imagen que no vuelve a abrir. */
+      const tmpBk = require('path').join(require('os').tmpdir(), 'bk-check-' + process.pid + '.sqlite');
+      require('fs').writeFileSync(tmpBk, snap.buffer);
+      const copia = new Database(tmpBk, { readonly: true });
+      const fila = copia.prepare('SELECT monto_usdt, notas FROM movimientos WHERE id=?').get(marca);
+      check('backup: el pago que se acababa de registrar está adentro de la copia',
+        !!fila && fila.monto_usdt === '50098.35', fila ? fila.monto_usdt : 'NO ESTÁ');
+      // Y el resto de la base también, no sólo la fila de prueba.
+      const enCopia = copia.prepare(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table'
+          AND name NOT LIKE 'sqlite_%'`).get().n;
+      check('backup: la copia trae todas las tablas, no un pedazo', enCopia === enBase,
+        enCopia + ' de ' + enBase);
+      check('backup: la copia abierta está sana',
+        JSON.stringify(copia.pragma('integrity_check')) === '[{"integrity_check":"ok"}]');
+      copia.close();
+      try { require('fs').unlinkSync(tmpBk); } catch (e) {}
+    }
+    baseViva.prepare('DELETE FROM movimientos WHERE id=?').run(marca);
+
+    /* ── POR QUÉ NO ALCANZA CON COPIAR EL ARCHIVO DEL VOLUMEN ──────────────────────────────────
+       Es lo primero que uno piensa y da una base VACÍA. La base corre en WAL: lo que se escribe va
+       a `store.sqlite-wal` y recién pasa al principal en un checkpoint. Medido en esta base: 962 KB
+       en el principal y 4 MB en el WAL. Este check REPRODUCE el error para que quede probado que
+       `serialize` lo resuelve y que a nadie se le ocurra "simplificarlo" copiando el archivo. */
+    {
+      const os = require('os'); const fs = require('fs'); const path = require('path');
+      const tmp = path.join(os.tmpdir(), 'bk-wal-' + process.pid + '.sqlite');
+      [tmp, tmp + '-wal', tmp + '-shm'].forEach((f) => { try { fs.unlinkSync(f); } catch (e) {} });
+      const d = new Database(tmp);
+      d.pragma('journal_mode = WAL');
+      d.exec('CREATE TABLE plata (id INTEGER, monto TEXT)');
+      const ins = d.prepare('INSERT INTO plata VALUES (?,?)');
+      d.transaction(() => { for (let i = 0; i < 8000; i++) ins.run(i, String(i)); })();
+      ins.run(99999, 'EL-ULTIMO-PAGO');
+
+      const soloPrincipal = tmp + '.copia';
+      fs.copyFileSync(tmp, soloPrincipal);
+      let seVe = null;
+      try {
+        const c = new Database(soloPrincipal, { readonly: true });
+        seVe = c.prepare("SELECT COUNT(*) n FROM plata WHERE monto='EL-ULTIMO-PAGO'").get().n;
+        c.close();
+      } catch (e) { seVe = 'ni siquiera abre: ' + e.message; }
+      check('backup: copiar sólo el archivo principal PIERDE los datos (por eso no se hace así)',
+        seVe !== 1, 'copiando el archivo: ' + seVe);
+
+      /* El camino corto era `db.serialize()`, y sobre una base en WAL NO SIRVE: devuelve una
+         imagen que ya no vuelve a abrir, porque el modo WAL viaja en el encabezado y una base WAL
+         necesita sus archivos al lado. Se deja probado para que nadie lo intente de nuevo. */
+      let serializeAbre = null;
+      try { const sv = new Database(d.serialize(), { readonly: true });
+        serializeAbre = sv.prepare("SELECT COUNT(*) n FROM plata").get().n; sv.close();
+      } catch (e) { serializeAbre = 'no abre: ' + e.message; }
+      check('backup: db.serialize() no sirve sobre una base en WAL (por eso se usa db.backup)',
+        serializeAbre !== 8001, String(serializeAbre));
+
+      // Y el camino que SÍ se usa: el respaldo en caliente trae todo, WAL incluido.
+      const destino = tmp + '.bk';
+      await d.backup(destino);
+      const c2 = new Database(destino, { readonly: true });
+      const conBackup = c2.prepare("SELECT COUNT(*) n FROM plata WHERE monto='EL-ULTIMO-PAGO'").get().n;
+      const todas = c2.prepare('SELECT COUNT(*) n FROM plata').get().n;
+      check('backup: db.backup() sí trae lo que está en el WAL', conBackup === 1 && todas === 8001,
+        todas + ' filas, último pago: ' + (conBackup ? 'sí' : 'NO'));
+      c2.close(); d.close();
+      [tmp, tmp + '-wal', tmp + '-shm', soloPrincipal, destino].forEach((f) => { try { fs.unlinkSync(f); } catch (e) {} });
+    }
+
+    // Se anota DESPUÉS de mandarla: una descarga que se cortó no cuenta como copia hecha.
+    const hOs = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('backup: la fecha se anota recién cuando la descarga terminó',
+      /res\.on\('finish', \(\) => \{ try \{ backup\.registrar\(snap\)/.test(hOs));
+    // El error va en texto plano: navegando, un JSON de error se bajaría como archivo y parecería
+    // una copia.
+    check('backup: si falla, no baja un archivo que parezca una copia',
+      /return res\.status\(500\)\.type\('text\/plain; charset=utf-8'\)/.test(hOs));
+    // Bajo /api/os/* queda solo para el dueño: el operador no lo tiene en su lista blanca.
+    const hAuth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('backup: el operador no puede bajarse la base',
+      /app\.get\('\/api\/os\/backup\/archivo'/.test(hOs)
+      && !/backup/.test(hAuth.slice(hAuth.indexOf('const OPERADOR_PUEDE'), hAuth.indexOf('OPERADOR_PAGINAS'))));
+
+    // La pantalla: reclama cuando hace mucho, y avisa que el archivo no se comparte.
+    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('backup: tiene su lugar propio en Config y reclama si está vieja',
+      /\['backup','🛟 Copia de seguridad'\]/.test(hUi) && /CFG\.backup = async/.test(hUi)
+      && /const BK_RECLAMA_DIAS = 7/.test(hUi) && /Última copia: \$\{cuando\}/.test(hUi));
+    check('backup: la pantalla avisa que el archivo no se comparte',
+      /Este archivo no se comparte/.test(hUi) && /contraseñas del casino/.test(hUi));
+    // El botón del import baja OTRA cosa (3 tablas, para deshacer ese import). Que no se confunda
+    // con la copia de seguridad del sistema es la mitad del arreglo.
+    check('backup: el respaldo del import ya no se llama igual que la copia de seguridad',
+      /⤓ Bajar deshacer del import/.test(hUi) && !/>⤓ Bajar respaldo</.test(hUi));
+
+    /* ── EL RESPALDO EN JSON Y SU RESTORE VAN JUNTOS ──────────────────────────────────────────
+       Un dump completo con un restore que entiende tres tablas es PEOR que lo que había: contesta
+       ok y faltan 38 tablas sin que nada lo diga. */
+    const hIdx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('backup json: exporta todas las tablas, leídas de la base',
+      /tablas: backupSvc\.dumpTablas\(\)/.test(hIdx) && /version: 2/.test(hIdx));
+
+    /* ── IDA Y VUELTA DEL RESPALDO JSON ───────────────────────────────────────────────────────
+       La lógica vivía ADENTRO de la ruta y por eso no se podía probar sin pegarle a producción.
+       Sacada a un módulo, se le puede hacer la única prueba que importa: sacar el respaldo, volver
+       a meterlo entero, y comparar tabla por tabla. Si algo se pierde en el camino, se ve acá.
+
+       Restaurar los MISMOS datos deja la base igual que antes, así que el resto de los checks no
+       se entera — pero recorre el DELETE + INSERT de las 44 tablas de verdad. */
+    const antes = {}; bk.tablas().forEach((t) => { antes[t] = baseViva.prepare(`SELECT COUNT(*) c FROM "${t}"`).get().c; });
+    const dump = bk.dumpTablas();
+    check('backup json: el dump trae las 44 tablas con sus filas',
+      Object.keys(dump).length === bk.tablas().length
+      && Object.keys(dump).every((t) => dump[t].length === antes[t]),
+      Object.keys(dump).length + ' tablas');
+
+    let rest = null, restErr = null;
+    try { rest = bk.restaurarTablas(dump); } catch (e) { restErr = e.message; }
+    check('backup json: se puede volver a meter entero, sin errores', !!rest && !restErr,
+      restErr || Object.keys(rest.aplicado).length + ' tablas restauradas');
+
+    const despues = {}; bk.tablas().forEach((t) => { despues[t] = baseViva.prepare(`SELECT COUNT(*) c FROM "${t}"`).get().c; });
+    const perdidas = bk.tablas().filter((t) => antes[t] !== despues[t])
+      .map((t) => `${t}: ${antes[t]}→${despues[t]}`);
+    check('backup json: después de restaurar no falta ni sobra una sola fila', !perdidas.length,
+      perdidas.join(', ') || Object.values(despues).reduce((a2, b2) => a2 + b2, 0) + ' filas intactas');
+
+    // Y el contenido, no sólo la cantidad: un comprobante con su archivo adentro tiene que volver igual.
+    const comp = baseViva.prepare('SELECT id, monto, archivo_datos FROM comprobantes WHERE archivo_datos IS NOT NULL LIMIT 1').get();
+    if (comp) {
+      const orig = (dump.comprobantes || []).find((c) => c.id === comp.id);
+      check('backup json: el comprobante vuelve con su monto y su archivo intactos',
+        !!orig && orig.monto === comp.monto && orig.archivo_datos === comp.archivo_datos,
+        comp.id + ' · ' + Math.round(String(comp.archivo_datos).length / 1024) + ' KB de adjunto');
+    }
+    // Todo o nada: si una tabla explota a mitad, la transacción tiene que dejar la base como estaba.
+    check('backup json: el restore es todo o nada, y apaga las claves foráneas mientras dura',
+      /const correr = db\.transaction/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'src', 'backup.service.js'), 'utf8'))
+      && /db\.pragma\('foreign_keys = OFF'\)/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'src', 'backup.service.js'), 'utf8')));
+    // Un respaldo viejo se restaura igual, pero diciendo que es parcial.
+    check('backup json: un respaldo del formato viejo avisa que restauró sólo una parte',
+      /respaldo de formato viejo: sólo trae systems, clientes y pedidos/.test(hIdx)
+      && /parcial: !dump\.tablas/.test(hIdx));
+    // Y sigue pidiendo force para no pisar una base con datos.
+    check('backup json: no pisa una base con datos sin force',
+      /if \(noVacia && !body\.force\)/.test(hIdx));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir
