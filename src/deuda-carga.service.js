@@ -119,7 +119,7 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
   const deuda = money.round(money.pct(monto, base), 2);
 
   const cuentaEn = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
-  let enUsdt = null; let tc = null; let aviso = null;
+  let enUsdt = null; let tc = null; let aviso = null; let tcModo = null;
 
   if (cuentaEn === 'USDT') {
     if (divisa === 'USDT' || divisa === 'USD') {
@@ -136,9 +136,32 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
       if (r && r.vivo && money.isPos(String(r.tc))) {
         tc = String(r.tc);
         enUsdt = money.round(money.div(deuda, tc), 2);
+      } else if (divisa === 'ARS') {
+        /* EL PESO ERA LA ÚNICA DIVISA SIN RESPALDO. Las demás pasan por `tcDelDia`, que si no tiene
+           la foto del día cae al TC del mes; el peso iba sólo por la cotización viva y si esa
+           fallaba se quedaba sin la cara en dólares para siempre.
+           No se congela un promedio como si fuera la cotización del momento: se marca `tc_modo`
+           = 'mes' y la cara en dólares se DERIVA al leer (valuacion.js). El día que se carga el TC
+           definitivo del cierre, esta carga pasa a valer lo que corresponde, sola. */
+        tcModo = 'mes';
+        aviso = 'sin cotización del momento: se valúa con el tipo de cambio del mes';
       } else {
-        aviso = 'no se pudo tomar el tipo de cambio del momento: la deuda quedó en '
-          + `${divisa} y falta pasarla a dólares`;
+        /* ⚠️ ACÁ SE PERDÍA LA PLATA.
+           Con la cuenta en dólares y una carga en una moneda que no es el peso ni el dólar, la
+           cara en pesos queda en null por definición (`divisa === 'ARS' ? deuda : null`). Si
+           además no hay tipo de cambio para esa moneda, la otra cara también queda en null: el
+           movimiento se grababa con las DOS columnas vacías. Esa comisión no se cobraba nunca, la
+           cuenta corriente cerraba perfecta, y el único rastro quedaba en el texto de las notas.
+           Y el contador que existe para pescar esto (deuda.service) sólo mira cuando la OTRA
+           columna tiene algo: con las dos vacías no lo veía.
+
+           No se graba. La carga queda sin deuda y aparece en 🩺 Revisión como "carga despachada
+           sin deuda registrada" — una lista que se calcula comparando pedidos contra movimientos,
+           así que se borra sola en cuanto la deuda se genera. Cargando el TC de esa moneda y
+           apretando "Generar la deuda del mes", entra. */
+        return { ok: false, sinTC: true, divisa,
+          motivo: `no hay tipo de cambio de ${divisa} para pasar la comisión a dólares. `
+            + `Cargalo en 💱 Tipos de cambio y volvé a generar la deuda del mes.` };
       }
     }
   }
@@ -148,13 +171,14 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
     monto_ars: divisa === 'ARS' ? deuda : null,
     monto_usdt: enUsdt,
     tc_momento: tc,
+    tc_modo: tcModo,
     base_pct_aplicado: String(base),
     divisa,
     fecha: pedido.resueltoAt || pedido.createdAt || undefined,
     notas: `Fichas · ${base}% de ${money.fmt(monto, 0)} ${divisa}`
       + (tc ? ` · TC ${tc}` : '') + (aviso ? ` · ${aviso}` : ''),
   });
-  return { ok: true, movimiento: mv, tc, aviso, deuda, divisa, base, cuentaEn };
+  return { ok: true, movimiento: mv, tc, tcModo, aviso, deuda, divisa, base, cuentaEn };
 }
 
 /**

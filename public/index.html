@@ -892,6 +892,14 @@
     const { body: d } = await api(`/api/pedidos/${id}/cargar`, { method: 'POST' });
     if (d && d.ok) {
       st.innerHTML = `<span class="badge ok">✓ CARGADO</span> ${d.newBalance != null ? ('<span class="meta">nuevo balance: ' + esc(String(d.newBalance)) + '</span>') : ''}`;
+      /* Las fichas salieron y la comisión de esa carga NO quedó en la cuenta del cliente. La carga
+         está bien —por eso sigue diciendo CARGADO— pero hay algo que arreglar, y antes el único
+         rastro era una línea en los logs del servidor que no lee nadie. */
+      if (d.avisoDeuda) {
+        st.innerHTML += `<div style="margin-top:5px;color:#b3261e;font-size:12.5px">
+          ⚠ La comisión de esta carga no se registró: ${esc(d.avisoDeuda.motivo)}</div>`;
+        return;   // sin el refresco automático, para que el aviso quede a la vista
+      }
       setTimeout(loadPedidos, 1300);
     } else {
       st.innerHTML = `<span class="badge err">✗ ${esc((d && d.error) || 'falló')}</span> ${d && d.detail ? ('<span class="meta">' + esc(d.detail) + '</span>') : ''}`;

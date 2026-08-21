@@ -1121,6 +1121,138 @@ async function main() {
       /async function setTcProv\(mes, forzar\)\{/.test(hUi)
       && /if \(r\.confirmar && confirm\(r\.error \+ '\\n\\n¿Guardar ' \+ v \+ ' igual\?'\)\) return setTcProv\(mes, true\)/.test(hUi));
   }
+  /* ── LA CARGA QUE NO PUEDE PASARSE A DÓLARES ─────────────────────────────────────────────────
+     El agujero: cuenta en dólares + carga en una moneda que no es el peso ni el dólar + esa moneda
+     sin tipo de cambio. La cara en pesos queda en null por definición (`divisa === 'ARS' ? deuda :
+     null`) y sin TC la otra también: el movimiento se grababa con las DOS columnas vacías. Sumaba
+     cero, la cuenta corriente cerraba perfecta, y esa comisión no se cobraba nunca.
+
+     El ciclo entero se prueba acá: no se graba → aparece en Revisión → se carga el TC → entra →
+     desaparece de Revisión. */
+  {
+    const clientesStore = require('../src/clientes-store');
+    const pedidosStore = require('../src/pedidos-store');
+    const movsStore = require('../src/movimientos-store');
+    const deudaCarga = require('../src/deuda-carga.service');
+    const revisionSvc = require('../src/revision.service');
+    const cierreSt = require('../src/cierre-store');
+    const { db: baseCarga } = require('../src/db');
+
+    // Una moneda inventada, para que no haya forma de que tenga tipo de cambio de antes.
+    const MONEDA = 'ZZK';
+    const mesPrueba = '2026-08';
+    const cli = clientesStore.createCliente({ codigo: 'ZZ-CARGA-TEST', nombre: 'Prueba carga' });
+    // El % base no vive en el cliente: es versionado (historial.js). Sin cuenta declarada, la
+    // moneda es USDT, que es justo el caso que se quiere probar.
+    require('../src/historial').setValor('cliente', cli.id, 'precio_base_pct',
+      { valor: '10', tipo_cambio: 'correccion', notas: 'prueba' });
+    const ped = pedidosStore.create({ codigo: 'ZZ-CARGA-TEST', clienteNombre: 'Prueba carga',
+      divisa: MONEDA, monto: 1000000 });
+    pedidosStore.setEstado(ped.id, 'cargado');
+    // La fecha manda para que caiga en el mes que se revisa.
+    const conFecha = pedidosStore.list({ estado: 'cargado' }).find((p) => p.id === ped.id);
+
+    // 1 · sin tipo de cambio, NO se graba
+    const sinTC = await deudaCarga.porCarga({ ...conFecha, resueltoAt: mesPrueba + '-15T12:00:00.000Z' });
+    check('carga sin TC: no genera un movimiento vacío',
+      sinTC.ok === false && sinTC.sinTC === true && /no hay tipo de cambio de ZZK/.test(sinTC.motivo),
+      sinTC.motivo);
+    const trasFallo = movsStore.list({ cliente_id: cli.id, tipo: 'carga' });
+    check('carga sin TC: no quedó ningún movimiento a medias', trasFallo.length === 0,
+      trasFallo.length + ' movimiento(s)');
+
+    // 2 · y el store lo rechaza aunque se lo pidan directo: es el respaldo, no el arreglo
+    let tiroStore = false;
+    try { movsStore.create({ cliente_id: cli.id, tipo: 'carga', divisa: MONEDA, monto_ars: null, monto_usdt: null }); }
+    catch (e) { tiroStore = /sin importe en ninguna de las dos monedas/.test(e.message); }
+    check('carga sin importe: el store la rechaza por cualquier camino', tiroStore);
+    // Pero un ajuste en cero sigue siendo válido: no todo movimiento es una carga.
+    const aj = movsStore.create({ cliente_id: cli.id, tipo: 'ajuste', monto_usdt: '0', notas: 'zz-prueba' });
+    check('carga sin importe: un ajuste en cero sigue entrando', !!aj && aj.tipo === 'ajuste');
+    baseCarga.prepare('DELETE FROM movimientos WHERE id=?').run(aj.id);
+
+    // 3 · Revisión la muestra, con la moneda que hay que cargar
+    const rev = revisionSvc.revisar(mesPrueba);
+    const item = rev.items.find((i) => /sin su comisión registrada/.test(i.titulo));
+    check('carga sin TC: 🩺 Revisión la lista como grave',
+      !!item && item.nivel === 'grave' && new RegExp(MONEDA).test(item.detalle),
+      item ? item.titulo : 'NO aparece');
+    check('carga sin TC: Revisión dice qué cliente y cuánto',
+      !!item && item.afectados.some((a) => /ZZ-CARGA-TEST/.test(a) && /ZZK/.test(a)),
+      item ? item.afectados[0] : '');
+
+    /* 3b · Y NO grita por lo que está bien. Es la mitad del valor del aviso: medido contra
+       producción, de 996 cargas entre mayo y agosto hay 771 sin movimiento propio y NINGUNA es un
+       problema — mayo/junio/julio se cobraron en el cierre mensual (la deuda carga por carga
+       arrancó el 1 de agosto) y las 40 de agosto son de clientes con % base en CERO, que no
+       generan comisión a propósito. Un aviso que grita por 771 cosas correctas se aprende a
+       ignorar, y tapa el que importa. */
+    const cli0 = clientesStore.createCliente({ codigo: 'ZZ-BASE-CERO', nombre: 'Base cero' });
+    require('../src/historial').setValor('cliente', cli0.id, 'precio_base_pct',
+      { valor: '0', tipo_cambio: 'correccion', notas: 'prueba' });
+    const ped0 = pedidosStore.create({ codigo: 'ZZ-BASE-CERO', clienteNombre: 'Base cero',
+      divisa: MONEDA, monto: 999999 });
+    pedidosStore.setEstado(ped0.id, 'cargado');
+    const rev0 = revisionSvc.revisar(mesPrueba);
+    const item0 = rev0.items.find((i) => /sin su comisión registrada/.test(i.titulo));
+    check('carga con base 0: NO aparece en Revisión (no genera comisión a propósito)',
+      !!item0 && item0.cuantos === 1 && !item0.afectados.some((x) => /ZZ-BASE-CERO/.test(x)),
+      item0 ? item0.cuantos + ' listada(s), y ninguna es la de base 0' : 'no hay item');
+    pedidosStore.remove(ped0.id);
+    require('../src/db').db.prepare("DELETE FROM config_valores WHERE entidad_id=?").run(cli0.id);
+    require('../src/db').db.prepare("DELETE FROM historial_config WHERE entidad_id=?").run(cli0.id);
+    clientesStore.removeCliente(cli0.id);
+
+    // 4 · se carga el TC de esa moneda y la deuda entra
+    cierreSt.setTC(MONEDA, 'Agosto_2026', '4000', true);
+    const conTC = await deudaCarga.porCarga({ ...conFecha, resueltoAt: mesPrueba + '-15T12:00:00.000Z' });
+    check('carga con TC: ahora sí genera la deuda',
+      conTC.ok === true && !!conTC.movimiento, conTC.ok ? 'movimiento creado' : conTC.motivo);
+    // 10% de 1.000.000 ZZK = 100.000 ZZK ÷ 4000 = 25 USDT
+    check('carga con TC: la comisión queda bien calculada',
+      conTC.movimiento && conTC.movimiento.monto_usdt === '25',
+      '10% de 1.000.000 ZZK a 4000 → ' + (conTC.movimiento || {}).monto_usdt + ' USDT');
+
+    // 5 · y el aviso de Revisión desaparece solo, sin que nadie lo tache
+    const rev2 = revisionSvc.revisar(mesPrueba);
+    check('carga con TC: el aviso de Revisión se borra solo',
+      !rev2.items.some((i) => /sin su comisión registrada/.test(i.titulo)));
+
+    // limpieza
+    baseCarga.prepare('DELETE FROM movimientos WHERE cliente_id=?').run(cli.id);
+    pedidosStore.remove(ped.id);
+    require('../src/db').db.prepare("DELETE FROM config_valores WHERE entidad_id=?").run(cli.id);
+    require('../src/db').db.prepare("DELETE FROM historial_config WHERE entidad_id=?").run(cli.id);
+    clientesStore.removeCliente(cli.id);
+    cierreSt.removeMonedaTC(MONEDA);
+
+    /* ── EL PESO ERA LA ÚNICA DIVISA SIN RESPALDO ─────────────────────────────────────────────
+       Las demás pasan por tcDelDia, que si no tiene la foto del día cae al TC del mes. El peso
+       iba sólo por la cotización viva: si esa fallaba, se quedaba sin la cara en dólares para
+       siempre. Ahora se marca tc_modo='mes' y se deriva al leer — el día que se carga el TC
+       definitivo del cierre, esa carga pasa a valer lo que corresponde, sola. */
+    const srcCarga = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda-carga.service.js'), 'utf8');
+    check('carga en pesos sin cotización viva: se valúa con el TC del mes, no se pierde',
+      /\} else if \(divisa === 'ARS'\) \{[\s\S]{0,600}?tcModo = 'mes';/.test(srcCarga)
+      && /tc_modo: tcModo,/.test(srcCarga));
+    /* Y hay que enterarse EN EL MOMENTO, no sólo al revisar el mes. Las fichas ya salieron: la
+       carga sigue estando bien, pero la comisión no quedó en la cuenta. Antes el único rastro era
+       un console.warn en los logs de Railway. */
+    const srcIdx = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('carga sin TC: el aviso viaja en la respuesta de la carga',
+      /const deudaFalla = deudaCarga && !deudaCarga\.ok && deudaCarga\.sinTC/.test(srcIdx)
+      && /\.\.\.\(deudaFalla \? \{ avisoDeuda: deudaFalla \} : \{\}\)/.test(srcIdx));
+    const srcOp = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    check('carga sin TC: la pantalla del operativo lo muestra al lado del pedido',
+      /if \(d\.avisoDeuda\)/.test(srcOp)
+      && /La comisión de esta carga no se registró/.test(srcOp));
+
+    // Y el contador de la cuenta corriente ve los que hayan quedado de antes.
+    const srcDeuda = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda.service.js'), 'utf8');
+    check('cuenta corriente: cuenta aparte los movimientos sin importe en ninguna moneda',
+      /\(m\[otra\] == null \|\| m\[otra\] === ''\)\) sinImporte \+= 1;/.test(srcDeuda)
+      && /^\s{4}sinImporte,$/m.test(srcDeuda));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir
@@ -3143,7 +3275,20 @@ async function main() {
     // Y si la fuente no contesta NO se congela con una cotización vieja: se vería igual de bien y
     // estaría mal, y nadie va a volver a mirarla.
     check('deuda por carga: no congela con un TC viejo', /r\.vivo && money\.isPos/.test(src));
-    check('deuda por carga: sin TC lo deja marcado en vez de inventar', /falta pasarla a dólares/.test(src));
+    /* ── SIN TC NO SE GRABA UNA CARGA VACÍA ───────────────────────────────────────────────────
+       Antes se grababa igual con un texto en las notas ("falta pasarla a dólares"). Con la cuenta
+       en dólares y una carga en una moneda que no es el peso ni el dólar, la cara en pesos queda
+       en null por definición; sin TC la otra también, y el movimiento entraba con las DOS columnas
+       vacías. Sumaba cero, la cuenta corriente cerraba perfecta, y esa comisión no se cobraba
+       nunca. El contador que existía para pescarlo (`enOtraMoneda`) pide que la OTRA columna tenga
+       algo, así que con las dos vacías no lo veía. */
+    check('deuda por carga: sin TC no se graba una carga sin importe',
+      /return \{ ok: false, sinTC: true, divisa,/.test(src)
+      && /no hay tipo de cambio de \$\{divisa\} para pasar la comisión a dólares/.test(src)
+      && !/falta pasarla a dólares/.test(src));
+    // El peso era la única divisa sin respaldo: las demás caen al TC del mes dentro de tcDelDia.
+    check('deuda por carga: el peso sin cotización viva se valúa con el TC del mes',
+      /\} else if \(divisa === 'ARS'\) \{/.test(src) && /tcModo = 'mes';/.test(src));
     // Idempotente por pedido: la ruta de cargar se puede reintentar.
     check('deuda por carga: el mismo pedido no cobra dos veces',
       /m\.pedido_id === pedido\.id/.test(src) && /ya estaba/.test(src));

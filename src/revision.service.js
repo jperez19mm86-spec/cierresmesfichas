@@ -11,6 +11,8 @@
  * Es solo de lectura: no corrige nada solo. Que un número esté mal es una decisión del dueño.
  */
 const clientes = require('./clientes-store');
+const pedidosStore = require('./pedidos-store');
+const deudaCarga = require('./deuda-carga.service');
 const paneles = require('./paneles-store');
 const cierre = require('./cierre-store');
 const cierreMes = require('./cierre-mes.service');
@@ -172,9 +174,82 @@ function revisar(mes) {
   //
   // ⚠️ Un 0 NO se marca: significa "a este proveedor no se le cobra", que es una decisión tomada.
   items.push(...revisarBajoCosto(m));
+  items.push(...revisarCargasSinDeuda(m));
 
   const graves = items.filter((i) => i.nivel === GRAVE).length;
   return { mes: m, items, graves, avisos: items.length - graves, limpio: items.length === 0 };
+}
+
+/**
+ * ── FICHAS DESPACHADAS QUE NO PUDIERON GENERAR SU COMISIÓN ───────────────────────────────────
+ *
+ * Cada carga genera su deuda en el momento: el % base sobre lo cargado. Hay un caso donde no se
+ * puede — cuenta en dólares, carga en una moneda que no es el peso ni el dólar, y esa moneda sin
+ * tipo de cambio en ese mes. Antes el movimiento se grababa igual con las dos columnas en null:
+ * sumaba cero, la cuenta corriente cerraba perfecta, y esa comisión no se cobraba nunca. Ahora no
+ * se graba, y la carga aparece acá.
+ *
+ * ── POR QUÉ NO ALCANZA CON "PEDIDO CARGADO SIN MOVIMIENTO" ─────────────────────────────────
+ * Porque hay tres motivos legítimos de no tener deuda propia, y juntos son la enorme mayoría.
+ * Medido contra producción: de 996 cargas entre mayo y agosto, 771 no tienen movimiento y NINGUNA
+ * es un problema.
+ *   · Mayo, junio y julio enteros (731): la deuda carga por carga arrancó el 1 de agosto; esos
+ *     meses se cobraron en el cierre mensual.
+ *   · 40 cargas de agosto: son de clientes con % base en CERO — no generan comisión a propósito.
+ *   · Un código que no es de ningún cliente ya lo dice otro punto de esta misma pantalla.
+ *
+ * Un aviso que grita por 771 cosas que están bien es un aviso que se aprende a ignorar, y de paso
+ * tapa el que importa. Así que se listan SÓLO las que tendrían que haber generado comisión y no
+ * pudieron: cliente con base mayor que cero, y la moneda de la carga sin tipo de cambio.
+ *
+ * NO HACE FALTA UNA TABLA NUEVA: sale de comparar los pedidos ya cargados contra los movimientos
+ * que salieron de ellos. Por eso la lista se borra sola en cuanto la deuda se genera —cargando el
+ * TC que falta y apretando "Generar la deuda del mes"— y no queda un pendiente fantasma que
+ * alguien tenga que acordarse de tachar.
+ */
+function revisarCargasSinDeuda(m) {
+  // Los pedidos guardan todo en una columna JSON, así que se leen por el store y no por SQL.
+  const pedidos = pedidosStore.list({ estado: 'cargado' })
+    .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === m);
+  if (!pedidos.length) return [];
+  const conDeuda = new Set(db.prepare(`SELECT pedido_id FROM movimientos
+      WHERE tipo='carga' AND pedido_id IS NOT NULL`).all().map((r) => r.pedido_id));
+
+  const tcCache = new Map();
+  const sinTC = (div) => {
+    if (!tcCache.has(div)) {
+      const t = tcUnico.tcDelMes(div, m);
+      tcCache.set(div, !(t && t.valor && money.isPos(String(t.valor))));
+    }
+    return tcCache.get(div);
+  };
+
+  const trabadas = pedidos.filter((p) => {
+    if (conDeuda.has(p.id)) return false;
+    const cli = clientes.getByCodigo(p.codigo);
+    if (!cli) return false;                        // código sin dueño: lo dice otro punto
+    const base = deudaCarga.baseDe(cli);
+    if (base == null || !money.isPos(String(base))) return false;   // base 0 = no se cobra, a propósito
+    const div = String(p.divisa || 'ARS').toUpperCase();
+    // El peso y el dólar nunca se traban: el dólar no se convierte, y la carga en pesos guarda su
+    // importe en la columna de pesos aunque falte la cotización.
+    if (div === 'ARS' || div === 'USD' || div === 'USDT') return false;
+    return sinTC(div);
+  });
+  if (!trabadas.length) return [];
+
+  const monedas = [...new Set(trabadas.map((p) => String(p.divisa || '').toUpperCase()))].sort();
+  return [{
+    nivel: GRAVE,
+    titulo: `${trabadas.length} carga(s) despachada(s) sin su comisión registrada`,
+    detalle: 'Las fichas salieron y la comisión de esa carga no está en la cuenta del cliente, '
+      + `porque falta el tipo de cambio de ${monedas.join(', ')} en ${m}. `
+      + 'Cargá ese tipo de cambio y volvé a generar la deuda del mes: entran solas y este aviso desaparece.',
+    donde: '💱 Tipos de cambio, y después 🧮 Cierre de Mes → Generar la deuda del mes',
+    afectados: trabadas.slice(0, 40).map((p) => `${p.codigo}: ${money.fmt(String(p.monto || '0'), 0)} `
+      + `${String(p.divisa || '').toUpperCase()} del ${String(p.resueltoAt || p.createdAt || '').slice(0, 10)}`),
+    cuantos: trabadas.length,
+  }];
 }
 
 /**

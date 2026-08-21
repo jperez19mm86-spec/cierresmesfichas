@@ -15,8 +15,21 @@ const TIPOS = ['carga', 'pago', 'proveedor_extra', 'ajuste', 'correccion', 'boni
 const newId = () => 'mov_' + crypto.randomBytes(6).toString('hex');
 const S = (x) => (x === null || x === undefined ? null : String(x));
 
+const _vacio = (x) => x === null || x === undefined || String(x).trim() === '';
+
 function create(d) {
   if (!TIPOS.includes(d.tipo)) throw new Error(`tipo de movimiento inválido: ${d.tipo}`);
+  /* ⚠️ UNA CARGA SIN NINGÚN IMPORTE NO SE GUARDA.
+     Pasaba con una cuenta en dólares y una carga en una moneda que no es el peso ni el dólar
+     cuando no había tipo de cambio para esa moneda: las dos columnas quedaban en null. El
+     movimiento existía, sumaba cero, y la cuenta corriente cerraba perfecta con esa comisión
+     regalada. Quien lo arregla de verdad es deuda-carga.service (no llega hasta acá); esto es el
+     respaldo, para que ningún camino nuevo lo vuelva a meter en silencio.
+     Sólo se exige para 'carga': un ajuste o una corrección en cero son válidos. */
+  if (d.tipo === 'carga' && _vacio(d.monto_ars) && _vacio(d.monto_usdt)) {
+    throw new Error('una carga no se puede guardar sin importe en ninguna de las dos monedas'
+      + (d.divisa ? ` (divisa ${d.divisa})` : ''));
+  }
   const id = newId();
   // MAX+1, no COUNT: con un borrado de por medio el COUNT repite el mismo `ord`.
   const ord = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM movimientos').get().n;

@@ -40,7 +40,7 @@ function cuentaCorriente(cliente_id) {
   // Cuántos de esos pagos todavía se están contando con un TC que puede cambiar, y cuántos no se
   // pudieron pasar porque el mes no tiene ningún tipo de cambio. Los dos van a la pantalla: un
   // saldo provisorio se mira distinto que uno cerrado.
-  let esperandoTC = 0, sinValuar = 0;
+  let esperandoTC = 0, sinValuar = 0, sinImporte = 0;
   for (const m of movs) {
     const u = m[col] || '0';
     // ⚠️ Se mira la columna QUE SUMA, no la que se derivó. Un pago en USDT sobre una cuenta en
@@ -53,6 +53,11 @@ function cuentaCorriente(cliente_id) {
     }
     // Un movimiento sin nada en la columna de su moneda pero con algo en la otra está mal cargado.
     if ((m[col] == null || m[col] === '') && m[otra] != null && m[otra] !== '') enOtraMoneda += 1;
+    /* Y uno sin nada en NINGUNA de las dos es peor: suma cero y no lo delata nada. `enOtraMoneda`
+       no lo veía —pide que la otra columna tenga algo— así que quedaba invisible. Hoy ya no se
+       puede grabar (movimientos-store lo rechaza), pero los que hayan quedado de antes tienen que
+       aparecer en vez de seguir sumando cero en silencio. */
+    if ((m[col] == null || m[col] === '') && (m[otra] == null || m[otra] === '')) sinImporte += 1;
     switch (m.tipo) {
       case 'carga': fichas = money.add(fichas, u); break;
       case 'ajuste': fichas = money.add(fichas, u); break;       // ajuste puede ser +/-
@@ -77,6 +82,7 @@ function cuentaCorriente(cliente_id) {
     // Cuántos movimientos quedaron cargados en la otra moneda y por eso NO entran en este total.
     // Cero es lo normal; cualquier otro número es algo para mirar, no para tapar.
     enOtraMoneda,
+    sinImporte,
     // Pagos valuados con el TC del mes todavía abierto: el saldo es correcto pero va a moverse
     // un poco cuando se cierre. `sinValuar` es peor: esos NO están contados en el total.
     esperandoTC, sinValuar,

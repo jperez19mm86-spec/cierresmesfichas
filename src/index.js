@@ -1070,7 +1070,17 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
               : (!dest.chatId ? 'el cliente no tiene grupo (ni lo hereda de su vendedor)' : 'los avisos están apagados para ese grupo') });
         }
       } catch (e) { console.warn('[Telegram] aviso error:', e.message); }
-      return res.json({ ok: true, pedido: upd, newBalance: r.newBalance });
+      /* LAS FICHAS SALIERON PERO LA COMISIÓN NO SE REGISTRÓ: HAY QUE DECIRLO ACÁ.
+         La carga no se tumba —las fichas ya están en el casino— pero antes el único rastro era un
+         console.warn en los logs de Railway, que no lee nadie. Ahora viaja en la respuesta y la
+         pantalla lo muestra al lado del pedido. Igual queda listado en 🩺 Revisión, que es la red
+         para cuando esto pasa un martes y se ve un lunes.
+         Los motivos que NO son un problema (base en cero, carga en cero, "ya estaba") no se
+         muestran: son decisiones tomadas, no algo que haya que ir a arreglar. */
+      const deudaFalla = deudaCarga && !deudaCarga.ok && deudaCarga.sinTC
+        ? { motivo: deudaCarga.motivo, divisa: deudaCarga.divisa } : null;
+      return res.json({ ok: true, pedido: upd, newBalance: r.newBalance,
+        ...(deudaFalla ? { avisoDeuda: deudaFalla } : {}) });
     }
     // Falla la carga: dejar 'pendiente' para reintentar, devolver el error del casino.
     soltar();
