@@ -240,12 +240,22 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
 
   const clientePorCx = new Map();     // una sesión por conexión, reusada para todas sus consultas
   const trabajos = [];
+  /* ── POR QUÉ SALIÓ CORTO, CONTADO APARTE ────────────────────────────────────────────────────
+     La marca `incompleto` miraba SÓLO el reloj (`sinTiempo`), y hay cuatro formas más de que el
+     reporte salga corto: un panel sin conexión de casino, una conexión que no responde, una
+     consulta que falló, y una línea que se cobra pero cuya moneda no tiene tipo de cambio (entra
+     al total valiendo cero). Con cualquiera de esas cuatro, `incompleto` quedaba en false, la
+     guarda de la emisión dejaba pasar, y se le facturaba de menos al cliente con una factura que
+     se ve impecable.
+     Se cuentan acá, uno por uno, y no leyendo los textos de `avisos`: contar strings se rompe la
+     primera vez que alguien corrige una palabra del mensaje. */
+  let sinConexion = 0, noResponde = 0, consultasFallidas = 0;
   for (const panel of propios) {
     const cx = casinoConex.list().find((c) => c.id === panel.conexion_id) || casinoConex.list().find((c) => K(c.nombre) === K(panel.sistema));
-    if (!cx) { avisos.push(`${panel.nombre}: sin conexión de casino, no se pudo consultar`); continue; }
+    if (!cx) { avisos.push(`${panel.nombre}: sin conexión de casino, no se pudo consultar`); sinConexion++; continue; }
     if (!clientePorCx.has(cx.id)) clientePorCx.set(cx.id, casinoConex.client(cx.id));
     const cliCx = clientePorCx.get(cx.id);
-    if (!cliCx) { avisos.push(`${panel.nombre}: la conexión "${cx.nombre}" no responde`); continue; }
+    if (!cliCx) { avisos.push(`${panel.nombre}: la conexión "${cx.nombre}" no responde`); noResponde++; continue; }
     // Un SuperAgente puede tener varias divisas; de un Distribuidor/Agente para abajo hay UNA sola.
     const divisas = (panel.divisas || []).length ? panel.divisas : ['ARS'];
     for (const divisa of divisas) trabajos.push({ panel, cxId: cx.id, cliCx, divisa });
@@ -328,7 +338,8 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     const { panel, divisa } = trabajos[i];
     const r = resultados[i] || { ok: false, error: 'sin respuesta' };
     {
-      if (!r.ok) { avisos.push(`${panel.nombre} (${divisa}): ${r.error}`); continue; }
+      // `porTiempo` ya lo cuenta `sinTiempo`: sumarlo acá lo contaría dos veces.
+      if (!r.ok) { avisos.push(`${panel.nombre} (${divisa}): ${r.error}`); if (!r.porTiempo) consultasFallidas++; continue; }
 
       for (const f of (r.filas || [])) {
         const profit = String(f.profit || '0');
@@ -411,6 +422,18 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const listaPaneles = [...porPanel.values()].sort((a, b) => money.cmp(b.usdt, a.usdt));
   const totalUsdt = money.sum(filas.filter((f) => f.cobra).map((f) => f.usdt));
 
+  // Una línea que se cobra y no tiene tipo de cambio entra al total valiendo CERO (ver `usdt`
+  // más arriba): es plata que se factura de menos sin que nada se rompa.
+  const sinTasaN = filas.filter((f) => f.sinTasa).length;
+  const monedasSinTasa = [...new Set(filas.filter((f) => f.sinTasa).map((f) => f.divisa))].sort();
+  const motivosIncompleto = [];
+  if (sinTiempo) motivosIncompleto.push(`${sinTiempo} consulta(s) no llegaron a hacerse: se acabó el tiempo`);
+  if (sinConexion) motivosIncompleto.push(`${sinConexion} panel(es) sin conexión de casino`);
+  if (noResponde) motivosIncompleto.push(`${noResponde} panel(es) cuya conexión no respondió`);
+  if (consultasFallidas) motivosIncompleto.push(`${consultasFallidas} consulta(s) al casino fallaron`);
+  if (sinTasaN) motivosIncompleto.push(`${sinTasaN} línea(s) cobrables en ${monedasSinTasa.join(', ')} `
+    + 'sin tipo de cambio: entran al total valiendo cero');
+
   return {
     ok: true,
     cliente: cli.nombre, clienteId: cli.id, mes, mesNombre: mesCierre(mes), from, to,
@@ -421,7 +444,13 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
     paneles: listaPaneles,
-    deCache, delCasino, deLaFoto, consultas: trabajos.length, yaIncluidos: incluidos, sinTiempo, incompleto: sinTiempo > 0,
+    deCache, delCasino, deLaFoto, consultas: trabajos.length, yaIncluidos: incluidos, sinTiempo,
+    /* `incompleto` = falta algo que HARÍA COBRAR MÁS. Cada motivo por separado, para que quien
+       lo lea sepa qué arreglar; y el texto ya armado, para poder mostrarlo sin rearmarlo en cada
+       pantalla. Ver el comentario de los contadores más arriba. */
+    faltantes: { sinTiempo, sinConexion, noResponde, consultasFallidas, sinTasa: sinTasaN },
+    porQueIncompleto: motivosIncompleto,
+    incompleto: motivosIncompleto.length > 0,
     cobrables: filas.filter((f) => f.cobra).length,
     // "revisados" sigue siendo lo que trajo el casino; "facturables" son las líneas después de
     // juntar las que caen en el mismo proveedor de la matriz.

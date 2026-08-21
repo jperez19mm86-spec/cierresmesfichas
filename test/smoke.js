@@ -1253,6 +1253,80 @@ async function main() {
       /\(m\[otra\] == null \|\| m\[otra\] === ''\)\) sinImporte \+= 1;/.test(srcDeuda)
       && /^\s{4}sinImporte,$/m.test(srcDeuda));
   }
+  /* ── LOS BOTONES DE "EMITIR A TODOS DE UNA" NO MIRABAN LOS AVISOS ────────────────────────────
+     Tres pantallas, el mismo defecto: calculando cliente por cliente los problemas se ven; con el
+     botón que emite a los 45 juntos, no viajaban y la factura salía igual. */
+  {
+    const srcExt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'externos.service.js'), 'utf8');
+    const srcRt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const srcUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const srcFac = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'factura-html.js'), 'utf8');
+
+    /* La guarda dice, con todas las letras, "un reporte INCOMPLETO no se emite: cobraría de menos
+       y parecería correcto". Y la marca se encendía SÓLO con el reloj: `incompleto: sinTiempo > 0`.
+       Hay cuatro formas más de salir corto y con ninguna se frenaba. */
+    check('emitir: la marca de incompleto ya no mira sólo el reloj',
+      !/incompleto: sinTiempo > 0/.test(srcExt)
+      && /incompleto: motivosIncompleto\.length > 0/.test(srcExt));
+    // Las cinco, contadas por separado — contar los textos de `avisos` se rompe al corregir una palabra.
+    const CINCO = ['sinTiempo', 'sinConexion', 'noResponde', 'consultasFallidas', 'sinTasa'];
+    const enFaltantes = srcExt.slice(srcExt.indexOf('faltantes: {'), srcExt.indexOf('porQueIncompleto:'));
+    check('emitir: cuenta las cinco formas de quedar corto',
+      CINCO.every((k) => enFaltantes.includes(k)),
+      CINCO.filter((k) => !enFaltantes.includes(k)).join(',') || 'las 5');
+    // Cada contador se incrementa donde corresponde, no sólo se declara.
+    check('emitir: los contadores se incrementan en su lugar',
+      /sin conexión de casino, no se pudo consultar`\); sinConexion\+\+;/.test(srcExt)
+      && /no responde`\); noResponde\+\+;/.test(srcExt)
+      && /if \(!r\.porTiempo\) consultasFallidas\+\+;/.test(srcExt));
+    // Un timeout NO se cuenta dos veces: ya lo cuenta sinTiempo.
+    check('emitir: un timeout no se cuenta dos veces', /if \(!r\.porTiempo\) consultasFallidas\+\+/.test(srcExt));
+    // Una línea cobrable sin tipo de cambio entra al total valiendo CERO: es cobrar de menos.
+    check('emitir: una línea cobrable sin tipo de cambio cuenta como incompleta',
+      /const sinTasaN = filas\.filter\(\(f\) => f\.sinTasa\)\.length;/.test(srcExt)
+      && /sin tipo de cambio: entran al total valiendo cero/.test(srcExt));
+
+    // Y el motivo llega a la pantalla: un cliente salteado sin decir por qué no se puede destrabar.
+    check('emitir: el motivo real llega a la pantalla, no "faltan N consultas"',
+      !/la foto del mes está incompleta \(faltan \$\{r\.sinTiempo\} consultas\)/.test(srcRt)
+      && (srcRt.match(/error: 'el reporte salió incompleto: ' \+ r\.porQueIncompleto\.join\(' · '\)/g) || []).length === 2
+      && (srcRt.match(/faltantes: r\.faltantes, avisos: r\.avisos/g) || []).length === 2);
+
+    /* ── LA FACTURA DE CONSUMO: NO SE EMITE UN TOTAL RECORTADO ────────────────────────────────
+       Si falta el TC de una moneda, lo vendido en esa moneda queda afuera del total del cliente.
+       Emitir así le cobra de menos, y como emitir es idempotente por cliente+origen+mes, la parte
+       que falta ya NO se puede agregar: habría que anular el mes entero.
+       No cobrar todavía se arregla cargando el TC y volviendo a emitir. Cobrar de menos, no. */
+    check('consumo: la facturación dice a QUIÉN le falta el TC, no sólo qué monedas',
+      /const sinTCCliente = \[\];/.test(srcRt)
+      && /sinTC\.add\(div\); sinTCCliente\.push\(div\);/.test(srcRt)
+      && /sinTC: sinTCCliente,/.test(srcRt));
+    check('consumo: no se emite a un cliente con una moneda sin tipo de cambio',
+      /if \(\(c\.sinTC \|\| \[\]\)\.length\) \{/.test(srcRt)
+      && /recortados\.push\(/.test(srcRt)
+      && /fallaron: recortados,/.test(srcRt));
+    // Y la factura del cliente lo dice, en vez de un guioncito que se lee como cero.
+    check('consumo: la factura del cliente avisa qué NO está incluido',
+      /Este total no incluye/.test(srcFac)
+      && /no incluido en este total/.test(srcFac)
+      && !/\$\{d\.tc \? 'TC ' \+ \$\(d\.tc\) : '—'\}/.test(srcFac));
+
+    /* ── LO QUE NO SE EMITIÓ QUEDA EN PANTALLA ────────────────────────────────────────────────
+       Antes: "N con error" en un toast de 2,2 segundos y el detalle en console.warn. */
+    check('emitir: hay un solo renderizador de lo que quedó sin cobrar',
+      /function pintarSalteados\(id, r, quien\) \{/.test(srcUi)
+      && /NO se les cobró este mes/.test(srcUi));
+    const TRES = [['ext-emi-out', 'externos'], ['ven-emi-out', 'vendedores'], ['fac-emi-out', 'consumo']];
+    const sinPanel = TRES.filter(([id]) => !(srcUi.includes(`id="${id}"`) && srcUi.includes(`pintarSalteados('${id}'`)));
+    check('emitir: las tres emisiones lo muestran y lo dejan a la vista', !sinPanel.length,
+      sinPanel.map((x) => x[1]).join(', ') || 'externos, vendedores y consumo');
+    check('emitir: el detalle ya no se va a la consola del navegador',
+      !/console\.warn\('externos que fallaron:'/.test(srcUi)
+      && !/console\.warn\('vendedores que fallaron:'/.test(srcUi));
+    // Y cuando salió todo bien, también lo dice: el silencio no distingue "salió bien" de "no corrió".
+    check('emitir: cuando se emitió a todos, lo dice',
+      /✅ Se emitió a todos\./.test(srcUi));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

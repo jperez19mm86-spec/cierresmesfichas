@@ -16,8 +16,15 @@ const esc = (x) => String(x == null ? '' : x)
 const $ = (x) => money.fmt(x, 2);
 
 function pagina({ factura: f, actualizado_at, token }) {
+  /* Una moneda sin tipo de cambio NO entra en el total, y el renglón lo decía con un guioncito.
+     Para el cliente eso se lee como "cero" o como un detalle de formato; en realidad es plata
+     suya que este total NO incluye, y tiene que poder verlo sin preguntar. */
+  const faltanDiv = (f.consumo && f.consumo.porDivisa || []).filter((d) => !d.tc);
   const filaDiv = (f.consumo && f.consumo.porDivisa || [])
-    .map((d) => `<tr><td>${esc(d.divisa)}</td><td class="r">${$(d.vendido)}</td><td class="r m">${d.tc ? 'TC ' + $(d.tc) : '—'}</td><td class="r">${d.vendidoUsdt != null ? $(d.vendidoUsdt) + ' USDT' : '—'}</td></tr>`)
+    .map((d) => d.tc
+      ? `<tr><td>${esc(d.divisa)}</td><td class="r">${$(d.vendido)}</td><td class="r m">TC ${$(d.tc)}</td><td class="r">${d.vendidoUsdt != null ? $(d.vendidoUsdt) + ' USDT' : '—'}</td></tr>`
+      : `<tr><td>${esc(d.divisa)}</td><td class="r">${$(d.vendido)}</td>
+         <td class="r m" colspan="2" style="color:#b3261e">no incluido en este total</td></tr>`)
     .join('');
 
   // La comisión de cada moneda. Sólo cuando hay más de una: con una sola repetiría el renglón de
@@ -171,6 +178,10 @@ function pagina({ factura: f, actualizado_at, token }) {
  ${f.consumo ? `<div class="card"><h2>Cargas del mes</h2>
    <p class="m">${f.consumo.pedidos} carga(s) en el mes. Cada moneda se pasa a USDT con el tipo de cambio del período.</p>
    <table><tbody>${filaDiv}</tbody></table>
+   ${faltanDiv.length ? `<p class="m" style="color:#b3261e;border-left:3px solid #b3261e;padding-left:9px">
+     <b>Este total no incluye ${faltanDiv.map((d) => $(d.vendido) + ' ' + esc(d.divisa)).join(' ni ')}.</b>
+     Falta fijar el tipo de cambio de ${faltanDiv.length > 1 ? 'esas monedas' : 'esa moneda'} para el período;
+     se factura aparte cuando esté.</p>` : ''}
    <p class="tot">Comisión <b>${esc(f.consumo.base)}%</b> sobre ${$(f.consumo.vendido_usdt)} USDT → <b>${$(f.consumo.total_usdt)} USDT</b>${f.consumo.local ? ` <span class="m">(${$(f.consumo.local.comision)} ${esc(f.consumo.local.divisa)})</span>` : ''}</p>
    ${comDiv}
    </div>` : ''}

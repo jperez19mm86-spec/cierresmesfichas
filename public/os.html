@@ -254,6 +254,40 @@ function pagoIrA(m){ _pagoMes = m; _pagoData = null; ciePago(); }
 function venIrA(m){ _venMes = m; _venData = null; cieVendedores(); }
 function extIrA(m){ _extMes = m; _extData = null; cieExternos(); }
 
+/* ── LO QUE NO SE EMITIÓ TIENE QUE QUEDAR EN PANTALLA ────────────────────────────────────────
+   Las dos emisiones —externos y vendedores— avisaban "N con error" en un toast que se va a los
+   2,2 segundos, y el detalle iba a console.warn, que no mira nadie. Un cliente salteado es un
+   cliente al que NO se le cobró ese mes: tiene que quedar a la vista, con el motivo y qué hacer.
+
+   Se emite igual para el resto: frenar a los 44 porque uno falló sería peor. Lo que cambia es que
+   ahora se sabe cuáles quedaron afuera. */
+function pintarSalteados(id, r, quien) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const fallaron = r.fallaron || [], sinBase = r.sinBase || [], sinCosto = r.sinCosto || [];
+  if (!fallaron.length && !sinBase.length && !sinCosto.length) {
+    box.innerHTML = `<div class="card" style="margin:12px 0 0;border-left:3px solid var(--green)">
+      <b>✅ Se emitió a todos.</b> <span class="muted">${r.creados||0} ${esc(quien)}(s) · ${money(r.total,2)} USDT${
+        r.yaEstaban?` · ${r.yaEstaban} ya estaban`:''}</span></div>`;
+    return;
+  }
+  const fila = (f) => `<tr><td><b>${esc(f.cliente || f.vendedor || '')}</b></td>
+    <td style="font-size:13px">${esc(f.error || '')}
+      ${(f.avisos||[]).length?`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:12px" class="muted">ver los ${f.avisos.length} avisos</summary>
+        <div class="muted" style="font-size:11.5px;line-height:1.6;padding-top:4px">${f.avisos.map(esc).join('<br>')}</div></details>`:''}</td></tr>`;
+  box.innerHTML = `<div class="card" style="margin:12px 0 0;border-left:3px solid var(--red)">
+    <b style="color:var(--red)">A ${fallaron.length + sinBase.length} ${esc(quien)}(s) NO se les cobró este mes.</b>
+    <div class="muted" style="font-size:13px;margin:4px 0 10px">Al resto sí: se emitieron ${r.creados||0} por ${money(r.total,2)} USDT.
+      Arreglá lo de abajo y volvé a emitir — emitir de nuevo no duplica, sólo agrega los que faltaban.</div>
+    <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
+      <th>${esc(quien)}</th><th>Por qué quedó afuera</th></tr></thead><tbody>
+      ${sinBase.map((f) => `<tr><td><b>${esc(f.cliente||'')}</b></td><td style="font-size:13px">sin % base cargado</td></tr>`).join('')}
+      ${fallaron.map(fila).join('')}
+    </tbody></table></div>
+    ${sinCosto.length?`<div class="muted" style="margin-top:8px;font-size:12.5px">Sin costo este mes (no es un error): ${sinCosto.map(esc).join(' · ')}</div>`:''}
+  </div>`;
+}
+
 function bannerMes(mes, handler) {
   const otros = [...new Set([mesDeCierre(), mesHoy()])].filter(m => m !== mes);
   return `<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;margin:-4px 0 12px;
@@ -1556,6 +1590,8 @@ async function facEmitir() {
   const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (r.yaEstaban ? ' · ' + r.yaEstaban + ' ya estaban' : '') + (r.enCero ? ' · ' + r.enCero + ' en cero (no se emiten)' : ''));
+  // A quién NO se le cobró y por qué. El toast se va; esto se queda.
+  pintarSalteados('fac-emi-out', r, 'cliente');
   facturar();
 }
 async function facAnular() {
@@ -2517,6 +2553,7 @@ async function cieVendedores(){
         <div style="flex:0"><button class="danger small" onclick="venAnular()">↩ Anular</button></div>
       </div>
       <div class="muted" style="margin-top:6px">Se emite como <b>proveedor_extra</b>, en su propia columna de la cuenta corriente y <b>aparte</b> de la factura de externos de los clientes. Emitir dos veces no duplica; para corregir se anula y se vuelve a emitir.</div>
+      <div id="ven-emi-out"></div>
       <div id="ven-body" style="margin-top:14px"><div class="muted">Apretá Calcular. Consulta el casino, así que tarda.</div></div>
     </div>`;
   if(_venData) venPintar();
@@ -2582,7 +2619,8 @@ async function venEmitir(dry){
   if((r.sinCosto||[]).length) avisos.push((r.sinCosto||[]).length + ' sin costo');
   if((r.fallaron||[]).length) avisos.push((r.fallaron||[]).length + ' con error');
   toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (avisos.length?' · '+avisos.join(' · '):''));
-  if((r.fallaron||[]).length) console.warn('vendedores que fallaron:', r.fallaron);
+  // El toast se va a los 2,2 segundos: lo que quedó sin cobrar se pinta y se queda.
+  pintarSalteados('ven-emi-out', r, 'vendedor');
 }
 async function venAnular(){
   if(!confirm('¿Anular la emisión de VENDEDORES de ' + _venMes + '?\n\nBorra solo los movimientos que generó esa emisión.')) return;
@@ -2609,6 +2647,7 @@ async function cieExternos() {
     + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
     + '<button onclick="extCalcular()">Calcular</button>'
     + '<button class="outline" style="margin-left:6px" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button>'
+    + '</div><div id="ext-emi-out"></div><div style="display:none">'
     + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
     + '<span class="muted">' + (estaCong ? '🧊 congelado: usa los precios de ESE mes' : '⚠ sin congelar: usa los precios de HOY') + '</span>'
     + '<button class="small ' + (estaCong ? 'outline' : '') + '" onclick="extCongelar(' + estaCong + ')">' + (estaCong ? 'Descongelar' : '🧊 Congelar el mes') + '</button>'
@@ -2629,7 +2668,8 @@ async function extEmitir() {
   if ((r.sinBase || []).length) avisos.push((r.sinBase || []).length + ' sin % base');
   if ((r.fallaron || []).length) avisos.push((r.fallaron || []).length + ' con error');
   toast(r.creados + ' emitidos · ' + money(r.total, 2) + ' USDT' + (avisos.length ? ' · ' + avisos.join(' · ') : ''));
-  if ((r.fallaron || []).length) console.warn('externos que fallaron:', r.fallaron);
+  // El toast se va a los 2,2 segundos: lo que quedó sin cobrar se pinta y se queda.
+  pintarSalteados('ext-emi-out', r, 'cliente');
 }
 async function extAnular() {
   if (!confirm('¿Anular la emisión de externos de ' + _extMes + '?\n\nBorra SOLO los movimientos que generó esa emisión.')) return;
@@ -3930,6 +3970,7 @@ VIEWS.facturacion = async () => {
         <div style="flex:0"><button onclick="calcularFac()">Calcular</button></div>
         <div style="flex:0"><button class="outline" onclick="calcularFac(true)" title="Le pregunta al casino en vivo en vez de usar el acumulado. Tarda ~1 minuto.">🔄 Control en vivo</button></div>
       </div>
+      <div id="fac-emi-out"></div>
       <div id="fac-out" class="muted" style="margin-top:12px">Tocá "Calcular".</div>
     </div>`;
 };

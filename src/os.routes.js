@@ -2505,11 +2505,16 @@ function mount(app) {
       const base = rb.valor || '0';
 
       // ── lo vendido, moneda por moneda ──
-      let vendUsdt = '0', feeUsdt = '0'; const porDivisa = [];
+      let vendUsdt = '0', feeUsdt = '0'; const porDivisa = []; const sinTCCliente = [];
       for (const [div, monto] of Object.entries((v && v.porDivisa) || {})) {
         const t = tcUnico.tcDelMes(div, mes);
         const fee = money.pct(String(monto), base);
-        if (!t.valor) { sinTC.add(div); porDivisa.push({ divisa: div, vendido: String(monto), tc: null }); continue; }
+        /* La lista global `sinTC` dice QUÉ monedas faltan; la del cliente dice A QUIÉN le faltan.
+           Sin esa segunda, la emisión no puede saltear al cliente afectado y le emite el total
+           recortado — y como emitir es idempotente por cliente+mes, la parte que falta ya no se
+           puede agregar salvo anulando el mes entero. */
+        if (!t.valor) { sinTC.add(div); sinTCCliente.push(div);
+          porDivisa.push({ divisa: div, vendido: String(monto), tc: null }); continue; }
         vendUsdt = money.add(vendUsdt, money.div(String(monto), t.valor));
         feeUsdt = money.add(feeUsdt, money.div(fee, t.valor));
         porDivisa.push({ divisa: div, vendido: money.round(monto, 2), fee: money.round(fee, 2), tc: t.valor, vendidoUsdt: money.round(money.div(String(monto), t.valor), 2) });
@@ -2560,6 +2565,7 @@ function mount(app) {
         dif_pct: dif,
         anulando: (v && v.anulando && v.anulando.count) ? { count: v.anulando.count, usdt: money.round(anulandoUsdt, 2) } : null,
         porDivisa,
+        sinTC: sinTCCliente,          // las monedas de ESTE cliente que no se pudieron pasar a USDT
         paneles: cps.map((p) => p.nombre),
       });
       totVend = money.add(totVend, vendUsdt);
@@ -2719,6 +2725,7 @@ function mount(app) {
     // es a ese cambio que se cobró cada operación.
     const yaEnCuenta = deudaCargaSvc.delMes(mes);
     const conciliado = [];
+    const recortados = [];   // clientes a los que les falta el TC de alguna moneda
     const lineas = (fac.clientes || []).filter((c) => !c.sinBase).map((c) => {
       const ya = yaEnCuenta[c.cliente_id];
       if (ya && ya.cargas) {
@@ -2727,12 +2734,28 @@ function mount(app) {
           diferencia: money.round(money.sub(c.fee_usdt, ya.usdt), 2) });
         return null;                       // su deuda ya está: no se emite
       }
+      /* ── NO SE EMITE UN TOTAL RECORTADO ──────────────────────────────────────────────────
+         Si a este cliente le falta el tipo de cambio de alguna de sus monedas, lo vendido en esa
+         moneda quedó AFUERA de `fee_usdt`. Emitir así le cobra de menos con una factura que se ve
+         impecable — y como emitir es idempotente por cliente+origen+mes, la parte que falta ya no
+         se puede agregar después: habría que anular el mes entero y rehacerlo, y nadie se va a
+         acordar porque nada avisó.
+         No cobrar todavía se arregla cargando el TC y volviendo a emitir (los ya emitidos se
+         saltean solos). Cobrar de menos, no. */
+      if ((c.sinTC || []).length) {
+        recortados.push({ cliente: c.nombre || c.codigo, divisas: c.sinTC.join(', '),
+          error: `falta el tipo de cambio de ${c.sinTC.join(', ')} en ${mes}: lo vendido en `
+            + `${c.sinTC.length > 1 ? 'esas monedas' : 'esa moneda'} quedaría sin cobrar` });
+        return null;
+      }
       return { cliente_id: c.cliente_id, monto_usdt: c.fee_usdt, base_pct: c.base,
         notas: `Fichas ${mes} · ${c.base}% sobre ${c.vendido_usdt} USDT vendidos` };
     }).filter(Boolean);
     const r = emision.emitir({ mes, origen: 'facturacion', lineas });
     if (!r.ok) return err(res, 400, r.error);
     ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
+      // Quiénes quedaron sin emitir por falta de tipo de cambio: es lo que hay que destrabar.
+      fallaron: recortados,
       // Quiénes ya tenían su deuda cargada carga por carga, y cuánto se aparta del cálculo mensual.
       conciliado, yaCargaPorCarga: conciliado.length });
   }));
@@ -2747,8 +2770,15 @@ function mount(app) {
       try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes }); }
       catch (e) { fallaron.push({ cliente: c.nombre, error: String((e && e.message) || e) }); continue; }
       if (!r.ok) { (r.faltaBase ? sinBase : fallaron).push({ cliente: c.nombre, error: r.error }); continue; }
-      // Un reporte INCOMPLETO no se emite: cobraría de menos y parecería correcto.
-      if (r.incompleto) { fallaron.push({ cliente: c.nombre, error: `la foto del mes está incompleta (faltan ${r.sinTiempo} consultas)` }); continue; }
+      /* Un reporte INCOMPLETO no se emite: cobraría de menos y parecería correcto.
+         El motivo se dice entero: antes el mensaje nombraba sólo el reloj ("faltan N consultas"),
+         y con las otras cuatro formas de quedar corto ni siquiera se llegaba hasta acá. Un cliente
+         salteado sin decir por qué es un cliente que nadie va a poder destrabar. */
+      if (r.incompleto) {
+        fallaron.push({ cliente: c.nombre, error: 'el reporte salió incompleto: ' + r.porQueIncompleto.join(' · '),
+          faltantes: r.faltantes, avisos: r.avisos });
+        continue;
+      }
       if (!money.isPos(r.totalUsdt)) continue;
       lineas.push({ cliente_id: c.id, monto_usdt: r.totalUsdt, base_pct: r.base, notas: `Proveedores externos ${mes} · base ${r.base}%` });
     }
@@ -2779,7 +2809,11 @@ function mount(app) {
       catch (e) { fallaron.push({ vendedor: c.nombre, error: String((e && e.message) || e) }); continue; }
       if (!r.ok) { fallaron.push({ vendedor: c.nombre, error: r.error }); continue; }
       // Un reporte incompleto cobraría de menos y parecería correcto: no se emite.
-      if (r.incompleto) { fallaron.push({ vendedor: c.nombre, error: `la foto del mes está incompleta (faltan ${r.sinTiempo} consultas)` }); continue; }
+      if (r.incompleto) {
+        fallaron.push({ vendedor: c.nombre, error: 'el reporte salió incompleto: ' + r.porQueIncompleto.join(' · '),
+          faltantes: r.faltantes, avisos: r.avisos });
+        continue;
+      }
       if (!money.isPos(r.totalUsdt)) { sinCosto.push(c.nombre); continue; }
       lineas.push({ cliente_id: c.id, monto_usdt: r.totalUsdt, base_pct: '0', notas: `Proveedores al costo ${mes} (vendedor)` });
     }
