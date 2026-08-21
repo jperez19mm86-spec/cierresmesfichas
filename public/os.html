@@ -209,6 +209,57 @@ let _cxSel = '', _cxNodos = [];
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+
+/* ── EL MES QUE TOCA CERRAR ───────────────────────────────────────────────────────────────────
+   Las seis pantallas del cierre abrían en el mes de HOY, y el cierre siempre es del mes anterior
+   — lo dice la propia Foto en su texto: "a principio del mes siguiente, una vez". Había que
+   acordarse de cambiar el mes a mano, seis veces, cada vez.
+
+   Lo caro no era la molestia. Apretando "Sacar todo lo que falta" con el mes en curso, el casino
+   contesta con lo que hay HASTA HOY y esa foto corta QUEDA ARCHIVADA COMO BUENA; después el
+   reporte de proveedores externos la lee y cobra de menos, en silencio y para siempre.
+
+   ── DOS TRAMPAS DE FECHA QUE HAY QUE ESQUIVAR ──────────────────────────────────────────────
+   · `setMonth(m-1)` no sirve: el 31 de marzo da "31 de febrero" y JavaScript lo corre solo a
+     marzo otra vez, así que el mes anterior sale igual al actual. (Es lo que hace `_cieMesCruce`,
+     que ahora se apoya en esta función.)
+   · `toISOString()` tampoco: es UTC. A las 21:00 del último día del mes, acá todavía es fin de
+     mes y allá ya es el siguiente — la pantalla abriría en el mes equivocado justo el día que más
+     importa. Todo lo de acá usa la hora LOCAL. */
+const CIERRE_DIAS = 10;    // los primeros 10 días del mes se está cerrando el anterior
+const MESES_UI = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
+  'septiembre','octubre','noviembre','diciembre'];
+const mesHoy = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0');
+function mesDeCierre(d = new Date()) {
+  let a = d.getFullYear(), m = d.getMonth() + 1;
+  if (d.getDate() <= CIERRE_DIAS) { m -= 1; if (m === 0) { m = 12; a -= 1; } }
+  return a + '-' + String(m).padStart(2,'0');
+}
+const mesNombre = (iso) => { const [a,m] = String(iso||'').split('-');
+  return (MESES_UI[Number(m)-1] || iso) + ' ' + a; };
+
+/* El cartel que dice QUÉ MES se está mirando, con el otro a un clic.
+   La regla de los 10 días acierta casi siempre; cuando no acierta —un cierre que se atrasó— tiene
+   que ser obvio y barato de corregir. Adivinar en silencio es lo que había. */
+/* Un handler por pantalla del cierre: cada una se repinta distinto, y juntos se ve de un vistazo
+   cuáles son las seis. `_extData=null` y `_venData=null` tiran el resultado del mes viejo — si no,
+   se cambia de mes y quedan a la vista los números del anterior con el rótulo nuevo. */
+function fotoIrA(m){ _fotoMes = m; VIEWS.foto(); }
+function revIrA(m){ _revMes = m; CFG.revision(); }
+function pagoIrA(m){ _pagoMes = m; _pagoData = null; ciePago(); }
+function venIrA(m){ _venMes = m; _venData = null; cieVendedores(); }
+function extIrA(m){ _extMes = m; _extData = null; cieExternos(); }
+
+function bannerMes(mes, handler) {
+  const otros = [...new Set([mesDeCierre(), mesHoy()])].filter(m => m !== mes);
+  return `<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;margin:-4px 0 12px;
+      padding:8px 12px;background:var(--bg3);border-radius:8px;font-size:13px">
+    <span class="muted">Mirando</span><b style="font-size:14px">${esc(mesNombre(mes))}</b>
+    ${mes === mesDeCierre() && mes !== mesHoy()
+      ? '<span class="muted" style="font-size:12px">· es el mes que toca cerrar</span>' : ''}
+    ${otros.map(m => `<button class="outline small" onclick="${handler}('${m}')">ver ${esc(mesNombre(m))}</button>`).join('')}
+  </div>`;
+}
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
 async function api(path, opts={}){
   const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
@@ -1268,7 +1319,7 @@ async function delPanel(id){
 // ───────── 📸 FOTO DEL MES ─────────
 // Un mes cerrado ya no cambia. Se le pregunta al casino UNA vez y queda guardado; después armar
 // el reporte de cualquier cliente es leer la base. Antes cada reporte eran 525 consultas en vivo.
-let _fotoMes = new Date().toISOString().slice(0,7);
+let _fotoMes = mesDeCierre();
 /* ── 📸 LA FOTO DEL MES ──────────────────────────────────────────────────────────────────────
    No es una pantalla de mantenimiento: es lo que hace que el reporte de proveedores externos
    salga. Sin foto, ese reporte le pregunta al casino panel por panel y divisa por divisa — 525
@@ -1295,6 +1346,26 @@ async function fotoModos(){
     });
   });
 }
+/* ── LA FOTO DE UN MES QUE NO TERMINÓ ────────────────────────────────────────────────────────
+   Sacarle la foto al mes en curso no falla: el casino contesta con lo que hay HASTA HOY y esa
+   foto CORTA queda archivada como si fuera la del mes entero. Después el reporte de proveedores
+   externos la lee y cobra de menos — en silencio, y con un total que cuadra.
+
+   No se prohíbe porque a veces se quiere mirar cómo viene el mes. Se avisa, y el botón obliga a
+   escribir que sí: lo que hay que evitar es apretarlo sin darse cuenta de qué mes está puesto,
+   que es exactamente lo que pasaba cuando la pantalla abría sola en el mes corriente.
+
+   El arreglo de fondo sería que la foto quede marcada como provisoria y que el reporte de externos
+   se niegue a usarla; eso toca la base y las dos lecturas, y va aparte. */
+function fotoMesSinTerminar(mes){ return mes >= mesHoy(); }
+const AVISO_FOTO_EN_CURSO =
+    '<div style="margin:0 0 12px;padding:11px 14px;border-left:3px solid var(--red);'
+  + 'background:rgba(217,83,79,.08);border-radius:0 8px 8px 0;font-size:13.5px;line-height:1.5">'
+  + '<b>Este mes todavía no terminó.</b> Si sacás la foto ahora, el casino contesta con lo que hay '
+  + 'hasta hoy y esa foto <b>cortada queda guardada como si fuera la del mes entero</b>. Después la '
+  + 'Factura de externos la lee y cobra de menos, sin avisar. Sacala a principio del mes que viene, '
+  + 'o rehacela cuando el mes haya cerrado.</div>';
+
 VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
@@ -1326,7 +1397,8 @@ VIEWS.foto = async () => {
   }).join('');
 
   document.getElementById('main').innerHTML =
-      '<div class="card"><h2>📸 Foto del mes</h2>'
+      '<div class="card"><h2>📸 Foto del mes</h2>' + bannerMes(_fotoMes, 'fotoIrA')
+    + (fotoMesSinTerminar(_fotoMes) ? AVISO_FOTO_EN_CURSO : '')
     + '<div class="nota"><b>Para qué es.</b> El reporte de <b>proveedores externos</b> necesita saber cuánto ganó cada '
     + 'proveedor en cada panel. Preguntárselo al casino en vivo son ~525 consultas de hasta 16 segundos: con un cliente '
     + 'multidivisa el reporte no llega a terminar. Como <b>un mes cerrado ya no cambia</b>, se le pregunta una sola vez, '
@@ -1406,6 +1478,12 @@ async function fotoSacar(cxId, nivel, rehacer){
   // lo bueno se reemplaza por lo malo y no queda rastro.
   if(rehacer && !confirm('¿Rehacer '+_fotoMes+'?\n\nVuelve a preguntarle al casino TODO y reemplaza lo que ya está guardado.\n'
     +'Si el casino no está en el nivel correcto, los datos van a quedar peores que ahora.')) return;
+  // Un mes sin terminar da una foto CORTA que queda archivada como buena. Ver AVISO_FOTO_EN_CURSO.
+  if(fotoMesSinTerminar(_fotoMes) && !confirm(
+      mesNombre(_fotoMes).toUpperCase()+' TODAVÍA NO TERMINÓ.\n\n'
+    + 'La foto va a salir con lo que hay hasta hoy y queda guardada como si fuera la del mes entero.\n'
+    + 'La Factura de externos la va a leer así y va a cobrar de menos, sin avisar.\n\n'
+    + '¿Sacarla igual?')) return;
   const cont=document.getElementById('foto-prog'); if(!cont) return;
   _fotoCancelar=false;
   // Se piden acá y no se usa window._cxs: eso lo llena la pantalla de Clientes, así que entrando
@@ -1961,13 +2039,14 @@ VIEWS.pendientes = async () => {
 // Todo lo que puede hacer que un mes salga con un número equivocado, junto y ordenado por gravedad.
 // Antes había que acordarse de mirar en cinco pantallas distintas.
 // Vive adentro de ⚙ Config: es un diagnóstico, no algo que se toque todos los días.
-let _revMes = new Date().toISOString().slice(0,7);
+let _revMes = mesDeCierre();
 VIEWS.revision = () => { _cfgSub='revision'; go('config'); };
 
 CFG.revision = async () => {
   document.getElementById('cfg-body').innerHTML = '<div class="card"><div class="muted">Revisando…</div></div>';
   const r = await api('/api/os/revision?mes='+encodeURIComponent(_revMes));
   const items = r.items||[];
+  const banner = bannerMes(_revMes, 'revIrA');
   const fila = (i) => {
     const grave = i.nivel==='grave';
     const col = grave?'var(--red)':'var(--gold)';
@@ -1981,6 +2060,7 @@ CFG.revision = async () => {
   };
   const cab = '<div class="card"><h2>🩺 Revisión de '+esc(r.mes||_revMes)+'</h2>'
     + '<div class="muted">Todo lo que puede hacer que este mes salga con un número equivocado. No corrige nada: te dice qué mirar y dónde.</div>'
+    + banner
     + '<div class="row" style="margin-top:8px;align-items:flex-end">'
     + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_revMes)+'" onchange="_revMes=this.value;CFG.revision()"></div>'
     + '<div class="card" style="flex:0 0 130px;background:var(--bg3);margin:0"><label>Graves</label><div style="font-size:22px;font-weight:800;color:'+(r.graves?'var(--red)':'#3c9')+'">'+(r.graves||0)+'</div></div>'
@@ -2159,13 +2239,14 @@ function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.
    El otro lado de la factura de externos: aquella le COBRA al cliente `ganancia × (celda −
    su base)`; ésta calcula lo que le PAGAMOS al proveedor, `ganancia × su costo`. La ganancia
    es la misma; cambia el porcentaje. */
-let _pagoMes = new Date().toISOString().slice(0,7), _pagoData = null, _pagoAbierto = new Set(), _pagoRefrescar = false;
+let _pagoMes = mesDeCierre(), _pagoData = null, _pagoAbierto = new Set(), _pagoRefrescar = false;
 async function ciePago(){
   document.getElementById('cie-body').innerHTML = `
     <div class="card">
       <h2>💸 Cuánto le pagamos a los proveedores</h2>
       <div class="muted" style="margin-bottom:10px">Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.
         Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.</div>
+      ${bannerMes(_pagoMes, 'pagoIrA')}
       <div class="row" style="align-items:flex-end">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
@@ -2403,13 +2484,14 @@ function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+enc
    Esta cuenta se calculaba en el backend desde el 2-ago, pero no la mostraba ninguna pantalla
    y la emisión de externos los salteaba (`if (c.es_vendedor) continue`). Resultado: los 8
    vendedores tenían deuda 0 y esa plata no se cobraba salvo que alguien la sacara a mano. */
-let _venMes = new Date().toISOString().slice(0, 7), _venData = null;
+let _venMes = mesDeCierre(), _venData = null;
 async function cieVendedores(){
   const b = document.getElementById('cie-body');
   b.innerHTML = `
     <div class="card">
       <h2>🤝 Cuenta de vendedores <span class="muted">— pagan el costo real, no un %</span></h2>
       <div class="muted" style="margin-bottom:10px">Los vendedores revenden a sus propios clientes. No se les cobra un porcentaje sobre lo que cargan: pagan <b>lo que cuestan los proveedores</b> que usaron. Un panel de un cliente que cuelga del vendedor aparece en las dos cuentas y <b>está bien</b>: el cliente paga su %, el vendedor paga el costo. Son dos cobros distintos sobre el mismo movimiento.</div>
+      ${bannerMes(_venMes, 'venIrA')}
       <div class="row" style="align-items:flex-end">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ven-mes" value="${esc(_venMes)}" style="width:100%"/></div>
         <div style="flex:0"><button onclick="venCalcular()">Calcular</button></div>
@@ -2495,7 +2577,7 @@ async function venAnular(){
 
 // ── sub-vista §9 PROVEEDORES EXTERNOS ──
 // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
-let _extCli = '', _extMes = new Date().toISOString().slice(0, 7), _extData = null;
+let _extCli = '', _extMes = mesDeCierre(), _extData = null;
 async function cieExternos() {
   const cont = document.getElementById('cie-body');
   const cs = (await api('/api/os/clientes')).clientes || [];
@@ -2503,7 +2585,8 @@ async function cieExternos() {
   if (!_extCli && lista.length) _extCli = lista[0].nombre;
   const cong = (await api('/api/os/cierre/meses-congelados')).meses || [];
   const estaCong = cong.some(x => x.mes === _extMes);
-  cont.innerHTML = '<div class="card"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">'
+  cont.innerHTML = '<div class="card">' + bannerMes(_extMes, 'extIrA')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">'
     + '<div><label class="muted">Cliente</label><br><select id="ext-cli" onchange="_extCli=this.value;_extData=null;cieExternos()">'
     + lista.map(c => '<option value="' + esc(c.nombre) + '"' + (c.nombre === _extCli ? ' selected' : '') + '>' + esc(c.nombre) + (c.es_vendedor ? ' · vendedor' : '') + '</option>').join('')
     + '</select></div>'
@@ -2663,7 +2746,10 @@ function cieFam(n){
      · Matriz mira las CELDAS: a qué clientes se les cobra esa fila.
    Ninguna sola contesta lo único que cuesta plata: si algo dio ganancia y no se le cobra a nadie.
    Esta tarjeta va arriba de las DOS para que digan lo mismo. */
-function _cieMesCruce(){ const d=new Date(); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); }
+/* El mes anterior de verdad. Antes era `setMonth(getMonth()-1)` sobre toISOString(): el 31 de
+   marzo daba marzo otra vez, y a la noche del último día del mes se corría al siguiente. */
+function _cieMesCruce(){ const d=new Date(); const a=d.getFullYear(), m=d.getMonth();
+  return (m===0 ? (a-1)+'-12' : a+'-'+String(m).padStart(2,'0')); }
 function cruceCard(c){
   if(!c || !c.ok) return '';
   const nadie=(c.filas||[]).filter(f=>f.estado==='nadie_lo_paga');
@@ -3796,15 +3882,18 @@ function renderNodos(){
 }
 
 // ───────── FACTURACIÓN (datos reales del casino) ─────────
+let _facMes = mesDeCierre();
+function facIrA(m){ _facMes = m; VIEWS.facturacion(); }
 VIEWS.facturacion = async () => {
-  const mes = new Date().toISOString().slice(0,7);
+  const mes = _facMes;
   document.getElementById('main').innerHTML = `
     <div class="card">
       <h2>🧾 Factura de consumo <span class="muted">(se cobra por los PEDIDOS)</span></h2>
+      ${bannerMes(mes, 'facIrA')}
       <div class="muted" style="margin-bottom:8px">Lo que se cobra sale de los <b>pedidos</b> del sistema en línea: <b>fee = % base × vendido</b>. El <b>casino va al lado como control</b>, con la diferencia en %.</div>
       <div class="muted" style="margin-bottom:8px">Ese control ahora sale del <b>acumulado guardado</b> (el cron lo baja todas las noches), así que es instantáneo. Antes se le preguntaba al casino en cada pantallazo y tardaba más de un minuto para llegar al mismo número — y un mes cerrado ya no cambia.</div>
       <div class="row" style="align-items:flex-end">
-        <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}"></div>
+        <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}" onchange="_facMes=this.value"></div>
         <div><label>Desde (opcional)</label><input type="date" id="fac-from"></div>
         <div><label>Hasta (opcional)</label><input type="date" id="fac-to"></div>
         <div style="flex:0"><button onclick="calcularFac()">Calcular</button></div>

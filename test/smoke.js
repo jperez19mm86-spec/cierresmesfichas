@@ -873,6 +873,119 @@ async function main() {
     check('backup json: no pisa una base con datos sin force',
       /if \(noVacia && !body\.force\)/.test(hIdx));
   }
+  /* ── EL MES QUE TOCA CERRAR ──────────────────────────────────────────────────────────────────
+     Las seis pantallas del cierre abrían en el mes de HOY, y el cierre siempre es del anterior —
+     lo dice la propia Foto: "a principio del mes siguiente, una vez". Lo caro no era la molestia:
+     apretando "Sacar todo lo que falta" con el mes en curso, el casino contesta con lo que hay
+     hasta hoy y esa foto CORTA queda archivada como buena; después el reporte de externos la lee
+     y cobra de menos, en silencio y con un total que cuadra. */
+  {
+    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+
+    // Las funciones se sacan del archivo y se corren con fechas de verdad. Si alguna dejara de
+    // existir, `armarUi` tira y el check falla: no puede pasar en el vacío.
+    const armarUi = (nombres) => {
+      const cuerpo = nombres.map((n) => {
+        const i = hUi.indexOf('\nfunction ' + n + '(');
+        if (i < 0) throw new Error('no está la función ' + n);
+        let d = 0, fin = -1;
+        for (let k = hUi.indexOf('{', i); k < hUi.length; k++) {
+          const ch = hUi[k];
+          if (ch === '{') d++;
+          else if (ch === '}') { d--; if (!d) { fin = k; break; } }
+        }
+        if (fin < 0) throw new Error('no cierra ' + n);
+        return hUi.slice(i, fin + 1);
+      }).join('\n');
+      const pre = "const CIERRE_DIAS = 10;\n"
+        + "const MESES_UI = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];\n"
+        + "const mesHoy = (d = new Date()) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0');\n";
+      // eslint-disable-next-line no-new-func
+      return new Function(pre + cuerpo + '\nreturn {' + nombres.join(',') + ', mesHoy};')();
+    };
+    const UI = armarUi(['mesDeCierre']);
+    // Las fechas se arman con new Date(a, m, d) — hora LOCAL, igual que el navegador de ella.
+    const F = (a, m, d) => new Date(a, m - 1, d);
+
+    check('cierre: los primeros días del mes se cierra el mes anterior',
+      UI.mesDeCierre(F(2026, 9, 1)) === '2026-08' && UI.mesDeCierre(F(2026, 9, 10)) === '2026-08',
+      '1-sep → ' + UI.mesDeCierre(F(2026, 9, 1)));
+    check('cierre: pasados los 10 días vuelve al mes corriente',
+      UI.mesDeCierre(F(2026, 9, 11)) === '2026-09' && UI.mesDeCierre(F(2026, 9, 30)) === '2026-09',
+      '11-sep → ' + UI.mesDeCierre(F(2026, 9, 11)));
+    // Cruzar el año a mano: en enero el mes que se cierra es diciembre del año pasado.
+    check('cierre: en enero se cierra diciembre del año anterior',
+      UI.mesDeCierre(F(2026, 1, 3)) === '2025-12' && UI.mesDeCierre(F(2026, 1, 20)) === '2026-01',
+      '3-ene-2026 → ' + UI.mesDeCierre(F(2026, 1, 3)));
+
+    /* LA TRAMPA QUE TENÍA LA VERSIÓN ANTERIOR. `_cieMesCruce` hacía setMonth(getMonth()-1) sobre
+       toISOString(): el 31 de marzo eso da "31 de febrero", JavaScript lo corre solo a marzo, y el
+       "mes anterior" salía igual al actual. Se deja probado el caso exacto. */
+    const conBug = (d) => { const x = new Date(d.getTime()); x.setMonth(x.getMonth() - 1); return x.toISOString().slice(0, 7); };
+    check('cierre: el 31 de marzo no devuelve marzo (era el bug de setMonth)',
+      UI.mesDeCierre(F(2026, 3, 31)) === '2026-03' && conBug(F(2026, 3, 31)) === '2026-03',
+      'la regla nueva da ' + UI.mesDeCierre(F(2026, 3, 31)) + ' (día 31 → mes corriente, correcto); '
+      + 'el cálculo viejo daba ' + conBug(F(2026, 3, 31)) + ' creyendo que era febrero');
+    // Y el 5 de marzo, donde el viejo SÍ tenía que dar febrero, comparado contra el nuevo.
+    check('cierre: el 5 de marzo sí se cierra febrero, y el 5 de mayo no se salta abril',
+      UI.mesDeCierre(F(2026, 3, 5)) === '2026-02' && UI.mesDeCierre(F(2026, 5, 5)) === '2026-04',
+      '5-mar → ' + UI.mesDeCierre(F(2026, 3, 5)) + ' · 5-may → ' + UI.mesDeCierre(F(2026, 5, 5)));
+    // La otra trampa: toISOString() es UTC. A las 22:00 del 31 de agosto acá, allá ya es septiembre.
+    const finDeMesDeNoche = new Date(2026, 7, 31, 22, 0, 0);   // 31-ago-2026 22:00 hora local
+    check('cierre: a la noche del último día del mes no se corre al siguiente (toISOString era UTC)',
+      UI.mesDeCierre(finDeMesDeNoche) === '2026-08',
+      'la regla nueva: ' + UI.mesDeCierre(finDeMesDeNoche)
+      + ' · toISOString hubiera dado ' + finDeMesDeNoche.toISOString().slice(0, 7) + ' con un huso al este');
+
+    // Las SEIS pantallas del cierre arrancan en el mes que toca cerrar, no en el de hoy.
+    const ARRANQUES = [
+      ['_fotoMes', 'let _fotoMes = mesDeCierre();'],
+      ['_revMes', 'let _revMes = mesDeCierre();'],
+      ['_pagoMes', 'let _pagoMes = mesDeCierre(),'],
+      ['_venMes', 'let _venMes = mesDeCierre(),'],
+      ['_extMes', "let _extCli = '', _extMes = mesDeCierre(),"],
+      ['_facMes', 'let _facMes = mesDeCierre();'],
+    ];
+    const sinArreglar = ARRANQUES.filter(([, linea]) => !hUi.includes(linea)).map(([v]) => v);
+    check('cierre: las seis pantallas del cierre abren en el mes que toca cerrar',
+      !sinArreglar.length, sinArreglar.join(', ') || 'las 6');
+    // Y las de mirar el día a día NO se tocaron: ahí el mes corriente es el correcto.
+    check('cierre: las pantallas de seguimiento siguen abriendo en el mes corriente',
+      /let _tdMes = new Date\(\)\.toISOString\(\)\.slice\(0,7\)/.test(hUi)
+      && /const mes=_acMes\|\|new Date\(\)\.toISOString\(\)\.slice\(0,7\)/.test(hUi),
+      'el reporte diario de TBS y el acumulado');
+
+    // Cada una dice qué mes está mirando, con el otro a un clic: la regla acierta casi siempre y
+    // cuando no acierta tiene que ser obvio y barato de corregir.
+    const HANDLERS = ['fotoIrA', 'revIrA', 'pagoIrA', 'venIrA', 'extIrA', 'facIrA'];
+    const sinBanner = HANDLERS.filter((h) => !(hUi.includes('function ' + h + '(') && hUi.includes("'" + h + "'")));
+    check('cierre: las seis muestran qué mes miran y dejan cambiarlo de un clic',
+      !sinBanner.length && /function bannerMes\(mes, handler\)/.test(hUi),
+      sinBanner.join(', ') || 'los 6 carteles');
+
+    /* ── LA FOTO DE UN MES QUE NO TERMINÓ ─────────────────────────────────────────────────────
+       Es el mecanismo que cuesta plata: la foto corta se archiva como buena y el reporte de
+       externos cobra de menos, en silencio. */
+    const UI2 = armarUi(['fotoMesSinTerminar']);
+    // Se arman contra el reloj real: hoy estamos a mitad de un mes, así que ESE mes no terminó y
+    // el anterior sí. Escribir '2026-08' a mano hacía que el check dependiera de la fecha en que
+    // se corriera — y de hecho falló el primer día, porque agosto era el mes corriente.
+    const ahora = new Date();
+    const mesEnCurso = UI2.mesHoy(ahora);
+    const mesPasado = UI2.mesHoy(new Date(ahora.getFullYear(), ahora.getMonth() - 1, 15));
+    const mesQueViene = UI2.mesHoy(new Date(ahora.getFullYear(), ahora.getMonth() + 1, 15));
+    check('foto: reconoce un mes que todavía no terminó',
+      UI2.fotoMesSinTerminar(mesEnCurso) === true
+      && UI2.fotoMesSinTerminar(mesQueViene) === true
+      && UI2.fotoMesSinTerminar(mesPasado) === false,
+      mesEnCurso + ' sin terminar · ' + mesPasado + ' terminado');
+    check('foto: avisa en pantalla y hace confirmar antes de sacar una foto cortada',
+      /const AVISO_FOTO_EN_CURSO =/.test(hUi)
+      && /Este mes todavía no terminó/.test(hUi)
+      && /cortada queda guardada como si fuera la del mes entero/.test(hUi)
+      && /if\(fotoMesSinTerminar\(_fotoMes\) && !confirm\(/.test(hUi)
+      && /TODAVÍA NO TERMINÓ/.test(hUi));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir
