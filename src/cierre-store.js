@@ -13,6 +13,40 @@ const { mesISO } = require('./lib/fechas');
 
 const clean = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
 
+/**
+ * ── EL CONTROL DE LOS PORCENTAJES ────────────────────────────────────────────────────────────
+ * Las celdas de la matriz, el % base del proveedor y el descuento del cliente se tipean a mano y
+ * se guardaban tal cual, sin mirar. Es el MISMO agujero que ya estaba tapado para el tipo de
+ * cambio (ver setTC más abajo), sobre los otros tres campos del cierre.
+ *
+ * Qué pasa cuando entra mal, que es lo que hace que valga la pena frenarlo:
+ *   · "12,5"  → con coma no es un número: se guarda el texto y al calcular vale CERO. Ese
+ *     proveedor pasa a costar cero, el vendedor paga cero por él, y el control de "costo bajo"
+ *     tampoco lo agarra porque compara contra ese mismo cero.
+ *   · "1250"  → escribir "12,50" y que la coma se pierda en el camino. La cuenta es
+ *     `profit × (celda − base)%`, así que un 1250 con base 5 cobra 1245% del profit: doce veces
+ *     la ganancia del mes de ese proveedor.
+ *   · negativo → invierte el cobro: en vez de cobrarle al cliente, le acredita.
+ *
+ * El tope de 100 no es arbitrario: la celda es un porcentaje DEL PROFIT, así que pasarse de 100
+ * es cobrar más de todo lo que ese proveedor ganó. Hoy no hay ninguna arriba de 25 en las 3.638
+ * celdas cargadas, ni base arriba de 17, ni descuento arriba de 15.
+ */
+function _validarPct(valor, que) {
+  const v = clean(valor);
+  if (v == null) return { ok: true, vacio: true };     // vacío borra la celda: es válido
+  if (!money.esNumero(v)) {
+    return { ok: false, error: `"${v}" no es un número. Usá punto para los decimales: 12.5, no 12,5`
+      + ` (${que})` };
+  }
+  if (money.isNeg(v)) return { ok: false, error: `${que}: ${v} es negativo, y un porcentaje negativo acredita en vez de cobrar` };
+  if (money.cmp(v, '100') > 0) {
+    return { ok: false, error: `${que}: ${v} pasa de 100%. Es un porcentaje del profit, así que más de 100`
+      + ` cobra más de lo que ese proveedor ganó. ¿Quisiste poner ${money.div(v, '100')}?` };
+  }
+  return { ok: true };
+}
+
 // ── matriz ──
 function getMatriz() {
   const proveedores = db.prepare('SELECT nombre, base_pct FROM cierre_proveedor ORDER BY ord ASC, nombre ASC').all();
@@ -24,26 +58,35 @@ function getMatriz() {
   return { proveedores, clientes, celdas };
 }
 
+/** @returns {{ok:boolean, error?:string}} — antes devolvía true/false y nadie podía decir por qué. */
 function setCelda(proveedor, cliente, pct) {
   const p = clean(proveedor), c = clean(cliente), v = clean(pct);
-  if (!p || !c) return false;
-  if (v == null) { db.prepare('DELETE FROM cierre_pct WHERE proveedor=? AND cliente=?').run(p, c); return true; }
+  if (!p || !c) return { ok: false, error: 'falta el proveedor o el cliente' };
+  const val = _validarPct(v, `${p} × ${c}`);
+  if (!val.ok) return val;
+  if (v == null) { db.prepare('DELETE FROM cierre_pct WHERE proveedor=? AND cliente=?').run(p, c); return { ok: true }; }
   db.prepare('INSERT INTO cierre_pct (proveedor,cliente,pct) VALUES (?,?,?) ON CONFLICT(proveedor,cliente) DO UPDATE SET pct=excluded.pct').run(p, c, v);
-  return true;
+  return { ok: true };
 }
 
 function _nextOrd(table) { return db.prepare(`SELECT COALESCE(MAX(ord),-1)+1 n FROM ${table}`).get().n; }
 
 function addProveedor(nombre, base_pct) {
   const n = clean(nombre); if (!n) return null;
+  // Mismo control que setBase: entrar por "agregar" en vez de por "editar" no puede ser la puerta
+  // de atrás para un porcentaje mal escrito.
+  const val = _validarPct(base_pct, `% base de ${n}`);
+  if (!val.ok) throw new Error(val.error);
   db.prepare('INSERT INTO cierre_proveedor (nombre,base_pct,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET base_pct=COALESCE(excluded.base_pct, cierre_proveedor.base_pct)')
     .run(n, clean(base_pct), _nextOrd('cierre_proveedor'));
   return n;
 }
 function setBase(nombre, base_pct) {
-  const n = clean(nombre); if (!n) return false;
+  const n = clean(nombre); if (!n) return { ok: false, error: 'falta el proveedor' };
+  const val = _validarPct(base_pct, `% base de ${n}`);
+  if (!val.ok) return val;
   db.prepare('INSERT INTO cierre_proveedor (nombre,base_pct,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET base_pct=excluded.base_pct').run(n, clean(base_pct), _nextOrd('cierre_proveedor'));
-  return true;
+  return { ok: true };
 }
 function removeProveedor(nombre) {
   const n = clean(nombre); if (!n) return false;
@@ -56,14 +99,18 @@ function removeProveedor(nombre) {
 
 function addCliente(nombre, descuento) {
   const n = clean(nombre); if (!n) return null;
+  const val = _validarPct(descuento, `descuento de ${n}`);
+  if (!val.ok) throw new Error(val.error);
   db.prepare('INSERT INTO cierre_cliente (nombre,descuento,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET descuento=COALESCE(excluded.descuento, cierre_cliente.descuento)')
     .run(n, clean(descuento), _nextOrd('cierre_cliente'));
   return n;
 }
 function setDescuento(nombre, descuento) {
-  const n = clean(nombre); if (!n) return false;
+  const n = clean(nombre); if (!n) return { ok: false, error: 'falta el cliente' };
+  const val = _validarPct(descuento, `descuento de ${n}`);
+  if (!val.ok) return val;
   db.prepare('INSERT INTO cierre_cliente (nombre,descuento,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET descuento=excluded.descuento').run(n, clean(descuento), _nextOrd('cierre_cliente'));
-  return true;
+  return { ok: true };
 }
 /**
  * Renombrar un cliente tiene que ARRASTRAR su columna. La matriz se referencia por NOMBRE, así
@@ -295,17 +342,29 @@ function autoVincular() {
  * reset=true vacía primero (re-import limpio). Sin reset = upsert aditivo (conserva ediciones manuales previas
  * salvo las celdas que vengan en el payload). Devuelve conteos.
  */
+/* El import trae una planilla entera de una. Frenarlo por una celda dejaría el cierre sin cargar
+   por un solo valor raro; escribirla igual es lo que hacía antes. Se saltean las que no pasan el
+   control y se DEVUELVEN, para que la pantalla pueda decir cuáles quedaron afuera. */
 function importar(payload = {}) {
   const { proveedores = [], clientes = [], celdas = [], tc = [], reset = false } = payload;
+  const rechazadas = [];
+  const pasa = (valor, que) => {
+    const r = _validarPct(valor, que);
+    if (!r.ok) { rechazadas.push(r.error); return false; }
+    return true;
+  };
   const tx = db.transaction(() => {
     if (reset) { db.exec('DELETE FROM cierre_pct; DELETE FROM cierre_proveedor; DELETE FROM cierre_cliente; DELETE FROM cierre_tc;'); }
     let op = _nextOrd('cierre_proveedor');
     for (const p of proveedores) { const n = clean(p.nombre); if (!n) continue;
+      if (!pasa(p.base_pct, `% base de ${n}`)) continue;
       db.prepare('INSERT INTO cierre_proveedor (nombre,base_pct,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET base_pct=COALESCE(excluded.base_pct, cierre_proveedor.base_pct)').run(n, clean(p.base_pct), op++); }
     let oc = _nextOrd('cierre_cliente');
     for (const c of clientes) { const n = clean(c.nombre); if (!n) continue;
+      if (!pasa(c.descuento, `descuento de ${n}`)) continue;
       db.prepare('INSERT INTO cierre_cliente (nombre,descuento,ord) VALUES (?,?,?) ON CONFLICT(nombre) DO UPDATE SET descuento=COALESCE(excluded.descuento, cierre_cliente.descuento)').run(n, clean(c.descuento), oc++); }
     for (const k of celdas) { const p = clean(k.proveedor), c = clean(k.cliente), v = clean(k.pct); if (!p || !c || v == null) continue;
+      if (!pasa(v, `${p} × ${c}`)) continue;
       db.prepare('INSERT INTO cierre_pct (proveedor,cliente,pct) VALUES (?,?,?) ON CONFLICT(proveedor,cliente) DO UPDATE SET pct=excluded.pct').run(p, c, v); }
     for (const t of tc) { const m = clean(t.moneda), me = clean(t.mes), ta = clean(t.tasa); if (!m || !me || ta == null) continue;
       db.prepare('INSERT INTO cierre_tc (moneda,mes,tasa) VALUES (?,?,?) ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa').run(m, me, ta); }
@@ -316,6 +375,7 @@ function importar(payload = {}) {
     clientes: db.prepare('SELECT COUNT(*) n FROM cierre_cliente').get().n,
     celdas: db.prepare('SELECT COUNT(*) n FROM cierre_pct').get().n,
     tc: db.prepare('SELECT COUNT(*) n FROM cierre_tc').get().n,
+    rechazadas,
   };
 }
 
@@ -326,12 +386,20 @@ function importar(payload = {}) {
  */
 const _lote = db.transaction((cambios) => {
   let n = 0;
-  for (const c of cambios) if (setCelda(c.proveedor, c.cliente, c.pct)) n++;
+  for (const c of cambios) {
+    const r = setCelda(c.proveedor, c.cliente, c.pct);
+    // Una celda mal escrita TIRA, y la transacción deshace el lote entero. Es el contrato que ya
+    // estaba escrito acá arriba ("o entran todas o ninguna") y antes no se cumplía: setCelda
+    // devolvía false y el lote seguía, así que quedaban a medias sin que nadie se enterara.
+    if (!r.ok) throw new Error(r.error);
+    n++;
+  }
   return n;
 });
 function setCeldas(cambios) {
-  if (!Array.isArray(cambios) || !cambios.length) return 0;
-  return _lote(cambios);
+  if (!Array.isArray(cambios) || !cambios.length) return { ok: true, escritas: 0 };
+  try { return { ok: true, escritas: _lote(cambios) }; }
+  catch (e) { return { ok: false, error: e.message, escritas: 0 }; }
 }
 
 module.exports = {

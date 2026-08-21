@@ -954,9 +954,13 @@ function mount(app) {
   // ───────── CIERRE DE MES (matriz % proveedor×cliente, réplica editable de la planilla) ─────────
   app.get('/api/os/cierre/matriz', (_req, res) => ok(res, cierreStore.getMatriz()));
   app.get('/api/os/cierre/tc', (_req, res) => ok(res, cierreStore.getTC()));
+  /* Los tres campos del cierre que se tipean a mano. Un porcentaje mal escrito ("12,5") vale CERO
+     al calcular y no rompe nada: ese proveedor pasa a costar cero y nadie se entera. Ahora se
+     rechaza al escribirlo y la pantalla lo pinta en rojo — ver _validarPct en cierre-store.js. */
   app.post('/api/os/cierre/celda', wrap((req, res) => {
     const { proveedor, cliente, pct } = req.body || {};
-    ok(res, { guardado: cierreStore.setCelda(proveedor, cliente, pct) });
+    const r = cierreStore.setCelda(proveedor, cliente, pct);
+    r.ok ? ok(res, { guardado: true }) : err(res, 400, r.error);
   }));
   // Mantenimiento de precios en lote (SL2/SZ a 0, tope, copiar la lista de un cliente a otro…).
   // Una sola transacción; devuelve cuántas celdas se escribieron.
@@ -964,10 +968,19 @@ function mount(app) {
     const cambios = (req.body || {}).cambios;
     if (!Array.isArray(cambios)) return err(res, 400, 'falta el arreglo "cambios"');
     if (cambios.length > 20000) return err(res, 400, 'demasiados cambios en una sola llamada');
-    ok(res, { escritas: cierreStore.setCeldas(cambios) });
+    const r = cierreStore.setCeldas(cambios);
+    // Si una sola celda del lote está mal, no entra ninguna: quedarse a medias en un cambio de
+    // precios masivo es peor que no haberlo hecho.
+    r.ok ? ok(res, { escritas: r.escritas }) : err(res, 400, r.error);
   }));
-  app.post('/api/os/cierre/base', wrap((req, res) => ok(res, { guardado: cierreStore.setBase((req.body || {}).proveedor, (req.body || {}).base_pct) })));
-  app.post('/api/os/cierre/descuento', wrap((req, res) => ok(res, { guardado: cierreStore.setDescuento((req.body || {}).cliente, (req.body || {}).descuento) })));
+  app.post('/api/os/cierre/base', wrap((req, res) => {
+    const r = cierreStore.setBase((req.body || {}).proveedor, (req.body || {}).base_pct);
+    r.ok ? ok(res, { guardado: true }) : err(res, 400, r.error);
+  }));
+  app.post('/api/os/cierre/descuento', wrap((req, res) => {
+    const r = cierreStore.setDescuento((req.body || {}).cliente, (req.body || {}).descuento);
+    r.ok ? ok(res, { guardado: true }) : err(res, 400, r.error);
+  }));
   app.post('/api/os/cierre/proveedor', wrap((req, res) => ok(res, { nombre: cierreStore.addProveedor((req.body || {}).nombre, (req.body || {}).base_pct) })));
   app.delete('/api/os/cierre/proveedor/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeProveedor(req.params.nombre) }));
   app.post('/api/os/cierre/cliente', wrap((req, res) => ok(res, { nombre: cierreStore.addCliente((req.body || {}).nombre, (req.body || {}).descuento) })));
@@ -1479,8 +1492,18 @@ function mount(app) {
   app.put('/api/os/tc/mes/:mes', wrap((req, res) => {
     const { tc_proveedor_ext } = req.body || {};
     if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');
-    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, true);
-    if (!r.ok) return err(res, 400, r.error);
+    /* ⚠️ EL CUARTO ARGUMENTO ES `forzar`, Y ESTABA EN `true` FIJO.
+       `setTC` tiene un control que compara contra lo que esa misma moneda venía valiendo y frena
+       un salto de más del 50% — está justo para el caso de escribir "1.473" pensando en 1473, que
+       es un número válido (uno coma cuatro siete tres) y por eso el control de formato lo deja
+       pasar. Ese TC es el divisor de TODO lo que se le paga a los proveedores externos en pesos:
+       con 1,473 en vez de 1473, el resultado sale mil veces más grande.
+       Con `true` fijo, la única pantalla donde se carga ese número lo salteaba siempre. Ahora
+       `forzar` llega de la pantalla, que primero muestra la pregunta. */
+    const forzar = !!(req.body || {}).forzar;
+    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, forzar);
+    // `confirmar` y `anterior` viajan al cliente: sin eso la pantalla no puede preguntar nada.
+    if (!r.ok) return err(res, 400, r.error, { confirmar: !!r.confirmar, anterior: r.anterior || null });
     ok(res, { mes: tcStore.getMes(req.params.mes) });
   }));
 

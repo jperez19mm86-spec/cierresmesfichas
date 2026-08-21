@@ -88,6 +88,10 @@
   .nota table th { font-size:10px; }
   .nota table td { padding:4px 9px; font-size:12px; }
   .cie-ok { background:rgba(46,160,67,.28)!important; transition:background .1s; }
+  /* El verde se va solo a los 350ms; el ROJO SE QUEDA. Un campo que no se guardó sigue mostrando
+     el número tipeado, y sin marca no hay forma de saber que no entró — que es justo el problema
+     que estos controles vienen a resolver. */
+  .cie-mal { background:rgba(217,83,79,.3)!important; outline:2px solid var(--red); }
   /* Cuentas del mes de TBS: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
      cada bloque es una tabla cerrada con su propio subtotal y su TC en la cabecera. */
   .apidiv { margin:0 0 12px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
@@ -261,6 +265,17 @@ function bannerMes(mes, handler) {
   </div>`;
 }
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+/* Guardar un porcentaje del cierre: verde si entró, ROJO y así se queda si no.
+   El mensaje del servidor ya lo muestra api() solo; lo que faltaba era marcar el campo. Los seis
+   lugares que guardan un % hacían `if(r.ok)` y en el else no hacían NADA: el número quedaba en
+   pantalla como si se hubiera guardado. */
+function _ciePct(el, r){
+  el.classList.remove('cie-ok','cie-mal');
+  if (r && r.ok) { el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); return true; }
+  el.classList.add('cie-mal');
+  if (el.select) el.select();
+  return false;
+}
 async function api(path, opts={}){
   const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
   if(r.status===401){ location.href='/login'; return {ok:false}; }
@@ -1041,8 +1056,8 @@ async function loadCliProv(id){
       ${provs.length?`<table class="clipt"><thead><tr><th>Proveedor</th><th class="right">% base</th><th class="right">% ${esc(nombre)}</th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">La matriz del Cierre está vacía. Importá la planilla en 🧮 Cierre de Mes.</div>'}
     </div></div>`;
 }
-async function cliProvCell(inp,nombre){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:inp.dataset.prov,cliente:nombre,pct:inp.value})}); if(r.ok){inp.classList.add('cie-ok');setTimeout(()=>inp.classList.remove('cie-ok'),350);} }
-async function cliProvDesc(inp,nombre){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:nombre,descuento:inp.value})}); if(r.ok)toast('Descuento guardado'); }
+async function cliProvCell(inp,nombre){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:inp.dataset.prov,cliente:nombre,pct:inp.value})}); _ciePct(inp,r); }
+async function cliProvDesc(inp,nombre){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:nombre,descuento:inp.value})}); if(_ciePct(inp,r)) toast('Descuento guardado'); }
 function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.querySelectorAll('.clipt tbody tr').forEach(tr=>{tr.style.display=(tr.dataset.prov||'').includes(q)?'':'none';}); }
 async function saveCli(id){
   const divisas=[...document.querySelectorAll('#e-divisas input.e-div:checked')].map(x=>x.value).join(',');
@@ -2159,6 +2174,7 @@ async function addProv(){
 // El % costo del catálogo = % base del proveedor en la matriz del Cierre → guardar acá lo cambia allá también.
 async function saveCostoMatriz(el){
   const r=await api('/api/os/cierre/base',{method:'POST',body:JSON.stringify({proveedor:el.dataset.matriz,base_pct:el.value})});
+  if(!_ciePct(el,r)) return;
   if(r.ok){ el.style.background='rgba(0,180,80,.28)'; setTimeout(()=>{el.style.background='';},400); toast('% guardado (matriz del Cierre)'); }
 }
 async function delProv(id){ if(!confirm('¿Eliminar?'))return; await api('/api/os/proveedores/'+id,{method:'DELETE'}); VIEWS.proveedores(); }
@@ -2870,9 +2886,9 @@ async function cieMatriz(){
     ${provs.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Matriz vacía.</div>'}
   </div>`;
 }
-async function cieCell(el){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,cliente:el.dataset.cli,pct:el.value})}); if(r.ok)_cieFlash(el); }
-async function cieBase(el){ const r=await api('/api/os/cierre/base',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,base_pct:el.value})}); if(r.ok)_cieFlash(el); }
-async function cieDesc(el){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:el.dataset.cli,descuento:el.value})}); if(r.ok)_cieFlash(el); }
+async function cieCell(el){ const r=await api('/api/os/cierre/celda',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,cliente:el.dataset.cli,pct:el.value})}); _ciePct(el,r); }
+async function cieBase(el){ const r=await api('/api/os/cierre/base',{method:'POST',body:JSON.stringify({proveedor:el.dataset.prov,base_pct:el.value})}); _ciePct(el,r); }
+async function cieDesc(el){ const r=await api('/api/os/cierre/descuento',{method:'POST',body:JSON.stringify({cliente:el.dataset.cli,descuento:el.value})}); _ciePct(el,r); }
 async function addCieProv(){ const n=val('cie-np').trim(); if(!n)return toast('Poné el nombre (Marca Vendor)'); await api('/api/os/cierre/proveedor',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Fila agregada'); cieMatriz(); }
 async function cieAgregarFaltantes(){ if(!confirm('¿Agregar a la matriz todos los proveedores del casino (Casino+Europa) que falten? Se agregan como fila SIN % — para completar a mano.'))return; const r=await api('/api/os/cierre/agregar-faltantes',{method:'POST'}); if(r.ok)toast(`${r.agregados} agregados · ${r.total_matriz} proveedores en la matriz`); cieMatriz(); }
 async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); cieMatriz(); }
@@ -3035,7 +3051,22 @@ async function tcArmarColumna(){
 async function snapDivisas(){ const r=await api('/api/os/tc/divisas/snapshot',{method:'POST'}); toast(r.ok?('Guardadas '+r.divisas+' monedas'):(r.error||'error')); VIEWS.tc(); }
 async function snapNow(){ const r=await api('/api/os/tc/snapshot',{method:'POST'}); if(r.ok) toast('Snapshot: '+r.snapshot.tc_ars_usdt); VIEWS.tc(); }
 async function tcAhora(){ const r=await api('/api/os/tc/ahora'); document.getElementById('tc-now').textContent = r.tc?('TC '+money(r.tc,2)+' ('+(r.vivo?'vivo':'snapshot')+')'):'sin TC'; }
-async function setTcProv(mes){ const v=val('tcp-'+mes); if(!v)return; await api('/api/os/tc/mes/'+mes,{method:'PUT',body:JSON.stringify({tc_proveedor_ext:v})}); toast('Mes cerrado'); VIEWS.tc(); }
+/* El TC del proveedor es el divisor de TODO lo que se le paga a los externos en pesos. El control
+   del 50% vive en el servidor (setTC) y estaba apagado desde acá; ahora, cuando frena, la pantalla
+   muestra la pregunta y recién con un sí explícito reenvía con `forzar`.
+   El caso que atrapa: "1.473" es un número válido —uno coma cuatro siete tres— así que el control
+   de formato lo deja pasar, y todo lo que se paga sale mil veces más grande. */
+async function setTcProv(mes, forzar){
+  const v = val('tcp-'+mes); if(!v) return;
+  const r = await api('/api/os/tc/mes/'+mes, {method:'PUT',
+    body: JSON.stringify({ tc_proveedor_ext: v, forzar: !!forzar })});
+  if (!r.ok) {
+    // api() ya mostró el motivo; acá se pregunta sólo cuando el servidor dice que se puede forzar.
+    if (r.confirmar && confirm(r.error + '\n\n¿Guardar ' + v + ' igual?')) return setTcProv(mes, true);
+    return;
+  }
+  toast('Mes cerrado'); VIEWS.tc();
+}
 
 // ───────── MOVIMIENTOS ─────────
 // Un comprobante aprobado ES un movimiento de pago: eran dos pantallas para los dos lados de lo

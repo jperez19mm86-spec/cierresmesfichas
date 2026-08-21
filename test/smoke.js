@@ -986,6 +986,141 @@ async function main() {
       && /if\(fotoMesSinTerminar\(_fotoMes\) && !confirm\(/.test(hUi)
       && /TODAVÍA NO TERMINÓ/.test(hUi));
   }
+  /* ── LOS NÚMEROS QUE SE TIPEAN EN EL CIERRE ──────────────────────────────────────────────────
+     Dos agujeros de la misma familia, y los dos ya estaban tapados para el tipo de cambio de la
+     grilla — sobre los otros campos, no.
+
+     · Los PORCENTAJES (celda de la matriz, % base del proveedor, descuento del cliente) se
+       guardaban tal cual se tipeaban. "12,5" con coma no es un número: al calcular vale CERO. Ese
+       proveedor pasa a costar cero, el vendedor paga cero por él, y el control de "costo bajo"
+       tampoco lo agarra porque compara contra ese mismo cero.
+     · El TC DEL PROVEEDOR tenía su control de salto escrito y funcionando, y la única pantalla que
+       lo carga lo salteaba pasando `forzar` en true fijo. */
+  {
+    const cs = require('../src/cierre-store');
+    const PROV = 'ZZ-PRUEBA-PCT', CLI = 'ZZ-CLIENTE-PCT';
+    cs.addProveedor(PROV, '5'); cs.addCliente(CLI, '0');
+
+    // El caso que originó todo: la coma decimal.
+    const coma = cs.setCelda(PROV, CLI, '12,5');
+    check('cierre: un porcentaje con coma se rechaza en vez de valer cero',
+      coma.ok === false && /no es un número/.test(coma.error), coma.error);
+    // Y con punto entra.
+    check('cierre: con punto decimal entra bien', cs.setCelda(PROV, CLI, '12.5').ok === true);
+    check('cierre: el valor que entró es el que quedó',
+      cs.getMatriz().celdas[PROV][CLI] === '12.5', cs.getMatriz().celdas[PROV][CLI]);
+
+    /* El otro modo de error: escribir "12,50" y que la coma se pierda en el camino → 1250. La
+       cuenta es `profit × (celda − base)%`, así que 1250 con base 5 cobra 1245% del profit: doce
+       veces la ganancia del mes de ese proveedor. */
+    const mil = cs.setCelda(PROV, CLI, '1250');
+    check('cierre: un porcentaje que pasa de 100 se rechaza',
+      mil.ok === false && /pasa de 100/.test(mil.error), mil.error);
+    // El mensaje sugiere el número que probablemente se quiso poner.
+    check('cierre: y le sugiere el número que seguramente quiso poner', /12\.5/.test(mil.error), mil.error);
+    // Negativo: invierte el cobro (le acredita al cliente en vez de cobrarle).
+    const neg = cs.setCelda(PROV, CLI, '-5');
+    check('cierre: un porcentaje negativo se rechaza',
+      neg.ok === false && /negativo/.test(neg.error), neg.error);
+    // 0 y 100 son válidos: 0 es "a este cliente no se le cobra este proveedor", que es una decisión.
+    check('cierre: 0 y 100 siguen siendo válidos',
+      cs.setCelda(PROV, CLI, '0').ok === true && cs.setCelda(PROV, CLI, '100').ok === true);
+    // Vacío borra la celda, y eso también es válido.
+    // Al borrar la última celda de ese proveedor, la fila entera desaparece del mapa.
+    check('cierre: vacío borra la celda y no es un error',
+      cs.setCelda(PROV, CLI, '').ok === true
+      && (cs.getMatriz().celdas[PROV] || {})[CLI] === undefined);
+
+    // Los tres campos, no sólo la celda.
+    check('cierre: el % base del proveedor tiene el mismo control',
+      cs.setBase(PROV, '7,5').ok === false && cs.setBase(PROV, '7.5').ok === true);
+    check('cierre: el descuento del cliente tiene el mismo control',
+      cs.setDescuento(CLI, '3,5').ok === false && cs.setDescuento(CLI, '3.5').ok === true);
+    // Y las puertas de atrás: "agregar" no puede ser la forma de meter lo que "editar" rechaza.
+    let tiroAdd = false;
+    try { cs.addProveedor('ZZ-PRUEBA-ADD', '9,9'); } catch (e) { tiroAdd = /no es un número/.test(e.message); }
+    check('cierre: agregar un proveedor con un % mal escrito tampoco entra', tiroAdd);
+
+    /* EL LOTE ES TODO O NADA. Es el contrato que ya estaba escrito en el código y no se cumplía:
+       setCelda devolvía false, el lote seguía, y quedaba a medias sin que nadie se enterara. */
+    cs.setCelda(PROV, CLI, '10');
+    const lote = cs.setCeldas([
+      { proveedor: PROV, cliente: CLI, pct: '20' },
+      { proveedor: PROV, cliente: CLI, pct: '30,5' },   // ← ésta rompe
+    ]);
+    check('cierre: si una celda del lote está mal, no entra ninguna',
+      lote.ok === false && cs.getMatriz().celdas[PROV][CLI] === '10',
+      'quedó en ' + cs.getMatriz().celdas[PROV][CLI] + ' (el valor de antes del lote)');
+    // Un lote entero bien sí entra.
+    check('cierre: un lote bien escrito entra completo',
+      cs.setCeldas([{ proveedor: PROV, cliente: CLI, pct: '22' }]).escritas === 1
+      && cs.getMatriz().celdas[PROV][CLI] === '22');
+
+    // El import no se frena por una celda —es una planilla entera— pero dice cuáles dejó afuera.
+    const imp = cs.importar({ celdas: [
+      { proveedor: PROV, cliente: CLI, pct: '11' },
+      { proveedor: PROV, cliente: 'ZZ-OTRO-PCT', pct: '9,9' },
+    ] });
+    check('cierre: el import saltea lo que está mal y lo informa',
+      Array.isArray(imp.rechazadas) && imp.rechazadas.length === 1
+      && cs.getMatriz().celdas[PROV][CLI] === '11',
+      imp.rechazadas[0]);
+
+    cs.removeProveedor(PROV); cs.removeProveedor('ZZ-PRUEBA-ADD'); cs.removeCliente(CLI);
+
+    /* ── EL CONTROL DEL TC DEL PROVEEDOR, QUE ESTABA APAGADO ────────────────────────────────
+       "1.473" tipeado pensando en 1473 ES un número válido —uno coma cuatro siete tres— así que el
+       control de formato lo deja pasar. Lo que lo atrapa es compararlo con lo que esa moneda venía
+       valiendo. Ese control existía y andaba; la ruta lo salteaba pasando forzar en true fijo. */
+    const MON = 'ZZPRUEBA';
+    cs.setTC(MON, 'Enero_2026', '1400', true);
+    const salto = cs.setTC(MON, 'Febrero_2026', '1.473');
+    check('cierre: el TC del proveedor frena un salto enorme y pide confirmación',
+      salto.ok === false && salto.confirmar === true && salto.anterior === '1400',
+      salto.error);
+    check('cierre: con la confirmación explícita sí lo guarda',
+      cs.setTC(MON, 'Febrero_2026', '1.473', true).ok === true);
+    /* Y un cambio normal no molesta. Va sobre una moneda LIMPIA: en la de arriba quedó guardado
+       1,473 (el valor forzado), así que cualquier número normal sería un salto enorme contra eso —
+       el check pasaría por el motivo equivocado. */
+    const MON2 = 'ZZPRUEBA2';
+    cs.setTC(MON2, 'Enero_2026', '1400', true);
+    const normal = cs.setTC(MON2, 'Febrero_2026', '1500');
+    check('cierre: un cambio razonable no pregunta nada',
+      normal.ok === true, '1400 → 1500 (7%): ' + (normal.ok ? 'pasa' : normal.error));
+    cs.removeMonedaTC(MON); cs.removeMonedaTC(MON2);
+
+    // La ruta ya NO pasa forzar en true fijo: lo manda la pantalla, y sólo con un sí explícito.
+    const hOs = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('cierre: la ruta del TC ya no saltea el control',
+      /const forzar = !!\(req\.body \|\| \{\}\)\.forzar;/.test(hOs)
+      && /cierreStore\.FILA_PROVEEDOR, mesCierreLbl\(req\.params\.mes\), tc_proveedor_ext, forzar\)/.test(hOs)
+      && !/tc_proveedor_ext, true\)/.test(hOs));
+    // Y `confirmar` viaja al cliente: sin eso la pantalla no puede preguntar nada.
+    check('cierre: el pedido de confirmación llega a la pantalla',
+      /confirmar: !!r\.confirmar, anterior: r\.anterior \|\| null/.test(hOs));
+    // Las cuatro rutas de porcentajes devuelven el motivo en vez de un ok:true con un false adentro.
+    check('cierre: las rutas devuelven el motivo del rechazo',
+      (hOs.match(/r\.ok \? ok\(res, \{ guardado: true \}\) : err\(res, 400, r\.error\)/g) || []).length === 3
+      && /r\.ok \? ok\(res, \{ escritas: r\.escritas \}\) : err\(res, 400, r\.error\)/.test(hOs));
+
+    /* LA PANTALLA TIENE QUE MOSTRARLO. Los seis lugares que guardan un % hacían `if(r.ok)` y en el
+       else no hacían NADA: el número quedaba a la vista como si se hubiera guardado. */
+    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('cierre: un porcentaje rechazado queda marcado en rojo en la pantalla',
+      /function _ciePct\(el, r\)\{/.test(hUi) && /\.cie-mal \{/.test(hUi)
+      && /el\.classList\.add\('cie-mal'\)/.test(hUi));
+    const SEIS = ['cliProvCell', 'cliProvDesc', 'cieCell', 'cieBase', 'cieDesc', 'saveCostoMatriz'];
+    const sinMarca = SEIS.filter((f) => {
+      const i = hUi.indexOf('function ' + f + '(');
+      return i < 0 || !hUi.slice(i, i + 500).includes('_ciePct(');
+    });
+    check('cierre: los seis lugares que guardan un % marcan el error', !sinMarca.length,
+      sinMarca.join(', ') || 'los 6');
+    check('cierre: la pantalla del TC pregunta antes de forzar',
+      /async function setTcProv\(mes, forzar\)\{/.test(hUi)
+      && /if \(r\.confirmar && confirm\(r\.error \+ '\\n\\n¿Guardar ' \+ v \+ ' igual\?'\)\) return setTcProv\(mes, true\)/.test(hUi));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir
