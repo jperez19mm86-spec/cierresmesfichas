@@ -79,11 +79,24 @@ async function arbolDe(conexionId, { verBorrados = false } = {}) {
  * Los paneles que no aparecen en el árbol NO se tocan (se informan): borrarles el nivel que ya
  * tenían cargado a mano sería peor que dejarlo viejo.
  */
-async function sincronizar({ soloConexion = null } = {}) {
+/**
+ * @param soloConexion  resolver sólo esa conexión
+ * @param soloPanel     resolver UN panel (id del OS). Sigue bajando el árbol entero de su conexión
+ *                      —el casino no devuelve el padre de un nodo, hay que reconstruirlo desde la
+ *                      lista plana— pero ESCRIBE uno solo. Es lo que hace falta cuando se crea una
+ *                      caja nueva: sin esto había que re-sincronizar los 204 paneles para arreglar 1.
+ * @param dry           calcula y NO escribe. Deja ver qué cambiaría antes de cambiarlo.
+ */
+async function sincronizar({ soloConexion = null, soloPanel = null, dry = false } = {}) {
   // Solo el engine 463: el árbol de nodos no existe como tal en TBS.
-  const conexiones = casinoConex.list463().filter((c) => !soloConexion || c.id === soloConexion);
-  const todos = paneles.list();
-  const res = { conexiones: [], resueltos: 0, sinEncontrar: [], nivelCorregido: [], total: todos.length };
+  const uno = soloPanel ? paneles.get(soloPanel) : null;
+  if (soloPanel && !uno) return { ok: false, error: 'no existe ese panel' };
+  const conexiones = casinoConex.list463()
+    .filter((c) => !soloConexion || c.id === soloConexion)
+    // Con un panel puntual sólo hace falta el árbol de SU sistema: el resto no se toca ni se baja.
+    .filter((c) => !uno || String(c.nombre || '').toLowerCase() === String(uno.sistema || '').toLowerCase());
+  const todos = uno ? [uno] : paneles.list();
+  const res = { conexiones: [], resueltos: 0, sinEncontrar: [], nivelCorregido: [], total: todos.length, dry: !!dry };
 
   for (const cx of conexiones) {
     const a = await arbolDe(cx.id);
@@ -96,13 +109,23 @@ async function sincronizar({ soloConexion = null } = {}) {
       const e = a.idx.get(String(p.id_usuario));
       if (!e) { res.sinEncontrar.push({ id: p.id, nombre: p.nombre, sistema: p.sistema, id_usuario: String(p.id_usuario) }); continue; }
       const nivelReal = e.nivel;   // ya viene en el vocabulario del OS
-      if (nivelReal !== p.nivel_usuario) res.nivelCorregido.push({ nombre: p.nombre, sistema: p.sistema, de: p.nivel_usuario, a: nivelReal });
-      paneles.setJerarquia(p.id, {
-        nivel: nivelReal,
-        padre: e.padre,
-        superagente: e.cadena.length ? e.cadena[0] : null,
-        escala: escalaDe(e),
-      });
+      const escala = escalaDe(e);
+      if (nivelReal !== p.nivel_usuario) {
+        res.nivelCorregido.push({ id: p.id, nombre: p.nombre, sistema: p.sistema,
+          de: p.nivel_usuario, a: nivelReal,
+          // Por dónde van a pasar las fichas ahora. Sin esto, "de SuperAgente a Agente" no dice
+          // nada sobre si la carga va a funcionar.
+          escala: escala.map((x) => `${x.login} (${x.nivel})`),
+          nuevo: !p.arbol_at });
+      }
+      if (!dry) {
+        paneles.setJerarquia(p.id, {
+          nivel: nivelReal,
+          padre: e.padre,
+          superagente: e.cadena.length ? e.cadena[0] : null,
+          escala,
+        });
+      }
       res.resueltos++;
     }
 

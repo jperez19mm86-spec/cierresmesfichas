@@ -691,6 +691,41 @@ async function setEnFoto(id, v){
   if(r&&r.ok) _paneles=(await api('/api/os/paneles')).paneles||_paneles;
   VIEWS.clientes();
 }
+/* ── EL NIVEL: EL DE VERDAD, O EL QUE ALGUIEN ESCRIBIÓ AL CREARLO ───────────────────────────────
+   Para bajarle fichas a un Agente hay que pasar por su Distribuidor y por su SuperAgente. Esa
+   escala se resuelve contra el casino (`arbol_at` dice cuándo) porque el casino NO devuelve el
+   padre de un nodo: hay que reconstruir el árbol desde la lista plana.
+
+   Un panel SIN resolver queda con el nivel que se eligió a mano en el formulario de alta, y la
+   cascada lo cree. Si ahí dice "SuperAgente", la carga va DIRECTO — y falla, porque el padre real
+   no tiene saldo. Pasó con GanamosM01: caja nueva, creada como SuperAgente, siendo Agente.
+
+   El nivel sin resolver ya no se muestra como si fuera un dato: se muestra como lo que es, con el
+   botón para resolverlo al lado. */
+function nivelPanel(p){
+  if (p.arbol_at) return esc(p.nivel_usuario||'');
+  return `<span class="badge warn" title="Este nivel es el que se eligió al crear el panel, no el que dice el casino. Hasta resolverlo, la carga de fichas puede fallar.">sin resolver</span>
+    <div class="muted" style="font-size:10.5px;margin-top:2px">dice «${esc(p.nivel_usuario||'—')}»</div>
+    <button class="outline small" style="margin-top:3px;font-size:10.5px;padding:3px 7px"
+      onclick="resolverPanel('${p.id}','${esc(p.nombre).replace(/'/g,'')}')">⟳ resolver</button>`;
+}
+
+/* Resuelve UN panel contra el casino. Baja el árbol de su sistema (el casino no devuelve el padre,
+   hay que reconstruirlo), así que tarda; por eso avisa antes y muestra el resultado. */
+async function resolverPanel(id, nombre){
+  toast('Preguntándole al casino por «'+nombre+'»… tarda un minuto');
+  const r = await api('/api/os/casino/arbol/sync', { method:'POST', body: JSON.stringify({ panel_id: id }) });
+  if (!r || !r.ok) return toast('No se pudo resolver: ' + ((r&&r.error)||''));
+  if (!r.resueltos) {
+    const f = (r.sinEncontrar||[])[0];
+    return toast('El casino no encontró ese nodo' + (f&&f.diagnostico ? ': '+f.diagnostico : ''));
+  }
+  const c = (r.nivelCorregido||[])[0];
+  toast(c ? ('Resuelto: es ' + c.a + (c.escala&&c.escala.length ? ' · pasa por ' + c.escala.join(' → ') : ''))
+          : 'Resuelto: el nivel ya era el correcto');
+  VIEWS.clientes();
+}
+
 async function setDivisas(id, v){
   const limpio=[...new Set(String(v||'').toUpperCase().split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean))];
   if(!limpio.length && !confirm('¿Dejar el panel SIN ninguna divisa?\n\nNo se le va a poder pedir nada ni va a entrar en la Foto del mes.')) return VIEWS.clientes();
@@ -749,7 +784,7 @@ function bloquePaneles(c){
      <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
-       <td>${sisPill(p.sistema)}</td><td>${esc(p.nivel_usuario||'')}</td>
+       <td>${sisPill(p.sistema)}</td><td>${nivelPanel(p)}</td>
        <td>${(()=>{ const g=(window._divDiag||{})[p.id]||{};
           // "sobran" sólo si el panel MOVIÓ algo: sin datos no se puede afirmar que no las use.
           const sobran=(g.usadas&&g.usadas.length)?(g.sobran||[]):[];

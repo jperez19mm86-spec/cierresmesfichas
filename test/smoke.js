@@ -1327,6 +1327,115 @@ async function main() {
     check('emitir: cuando se emitió a todos, lo dice',
       /✅ Se emitió a todos\./.test(srcUi));
   }
+  /* ── EL NIVEL DE UN PANEL NUEVO ──────────────────────────────────────────────────────────────
+     Para bajarle fichas a un Agente hay que pasar por su Distribuidor y por su SuperAgente. Esa
+     escala se resuelve contra el casino, porque el casino NO devuelve el padre de un nodo: hay que
+     reconstruir el árbol desde la lista plana.
+
+     Un panel recién creado nace con un nivel ELEGIDO —en el alta manual sale del desplegable, y al
+     aprobar una caja está escrito fijo como 'SuperAgente'— y la cascada le cree. Un panel marcado
+     SuperAgente carga DIRECTO, sin pasar por sus padres, y falla porque el padre real no tiene
+     saldo. Pasó de verdad: GanamosM01, caja creada el 21 de agosto, marcada SuperAgente siendo
+     Agente, único de los 204 paneles sin resolver. */
+  {
+    const arbol = require('../src/arbol.service');
+
+    /* La lista del casino viene PLANA pero en orden jerárquico. Es el caso real de Fran:
+       GanamosBot-SA → GanamosAlexa → GanamosF01 y GanamosM01. */
+    const planos = [
+      { id: '6825836', login: 'GanamosBot-SA', nivel: 'SuperAgente' },
+      { id: '7156798', login: 'GanamosAlexa', nivel: 'Dealer' },
+      { id: '7278879', login: 'GanamosF01', nivel: 'Agente' },
+      { id: '7344299', login: 'GanamosM01', nivel: 'Agente' },
+      { id: '7130908', login: 'GanamosTici', nivel: 'Dealer' },
+      { id: '9999999', login: 'OtroAgente', nivel: 'Agente' },
+    ];
+    const idx = arbol.armar(planos);
+
+    check('árbol: el padre sale del orden de la lista, no de un campo',
+      idx.get('7344299').padre.login === 'GanamosAlexa'
+      && idx.get('9999999').padre.login === 'GanamosTici',
+      'GanamosM01 → ' + idx.get('7344299').padre.login + ' · OtroAgente → ' + idx.get('9999999').padre.login);
+    // El casino dice "Dealer" y el OS dice "Distribuidor": es el mismo escalón, y mezclarlos es
+    // una fuente segura de bugs. Todo sale traducido.
+    check('árbol: "Dealer" del casino se traduce a "Distribuidor" del OS',
+      idx.get('7156798').nivel === 'Distribuidor' && idx.get('7156798').nivelCasino === 'Dealer');
+    // La escala completa, de arriba hacia abajo: es por donde van a pasar las fichas.
+    const esc2 = arbol.escalaDe(idx.get('7344299')).map((x) => x.login + '/' + x.nivel);
+    check('árbol: la escala de un Agente pasa por su Distribuidor y su SuperAgente',
+      esc2.join(' → ') === 'GanamosBot-SA/SuperAgente → GanamosAlexa/Distribuidor',
+      esc2.join(' → '));
+    // Un SuperAgente no tiene por dónde pasar: carga directo, y eso está bien.
+    check('árbol: un SuperAgente de verdad no lleva escala',
+      arbol.escalaDe(idx.get('6825836')).length === 0);
+    // Un hermano no se cuelga del otro: dos Agentes seguidos comparten padre.
+    check('árbol: dos agentes seguidos comparten padre, no se cuelgan entre sí',
+      idx.get('7278879').padre.id === idx.get('7344299').padre.id
+      && idx.get('7344299').padre.id === '7156798');
+
+    /* ── LO QUE HACE QUE LA CARGA FALLE ───────────────────────────────────────────────────────
+       La cascada arma sus pasos con la escala GUARDADA. Sin resolver, la escala está vacía y el
+       único paso es el destino: carga directa. */
+    const cascada = require('../src/carga-cascada.service');
+    const panelesSt = require('../src/paneles-store');
+    const clientesSt2 = require('../src/clientes-store');
+    const cli2 = clientesSt2.createCliente({ codigo: 'ZZ-ARBOL', nombre: 'Prueba árbol' });
+    const pSinResolver = panelesSt.create({ cliente_id: cli2.id, nombre: 'ZZ-M01', sistema: 'Europa',
+      nivel_usuario: 'SuperAgente', id_usuario: '7344299', divisas: ['ARS'] });
+    const antes = cascada.pasosDe({ sistema: 'Europa', userId: '7344299', monto: 1000, divisa: 'ARS' });
+    check('cascada: sin resolver, carga DIRECTO (un solo paso) — así fallaba',
+      antes.pasos.length === 1 && antes.pasos[0].destino === true && antes.resuelto === false,
+      antes.pasos.length + ' paso(s), resuelto=' + antes.resuelto);
+
+    // Con la jerarquía resuelta, los pasos son tres y el destino queda último.
+    panelesSt.setJerarquia(pSinResolver.id, {
+      nivel: 'Agente',
+      padre: idx.get('7344299').padre,
+      superagente: arbol.escalaDe(idx.get('7344299'))[0],
+      escala: arbol.escalaDe(idx.get('7344299')),
+    });
+    const despues = cascada.pasosDe({ sistema: 'Europa', userId: '7344299', monto: 1000, divisa: 'ARS' });
+    check('cascada: resuelto, las fichas bajan por los tres escalones',
+      despues.pasos.length === 3
+      && despues.pasos[0].login === 'GanamosBot-SA' && despues.pasos[1].login === 'GanamosAlexa'
+      && despues.pasos[2].destino === true && despues.resuelto === true,
+      despues.pasos.map((x) => x.login).join(' → '));
+    panelesSt.remove(pSinResolver.id);
+    clientesSt2.removeCliente(cli2.id);
+
+    /* ── QUE NO VUELVA A PASAR ────────────────────────────────────────────────────────────────
+       Tres cosas: se puede resolver UNO solo, se ve cuando no está resuelto, y se resuelve solo
+       al crearlo. */
+    const srcArb = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'arbol.service.js'), 'utf8');
+    check('árbol: se puede resolver un panel solo, sin re-sincronizar los 204',
+      /async function sincronizar\(\{ soloConexion = null, soloPanel = null, dry = false \} = \{\}\)/.test(srcArb)
+      && /const todos = uno \? \[uno\] : paneles\.list\(\);/.test(srcArb));
+    // Y sin bajar el árbol de las conexiones que no hacen falta.
+    check('árbol: para un panel puntual sólo baja el árbol de SU sistema',
+      /\.filter\(\(c\) => !uno \|\| String\(c\.nombre \|\| ''\)\.toLowerCase\(\) === String\(uno\.sistema \|\| ''\)\.toLowerCase\(\)\)/.test(srcArb));
+    // El modo mirar-sin-tocar: una sincronización reescribe los 204, conviene poder verla antes.
+    check('árbol: se puede mirar qué cambiaría sin escribir nada',
+      /if \(!dry\) \{\s*\n\s*paneles\.setJerarquia/.test(srcArb) && /dry: !!dry/.test(srcArb));
+
+    const srcRt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('árbol: un panel nuevo se resuelve solo, por los dos caminos de alta',
+      /function _resolverJerarquia\(panel\)/.test(srcRt2)
+      && (srcRt2.match(/_resolverJerarquia\(panel\);/g) || []).length === 2);
+    // En segundo plano: baja el árbol entero y tarda; bloquear el alta sería peor.
+    check('árbol: resolver no bloquea el alta ni tumba el proceso si falla',
+      /arbolSvc\.sincronizar\(\{ soloPanel: panel\.id \}\)\s*\n\s*\.then/.test(srcRt2)
+      && /\.catch\(\(e\) => console\.warn\('\[Árbol\] no se pudo resolver'/.test(srcRt2));
+
+    const srcUi2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('árbol: un panel sin resolver se ve como tal, no como un nivel cualquiera',
+      /function nivelPanel\(p\)\{/.test(srcUi2)
+      && /if \(p\.arbol_at\) return esc\(p\.nivel_usuario\|\|''\);/.test(srcUi2)
+      && /sin resolver<\/span>/.test(srcUi2)
+      && /<td>\$\{sisPill\(p\.sistema\)\}<\/td><td>\$\{nivelPanel\(p\)\}<\/td>/.test(srcUi2));
+    check('árbol: y tiene el botón para resolverlo ahí mismo',
+      /async function resolverPanel\(id, nombre\)\{/.test(srcUi2)
+      && /body: JSON\.stringify\(\{ panel_id: id \}\)/.test(srcUi2));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

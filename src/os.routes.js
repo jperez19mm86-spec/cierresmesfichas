@@ -420,7 +420,35 @@ function mount(app) {
     clientes.addCaja(destino, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
     return true;
   };
-  app.post('/api/os/paneles', wrap((req, res) => { const panel = paneles.create(req.body || {}); _espejarCaja(panel); ok(res, { panel }); }));
+  /* ── UN PANEL NUEVO SE RESUELVE SOLO ─────────────────────────────────────────────────────────
+     El nivel con el que nace un panel es una ELECCIÓN: en el alta manual sale del desplegable, y al
+     aprobar una caja está escrito fijo como 'SuperAgente'. La cascada de carga le cree, y un panel
+     marcado SuperAgente carga DIRECTO, sin pasar por sus padres. Si en realidad es un Agente, la
+     carga falla — el padre real no tiene saldo — y desde la pantalla no hay forma de darse cuenta:
+     el nivel se ve escrito como cualquier otro dato.
+     Pasó con GanamosM01: caja creada el 21 de agosto, marcada SuperAgente, siendo Agente. Era el
+     único de los 204 paneles sin resolver.
+
+     Va en segundo plano y no bloquea la respuesta: baja el árbol entero de esa conexión (el casino
+     no devuelve el padre de un nodo) y tarda cerca de un minuto. Si falla, el panel queda "sin
+     resolver" y la pantalla lo muestra así, con su botón para reintentar. */
+  function _resolverJerarquia(panel) {
+    if (!panel || !panel.id || !panel.id_usuario) return;
+    arbolSvc.sincronizar({ soloPanel: panel.id })
+      .then((r) => {
+        const c = (r && r.nivelCorregido || [])[0];
+        console.log(`[Árbol] ${panel.nombre}: ` + (!r || !r.ok ? 'no se pudo resolver — ' + ((r && r.error) || '')
+          : (c ? `era ${c.de} y es ${c.a}` : 'el nivel ya era el correcto')));
+      })
+      .catch((e) => console.warn('[Árbol] no se pudo resolver', panel.nombre, e.message));
+  }
+
+  app.post('/api/os/paneles', wrap((req, res) => {
+    const panel = paneles.create(req.body || {});
+    _espejarCaja(panel);
+    _resolverJerarquia(panel);
+    ok(res, { panel });
+  }));
   app.put('/api/os/paneles/:id', wrap((req, res) => {
     const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); _espejarCaja(p); ok(res, { panel: p });
   }));
@@ -760,10 +788,14 @@ function mount(app) {
       } else aviso = `no se pudieron leer las divisas (${r.error}); se creó con ARS`;
     } else aviso = `no hay una conexión llamada "${s.sistema}" para verificar; se creó con ARS`;
 
+    /* 'SuperAgente' es sólo el valor con el que NACE: el de verdad lo resuelve el casino un
+       segundo después (_resolverJerarquia). Antes se quedaba con éste para siempre, y la carga en
+       cascada le creía. */
     const panel = paneles.create({ cliente_id: cli.id, nombre: s.login, sistema: s.sistema,
       nivel_usuario: 'SuperAgente', id_usuario: String(s.nodo),
       divisas: divisas.length ? divisas : ['ARS'], conexion_id: cx ? cx.id : null });
     _espejarCaja(panel);
+    _resolverJerarquia(panel);
     solicitudes.resolver(s.id, { estado: 'aprobada', panel_id: panel.id,
       motivo: `panel y caja creados para ${cli.nombre}` });
     ok(res, { panel, divisas, aviso });
@@ -2146,7 +2178,15 @@ function mount(app) {
   // Resuelve contra el casino el nivel real de CADA panel y por qué padres hay que pasar.
   // Tarda ~2 min: baja el árbol completo de cada conexión (decenas de miles de nodos).
   app.post('/api/os/casino/arbol/sync', wrap(async (req, res) => {
-    const r = await arbolSvc.sincronizar({ soloConexion: (req.body || {}).conexion_id || null });
+    const b = req.body || {};
+    /* `panel_id` resuelve UNO solo: es lo que hace falta cuando se crea una caja nueva. Antes había
+       que re-sincronizar los 204 paneles —dos minutos y una reescritura de todos— para arreglar uno.
+       `dry` calcula y no escribe: deja ver qué cambiaría antes de cambiarlo. */
+    const r = await arbolSvc.sincronizar({
+      soloConexion: b.conexion_id || null,
+      soloPanel: b.panel_id || null,
+      dry: !!b.dry,
+    });
     r.ok ? ok(res, r) : err(res, 502, r.error);
   }));
   // La escala de UN panel: por dónde pasan las fichas, de arriba hacia abajo.
