@@ -1436,6 +1436,116 @@ async function main() {
       /async function resolverPanel\(id, nombre\)\{/.test(srcUi2)
       && /body: JSON\.stringify\(\{ panel_id: id \}\)/.test(srcUi2));
   }
+  /* ── EL PEDIDO QUE QUEDA MUERTO SI EL SERVIDOR SE REINICIA A MITAD DE CARGA ───────────────────
+     Antes de tocar el casino el pedido pasa a 'cargando' y eso queda escrito. La cascada tarda
+     decenas de segundos. Si el proceso se cae o Railway redespliega en ese rato, nadie lo devolvía
+     a 'pendiente': no había ninguna barrida al arrancar.
+
+     Y ese estado no estaba contemplado en ningún lado: no aparecía en la cola, no se contaba, en el
+     historial se dibujaba "✗ rechazado" —una mentira sobre un pedido cuyas fichas pueden estar
+     cargadas— y el servidor rechazaba retomarlo. */
+  {
+    const ped = require('../src/pedidos-store');
+
+    const p1 = ped.create({ codigo: 'ZZ-TRAB', clienteNombre: 'Prueba trabado', divisa: 'ARS', monto: 5000 });
+    const p2 = ped.create({ codigo: 'ZZ-TRAB2', clienteNombre: 'Prueba trabado 2', divisa: 'ARS', monto: 7000 });
+
+    // Se toma para cargar: es lo que pasa justo antes de tocar el casino.
+    check('trabado: tomar un pedido lo pone en cargando', ped.tomarParaCargar(p1.id).estado === 'cargando');
+    // Y un segundo intento no puede tomarlo: es el candado que evita cargar dos veces.
+    check('trabado: no se puede tomar dos veces', ped.tomarParaCargar(p1.id) === null);
+
+    /* Se simula el corte: la cascada alcanzó a hacer UN eslabón y quedó guardado (eso es lo que
+       hace el `onPaso` nuevo), y el proceso se muere sin llegar a soltar el candado. */
+    ped.setCascada(p1.id, [
+      { id: '6825836', login: 'GanamosBot-SA', nivel: 'SuperAgente', estado: 'ok' },
+      { id: '7156798', login: 'GanamosAlexa', nivel: 'Distribuidor', estado: 'pendiente' },
+      { id: '7344299', login: 'GanamosM01', nivel: 'Agente', destino: true, estado: 'pendiente' },
+    ], null);
+    ped.tomarParaCargar(p2.id);   // éste se cortó sin mover nada
+
+    // 'cargando' se contaba en NINGÚN lado: quedar trabado era quedar invisible.
+    check('trabado: los pedidos en cargando ahora se cuentan', ped.counts().cargando === 2,
+      JSON.stringify({ pendientes: ped.counts().pendientes, cargando: ped.counts().cargando }));
+
+    /* ── LA BARRIDA AL ARRANCAR ────────────────────────────────────────────────────────────────
+       Es segura sin mirar el reloj: si el proceso recién arranca, ninguna carga suya puede estar
+       corriendo. */
+    const libres = ped.destrabarAlArrancar();
+    check('trabado: al arrancar vuelven todos a la cola', libres.length === 2
+      && ped.get(p1.id).estado === 'pendiente' && ped.get(p2.id).estado === 'pendiente',
+      libres.length + ' destrabado(s)');
+    // Y dice cuántos eslabones habían salido: es lo que avisa si quedaron fichas en un padre.
+    const l1 = libres.find((x) => x.id === p1.id), l2 = libres.find((x) => x.id === p2.id);
+    check('trabado: dice cuántos eslabones ya habían salido',
+      l1.pasosHechos === 1 && l2.pasosHechos === 0,
+      'uno con 1 eslabón hecho, el otro sin mover nada');
+    // El motivo queda escrito en el pedido: al mirarlo se entiende qué pasó.
+    check('trabado: queda escrito por qué volvió a la cola',
+      /el servidor se reinició mientras se cargaba/.test(ped.get(p1.id).error || ''));
+    // Lo ya movido NO se pierde: es lo que hace que retomar no repita eslabones.
+    check('trabado: lo que ya había salido queda guardado',
+      (ped.get(p1.id).cascada || []).filter((x) => x.estado === 'ok').length === 1);
+    // Y una barrida sobre una base sin trabados no hace nada.
+    check('trabado: sin nada trabado, la barrida no toca nada', ped.destrabarAlArrancar().length === 0);
+
+    /* ── DESTRABAR A MANO, CON EL SERVIDOR ANDANDO ─────────────────────────────────────────────
+       Acá el reloj y el conjunto "en curso" SÍ importan: la carga puede estar corriendo, y
+       destrabarla la haría cargar dos veces. */
+    ped.tomarParaCargar(p1.id);
+    ped.marcarEnCurso(p1.id);
+    const vivo = ped.destrabarCarga(p1.id, 0);
+    check('trabado: no se destraba una carga que se está ejecutando AHORA',
+      vivo.ok === false && /se está cargando AHORA/.test(vivo.error), vivo.error);
+    ped.quitarEnCurso(p1.id);
+    // Sin ejecución viva pero recién tomado: tampoco, puede estar corriendo igual.
+    const reciente = ped.destrabarCarga(p1.id, 5);
+    check('trabado: tampoco si se tomó hace menos de 5 minutos',
+      reciente.ok === false && /menos de 5 minutos/.test(reciente.error), reciente.error);
+    // Pasado ese rato sí, y vuelve a la cola conservando lo ya hecho.
+    const ok2 = ped.destrabarCarga(p1.id, 0);
+    check('trabado: pasado el rato vuelve a la cola y conserva lo ya hecho',
+      ok2.ok === true && ped.get(p1.id).estado === 'pendiente' && ok2.pasosHechos === 1);
+    // Y no se puede destrabar algo que no está trabado.
+    check('trabado: no se destraba un pedido que no está trabado',
+      ped.destrabarCarga(p1.id, 0).ok === false);
+
+    ped.remove(p1.id); ped.remove(p2.id);
+
+    /* ── LO QUE HACE QUE RETOMAR SEA SEGURO ────────────────────────────────────────────────────
+       Los pedidos guardaban la cascada recién AL TERMINAR. Si el proceso moría en el medio, los
+       pasos ya salidos no quedaban escritos, y al retomar la cascada los volvía a ejecutar: el
+       SuperAgente terminaba con un monto de más y un Distribuidor con fichas trabadas. */
+    const srcIdx3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('trabado: cada eslabón se guarda apenas sale, no al final',
+      /onPaso: \(hechos\) => \{ try \{ pedidos\.setCascada\(p\.id, hechos, null\); \}/.test(srcIdx3));
+    // Y la cascada saltea los que ya salieron: es lo que hace que retomar no cargue dos veces.
+    const srcCas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'carga-cascada.service.js'), 'utf8');
+    check('trabado: la cascada saltea los pasos que ya salieron',
+      /if \(paso\.estado === 'ok'\) continue;/.test(srcCas));
+    // La barrida corre al arrancar, y si falla no impide que el servidor levante.
+    check('trabado: la barrida corre al arrancar y no puede tumbar el arranque',
+      /const destrabados = pedidos\.destrabarAlArrancar\(\);/.test(srcIdx3)
+      && /catch \(e\) \{ console\.warn\('\[Pedido\] no se pudo destrabar al arrancar:'/.test(srcIdx3));
+    // El conjunto "en curso" se marca y se quita por los tres caminos: éxito, error y soltar.
+    check('trabado: la carga se marca en curso y se desmarca siempre',
+      /pedidos\.marcarEnCurso\(p\.id\);/.test(srcIdx3)
+      && /const soltar = \(\) => \{\s*\n\s*pedidos\.quitarEnCurso\(p\.id\);/.test(srcIdx3)
+      && /if \(r\.ok\) \{\s*\n\s*pedidos\.quitarEnCurso\(p\.id\);/.test(srcIdx3));
+
+    // La pantalla deja de mentir: 'cargando' ya no se dibuja como rechazado.
+    const srcOp3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    check('trabado: el historial ya no dice "rechazado" sobre una carga en curso',
+      /p\.estado === 'cargando' \? '<span style="color:#b26a00">⏳ cargando…<\/span>' : '✗ rechazado'/.test(srcOp3)
+      && /trabado hace \$\{min\} min/.test(srcOp3));
+    check('trabado: y ofrece devolverlo a la cola desde ahí mismo',
+      /async function destrabarPedido\(id\)/.test(srcOp3)
+      && /\/destrabar`, \{ method: 'POST' \}/.test(srcOp3));
+    // El operador puede destrabar: es despachar, y no mueve fichas.
+    const srcAuth3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('trabado: el operador puede destrabar (es despachar, no mueve fichas)',
+      /\(cargar\|rechazar\|anular\|devolver-trabadas\|destrabar\)/.test(srcAuth3));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

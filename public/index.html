@@ -883,6 +883,17 @@
       </div>`).join('');
   }
 
+  /* Devuelve a la cola un pedido que quedó tomado porque la carga se cortó. No mueve fichas: el
+     servidor se niega si la carga sigue viva o si se tomó hace menos de 5 minutos. Al retomar, la
+     cascada arranca desde el eslabón que faltaba — los que ya salieron quedaron guardados. */
+  async function destrabarPedido(id) {
+    if (!confirm('¿Devolver este pedido a la cola?\n\nNo mueve fichas. Al volver a apretar Cargar, retoma desde donde quedó: los eslabones que ya salieron no se repiten.')) return;
+    const { body: d } = await api(`/api/pedidos/${id}/destrabar`, { method: 'POST' });
+    if (!d || !d.ok) return alert((d && d.error) || 'no se pudo destrabar');
+    alert('Listo: volvió a la cola' + (d.pasosHechos ? ` (ya habían salido ${d.pasosHechos} eslabón/es; al retomar no se repiten)` : ''));
+    loadPedidos(); loadHistorial();
+  }
+
   async function cargarPedido(id) {
     const p = _pedidos.find((x) => x.id === id);
     if (!p) return;
@@ -936,11 +947,26 @@
     _hist = list;
     box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>' +
       list.map((p) => {
-        const estLbl = p.estado === 'cargado' ? '✓ cargado' : (p.estado === 'anulado' ? '↩ anulado' : (p.estado === 'anulando' ? '⏳ anulando…' : '✗ rechazado'));
+        /* 'cargando' caía en el `else` y se dibujaba "✗ rechazado": una mentira sobre un pedido
+           cuyas fichas pueden estar cargadas de verdad. Ahora dice lo que es, y si lleva rato
+           trabado ofrece el botón para devolverlo a la cola. */
+        const estLbl = p.estado === 'cargado' ? '✓ cargado'
+          : (p.estado === 'anulado' ? '↩ anulado'
+          : (p.estado === 'anulando' ? '⏳ anulando…'
+          : (p.estado === 'cargando' ? '<span style="color:#b26a00">⏳ cargando…</span>' : '✗ rechazado')));
         let det;
         if (p.estado === 'cargado') det = (p.newBalance != null ? ('bal: ' + esc(String(p.newBalance))) : '');
         else if (p.estado === 'anulado') det = 'fichas retiradas' + (p.newBalance != null ? (' · bal: ' + esc(String(p.newBalance))) : '');
         else if (p.estado === 'anulando') det = 'retirando fichas…';
+        else if (p.estado === 'cargando') {
+          const hechos = (p.cascada || []).filter((x) => x.estado === 'ok').length;
+          const min = p.tomadoAt ? Math.floor((Date.now() - Date.parse(p.tomadoAt)) / 60000) : null;
+          det = (min != null && min >= 5)
+            ? `<span style="color:#b26a00">trabado hace ${min} min</span>`
+              + (hechos ? ` · ya salieron ${hechos} eslabón/es` : ' · no se movió nada')
+              + ` <button class="small" onclick="destrabarPedido('${esc(p.id)}')">↩ devolver a la cola</button>`
+            : 'la carga está en curso…';
+        }
         else det = esc(p.error || '');
         // El botón de anular SOLO se dibuja si la carga está dentro de la ventana; después desaparece
         // (igual que el backend, que rechaza). El countdown lo va bajando _tickAnular().

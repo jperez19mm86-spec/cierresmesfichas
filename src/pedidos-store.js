@@ -152,6 +152,77 @@ function tomarParaCargar(id) {
   return { ...p };
 }
 
+/* ── QUÉ CARGAS ESTÁN CORRIENDO AHORA MISMO ──────────────────────────────────────────────────
+   En memoria y a propósito: si el proceso se muere, este conjunto se va con él — y eso es
+   exactamente lo que hace falta. Un pedido que figura 'cargando' después de un reinicio NO está
+   corriendo; lo estaba en el proceso anterior, que ya no existe.
+   Sirve para lo otro: que nadie destrabe a mano una carga que sí se está ejecutando en este
+   momento, porque destrabarla la haría cargar dos veces. Es el mismo mecanismo que ya usa
+   movimientos-panel.js. */
+const _enCurso = new Set();
+const marcarEnCurso = (id) => _enCurso.add(String(id));
+const quitarEnCurso = (id) => _enCurso.delete(String(id));
+const estaEnCurso = (id) => _enCurso.has(String(id));
+
+/**
+ * ── LA BARRIDA AL ARRANCAR ─────────────────────────────────────────────────────────────────────
+ * Antes de tocar el casino el pedido pasa a 'cargando' y eso queda escrito. La cascada tarda
+ * decenas de segundos. Si el proceso se cae o Railway redespliega en ese rato, nadie lo devolvía a
+ * 'pendiente': no había ninguna barrida al arrancar y el pedido quedaba en 'cargando' PARA SIEMPRE.
+ *
+ * Y ese estado no estaba contemplado en ningún lado: no aparecía en la cola de pendientes, no se
+ * contaba, en el historial se dibujaba como "✗ rechazado" —una mentira sobre un pedido cuyas
+ * fichas pueden estar cargadas— y el servidor rechazaba cualquier intento de retomarlo.
+ *
+ * Acá es seguro y no hace falta mirar el reloj: si este proceso recién arranca, ninguna carga suya
+ * puede estar corriendo. Vuelve a 'pendiente', que es lo correcto porque la cascada RETOMA desde el
+ * paso que falló en vez de repetir los que salieron (ver el `onPaso` de la ruta de carga: los pasos
+ * se guardan a medida que salen, justamente para esto).
+ *
+ * @returns los pedidos que se destrabaron, para poder decirlo en el log de arranque
+ */
+function destrabarAlArrancar() {
+  const data = load();
+  const trabados = data.pedidos.filter((p) => p.estado === 'cargando');
+  if (!trabados.length) return [];
+  for (const p of trabados) {
+    p.estado = 'pendiente';
+    p.tomadoAt = null;
+    p.error = 'el servidor se reinició mientras se cargaba: volvé a apretar Cargar '
+      + '(retoma desde donde quedó, no repite lo que ya salió)';
+  }
+  save(data);
+  return trabados.map((p) => ({ id: p.id, codigo: p.codigo, caja: p.cajaUsuario,
+    divisa: p.divisa, monto: p.monto,
+    // Cuántos eslabones ya habían salido: es lo que dice si quedaron fichas trabadas en un padre.
+    pasosHechos: (p.cascada || []).filter((x) => x.estado === 'ok').length }));
+}
+
+/**
+ * Destrabar A MANO uno que quedó en 'cargando' con el servidor andando (la petición se murió pero
+ * el proceso no). Acá el reloj y el conjunto en curso SÍ importan: la carga puede estar corriendo.
+ */
+function destrabarCarga(id, minimoMinutos = 5) {
+  const data = load();
+  const p = data.pedidos.find((x) => x.id === id);
+  if (!p) return { ok: false, error: 'no existe ese pedido' };
+  if (p.estado !== 'cargando') return { ok: false, error: `ese pedido está "${p.estado}", no trabado` };
+  // 🔒 Lo primero, y no el reloj: si hay una carga viva, destrabar la haría cargar dos veces.
+  if (estaEnCurso(id)) {
+    return { ok: false, error: 'ese pedido se está cargando AHORA (puede estar esperando turno '
+      + 'detrás de otra carga del mismo superagente). Esperá a que termine.' };
+  }
+  const desde = p.tomadoAt ? Date.parse(p.tomadoAt) : NaN;
+  if (Number.isFinite(desde) && Date.now() - desde < minimoMinutos * 60000) {
+    return { ok: false, error: `se tomó hace menos de ${minimoMinutos} minutos: puede estar cargándose ahora mismo` };
+  }
+  p.estado = 'pendiente';
+  p.tomadoAt = null;
+  p.error = 'se destrabó a mano: la carga se cortó en el medio';
+  save(data);
+  return { ok: true, pedido: { ...p }, pasosHechos: (p.cascada || []).filter((x) => x.estado === 'ok').length };
+}
+
 /** Rollback del lock de carga: 'cargando' → 'pendiente'. Preserva lo ya movido en la cascada. */
 function soltarCarga(id) {
   const data = load();
@@ -196,6 +267,9 @@ function counts() {
   const arr = load().pedidos;
   return {
     pendientes: arr.filter((p) => p.estado === 'pendiente').length,
+    // 'cargando' no se contaba en ningún lado: un pedido trabado no aparecía en ningún número de
+    // ninguna pantalla, así que quedar trabado era quedar invisible.
+    cargando: arr.filter((p) => p.estado === 'cargando').length,
     cargados: arr.filter((p) => p.estado === 'cargado').length,
     rechazados: arr.filter((p) => p.estado === 'rechazado').length,
     anulados: arr.filter((p) => p.estado === 'anulado').length,
@@ -299,4 +373,5 @@ function marcarAviso(id, { ok, error }) {
   return { ...p };
 }
 
-module.exports = { marcarAviso, create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
+module.exports = { marcarAviso, create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga,
+  destrabarAlArrancar, destrabarCarga, marcarEnCurso, quitarEnCurso, estaEnCurso, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };

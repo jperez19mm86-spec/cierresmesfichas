@@ -81,7 +81,9 @@ const PUBLIC = [
 const OPERADOR_PUEDE = [
   { m: 'GET', re: /^\/api\/pedidos\/?$/ },
   { m: 'GET', re: /^\/api\/pedidos\/[\w-]+\/cascada\/?$/ },
-  { m: 'POST', re: /^\/api\/pedidos\/[\w-]+\/(cargar|rechazar|anular|devolver-trabadas)\/?$/ },
+  // 'destrabar' entra en lo que puede el operador: es despachar. No mueve fichas — devuelve a
+  // 'pendiente' un pedido que quedó tomado por un corte, y el store no lo deja si la carga vive.
+  { m: 'POST', re: /^\/api\/pedidos\/[\w-]+\/(cargar|rechazar|anular|devolver-trabadas|destrabar)\/?$/ },
   { m: 'GET', re: /^\/api\/historial\/?$/ },
   // la lista recortada de clientes y paneles: sólo lo que hace falta para despachar
   { m: 'GET', re: /^\/api\/despacho\/(clientes|sistemas|solicitudes-caja)\/?$/ },

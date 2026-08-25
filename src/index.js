@@ -988,6 +988,16 @@ app.post('/api/pedidos/:id/devolver-trabadas', async (req, res) => {
   res.json({ ok: true, newBalance: r.newBalance, devueltoDe: p.trabadoEn.login });
 });
 
+/* Destrabar A MANO un pedido que quedó en 'cargando' con el servidor andando: la petición se murió
+   pero el proceso no, así que la barrida de arranque no lo va a tocar. El store se encarga de los
+   dos seguros —que no haya una carga viva y que hayan pasado unos minutos—; acá sólo se contesta. */
+app.post('/api/pedidos/:id/destrabar', (req, res) => {
+  const r = pedidos.destrabarCarga(req.params.id);
+  if (!r.ok) return res.status(409).json({ ok: false, error: r.error });
+  console.log(`[Pedido] DESTRABADO a mano ${r.pedido.codigo} (${r.pasosHechos} eslabón/es ya hechos)`);
+  res.json(r);
+});
+
 app.post('/api/pedidos/:id/cargar', async (req, res) => {
   const p = pedidos.get(req.params.id);
   if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
@@ -1003,7 +1013,14 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
   // apretar dos veces cargaba las fichas DOS VECES y se facturaba una sola.
   const tomado = pedidos.tomarParaCargar(p.id);
   if (!tomado) return res.status(409).json({ ok: false, error: 'ese pedido ya se está cargando en este momento' });
-  const soltar = () => { try { pedidos.soltarCarga(p.id); } catch (e) { console.warn('[Pedido] no se pudo soltar el lock:', e.message); } };
+  /* En memoria: dice que ESTA carga está corriendo en ESTE proceso. Es lo que impide que alguien la
+     destrabe a mano mientras corre —destrabarla la haría cargar dos veces— y se va sola si el
+     proceso muere, que es justo lo que hace falta para que la barrida de arranque sea segura. */
+  pedidos.marcarEnCurso(p.id);
+  const soltar = () => {
+    pedidos.quitarEnCurso(p.id);
+    try { pedidos.soltarCarga(p.id); } catch (e) { console.warn('[Pedido] no se pudo soltar el lock:', e.message); }
+  };
 
   try {
     // Pre-verificar la sesión (login + area=info): evita intentar cargar con sesión no autenticada.
@@ -1023,6 +1040,14 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
       url: sys.url, sessionCookie: t.sessionCookie, monto: p.monto, divisa: p.divisa, pasos,
       serie: `${p.sistema}|${plan.superagenteId}`,   // una cascada a la vez por superagente
       log: (m) => console.log(m),
+      /* ⚠️ CADA ESLABÓN SE GUARDA APENAS SALE, no al final.
+         Los pedidos guardaban la cascada recién al terminar. Si el proceso moría en el medio, los
+         pasos que YA habían salido no quedaban escritos en ningún lado — y al retomar, la cascada
+         los volvía a ejecutar: el SuperAgente terminaba con un monto de más y un Distribuidor con
+         fichas trabadas que nadie fue a buscar.
+         Guardar acá es lo que hace que retomar sea seguro, y es el requisito de la barrida de
+         arranque: sin esto, devolver un pedido a 'pendiente' sería mandarlo a repetir eslabones. */
+      onPaso: (hechos) => { try { pedidos.setCascada(p.id, hechos, null); } catch (e) { /* guardar no puede tumbar la carga */ } },
     });
     if (!r.ok) {
       // Fail-closed: el pedido queda 'pendiente' con lo ya movido anotado. Volver a apretar
@@ -1040,6 +1065,7 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
       });
     }
     if (r.ok) {
+      pedidos.quitarEnCurso(p.id);
       const upd = pedidos.setEstado(p.id, 'cargado', { newBalance: r.newBalance, error: null, cascada: r.pasos, trabadoEn: null });
       console.log(`[Pedido] CARGADO ${p.codigo}→${p.cajaUsuario} ${p.divisa} $${p.monto} (nuevo balance: ${r.newBalance})`);
       // ── LA DEUDA NACE ACÁ, NO AL CERRAR EL MES ────────────────────────────────────────────
@@ -1301,4 +1327,20 @@ if (auth.USING_DEFAULT_PASSWORD) {
 app.listen(PORT, () => {
   console.log(`[VentaFichas] Panel corriendo en http://localhost:${PORT}`);
   console.log(`[VentaFichas] Login del panel: usuario "${auth.PANEL_USER}" (clave por env PANEL_PASSWORD)`);
+
+  /* ── LOS PEDIDOS QUE QUEDARON A MITAD DE CARGA ────────────────────────────────────────────────
+     Un pedido pasa a 'cargando' ANTES de tocar el casino, y la cascada tarda decenas de segundos.
+     Si el proceso se cayó o Railway redesplegó en ese rato, quedaba en 'cargando' para siempre: no
+     aparecía en la cola, no se contaba, en el historial se leía "✗ rechazado" y el servidor no
+     dejaba retomarlo.
+     Acá es seguro sin mirar el reloj: este proceso recién arranca, así que ninguna carga suya puede
+     estar corriendo. Vuelven a 'pendiente' y se retoman desde donde quedaron. */
+  try {
+    const destrabados = pedidos.destrabarAlArrancar();
+    if (destrabados.length) {
+      console.log(`[Pedido] ${destrabados.length} pedido(s) quedaron a mitad de carga en el arranque anterior — vuelven a PENDIENTE:`);
+      destrabados.forEach((d) => console.log(`  · ${d.codigo} → ${d.caja} ${d.divisa} ${d.monto}`
+        + (d.pasosHechos ? ` (ya habían salido ${d.pasosHechos} eslabón/es: al retomar no se repiten)` : ' (no se había movido nada)')));
+    }
+  } catch (e) { console.warn('[Pedido] no se pudo destrabar al arrancar:', e.message); }
 });
