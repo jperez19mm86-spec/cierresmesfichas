@@ -4545,6 +4545,50 @@ function apiHeader(){
 }
 const API={};
 
+/* ── LOS "OTROS NOMBRES" HACEN DOS TRABAJOS DISTINTOS ───────────────────────────────────────────
+   Se mostraban como una lista suelta —"Ars1Api"— sin decir para qué sirven, y así se leen como un
+   dato interno que se escapó a la pantalla. No lo son, y sacarlos rompería dos cosas:
+
+   1. EL PRIMERO ES EL NOMBRE QUE SALE EN EL CIERRE. api-resumen.service.js:26 usa `alias[0]` y cae
+      al login sólo si no hay ninguno. Por eso "Ars1api" figura como "Ars1Api" en el cierre: ese
+      alias existe justamente para escribirlo con la mayúscula.
+   2. LOS DEMÁS SIRVEN PARA CRUZAR LA PLANILLA. TBS los llama "TBSGerson", "API-MOISES2025",
+      "TBS45Ar23"; la planilla escribe "GERSON", "Moises", "Colombians". `api-store.js:125` los
+      busca por login O por cualquier alias. Sin eso, esas filas no cruzan con nadie.
+
+   Y hay un tercer caso que NO hace nada: un alias que, después del primero, repite el login o a
+   otro alias cambiando sólo mayúsculas. La búsqueda ya ignora mayúsculas, así que no aporta ni
+   como nombre ni como cruce. Medido hoy: TBSArs2716 tiene dos así. Se marcan para poder sacarlos. */
+function apiAlias(c){
+  const al = c.alias || [];
+  if (!al.length) return `<label>Cómo se lo llama</label>
+    <div class="muted" style="font-size:12px">Sin otros nombres: en el cierre sale como <b>${esc(c.login)}</b>.</div>`;
+  const K = (x) => String(x||'').trim().toLowerCase();
+  const vistos = new Set([K(c.login)]);
+  let sirven = 0, sobran = 0;
+  const partes = al.map((a,i) => {
+    if (i === 0) { vistos.add(K(a)); return `<div style="font-size:12.5px"><b style="font-family:monospace">${esc(a)}</b>
+      <span class="muted">← así sale en el cierre del mes</span></div>`; }
+    const inutil = vistos.has(K(a));
+    vistos.add(K(a));
+    if (inutil) sobran++; else sirven++;
+    return `<div style="font-size:12px;font-family:monospace;color:var(--muted)">${esc(a)}${
+      inutil ? ` <span class="badge warn" style="font-family:inherit;font-size:10px"
+        title="Repite un nombre que ya está, cambiando sólo mayúsculas. La búsqueda no distingue mayúsculas, así que este no hace nada.">no hace nada</span>` : ''}</div>`;
+  }).join('');
+  /* El pie tiene que contar los que SIRVEN, no todos: con dos alias marcados "no hace nada",
+     decir "los otros sirven para encontrarlo" contradice lo que la propia lista está mostrando. */
+  const pie = sirven
+    ? `El primero es el nombre del cierre. ${sirven === 1 ? 'El otro sirve' : 'Los otros sirven'} para
+       encontrarlo cuando la planilla lo escribe distinto.`
+    : (sobran
+      ? `Es el nombre con el que aparece en el cierre del mes. ${sobran === 1 ? 'El otro repite' : 'Los otros repiten'}
+         ese mismo nombre con otras mayúsculas: se ${sobran === 1 ? 'puede' : 'pueden'} sacar sin que cambie nada.`
+      : 'Es el nombre con el que aparece en el cierre del mes.');
+  return `<label>Cómo se lo llama</label>${partes}
+    <div class="muted" style="font-size:11px;margin-top:3px">${pie}</div>`;
+}
+
 API.clientes = async () => {
   const cs=(await api('/api/os/api/clientes')).clientes||[];
   const m=await api('/api/os/api/matriz');
@@ -4567,9 +4611,7 @@ API.clientes = async () => {
               <input id="tgapi-${c.id}" value="${esc(c.telegram_chat_id||'')}" placeholder="-1001234567890"
                 onchange="apiTgGuardar('${c.id}')" style="width:200px;font-family:monospace;font-size:12px">
               <div class="muted" style="font-size:11px">Donde se le manda la cuenta del mes. La matriz la recibe siempre.</div></div>
-            <div style="flex:1;min-width:220px"><label>Otros nombres</label>
-              <div class="muted" style="font-size:12px;font-family:monospace">${(c.alias||[]).join(' · ')||'—'}</div>
-              <div class="muted" style="font-size:11px">Con los que aparece en la planilla. El primero es el que se muestra en el cierre del mes.</div></div>
+            <div style="flex:1;min-width:260px">${apiAlias(c)}</div>
             ${c.notas?`<div style="flex:1 0 100%" class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}
           </div></div></td></tr>` : '';
         return `<tr${c.activo?'':' style="opacity:.5"'}>
