@@ -4208,7 +4208,8 @@ VIEWS.chat = async () => {
         en ${new Set(ps.map(x=>x.cliente_id)).size} cliente${new Set(ps.map(x=>x.cliente_id)).size===1?'':'s'})</span></h2>
       <div class="muted" style="max-width:80ch">Un chat por caja. Un cliente puede tener varios,
         cada uno colgado de un agente distinto — y <b>cada uno se cobra sobre lo que ganó esa
-        caja</b>, no sobre el total del cliente.</div>
+        caja</b>, no sobre el total del cliente. La <b>fecha de inicio</b> manda: si empezó un 20,
+        la mensualidad se le cobra el 20 de cada mes y el período va del 20 al 19.</div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
         <div style="flex:1;min-width:240px"><label>Agregar un panel al servicio</label>
           <select id="chat-nuevo" style="width:100%">
@@ -4217,12 +4218,15 @@ VIEWS.chat = async () => {
           </select></div>
         <div style="flex:0 0 90px"><label>Le cobrás</label>
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
+        <div style="flex:0 0 150px"><label>Desde</label>
+          <input type="date" id="chat-nuevo-desde" value="${new Date().toISOString().slice(0,10)}"
+            title="De acá sale el día de la mensualidad" style="width:100%"></div>
         <div style="flex:0"><button onclick="chatAgregar()">+ Agregar</button></div>
       </div>
       ${!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todavía no hay ningún panel cargado en el sistema. Cargalos en 👥 Clientes.</div>':(!opciones.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todos los paneles ya tienen el chat.</div>':'')}
       ${ps.length?`<div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Caja</th><th>Nivel</th><th class="right">Le cobrás</th>
-        <th class="right">Mensualidad el día</th><th></th></tr></thead><tbody>
+        <th class="right">Desde</th><th class="right">Se cobra</th><th></th></tr></thead><tbody>
         ${ps.map(p=>`<tr${p.activo?'':' style="opacity:.5"'}>
           <td><b>${esc(p.cliente)}</b></td><td>${esc(p.panel)}</td>
           <td class="muted" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</td>
@@ -4231,14 +4235,15 @@ VIEWS.chat = async () => {
             title="Si lo dejás vacío se le cobra el mínimo: lo que a vos te cuesta."
             style="width:64px;text-align:center${p.pct_cliente?'':';border-color:var(--red)'}"> %
             ${p.pct_cliente?'':'<div style="font-size:11px;color:var(--red)">al mínimo</div>'}</td>
-          <td class="right"><input value="${esc(p.dia_cobro||'')}" placeholder="—"
-            onchange="chatSet('${p.panel_id}',{dia_cobro:this.value})"
-            title="Qué día del mes se le cobra la mensualidad. Entre 1 y 28, para que exista en todos los meses."
-            style="width:52px;text-align:center"></td>
+          <td class="right"><input type="date" value="${esc(p.desde||'')}"
+            onchange="chatSet('${p.panel_id}',{desde:this.value})"
+            title="Desde cuándo tiene el chat. De acá sale el día de la mensualidad: si empezó un 20, se le cobra el 20 de cada mes, del 20 al 19."
+            style="width:140px"></td>
+          <td class="right muted">${p.dia_cobro?('el '+esc(p.dia_cobro)):'<span class="badge err">sin fecha</span>'}</td>
           <td class="right"><button class="outline small" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
             onclick="chatQuitar(this.dataset.id,this.dataset.nom)">✕ sacar</button></td>
         </tr>
-        <tr${p.activo?'':' style="opacity:.5"'}><td colspan="6" style="padding-top:0;border-top:0">
+        <tr${p.activo?'':' style="opacity:.5"'}><td colspan="7" style="padding-top:0;border-top:0">
           <div class="row" style="gap:8px;align-items:flex-end;padding:2px 0 10px">
             <div style="flex:1;min-width:200px"><label style="font-size:11px">Link para los jugadores</label>
               <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
@@ -4335,8 +4340,8 @@ VIEWS.chat = async () => {
         <button onclick="chatCobrar()">🧾 Cobrar el mes</button>
         <div class="muted" style="font-size:12px;flex:1;min-width:260px">
           ${cta.clientes.length?`Cobrado: <b>${cta.clientes.filter(g=>Number(g.cobrado)>0).length}</b> cliente(s) por
-             <b>${money(cta.totales.cobrado,2)} USDT</b>.
-             <button class="outline small" onclick="chatDescobrar()">deshacer el cobro</button>`
+             <b>${money(cta.totales.cobrado,2)} USDT</b>. Si a alguno le faltaba un precio o el tipo
+             de cambio, deshacé <b>ese</b> en la tabla de abajo, arreglalo y volvé a cobrar.`
             :'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.'}</div>
       </div>`
       :'<div class="empty">Ningún panel tiene el servicio todavía. Agregá uno abajo.</div>'}
@@ -4405,6 +4410,9 @@ VIEWS.chat = async () => {
           <td style="white-space:nowrap">
             <input id="chp-${g.cliente_id}" placeholder="${money(g.debe,2)}" style="width:90px;text-align:right">
             <button class="outline small" onclick="chatCobrarle('${g.cliente_id}')">+ pagó</button>
+            ${Number(g.cobrado)>0?`<button class="outline small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+              onclick="chatDescobrar(this.dataset.id,this.dataset.nom)"
+              title="Deshace lo cobrado de este mes a este cliente, para arreglarlo y volver a cobrar. No toca sus pagos.">↺</button>`:''}
           </td>
         </tr>`;}).join('')}
       </tbody><tfoot><tr>
@@ -4538,7 +4546,7 @@ async function chatSet(id,campos){
 async function chatAgregar(){
   const id=val('chat-nuevo'); if(!id) return toast('Elegí un panel');
   const r=await api('/api/os/chat/paneles',{method:'POST',
-    body:JSON.stringify({panel_id:id, pct_cliente:val('chat-nuevo-pct')})});
+    body:JSON.stringify({panel_id:id, pct_cliente:val('chat-nuevo-pct'), desde:val('chat-nuevo-desde')})});
   if(r&&r.ok){ toast('Agregado'); VIEWS.chat(); }
 }
 async function chatQuitar(id,nombre){
@@ -4608,10 +4616,14 @@ async function chatCobrar(){
   }
   VIEWS.chat();
 }
-async function chatDescobrar(){
-  if(!confirm('¿Deshacer el cobro del chat de '+_chatMes+'?\n\nNo borra los pagos que ya registraste: ésos pasaron de verdad.')) return;
-  const r=await api('/api/os/chat/descobrar',{method:'POST',body:JSON.stringify({mes:_chatMes})});
-  if(r&&r.ok) toast('Deshecho: '+r.borrados+' cobro(s)');
+/* Deshacer sirve para un caso concreto: cobraste y el número estaba mal —faltaba un precio, el
+   tipo de cambio, o días del acumulado—. Como cobrar CONGELA, y no se puede cobrar dos veces
+   encima, sin esto ese mes quedaba mal para siempre. Va por cliente: arreglar a uno no tiene por
+   qué tocar a los demás. */
+async function chatDescobrar(cid,nombre){
+  if(!confirm('¿Deshacer lo que se le cobró a «'+nombre+'» en '+_chatMes+'?\n\nSirve para arreglar un precio o un tipo de cambio y volver a cobrar.\nNo toca los pagos que ya te hizo.')) return;
+  const r=await api('/api/os/chat/descobrar',{method:'POST',body:JSON.stringify({mes:_chatMes,cliente_id:cid})});
+  if(r&&r.ok) toast('Deshecho: '+r.borrados+' cobro(s). Arreglalo y volvé a cobrar el mes.');
   VIEWS.chat();
 }
 async function chatCobrarle(cid){

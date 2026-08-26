@@ -1931,6 +1931,22 @@ async function main() {
     check('chat: la mensualidad es la misma para todos y sale de la configuración',
       m10.monto === '30' && m10.moneda === 'USDT');
     // Entre 1 y 28 para que el día exista en todos los meses, febrero incluido.
+    /* ── LA FECHA DE INICIO MANDA ────────────────────────────────────────────────────────────
+       Si contrató el 20, se le cobra el 20 de cada mes y el período va del 20 al 19. Pedir la fecha
+       y además el día era pedir dos veces el mismo dato, y el día que no coincidieran nadie sabría
+       cuál manda. */
+    const rDesde = ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
+    check('chat: el día de la mensualidad sale de la fecha de inicio',
+      rDesde.ok && rDesde.panel.dia_cobro === 20 && rDesde.panel.desde === '2026-08-20');
+    check('chat: el período va de fecha a fecha, no del 1 al 30',
+      ch.periodoDesde('2026-08-20').texto === '20 ago – 19 sep');
+    // Quien contrató un 31 se le cobra el 28: el día tiene que existir en todos los meses.
+    check('chat: una fecha 31 se recorta al 28',
+      ch.set({ panel_id: PAN.id, desde: '2026-01-31' }).panel.dia_cobro === 28);
+    check('chat: no se le cobra la mensualidad antes de que empiece',
+      ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2025-12-01' }).ok === false);
+    ch.set({ panel_id: PAN.id, desde: '', dia_cobro: 10 });
+
     check('chat: no se puede poner un día que no existe en todos los meses',
       ch.set({ panel_id: PAN.id, dia_cobro: 31 }).ok === false
       && ch.set({ panel_id: PAN.id, dia_cobro: 28 }).ok === true);
@@ -2148,6 +2164,26 @@ async function main() {
     check('chat: un pago mal cargado no entra',
       ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-08', monto: '246,93' }).ok === false
       && ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-08', monto: '0' }).ok === false);
+    /* Deshacer va POR CLIENTE: arreglar el precio de uno no tiene por qué tocar a los demás.
+       Sirve porque cobrar CONGELA y el índice único no deja cobrar dos veces encima: sin esto, un
+       mes cobrado con un precio o un tipo de cambio que faltaba quedaba mal para siempre. */
+    const otroC = cliSt3.createCliente({ codigo: 'ZZ-OTRO2', nombre: 'Otro más' });
+    const otroP = panSt.create({ cliente_id: otroC.id, nombre: 'ZZ-Otro-Caja', sistema: 'Casino',
+      nivel_usuario: 'SuperAgente', id_usuario: '9990001', conexion_id: 'cx_zz', divisas: ['ARS'] });
+    ch.set({ panel_id: otroP.id, pct_cliente: '4' });
+    ch.cobrar('2026-08');
+    const antesOtro = (ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === otroC.id) || {}).cobrado;
+    ch.descobrar('2026-08', CLI.id);
+    check('chat: deshacer el cobro de uno no toca el de los demás',
+      !ch.cuentas('2026-08').clientes.some((x) => x.cliente_id === CLI.id && Number(x.cobrado) > 0)
+      && (ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === otroC.id) || {}).cobrado === antesOtro,
+      `el otro sigue en ${antesOtro}`);
+    check('chat: y después de arreglarlo se puede volver a cobrar',
+      ch.cobrar('2026-08').creados === 1);
+    ch.quitar(otroP.id); panSt.remove(otroP.id);
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(otroC.id);
+    cliSt3.removeCliente(otroC.id);
+
     // Deshacer el cobro no borra los pagos: ésos pasaron de verdad.
     const desc = ch.descobrar('2026-08');
     check('chat: deshacer el cobro no borra los pagos que ya te hicieron',
@@ -2584,9 +2620,9 @@ async function main() {
     check('chat: "quiénes tienen el chat" se ve antes que el cierre del mes',
       iQui > iCfg && iQui < iCie && iCfg > 0 && iCie > 0,
       `config ${iCfg} · quiénes ${iQui} · cierre ${iCie}`);
-    check('chat: agregar un panel está arriba de la lista, no debajo',
+    check('chat: agregar una caja está arriba de la lista, no debajo',
       uiCh.indexOf('Agregar un panel al servicio') > iQui
-      && uiCh.indexOf('Agregar un panel al servicio') < uiCh.indexOf('Mensualidad el día'));
+      && uiCh.indexOf('Agregar un panel al servicio') < uiCh.indexOf('A dónde le mando la cuenta'));
     // La cuenta del chat en la pantalla del cliente tiene que llamarse por su nombre.
     const cuentaHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
     const pedirHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');

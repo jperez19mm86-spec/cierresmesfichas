@@ -391,9 +391,19 @@ function set(d) {
     return { ok: false, error: 'Acá no va la contraseña: el portal del cliente se abre sin clave y quedaría a la vista.' };
   }
 
-  const dia = vino('dia_cobro')
+  const desdeNueva = vino('desde') ? String(d.desde || '').slice(0, 10) : null;
+  /* EL DÍA DE COBRO SALE DE LA FECHA DE INICIO. Si contrató el 20, se le cobra el 20 de cada mes y
+     el período va del 20 al 19 — no del 1 al 30. Poner la fecha y además el día era pedir dos veces
+     el mismo dato, y el día que no coincidieran nadie sabría cuál manda.
+     Se recorta a 28 para que el día exista en todos los meses, febrero incluido: quien contrató un
+     31 se le cobra el 28. */
+  let dia = vino('dia_cobro')
     ? (d.dia_cobro == null || d.dia_cobro === '' ? null : Number(d.dia_cobro))
     : ((prev && prev.dia_cobro) || null);
+  if (desdeNueva && !vino('dia_cobro')) {
+    const n = Number(desdeNueva.slice(8, 10));
+    if (n >= 1 && n <= 31) dia = Math.min(n, 28);
+  }
   if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) {
     return { ok: false, error: 'el día de cobro tiene que estar entre 1 y 28 (para que exista en todos los meses)' };
   }
@@ -826,11 +836,23 @@ function cobrar(mes) {
   };
 }
 
-/** Deshace el cobro de un mes. NO borra los pagos: ésos pasaron de verdad. */
-function descobrar(mes) {
+/**
+ * DESHACE EL COBRO DE UN CLIENTE (o de todo el mes si no se dice cuál).
+ *
+ * Para qué sirve: cobrar CONGELA el número, y a veces el número estaba mal cuando se apretó —
+ * faltaba cargar un precio, faltaba el tipo de cambio del mes, o faltaban días del acumulado. El
+ * índice único no deja volver a cobrar encima, así que sin esto el mes quedaba mal para siempre.
+ * Se deshace, se arregla lo que faltaba, y se cobra de nuevo.
+ *
+ * NO borra los pagos: ésos pasaron de verdad y no los deshace nadie.
+ */
+function descobrar(mes, clienteId = null) {
   const m = String(mes || '').slice(0, 7);
-  const r = db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro'").run(m);
-  return { ok: true, mes: m, borrados: r.changes };
+  const cid = clienteId ? String(clienteId) : null;
+  const r = cid
+    ? db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro' AND cliente_id=?").run(m, cid)
+    : db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro'").run(m);
+  return { ok: true, mes: m, cliente_id: cid, borrados: r.changes };
 }
 
 /**
@@ -841,6 +863,17 @@ function descobrar(mes) {
 function cobrarMensualidad(d) {
   const id = String(d.cliente_id || '').trim();
   if (!id) return { ok: false, error: 'falta el cliente' };
+  /* No se cobra antes de que empiece. Si contrató el 20 de agosto, el 5 de agosto no le toca nada:
+     sin este control, cobrar "la mensualidad de hoy" de una caja recién dada de alta le cobraba un
+     mes que todavía no usó. */
+  if (d.panel) {
+    const fila = list().find((p) => p.cliente_id === id && p.panel === String(d.panel));
+    const desde = fila && fila.desde;
+    const f0 = String(d.fecha || '').slice(0, 10) || hoy();
+    if (desde && f0 < desde) {
+      return { ok: false, error: `esa caja empieza el ${desde}: todavía no le toca la mensualidad` };
+    }
+  }
   const c = config();
   const monto = String(d.monto || c.mensualidad || '').trim();
   if (!money.esNumero(monto) || !money.isPos(monto)) {

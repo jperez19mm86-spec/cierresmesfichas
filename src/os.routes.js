@@ -2083,8 +2083,9 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.post('/api/os/chat/descobrar', wrap((req, res) => {
-    const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
-    ok(res, chat.descobrar(mes));
+    const b = req.body || {};
+    const mes = String(b.mes || '').slice(0, 7) || mesTZ();
+    ok(res, chat.descobrar(mes, b.cliente_id || null));
   }));
   app.get('/api/os/chat/cuentas', (req, res) => {
     // Sin `mes` devuelve el arrastre: alguien puede deber tres meses y eso no se ve mirando uno.
