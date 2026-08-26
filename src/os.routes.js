@@ -63,6 +63,8 @@ const importSheet = require('./import-sheet.service');
 const backup = require('./backup.service');
 const ofertas = require('./api-ofertas-store');
 const ofertaHtml = require('./api-oferta-html');
+const chat = require('./chat-externo.store');
+const chatDoc = require('./chat-doc');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -1946,6 +1948,205 @@ function mount(app) {
      La oferta ES el precio: se arma una vez, se manda como documento y al aceptarla escribe la
      matriz. Antes se cotizaba en una hoja aparte y después había que volver a tipear los mismos
      números para poder facturar — dos lugares con el mismo dato es cómo terminan distintos. */
+  /* ── CHAT EXTERNO ────────────────────────────────────────────────────────────────────────────
+     Un servicio de terceros que algunos paneles contratan. Los dos lados tienen precios distintos:
+     al cliente se le cobra lo negociado, al proveedor se le paga un % fijo, y la diferencia es el
+     margen. Sale de la ganancia que el acumulado ya captura todas las noches. */
+  app.get('/api/os/chat/config', (_req, res) => ok(res, { config: chat.config() }));
+  app.put('/api/os/chat/config', wrap((req, res) => {
+    const r = chat.setConfig(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.get('/api/os/chat/paneles', (_req, res) => ok(res, { paneles: chat.list(), config: chat.config(), destinos: chat.destinos() }));
+  app.post('/api/os/chat/paneles', wrap((req, res) => {
+    const r = chat.set(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/chat/paneles/:id', wrap((req, res) => ok(res, chat.quitar(req.params.id))));
+  app.get('/api/os/chat/cierre', (req, res) => ok(res, chat.cierre(String(req.query.mes || '').slice(0, 7) || mesTZ())));
+  app.get('/api/os/chat/mensualidades', (req, res) => ok(res, chat.mensualidadesDe(req.query.fecha || fechaTZ())));
+
+  /* ── EL MES AGRUPADO POR CLIENTE ────────────────────────────────────────────────────────────
+     La cuenta se la mandás al CLIENTE, no al panel: uno con tres paneles paga una sola cuenta. */
+  app.get('/api/os/chat/por-cliente', (req, res) => {
+    const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
+    const pc = chat.porCliente(mes);
+    ok(res, {
+      ...pc, pagado: chat.pagado(mes), pagos: chat.pagos(mes),
+      envios: chat.envios(mes), cuentas: chat.cuentas(mes), arrastre: chat.cuentas(null),
+      avisos: chat.avisosPendientes(), solicitudes: chat.solicitudesPendientes(),
+    });
+  });
+
+  // A dónde se le manda la cuenta de ESTE servicio (grupo propio, ver la tabla chat_cliente).
+  app.get('/api/os/chat/destino/:clienteId', (req, res) => ok(res, { destino: chat.destino(req.params.clienteId) }));
+  app.put('/api/os/chat/destino/:clienteId', wrap((req, res) => {
+    const r = chat.setDestino({ ...(req.body || {}), cliente_id: req.params.clienteId });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
+  /* ── LAS DOS HOJAS ──────────────────────────────────────────────────────────────────────────
+     La del cliente sale de `paraCliente`, que NO arrastra el costo ni el margen; la del proveedor
+     sale de `paraProveedor`, que no arrastra lo que le cobrás a cada cliente. El chequeo de abajo
+     es cinturón y tiradores: esto se le muestra a alguien de afuera y no hay vuelta atrás. */
+  function _hojaCliente(mes, clienteId) {
+    const pc = chat.porCliente(mes);
+    const g = (pc.clientes || []).find((x) => String(x.cliente_id) === String(clienteId));
+    if (!g) return null;
+    return chatDoc.paraCliente(g, { mes: pc.mes });
+  }
+  function _sinDatosInternos(html) {
+    return !/margen|costo|pct_costo|te cuesta|paga:/i.test(html);
+  }
+
+  app.get('/api/os/chat/doc/cliente/:clienteId', (req, res) => {
+    const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
+    const doc = _hojaCliente(mes, req.params.clienteId);
+    if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
+    // La vista previa muestra lo MISMO que va a ver el cliente, salvo el formulario: mirar una
+    // versión distinta de la que se manda no sirve para revisarla.
+    const todo = chat.cuentas(null).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
+    const c = chat.config();
+    const html = chatDoc.htmlCliente(doc, {
+      pago: { wallet: c.wallet, red: c.red, nota: c.pago_nota }, saldo: todo });
+    if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
+    res.type('text/html; charset=utf-8').send(html);
+  });
+
+  app.get('/api/os/chat/doc/proveedor', (req, res) => {
+    const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
+    const doc = chatDoc.paraProveedor(chat.porCliente(mes), { mes });
+    res.type('text/html; charset=utf-8').send(chatDoc.htmlProveedor(doc));
+  });
+
+  /* ── MANDARLE LA CUENTA AL CLIENTE ──────────────────────────────────────────────────────────
+     Sale para AFUERA: se manda de verdad. El link guarda la hoja YA PROYECTADA, así que lo que el
+     cliente abre es lo mismo que viste vos, aunque después cambie un tipo de cambio. */
+  app.post('/api/os/chat/enviar/:clienteId', wrap(async (req, res) => {
+    const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
+    const doc = _hojaCliente(mes, req.params.clienteId);
+    if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
+    const d = chat.destino(req.params.clienteId);
+    if (!d.grupos.length) return err(res, 400, 'ese cliente todavía no tiene grupo de Telegram para este servicio');
+    const l = chatDoc.crearLink(doc, req.params.clienteId);
+    const url = _urlPublica(req) + '/chat/' + l.token;
+    const texto = `<b>Chat Externo</b> · ${chatDoc.mesLargo(mes)}\n`
+      + `Ganancia del mes y lo que corresponde abonar:\n${url}`;
+    /* A TODOS los grupos: a veces el encargado tiene que enterarse y no está en el mismo grupo que
+       el cliente. Se manda de a uno y se guarda el resultado de cada uno — si falla el segundo, no
+       puede quedar como que salió todo bien. */
+    const tok = chat.botToken();
+    const idas = [];
+    for (const g of d.grupos) {
+      // eslint-disable-next-line no-await-in-loop
+      const r1 = await telegram.sendMessage(tok, g, texto);
+      idas.push({ grupo: g, ok: !!r1.ok, error: r1.error || null });
+    }
+    const fallaron = idas.filter((x) => !x.ok);
+    const r = fallaron.length
+      ? { ok: false, error: fallaron.map((x) => `${x.grupo}: ${x.error}`).join(' · ') }
+      : { ok: true };
+    // Queda anotado que se mandó: sin esto, "¿se la mandaste?" no tiene respuesta.
+    chat.marcarEnviado(req.params.clienteId, mes, r);
+    r.ok ? ok(res, { url, token: l.token, enviado: idas.length, idas })
+      : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`,
+        { url, token: l.token, idas });
+  }));
+
+  // El link sin mandarlo: para copiarlo y pegarlo donde ella quiera.
+  app.post('/api/os/chat/link/:clienteId', wrap((req, res) => {
+    const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
+    const doc = _hojaCliente(mes, req.params.clienteId);
+    if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
+    const l = chatDoc.crearLink(doc, req.params.clienteId);
+    ok(res, { url: _urlPublica(req) + '/chat/' + l.token, token: l.token, actualizado: l.actualizado });
+  }));
+
+  /* ── LA CUENTA DEL CHAT, QUE ES OTRA CUENTA ─────────────────────────────────────────────────
+     No pasa por `movimientos` ni por el cierre del mes: esta plata no es toda de ella —la mitad se
+     le paga al proveedor—, se cobra en otra wallet y se habla en otro grupo. Ver el comentario de
+     la tabla `chat_mov`. Cobrar congela el número; apretar dos veces no cobra dos veces. */
+  app.post('/api/os/chat/cobrar', wrap((req, res) => {
+    const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
+    const r = chat.cobrar(mes);
+    if (r.ok) r.salteados = chat.porCliente(mes).salteados || [];
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.post('/api/os/chat/descobrar', wrap((req, res) => {
+    const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
+    ok(res, chat.descobrar(mes));
+  }));
+  app.get('/api/os/chat/cuentas', (req, res) => {
+    // Sin `mes` devuelve el arrastre: alguien puede deber tres meses y eso no se ve mirando uno.
+    ok(res, { mes: chat.cuentas(req.query.mes || null), todo: chat.cuentas(null) });
+  });
+  app.post('/api/os/chat/cobros', wrap((req, res) => {
+    const r = chat.pagarCliente(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/chat/movs/:id', wrap((req, res) => ok(res, chat.borrarMov(req.params.id))));
+
+  /* ── LOS AVISOS DE PAGO DEL CLIENTE ─────────────────────────────────────────────────────────
+     Suben la captura desde su hoja. No mueven el saldo hasta que se aprueban acá. */
+  app.get('/api/os/chat/avisos', (_req, res) => ok(res, { avisos: chat.avisosPendientes() }));
+  app.get('/api/os/chat/avisos/:id/archivo', (req, res) => {
+    const a = chat.archivoDeAviso(req.params.id);
+    if (!a || !a.archivo_b64) return err(res, 404, 'ese aviso no trae comprobante');
+    res.setHeader('Content-Type', a.archivo_tipo || 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.send(Buffer.from(a.archivo_b64, 'base64'));
+  });
+  app.post('/api/os/chat/solicitudes/:id', wrap((req, res) => {
+    const r = chat.resolverSolicitud(req.params.id, (req.body || {}).listo === true);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.post('/api/os/chat/avisos/:id/resolver', wrap((req, res) => {
+    const r = chat.resolverAviso(req.params.id, (req.body || {}).aprobar === true);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // La mensualidad se cobra el día de cada panel, así que tiene su propio botón y su propia fecha.
+  app.post('/api/os/chat/mensualidad', wrap((req, res) => {
+    const r = chat.cobrarMensualidad(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  /* AVISARLE LA MENSUALIDAD AL CLIENTE. Sale para AFUERA. Va de a una porque cada caja tiene su
+     día: mandar "vencen tus cuatro" el día de la primera sería cobrarle cuatro antes de tiempo. */
+  app.post('/api/os/chat/mensualidad/avisar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const cid = String(b.cliente_id || '');
+    const d = chat.destino(cid);
+    if (!d.grupos.length) return err(res, 400, 'ese cliente todavía no tiene grupo de Telegram para este servicio');
+    const c = chat.config();
+    const fecha = String(b.fecha || '').slice(0, 10) || fechaTZ();
+    const per = chat.periodoDesde(fecha);
+    const texto = `<b>Chat Externo</b> · mantenimiento de <b>${b.panel || 'tu caja'}</b>\n`
+      + (per ? `Período <b>${per.texto}</b>\n` : '')
+      + `A pagar: <b>${c.mensualidad} ${c.mensualidad_moneda}</b>.\n`
+      + `Podés ver tu cuenta y cómo pagar acá:\n${_urlPublica(req)}/chat`;
+    const tok = chat.botToken();
+    const idas = [];
+    for (const g of d.grupos) {
+      // eslint-disable-next-line no-await-in-loop
+      const r1 = await telegram.sendMessage(tok, g, texto);
+      idas.push({ grupo: g, ok: !!r1.ok, error: r1.error || null });
+    }
+    const fallaron = idas.filter((x) => !x.ok);
+    const r = fallaron.length
+      ? { ok: false, error: fallaron.map((x) => `${x.grupo}: ${x.error}`).join(' · ') }
+      : { ok: true };
+    chat.marcarAvisoMens(cid, b.panel, fecha, r);
+    r.ok ? ok(res, { avisado: idas.length, idas })
+      : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`, { idas });
+  }));
+
+  /* ── LO QUE LE PAGASTE AL PROVEEDOR ─────────────────────────────────────────────────────────
+     Antes un mes pagado y uno impago se veían idénticos. */
+  app.post('/api/os/chat/pagos', wrap((req, res) => {
+    const r = chat.pagar(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/chat/pagos/:id', wrap((req, res) => ok(res, chat.borrarPago(req.params.id))));
+
   app.get('/api/os/api/paquetes', (_req, res) => ok(res, { paquetes: ofertas.listPaquetes() }));
   app.post('/api/os/api/paquetes', wrap((req, res) => {
     const r = ofertas.savePaquete(req.body || {});
@@ -2957,7 +3158,7 @@ function mount(app) {
 
   /** La URL pública de este servicio, para armar los links que se le mandan al cliente. */
   function _urlPublica(req) {
-    const cfg = String(configStore.getCfg('urlPublica') || '').trim().replace(/\/+$/, '');
+    const cfg = configStore.getUrlPublica();
     if (cfg) return cfg;
     const host = process.env.RAILWAY_PUBLIC_DOMAIN || (req && req.get && req.get('host')) || 'localhost';
     return /^https?:\/\//.test(host) ? host.replace(/\/+$/, '') : 'https://' + host;

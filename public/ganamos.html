@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3b1152">
+<title>GANAMOS x Latam</title>
+<!--
+  ganamos.html — EL PORTAL DEL CLIENTE DEL CHAT.
+
+  Entra con el usuario que YA CONOCE —el de su caja, "Fran44"— y no con una cuenta nueva: una
+  contraseña más para recordar es la forma más segura de que no entre nunca.
+
+  Es la puerta del CHAT y nada más: acá no se ven fichas, ni pedidos, ni la cuenta corriente del
+  otro negocio. Por eso tiene su propia cara y su propio nombre.
+-->
+<style>
+  :root{
+    --uva:#3b1152; --uva2:#5a1d7d; --uva3:#7b2ea6;
+    --lila:#eadff5; --lila2:#f7f1fb;
+    --tinta:#241033; --tinta2:#6b5a78;
+    --linea:#e4d7ee; --blanco:#fff;
+    --verde:#2e7d5b; --rojo:#c0392b; --oro:#c98a2e;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--uva); color:var(--tinta);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100dvh;
+  }
+  .oculto{display:none !important}
+
+  /* ── LA PORTADA: morada al abrir ── */
+  #portada{
+    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
+    align-items:center; padding:32px 22px calc(32px + env(safe-area-inset-bottom));
+    background:radial-gradient(120% 90% at 50% 0%, var(--uva3) 0%, var(--uva2) 42%, var(--uva) 100%);
+    color:#fff; text-align:center; gap:6px;
+  }
+  #perro{width:104px;height:104px;margin-bottom:4px}
+  #portada h1{font-size:29px;line-height:1.1;margin:0;letter-spacing:-.015em;font-weight:800}
+  #portada h1 .x{font-weight:400;opacity:.72;margin:0 3px}
+  #portada .bajada{margin:2px 0 26px;opacity:.78;font-size:15px}
+  .caja{width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
+  #portada label{font-size:12.5px;letter-spacing:.11em;text-transform:uppercase;opacity:.75;text-align:left}
+  #portada input{
+    width:100%;padding:15px 16px;font:inherit;font-size:17px;border:0;border-radius:13px;
+    background:rgba(255,255,255,.13);color:#fff;text-align:center;
+    outline:2px solid rgba(255,255,255,.18);
+  }
+  #portada input::placeholder{color:rgba(255,255,255,.45)}
+  #portada input:focus{outline:2px solid #fff}
+  .btn{
+    padding:15px 18px;font:inherit;font-size:16px;font-weight:800;border:0;border-radius:13px;
+    background:#fff;color:var(--uva);cursor:pointer;
+  }
+  .btn:disabled{opacity:.55;cursor:default}
+  .btn.suave{background:rgba(255,255,255,.14);color:#fff}
+  #err{min-height:20px;font-size:14px;color:#ffd7d7}
+  #portada .pie{margin-top:24px;font-size:12px;opacity:.55;max-width:300px}
+
+  /* ── ADENTRO ── */
+  #panel{background:var(--lila2);min-height:100dvh;padding-bottom:calc(40px + env(safe-area-inset-bottom))}
+  .cab{
+    background:var(--uva);color:#fff;padding:20px 20px 26px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .cab svg{width:34px;height:34px;flex:0 0 auto}
+  .cab .quien{font-weight:800;font-size:18px;line-height:1.15}
+  .cab .marca{font-size:11.5px;opacity:.7;letter-spacing:.1em;text-transform:uppercase}
+  .cab .salir{margin-left:auto;background:none;border:0;color:rgba(255,255,255,.7);
+    font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;padding:6px}
+  .env{max-width:560px;margin:0 auto;padding:0 16px}
+  .saldo{
+    margin-top:-14px;background:#fff;border-radius:16px;padding:18px 20px;
+    box-shadow:0 8px 24px -16px rgba(59,17,82,.5);border:1px solid var(--linea);
+  }
+  .saldo .rot{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--tinta2)}
+  .saldo .num{font-size:34px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+  .saldo .num.debe{color:var(--rojo)} .saldo .num.ok{color:var(--verde)}
+  .saldo .sub{font-size:13.5px;color:var(--tinta2);margin-top:4px}
+
+  .menu{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+  .op{
+    display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+    background:#fff;border:1px solid var(--linea);border-radius:14px;padding:15px 16px;
+    font:inherit;cursor:pointer;color:inherit;
+  }
+  .op:hover{border-color:var(--uva3)}
+  .op .ico{font-size:21px;width:26px;text-align:center;flex:0 0 auto}
+  .op .tit{font-weight:700}
+  .op .des{font-size:13px;color:var(--tinta2)}
+  .op .fl{margin-left:auto;color:var(--tinta2)}
+
+  .hoja{background:#fff;border:1px solid var(--linea);border-radius:16px;padding:18px 18px 20px;margin-top:16px}
+  .hoja h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta2);margin:0 0 12px;font-weight:700}
+  .volver{background:none;border:0;color:var(--uva2);font:inherit;font-size:14px;cursor:pointer;
+    padding:10px 0;text-decoration:underline}
+  table{width:100%;border-collapse:collapse}
+  td{padding:9px 0;border-bottom:1px solid var(--lila);font-size:14.5px;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tenue{color:var(--tinta2);font-size:12.5px}
+  .chip{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700}
+  .chip.esp{background:#fdf3e0;color:var(--oro)}
+  .chip.ok{background:#e7f4ed;color:var(--verde)}
+  .chip.no{background:#fbeceb;color:var(--rojo)}
+  .paga{background:var(--lila2);border:1px solid var(--linea);border-radius:12px;padding:13px 15px;font-size:14.5px}
+  .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:7px}
+  .paga .dir{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:14px;background:#fff;border:1px solid var(--linea);border-radius:9px;padding:11px 12px}
+  .paga .notap{margin-top:9px;font-size:13px;color:var(--tinta2)}
+  .copiar{margin-top:10px;padding:11px 16px;font:inherit;font-size:14px;font-weight:700;border:0;
+    border-radius:10px;background:var(--uva2);color:#fff;cursor:pointer;width:100%}
+  .copiar.ok{background:var(--verde)}
+  label.campo{display:block;font-size:12.5px;color:var(--tinta2);margin-bottom:12px}
+  label.campo input,label.campo textarea{
+    width:100%;margin-top:5px;padding:12px 13px;font:inherit;border:1px solid var(--linea);
+    border-radius:11px;background:#fff;color:inherit;
+  }
+  label.campo textarea{min-height:74px;resize:vertical}
+  label.campo input:focus-visible,label.campo textarea:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
+  .btn.uva{background:var(--uva2);color:#fff;width:100%}
+  .msg{margin:10px 0 0;font-size:14px}
+  .msg.bien{color:var(--verde)} .msg.mal{color:var(--rojo)}
+  .vacio{color:var(--tinta2);font-size:14.5px}
+  .caja-b{border:1px solid var(--linea);border-radius:12px;padding:13px 14px;margin-bottom:10px}
+  .caja-b:last-of-type{margin-bottom:0}
+  .caja-n{font-size:15.5px}
+  .links{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+  .lk{display:inline-block;padding:8px 13px;border-radius:20px;background:var(--lila2);
+    border:1px solid var(--linea);color:var(--uva2);text-decoration:none;font-size:13.5px;font-weight:700}
+  .lk:hover{border-color:var(--uva3)}
+  .pie2{text-align:center;font-size:12px;color:var(--tinta2);margin:26px 0 0}
+  @media (prefers-reduced-motion:no-preference){
+    .op,.btn{transition:border-color .15s ease, opacity .15s ease}
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── LA PORTADA ─────────── -->
+<div id="portada">
+  <svg id="perro" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <!-- perrito: orejas caídas, hocico y collar. Dibujado a mano para que sea el mismo en todos
+         los teléfonos: un emoji cambia de cara según el aparato. -->
+    <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
+          stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+    <circle cx="39" cy="45" r="4" fill="#fff"/>
+    <circle cx="61" cy="45" r="4" fill="#fff"/>
+    <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
+    <path d="M50 66v5" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <path d="M43 74c4 3 10 3 14 0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  </svg>
+  <h1>GANAMOS <span class="x">×</span> Latam</h1>
+  <p class="bajada">Tu chat, tu cuenta.</p>
+
+  <form class="caja" onsubmit="return entrar(event)">
+    <label for="u">Tu usuario</label>
+    <input id="u" name="usuario" autocomplete="username" autocapitalize="off" autocorrect="off"
+           spellcheck="false" placeholder="Fran44" required>
+    <button class="btn" id="bEntrar" type="submit">Entrar</button>
+    <p id="err" role="status"></p>
+  </form>
+
+  <p class="pie">Es el mismo usuario de tu caja. Si no te reconoce, escribinos y lo vemos.</p>
+</div>
+
+<!-- ─────────── ADENTRO ─────────── -->
+<div id="panel" class="oculto">
+  <div class="cab">
+    <svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
+      <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+      <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+      <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
+            stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
+      <circle cx="39" cy="45" r="4.5" fill="#fff"/><circle cx="61" cy="45" r="4.5" fill="#fff"/>
+      <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
+    </svg>
+    <div>
+      <div class="marca">Ganamos × Latam</div>
+      <div class="quien" id="quien"></div>
+    </div>
+    <button class="salir" onclick="salir()">Salir</button>
+  </div>
+
+  <div class="env">
+    <div class="saldo">
+      <div class="rot" id="rotSaldo">Tenés que pagar</div>
+      <div class="num" id="numSaldo">—</div>
+      <div class="sub" id="subSaldo"></div>
+    </div>
+
+    <div class="menu" id="menu">
+      <button class="op" onclick="ver('pendiente')">
+        <span class="ico">💳</span>
+        <span><span class="tit">Ver mi monto pendiente</span><br><span class="des">el detalle de lo que se te cobró y lo que pagaste</span></span>
+        <span class="fl">›</span></button>
+      <button class="op" onclick="ver('cajas')">
+        <span class="ico">🎰</span>
+        <span><span class="tit">Ver mis cajas</span><br><span class="des">tus links y tus accesos</span></span>
+        <span class="fl">›</span></button>
+      <button class="op" onclick="ver('pagar')">
+        <span class="ico">✅</span>
+        <span><span class="tit">Avisar que pagué</span><br><span class="des">subí el comprobante</span></span>
+        <span class="fl">›</span></button>
+      <button class="op" onclick="ver('nuevo')">
+        <span class="ico">➕</span>
+        <span><span class="tit">Pedir un chat nuevo</span><br><span class="des">para otra caja tuya</span></span>
+        <span class="fl">›</span></button>
+    </div>
+
+    <div id="vista"></div>
+    <p class="pie2">Ganamos × Latam</p>
+  </div>
+</div>
+
+<script>
+var USUARIO = '';
+var DATOS = null;
+var $ = function (id) { return document.getElementById(id); };
+var esc = function (s) { return String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+var num = function (x, d) { return Number(x || 0).toLocaleString('es-AR',
+  { minimumFractionDigits: d, maximumFractionDigits: d }); };
+
+async function pedir(ruta, cuerpo) {
+  var r = await fetch(ruta, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cuerpo) });
+  try { return await r.json(); } catch (e) { return { ok: false, error: 'No se pudo conectar' }; }
+}
+
+async function entrar(e) {
+  e.preventDefault();
+  var b = $('bEntrar'), err = $('err');
+  var u = $('u').value.trim();
+  if (!u) return false;
+  b.disabled = true; err.textContent = '';
+  var r = await pedir('/chat/entrar', { usuario: u });
+  b.disabled = false;
+  if (!r.ok) { err.textContent = r.error || 'No encontramos ese usuario.'; return false; }
+  USUARIO = u; DATOS = r.portal;
+  pintar();
+  return false;
+}
+
+function salir() {
+  USUARIO = ''; DATOS = null;
+  $('vista').innerHTML = ''; $('menu').classList.remove('oculto');
+  $('panel').classList.add('oculto'); $('portada').classList.remove('oculto');
+  $('u').value = ''; $('err').textContent = '';
+  window.scrollTo(0, 0);
+}
+
+function pintar() {
+  $('portada').classList.add('oculto');
+  $('panel').classList.remove('oculto');
+  $('quien').textContent = DATOS.cliente;
+  var debe = Number(DATOS.saldo.debe || 0);
+  $('rotSaldo').textContent = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+  $('numSaldo').textContent = num(Math.abs(debe), 2) + ' USDT';
+  $('numSaldo').className = 'num ' + (debe > 0 ? 'debe' : 'ok');
+  var esp = (DATOS.avisos || []).filter(function (a) { return a.estado === 'pendiente'; });
+  $('subSaldo').innerHTML = esp.length
+    ? 'Nos avisaste ' + esp.length + ' pago' + (esp.length > 1 ? 's' : '') + '. Lo estamos revisando.'
+    : 'Se te cobró ' + num(DATOS.saldo.cobrado, 2) + ' · pagaste ' + num(DATOS.saldo.pagado, 2) + '.';
+  $('vista').innerHTML = ''; $('menu').classList.remove('oculto');
+  window.scrollTo(0, 0);
+}
+
+/* La RED va aparte de la dirección: mandar USDT por la red equivocada es perder la plata, y el que
+   copia una línea entera se lleva la red adentro de la dirección. */
+function bloquePago() {
+  var p = DATOS.pago || {};
+  if (!p.wallet) return '';
+  return '<h2 style="margin-top:20px">Cómo pagar</h2><div class="paga">'
+    + (p.red ? '<div class="red">Red <b>' + esc(p.red) + '</b></div>' : '')
+    + '<div class="dir" id="dir">' + esc(p.wallet) + '</div>'
+    + '<button type="button" class="copiar" onclick="copiar(this)">Copiar la dirección</button>'
+    + (p.nota ? '<div class="notap">' + esc(p.nota) + '</div>' : '')
+    + '</div>';
+}
+
+/* `navigator.clipboard` sólo existe en https (o localhost) y el cliente abre esto desde cualquier
+   lado: sin el plan B el botón no hace nada y no se entiende por qué. */
+function copiar(b) {
+  var t = document.getElementById('dir').textContent.trim();
+  function ok() {
+    b.textContent = 'Copiada'; b.className = 'copiar ok';
+    setTimeout(function () { b.textContent = 'Copiar la dirección'; b.className = 'copiar'; }, 1800);
+  }
+  function planB() {
+    var a = document.createElement('textarea');
+    a.value = t; a.style.position = 'fixed'; a.style.opacity = '0';
+    document.body.appendChild(a); a.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = 'Copiala a mano'; }
+    document.body.removeChild(a);
+  }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(ok, planB);
+  else planB();
+}
+
+function volver() { $('vista').innerHTML = ''; $('menu').classList.remove('oculto'); window.scrollTo(0, 0); }
+
+function ver(cual) {
+  $('menu').classList.add('oculto');
+  var h = '';
+  if (cual === 'pendiente') {
+    var movs = (DATOS.movs || []).slice().reverse();
+    h = '<div class="hoja"><h2>Tu cuenta del chat</h2>'
+      + (movs.length ? '<table><tbody>' + movs.map(function (m) {
+        /* La mensualidad ya trae la caja y el período adentro de la nota ("Mantenimiento Ariel-A1 ·
+           15 ago – 14 sep"): repetir "Mensualidad" adelante no agrega nada. */
+        var nom = m.tipo === 'pago' ? 'Pago tuyo'
+          : (m.tipo === 'mensualidad' ? (m.nota || 'Mantenimiento') : 'Servicio del mes');
+        var extra = m.tipo === 'mensualidad' ? '' : (m.nota ? ' · ' + esc(m.nota) : '');
+        return '<tr><td>' + esc(m.fecha) + '<div class="tenue">' + esc(nom) + extra + '</div></td>'
+          + '<td class="r">' + (m.tipo === 'pago' ? '− ' : '') + num(m.monto, 2)
+          + ' <span class="tenue">' + esc(m.moneda) + '</span></td></tr>';
+      }).join('') + '</tbody></table>'
+        : '<p class="vacio">Todavía no hay movimientos.</p>')
+      + bloquePago()
+      + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
+  } else if (cual === 'cajas') {
+    h = '<div class="hoja"><h2>Tus cajas con el chat</h2>'
+      + ((DATOS.cajas || []).length ? DATOS.cajas.map(function (c) {
+        return '<div class="caja-b">'
+          + '<div class="caja-n"><b>' + esc(c.caja) + '</b>'
+          + (c.dia_cobro ? '<span class="tenue"> · mensualidad el ' + esc(c.dia_cobro) + '</span>' : '') + '</div>'
+          + (c.usuario_admin ? '<div class="tenue">usuario del panel: <b>' + esc(c.usuario_admin) + '</b></div>' : '')
+          + (c.link_jugadores || c.link_panel ? '<div class="links">'
+            + (c.link_jugadores ? '<a class="lk" href="' + esc(c.link_jugadores) + '" target="_blank" rel="noopener">🎲 Para jugadores</a>' : '')
+            + (c.link_panel ? '<a class="lk" href="' + esc(c.link_panel) + '" target="_blank" rel="noopener">🛠 Panel</a>' : '')
+            + '</div>' : '<div class="tenue">Todavía no cargamos los links de esta caja.</div>')
+          + '</div>';
+      }).join('')
+        : '<p class="vacio">No tenés ninguna caja con el chat.</p>')
+      + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
+  } else if (cual === 'pagar') {
+    h = '<div class="hoja"><h2>Avisar que pagué</h2>'
+      + '<form onsubmit="return avisar(event)">'
+      + '<label class="campo">Cuánto pagaste'
+      + '<input name="monto" inputmode="decimal" placeholder="' + num(Math.max(0, Number(DATOS.saldo.debe || 0)), 2) + '" required></label>'
+      + '<label class="campo">Referencia <span class="tenue">(opcional)</span>'
+      + '<input name="referencia" placeholder="hash, alias, últimos dígitos"></label>'
+      + '<label class="campo">Comprobante <span class="tenue">(opcional)</span>'
+      + '<input type="file" name="archivo" accept="image/*"></label>'
+      + '<button class="btn uva" type="submit" id="bAviso">Enviar</button>'
+      + '<p class="msg" id="mAviso" role="status"></p></form>'
+      + ((DATOS.avisos || []).length ? '<h2 style="margin-top:20px">Tus avisos</h2><table><tbody>'
+        + DATOS.avisos.map(function (a) {
+          var c = a.estado === 'aprobado' ? 'ok' : (a.estado === 'pendiente' ? 'esp' : 'no');
+          var t = a.estado === 'aprobado' ? 'confirmado' : (a.estado === 'pendiente' ? 'lo estamos viendo' : 'no lo pudimos confirmar');
+          return '<tr><td>' + esc(a.fecha) + '</td><td class="r">' + num(a.monto, 2) + ' ' + esc(a.moneda)
+            + '</td><td class="r"><span class="chip ' + c + '">' + t + '</span></td></tr>';
+        }).join('') + '</tbody></table>' : '')
+      + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
+  } else if (cual === 'nuevo') {
+    h = '<div class="hoja"><h2>Pedir un chat nuevo</h2>'
+      + '<p class="vacio" style="margin-top:-4px">Decinos para qué caja lo querés y te avisamos cuando esté.</p>'
+      + '<form onsubmit="return pedirNuevo(event)">'
+      + '<label class="campo">Para qué caja<input name="caja" placeholder="el usuario de la caja" required></label>'
+      + '<label class="campo">Algo que quieras aclarar <span class="tenue">(opcional)</span>'
+      + '<textarea name="nota" placeholder="cuándo lo necesitás, para qué…"></textarea></label>'
+      + '<button class="btn uva" type="submit" id="bNuevo">Enviar el pedido</button>'
+      + '<p class="msg" id="mNuevo" role="status"></p></form>'
+      + ((DATOS.solicitudes || []).length ? '<h2 style="margin-top:20px">Tus pedidos</h2><table><tbody>'
+        + DATOS.solicitudes.map(function (s) {
+          var c = s.estado === 'listo' ? 'ok' : (s.estado === 'pendiente' ? 'esp' : 'no');
+          var t = s.estado === 'listo' ? 'listo' : (s.estado === 'pendiente' ? 'lo estamos viendo' : 'no se pudo');
+          return '<tr><td>' + esc(String(s.creado_at).slice(0, 10)) + '<div class="tenue">' + esc(s.caja) + '</div></td>'
+            + '<td class="r"><span class="chip ' + c + '">' + t + '</span></td></tr>';
+        }).join('') + '</tbody></table>' : '')
+      + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
+  }
+  $('vista').innerHTML = h;
+  window.scrollTo(0, 0);
+}
+
+async function refrescar() {
+  var r = await pedir('/chat/entrar', { usuario: USUARIO });
+  if (r.ok) { DATOS = r.portal; }
+}
+
+async function avisar(e) {
+  e.preventDefault();
+  var f = e.target, b = $('bAviso'), m = $('mAviso');
+  var arch = f.archivo.files[0] || null;
+  b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
+  var datos = { usuario: USUARIO, monto: f.monto.value, referencia: f.referencia.value };
+  if (arch) {
+    if (arch.size > 6 * 1024 * 1024) {
+      m.textContent = 'La imagen es muy grande (máximo 6 MB).'; m.className = 'msg mal';
+      b.disabled = false; return false;
+    }
+    datos.archivo = await new Promise(function (res) {
+      var fr = new FileReader();
+      fr.onload = function () { res({ nombre: arch.name, tipo: arch.type, base64: String(fr.result) }); };
+      fr.readAsDataURL(arch);
+    });
+  }
+  var r = await pedir('/chat/aviso', datos);
+  if (r.ok) {
+    m.textContent = 'Listo, nos llegó. Lo revisamos y actualizamos tu saldo.'; m.className = 'msg bien';
+    f.reset(); await refrescar(); pintar();
+  } else { m.textContent = r.error || 'No se pudo enviar.'; m.className = 'msg mal'; b.disabled = false; }
+  return false;
+}
+
+async function pedirNuevo(e) {
+  e.preventDefault();
+  var f = e.target, b = $('bNuevo'), m = $('mNuevo');
+  b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
+  var r = await pedir('/chat/nuevo', { usuario: USUARIO, caja: f.caja.value, nota: f.nota.value });
+  if (r.ok) {
+    m.textContent = 'Listo, nos llegó tu pedido. Te avisamos cuando esté.'; m.className = 'msg bien';
+    f.reset(); await refrescar(); ver('nuevo');
+  } else { m.textContent = r.error || 'No se pudo enviar.'; m.className = 'msg mal'; b.disabled = false; }
+  return false;
+}
+</script>
+</body>
+</html>

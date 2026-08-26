@@ -192,6 +192,8 @@ const TABS_COMERCIAL = [
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
+  ['chat','💬 Chat Externo'],
+  '|',
   ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
@@ -3782,6 +3784,15 @@ CFG.telegram = async () => {
           : '<span class="badge err">todavía no hay bot: no se puede mandar nada</span>'}</div>
       </div>
       <div class="row" style="margin-top:12px;align-items:flex-end">
+        <div style="flex:0 0 260px"><label>Dominio de los links del cliente</label>
+          <input id="cfg-url" value="${esc(cfg.urlPublica||'')}" placeholder="app.latamgames.online"
+            style="font-family:monospace"></div>
+        <div style="flex:0"><button onclick="cfgGuardarUrl()">Guardar</button></div>
+        <div class="muted" style="flex:1;align-self:center">Con qué dirección salen la factura, la
+          cuenta de API y la hoja del chat. <b>Sin esto sale el dominio por el que entraste vos</b>,
+          así que el mismo link podía salir de dos formas distintas.</div>
+      </div>
+      <div class="row" style="margin-top:12px;align-items:flex-end">
         <div style="flex:0 0 260px"><label>Grupo matriz de las cuentas de API</label>
           <input id="tg-matriz" value="${esc(cfg.apiGrupoMatriz||'')}" placeholder="-4721694040"
             style="font-family:monospace"></div>
@@ -3911,6 +3922,10 @@ async function tgPegar(){
   out.innerHTML=`${ok.length?`<div class="nota ok"><span class="tit">${ok.length} cargado(s)</span>${ok.map(esc).join('<br>')}</div>`:''}
     ${no.length?`<div class="nota err"><span class="tit">${no.length} sin cargar</span>${no.map(esc).join('<br>')}</div>`:''}`;
   if(ok.length){ document.getElementById('tg-pegar').value=no.length?no.join('\n'):''; setTimeout(()=>CFG.telegram(),1200); }
+}
+async function cfgGuardarUrl(){
+  const r=await api('/api/config',{method:'PUT',body:JSON.stringify({urlPublica:val('cfg-url')})});
+  if(r&&r.ok){ toast('Los links salen con '+(r.urlPublica||'el dominio por el que entrás')); CFG.telegram(); }
 }
 async function tgGuardarMatriz(){
   const v=val('tg-matriz');
@@ -4056,6 +4071,503 @@ function renderNodos(){
     <table><thead><tr><th>ID</th><th>Login</th><th class="right">IN (carga)</th><th class="right">OUT</th><th class="right">Profit</th><th>RTP</th><th></th></tr></thead><tbody>
     ${a.slice(0,200).map(n=>`<tr><td><span class="pill">${esc(n.id)}</span></td><td><b>${esc(n.login)}</b> ${n.online?'<span style="color:var(--green)">●</span>':''}</td><td class="right">${money(n.in,0)}</td><td class="right">${money(n.out,0)}</td><td class="right"><b>${money(n.profit,0)}</b></td><td>${esc(n.rtp||'')}</td><td class="right"><button class="outline small" onclick="drillNodo('${esc(n.id)}')">▸ hijos</button></td></tr>`).join('')}
     </tbody></table>${a.length>200?('<div class="muted">(mostrando 200 de '+a.length+')</div>'):''}`;
+}
+
+/* ── 💬 CHAT EXTERNO ────────────────────────────────────────────────────────────────────────────
+   Un servicio de terceros que algunos paneles contratan. Se paga a mes vencido sobre la ganancia
+   del panel, más una mensualidad fija por panel.
+
+   Los dos lados tienen precios distintos y ésa es toda la razón de que esta pantalla exista:
+     · lo que le cobrás al cliente  → se negocia con él
+     · lo que te cobra el proveedor → un % fijo, igual para todos
+   La diferencia es tuya. Por eso la tabla las muestra en columnas separadas con el margen al lado:
+   ver sólo el total cobrado escondería el caso que importa, que es cobrarle a alguien menos de lo
+   que cuesta.
+
+   La ganancia NO se le pregunta al casino: sale del acumulado que el cron ya guarda todas las
+   noches, cruzando conexión + nodo. */
+let _chatMes = mesDeCierre();
+function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
+
+VIEWS.chat = async () => {
+  const main=document.getElementById('main');
+  main.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
+  const [lp, pc, me]=await Promise.all([
+    api('/api/os/chat/paneles'), api('/api/os/chat/por-cliente?mes='+_chatMes),
+    api('/api/os/chat/mensualidades')]);
+  const cfgC=lp.config||{}, ps=lp.paneles||[];
+  const T=pc.totales||{}, cs=pc.clientes||[], env=pc.envios||{};
+  const cta=pc.cuentas||{clientes:[],totales:{cobrado:'0',pagado:'0',debe:'0'}};
+  const arrastre=pc.arrastre||{clientes:[],totales:{debe:'0'}};
+  const opciones=(_paneles.length?_paneles:[]).filter(p=>!ps.some(x=>x.panel_id===p.id));
+  const dest=lp.destinos||{};
+  /* Los clientes salen de los PANELES contratados, no del cierre: uno que recién entró todavía no
+     facturó nada y si la lista saliera del mes no habría dónde cargarle el grupo. */
+  const clis=[]; ps.forEach(p=>{ if(!p.cliente_id) return;
+    const y=clis.find(x=>x.id===p.cliente_id);
+    if(y) y.paneles++; else clis.push({id:p.cliente_id,nombre:p.cliente,paneles:1}); });
+  clis.sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+  const debeProv=(x=>x)(T.paga||'0');
+
+  main.innerHTML=`
+    <div class="card">
+      <h2>💬 Chat Externo</h2>
+      <div class="muted" style="max-width:80ch">Se cobra a mes vencido sobre la ganancia del panel,
+        más una mensualidad por panel. <b>Vos pagás un % fijo</b> y le cobrás al cliente lo que
+        negociaste: la diferencia es tuya. La ganancia sale del acumulado que ya se guarda todas
+        las noches — no se le vuelve a preguntar al casino.</div>
+      <div class="row" style="align-items:flex-end;gap:14px;margin-top:12px">
+        <div style="flex:0 0 150px"><label>Te cobran</label>
+          <div class="row" style="align-items:center;gap:5px">
+            <input id="chat-costo" value="${esc(cfgC.costo_pct||'')}" onchange="chatCfg()"
+              style="width:70px;text-align:center;font-size:16px"><span class="muted">% de la ganancia</span></div></div>
+        <div style="flex:0 0 190px"><label>Mensualidad por panel</label>
+          <div class="row" style="align-items:center;gap:5px">
+            <input id="chat-mens" value="${esc(cfgC.mensualidad||'')}" onchange="chatCfg()" placeholder="—"
+              style="width:80px;text-align:center;font-size:16px">
+            <input id="chat-mensmon" value="${esc(cfgC.mensualidad_moneda||'USDT')}" onchange="chatCfg()"
+              style="width:62px;text-align:center"></div></div>
+        <div class="muted" style="flex:1;min-width:200px;font-size:12px;align-self:center">
+          Son iguales para todos los paneles, así que viven acá y no repetidos en cada uno.</div>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="flex:0 0 110px"><label>Red</label>
+          <input id="chat-red" value="${esc(cfgC.red||'')}" onchange="chatCfg()" placeholder="TRC20"
+            style="width:100%;text-align:center;text-transform:uppercase"></div>
+        <div style="flex:1;min-width:260px"><label>Wallet donde te pagan el chat</label>
+          <input id="chat-wallet" value="${esc(cfgC.wallet||'')}" onchange="chatCfg()"
+            placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
+        <div style="flex:1;min-width:180px"><label>Aclaración <span class="muted">(opcional)</span></label>
+          <input id="chat-pagonota" value="${esc(cfgC.pago_nota||'')}" onchange="chatCfg()"
+            placeholder="mandá el hash cuando pagues" style="width:100%"></div>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <div class="muted" style="flex:1;font-size:12px">La red va <b>en su propio campo</b>: mandar
+          USDT por la red equivocada es perder la plata, y el que copia una línea entera se lleva la
+          red adentro de la dirección. El cliente la ve con un botón de <b>copiar</b>. Es
+          <b>otra wallet</b> que la de las fichas — esta plata es de otro negocio.</div>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
+        <div style="flex:1;min-width:260px"><label>Bot de Telegram de este servicio</label>
+          <input id="chat-bot" type="password" placeholder="${cfgC.bot_propio?'ya hay uno cargado — pegá otro para cambiarlo':'123456789:AAF…  (te lo da @BotFather)'}"
+            style="width:100%"></div>
+        <div style="flex:0"><button class="outline" onclick="chatBot()">Guardar bot</button></div>
+        <div class="muted" style="flex:1;min-width:220px;font-size:12px;align-self:center">
+          ${cfgC.bot_propio
+            ? 'Bot propio cargado <b>'+esc(cfgC.bot_hint)+'</b>. Por seguridad no se muestra entero.'
+            : (cfgC.bot_general
+              ? 'Todavía no hay bot propio: se usa el general del sistema.'
+              : 'No hay ningún bot cargado: la cuenta no se va a poder mandar.')}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quiénes tienen el chat <span class="muted">(${ps.length} chat${ps.length===1?'':'s'}
+        en ${new Set(ps.map(x=>x.cliente_id)).size} cliente${new Set(ps.map(x=>x.cliente_id)).size===1?'':'s'})</span></h2>
+      <div class="muted" style="max-width:80ch">Un chat por caja. Un cliente puede tener varios,
+        cada uno colgado de un agente distinto — y <b>cada uno se cobra sobre lo que ganó esa
+        caja</b>, no sobre el total del cliente.</div>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
+        <div style="flex:1;min-width:240px"><label>Agregar un panel al servicio</label>
+          <select id="chat-nuevo" style="width:100%">
+            <option value="">— elegí el panel que contrató el chat —</option>
+            ${opciones.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)} · ${esc(p.sistema||'')}</option>`).join('')}
+          </select></div>
+        <div style="flex:0 0 90px"><label>Le cobrás</label>
+          <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
+        <div style="flex:0"><button onclick="chatAgregar()">+ Agregar</button></div>
+      </div>
+      ${!opciones.length&&!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Entrá una vez a 👥 Clientes para que se carguen los paneles.</div>':''}
+      ${ps.length?`<div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr>
+        <th>Cliente</th><th>Caja</th><th>Nivel</th><th class="right">Le cobrás</th>
+        <th class="right">Mensualidad el día</th><th></th></tr></thead><tbody>
+        ${ps.map(p=>`<tr${p.activo?'':' style="opacity:.5"'}>
+          <td><b>${esc(p.cliente)}</b></td><td>${esc(p.panel)}</td>
+          <td class="muted" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</td>
+          <td class="right"><input value="${esc(p.pct_cliente||'')}" placeholder="${esc(cfgC.costo_pct||'2')}"
+            onchange="chatSet('${p.panel_id}',{pct_cliente:this.value})"
+            title="Si lo dejás vacío se le cobra el mínimo: lo que a vos te cuesta."
+            style="width:64px;text-align:center${p.pct_cliente?'':';border-color:var(--red)'}"> %
+            ${p.pct_cliente?'':'<div style="font-size:11px;color:var(--red)">al mínimo</div>'}</td>
+          <td class="right"><input value="${esc(p.dia_cobro||'')}" placeholder="—"
+            onchange="chatSet('${p.panel_id}',{dia_cobro:this.value})"
+            title="Qué día del mes se le cobra la mensualidad. Entre 1 y 28, para que exista en todos los meses."
+            style="width:52px;text-align:center"></td>
+          <td class="right"><button class="outline small" onclick="chatQuitar('${p.panel_id}','${esc(p.panel).replace(/'/g,'')}')">✕ sacar</button></td>
+        </tr>
+        <tr${p.activo?'':' style="opacity:.5"'}><td colspan="6" style="padding-top:0;border-top:0">
+          <div class="row" style="gap:8px;align-items:flex-end;padding:2px 0 10px">
+            <div style="flex:1;min-width:200px"><label style="font-size:11px">Link para los jugadores</label>
+              <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
+                onchange="chatSet('${p.panel_id}',{link_jugadores:this.value})" style="width:100%;font-size:12px"></div>
+            <div style="flex:1;min-width:200px"><label style="font-size:11px">Link del panel</label>
+              <input value="${esc(p.link_panel||'')}" placeholder="donde entra a administrar"
+                onchange="chatSet('${p.panel_id}',{link_panel:this.value})" style="width:100%;font-size:12px"></div>
+            <div style="flex:0 0 130px"><label style="font-size:11px">Usuario del panel</label>
+              <input value="${esc(p.usuario_admin||'')}" placeholder="—"
+                title="Sólo el usuario. La contraseña no se guarda: el portal del cliente se abre sin clave."
+                onchange="chatSet('${p.panel_id}',{usuario_admin:this.value})" style="width:100%;font-size:12px"></div>
+          </div></td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Los dos links se ven en el portal del
+        cliente. <b>La contraseña no se guarda en ningún lado</b>: al portal se entra sin clave, así
+        que ahí quedaría a la vista de cualquiera que adivine el nombre de una caja.</div>`
+      :'<div class="empty" style="margin-top:12px">Ninguno todavía. Elegí un panel acá arriba.</div>'}
+
+      <h2 style="margin-top:22px">A dónde le mando la cuenta a cada uno</h2>
+      <div class="muted" style="max-width:80ch">El grupo de <b>este servicio</b>, que no es el mismo
+        que el de las fichas: son otros mensajes y suele haber otra gente adentro. Podés poner
+        <b>más de uno</b> separados por coma —a veces el encargado tiene que enterarse y no está en
+        el grupo del cliente—. El campo de al lado es una nota tuya y no lo usa el sistema.</div>
+      ${clis.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
+        <th>Cliente</th><th>Grupo(s) de Telegram</th><th>Se la mando a…</th></tr></thead><tbody>
+        ${clis.map(c=>`<tr>
+          <td><b>${esc(c.nombre)}</b>${c.paneles>1?`<span class="muted" style="font-size:11.5px"> · ${c.paneles} paneles</span>`:''}</td>
+          <td><input value="${esc((dest[c.id]||{}).tg_grupo||'')}" placeholder="-1002…, -1003…"
+            onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:230px"></td>
+          <td><input value="${esc((dest[c.id]||{}).enviar_a||'')}" placeholder="a Raúl por privado"
+            onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%"></td>
+        </tr>`).join('')}
+      </tbody></table></div>`:''}
+    </div>
+
+    <div class="card">
+      <h2>Cierre del mes <span class="muted">(${esc(_chatMes)})</span></h2>
+      ${bannerMes(_chatMes,'chatIrA')}
+      ${(pc.salteados||[]).length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
+        <b>${pc.salteados.length} panel(es) quedaron afuera de la cuenta</b>:
+        ${pc.salteados.map(x=>esc(x.panel)+' <span class="muted">('+esc(x.motivo)+')</span>').join(' · ')}</div>`:''}
+      ${(()=>{const sp=cs.filter(g=>g.sinPrecio); return sp.length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
+        <b>${sp.length} sin precio confirmado</b>: ${sp.map(g=>esc(g.cliente)).join(', ')}.
+        Se les está cobrando el <b>mínimo (${esc(pc.costo_pct)}%)</b>, que es lo que a vos te cuesta, así que no perdés —
+        pero el precio está sin decidir. Cargáselo arriba.</div>`:'';})()}
+      ${(()=>{const pd=cs.filter(g=>!g.sinPrecio&&Number(g.margen)<0); return pd.length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
+        <b>${pd.length} donde cobrás MENOS de lo que te cuesta</b>: ${pd.map(g=>esc(g.cliente)).join(', ')}.</div>`:'';})()}
+      ${(pc.sinTC||[]).length?`<div class="avi" style="border-left:3px solid var(--gold);background:rgba(196,86,173,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
+        Falta el tipo de cambio de <b>${pc.sinTC.map(esc).join(', ')}</b> en ${esc(_chatMes)}: lo ganado en ${pc.sinTC.length===1?'esa moneda':'esas monedas'} no entra en el total.</div>`:''}
+      ${cs.length?`<div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
+        <th>Cliente</th><th class="right">Ganancia del mes</th><th class="right">En USDT</th><th class="right">%</th>
+        <th class="right">Le cobrás</th><th class="right">Pagás (${esc(pc.costo_pct)}%)</th><th class="right">Tuyo</th>
+        <th>La cuenta</th>
+      </tr></thead><tbody>
+        ${cs.map(g=>{
+          const e=env[g.cliente_id]||null;
+          const pcts=[...new Set(g.paneles.map(p=>p.pct_cliente))];
+          const gan=g.paneles.reduce((a,p)=>a+Number(p.profit_usdt||0),0);
+          return `<tr>
+          <td><b>${esc(g.cliente)}</b>${g.paneles.length>1
+            ?`<div class="muted" style="font-size:11.5px">${g.paneles.map(p=>esc(p.panel)).join(' · ')}</div>`
+            :`<div class="muted" style="font-size:11.5px">${esc((g.paneles[0]||{}).panel||'')}</div>`}</td>
+          <td class="right">${chatMonedas(g.monedas)}</td>
+          <td class="right">${money(gan,2)}</td>
+          <td class="right">${pcts.map(x=>esc(x)+'%').join(' / ')}${
+            g.sinPrecio?'<div><span class="badge err" title="No le cargaste precio: se cobra el mínimo, lo que te cuesta">al mínimo</span></div>':''}</td>
+          <td class="right"><b>${money(g.cobra,2)}</b></td>
+          <td class="right muted">${money(g.paga,2)}</td>
+          <td class="right"><b style="${Number(g.margen)<0?'color:var(--red)':''}">${money(g.margen,2)}</b></td>
+          <td style="white-space:nowrap">
+            <button class="outline small" onclick="chatHoja('${g.cliente_id}')" title="Ver la hoja tal cual la ve el cliente">👁 hoja</button>
+            <button class="outline small" onclick="chatEnviar('${g.cliente_id}','${esc(g.cliente).replace(/'/g,'')}')"
+              ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram arriba"'}
+              >📤 enviar${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
+            ${e?`<div style="font-size:11px;margin-top:3px" class="${e.ok?'':'muted'}">${e.ok
+              ?'<span style="color:var(--green)">✓ enviada '+esc(String(e.at).slice(0,10))+'</span>'
+              :'<span style="color:var(--red)">✕ no salió</span> <span class="muted">'+esc(String(e.error||'').slice(0,40))+'</span>'}</div>`:''}
+          </td>
+        </tr>`;}).join('')}
+      </tbody><tfoot><tr>
+        <td colspan="4" class="right"><b>Total en USDT</b></td>
+        <td class="right"><b>${money(T.cobra,2)}</b></td>
+        <td class="right muted"><b>${money(T.paga,2)}</b></td>
+        <td class="right"><b style="color:var(--green)">${money(T.margen,2)}</b></td>
+        <td></td>
+      </tr></tfoot></table></div>
+      <div class="row" style="align-items:center;gap:10px;margin-top:12px">
+        <button onclick="chatCobrar()">🧾 Cobrar el mes</button>
+        <div class="muted" style="font-size:12px;flex:1;min-width:260px">
+          ${cta.clientes.length?`Cobrado: <b>${cta.clientes.filter(g=>Number(g.cobrado)>0).length}</b> cliente(s) por
+             <b>${money(cta.totales.cobrado,2)} USDT</b>.
+             <button class="outline small" onclick="chatDescobrar()">deshacer el cobro</button>`
+            :'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.'}</div>
+      </div>`
+      :'<div class="empty">Ningún panel tiene el servicio todavía. Agregá uno abajo.</div>'}
+    </div>
+
+    ${(pc.solicitudes||[]).length?`<div class="card" style="border-color:var(--gold)">
+      <h2>➕ Piden un chat nuevo <span class="muted">(${pc.solicitudes.length})</span></h2>
+      <div class="muted" style="max-width:80ch">Lo pidieron desde su portal. <b>No da de alta nada</b>:
+        abrir un chat te cuesta plata todos los meses, así que lo resolvés vos.</div>
+      <div class="muted" style="font-size:12px;margin-top:6px;border-left:3px solid var(--gold);padding-left:8px">
+        <b>Para abrir la caja vas a necesitar:</b> de qué cuenta cuelga · el link para los jugadores ·
+        el link del panel · el usuario del administrador. Cuando la caja exista, cargala en
+        <b>Clientes</b> y después agregala acá arriba con esos datos.</div>
+      <table style="margin-top:10px"><tbody>
+        ${pc.solicitudes.map(x=>`<tr>
+          <td>${esc(String(x.creado_at).slice(0,10))}</td>
+          <td><b>${esc(x.cliente)}</b> <span class="muted">para ${esc(x.caja)}</span>
+            ${x.nota?`<div class="muted" style="font-size:12px">${esc(x.nota)}</div>`:''}</td>
+          <td class="right" style="white-space:nowrap">
+            <button class="outline small" onclick="chatSolicitud('${x.id}',true,'${esc(x.caja).replace(/'/g,'')}')">✓ listo</button>
+            <button class="outline small" onclick="chatSolicitud('${x.id}',false,'${esc(x.caja).replace(/'/g,'')}')">✕</button>
+          </td></tr>`).join('')}
+      </tbody></table>
+    </div>`:''}
+
+    ${(pc.avisos||[]).length?`<div class="card" style="border-color:var(--gold)">
+      <h2>💬 Avisos de pago esperando <span class="muted">(${pc.avisos.length})</span></h2>
+      <div class="muted">El cliente dice que pagó y subió el comprobante desde su hoja.
+        <b>No mueve el saldo hasta que lo apruebes acá</b>: acreditar un pago porque alguien subió
+        una imagen sería confiar en la imagen.</div>
+      <table style="margin-top:10px"><tbody>
+        ${pc.avisos.map(a=>`<tr>
+          <td>${esc(String(a.creado_at).slice(0,10))}</td>
+          <td><b>${esc(a.cliente)}</b> <span class="muted">${esc(a.mes)}</span></td>
+          <td class="muted">${esc(a.referencia||'')}</td>
+          <td class="right"><b>${money(a.monto,2)}</b> <span class="muted">${esc(a.moneda)}</span></td>
+          <td class="right" style="white-space:nowrap">
+            ${a.archivo_bytes?`<button class="outline small" onclick="window.open('/api/os/chat/avisos/${a.id}/archivo','_blank')">👁 comprobante</button>`
+              :'<span class="badge warn">sin comprobante</span>'}
+            <button class="outline small" onclick="chatAviso('${a.id}',true,'${esc(a.cliente).replace(/'/g,'')}',${JSON.stringify(a.monto)})">✓ aprobar</button>
+            <button class="outline small" onclick="chatAviso('${a.id}',false,'${esc(a.cliente).replace(/'/g,'')}',${JSON.stringify(a.monto)})">✕</button>
+          </td></tr>`).join('')}
+      </tbody></table>
+    </div>`:''}
+
+    <div class="card">
+      <h2>La cuenta del chat <span class="muted">(es otra cuenta)</span></h2>
+      <div class="muted" style="max-width:80ch">Lo que cada cliente te debe <b>por el chat</b>.
+        No se mezcla con lo de las fichas ni entra en tu cierre del mes: esta plata no es toda tuya
+        —la mitad se la pagás al proveedor—, se cobra en otra wallet y se habla en otro grupo.</div>
+      ${cta.clientes.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
+        <th>Cliente</th><th class="right">Le cobraste</th><th class="right">Pagó</th><th class="right">Debe</th>
+        <th class="right">Arrastre</th><th>Registrar un pago</th></tr></thead><tbody>
+        ${cta.clientes.map(g=>{
+          const arr=(arrastre.clientes||[]).find(x=>x.cliente_id===g.cliente_id)||{debe:'0'};
+          return `<tr>
+          <td><b>${esc(g.cliente)}</b></td>
+          <td class="right">${money(g.cobrado,2)}</td>
+          <td class="right muted">${money(g.pagado,2)}</td>
+          <td class="right"><b style="${Number(g.debe)>0?'color:var(--red)':'color:var(--green)'}">${money(g.debe,2)}</b></td>
+          <td class="right muted" title="Todo lo que arrastra, de todos los meses">${money(arr.debe,2)}</td>
+          <td style="white-space:nowrap">
+            <input id="chp-${g.cliente_id}" placeholder="${money(g.debe,2)}" style="width:90px;text-align:right">
+            <button class="outline small" onclick="chatCobrarle('${g.cliente_id}')">+ pagó</button>
+          </td>
+        </tr>`;}).join('')}
+      </tbody><tfoot><tr>
+        <td class="right"><b>Total</b></td>
+        <td class="right"><b>${money(cta.totales.cobrado,2)}</b></td>
+        <td class="right muted"><b>${money(cta.totales.pagado,2)}</b></td>
+        <td class="right"><b>${money(cta.totales.debe,2)}</b></td>
+        <td class="right muted"><b>${money(arrastre.totales.debe,2)}</b></td><td></td>
+      </tr></tfoot></table></div>
+      ${cta.clientes.some(g=>g.movs.some(m=>m.tipo==='pago'))?`<div style="margin-top:10px">
+        <div class="muted" style="font-size:12px;margin-bottom:4px">Pagos registrados este mes</div>
+        <table><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo==='pago').map(m=>`<tr>
+          <td>${esc(m.fecha)}</td><td><b>${esc(g.cliente)}</b></td>
+          <td class="muted">${esc(m.nota||'')}</td>
+          <td class="right"><b>${money(m.monto,2)}</b> <span class="muted">${esc(m.moneda)}</span></td>
+          <td class="right"><button class="outline small" onclick="chatBorrarMov('${m.id}')">✕</button></td>
+        </tr>`)).join('')}</tbody></table></div>`:''}`
+      :'<div class="empty" style="margin-top:10px">Todavía no cobraste este mes. Usá «Cobrar el mes» arriba.</div>'}
+    </div>
+
+    <div class="card">
+      <h2>El proveedor del servicio</h2>
+      <div class="muted">Lo que <b>vos</b> le pagás por el mes, al ${esc(pc.costo_pct)}%. La hoja que se le manda
+        muestra la ganancia de cada panel y ese %, y no dice qué le cobrás vos a cada cliente.</div>
+      <div class="row" style="align-items:flex-end;gap:16px;margin-top:12px">
+        <div><label>Le debés por ${esc(_chatMes)}</label>
+          <div style="font-size:22px;font-weight:800">${money(debeProv,2)} <span class="muted" style="font-size:13px">USDT</span></div></div>
+        <div><label>Ya le pagaste</label>
+          <div style="font-size:22px;font-weight:800;color:${Number(pc.pagado)>0?'var(--green)':'var(--muted)'}">${money(pc.pagado,2)}</div></div>
+        <div><label>Queda</label>
+          <div style="font-size:22px;font-weight:800">${money(Number(debeProv)-Number(pc.pagado||0),2)}</div></div>
+        <div style="flex:0"><button class="outline" onclick="chatHojaProv()">👁 ver la hoja del proveedor</button></div>
+      </div>
+      ${(pc.pagos||[]).length?`<table style="margin-top:12px"><thead><tr>
+        <th>Fecha</th><th>Nota</th><th class="right">Monto</th><th></th></tr></thead><tbody>
+        ${pc.pagos.map(x=>`<tr><td>${esc(x.fecha)}</td><td class="muted">${esc(x.nota||'')}</td>
+          <td class="right"><b>${money(x.monto,2)}</b> <span class="muted">${esc(x.moneda)}</span></td>
+          <td class="right"><button class="outline small" onclick="chatBorrarPago('${x.id}')">✕</button></td></tr>`).join('')}
+      </tbody></table>`:''}
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
+        <div style="flex:0 0 130px"><label>Registrar un pago</label>
+          <input id="chat-pago-monto" placeholder="${money(debeProv,2)}" style="width:100%;text-align:right"></div>
+        <div style="flex:0 0 150px"><label>Fecha</label>
+          <input type="date" id="chat-pago-fecha" value="${new Date().toISOString().slice(0,10)}" style="width:100%"></div>
+        <div style="flex:1;min-width:180px"><label>Nota</label>
+          <input id="chat-pago-nota" placeholder="transferencia, wallet…" style="width:100%"></div>
+        <div style="flex:0"><button onclick="chatPagar()">+ Registrar</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Mensualidades de hoy</h2>
+      <div class="muted">Cada caja tiene su día: no se cobran todas a principio de mes.
+        Se cobra haya o no ganancias — es por tener el servicio, no por usarlo.
+        ${me.paneles&&me.paneles.length&&me.paneles[0].periodo
+          ? `Lo que se cobra hoy cubre <b>${esc(me.paneles[0].periodo.texto)}</b>, y así queda escrito en su cuenta.`
+          : ''}</div>
+      ${(me.paneles||[]).length?`<table style="margin-top:8px"><tbody>${me.paneles.map(p=>`<tr>
+        <td><b>${esc(p.cliente)}</b> <span class="muted">${esc(p.panel)}</span></td>
+        <td class="right"><b>${money(me.monto,2)} ${esc(me.moneda)}</b></td>
+        <td class="right" style="white-space:nowrap">
+          ${p.cobrada
+            ? '<span class="badge ok">✓ cobrada</span>'
+            : `<button class="outline small" onclick="chatMensualidad('${p.cliente_id}','${esc(p.panel).replace(/'/g,'')}')">+ cobrar</button>`}
+          <button class="outline small" onclick="chatAvisarMens('${p.cliente_id}','${esc(p.panel).replace(/'/g,'')}')"
+            title="Le manda un mensaje al grupo del chat avisando que vence">📤 avisar</button>
+          ${p.aviso?`<div style="font-size:11px;margin-top:3px">${p.aviso.ok
+            ?'<span style="color:var(--green)">✓ avisado</span>'
+            :'<span style="color:var(--red)">✕ no salió</span> <span class="muted">'+esc(String(p.aviso.error||'').slice(0,32))+'</span>'}</div>`:''}
+        </td>
+        </tr>`).join('')}</tbody></table>
+        <div class="muted" style="font-size:12px;margin-top:6px">Va a la cuenta del chat, no a la de
+          las fichas. El aviso se manda <b>de a una</b>: cada caja tiene su día, y mandarle las
+          cuatro juntas sería cobrarle tres antes de tiempo.</div>`
+      :'<div class="empty" style="margin-top:8px">Hoy no toca ninguna.</div>'}
+    </div>`;
+};
+
+/* Las monedas de un cliente, sumadas entre sus paneles. Mismo criterio que la fila del panel: el
+   monto en su moneda arriba y el tipo de cambio usado abajo. */
+function chatMonedas(ms){
+  const d=(ms||[]).filter(x=>Number(x.profit)>0);
+  if(!d.length) return '<span class="muted">—</span>';
+  return d.map(x=>chatUnaMoneda(x)).join('<div style="height:4px"></div>');
+}
+/* La ganancia se muestra EN SU MONEDA y con el tipo de cambio usado debajo. El 2% de una ganancia
+   en pesos y el 2% de una en dólares son dos números que no se parecen en nada; sin la moneda a la
+   vista la columna en USDT no se puede comprobar. El TC dice de dónde salió —el promedio del mes,
+   o el que cargaste a mano en el cierre— porque son dos cosas distintas y la diferencia se factura. */
+function chatUnaMoneda(x){
+  const cab=`<b>${money(x.profit,0)}</b> <span class="muted">${esc(x.moneda)}</span>`;
+  if(x.usdt==null) return cab+'<br><span class="badge warn">falta el TC de '+esc(x.moneda)+'</span>';
+  if(x.moneda==='USD'||x.moneda==='USDT') return cab;
+  return cab+`<div class="muted" style="font-size:11.5px;white-space:nowrap"
+    title="${esc(x.fuente||'')}">÷ ${money(x.tc,2)} ${x.fuente&&x.fuente.indexOf('mano')>=0?'(a mano)':'(promedio del mes)'}${
+    x.conflicto?' <span style="color:var(--red)">⚠</span>':''}</div>`;
+}
+function chatGanancia(f){
+  const d=(f.detalle||[]).filter(x=>Number(x.profit)>0);
+  if(!d.length) return '<span class="muted">—</span>';
+  return d.map(chatUnaMoneda).join('<div style="height:4px"></div>');
+}
+
+async function chatCfg(){
+  const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify({
+    costo_pct:val('chat-costo'), mensualidad:val('chat-mens'), mensualidad_moneda:val('chat-mensmon'),
+    wallet:val('chat-wallet'), red:val('chat-red'), pago_nota:val('chat-pagonota')})});
+  if(r&&r.ok){ toast('Guardado'); VIEWS.chat(); }
+}
+async function chatSet(id,campos){
+  const r=await api('/api/os/chat/paneles',{method:'POST',body:JSON.stringify({panel_id:id,...campos})});
+  if(r&&r.ok) VIEWS.chat();
+}
+async function chatAgregar(){
+  const id=val('chat-nuevo'); if(!id) return toast('Elegí un panel');
+  const r=await api('/api/os/chat/paneles',{method:'POST',
+    body:JSON.stringify({panel_id:id, pct_cliente:val('chat-nuevo-pct')})});
+  if(r&&r.ok){ toast('Agregado'); VIEWS.chat(); }
+}
+async function chatQuitar(id,nombre){
+  if(!confirm('¿Sacar «'+nombre+'» del servicio?\n\nNo borra nada de lo ya cobrado.')) return;
+  await api('/api/os/chat/paneles/'+id,{method:'DELETE'});
+  VIEWS.chat();
+}
+/* El token del bot se manda y NO se vuelve a mostrar: el campo se limpia solo. Lo que queda en
+   pantalla son los últimos seis dígitos, para reconocer cuál está cargado. */
+async function chatBot(){
+  const el=document.getElementById('chat-bot'); const v=(el.value||'').trim();
+  if(!v) return toast('Pegá el token del bot');
+  const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify({bot_token:v})});
+  el.value='';
+  if(r&&r.ok){ toast('Bot guardado'); VIEWS.chat(); }
+}
+async function chatDestino(cid,campos){
+  const r=await api('/api/os/chat/destino/'+cid,{method:'PUT',body:JSON.stringify(campos)});
+  if(r&&r.ok&&r.aviso) toast('⚠ '+r.aviso);
+}
+// La hoja tal cual la ve el cliente. Se abre antes de mandarla: mirarla es más rápido que
+// desmentir un número que ya salió.
+function chatHoja(cid){ window.open('/api/os/chat/doc/cliente/'+cid+'?mes='+_chatMes,'_blank'); }
+function chatHojaProv(){ window.open('/api/os/chat/doc/proveedor?mes='+_chatMes,'_blank'); }
+
+// SALE PARA AFUERA: le llega de verdad al cliente. Por eso se pregunta siempre.
+async function chatEnviar(cid,nombre){
+  if(!confirm('¿Mandarle a «'+nombre+'» su cuenta de '+_chatMes+'?\n\nLe llega al grupo de Telegram de este servicio.')) return;
+  const r=await api('/api/os/chat/enviar/'+cid,{method:'POST',body:JSON.stringify({mes:_chatMes})});
+  if(r&&r.ok) toast('Enviada'); 
+  VIEWS.chat();
+}
+/* Cobrar CONGELA el número de cada cliente en la cuenta del chat — que es aparte de la de las
+   fichas y no entra en el cierre del mes. */
+async function chatCobrar(){
+  if(!confirm('¿Cobrar el chat de '+_chatMes+'?\n\nCongela el número de cada cliente en la cuenta del chat.\nNo toca la cuenta de las fichas ni tu cierre del mes.\nApretar dos veces no cobra dos veces.')) return;
+  const r=await api('/api/os/chat/cobrar',{method:'POST',body:JSON.stringify({mes:_chatMes})});
+  if(r&&r.ok){
+    let m='Cobrados '+r.creados+' cliente(s) por '+r.total+' USDT';
+    if(r.yaEstaban) m+=' · '+r.yaEstaban+' ya estaban';
+    if((r.sinPrecio||[]).length) m+=' · al mínimo (sin precio confirmado): '+r.sinPrecio.join(', ');
+    toast(m);
+  }
+  VIEWS.chat();
+}
+async function chatDescobrar(){
+  if(!confirm('¿Deshacer el cobro del chat de '+_chatMes+'?\n\nNo borra los pagos que ya registraste: ésos pasaron de verdad.')) return;
+  const r=await api('/api/os/chat/descobrar',{method:'POST',body:JSON.stringify({mes:_chatMes})});
+  if(r&&r.ok) toast('Deshecho: '+r.borrados+' cobro(s)');
+  VIEWS.chat();
+}
+async function chatCobrarle(cid){
+  const el=document.getElementById('chp-'+cid); const v=(el&&el.value||'').trim();
+  if(!v) return toast('Poné cuánto pagó');
+  const r=await api('/api/os/chat/cobros',{method:'POST',
+    body:JSON.stringify({cliente_id:cid, mes:_chatMes, monto:v})});
+  if(r&&r.ok){ toast('Pago registrado'); VIEWS.chat(); }
+}
+async function chatMensualidad(cid,panel){
+  if(!confirm('¿Cobrarle la mensualidad de «'+panel+'»?\n\nVa a la cuenta del chat.')) return;
+  const r=await api('/api/os/chat/mensualidad',{method:'POST',body:JSON.stringify({cliente_id:cid,panel:panel})});
+  if(r&&r.ok) toast('Mensualidad cobrada');
+  VIEWS.chat();
+}
+async function chatAviso(id,aprobar,cliente,monto){
+  if(!confirm((aprobar?'¿Aprobar':'¿Rechazar')+' el pago de «'+cliente+'» por '+monto+'?\n\n'
+    +(aprobar?'Se registra en la cuenta del chat y le baja el saldo.':'No mueve nada. Queda registrado que se rechazó.'))) return;
+  const r=await api('/api/os/chat/avisos/'+id+'/resolver',{method:'POST',body:JSON.stringify({aprobar:aprobar})});
+  if(r&&r.ok) toast(aprobar?'Pago acreditado':'Aviso rechazado');
+  VIEWS.chat();
+}
+async function chatSolicitud(id,listo,caja){
+  if(!confirm((listo?'¿Marcar como LISTO':'¿Rechazar')+' el pedido de chat para «'+caja+'»?\n\n'
+    +(listo?'Acordate de agregarle la caja arriba, en «Quiénes tienen el chat».':'Queda registrado que se rechazó.'))) return;
+  const r=await api('/api/os/chat/solicitudes/'+id,{method:'POST',body:JSON.stringify({listo:listo})});
+  if(r&&r.ok) toast(listo?'Marcado como listo':'Pedido rechazado');
+  VIEWS.chat();
+}
+// SALE PARA AFUERA: le llega al grupo del cliente. Por eso se pregunta siempre.
+async function chatAvisarMens(cid,panel){
+  if(!confirm('¿Avisarle que vence la mensualidad de «'+panel+'»?\n\nLe llega al grupo de Telegram de este servicio.')) return;
+  const r=await api('/api/os/chat/mensualidad/avisar',{method:'POST',body:JSON.stringify({cliente_id:cid,panel:panel})});
+  if(r&&r.ok) toast('Aviso enviado');
+  VIEWS.chat();
+}
+async function chatBorrarMov(id){
+  if(!confirm('¿Borrar ese pago?')) return;
+  await api('/api/os/chat/movs/'+id,{method:'DELETE'});
+  VIEWS.chat();
+}
+async function chatPagar(){
+  const r=await api('/api/os/chat/pagos',{method:'POST',body:JSON.stringify({
+    mes:_chatMes, monto:val('chat-pago-monto'), fecha:val('chat-pago-fecha'), nota:val('chat-pago-nota')})});
+  if(r&&r.ok){ toast('Pago registrado'); VIEWS.chat(); }
+}
+async function chatBorrarPago(id){
+  if(!confirm('¿Borrar ese pago?')) return;
+  await api('/api/os/chat/pagos/'+id,{method:'DELETE'});
+  VIEWS.chat();
 }
 
 // ───────── FACTURACIÓN (datos reales del casino) ─────────

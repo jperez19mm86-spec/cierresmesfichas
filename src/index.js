@@ -93,6 +93,10 @@ app.use(cors({ origin: true }));
 // El límite grande vale SÓLO para esta ruta. Se monta antes del parser general: express.json()
 // no vuelve a parsear un cuerpo ya leído, así que el de abajo lo deja pasar.
 app.use('/api/comprobante', express.json({ limit: '9mb' }));   // 6 MB de archivo + base64 + JSON
+/* Lo mismo para el aviso de pago del CHAT: también lleva una captura adentro del JSON. Sin esta
+   línea el pedido se cortaba con un 413 antes de llegar a la ruta, y el cliente veía "no se pudo
+   enviar" sin ninguna explicación — con el archivo ya elegido y ninguna forma de saber por qué. */
+app.use(/^\/chat\/(aviso|[A-Za-z0-9_-]+\/pague)\/?$/, express.json({ limit: '9mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Y si aun así se pasa, que lo diga en castellano. Sin esto Express contesta un HTML de error que
@@ -373,18 +377,22 @@ app.post('/api/clientes/import', (req, res) => {
 app.get('/api/config', (_req, res) => {
   const tok = config.getTelegramToken();
   res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
-    apiGrupoMatriz: config.getApiGrupoMatriz() });
+    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica() });
 });
 
 app.put('/api/config', (req, res) => {
-  const { telegramBotToken, apiGrupoMatriz } = req.body || {};
+  const { telegramBotToken, apiGrupoMatriz, urlPublica } = req.body || {};
+  if (urlPublica !== undefined) {
+    const r = config.setUrlPublica(urlPublica);
+    if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
+  }
   if (telegramBotToken !== undefined) config.setTelegramToken(telegramBotToken);
   // El grupo matriz de las cuentas de API: uno solo para todas. Va acá y no en cada cliente porque
   // si viviera copiado en las 16 cuentas, cambiarlo obligaría a acordarse de tocar las 16.
   if (apiGrupoMatriz !== undefined) config.setApiGrupoMatriz(apiGrupoMatriz);
   const tok = config.getTelegramToken();
   res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
-    apiGrupoMatriz: config.getApiGrupoMatriz() });
+    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica() });
 });
 
 // Configurar el grupo de Telegram de un cliente (aviso automático al cargar).
@@ -1251,6 +1259,89 @@ app.get('/cuenta/:token', (req, res) => {
   if (r.revocado) return res.status(410).send(html.paginaError('Este link ya no está disponible'));
   const cuando = String(r.actualizado_at || r.creado_at || '').slice(0, 16).replace('T', ' ');
   res.send(html.pagina(r.doc, { nota: cuando ? 'Emitida el ' + cuando : null }));
+});
+
+/* La hoja del Chat Externo, por link. Pública a propósito: el cliente la abre sin usuario ni
+   contraseña. Lo que está guardado en el link es el documento YA PROYECTADO, así que acá no hay
+   forma de que se escape lo que le pagás al proveedor: ese número nunca entró al link. */
+app.get('/chat/:token', (req, res) => {
+  const chatDoc = require('./chat-doc');
+  const chatStore = require('./chat-externo.store');
+  const r = chatDoc.porToken(req.params.token);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, private');   // es de una sola persona
+  if (!r) return res.status(404).send(chatDoc.paginaError('No encontramos esa cuenta'));
+  if (r.revocado) return res.status(410).send(chatDoc.paginaError('Este link ya no está disponible'));
+  /* El DETALLE del mes queda congelado —es lo que se le mandó— pero el SALDO se calcula al abrir:
+     es lo que tiene que pagar hoy, y puede arrastrar meses. Dos cosas distintas en la misma hoja. */
+  const todo = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
+  const esteMes = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
+  const cfgChat = chatStore.config();
+  res.send(chatDoc.htmlCliente(r.doc, {
+    token: req.params.token,
+    pago: { wallet: cfgChat.wallet, red: cfgChat.red, nota: cfgChat.pago_nota },
+    avisos: chatStore.avisosDe(r.cliente_id),
+    saldo: todo ? { ...todo, otrosMeses: !esteMes || todo.cobrado !== esteMes.cobrado } : null,
+  }));
+});
+
+/* ── EL PORTAL DEL CLIENTE ───────────────────────────────────────────────────────────────────
+   Entra con el usuario que YA CONOCE —el de su caja— y ve lo del chat y nada más: acá no hay
+   fichas, ni pedidos, ni la cuenta del otro negocio. Tiene su propia cara porque es otro producto.
+   Ver `quienEntra` en chat-externo.store para por qué se entra sin contraseña. */
+app.get('/chat', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, private');
+  res.sendFile(require('path').join(__dirname, '..', 'public', 'ganamos.html'));
+});
+
+app.post('/chat/entrar', (req, res) => {
+  const chatStore = require('./chat-externo.store');
+  const q = chatStore.quienEntra((req.body || {}).usuario);
+  // El mensaje es el mismo para "no existe" y "no tiene el chat": decir cuál de las dos es sería
+  // contarle a cualquiera qué usuarios existen.
+  if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario. Escribinos y lo vemos.' });
+  res.json({ ok: true, portal: chatStore.portalDe(q.cliente_id) });
+});
+
+app.post('/chat/aviso', (req, res) => {
+  const chatStore = require('./chat-externo.store');
+  const b = req.body || {};
+  const q = chatStore.quienEntra(b.usuario);
+  if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
+  const out = chatStore.avisarPago({
+    cliente_id: q.cliente_id, monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
+  });
+  if (!out.ok) return res.status(400).json(out);
+  console.log(`[Chat] ${q.cliente} avisó un pago de ${out.aviso.monto}`);
+  res.json(out);
+});
+
+app.post('/chat/nuevo', (req, res) => {
+  const chatStore = require('./chat-externo.store');
+  const b = req.body || {};
+  const q = chatStore.quienEntra(b.usuario);
+  if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
+  const out = chatStore.pedirChat({ cliente_id: q.cliente_id, caja: b.caja, nota: b.nota });
+  if (!out.ok) return res.status(400).json(out);
+  console.log(`[Chat] ${q.cliente} pidió un chat nuevo para ${out.solicitud.caja}`);
+  res.json(out);
+});
+
+/* EL CLIENTE AVISA QUE PAGÓ. Pública, como la de fichas: el cliente no tiene usuario. Queda
+   PENDIENTE — acreditar un pago porque alguien subió una imagen sería confiar en la imagen. */
+app.post('/chat/:token/pague', (req, res) => {
+  const chatDoc = require('./chat-doc');
+  const chatStore = require('./chat-externo.store');
+  const r = chatDoc.porToken(req.params.token);
+  if (!r || r.revocado) return res.status(404).json({ ok: false, error: 'Este link ya no está disponible' });
+  const b = req.body || {};
+  const out = chatStore.avisarPago({
+    cliente_id: r.cliente_id, mes: r.mes,
+    monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
+  });
+  if (!out.ok) return res.status(400).json(out);
+  console.log(`[Chat] ${r.cliente_id} avisó un pago de ${out.aviso.monto}`);
+  res.json(out);
 });
 
 app.get('/factura/:token', (req, res) => {

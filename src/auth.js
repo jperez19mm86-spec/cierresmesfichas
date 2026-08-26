@@ -53,6 +53,15 @@ const PUBLIC = [
   // de llave: el token es al azar y largo, abre UNA cuenta de UN mes, y no lleva a ningún listado.
   // Sin esto el link que se le manda al cliente cae en el login — y el cliente no tiene usuario.
   /^\/cuenta\/[A-Za-z0-9_-]+\/?$/,
+  /* Y lo mismo para la hoja del CHAT EXTERNO, con una diferencia: además de leerla, el cliente
+     puede avisar que pagó (…/pague). Sólo puede CREAR el aviso, que no mueve el saldo — acreditarlo
+     exige estar adentro del panel, igual que con los comprobantes de fichas. El token es al azar y
+     largo, abre UNA hoja de UN cliente y no lleva a ningún listado.
+     Sin esto el link cae en el login, y el cliente no tiene usuario. */
+  /^\/chat\/?$/,
+  /^\/chat\/(entrar|aviso|nuevo)\/?$/,
+  /^\/chat\/[A-Za-z0-9_-]+(\/pague)?\/?$/,
+  /^\/ganamos\.html$/,
   /^\/logo\.png$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.

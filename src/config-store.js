@@ -33,10 +33,28 @@ function setApiGrupoMatriz(v) {
 }
 
 function getTelegramToken() { return String(getCfg('telegramBotToken') || '').trim(); }
+
+/* EL DOMINIO DE LOS LINKS QUE VE EL CLIENTE.
+   Sin esto el sistema arma el link con el dominio por el que entró quien apretó el botón, así que
+   la misma factura podía salir con dos direcciones distintas según desde dónde se mandara. El
+   cliente recibe un link: tiene que ser siempre el mismo y tiene que ser el de la marca. */
+function getUrlPublica() { return String(getCfg('urlPublica') || '').trim().replace(/\/+$/, ''); }
+function setUrlPublica(v) {
+  const s = String(v || '').trim().replace(/\/+$/, '');
+  if (!s) { setCfg('urlPublica', ''); return { ok: true, urlPublica: '' }; }
+  const con = /^https?:\/\//i.test(s) ? s : 'https://' + s;
+  // Sólo el dominio: un link con una ruta pegada de más genera direcciones que no existen.
+  if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(con)) {
+    return { ok: false, error: 'Poné sólo el dominio, sin barra ni ruta. Ejemplo: app.latamgames.online' };
+  }
+  setCfg('urlPublica', con);
+  return { ok: true, urlPublica: con };
+}
 function setTelegramToken(token) {
   const v = String(token || '').trim();
   setCfg('telegramBotToken', v);
   return { telegramBotToken: v };
 }
 
-module.exports = { getTelegramToken, setTelegramToken, getApiGrupoMatriz, setApiGrupoMatriz, getCfg, setCfg, FILE };
+module.exports = {
+  getUrlPublica, setUrlPublica, getTelegramToken, setTelegramToken, getApiGrupoMatriz, setApiGrupoMatriz, getCfg, setCfg, FILE };

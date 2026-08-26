@@ -83,7 +83,12 @@ async function backfillMesCompleto(conexion_id, mes, group, hasta = null, maxLot
  *  (self-heal: si el server estuvo caído o un día falló, se completa solo — ya no quedan huecos),
  *  (3) los primeros días del mes, cierra el mes anterior. Server-side: NO depende de una pestaña abierta. */
 let _last = null;
-const CRON_GROUPS = (process.env.ACUM_CRON_GROUPS || 'superagent').split(',').map((s) => s.trim()).filter(Boolean);
+/* ⚠️ SE BAJAN LOS TRES NIVELES, NO SÓLO EL DE ARRIBA. El chat externo se contrata por caja y la
+   caja suele ser un AGENTE: si sólo se baja 'superagent', la ganancia de ese agente no existe en
+   la base y su mes da cero — una factura de menos que nadie sale a buscar, porque en pantalla no
+   falta nada. Es una llamada más por conexión y por noche. */
+const CRON_GROUPS = (process.env.ACUM_CRON_GROUPS || 'superagent,distributor,agent')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 function startCron() {
   const H = Number(process.env.ACUM_CRON_HOUR || '1');
   setInterval(async () => {

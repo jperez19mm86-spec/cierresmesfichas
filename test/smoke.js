@@ -1785,6 +1785,643 @@ async function main() {
       /\.html\?\$\/i\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(srcIdx6));
   }
 
+  /* ── 💬 CHAT EXTERNO ─────────────────────────────────────────────────────────────────────────
+     Un servicio de terceros que algunos paneles contratan. Los DOS lados tienen precios distintos
+     y ésa es toda la razón de que exista: al cliente se le cobra lo negociado, al proveedor se le
+     paga un % fijo, y la diferencia es el margen. La factura del cliente dice SU número.
+
+     No es un sistema aparte porque no hay ningún dato nuevo: son clientes de Imperia que ya están
+     cargados, con paneles que ya están cargados, y la ganancia YA se captura todas las noches en
+     `reporte_diario`. Duplicarlo habría sido dos copias del mismo número. */
+  {
+    const ch = require('../src/chat-externo.store');
+    const moneyCh = require('../src/lib/money');
+    const { db: dbCh } = require('../src/db');
+    const panSt = require('../src/paneles-store');
+    const cliSt3 = require('../src/clientes-store');
+
+    /* Restos de una corrida anterior que se cortó a la mitad. Esta base NO se borra entre corridas
+       —el server corre con otra (DB_PATH), ésta es la de desarrollo— así que un panel que quedó
+       colgado sigue ahí en la siguiente y se cobra dos veces en el cierre. Se limpia por nombre y
+       por conexión, no por el id del cliente: borrar el cliente deja el panel huérfano. */
+    cliSt3.list().clientes.filter((x) => x.codigo === 'ZZ-CHAT').forEach((x) => cliSt3.removeCliente(x.id));
+    dbCh.prepare("DELETE FROM reporte_diario WHERE conexion_id='cx_zz'").run();
+    dbCh.prepare(`DELETE FROM chat_panel WHERE panel_id IN
+      (SELECT id FROM paneles WHERE nombre='ZZ-Panel-Chat' OR conexion_id='cx_zz')`).run();
+    dbCh.prepare("DELETE FROM paneles WHERE nombre='ZZ-Panel-Chat' OR conexion_id='cx_zz'").run();
+    const CLI = cliSt3.createCliente({ codigo: 'ZZ-CHAT', nombre: 'Prueba chat' });
+    const PAN = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Panel-Chat', sistema: 'Europa',
+      nivel_usuario: 'SuperAgente', id_usuario: '9990001', conexion_id: 'cx_zz', divisas: ['ARS'] });
+
+    // La ganancia sale de lo que el cron ya guarda: conexión + nodo, día por día.
+    const insDia = dbCh.prepare(`INSERT INTO reporte_diario (id,conexion_id,fecha,grp,sa_id,login,in_amt,out_amt,profit,moneda,captured_at)
+      VALUES (?,?,?,'superagent',?,?,?,?,?,?,?)`);
+    ['2026-08-01', '2026-08-02'].forEach((f, i) => insDia.run('zzrd' + i, 'cx_zz', f, '9990001',
+      'ZZ-Panel-Chat', '1000', '900', '100000', 'ARS', new Date().toISOString()));
+
+    check('chat: la ganancia sale del acumulado ya guardado, no de una consulta nueva',
+      ch.gananciaDelMes('2026-08').get('cx_zz|superagent|9990001|ARS') === 200000,
+      '200.000 ARS entre los dos días');
+
+    /* Sin tipo de cambio del mes no hay USDT y toda la cuenta da cero — que es el comportamiento
+       correcto y está probado más abajo, pero acá hace falta uno para ejercitar la aritmética. */
+    dbCh.prepare(`INSERT INTO tc_mes (mes,tc_cliente,updatedAt) VALUES ('2026-08','1000',?)
+      ON CONFLICT(mes) DO UPDATE SET tc_cliente='1000'`).run(new Date().toISOString());
+
+    // Config: el costo y la mensualidad son UNO para todo el servicio.
+    ch.setConfig({ costo_pct: '2', mensualidad: '30', mensualidad_moneda: 'USDT' });
+    check('chat: el costo y la mensualidad viven en un solo lugar',
+      ch.config().costo_pct === '2' && ch.config().mensualidad === '30');
+    check('chat: un costo mal escrito no entra',
+      ch.setConfig({ costo_pct: '2,5' }).ok === false && ch.config().costo_pct === '2');
+
+    /* El % del cliente se guarda como el TOTAL que paga, no como el adicional: es el número que va
+       en su factura y el que se piensa al negociar. El margen se calcula restando el costo. */
+    ch.set({ panel_id: PAN.id, pct_cliente: '4', dia_cobro: 10 });
+    const ci = ch.cierre('2026-08');
+    const f = (ci.filas || [])[0];
+    check('chat: se le cobra al cliente su precio y se paga el costo, sobre la MISMA ganancia',
+      !!f && f.pct_cliente === '4' && f.pct_costo === '2',
+      f ? `cobra ${f.pct_cliente}% · paga ${f.pct_costo}%` : 'sin filas');
+    // 200.000 ARS ÷ el TC del mes → USDT; 4% de eso se cobra, 2% se paga, la diferencia es el margen.
+    check('chat: el margen es la resta de los dos, no un número aparte',
+      !!f && f.margen === moneyCh.sub(f.cobra, f.paga)
+      && moneyCh.cmp(f.cobra, f.paga) > 0,
+      f ? `cobra ${f.cobra} − paga ${f.paga} = ${f.margen} USDT` : '');
+
+    /* Cobrarle MENOS de lo que cuesta se puede querer (una promoción) pero no por accidente: no se
+       prohíbe, se marca. Ver sólo el total cobrado escondería justo este caso. */
+    ch.set({ panel_id: PAN.id, pct_cliente: '1', dia_cobro: 10 });
+    const ci2 = ch.cierre('2026-08');
+    check('chat: avisa cuando le cobrás menos de lo que te cuesta',
+      ci2.pierden.length === 1 && ci2.filas[0].pierde === true
+      && moneyCh.isNeg(ci2.filas[0].margen),
+      'cobra 1% y cuesta 2%: margen ' + ci2.filas[0].margen);
+    /* SIN PRECIO NO ES GRATIS. Cobrar cero sería regalar el servicio y pagarlo del bolsillo por un
+       olvido; se cobra el MÍNIMO, que es lo que cuesta, y queda marcado para confirmarlo. */
+    ch.set({ panel_id: PAN.id, pct_cliente: '', dia_cobro: 10 });
+    const ciMin = ch.cierre('2026-08');
+    check('chat: un panel sin precio se avisa, no se cobra en silencio',
+      ciMin.sinPrecio.length === 1);
+    check('chat: sin precio se cobra el mínimo, que es lo que te cuesta — no cero',
+      ciMin.filas[0].pct_cliente === ciMin.costo_pct
+      && moneyCh.cmp(ciMin.filas[0].cobra, '0') > 0
+      && ciMin.filas[0].cobra === ciMin.filas[0].paga
+      && ciMin.filas[0].margen === '0',
+      `cobra ${ciMin.filas[0].cobra} = paga ${ciMin.filas[0].paga}`);
+    check('chat: queda marcado que ese precio no está confirmado',
+      ciMin.filas[0].pctMinimo === true && ciMin.filas[0].sinPrecio === true
+      && ciMin.pierden.length === 0,
+      'al mínimo, y no cuenta como "cobrás menos de lo que te cuesta"');
+
+    /* Una ganancia negativa no genera cobro: cobrarle un % de una pérdida sería cobrarle por
+       perder, y pagarle al proveedor por una pérdida tampoco tiene sentido. */
+    dbCh.prepare('UPDATE reporte_diario SET profit=? WHERE conexion_id=?').run('-50000', 'cx_zz');
+    ch.set({ panel_id: PAN.id, pct_cliente: '4' });
+    const ciNeg = ch.cierre('2026-08');
+    check('chat: un mes con pérdida no genera cobro ni pago',
+      ciNeg.filas[0].cobra === '0' && ciNeg.filas[0].paga === '0',
+      'ganancia negativa → no se cobra nada');
+
+    /* La mensualidad NO va con el cierre: cada panel tiene su día porque no se cobran todas a
+       principio de mes. Se cobra haya o no ganancias — es por tener el servicio, no por usarlo. */
+    const m10 = ch.mensualidadesDe('2026-09-10'), m11 = ch.mensualidadesDe('2026-09-11');
+    /* La mensualidad va a la cuenta del chat con SU fecha, y como un cliente con tres paneles paga
+       tres, no puede compartir la llave única del cobro del mes. */
+    const men1 = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2026-09-10' });
+    const men2 = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat-2', fecha: '2026-09-10' });
+    check('chat: un cliente con dos paneles paga dos mensualidades',
+      men1.ok && men2.ok
+      && ch.cuentas('2026-09').clientes.find((x) => x.cliente_id === CLI.id).cobrado === '60',
+      '30 + 30 = 60');
+    /* "Mensualidad 30 USDT" no dice por qué mes se está cobrando, y a la tercera el cliente
+       pregunta. El renglón tiene que explicarse solo dentro de seis meses. */
+    check('chat: la mensualidad dice la caja y el período que cubre',
+      men1.mov.nota === 'Mantenimiento ZZ-Panel-Chat · 10 sep – 9 oct',
+      men1.mov.nota);
+    // Cobrada un 31 de enero cubre hasta el 27 de febrero, no hasta marzo.
+    check('chat: el período no se pasa de mes cuando el día no existe en el siguiente',
+      ch.periodoDesde('2026-01-31').texto === '31 ene – 27 feb'
+      && ch.periodoDesde('2026-12-15').texto === '15 dic – 14 ene',
+      ch.periodoDesde('2026-01-31').texto);
+    check('chat: la mensualidad cobrada se marca, para no cobrarla dos veces sin darse cuenta',
+      ch.mensualidadesDe('2026-09-10').paneles.some((p) => p.cobrada === true));
+    /* El aviso de la mensualidad va de a UNA: cada caja tiene su día, y mandarle las cuatro juntas
+       el día de la primera sería cobrarle tres antes de tiempo. Y queda anotado: si no, "¿le
+       avisaste a Ariel de la A3?" no tiene respuesta, y volver a mandarlo lo molesta dos veces. */
+    ch.marcarAvisoMens(CLI.id, 'ZZ-Panel-Chat', '2026-09-10', { ok: false, error: 'chat not found' });
+    check('chat: un aviso de mensualidad que falla queda anotado',
+      ch.mensualidadesDe('2026-09-10').paneles.find((p) => p.panel === 'ZZ-Panel-Chat').aviso.ok === false);
+    ch.marcarAvisoMens(CLI.id, 'ZZ-Panel-Chat', '2026-09-10', { ok: true });
+    check('chat: el reintento que sale bien pisa al que falló, y sólo para esa caja',
+      ch.mensualidadesDe('2026-09-10').paneles.find((p) => p.panel === 'ZZ-Panel-Chat').aviso.ok === true
+      && !ch.avisosMensDe('2026-09-11')['ZZ-Panel-Chat']);
+    dbCh.prepare('DELETE FROM chat_aviso_mens WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    /* El acumulado tiene que BAJAR el nivel del agente, no sólo el de arriba: si no, la ganancia
+       de una caja de agente no existe en la base y su mes da cero. */
+    const acumCh = require('../src/acumulado.service');
+    check('chat: el acumulado nocturno baja también el nivel de los agentes',
+      require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'acumulado.service.js'), 'utf8')
+        .includes("'superagent,distributor,agent'") && typeof acumCh.startCron === 'function');
+
+    check('chat: la mensualidad se cobra el día de CADA panel, no a fin de mes',
+      m10.paneles.length === 1 && m11.paneles.length === 0,
+      'el 10 toca, el 11 no');
+    check('chat: la mensualidad es la misma para todos y sale de la configuración',
+      m10.monto === '30' && m10.moneda === 'USDT');
+    // Entre 1 y 28 para que el día exista en todos los meses, febrero incluido.
+    check('chat: no se puede poner un día que no existe en todos los meses',
+      ch.set({ panel_id: PAN.id, dia_cobro: 31 }).ok === false
+      && ch.set({ panel_id: PAN.id, dia_cobro: 28 }).ok === true);
+    /* Tocar el precio no puede borrar el día de cobro: son dos pantallas distintas y el que guarda
+       el % no está pensando en la mensualidad. Lo que no se manda, queda como estaba. */
+    ch.set({ panel_id: PAN.id, pct_cliente: '5' });
+    check('chat: guardar sólo el precio no borra el día de la mensualidad',
+      ch.list().find((x) => x.panel_id === PAN.id).dia_cobro === 28);
+
+    /* ── LA CUENTA SE LE MANDA AL CLIENTE, NO AL PANEL ────────────────────────────────────────
+       Uno con dos paneles paga UNA cuenta con dos renglones. Antes de esto la pantalla mostraba
+       dos filas sueltas y no había forma de saber cuánto le tocaba pagar al cliente. */
+    dbCh.prepare('UPDATE reporte_diario SET profit=? WHERE conexion_id=?').run('100000', 'cx_zz');
+    ch.set({ panel_id: PAN.id, pct_cliente: '4', dia_cobro: 28 });
+    const PAN2 = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Panel-Chat-2', sistema: 'Europa',
+      nivel_usuario: 'SuperAgente', id_usuario: '9990002', conexion_id: 'cx_zz', divisas: ['ARS'] });
+    ['2026-08-01', '2026-08-02'].forEach((f, i) => insDia.run('zzrdb' + i, 'cx_zz', f, '9990002',
+      'ZZ-Panel-Chat-2', '1000', '900', '50000', 'ARS', new Date().toISOString()));
+    ch.set({ panel_id: PAN2.id, pct_cliente: '4' });
+    const pcZ = ch.porCliente('2026-08');
+    const gZ = (pcZ.clientes || []).find((x) => x.cliente_id === CLI.id);
+    check('chat: los paneles de un cliente se juntan en UNA cuenta',
+      !!gZ && gZ.paneles.length === 2 && moneyCh.cmp(gZ.cobra, '0') > 0,
+      gZ ? `${gZ.paneles.length} paneles · cobra ${gZ.cobra}` : 'no agrupó');
+    // 200.000 + 100.000 en la misma moneda van en UN renglón, no dos: es lo que el cliente compara
+    // contra su propio panel.
+    check('chat: la ganancia en la misma moneda se suma en un solo renglón',
+      !!gZ && gZ.monedas.length === 1 && gZ.monedas[0].moneda === 'ARS'
+      && Number(gZ.monedas[0].profit) === 300000,
+      gZ ? gZ.monedas.map((m) => m.moneda + '=' + m.profit).join(',') : '');
+
+    /* ── VARIOS CHATS POR CLIENTE, CADA UNO COLGADO DE UN AGENTE ─────────────────────────────
+       Fran tiene dos chats y Ariel cuatro. Cada uno se cobra sobre lo que ganó SU agente, así que
+       la ganancia se lee EN EL NIVEL DEL PANEL. Leer todo como 'superagent' —como se hacía— daba
+       cero para cualquier caja que no fuera la de más arriba: una factura de menos, sin aviso. */
+    const AG = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Agente-Chat', sistema: 'Europa',
+      nivel_usuario: 'Agente', id_usuario: '9990003', conexion_id: 'cx_zz', divisas: ['ARS'] });
+    // ⚠️ `insDia` graba a nivel superagente. Las filas del AGENTE van con su propio grp: es
+    // justamente lo que se está probando.
+    const insAg = dbCh.prepare(`INSERT INTO reporte_diario (id,conexion_id,fecha,grp,sa_id,login,in_amt,out_amt,profit,moneda,captured_at)
+      VALUES (?,?,?,'agent',?,?,?,?,?,?,?)`);
+    ['2026-08-01', '2026-08-02'].forEach((f, i) => insAg.run('zzrdag' + i, 'cx_zz', f, '9990003',
+      'ZZ-Agente-Chat', '500', '400', '40000', 'ARS', new Date().toISOString()));
+    // La MISMA fila a nivel superagente, con otro número: si se mezclaran, la caja se cobraría mal.
+    const insSA = dbCh.prepare(`INSERT INTO reporte_diario (id,conexion_id,fecha,grp,sa_id,login,in_amt,out_amt,profit,moneda,captured_at)
+      VALUES (?,?,?,'superagent',?,?,?,?,?,?,?)`);
+    insSA.run('zzrdsa9', 'cx_zz', '2026-08-01', '9990003', 'ZZ-Agente-Chat', '1', '1', '999999', 'ARS', new Date().toISOString());
+    ch.set({ panel_id: AG.id, pct_cliente: '3', dia_cobro: 15 });
+    const ciAg = ch.cierre('2026-08');
+    const fAg = ciAg.filas.find((x) => x.panel === 'ZZ-Agente-Chat');
+    check('chat: un chat colgado de un agente se cobra sobre la ganancia DE ESE AGENTE',
+      !!fAg && Number((fAg.detalle.find((d) => d.moneda === 'ARS') || {}).profit) === 80000,
+      fAg ? `${(fAg.detalle[0] || {}).profit} (la del superagente es 999.999 y no se usa)` : 'no apareció');
+    const gFran = ch.porCliente('2026-08').clientes.find((x) => x.cliente_id === CLI.id);
+    check('chat: un cliente con varios chats los ve juntos en una sola cuenta',
+      !!gFran && gFran.paneles.length === 3,
+      gFran ? gFran.paneles.map((x) => x.panel).join(' + ') : '');
+    /* Una caja sin NINGUNA fila en su nivel no es una caja sin ganancias: es una caja que el
+       acumulado no está bajando. Cobrar cero sería regalar el mes en silencio. */
+    const SIN = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Agente-SinDatos', sistema: 'Europa',
+      nivel_usuario: 'Agente', id_usuario: '9990004', conexion_id: 'cx_zz', divisas: ['ARS'] });
+    ch.set({ panel_id: SIN.id, pct_cliente: '3' });
+    check('chat: una caja de la que no hay datos se nombra, no se cobra en cero',
+      (ch.cierre('2026-08').salteados || []).some((x) => x.panel === 'ZZ-Agente-SinDatos'),
+      JSON.stringify(ch.cierre('2026-08').salteados));
+    ch.quitar(SIN.id); panSt.remove(SIN.id);
+    ch.quitar(AG.id); panSt.remove(AG.id);
+    dbCh.prepare("DELETE FROM reporte_diario WHERE sa_id='9990003'").run();
+
+    /* ── LOS DOS LINKS DE CADA CAJA ──────────────────────────────────────────────────────────
+       Cada caja tiene un link para los jugadores y otro para el panel. NO se deducen del nombre ni
+       del dominio de otra caja: hay muchos dominios y no hay relación entre la cuenta y el que le
+       toca. Un link mal armado se descubre después de habérselo mandado a toda la gente. */
+    check('chat: un link que no es un link no entra',
+      ch.set({ panel_id: PAN.id, link_jugadores: 'preguntale a Fran' }).ok === false);
+    const rL = ch.set({ panel_id: PAN.id, link_jugadores: 'juegan.ganamos.vip',
+      link_panel: 'https://admin.ganamos.vip/login', usuario_admin: 'ZZadm' });
+    check('chat: los links se guardan como se pegaron, con https si falta',
+      rL.ok && rL.panel.link_jugadores === 'https://juegan.ganamos.vip'
+      && rL.panel.link_panel === 'https://admin.ganamos.vip/login');
+    check('chat: tocar el precio no borra los links de la caja',
+      ch.set({ panel_id: PAN.id, pct_cliente: '4' }).panel.link_panel === 'https://admin.ganamos.vip/login');
+    // El cliente los ve en su portal; la contraseña NO viaja, porque al portal se entra sin clave.
+    const portZ = ch.portalDe(CLI.id);
+    const cajaZ = (portZ.cajas || []).find((x) => x.caja === 'ZZ-Panel-Chat');
+    check('chat: el cliente ve los links de su caja en el portal',
+      !!cajaZ && cajaZ.link_jugadores === 'https://juegan.ganamos.vip'
+      && cajaZ.usuario_admin === 'ZZadm');
+    check('chat: al portal no viaja ninguna contraseña',
+      !/clave|password|contrase/i.test(JSON.stringify(portZ)),
+      JSON.stringify(Object.keys(cajaZ || {})));
+
+    /* ── LO QUE EL CLIENTE NO PUEDE VER NO ENTRA AL DOCUMENTO ─────────────────────────────────
+       No se filtra al imprimir: no está en el objeto. Si mañana alguien agrega una columna al
+       HTML, no tiene de dónde sacar el costo. */
+    const chDoc = require('../src/chat-doc');
+    const docCli = chDoc.paraCliente(gZ, { mes: '2026-08' });
+    const crudoCli = JSON.stringify(docCli);
+    check('chat: la hoja del cliente no lleva el costo, ni el margen, ni lo que pagás',
+      !/paga|margen|costo|pct_costo|pierde/i.test(crudoCli),
+      crudoCli.slice(0, 120));
+    const htmlCli = chDoc.htmlCliente(docCli);
+    check('chat: la hoja del cliente dice su ganancia, su % y lo que tiene que pagar',
+      htmlCli.includes('Tu ganancia de agosto de 2026') && htmlCli.includes('Total a pagar')
+      && htmlCli.includes('4%') && htmlCli.includes('ARS'));
+    // El tipo de cambio va SIEMPRE: el 2% de pesos y el 2% de dólares no se parecen, y sin el TC
+    // la cuenta no se puede rehacer con una calculadora.
+    check('chat: la hoja del cliente muestra el tipo de cambio usado',
+      /÷\s*1\.000/.test(htmlCli), htmlCli.slice(htmlCli.indexOf('ARS'), htmlCli.indexOf('ARS') + 160).replace(/\s+/g, ' '));
+
+    const docProv = chDoc.paraProveedor(pcZ, { mes: '2026-08' });
+    check('chat: la hoja del proveedor no dice qué le cobrás a cada cliente',
+      !/pct_cliente|cobra/i.test(JSON.stringify(docProv)));
+    check('chat: la hoja del proveedor cobra el costo, no el precio del cliente',
+      docProv.pct === '2' && moneyCh.cmp(docProv.total, '0') > 0,
+      `${docProv.pct}% · ${docProv.total} USDT`);
+
+    /* ── EL LINK ─────────────────────────────────────────────────────────────────────────────
+       Guarda la hoja YA PROYECTADA: lo que el cliente abre es lo que viste vos, aunque después
+       cambie un tipo de cambio. Y el prefijo impide que un token de factura abra esta hoja. */
+    const lk = chDoc.crearLink(docCli, CLI.id);
+    const leido = chDoc.porToken(lk.token);
+    check('chat: el link guarda la hoja congelada, no la manera de rehacerla',
+      !!leido && leido.doc.total === docCli.total && !/paga|margen/i.test(JSON.stringify(leido.doc)),
+      lk.token.slice(0, 8) + '…');
+    check('chat: mandar dos veces no cambia el link que ya tiene el cliente',
+      chDoc.crearLink(docCli, CLI.id).token === lk.token);
+    const otroTok = require('../src/factura.service');
+    check('chat: un token que no es del chat no abre la hoja del chat',
+      chDoc.porToken('no-existe-este-token') === null && typeof otroTok.porToken === 'function');
+
+    /* ── A DÓNDE SE MANDA ────────────────────────────────────────────────────────────────────
+       Grupo propio de este servicio: el de las fichas es otro y tiene otra gente adentro. */
+    ch.setDestino({ cliente_id: CLI.id, tg_grupo: '-1001234567890', enviar_a: 'a Raúl por privado' });
+    check('chat: el grupo de este servicio es propio y no pisa el de las fichas',
+      ch.destino(CLI.id).tg_grupo === '-1001234567890'
+      && !(cliSt3.list().clientes.find((x) => x.id === CLI.id).telegram || {}).chatId,
+      'chat: -100123… · fichas: (vacío)');
+    check('chat: guardar la nota no borra el grupo',
+      ch.setDestino({ cliente_id: CLI.id, enviar_a: 'otra nota' }).ok === true
+      && ch.destino(CLI.id).tg_grupo === '-1001234567890');
+    check('chat: avisa cuando eso no parece un grupo de Telegram',
+      !!ch.setDestino({ cliente_id: CLI.id, tg_grupo: 'https://t.me/grupo' }).aviso);
+    /* MÁS DE UN GRUPO: a veces el encargado tiene que enterarse y no está en el grupo del cliente.
+       Se guardan separados por coma y se manda a todos. */
+    ch.setDestino({ cliente_id: CLI.id, tg_grupo: '-1001234567890, -1009876543210' });
+    check('chat: se le puede mandar a más de un grupo',
+      ch.destino(CLI.id).grupos.length === 2
+      && ch.destino(CLI.id).grupos[1] === '-1009876543210',
+      ch.destino(CLI.id).grupos.join(' + '));
+    check('chat: los grupos se separan igual con coma, con espacio o con renglón',
+      ch.partirGrupos('-1001\n-1002, -1003  -1004').length === 4);
+    check('chat: entre varios, avisa cuál es el que está mal',
+      (ch.setDestino({ cliente_id: CLI.id, tg_grupo: '-1001234567890, pepe' }).aviso || '').includes('pepe'));
+    ch.setDestino({ cliente_id: CLI.id, tg_grupo: '-1001234567890' });
+    // Un cliente que todavía no facturó nada tiene que poder tener grupo cargado igual.
+    check('chat: los destinos se pueden ver sin pasar por el cierre del mes',
+      !!ch.destinos()[CLI.id] && ch.destinos()[CLI.id].grupos.length === 1);
+
+    /* ── EL BOT DE ESTE SERVICIO ES OTRO ─────────────────────────────────────────────────────
+       Y el token no sale nunca en una respuesta: un token que se lee de la pantalla es un token
+       que se copia de una foto de la pantalla. */
+    check('chat: un token que no tiene forma de token no entra',
+      ch.setConfig({ bot_token: 'https://t.me/mibot' }).ok === false);
+    ch.setConfig({ bot_token: '123456789:AAFtesttesttesttesttesttesttesttest' });
+    const cfgBot = ch.config();
+    check('chat: el token del bot no se devuelve nunca, sólo sus últimos dígitos',
+      !JSON.stringify(cfgBot).includes('AAFtest') && cfgBot.bot_propio === true
+      && cfgBot.bot_hint === '…sttest',
+      JSON.stringify(cfgBot.bot_hint));
+    check('chat: el bot propio se usa en vez del general',
+      ch.botToken() === '123456789:AAFtesttesttesttesttesttesttesttest');
+    ch.setConfig({ bot_token: '' });
+
+    /* ── LA CUENTA DEL CHAT ES OTRA CUENTA ───────────────────────────────────────────────────
+       Esta plata no es toda de ella: la mitad se le paga al proveedor del servicio, se cobra en
+       otra wallet y se habla en otro grupo. Si entrara en `movimientos`, su cierre del mes
+       mostraría un ingreso que en realidad es de otro. Textual: «no quiero que en mi cuenta de mes
+       salga algo así como que recibí ese monto». */
+    const emiCh = require('../src/emision.service');
+    const deudaCh = require('../src/deuda.service');
+    check('chat: NO se puede emitir el chat contra la cuenta de las fichas',
+      emiCh.emitir({ mes: '2026-08', origen: 'chat', lineas: [] }).ok === false
+      && emiCh.ORIGENES.chat === undefined,
+      'origen "chat" no existe en las emisiones, a propósito');
+    const antesCC = deudaCh.cuentaCorriente(CLI.id).total;
+    const co1 = ch.cobrar('2026-08');
+    const co2 = ch.cobrar('2026-08');
+    check('chat: cobrar dos veces el mismo mes no cobra dos veces',
+      co1.ok && co1.creados >= 1 && co2.ok && co2.creados === 0 && co2.yaEstaban === co1.creados,
+      `1ª vez ${co1.creados} · 2ª vez ${co2.creados} (${co2.yaEstaban} ya estaban)`);
+    check('chat: cobrar el chat NO mueve la cuenta corriente de las fichas',
+      deudaCh.cuentaCorriente(CLI.id).total === antesCC
+      && dbCh.prepare("SELECT COUNT(*) n FROM movimientos WHERE origen='chat'").get().n === 0,
+      `saldo de fichas antes ${antesCC} · después ${deudaCh.cuentaCorriente(CLI.id).total}`);
+    const ctaZ = ch.cuentas('2026-08');
+    const gCta = ctaZ.clientes.find((x) => x.cliente_id === CLI.id);
+    check('chat: lo cobrado queda en la cuenta DEL CHAT',
+      !!gCta && moneyCh.cmp(gCta.cobrado, '0') > 0 && gCta.debe === gCta.cobrado,
+      gCta ? `cobrado ${gCta.cobrado} · debe ${gCta.debe}` : 'sin fila');
+    // Lo cobrado se congela: aunque cambie el tipo de cambio, lo que le mandaste no se mueve.
+    dbCh.prepare("UPDATE tc_mes SET tc_cliente='2000' WHERE mes='2026-08'").run();
+    check('chat: lo cobrado no cambia si después cambia el tipo de cambio',
+      ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === CLI.id).cobrado === gCta.cobrado,
+      'sigue en ' + gCta.cobrado);
+    dbCh.prepare("UPDATE tc_mes SET tc_cliente='1000' WHERE mes='2026-08'").run();
+    // El pago del cliente por el chat va a esta cuenta, no a la de las fichas.
+    const pgC = ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-08', monto: '10', nota: 'wallet del chat' });
+    check('chat: el pago del cliente baja lo que debe en la cuenta del chat',
+      pgC.ok
+      && ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === CLI.id).debe
+         === moneyCh.round(moneyCh.sub(gCta.cobrado, '10'), 2)
+      && deudaCh.cuentaCorriente(CLI.id).total === antesCC,
+      'y la cuenta de fichas sigue igual');
+    check('chat: un pago mal cargado no entra',
+      ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-08', monto: '246,93' }).ok === false
+      && ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-08', monto: '0' }).ok === false);
+    // Deshacer el cobro no borra los pagos: ésos pasaron de verdad.
+    const desc = ch.descobrar('2026-08');
+    check('chat: deshacer el cobro no borra los pagos que ya te hicieron',
+      desc.ok && desc.borrados === co1.creados
+      && ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === CLI.id).pagado === '10',
+      `borrados ${desc.borrados} cobros, el pago sigue`);
+    ch.borrarMov(pgC.mov.id);
+    /* El arrastre importa: alguien puede deber tres meses y eso no se ve mirando uno solo. */
+    ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-07', monto: '5' });
+    check('chat: la cuenta sin mes muestra todo lo que arrastra',
+      ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).pagado === '5'
+      && !ch.cuentas('2026-08').clientes.some((x) => x.cliente_id === CLI.id));
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+
+    /* Cómo se paga ESTE servicio va en la hoja: es otra wallet que la de las fichas y sin eso la
+       hoja dice cuánto pagar y no dice adónde. La RED va en su propio campo: mandar USDT por la red
+       equivocada es perder la plata, y el que copia una línea entera se lleva la red adentro de la
+       dirección. */
+    check('chat: una dirección con espacios no entra (la red va aparte)',
+      ch.setConfig({ wallet: 'TXwallet123 TRC20' }).ok === false);
+    ch.setConfig({ wallet: 'TXwallet123', red: 'trc20', pago_nota: 'mandá el hash' });
+    check('chat: la red se guarda aparte y en mayúsculas',
+      ch.config().wallet === 'TXwallet123' && ch.config().red === 'TRC20');
+    const pagoCfg = { wallet: ch.config().wallet, red: ch.config().red, nota: ch.config().pago_nota };
+    const htmlPago = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: pagoCfg });
+    check('chat: la hoja del cliente dice adónde pagar, con la red aparte y botón de copiar',
+      htmlPago.includes('TXwallet123') && htmlPago.includes('Cómo pagar')
+      && /Red <b>TRC20<\/b>/.test(htmlPago) && /Copiar la dirección/.test(htmlPago)
+      && /function copiar/.test(htmlPago));
+    // El plan B importa: fuera de https `navigator.clipboard` no existe y el botón no haría nada.
+    check('chat: copiar funciona aunque no haya https',
+      /execCommand\('copy'\)/.test(htmlPago));
+    check('chat: sin wallet cargada la hoja no inventa un "cómo pagar" vacío',
+      !chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), {}).includes('Cómo pagar'));
+
+    /* ── LO QUE VE EL CLIENTE ────────────────────────────────────────────────────────────────
+       No alcanza con decirle cuánto salió el mes: tiene que ver cuánto debe HOY —puede arrastrar
+       meses— y tener dónde avisar que pagó. Si no, lee un número y no puede hacer nada con él. */
+    ch.cobrar('2026-08');
+    ch.pagarCliente({ cliente_id: CLI.id, mes: '2026-07', monto: '7' });
+    const saldoZ = ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id);
+    const hojaViva = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
+      { saldo: saldoZ, comoPaga: 'wallet', token: 'tok123', avisos: [] });
+    check('chat: la hoja le dice cuánto debe HOY, no sólo lo del mes',
+      hojaViva.includes('Tenés que pagar') && hojaViva.includes('De este mes'),
+      `saldo ${saldoZ.debe} · mes ${gZ.cobra}`);
+    check('chat: con el link puede avisar que pagó desde la misma hoja',
+      /¿Ya pagaste\?/.test(hojaViva) && /\/pague/.test(hojaViva) && /type="file"/.test(hojaViva));
+    check('chat: la vista previa que mirás vos no lleva el formulario',
+      !/¿Ya pagaste\?/.test(htmlPago));
+
+    /* El aviso no mueve el saldo hasta que se aprueba: acreditar un pago porque alguien subió una
+       imagen sería confiar en la imagen. */
+    const debeAntes = ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).debe;
+    const av = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '12.50', referencia: 'hash abc' });
+    check('chat: el aviso del cliente queda esperando y NO mueve el saldo',
+      av.ok && ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).debe === debeAntes
+      && ch.avisosPendientes().some((x) => x.id === av.aviso.id),
+      `debe ${debeAntes} antes y después`);
+    // El punto y la coma: "94.22" son noventa y cuatro, no nueve mil. Ese error ya pasó de verdad.
+    const av100 = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '94.22' });
+    check('chat: el aviso lee bien el punto decimal (94.22 no es 9.422)',
+      av100.ok && av100.aviso.monto === '94.22');
+    check('chat: un monto que no es un número no entra',
+      ch.avisarPago({ cliente_id: CLI.id, monto: 'ahí va' }).ok === false);
+    // Un adjunto enorme se rechaza con un mensaje, no revienta la base.
+    check('chat: una imagen gigante no entra',
+      ch.avisarPago({ cliente_id: CLI.id, monto: '1',
+        archivo: { nombre: 'x.jpg', tipo: 'image/jpeg', base64: 'A'.repeat(9 * 1024 * 1024) } }).ok === false);
+    const res1 = ch.resolverAviso(av.aviso.id, true);
+    check('chat: aprobarlo es lo que mueve el saldo',
+      res1.ok && res1.estado === 'aprobado'
+      && ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).debe
+         === moneyCh.round(moneyCh.sub(debeAntes, '12.50'), 2));
+    check('chat: el mismo aviso no se puede aprobar dos veces',
+      ch.resolverAviso(av.aviso.id, true).ok === false);
+    const res2 = ch.resolverAviso(av100.aviso.id, false);
+    check('chat: rechazarlo no mueve nada y queda registrado',
+      res2.ok && res2.estado === 'rechazado'
+      && ch.avisosDe(CLI.id).some((x) => x.id === av100.aviso.id && x.estado === 'rechazado'));
+    dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+    ch.setConfig({ wallet: '', red: '', pago_nota: '' });
+
+    /* ── LO QUE YA LE PAGASTE AL PROVEEDOR ───────────────────────────────────────────────────
+       Antes un mes pagado y uno impago se veían idénticos. */
+    check('chat: un pago sin monto usable no se guarda',
+      ch.pagar({ mes: '2026-08', monto: '1.419,49' }).ok === false
+      && ch.pagar({ mes: '2026-08', monto: '0' }).ok === false);
+    const pg = ch.pagar({ mes: '2026-08', monto: '500', fecha: '2026-09-03', nota: 'transferencia' });
+    check('chat: lo que le pagaste al proveedor queda registrado',
+      pg.ok && ch.pagado('2026-08') === '500' && ch.pagos('2026-08').length === 1,
+      'pagado 500 de ' + pcZ.totales.paga);
+    ch.borrarPago(pg.pago.id);
+    check('chat: un pago mal cargado se puede borrar', ch.pagado('2026-08') === '0');
+
+    /* ── QUÉ SE MANDÓ Y SI LLEGÓ ─────────────────────────────────────────────────────────────
+       La factura del mes hoy se manda y no deja rastro: "¿se la mandaste?" no tiene respuesta. */
+    ch.marcarEnviado(CLI.id, '2026-08', { ok: false, error: 'chat not found' });
+    check('chat: un envío que falla queda anotado, no se pierde',
+      ch.envios('2026-08')[CLI.id].ok === false
+      && ch.envios('2026-08')[CLI.id].error === 'chat not found');
+    ch.marcarEnviado(CLI.id, '2026-08', { ok: true });
+    check('chat: el reintento que sale bien pisa al que falló',
+      ch.envios('2026-08')[CLI.id].ok === true && !ch.envios('2026-08')[CLI.id].error);
+
+    /* ── LOS QUE QUEDAN AFUERA SE NOMBRAN ────────────────────────────────────────────────────
+       Un panel desenganchado del casino no tiene ganancia que leer, pero el cliente igual tiene el
+       servicio: descartarlo en silencio dejaba una factura de menos que nadie iba a buscar. */
+    panSt.update(PAN2.id, { conexion_id: '' });
+    const ciSalt = ch.cierre('2026-08');
+    check('chat: un panel que no se puede calcular se nombra, no desaparece',
+      (ciSalt.salteados || []).some((x) => x.panel === 'ZZ-Panel-Chat-2'),
+      JSON.stringify(ciSalt.salteados));
+
+    ch.quitar(PAN2.id); panSt.remove(PAN2.id);
+    dbCh.prepare('DELETE FROM chat_cliente WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare('DELETE FROM chat_envio WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare("DELETE FROM chat_pago_proveedor WHERE mes='2026-08'").run();
+    dbCh.prepare("DELETE FROM factura_link WHERE cliente_id LIKE 'chat:%'").run();
+    ch.quitar(PAN.id);
+    dbCh.prepare("DELETE FROM reporte_diario WHERE conexion_id='cx_zz'").run();
+    dbCh.prepare("DELETE FROM tc_mes WHERE mes='2026-08'").run();
+    panSt.remove(PAN.id); cliSt3.removeCliente(CLI.id);
+
+    /* ── EL PORTAL DEL CLIENTE, DE PUNTA A PUNTA ─────────────────────────────────────────────
+       Contra el server de verdad: se crea el cliente y la caja por la API, se le da el chat, y se
+       entra al portal escribiendo el usuario de la caja — que es lo que va a hacer el cliente. */
+    {
+      const cliP = (await post('/api/os/clientes', { codigo: 'ZZ-PORTAL', nombre: 'Portal Prueba' })).data.cliente;
+      const panP = (await post('/api/os/paneles', { cliente_id: cliP.id, nombre: 'Fran44',
+        sistema: 'Casino', nivel_usuario: 'SuperAgente', id_usuario: '9990777' })).data.panel;
+      await put('/api/os/paneles/' + panP.id, { alias: 'Fran-44' });
+      await post('/api/os/chat/paneles', { panel_id: panP.id, pct_cliente: '4', dia_cobro: 10 });
+
+      const rPortada = await axios.get(BASE + '/chat', { validateStatus: () => true });
+      check('portal: la portada abre sin login y se llama GANAMOS x Latam',
+        rPortada.status === 200 && /GANAMOS/.test(String(rPortada.data))
+        && /Tu usuario/.test(String(rPortada.data)),
+        'HTTP ' + rPortada.status);
+
+      const rNo = await axios.post(BASE + '/chat/entrar', { usuario: 'nadie-asi' }, { validateStatus: () => true });
+      check('portal: un usuario que no existe no entra',
+        rNo.status === 404 && rNo.data.ok === false);
+      /* El mensaje es el MISMO para "no existe" y "no tiene el chat": decir cuál de las dos es
+         sería contarle a cualquiera qué usuarios existen. */
+      const cliSin = (await post('/api/os/clientes', { codigo: 'ZZ-SINCHAT', nombre: 'Sin chat' })).data.cliente;
+      const rSin = await axios.post(BASE + '/chat/entrar', { usuario: 'ZZ-SINCHAT' }, { validateStatus: () => true });
+      check('portal: un cliente sin el chat recibe el mismo mensaje que uno que no existe',
+        rSin.status === 404 && rSin.data.error === rNo.data.error,
+        rSin.data.error);
+
+      const rSi = await axios.post(BASE + '/chat/entrar', { usuario: 'fran44' }, { validateStatus: () => true });
+      check('portal: entra con el usuario de su caja, escrito como sea',
+        rSi.status === 200 && rSi.data.ok === true && rSi.data.portal.cliente === 'Portal Prueba',
+        JSON.stringify((rSi.data.portal || {}).cliente));
+      const rAlias = await axios.post(BASE + '/chat/entrar', { usuario: 'Fran-44' }, { validateStatus: () => true });
+      check('portal: también entra con el otro nombre de la misma caja',
+        rAlias.status === 200 && rAlias.data.ok === true);
+      check('portal: ve sus cajas y su saldo, y nada de otro cliente',
+        (rSi.data.portal.cajas || []).length === 1 && rSi.data.portal.cajas[0].caja === 'Fran44'
+        && rSi.data.portal.saldo && rSi.data.portal.debe === undefined,
+        JSON.stringify(rSi.data.portal.cajas));
+      /* Lo que NO puede viajar al portal: el costo, el margen, lo que le cobrás a los demás. */
+      check('portal: lo que le llega al cliente no trae nada interno',
+        !/margen|costo|pct_costo|proveedor/i.test(JSON.stringify(rSi.data.portal)),
+        JSON.stringify(rSi.data.portal).slice(0, 90));
+
+      // Pedir un chat nuevo NO da de alta nada: llega como pedido.
+      const rPide = await axios.post(BASE + '/chat/nuevo',
+        { usuario: 'Fran44', caja: 'Fran55', nota: 'para el lunes' }, { validateStatus: () => true });
+      const pend = (await get('/api/os/chat/por-cliente?mes=2026-08')).data.solicitudes || [];
+      check('portal: pedir un chat nuevo llega como pedido y no abre nada',
+        rPide.data.ok === true && pend.some((x) => x.caja === 'Fran55')
+        && !((await get('/api/os/chat/paneles')).data.paneles || []).some((x) => x.panel === 'Fran55'),
+        `${pend.length} pedido(s) esperando`);
+      const laSol = pend.find((x) => x.caja === 'Fran55');
+      check('portal: el pedido se marca resuelto y deja de aparecer',
+        (await post('/api/os/chat/solicitudes/' + laSol.id, { listo: true })).data.ok === true
+        && !((await get('/api/os/chat/por-cliente?mes=2026-08')).data.solicitudes || [])
+          .some((x) => x.id === laSol.id));
+      // Un pedido sin caja no se guarda: no habría a qué contestarle.
+      check('portal: un pedido sin caja no entra',
+        (await axios.post(BASE + '/chat/nuevo', { usuario: 'Fran44', caja: '' },
+          { validateStatus: () => true })).data.ok === false);
+
+      await axios.delete(BASE + '/api/os/chat/paneles/' + panP.id, H());
+      await axios.delete(BASE + '/api/os/paneles/' + panP.id, H());
+      await axios.delete(BASE + '/api/os/clientes/' + cliP.id, H());
+      await axios.delete(BASE + '/api/os/clientes/' + cliSin.id, H());
+    }
+
+    /* ── EL DOMINIO DE LOS LINKS ─────────────────────────────────────────────────────────────
+       Sin esto el link sale con el dominio por el que entró quien apretó el botón, así que la
+       misma factura salía con dos direcciones distintas según desde dónde se mandara. */
+    const cfgUrl = require('../src/config-store');
+    check('links: no se acepta un dominio con una ruta pegada',
+      cfgUrl.setUrlPublica('app.latamgames.online/os').ok === false);
+    check('links: se guarda el dominio y se le pone https solo',
+      cfgUrl.setUrlPublica('app.latamgames.online').ok === true
+      && cfgUrl.getUrlPublica() === 'https://app.latamgames.online');
+    cfgUrl.setUrlPublica('');
+
+    /* ── LA PUERTA PÚBLICA ───────────────────────────────────────────────────────────────────
+       Estas dos rutas las abre cualquiera con el link, sin usuario. Se prueban por HTTP contra el
+       server de verdad: un token inventado no puede devolver otra cosa que "no está", y avisar un
+       pago contra un link muerto no puede reventar. */
+    const rTok = await axios.get(BASE + '/chat/no-existe-este-token', { validateStatus: () => true });
+    check('chat: un token inventado no abre ninguna hoja',
+      rTok.status === 404 && !/USDT/.test(String(rTok.data)),
+      'HTTP ' + rTok.status);
+    const rPag = await axios.post(BASE + '/chat/no-existe-este-token/pague', { monto: '10' },
+      { validateStatus: () => true });
+    check('chat: avisar un pago contra un link que no existe se rechaza sin romper nada',
+      rPag.status === 404 && rPag.data && rPag.data.ok === false,
+      'HTTP ' + rPag.status);
+    /* Una captura de verdad pesa más que el límite normal del sistema. Si el pedido se corta antes
+       de llegar a la ruta, el cliente ve "no se pudo enviar" con el archivo ya elegido y sin saber
+       por qué. Se comprueba que 2 MB LLEGAN (404 = la ruta contestó, no un 413 del parser). */
+    const rGrande = await axios.post(BASE + '/chat/no-existe-este-token/pague',
+      { monto: '10', archivo: { nombre: 'x.jpg', tipo: 'image/jpeg', base64: 'A'.repeat(2 * 1024 * 1024) } },
+      { validateStatus: () => true, maxBodyLength: Infinity, maxContentLength: Infinity });
+    check('chat: una captura de 2 MB llega a destino (no la corta el servidor antes)',
+      rGrande.status === 404, 'HTTP ' + rGrande.status);
+
+    // La pestaña va en el espacio COMERCIAL: son clientes de Imperia, no de TBS.
+    const uiCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const navCom = uiCh.slice(uiCh.indexOf('const TABS_COMERCIAL'), uiCh.indexOf('const TABS_TBS'));
+    check('chat: la pestaña está en la barra del comercial, que es donde están estos clientes',
+      /\['chat','💬 Chat Externo'\]/.test(navCom) && /VIEWS\.chat = async/.test(uiCh),
+      navCom.replace(/\s+/g, ' ').slice(-130));
+    // La tabla muestra las dos columnas y el margen: ver sólo el total escondería el caso caro.
+    check('chat: la pantalla muestra lo que cobrás, lo que pagás y lo tuyo por separado',
+      /Le cobrás<\/th>/.test(uiCh) && /Pagás \(\$\{esc\(pc\.costo_pct\)\}%\)/.test(uiCh)
+      && /Tuyo<\/th>/.test(uiCh));
+    // La cuenta se manda desde la misma pantalla y queda anotado si salió.
+    check('chat: desde la pantalla se ve la hoja y se manda la cuenta',
+      /chatHoja\(/.test(uiCh) && /chatEnviar\(/.test(uiCh) && /✓ enviada/.test(uiCh));
+    check('chat: la pantalla tiene el bot propio, el grupo de cada cliente y los pagos al proveedor',
+      /Bot de Telegram de este servicio/.test(uiCh) && /chatDestino\(/.test(uiCh)
+      && /chatPagar\(/.test(uiCh) && /Cobrar el mes/.test(uiCh));
+    check('chat: la pantalla deja claro que es otra cuenta, no la de las fichas',
+      /La cuenta del chat/.test(uiCh) && /es otra cuenta/.test(uiCh)
+      && /ni entra en tu cierre del mes/.test(uiCh)
+      && /es de otro negocio/.test(uiCh)
+      && /Wallet donde te pagan el chat/.test(uiCh) && /chat-red/.test(uiCh));
+    check('chat: los links de cada caja se cargan desde la pantalla, y la contraseña no',
+      /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
+      && /La contraseña no se guarda en ningún lado/.test(uiCh));
+    check('chat: desde la pantalla se le avisa la mensualidad a cada caja por separado',
+      /chatAvisarMens\(/.test(uiCh) && /📤 avisar/.test(uiCh)
+      && /El aviso se manda <b>de a una<\/b>/.test(uiCh));
+    check('chat: los avisos de pago que llegan se ven y se aprueban desde la pantalla',
+      /Avisos de pago esperando/.test(uiCh) && /chatAviso\(/.test(uiCh)
+      && /No mueve el saldo hasta que lo apruebes/.test(uiCh));
+    /* "¿dónde selecciono quiénes tienen el chat?" — estaba al fondo de la pantalla, después de
+       tres tarjetas. Ahora es la primera cosa abajo de la configuración y el alta está arriba de
+       todo dentro de la tarjeta. */
+    const iCfg = uiCh.indexOf('Bot de Telegram de este servicio');
+    const iQui = uiCh.indexOf('Quiénes tienen el chat');
+    const iCie = uiCh.indexOf('Cierre del mes <span');
+    check('chat: "quiénes tienen el chat" se ve antes que el cierre del mes',
+      iQui > iCfg && iQui < iCie && iCfg > 0 && iCie > 0,
+      `config ${iCfg} · quiénes ${iQui} · cierre ${iCie}`);
+    check('chat: agregar un panel está arriba de la lista, no debajo',
+      uiCh.indexOf('Agregar un panel al servicio') > iQui
+      && uiCh.indexOf('Agregar un panel al servicio') < uiCh.indexOf('Mensualidad el día'));
+    // La cuenta del chat en la pantalla del cliente tiene que llamarse por su nombre.
+    const cuentaHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
+    const pedirHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    /* Y en la pantalla del cliente el chat NO aparece: su cuenta de fichas es la de las fichas. */
+    check('chat: la cuenta de fichas del cliente no menciona el chat',
+      !/Chat Externo/i.test(cuentaHtml) && !/Chat Externo/i.test(pedirHtml));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

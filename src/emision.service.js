@@ -28,6 +28,11 @@ const money = require('./lib/money');
  * es además lo que hace que el índice único los trate por separado: un mismo nombre no puede
  * quedar cobrado dos veces por el mismo concepto, pero sí puede tener las dos cuentas.
  */
+/* ⚠️ EL CHAT EXTERNO NO ESTÁ ACÁ, Y ES A PROPÓSITO. Se intentó meterlo como un origen más y está
+   mal: esa plata no es de este negocio. La mitad se le paga al proveedor del servicio, se cobra en
+   otra wallet y se habla en otro grupo. Si entrara acá, el cierre del mes mostraría un ingreso que
+   en realidad es de otro y que ella no quiere ni reportar. El chat lleva su propia cuenta, en
+   chat-externo.store, sin tocar `movimientos`. */
 const ORIGENES = { facturacion: 'carga', externos: 'proveedor_extra', vendedores: 'proveedor_extra' };
 
 const nowISO = () => new Date().toISOString();
