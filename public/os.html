@@ -197,7 +197,7 @@ const TABS_COMERCIAL = [
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
 // de API se convierten con él: sin eso habría que saltar al otro espacio para revisar un TC.
 const TABS_TBS = [
-  ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Clientes'],
+  ['tbsofertas','💼 Ofertas'], ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Clientes'],
   '|',
   ['tbscuentas','🧾 Cuentas del mes'], ['tbsresumen','📊 Cierre del mes'],
   ['tbsdiario','📅 Reporte diario'],
@@ -4173,7 +4173,7 @@ let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
 VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
 // En el espacio TBS cada subpantalla es una pestaña propia: la barra de arriba ya cumple el rol
 // que cumplían los botones de adentro, y tenerlos dos veces era ruido.
-['matriz','clientes','cuentas','resumen'].forEach(k=>{
+['ofertas','matriz','clientes','cuentas','resumen'].forEach(k=>{
   VIEWS['tbs'+k] = () => { _apiSub=k; document.getElementById('main').innerHTML = '<div id="api-body"></div>'; API[k](); };
 });
 

@@ -1747,9 +1747,18 @@ async function main() {
     check('oferta: la ruta del documento frena si detecta un dato interno',
       /el documento traía datos internos: NO se generó/.test(srcRt5));
     const srcUi5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    check('oferta: tiene su pestaña y muestra los cambios antes de escribir',
-      /\['ofertas','💼 Ofertas'\]/.test(srcUi5) && /API\.ofertas = async/.test(srcUi5)
-      && /async function ofVerCambios\(id\)/.test(srcUi5)
+    /* ⚠️ LA PESTAÑA TIENE QUE ESTAR EN LA BARRA DE TBS, no sólo escrita en algún lado del archivo.
+       Este check antes buscaba el texto "💼 Ofertas" y lo encontraba... en `apiHeader`, que es la
+       barra del espacio COMERCIAL y en /tbs no se dibuja nunca. Pasaba en verde con la pestaña
+       invisible. Ahora se mira la barra de TBS y el registro de la vista, que son las dos cosas que
+       de verdad la hacen aparecer. */
+    const navTbs = srcUi5.slice(srcUi5.indexOf('const TABS_TBS = ['), srcUi5.indexOf('const ES_TBS'));
+    check('oferta: la pestaña está en la barra de TBS, que es donde se trabaja',
+      /\['tbsofertas','💼 Ofertas'\]/.test(navTbs), navTbs.replace(/\s+/g, ' ').slice(0, 120));
+    check('oferta: y la vista tbsofertas está registrada',
+      /\['ofertas','matriz','clientes','cuentas','resumen'\]\.forEach/.test(srcUi5));
+    check('oferta: muestra los cambios antes de escribir',
+      /API\.ofertas = async/.test(srcUi5) && /async function ofVerCambios\(id\)/.test(srcUi5)
       && /Escribir estos precios en la matriz/.test(srcUi5));
   }
   /* ── EL NAVEGADOR NO PUEDE QUEDARSE CON UNA COPIA VIEJA ──────────────────────────────────────
