@@ -2436,6 +2436,12 @@ async function main() {
       && /Paga el mantenimiento a/.test(uiCh));
     /* La pantalla no puede depender de que hayas pasado por otra: el desplegable de paneles salía
        vacío hasta visitar 👥 Clientes, y no había forma de empezar a usarla. */
+    /* 204 cajas en una lista suelta no se recorren con el ojo: van agrupadas por sistema y
+       alfabéticas adentro de cada grupo. */
+    check('chat: la lista de cajas va agrupada por sistema y ordenada de la A a la Z',
+      /<optgroup label="\$\{esc\(k\)\}/.test(uiCh)
+      && /localeCompare\(String\(b\.nombre\|\|''\),'es',\{sensitivity:'base',numeric:true\}\)/.test(uiCh)
+      && /chatOpciones\(opciones\)/.test(uiCh));
     check('chat: la pantalla carga los paneles sola',
       /if\(!_paneles\.length\)\{ const dp=await api\('\/api\/os\/paneles'\)/.test(uiCh));
     check('chat: los links de cada caja se cargan desde la pantalla, y la contraseña no',

@@ -4206,8 +4206,8 @@ VIEWS.chat = async () => {
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
         <div style="flex:1;min-width:240px"><label>Agregar un panel al servicio</label>
           <select id="chat-nuevo" style="width:100%">
-            <option value="">— elegí el panel que contrató el chat —</option>
-            ${opciones.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)} · ${esc(p.sistema||'')}</option>`).join('')}
+            <option value="">— elegí la caja que contrató el chat —</option>
+            ${chatOpciones(opciones)}
           </select></div>
         <div style="flex:0 0 90px"><label>Le cobrás</label>
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
@@ -4470,6 +4470,21 @@ VIEWS.chat = async () => {
       :'<div class="empty" style="margin-top:8px">Hoy no toca ninguna.</div>'}
     </div>`;
 };
+
+/* Doscientas cajas en una lista suelta no se pueden recorrer con el ojo. Se agrupan por sistema y
+   se ordenan alfabéticamente adentro de cada grupo: buscar "Fran44" es mirar una sola columna, no
+   toda la lista. `localeCompare` con sensitivity:'base' pone Ávila al lado de Avila y no manda las
+   minúsculas al final, que es lo que hace comparar strings a secas. */
+function chatOpciones(lista){
+  const grupos={};
+  (lista||[]).forEach(p=>{ const k=p.sistema||'Sin sistema'; (grupos[k]=grupos[k]||[]).push(p); });
+  return Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'es')).map(k=>{
+    const ps=grupos[k].slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es',{sensitivity:'base',numeric:true}));
+    return `<optgroup label="${esc(k)} (${ps.length})">`
+      + ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')
+      + '</optgroup>';
+  }).join('');
+}
 
 /* Las monedas de un cliente, sumadas entre sus paneles. Mismo criterio que la fila del panel: el
    monto en su moneda arriba y el tipo de cambio usado abajo. */
