@@ -1276,12 +1276,18 @@ app.get('/chat/:token', (req, res) => {
      es lo que tiene que pagar hoy, y puede arrastrar meses. Dos cosas distintas en la misma hoja. */
   const todo = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
   const esteMes = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
-  res.send(chatDoc.htmlCliente(r.doc, {
+  const html = chatDoc.htmlCliente(r.doc, {
     token: req.params.token,
     pago: chatStore.comoPagar(r.cliente_id),
     avisos: chatStore.avisosDe(r.cliente_id),
     saldo: todo ? { ...todo, otrosMeses: !esteMes || todo.cobrado !== esteMes.cobrado } : null,
-  }));
+  });
+  /* El mismo cinturón que la vista previa, PERO ACÁ, que es la hoja que abre el cliente: tenerlo
+     sólo del lado de adentro cuidaba justo la copia que no sale. */
+  if (/margen|costo|pct_costo|te cuesta|sin confirmar/i.test(html)) {
+    return res.status(500).send(chatDoc.paginaError('No pudimos armar tu cuenta. Escribinos.'));
+  }
+  res.send(html);
 });
 
 /* ── EL PORTAL DEL CLIENTE ───────────────────────────────────────────────────────────────────

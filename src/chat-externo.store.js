@@ -102,6 +102,7 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_cobro
     ON chat_mov (cliente_id, mes) WHERE tipo='cobro';
   CREATE INDEX IF NOT EXISTS ix_chat_mov_mes ON chat_mov(mes);
+  CREATE INDEX IF NOT EXISTS ix_chat_mov_cli ON chat_mov(cliente_id);
 
   /* LOS AVISOS DE PAGO DEL CLIENTE.
      El cliente abre su hoja y dice "ya pagué", con la captura. Queda PENDIENTE hasta que alguien lo
@@ -196,8 +197,21 @@ for (const col of ['link_jugadores TEXT', 'link_panel TEXT', 'usuario_admin TEXT
 for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
   try { db.exec(`ALTER TABLE chat_cliente ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
 }
+/* De qué caja es una mensualidad. Antes se deducía buscando el nombre adentro de la nota, y
+   "Ariel-A1" está adentro de "Ariel-A10": una caja quedaba marcada como cobrada por el nombre de
+   otra. El dato se guarda, no se adivina. */
+try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya estaba */ }
+try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN archivo_tipo_seguro TEXT'); } catch (e) { /* ya estaba */ }
+try { db.exec('CREATE INDEX IF NOT EXISTS ix_chat_cmp_cli ON chat_comprobante(cliente_id)'); } catch (e) { /* ya estaba */ }
 
 const nowISO = () => new Date().toISOString();
+/* ⚠️ LAS FECHAS DEL CHAT SON EN HORA ARGENTINA, NO UTC. `nowISO().slice(0,10)` da el día UTC, que
+   entre las 21 y las 24 de acá YA ES MAÑANA: la mensualidad se guardaba con la fecha de mañana y
+   la pantalla la buscaba con la de hoy, así que "ya cobrada" no se marcaba y se podía cobrar dos
+   veces. El acumulado del casino sí corta en UTC —ése es otro reloj y no se toca—; esto es del
+   negocio, y el negocio vive acá. */
+const { fechaTZ } = require('./lib/fechas');
+const hoy = () => fechaTZ();
 
 /* ⚠️ EL CHAT SE CONTRATA POR CAJA, Y LA CAJA SUELE SER UN AGENTE, NO EL SUPERAGENTE.
    Un cliente puede tener varios chats, cada uno colgado de un agente distinto: Fran tiene dos,
@@ -282,7 +296,17 @@ function setConfig(d) {
     if (v && !money.esNumero(v)) return { ok: false, error: `"${v}" no es un número` };
     cfg.setCfg(MENSUAL, v);
   }
-  if (d.mensualidad_moneda !== undefined) cfg.setCfg(MENSUAL_MON, String(d.mensualidad_moneda).trim() || 'USDT');
+  if (d.mensualidad_moneda !== undefined) {
+    /* La cuenta del chat se lleva en USDT y se suma sin mirar la moneda de cada renglón. Aceptar
+       "ARS" acá habría sumado pesos como si fueran dólares y el saldo del cliente saldría cientos
+       de veces más grande, rotulado en USDT. Si algún día se cobra en otra moneda, primero hay que
+       convertir; hasta entonces, no se acepta. */
+    const m = String(d.mensualidad_moneda).trim().toUpperCase() || 'USDT';
+    if (!['USDT', 'USD'].includes(m)) {
+      return { ok: false, error: 'La mensualidad se cobra en USDT (la cuenta del chat se lleva en USDT).' };
+    }
+    cfg.setCfg(MENSUAL_MON, m);
+  }
   if (d.pago_nota !== undefined) cfg.setCfg(PAGO_NOTA, String(d.pago_nota).slice(0, 400));
   for (const [k, clave] of [['wallet_ggr', W_GGR], ['wallet_mens', W_MENS]]) {
     if (d[k] === undefined) continue;
@@ -518,9 +542,9 @@ function mensualidadesDe(fecha) {
   if (!dia) return { fecha: f, monto: c.mensualidad, moneda: c.mensualidad_moneda, paneles: [] };
   /* Se marca la que YA se cobró ese día: si no, al volver a entrar la pantalla dice lo mismo y no
      hay forma de saber si se cobró o si falta. */
-  const yaHoy = new Set(db.prepare("SELECT cliente_id||'|'||nota k FROM chat_mov WHERE tipo='mensualidad' AND fecha=?")
+  const yaHoy = new Set(db.prepare("SELECT cliente_id||'|'||IFNULL(panel,'') k FROM chat_mov WHERE tipo='mensualidad' AND fecha=?")
     .all(f).map((x) => x.k));
-  const cobradaHoy = (p) => [...yaHoy].some((k) => k.startsWith(`${p.cliente_id}|`) && k.includes(p.panel));
+  const cobradaHoy = (p) => yaHoy.has(`${p.cliente_id}|${p.panel}`);
   return {
     fecha: f, monto: c.mensualidad, moneda: c.mensualidad_moneda,
     paneles: list().filter((p) => p.activo && Number(p.dia_cobro) === dia)
@@ -528,7 +552,7 @@ function mensualidadesDe(fecha) {
         ...p,
         cobrada: cobradaHoy(p),
         periodo: periodoDesde(f),
-        aviso: avisosMensDe(f)[p.panel] || null,
+        aviso: avisosMensDe(f)[`${p.cliente_id}|${p.panel}`] || null,
       })),
   };
 }
@@ -579,6 +603,12 @@ function guardarWallet(d) {
       direccion=excluded.direccion, activa=excluded.activa`)
     .run(id, String(d.alias || '').trim().slice(0, 60) || red, red, dir,
       d.activa === false ? 0 : 1, ord, (prev && prev.createdAt) || nowISO());
+  /* La PRIMERA queda elegida para las dos cosas. Sin esto, con una sola wallet todo funcionaba por
+     el atajo de "si hay una sola, es ésa" — y el día que agregabas la segunda, de golpe no había
+     ninguna elegida y a todos los clientes les desaparecía la dirección sin ningún aviso. */
+  if (!cfg.getCfg(W_GGR) && !cfg.getCfg(W_MENS) && wallets().filter((w) => w.activa).length === 1) {
+    cfg.setCfg(W_GGR, id); cfg.setCfg(W_MENS, id);
+  }
   return { ok: true, wallet: wallets().find((w) => w.id === id) };
 }
 
@@ -767,12 +797,14 @@ function cobrar(mes) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const pc = porCliente(m);
-  const creados = []; const yaEstaban = []; const enCero = [];
+  const creados = []; const yaEstaban = []; const enCero = []; const sinCliente = [];
   const ins = db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
     VALUES (?,?,?,'cobro',?,'USDT',?,?,?)`);
   const tx = db.transaction(() => {
     for (const g of pc.clientes || []) {
-      if (!g.cliente_id) continue;
+      /* Una caja sin cliente asignado no se le puede cobrar a nadie — pero al proveedor SÍ se le
+         paga por ella. Saltearla en silencio era regalar ese mes. Se nombra. */
+      if (!g.cliente_id) { sinCliente.push(g.cliente || '(sin cliente)'); continue; }
       if (!money.isPos(g.cobra)) { enCero.push(g.cliente); continue; }
       const ya = db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(g.cliente_id, m);
       if (ya) { yaEstaban.push(g.cliente); continue; }
@@ -790,6 +822,7 @@ function cobrar(mes) {
     total: money.round(money.sum(creados.map((c) => c.monto)), 2),
     detalle: creados,
     sinPrecio: (pc.clientes || []).filter((g) => g.sinPrecio).map((g) => g.cliente),
+    sinCliente,
   };
 }
 
@@ -813,14 +846,15 @@ function cobrarMensualidad(d) {
   if (!money.esNumero(monto) || !money.isPos(monto)) {
     return { ok: false, error: 'la mensualidad no está cargada o no es un número. Cargala arriba.' };
   }
-  const fecha = String(d.fecha || '').slice(0, 10) || nowISO().slice(0, 10);
+  const fecha = String(d.fecha || '').slice(0, 10) || hoy();
   const per = periodoDesde(fecha);
   const nota = String(d.nota || '').trim()
     || `Mantenimiento${d.panel ? ' ' + d.panel : ''}${per ? ' · ' + per.texto : ''}`;
   const mid = 'chm_' + require('crypto').randomBytes(6).toString('hex');
-  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
-    VALUES (?,?,?,'mensualidad',?,?,?,?,?)`).run(mid, id, fecha.slice(0, 7),
-    money.round(monto, 2), c.mensualidad_moneda || 'USDT', fecha, nota, nowISO());
+  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,panel)
+    VALUES (?,?,?,'mensualidad',?,?,?,?,?,?)`).run(mid, id, fecha.slice(0, 7),
+    money.round(monto, 2), c.mensualidad_moneda || 'USDT', fecha, nota, nowISO(),
+    String(d.panel || '') || null);
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
@@ -838,7 +872,7 @@ function pagarCliente(d) {
   db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
     VALUES (?,?,?,'pago',?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
     String(d.moneda || 'USDT').toUpperCase().slice(0, 8),
-    String(d.fecha || '').slice(0, 10) || nowISO().slice(0, 10), String(d.nota || ''), nowISO());
+    String(d.fecha || '').slice(0, 10) || hoy(), String(d.nota || ''), nowISO());
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
@@ -901,7 +935,13 @@ function quienEntra(usuario) {
   const k = String(usuario || '').trim().toLowerCase();
   if (!k) return null;
   const conChat = list().filter((p) => p.activo);
-  const pan = conChat.find((p) => String(p.panel || '').trim().toLowerCase() === k);
+  /* ⚠️ SI EL NOMBRE ESTÁ REPETIDO EN DOS CLIENTES, NO ENTRA NINGUNO. Antes se tomaba el primero de
+     la lista, así que uno podía terminar viendo la cuenta y los accesos del otro. Ante la duda, la
+     puerta se queda cerrada: es un caso raro y se resuelve renombrando una caja. */
+  const mismos = conChat.filter((p) => String(p.panel || '').trim().toLowerCase() === k);
+  const clientesDistintos = new Set(mismos.map((p) => p.cliente_id));
+  if (clientesDistintos.size > 1) return null;
+  const pan = mismos[0];
   if (pan && pan.cliente_id) return { cliente_id: pan.cliente_id, cliente: pan.cliente, por: 'caja' };
   // Por alias del panel: el mismo panel se escribe de dos formas y las dos tienen que entrar.
   const conAlias = conChat.find((p) => {
@@ -935,8 +975,12 @@ function portalDe(clienteId) {
     cliente: c.nombre || c.codigo || '',
     saldo: todo ? { cobrado: todo.cobrado, pagado: todo.pagado, debe: todo.debe } : { cobrado: '0', pagado: '0', debe: '0' },
     // Los movimientos del chat, para que pueda comprobar el saldo en vez de creerlo.
+    /* La nota de un cobro es INTERNA ("precio sin confirmar (se cobró el mínimo)"): decirle al
+       cliente que su precio está sin decidir es abrirle una negociación que nadie pidió. La de la
+       mensualidad sí es para él —lleva la caja y el período— y va tal cual. */
     movs: (todo ? todo.movs : []).slice(-30).map((m) => ({
-      fecha: m.fecha, tipo: m.tipo, monto: m.monto, moneda: m.moneda, nota: m.nota,
+      fecha: m.fecha, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
+      nota: m.tipo === 'mensualidad' ? m.nota : '',
     })),
     cajas,
     avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto, moneda: a.moneda, estado: a.estado })),
@@ -985,6 +1029,11 @@ function avisarPago(d) {
      pasó de verdad con los pagos de fichas y costó un aviso de 9.422 por una transferencia de 94. */
   const num = parseMonto(d.monto);
   if (num == null || !(num > 0)) return { ok: false, error: 'el monto no es válido' };
+  /* Tope de avisos sin resolver. Sin esto, el portal —que se abre escribiendo el nombre de una
+     caja— deja a cualquiera meter capturas de 6 MB en la base hasta llenarla. */
+  if (avisosSinResolver(cid) >= 10) {
+    return { ok: false, error: 'Ya tenés varios avisos esperando. Escribinos y los revisamos.' };
+  }
   const a = d.archivo || null;
   let bytes = 0; let b64 = null; let nombre = null; let tipo = null;
   if (a && a.base64) {
@@ -992,13 +1041,18 @@ function avisarPago(d) {
     bytes = Math.floor((b64.length * 3) / 4);
     if (bytes > MAX_ADJUNTO) return { ok: false, error: 'la imagen es muy grande (máximo 6 MB)' };
     nombre = String(a.nombre || 'comprobante').slice(0, 120);
-    tipo = String(a.tipo || 'image/jpeg').slice(0, 60);
+    /* ⚠️ EL TIPO NO LO ELIGE EL CLIENTE. Lo manda él en el JSON, y si pone "text/html" el archivo
+       vuelve a salir con ese tipo cuando vos lo abrís desde el panel: sería HTML de otro corriendo
+       adentro de tu sesión. Sólo se aceptan tipos de imagen conocidos, y cualquier otra cosa se
+       guarda como binario. */
+    const t = String(a.tipo || '').toLowerCase().slice(0, 60);
+    tipo = /^image\/(jpeg|jpg|png|gif|webp|heic|heif)$/.test(t) ? t : 'application/octet-stream';
   }
   const id = 'chc_' + require('crypto').randomBytes(6).toString('hex');
   db.prepare(`INSERT INTO chat_comprobante
     (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?)`)
-    .run(id, cid, String(d.mes || '').slice(0, 7) || nowISO().slice(0, 7), String(num),
+    .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), String(num),
       String(d.moneda || 'USDT').toUpperCase().slice(0, 8), String(d.referencia || '').slice(0, 200),
       nombre, tipo, bytes, b64, nowISO());
   return { ok: true, aviso: { id, monto: String(num), archivo_bytes: bytes } };
@@ -1006,8 +1060,16 @@ function avisarPago(d) {
 
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
 function avisosDe(clienteId) {
+  // Sin `archivo_b64`: son cientos de KB cada uno y acá sólo se listan.
   return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at
     FROM chat_comprobante WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 20`).all(String(clienteId || ''));
+}
+
+/* Cuántos avisos sin resolver tiene: más de un puñado sin mirar es alguien apretando el botón, no
+   alguien pagando. El portal es público y no pide contraseña. */
+function avisosSinResolver(clienteId) {
+  return db.prepare("SELECT COUNT(*) n FROM chat_comprobante WHERE cliente_id=? AND estado='pendiente'")
+    .get(String(clienteId || '')).n;
 }
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
@@ -1074,8 +1136,10 @@ function marcarAvisoMens(clienteId, panel, fecha, r) {
 function avisosMensDe(fecha) {
   const f = String(fecha || '').slice(0, 10);
   const out = {};
+  // La llave lleva el cliente: dos clientes pueden tener una caja con el mismo nombre y el aviso de
+  // uno marcaba como avisada la del otro.
   for (const r of db.prepare('SELECT * FROM chat_aviso_mens WHERE fecha=? ORDER BY at').all(f)) {
-    out[r.panel] = { ok: !!r.ok, error: r.error, at: r.at };
+    out[`${r.cliente_id}|${r.panel}`] = { ok: !!r.ok, error: r.error, at: r.at };
   }
   return out;
 }
@@ -1109,7 +1173,7 @@ function pagar(d) {
   if (!money.esNumero(monto) || !money.isPos(monto)) {
     return { ok: false, error: 'el monto tiene que ser un número mayor que cero. Usá punto para los decimales: 1419.49' };
   }
-  const fecha = String(d.fecha || '').slice(0, 10) || nowISO().slice(0, 10);
+  const fecha = String(d.fecha || '').slice(0, 10) || hoy();
   const id = 'chp_' + require('crypto').randomBytes(6).toString('hex');
   db.prepare(`INSERT INTO chat_pago_proveedor (id,mes,monto,moneda,fecha,nota,createdAt)
     VALUES (?,?,?,?,?,?,?)`).run(id, m, money.round(monto, 2),
@@ -1128,6 +1192,6 @@ module.exports = {
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
   wallets, guardarWallet, borrarWallet, walletDe, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
-  avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso,
+  avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud,
 };

@@ -2102,7 +2102,14 @@ function mount(app) {
   app.get('/api/os/chat/avisos/:id/archivo', (req, res) => {
     const a = chat.archivoDeAviso(req.params.id);
     if (!a || !a.archivo_b64) return err(res, 404, 'ese aviso no trae comprobante');
-    res.setHeader('Content-Type', a.archivo_tipo || 'image/jpeg');
+    /* Se sirve con el tipo que se guardó —ya filtrado a imágenes— y además con estas dos, que son
+       las que impiden que un archivo subido desde afuera se ejecute como página adentro de tu
+       sesión: nosniff para que el navegador no adivine el tipo, y Content-Disposition para que lo
+       trate como archivo y no como documento. */
+    res.setHeader('Content-Type', a.archivo_tipo || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline; filename="comprobante"');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; sandbox");
     res.setHeader('Cache-Control', 'no-store, private');
     res.send(Buffer.from(a.archivo_b64, 'base64'));
   });

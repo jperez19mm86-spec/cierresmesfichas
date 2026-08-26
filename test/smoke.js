@@ -2301,6 +2301,128 @@ async function main() {
       (ciSalt.salteados || []).some((x) => x.panel === 'ZZ-Panel-Chat-2'),
       JSON.stringify(ciSalt.salteados));
 
+    /* ── LO QUE ENCONTRÓ LA REVISIÓN ADVERSARIAL (26-ago-2026) ───────────────────────────────
+       Cada una de estas estaba en el código que ya se había subido. Se prueban de a una para que
+       no vuelvan por el camino de siempre: alguien "simplifica" y nadie se entera. */
+
+    // 1. El botón que acredita un pago estaba MUERTO: JSON.stringify mete comillas dobles adentro
+    //    de un atributo con comillas dobles y el onclick se corta a la mitad.
+    const uiRev = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('revisión: ningún botón lleva los datos adentro del onclick',
+      !/onclick="chat[A-Za-z]*\([^"]*\$\{(esc\(|JSON\.stringify)/.test(uiRev)
+      && /data-monto="\$\{esc\(a\.monto\)\}"/.test(uiRev),
+      'van en data-* y se leen con this.dataset');
+
+    // 2. El texto que escribe el CLIENTE en el portal entraba en un onclick de la pantalla.
+    check('revisión: el texto que manda el cliente no puede volverse código en tu pantalla',
+      /data-caja="\$\{esc\(x\.caja\)\}"/.test(uiRev)
+      && !/chatSolicitud\('\$\{x\.id\}',true,'\$\{esc/.test(uiRev));
+
+    // 3. Dos cajas con el mismo nombre en clientes distintos abrían la cuenta del equivocado.
+    const OTRO = cliSt3.list().clientes.filter((x) => x.codigo === 'ZZ-OTRO').forEach((x) => cliSt3.removeCliente(x.id));
+    const CLI2 = cliSt3.createCliente({ codigo: 'ZZ-OTRO', nombre: 'Otro cliente' });
+    const PANX = panSt.create({ cliente_id: CLI2.id, nombre: 'ZZ-Panel-Chat', sistema: 'Casino',
+      nivel_usuario: 'SuperAgente', id_usuario: '9990009', conexion_id: 'cx_zz', divisas: ['ARS'] });
+    ch.set({ panel_id: PANX.id, pct_cliente: '4' });
+    check('revisión: un nombre de caja repetido no abre la cuenta de nadie',
+      ch.quienEntra('ZZ-Panel-Chat') === null,
+      'ante la duda la puerta se queda cerrada, en vez de elegir el primero de la lista');
+    ch.quitar(PANX.id); panSt.remove(PANX.id); cliSt3.removeCliente(CLI2.id);
+    check('revisión: con el nombre sin repetir vuelve a entrar',
+      (ch.quienEntra('ZZ-Panel-Chat') || {}).cliente_id === CLI.id);
+
+    // 4. La nota interna del cobro llegaba al portal del cliente.
+    /* Se usa PAN, no PAN2: a esta altura PAN2 quedó sin conexión (lo pide la prueba de salteados)
+       y una caja salteada no entra en el cierre, así que su falta de precio no marcaría nada. */
+    ch.set({ panel_id: PAN.id, pct_cliente: '' });      // sin precio → cobra el mínimo y lo marca
+    ch.descobrar('2026-08');                            // si ya había un cobro, el índice único no lo pisa
+    ch.cobrar('2026-08');
+    const mCobro = (ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id) || {}).movs || [];
+    check('revisión: la marca "precio sin confirmar" queda guardada para vos',
+      mCobro.some((m) => m.tipo === 'cobro' && /sin confirmar/i.test(m.nota || '')),
+      JSON.stringify(mCobro.filter((m) => m.tipo === 'cobro').map((m) => m.nota)));
+    check('revisión: pero NO viaja al portal del cliente',
+      !/sin confirmar/i.test(JSON.stringify(ch.portalDe(CLI.id))),
+      'decirle que su precio está sin decidir es abrirle una negociación que nadie pidió');
+    ch.descobrar('2026-08'); ch.set({ panel_id: PAN.id, pct_cliente: '4' });
+
+    // 5. Una caja de agente sin cliente se le pagaba al proveedor y no se le cobraba a nadie.
+    check('revisión: una caja sin cliente se nombra al cobrar, no se saltea en silencio',
+      Array.isArray(ch.cobrar('2026-08').sinCliente));
+    ch.descobrar('2026-08');
+
+    // 6. La fecha se guardaba en UTC y la pantalla la buscaba en hora argentina: entre las 21 y las
+    //    24 la mensualidad quedaba con la fecha de mañana y se podía cobrar dos veces.
+    const { fechaTZ: fTZ } = require('../src/lib/fechas');
+    const mHoy = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat' });
+    check('revisión: la mensualidad se fecha en hora de acá, no en UTC',
+      mHoy.mov.fecha === fTZ(),
+      `guardó ${mHoy.mov.fecha} y acá es ${fTZ()}`);
+    check('revisión: y por eso la pantalla la ve cobrada el mismo día',
+      ch.mensualidadesDe(fTZ()).paneles.length === 0
+      || ch.mensualidadesDe(fTZ()).paneles.every((p) => p.panel !== 'ZZ-Panel-Chat' || p.cobrada));
+
+    // 7. "Ya cobrada" se decidía buscando el nombre adentro del texto de la nota, y "ZZ-Panel-Chat"
+    //    está adentro de "ZZ-Panel-Chat-2": una caja quedaba marcada por el nombre de la otra.
+    check('revisión: la mensualidad guarda de qué caja es, no se adivina del texto',
+      mHoy.mov.panel === 'ZZ-Panel-Chat');
+    const dia2 = Number(fTZ().slice(8, 10));
+    ch.set({ panel_id: PAN2.id, dia_cobro: dia2 <= 28 ? dia2 : 28 });
+    if (dia2 <= 28) {
+      check('revisión: cobrar una caja no marca como cobrada a la de nombre parecido',
+        (ch.mensualidadesDe(fTZ()).paneles.find((p) => p.panel === 'ZZ-Panel-Chat-2') || {}).cobrada !== true,
+        'ZZ-Panel-Chat está adentro de ZZ-Panel-Chat-2');
+    }
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+
+    // 8. El tipo del archivo lo elegía el cliente: text/html volvía a salir como página adentro de
+    //    tu sesión cuando abrías el comprobante.
+    const avHtml = ch.avisarPago({ cliente_id: CLI.id, monto: '1',
+      archivo: { nombre: 'x.html', tipo: 'text/html', base64: Buffer.from('<script>alert(1)</script>').toString('base64') } });
+    check('revisión: un comprobante que no es imagen no se guarda como página',
+      avHtml.ok && ch.archivoDeAviso(avHtml.aviso.id).archivo_tipo === 'application/octet-stream',
+      'el tipo lo decide el sistema, no el que sube el archivo');
+    const avJpg = ch.avisarPago({ cliente_id: CLI.id, monto: '1',
+      archivo: { nombre: 'x.jpg', tipo: 'image/jpeg', base64: 'AAAA' } });
+    check('revisión: una imagen de verdad sí conserva su tipo',
+      ch.archivoDeAviso(avJpg.aviso.id).archivo_tipo === 'image/jpeg');
+
+    // 9. Sin tope: el portal público dejaba meter capturas de 6 MB hasta llenar la base.
+    for (let i = 0; i < 9; i++) ch.avisarPago({ cliente_id: CLI.id, monto: '1' });
+    check('revisión: hay tope de avisos sin resolver',
+      ch.avisarPago({ cliente_id: CLI.id, monto: '1' }).ok === false,
+      `${ch.avisosSinResolver(CLI.id)} esperando`);
+    dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
+
+    // 10. Agregar una segunda wallet dejaba a todos sin dirección de pago, sin aviso.
+    dbCh.prepare('DELETE FROM chat_wallet').run();
+    ch.setConfig({ wallet_ggr: '', wallet_mens: '' });
+    const w1 = ch.guardarWallet({ alias: 'Sola', red: 'TRC20', direccion: 'TQsola' }).wallet;
+    check('revisión: la primera wallet queda elegida sola',
+      ch.config().wallet_ggr === w1.id && ch.config().wallet_mens === w1.id);
+    ch.guardarWallet({ alias: 'Segunda', red: 'BEP20', direccion: '0xsegunda' });
+    check('revisión: agregar la segunda no le saca la dirección a nadie',
+      (ch.walletDe(CLI.id, 'ggr') || {}).direccion === 'TQsola',
+      'antes se quedaban todos sin adónde pagar');
+    dbCh.prepare('DELETE FROM chat_wallet').run();
+    ch.setConfig({ wallet_ggr: '', wallet_mens: '' });
+
+    // 11. La mensualidad en pesos se sumaba al saldo como si fueran USDT.
+    check('revisión: la mensualidad no se puede poner en una moneda que no se sabe sumar',
+      ch.setConfig({ mensualidad_moneda: 'ARS' }).ok === false
+      && ch.config().mensualidad_moneda === 'USDT');
+
+    // 12. Borrar un cliente dejaba su deuda del chat sumando, sin cliente al lado.
+    const casc = require('../src/clientes-cascada');
+    const CLI3 = cliSt3.createCliente({ codigo: 'ZZ-BORRAR', nombre: 'Para borrar' });
+    ch.setDestino({ cliente_id: CLI3.id, tg_grupo: '-100999' });
+    ch.pagarCliente({ cliente_id: CLI3.id, mes: '2026-08', monto: '5' });
+    casc.borrar(CLI3.id);
+    check('revisión: borrar un cliente se lleva también lo del chat',
+      !ch.cuentas(null).clientes.some((x) => x.cliente_id === CLI3.id)
+      && !ch.destinos()[CLI3.id],
+      'antes quedaba una deuda huérfana sumando en el total');
+
     ch.quitar(PAN2.id); panSt.remove(PAN2.id);
     dbCh.prepare('DELETE FROM chat_cliente WHERE cliente_id=?').run(CLI.id);
     dbCh.prepare('DELETE FROM chat_envio WHERE cliente_id=?').run(CLI.id);

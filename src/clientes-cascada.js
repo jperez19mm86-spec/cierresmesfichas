@@ -42,6 +42,13 @@ function borrar(id) {
   db.prepare('DELETE FROM participaciones WHERE cliente_id=?').run(id);
   db.prepare("DELETE FROM config_valores WHERE entidad_tipo='cliente' AND entidad_id=?").run(id);
   db.prepare('DELETE FROM movimientos WHERE cliente_id=?').run(id);
+  /* Y lo del CHAT EXTERNO, que es otra cuenta pero también es suya. Sin esto quedaba una deuda
+     huérfana sumando en el total del chat, sin cliente al lado y sin forma de sacarla desde
+     ninguna pantalla. Cada tabla se borra si existe: el chat puede no estar en una base vieja. */
+  for (const t of ['chat_mov', 'chat_comprobante', 'chat_solicitud', 'chat_envio',
+    'chat_aviso_mens', 'chat_cliente']) {
+    try { db.prepare(`DELETE FROM ${t} WHERE cliente_id=?`).run(id); } catch (e) { /* no está */ }
+  }
   cierreStore.removeCliente(nombreDe(antes));
   return clientes.removeCliente(id);
 }

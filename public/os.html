@@ -4089,6 +4089,11 @@ function renderNodos(){
 let _chatMes = mesDeCierre(), _chatWs = [];
 function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
 
+/* ⚠️ LOS DATOS NO VAN ADENTRO DEL onclick, VAN EN data-*.
+   El nombre de una caja lo escribe el CLIENTE desde el portal público, y una comilla ahí cortaba el
+   atributo: el navegador decodifica &#39; antes de que el JS lo vea, así que escapar para HTML no
+   alcanza. Con data-* el valor nunca es código. Y el monto tampoco entra con JSON.stringify, que
+   mete comillas dobles adentro de un atributo con comillas dobles y deja el botón muerto. */
 VIEWS.chat = async () => {
   const main=document.getElementById('main');
   main.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
@@ -4157,7 +4162,8 @@ VIEWS.chat = async () => {
           <td style="font-family:monospace;font-size:12px;word-break:break-all">${esc(w.direccion)}</td>
           <td class="right"><input type="checkbox" ${w.activa?'checked':''}
             onchange="chatWalletActiva('${w.id}',this.checked)" title="Apagada deja de ofrecerse"></td>
-          <td class="right"><button class="outline small" onclick="chatWalletBorrar('${w.id}','${esc(w.alias).replace(/'/g,'')}')">✕</button></td>
+          <td class="right"><button class="outline small" data-id="${esc(w.id)}" data-nom="${esc(w.alias)}"
+            onclick="chatWalletBorrar(this.dataset.id,this.dataset.nom)">✕</button></td>
         </tr>`).join('')}
       </tbody></table>`:''}
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:10px">
@@ -4229,7 +4235,8 @@ VIEWS.chat = async () => {
             onchange="chatSet('${p.panel_id}',{dia_cobro:this.value})"
             title="Qué día del mes se le cobra la mensualidad. Entre 1 y 28, para que exista en todos los meses."
             style="width:52px;text-align:center"></td>
-          <td class="right"><button class="outline small" onclick="chatQuitar('${p.panel_id}','${esc(p.panel).replace(/'/g,'')}')">✕ sacar</button></td>
+          <td class="right"><button class="outline small" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
+            onclick="chatQuitar(this.dataset.id,this.dataset.nom)">✕ sacar</button></td>
         </tr>
         <tr${p.activo?'':' style="opacity:.5"'}><td colspan="6" style="padding-top:0;border-top:0">
           <div class="row" style="gap:8px;align-items:flex-end;padding:2px 0 10px">
@@ -4308,7 +4315,8 @@ VIEWS.chat = async () => {
           <td class="right"><b style="${Number(g.margen)<0?'color:var(--red)':''}">${money(g.margen,2)}</b></td>
           <td style="white-space:nowrap">
             <button class="outline small" onclick="chatHoja('${g.cliente_id}')" title="Ver la hoja tal cual la ve el cliente">👁 hoja</button>
-            <button class="outline small" onclick="chatEnviar('${g.cliente_id}','${esc(g.cliente).replace(/'/g,'')}')"
+            <button class="outline small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+              onclick="chatEnviar(this.dataset.id,this.dataset.nom)"
               ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram arriba"'}
               >📤 enviar${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
             ${e?`<div style="font-size:11px;margin-top:3px" class="${e.ok?'':'muted'}">${e.ok
@@ -4348,8 +4356,10 @@ VIEWS.chat = async () => {
           <td><b>${esc(x.cliente)}</b> <span class="muted">para ${esc(x.caja)}</span>
             ${x.nota?`<div class="muted" style="font-size:12px">${esc(x.nota)}</div>`:''}</td>
           <td class="right" style="white-space:nowrap">
-            <button class="outline small" onclick="chatSolicitud('${x.id}',true,'${esc(x.caja).replace(/'/g,'')}')">✓ listo</button>
-            <button class="outline small" onclick="chatSolicitud('${x.id}',false,'${esc(x.caja).replace(/'/g,'')}')">✕</button>
+            <button class="outline small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"
+              onclick="chatSolicitud(this.dataset.id,true,this.dataset.caja)">✓ listo</button>
+            <button class="outline small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"
+              onclick="chatSolicitud(this.dataset.id,false,this.dataset.caja)">✕</button>
           </td></tr>`).join('')}
       </tbody></table>
     </div>`:''}
@@ -4368,8 +4378,10 @@ VIEWS.chat = async () => {
           <td class="right" style="white-space:nowrap">
             ${a.archivo_bytes?`<button class="outline small" onclick="window.open('/api/os/chat/avisos/${a.id}/archivo','_blank')">👁 comprobante</button>`
               :'<span class="badge warn">sin comprobante</span>'}
-            <button class="outline small" onclick="chatAviso('${a.id}',true,'${esc(a.cliente).replace(/'/g,'')}',${JSON.stringify(a.monto)})">✓ aprobar</button>
-            <button class="outline small" onclick="chatAviso('${a.id}',false,'${esc(a.cliente).replace(/'/g,'')}',${JSON.stringify(a.monto)})">✕</button>
+            <button class="outline small" data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}" data-monto="${esc(a.monto)}"
+              onclick="chatAviso(this.dataset.id,true,this.dataset.nom,this.dataset.monto)">✓ aprobar</button>
+            <button class="outline small" data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}" data-monto="${esc(a.monto)}"
+              onclick="chatAviso(this.dataset.id,false,this.dataset.nom,this.dataset.monto)">✕</button>
           </td></tr>`).join('')}
       </tbody></table>
     </div>`:''}
@@ -4456,8 +4468,10 @@ VIEWS.chat = async () => {
         <td class="right" style="white-space:nowrap">
           ${p.cobrada
             ? '<span class="badge ok">✓ cobrada</span>'
-            : `<button class="outline small" onclick="chatMensualidad('${p.cliente_id}','${esc(p.panel).replace(/'/g,'')}')">+ cobrar</button>`}
-          <button class="outline small" onclick="chatAvisarMens('${p.cliente_id}','${esc(p.panel).replace(/'/g,'')}')"
+            : `<button class="outline small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
+              onclick="chatMensualidad(this.dataset.id,this.dataset.caja)">+ cobrar</button>`}
+          <button class="outline small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
+            onclick="chatAvisarMens(this.dataset.id,this.dataset.caja)"
             title="Le manda un mensaje al grupo del chat avisando que vence">📤 avisar</button>
           ${p.aviso?`<div style="font-size:11px;margin-top:3px">${p.aviso.ok
             ?'<span style="color:var(--green)">✓ avisado</span>'
@@ -4565,6 +4579,9 @@ async function chatCfgWallet(campo,valor){
 async function chatDestino(cid,campos){
   const r=await api('/api/os/chat/destino/'+cid,{method:'PUT',body:JSON.stringify(campos)});
   if(r&&r.ok&&r.aviso) toast('⚠ '+r.aviso);
+  // Se repinta: cargar el grupo tiene que despertar el botón «enviar» de arriba en el momento,
+  // no en la próxima entrada a la pantalla.
+  if(r&&r.ok) VIEWS.chat();
 }
 // La hoja tal cual la ve el cliente. Se abre antes de mandarla: mirarla es más rápido que
 // desmentir un número que ya salió.
