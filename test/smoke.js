@@ -1752,6 +1752,30 @@ async function main() {
       && /async function ofVerCambios\(id\)/.test(srcUi5)
       && /Escribir estos precios en la matriz/.test(srcUi5));
   }
+  /* ── EL NAVEGADOR NO PUEDE QUEDARSE CON UNA COPIA VIEJA ──────────────────────────────────────
+     `express.static` no manda ningún Cache-Control, y sin él el navegador aplica su propia regla:
+     reutiliza la respuesta un rato SIN preguntar si cambió. Para un archivo que se reescribe en
+     cada despliegue eso significa que un cambio ya subido no aparece — y desde la pantalla se ve
+     idéntico a que no se hubiera desplegado.
+     Pasó de verdad: la pestaña de Ofertas estaba en el servidor y en la pantalla no. */
+  {
+    for (const ruta of ['/os', '/tbs']) {
+      const rr = await axios.get(BASE + ruta, H());
+      check(`cache: ${ruta} se revalida siempre`,
+        String(rr.headers['cache-control'] || '') === 'no-cache',
+        ruta + ' → ' + (rr.headers['cache-control'] || '(sin cabecera)'));
+    }
+    // Y sigue mandando ETag, que es lo que hace que revalidar no cueste ancho de banda: la
+    // respuesta a "¿cambió?" es un 304 sin cuerpo.
+    const re = await axios.get(BASE + '/tbs', H());
+    check('cache: sigue mandando ETag, así revalidar no cuesta nada', !!re.headers.etag,
+      String(re.headers.etag || '').slice(0, 24));
+    // Lo que NO es HTML sí puede cachearse: no cambia en cada despliegue.
+    const srcIdx6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('cache: sólo los HTML se revalidan; el resto se cachea',
+      /\.html\?\$\/i\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(srcIdx6));
+  }
+
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

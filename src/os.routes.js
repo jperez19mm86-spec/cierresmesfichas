@@ -121,11 +121,25 @@ function mount(app) {
 
   // Panel del OS (HTML estático, detrás del gate de auth)
   const path = require('path');
-  app.get('/os', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'os.html')));
+  /* ── EL NAVEGADOR NO PUEDE QUEDARSE CON UNA COPIA VIEJA ──────────────────────────────────────
+     `express.static` no manda ningún Cache-Control, y sin él el navegador aplica su propia regla:
+     reutiliza la respuesta un rato SIN preguntar si cambió. Para un archivo que se reescribe en
+     cada despliegue eso significa que un cambio ya desplegado no aparece — y desde la pantalla se
+     ve idéntico a que no se hubiera subido. Pasó de verdad: la pestaña nueva estaba en el servidor
+     y en la pantalla no.
+
+     `no-cache` NO quiere decir "no guardes": quiere decir "guardala, pero preguntá siempre si
+     cambió". Con el ETag que ya manda express, la pregunta se contesta con un 304 sin cuerpo, así
+     que no cuesta ancho de banda — sólo un viaje corto. Es lo correcto para un HTML que cambia. */
+  const html = (res, archivo) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, '..', 'public', archivo));
+  };
+  app.get('/os', (_req, res) => html(res, 'os.html'));
   // TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
   // proveedores y otro cierre de mes. Sirve el MISMO archivo — duplicarlo para no compartir los
   // helpers habría sido peor — y la página se arma distinto según por dónde se entró.
-  app.get('/tbs', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'os.html')));
+  app.get('/tbs', (_req, res) => html(res, 'os.html'));
 
   // ───────── CLIENTES (comercial) ─────────
   app.get('/api/os/clientes', (_req, res) => {

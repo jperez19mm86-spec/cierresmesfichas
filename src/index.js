@@ -109,7 +109,8 @@ app.use((e, req, res, next) => {
 // ─────────────── LOGIN del panel (usuario + contraseña → cookie) ───────────────
 app.post('/api/login', auth.loginHandler);
 app.post('/api/logout', auth.logoutHandler);
-app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'login.html')));
+app.get('/login', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'login.html')); });
 
 // GATE: todo lo que sigue requiere sesión, EXCEPTO las rutas públicas
 // (vista cliente /pedir + /api/pedir, /login, /api/login, logo). Ver src/auth.js.
@@ -1227,10 +1228,12 @@ app.get('/api/historial', (req, res) => {
 
 // ─────────────── Frontend estático ───────────────
 // Vista CLIENTE (público): http://localhost:PORT/pedir
-app.get('/pedir', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pedir.html')));
+app.get('/pedir', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'pedir.html')); });
 // La cuenta del cliente. La página es pública; el DATO no: sin token de cliente, /api/cuenta/mio
 // contesta 401. Va antes del comodín /cuenta/:token de las cuentas de API, que sí llevan llave.
-app.get('/cuenta', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'cuenta.html')));
+app.get('/cuenta', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'cuenta.html')); });
 
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
@@ -1278,8 +1281,20 @@ app.get('/factura/:token/planilla.csv', (req, res) => {
     `attachment; filename="${n.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(n)}`);
   res.send(csv.planilla(r.factura));
 });
-app.use(express.static(path.join(__dirname, '..', 'public')));
-app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+/* Los HTML se revalidan SIEMPRE; el resto puede cachearse un rato.
+   Sin Cache-Control el navegador aplica su propia regla y reutiliza el archivo sin preguntar: un
+   despliegue nuevo no aparece en pantalla y se ve igual que si no se hubiera subido. `no-cache` no
+   significa "no guardes" sino "preguntá siempre si cambió", y con el ETag que ya manda express eso
+   se contesta con un 304 sin cuerpo. */
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, ruta) => {
+    res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');
+  },
+}));
+app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
 
 // ─────────────── Migración automática: JSON legacy → SQLite (una sola vez) ───────────────
 // Si la DB está vacía y existen los viejos data/*.json, los importa al arrancar.
