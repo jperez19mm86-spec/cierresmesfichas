@@ -2382,6 +2382,44 @@ async function main() {
       'decirle que su precio está sin decidir es abrirle una negociación que nadie pidió');
     ch.descobrar('2026-08'); ch.set({ panel_id: PAN.id, pct_cliente: '4' });
 
+    /* 4b. Cobrar un mes al que le falta un tipo de cambio congelaba el total CORTO, y como no se
+       puede cobrar encima, cargar el TC al día siguiente ya no lo arreglaba. */
+    dbCh.prepare("DELETE FROM tc_mes WHERE mes='2026-08'").run();
+    const sinTc = ch.cobrar('2026-08');
+    check('revisión: no se congela un mes al que le falta el tipo de cambio',
+      sinTc.ok === false && sinTc.requiereConfirmar === true && (sinTc.sinTC || []).includes('ARS'),
+      sinTc.error ? sinTc.error.slice(0, 70) : '');
+    check('revisión: pero se puede cobrar igual si lo confirmás',
+      ch.cobrar('2026-08', { confirmar: true }).ok === true);
+    ch.descobrar('2026-08');
+    dbCh.prepare(`INSERT INTO tc_mes (mes,tc_cliente,updatedAt) VALUES ('2026-08','1000',?)
+      ON CONFLICT(mes) DO UPDATE SET tc_cliente='1000'`).run(new Date().toISOString());
+
+    /* 8b. Un monto enorme entraba como "1e+21" y después el control de los pagos lo rechazaba: el
+       aviso quedaba clavado en pendiente, imposible de aprobar. Lo que entra tiene que poder salir. */
+    check('revisión: un monto que no se va a poder aprobar no se acepta',
+      ch.avisarPago({ cliente_id: CLI.id, monto: '1000000000000000000000' }).ok === false);
+    const avOk = ch.avisarPago({ cliente_id: CLI.id, monto: '94.22' });
+    check('revisión: y el que entra se puede aprobar siempre',
+      avOk.ok && avOk.aviso.monto === '94.22' && ch.resolverAviso(avOk.aviso.id, true).ok === true);
+    dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare("DELETE FROM chat_mov WHERE cliente_id=? AND tipo='pago'").run(CLI.id);
+
+    /* 1b. Y la mensualidad no se cobra dos veces la misma caja el mismo día: antes no había ningún
+       control y dos clics dejaban dos filas. */
+    const m1 = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat' });
+    check('revisión: la misma mensualidad no entra dos veces el mismo día',
+      m1.ok && ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat' }).ok === false);
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+
+    /* 9b. La hoja mostraba el total recalculado abajo y el saldo vivo arriba: si cambiaba un TC
+       entre una cosa y la otra, dos números distintos del mismo mes en la misma página. */
+    const hojaDos = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
+      { saldo: { cobrado: '100', pagado: '0', debe: '100' }, cobradoMes: '100' });
+    check('revisión: la hoja muestra UN solo número del mes, el que está en su cuenta',
+      (hojaDos.match(/100,00 USDT/g) || []).length >= 2 && !/De este mes[\s\S]{0,80}8\.194/.test(hojaDos),
+      'manda lo cobrado, no lo recalculado');
+
     // 5. Una caja de agente sin cliente se le pagaba al proveedor y no se le cobraba a nadie.
     check('revisión: una caja sin cliente se nombra al cobrar, no se saltea en silencio',
       Array.isArray(ch.cobrar('2026-08').sinCliente));

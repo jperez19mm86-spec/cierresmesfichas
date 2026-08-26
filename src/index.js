@@ -1281,6 +1281,9 @@ app.get('/chat/:token', (req, res) => {
     pago: chatStore.comoPagar(r.cliente_id),
     avisos: chatStore.avisosDe(r.cliente_id),
     saldo: todo ? { ...todo, otrosMeses: !esteMes || todo.cobrado !== esteMes.cobrado } : null,
+    // Lo COBRADO de ese mes, no el total recalculado: si cambió un TC, los dos números no coinciden
+    // y el que vale es el que está en su cuenta.
+    cobradoMes: esteMes ? esteMes.cobrado : null,
   });
   /* El mismo cinturón que la vista previa, PERO ACÁ, que es la hoja que abre el cliente: tenerlo
      sólo del lado de adentro cuidaba justo la copia que no sale. */

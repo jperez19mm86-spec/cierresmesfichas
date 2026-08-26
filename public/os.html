@@ -4422,10 +4422,11 @@ VIEWS.chat = async () => {
         <td class="right"><b>${money(cta.totales.debe,2)}</b></td>
         <td class="right muted"><b>${money(arrastre.totales.debe,2)}</b></td><td></td>
       </tr></tfoot></table></div>
-      ${cta.clientes.some(g=>g.movs.some(m=>m.tipo==='pago'))?`<div style="margin-top:10px">
-        <div class="muted" style="font-size:12px;margin-bottom:4px">Pagos registrados este mes</div>
-        <table><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo==='pago').map(m=>`<tr>
-          <td>${esc(m.fecha)}</td><td><b>${esc(g.cliente)}</b></td>
+      ${cta.clientes.some(g=>g.movs.some(m=>m.tipo!=='cobro'))?`<div style="margin-top:10px">
+        <div class="muted" style="font-size:12px;margin-bottom:4px">Pagos y mensualidades de este mes</div>
+        <table><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo!=='cobro').map(m=>`<tr>
+          <td>${esc(m.fecha)}</td><td><b>${esc(g.cliente)}</b>
+            ${m.tipo==='mensualidad'?'<span class="badge">mantenimiento</span>':''}</td>
           <td class="muted">${esc(m.nota||'')}</td>
           <td class="right"><b>${money(m.monto,2)}</b> <span class="muted">${esc(m.moneda)}</span></td>
           <td class="right"><button class="outline small" onclick="chatBorrarMov('${m.id}')">✕</button></td>
@@ -4605,13 +4606,20 @@ async function chatEnviar(cid,nombre){
 }
 /* Cobrar CONGELA el número de cada cliente en la cuenta del chat — que es aparte de la de las
    fichas y no entra en el cierre del mes. */
-async function chatCobrar(){
-  if(!confirm('¿Cobrar el chat de '+_chatMes+'?\n\nCongela el número de cada cliente en la cuenta del chat.\nNo toca la cuenta de las fichas ni tu cierre del mes.\nApretar dos veces no cobra dos veces.')) return;
-  const r=await api('/api/os/chat/cobrar',{method:'POST',body:JSON.stringify({mes:_chatMes})});
+async function chatCobrar(confirmar){
+  if(!confirmar && !confirm('¿Cobrar el chat de '+_chatMes+'?\n\nCongela el número de cada cliente en la cuenta del chat.\nNo toca la cuenta de las fichas ni tu cierre del mes.\nApretar dos veces no cobra dos veces.')) return;
+  const r=await api('/api/os/chat/cobrar',{method:'POST',body:JSON.stringify({mes:_chatMes,confirmar:!!confirmar})});
+  /* Si falta un tipo de cambio, el server no congela nada y pide confirmación: cobrar así deja el
+     total corto para siempre, porque encima de un cobro no se puede volver a cobrar. */
+  if(r&&!r.ok&&r.requiereConfirmar){
+    if(confirm('Falta el tipo de cambio de '+(r.sinTC||[]).join(', ')+'.\n\nLo ganado en esa moneda va a quedar en CERO y así se congela.\nDespués no se puede cobrar encima: hay que deshacer y volver a cobrar.\n\n¿Cobrar igual?')) return chatCobrar(true);
+    return;
+  }
   if(r&&r.ok){
     let m='Cobrados '+r.creados+' cliente(s) por '+r.total+' USDT';
     if(r.yaEstaban) m+=' · '+r.yaEstaban+' ya estaban';
     if((r.sinPrecio||[]).length) m+=' · al mínimo (sin precio confirmado): '+r.sinPrecio.join(', ');
+    if((r.sinCliente||[]).length) m+=' · SIN cliente, no se le cobró a nadie: '+r.sinCliente.join(', ');
     toast(m);
   }
   VIEWS.chat();

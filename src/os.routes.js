@@ -2017,8 +2017,10 @@ function mount(app) {
     // La vista previa muestra lo MISMO que va a ver el cliente, salvo el formulario: mirar una
     // versión distinta de la que se manda no sirve para revisarla.
     const todo = chat.cuentas(null).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
+    const esteMes = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
     const html = chatDoc.htmlCliente(doc, {
-      pago: chat.comoPagar(req.params.clienteId), saldo: todo });
+      pago: chat.comoPagar(req.params.clienteId), saldo: todo,
+      cobradoMes: esteMes ? esteMes.cobrado : null });
     if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
     res.type('text/html; charset=utf-8').send(html);
   });
@@ -2078,9 +2080,9 @@ function mount(app) {
      la tabla `chat_mov`. Cobrar congela el número; apretar dos veces no cobra dos veces. */
   app.post('/api/os/chat/cobrar', wrap((req, res) => {
     const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
-    const r = chat.cobrar(mes);
+    const r = chat.cobrar(mes, { confirmar: (req.body || {}).confirmar === true });
     if (r.ok) r.salteados = chat.porCliente(mes).salteados || [];
-    r.ok ? ok(res, r) : err(res, 400, r.error);
+    r.ok ? ok(res, r) : err(res, 400, r.error, { requiereConfirmar: !!r.requiereConfirmar, sinTC: r.sinTC || [] });
   }));
   app.post('/api/os/chat/descobrar', wrap((req, res) => {
     const b = req.body || {};

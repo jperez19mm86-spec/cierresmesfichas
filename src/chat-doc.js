@@ -219,6 +219,10 @@ function bloquePago(p) {
  * LA HOJA DEL CLIENTE — HTML. Recibe lo que devuelve `paraCliente` y nada más de adentro.
  *
  * @param ctx {saldo, comoPaga, token, avisos, emision}
+ *   `cobradoMes` es lo que se le COBRÓ de ese mes. Va en vez del total recalculado: el detalle de
+ *   arriba es una foto y el saldo es lo vivo, y si entre una cosa y la otra cambió un tipo de
+ *   cambio la misma página mostraba dos números distintos para el mismo mes — el de arriba, que es
+ *   el que tiene que pagar, y el de abajo, más grande. Manda lo cobrado.
  *   `saldo` es lo que debe HOY en la cuenta del chat — todos los meses, no sólo éste: alguien puede
  *   arrastrar tres y mirando un mes solo no se entera. El detalle del mes queda congelado abajo,
  *   porque es lo que se le mandó; el saldo es lo vivo, porque es lo que tiene que pagar.
@@ -258,7 +262,7 @@ function htmlCliente(doc, ctx = {}) {
 
   ${saldo ? `<div class="sub-tot">
     <span>De este mes${doc.pctUnico ? ` · ${esc(pctTxt(doc.pct))} de la ganancia` : ''}</span>
-    <b>${n(doc.total, 2)} USDT</b>
+    <b>${n(ctx.cobradoMes != null ? ctx.cobradoMes : doc.total, 2)} USDT</b>
   </div>` : ''}
 
   ${bloquePago(ctx.pago)}

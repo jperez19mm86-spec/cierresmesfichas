@@ -803,10 +803,23 @@ function porCliente(mes) {
    Aparte de la cuenta de las fichas, a propósito: ver el comentario de la tabla `chat_mov`.
    Cobrar un mes CONGELA el número. Después de eso el cliente puede pagar y el saldo se mueve, pero
    lo cobrado no cambia aunque cambie un tipo de cambio — es lo que le mandaste. */
-function cobrar(mes) {
+function cobrar(mes, opciones = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const pc = porCliente(m);
+  /* ⚠️ NO SE CONGELA UN MES AL QUE LE FALTA UN TIPO DE CAMBIO. Lo ganado en esa moneda vale cero
+     hasta que el TC esté, así que el total se congelaría CORTO — y como no se puede cobrar dos
+     veces encima, cargar el TC al día siguiente ya no lo arregla: hay que deshacer y volver a
+     cobrar, y nadie sale a buscar un número que en pantalla no falta. Se puede forzar, pero
+     diciéndolo. */
+  if ((pc.sinTC || []).length && !opciones.confirmar) {
+    return {
+      ok: false,
+      error: `Falta el tipo de cambio de ${pc.sinTC.join(', ')} en ${m}. Lo ganado en esa moneda quedaría en cero y el cobro se congela así. Cargá el TC, o confirmá si querés cobrar igual.`,
+      requiereConfirmar: true,
+      sinTC: pc.sinTC,
+    };
+  }
   const creados = []; const yaEstaban = []; const enCero = []; const sinCliente = [];
   const ins = db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
     VALUES (?,?,?,'cobro',?,'USDT',?,?,?)`);
@@ -833,6 +846,7 @@ function cobrar(mes) {
     detalle: creados,
     sinPrecio: (pc.clientes || []).filter((g) => g.sinPrecio).map((g) => g.cliente),
     sinCliente,
+    sinTC: pc.sinTC || [],
   };
 }
 
@@ -880,6 +894,13 @@ function cobrarMensualidad(d) {
     return { ok: false, error: 'la mensualidad no está cargada o no es un número. Cargala arriba.' };
   }
   const fecha = String(d.fecha || '').slice(0, 10) || hoy();
+  /* La misma caja, el mismo día, dos veces no. Antes no había ningún control: dos clics —o un clic
+     y una repintada que no marcó "cobrada"— dejaban dos filas de 30 USDT y el cliente veía 60. */
+  if (d.panel) {
+    const ya = db.prepare(`SELECT id FROM chat_mov
+      WHERE tipo='mensualidad' AND cliente_id=? AND panel=? AND fecha=?`).get(id, String(d.panel), fecha);
+    if (ya) return { ok: false, error: 'esa mensualidad ya se cobró hoy' };
+  }
   const per = periodoDesde(fecha);
   const nota = String(d.nota || '').trim()
     || `Mantenimiento${d.panel ? ' ' + d.panel : ''}${per ? ' · ' + per.texto : ''}`;
@@ -1062,6 +1083,12 @@ function avisarPago(d) {
      pasó de verdad con los pagos de fichas y costó un aviso de 9.422 por una transferencia de 94. */
   const num = parseMonto(d.monto);
   if (num == null || !(num > 0)) return { ok: false, error: 'el monto no es válido' };
+  /* Se guarda YA REDONDEADO y en notación normal. Un número enorme salía como "1e+21", que después
+     el control de los pagos rechaza: el aviso quedaba clavado en pendiente, imposible de aprobar,
+     con un monto que este mismo store había aceptado. Lo que entra tiene que poder salir. */
+  if (!(num < 1e12)) return { ok: false, error: 'ese monto no parece real' };
+  const monto = money.round(num.toFixed(2), 2);
+  if (!money.esNumero(monto) || !money.isPos(monto)) return { ok: false, error: 'el monto no es válido' };
   /* Tope de avisos sin resolver. Sin esto, el portal —que se abre escribiendo el nombre de una
      caja— deja a cualquiera meter capturas de 6 MB en la base hasta llenarla. */
   if (avisosSinResolver(cid) >= 10) {
@@ -1085,10 +1112,10 @@ function avisarPago(d) {
   db.prepare(`INSERT INTO chat_comprobante
     (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?)`)
-    .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), String(num),
+    .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), monto,
       String(d.moneda || 'USDT').toUpperCase().slice(0, 8), String(d.referencia || '').slice(0, 200),
       nombre, tipo, bytes, b64, nowISO());
-  return { ok: true, aviso: { id, monto: String(num), archivo_bytes: bytes } };
+  return { ok: true, aviso: { id, monto, archivo_bytes: bytes } };
 }
 
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
