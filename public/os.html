@@ -2271,6 +2271,77 @@ function filtProv(){ const q=(val('pr-q')||'').toLowerCase();
 
 // ───────── CIERRE DE MES (réplica editable de la planilla de Alexa: matriz % + vinculación + TC) ─────────
 let _cieSub = 'matriz', _cieData = {proveedores:[],clientes:[],celdas:{}};
+/* ── LOS ESTILOS DE LA MATRIZ DE TBS ────────────────────────────────────────────────────────────
+   Tres decisiones, y las tres salen de mirar los datos reales (51 sellos × 15 cuentas, 558 celdas
+   vacías de 765):
+
+   1. COLUMNAS IGUALES. Cada una se estiraba según su contenido, así que ninguna medía lo mismo y
+      comparar en vertical era imposible. `table-layout:fixed` + un ancho fijo para todas.
+
+   2. TINTES OPACOS. Eran rgba con alfa .16 sobre el fondo lila de la app: el color de abajo se
+      mezclaba y salía lavado. Estos son el mismo color ya mezclado, así que se ven limpios — y
+      además hacen falta opacos porque la primera columna es sticky y lo que scrollea por debajo se
+      transparenta con cualquier alfa < 1.
+
+   3. LOS INTERNOS SON UN BLOQUE, NO UN COLOR. Antes había un tercer color ("casi sin costo") que,
+      medido, marcaba a los mismos 9 sellos que ya eran postpago: dos señales del mismo color para
+      la misma cosa. Ahora van juntos bajo su propia banda, y cada fila lleva una barra al costado
+      en la columna que queda fija — así se sabe que es interno aunque la banda ya no se vea. */
+const MX_STYLE = `<style>
+  .mx-scroll{ overflow:auto; max-height:72vh; border:1px solid var(--border); border-radius:8px }
+  .mx-tabla{ table-layout:fixed; width:auto; border-collapse:separate; border-spacing:0 }
+  .mx-tabla th.cie-h0, .mx-tabla td.cie-p{ width:210px; min-width:210px; max-width:210px }
+  /* Sin mayúsculas: los nombres de las cuentas son nombres propios y en versalitas pierden su
+     forma —"carlosjsanchez" y "CARLOSJSANCHEZ" no se reconocen igual de rápido— y encima ocupan
+     más ancho en una columna de 82px. El resto de la app las usa; acá no sirve. */
+  .mx-tabla thead th{ width:82px; min-width:82px; max-width:82px; height:52px; padding:4px 3px;
+    vertical-align:bottom; font-size:10.5px; line-height:1.15; font-weight:600; white-space:normal;
+    text-transform:none; letter-spacing:0 }
+  .mx-tabla thead th span{ display:block; overflow-wrap:anywhere }
+  .mx-tabla td{ height:34px; padding:0 }
+  .mx-tabla input{ width:100%; height:32px; text-align:center; font-size:12.5px; border:none;
+    background:transparent; color:inherit; font-weight:inherit }
+
+  /* la primera columna: el nombre arriba, el costo abajo y chico */
+  .mx-sello{ font-weight:700; font-size:12.5px; line-height:1.2 }
+  .mx-costo{ font-size:10px; color:var(--muted); font-weight:400; margin-top:1px }
+  .mx-costo input{ width:46px!important; height:16px!important; font-size:10px!important;
+    text-align:right; color:var(--muted); padding:0 2px }
+
+  /* Tintes OPACOS. El número lleva el peso: el fondo dice de dónde salió, el texto dice cuánto. */
+  .mx-tabla td.mx-ver{ background:#dcf0e2 } .mx-tabla td.mx-ver input{ color:#14603a; font-weight:700 }
+  .mx-tabla td.mx-pla{ background:#fbeed0 } .mx-tabla td.mx-pla input{ color:#7a5300; font-weight:600 }
+  .mx-tabla td.mx-vacia{ background:var(--bg) }
+  .mx-tabla td.mx-vacia input::placeholder{ color:var(--border) }
+
+  /* la banda que separa internos de proveedores */
+  .mx-banda td{ background:var(--bg3); text-align:left!important; padding:0!important;
+    font-size:12px; border-top:2px solid var(--border); border-bottom:1px solid var(--border) }
+  .mx-banda td > div{ position:sticky; left:0; width:max-content; max-width:100vw; padding:7px 10px }
+  .mx-banda .mx-n{ font-family:ui-monospace,monospace; font-size:11px; color:var(--muted);
+    background:var(--bg); border:1px solid var(--border); border-radius:9px; padding:0 6px; margin-left:4px }
+
+  /* Interno: barra al costado en la columna fija, así se sabe aunque la banda quedó arriba. */
+  .mx-tabla tr.mx-int td.cie-p{ border-left:3px solid #8e4fbe }
+  .mx-tabla tr.mx-int td.cie-p .mx-sello{ color:#6f3a97 }
+
+  .mx-leyenda{ display:flex; gap:16px; align-items:center; margin:12px 0 4px; font-size:12px; flex-wrap:wrap }
+  .mx-leyenda .mx-c{ display:inline-block; width:13px; height:13px; border-radius:3px;
+    vertical-align:-2px; margin-right:5px; border:1px solid var(--border) }
+  .mx-leyenda .mx-ver{ background:#dcf0e2 } .mx-leyenda .mx-pla{ background:#fbeed0 }
+  .mx-leyenda .mx-vacia{ background:var(--bg) }
+  .mx-leyenda .mx-int-c{ background:var(--bg3); border-left:3px solid #8e4fbe }
+  .mx-leyenda .mx-sep{ border-left:1px solid var(--border); padding-left:16px }
+  .mx-filtro{ font-size:12px; margin:6px 0 10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .mx-filtro label{ display:flex; gap:5px; align-items:center; cursor:pointer; text-transform:none; margin:0 }
+  .mx-filtro input{ width:auto }
+
+  /* SIN BLOQUE PARA TEMA OSCURO. El OS es de un solo tema: no hay ni una regla de tema oscuro en
+     las 5.400 líneas de esta página. Yo había puesto uno acá y el resultado, mirado en un navegador
+     en oscuro, era peor que no tenerlo: las celdas se ponían oscuras y TODO lo demás seguía claro.
+     Un tema a medias no es medio tema, es una pantalla rota. */
+</style>`;
+
 const CIE_STYLE = `<style>
     .ciet{border-collapse:separate;border-spacing:0;font-size:12px}
     .ciet th,.ciet td{border:1px solid var(--border);padding:2px 4px;text-align:center;background:var(--bg)}
@@ -4520,63 +4591,116 @@ function apiCliToggle(id){
   const S=window._apiAbierto; S.has(id)?S.delete(id):S.add(id);
   API.clientes && API.clientes();
 }
+/* ── LA MATRIZ DE PRECIOS DE TBS ────────────────────────────────────────────────────────────────
+   51 sellos × 15 cuentas = 765 celdas, y 558 están vacías: tres de cada cuatro. Una grilla que es
+   mayormente hueco se lee como un muro, y lo que importa —los 10 sellos INTERNOS (post pago), que
+   son los que casi no cuestan y por eso son casi todo margen— quedaba dicho en una palabra gris de
+   10px al lado del nombre.
+
+   ── LOS COLORES SE PISABAN ───────────────────────────────────────────────────────────────────
+   Había tres: verde de "verificado", ámbar de "sin verificar", y otro verde de "casi sin costo".
+   Medido: de los 9 sellos "casi sin costo", los 9 son postpago. O sea que ese tercer color estaba
+   marcando, por accidente, casi lo mismo que el tipo — dos señales distintas del mismo color para
+   la misma cosa. Se fue: los internos ahora son un BLOQUE, no un tinte.
+
+   Y los tintes que quedan son opacos. Eran rgba con alfa .16 sobre un fondo lila: el color de
+   abajo se mezclaba y todo salía lavado y sucio.
+
+   ── LAS COLUMNAS ─────────────────────────────────────────────────────────────────────────────
+   Cada una se estiraba según su contenido, así que ninguna medía lo mismo y el ojo no podía
+   comparar en vertical. Ahora `table-layout:fixed` y un ancho igual para todas. */
+let _apiSoloConPrecio = true;   // arranca escondiendo lo que no tiene ningún precio
+function apiVerVacios(v){ _apiSoloConPrecio = !v; API.matriz(); }
+
 API.matriz = async () => {
   const m=await api('/api/os/api/matriz');
-  const cs=(m.clientes||[]).filter(c=>c.activo);
-  // Alfabético por el nombre corto, que es el que se lee. Antes venían en el orden en que se
-  // cargaron, que no significa nada y obliga a barrer las 40 filas para encontrar una.
-  const sellos=(m.sellos||[]).filter(x=>x.grupo_id)
-    .sort((a,b)=>String(a.corto||a.nombre).localeCompare(String(b.corto||b.nombre),'es',{sensitivity:'base'}));
-  // Los de costo 0, 0,5 o 1 son casi todo margen: son los que conviene tener a la vista.
-  const barato=(x)=>x.costo!=null && Number(x.costo)<=1;
-  const nBaratos=sellos.filter(barato).length;
+  const todasCs=(m.clientes||[]).filter(c=>c.activo);
   const cel=m.celdas||{};
+  const todosSellos=(m.sellos||[]).filter(x=>x.grupo_id)
+    .sort((a,b)=>String(a.corto||a.nombre).localeCompare(String(b.corto||b.nombre),'es',{sensitivity:'base'}));
+
+  const tienePrecio=(cId,sNombre)=>{ const d=(cel[cId]||{})[sNombre]; return !!(d && d.pct_cliente!=null); };
+  const selloConAlgo=(x)=>todasCs.some(c=>tienePrecio(c.id,x.nombre));
+  const cuentaConAlgo=(c)=>todosSellos.some(x=>tienePrecio(c.id,x.nombre));
+
+  /* Esconder lo vacío no es cosmética: 12 sellos no tienen precio en NINGUNA cuenta y 3 cuentas no
+     tienen precio en ningún sello. Son 180 celdas de nada que separan las que sí importan. Se
+     puede volver a mostrar. */
+  const sellosOcultos=todosSellos.filter(x=>!selloConAlgo(x));
+  const cuentasOcultas=todasCs.filter(c=>!cuentaConAlgo(c));
+  const sellos=_apiSoloConPrecio ? todosSellos.filter(selloConAlgo) : todosSellos;
+  const cs=_apiSoloConPrecio ? todasCs.filter(cuentaConAlgo) : todasCs;
+
   let ver=0,pla=0,vac=0;
-  const fila=(x)=>{
-    const tds=cs.map(c=>{
-      // CADA CELDA ES EDITABLE. Antes era texto: los precios sólo entraban por importación, y una
-      // corrección puntual —como la de SA Gaming— obligaba a tocar la base. Se guarda al salir del
-      // campo; vaciarlo BORRA el precio (ese cliente deja de pagar ese sello).
-      const d=(cel[c.id]||{})[x.nombre];
-      const val = (d && d.pct_cliente!=null) ? d.pct_cliente : '';
-      if(val==='') vac++; else { d.origen==='verificado'?ver++:pla++; }
-      const est = val==='' ? ''
-        : (d.origen==='verificado' ? 'background:rgba(0,160,70,.16)' : 'background:rgba(210,160,0,.16)');
-      const tit = val===''
-        ? `${c.login} · ${esc(x.corto)}\nsin precio: no se le cobra. Escribí un % para cobrárselo.`
-        : `${c.login} · ${esc(x.corto)}\ncliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · el sello cuesta ${x.costo==null?'—':x.costo}%\n`
-          + (d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios')
-          + (d.nota?`\nnota: ${esc(d.nota)}`:'') + '\n\nVaciar el campo borra el precio.';
-      return `<td style="${est}"><input value="${esc(val)}" title="${tit}"
-        data-cli="${esc(c.id)}" data-sello="${esc(x.nombre)}" onchange="apiPct(this)"
-        ${d&&d.origen==='verificado'?'style="font-weight:700"':''}></td>`;
-    }).join('');
-    // El costo del sello es EDITABLE acá. Antes era texto fijo y no había ningún lugar donde
-    // cambiarlo: si el proveedor subía o el número estaba mal cargado, no quedaba más que tocar la
-    // base. Y es el número contra el que se cruza lo que se le paga a cada cliente.
-    return `<tr${barato(x)?' class="cie-barato"':''}><td class="cie-p" title="${esc(x.nombre)}${barato(x)?'\ncuesta '+x.costo+'%: casi todo lo que se cobra es margen':''}">${esc(x.corto)}
-      <span class="muted" style="font-size:10px">${x.tipo==='postpago'?'post':'pre'} · costo
-      <input value="${esc(x.costo==null?'':x.costo)}" data-sello="${esc(x.nombre)}"
-        onchange="apiCosto(this)" title="Lo que cuesta este proveedor. Cambiarlo NO cambia lo que se le cobra a nadie: sólo lo que se descuenta como costo."
-        style="width:52px;padding:1px 4px;font-size:11px;display:inline-block;text-align:right">%</span></td>${tds}</tr>`;
+  todosSellos.forEach(x=>todasCs.forEach(c=>{ const d=(cel[c.id]||{})[x.nombre];
+    if(!d||d.pct_cliente==null) vac++; else (d.origen==='verificado'?ver++:pla++); }));
+
+  const celda=(c,x)=>{
+    /* CADA CELDA ES EDITABLE. Se guarda al salir del campo; vaciarla BORRA el precio (ese cliente
+       deja de pagar ese sello). */
+    const d=(cel[c.id]||{})[x.nombre];
+    const val=(d && d.pct_cliente!=null) ? d.pct_cliente : '';
+    const cls = val==='' ? 'mx-vacia' : (d.origen==='verificado' ? 'mx-ver' : 'mx-pla');
+    const tit = val===''
+      ? `${c.login} · ${esc(x.corto)}\nsin precio: no se le cobra. Escribí un % para cobrárselo.`
+      : `${c.login} · ${esc(x.corto)}\ncliente ${d.pct_cliente}% · proveedor ${d.pct_proveedor||0}% · el sello cuesta ${x.costo==null?'—':x.costo}%\n`
+        + (d.origen==='verificado'?'VERIFICADO: salió de un mes ya facturado':'sin verificar: salió de la tabla de precios')
+        + (d.nota?`\nnota: ${esc(d.nota)}`:'') + '\n\nVaciar el campo borra el precio.';
+    return `<td class="${cls}"><input value="${esc(val)}" title="${tit}"
+      data-cli="${esc(c.id)}" data-sello="${esc(x.nombre)}" onchange="apiPct(this)"></td>`;
   };
-  const cuerpo=sellos.map(fila).join('');
-  document.getElementById('api-body').innerHTML = CIE_STYLE + `
+
+  /* El costo del sello es EDITABLE acá. Cambiarlo NO cambia lo que se le cobra a nadie: sólo lo
+     que se descuenta como costo. */
+  const fila=(x)=>`<tr class="${x.tipo==='postpago'?'mx-int':''}">
+      <td class="cie-p">
+        <div class="mx-sello">${esc(x.corto)}</div>
+        <div class="mx-costo">cuesta<input value="${esc(x.costo==null?'':x.costo)}" data-sello="${esc(x.nombre)}"
+            onchange="apiCosto(this)"
+            title="Lo que cuesta este proveedor. Cambiarlo NO cambia lo que se le cobra a nadie: sólo lo que se descuenta como costo."><span>%</span></div>
+      </td>${cs.map(c=>celda(c,x)).join('')}</tr>`;
+
+  const internos=sellos.filter(x=>x.tipo==='postpago');
+  const externos=sellos.filter(x=>x.tipo!=='postpago');
+  /* El contador dice cuántas filas se están viendo, y cuántas hay en total si el filtro escondió
+     alguna. Antes la banda decía 9 y la leyenda 10 —el mismo dato con dos números— porque una
+     contaba lo visible y la otra el total. */
+  /* El rótulo va en un div sticky ADENTRO de la celda, no la celda entera: una celda con colspan
+     es tan ancha como la tabla, así que fijarla a la izquierda no fija su TEXTO — el texto se iba
+     con el scroll y la banda quedaba cortada a la mitad de una palabra. */
+  const banda=(txt,det,n,total)=>`<tr class="mx-banda"><td colspan="${cs.length+1}"><div>
+      <b>${esc(txt)}</b> <span class="mx-n">${n}${n<total?' de '+total:''}</span>
+      <span class="muted">${esc(det)}</span></div></td></tr>`;
+
+  const totInt=todosSellos.filter(x=>x.tipo==='postpago').length;
+  const cuerpo =
+      (internos.length ? banda('Internos', '— post pago: cuestan casi nada, así que lo que se cobra es casi todo margen', internos.length, totInt) + internos.map(fila).join('') : '')
+    + (externos.length ? banda('Proveedores', '— pre pago: se les paga su costo', externos.length, todosSellos.length-totInt) + externos.map(fila).join('') : '');
+
+  const ocultos=sellosOcultos.length+cuentasOcultas.length;
+  document.getElementById('api-body').innerHTML = CIE_STYLE + MX_STYLE + `
     <div class="card"><h2>Precios por cliente <span class="muted">(% que paga sobre el GGR)</span></h2>
-      <div class="muted">Filas = <b>sellos</b> (grupos de proveedores de TBS) · columnas = <b>cuentas de API</b>. Cada celda es lo que ese cliente paga por ese sello.</div>
-      <div style="display:flex;gap:14px;align-items:center;margin:10px 0;font-size:12px;flex-wrap:wrap">
-        <span><span style="display:inline-block;width:14px;height:14px;background:rgba(0,160,70,.35);vertical-align:middle;border-radius:3px"></span>
-          <b>${ver}</b> verificados <span class="muted">— salieron de un mes ya facturado</span></span>
-        <span><span style="display:inline-block;width:14px;height:14px;background:rgba(210,160,0,.35);vertical-align:middle;border-radius:3px"></span>
-          <b>${pla}</b> sin verificar <span class="muted">— de la tabla de precios, revisalos antes de facturar</span></span>
-        <span class="muted">· <b>${vac}</b> sin precio</span>
-        <span style="border-left:1px solid var(--border);padding-left:14px">
-          <span style="display:inline-block;width:14px;height:14px;background:rgba(46,160,67,.20);border-left:3px solid var(--green);vertical-align:middle;border-radius:3px"></span>
-          <b>${nBaratos}</b> casi sin costo <span class="muted">— cuestan 1% o menos, así que lo que se cobra es casi todo margen</span></span>
+      <div class="muted">Filas = <b>sellos</b> (grupos de proveedores de TBS) · columnas = <b>cuentas de API</b>.
+        Cada celda es lo que ese cliente paga por ese sello. Se escribe encima para cambiarla.</div>
+
+      <div class="mx-leyenda">
+        <span><i class="mx-c mx-ver"></i><b>${ver}</b> verificados <span class="muted">— de un mes ya facturado</span></span>
+        <span><i class="mx-c mx-pla"></i><b>${pla}</b> sin verificar <span class="muted">— de la tabla de precios, revisalos antes de facturar</span></span>
+        <span class="muted"><i class="mx-c mx-vacia"></i><b>${vac}</b> sin precio <span class="muted">— no se le cobra</span></span>
+        <span class="mx-sep"><i class="mx-c mx-int-c"></i><b>internos</b> <span class="muted">— post pago, van agrupados arriba de todo</span></span>
       </div>
-      <div style="overflow:auto;max-height:70vh">
-        <table class="ciet"><thead><tr><th class="cie-h0">Sello</th>${cs.map(c=>`<th title="${esc(c.login)} · id ${esc(c.id)}">${esc(c.login).slice(0,13)}</th>`).join('')}</tr></thead>
-        <tbody>${cuerpo}</tbody></table>
+
+      ${ocultos ? `<div class="mx-filtro">
+        <label><input type="checkbox" ${_apiSoloConPrecio?'':'checked'} onchange="apiVerVacios(this.checked)">
+          mostrar lo que no tiene ningún precio</label>
+        <span class="muted">${_apiSoloConPrecio
+          ? `— ahora escondidos: ${sellosOcultos.length} sello(s)${cuentasOcultas.length?` y ${cuentasOcultas.length} cuenta(s) (${cuentasOcultas.map(c=>esc(c.login)).join(', ')})`:''}`
+          : '— se están mostrando todos'}</span></div>` : ''}
+
+      <div class="mx-scroll">
+        <table class="ciet mx-tabla"><thead><tr><th class="cie-h0">Sello</th>${
+          cs.map(c=>`<th title="${esc(c.login)} · id ${esc(c.id)}"><span>${esc(c.login)}</span></th>`).join('')
+        }</tr></thead><tbody>${cuerpo}</tbody></table>
       </div>
     </div>`;
 };
