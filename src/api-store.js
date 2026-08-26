@@ -117,12 +117,51 @@ function getCliente(id) {
   const r = db.prepare('SELECT * FROM api_cliente WHERE id=?').get(String(id));
   return r ? { ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0 } : null;
 }
-/** Lo busca por id, por login o por cualquiera de sus alias: la planilla lo escribe distinto. */
-function buscarCliente(txt) {
-  const k = K(txt);
-  if (!k) return null;
-  return listClientes().find((c) => String(c.id) === String(txt).trim()
-    || K(c.login) === k || (c.alias || []).some((a) => K(a) === k)) || null;
+/* ── LOS "OTROS NOMBRES" SON RESTOS DE LA MIGRACIÓN ─────────────────────────────────────────────
+ * `alias` nació para cruzar la planilla: TBS llama a las cuentas "TBSGerson", "API-MOISES2025",
+ * "TBS45Ar23" y la planilla escribía "GERSON", "Moises", "Colombians". Había una `buscarCliente`
+ * que encontraba una cuenta por su login O por cualquiera de esos nombres.
+ *
+ * Esa función NO LA LLAMABA NADIE: aparecía dos veces en todo el repo —su propia definición y la
+ * línea de exports— y en ningún otro lado. Se sacó. Las cuentas nuevas nacen acá, no vienen de la
+ * planilla, así que no hay ningún nombre que cruzar.
+ *
+ * Lo único que quedó vivo del campo es el PRIMER valor, que es el nombre con el que la cuenta
+ * aparece en el cierre del mes (api-resumen.service.js: `comoLoLlama`). Eso no es deuda de la
+ * migración: es un nombre para mostrar, y ahora se edita como tal. El resto de los valores son
+ * restos que no hacen nada, y se pueden sacar.
+ */
+
+/**
+ * El nombre con el que la cuenta se ve en el cierre del mes.
+ * Vacío = se muestra como la llama TBS (el login), que es lo que corresponde a una cuenta nueva.
+ *
+ * ⚠️ Vaciarlo saca TAMBIÉN los nombres viejos. Si se conservaran, el primero de ellos pasaría a ser
+ * el nombre del cierre —el cierre lee `alias[0]`— y vaciar el campo terminaría cambiando el nombre
+ * por otro en vez de volver al de TBS.
+ */
+function setNombreCierre(id, nombre) {
+  const c = getCliente(id);
+  if (!c) return { ok: false, error: 'no existe esa cuenta' };
+  const n = String(nombre == null ? '' : nombre).trim();
+  /* La comparación es EXACTA, letra por letra, y no ignorando mayúsculas: cambiar una mayúscula es
+     justamente para lo que sirve este campo. "Ars1api" en TBS y "Ars1Api" en el cierre son dos
+     nombres distintos a los ojos de quien lo lee, y el cierre imprime el valor tal cual.
+     Sólo se descarta cuando es idéntico al login, porque ahí sí no hace nada. */
+  const arr = (!n || n === c.login) ? [] : [n, ...(c.alias || []).slice(1)];
+  db.prepare('UPDATE api_cliente SET alias=? WHERE id=?')
+    .run(JSON.stringify([...new Set(arr)]), String(id));
+  return { ok: true, cliente: getCliente(id) };
+}
+
+/** Saca los nombres viejos y deja sólo el del cierre. */
+function limpiarNombresViejos(id) {
+  const c = getCliente(id);
+  if (!c) return { ok: false, error: 'no existe esa cuenta' };
+  const sacados = (c.alias || []).slice(1);
+  db.prepare('UPDATE api_cliente SET alias=? WHERE id=?')
+    .run(JSON.stringify((c.alias || []).slice(0, 1)), String(id));
+  return { ok: true, sacados, cliente: getCliente(id) };
 }
 function saveCliente(d) {
   const id = String(d.id || '').trim();
@@ -278,7 +317,7 @@ function setEnResumen(mes, clave, entra, motivo = '') {
 module.exports = {
   fueraDelResumen, setEnResumen,
   sembrar,
-  listClientes, getCliente, buscarCliente, saveCliente, removeCliente,
+  listClientes, getCliente, saveCliente, removeCliente, setNombreCierre, limpiarNombresViejos,
   listSellos, saveSello, removeSello,
   matriz, getPct, setPct, removePct,
 };

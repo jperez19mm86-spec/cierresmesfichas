@@ -1911,6 +1911,16 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.delete('/api/os/api/clientes/:id', wrap((req, res) => ok(res, apiStore.removeCliente(req.params.id))));
+  /* El nombre del cierre va por su propia ruta y no por `saveCliente`: aquélla reescribe login,
+     agente y notas con lo que venga en el cuerpo, así que mandarle sólo el nombre los borraría. */
+  app.put('/api/os/api/clientes/:id/nombre', wrap((req, res) => {
+    const r = apiStore.setNombreCierre(req.params.id, (req.body || {}).nombre);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/api/clientes/:id/nombres-viejos', wrap((req, res) => {
+    const r = apiStore.limpiarNombresViejos(req.params.id);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
 
   app.get('/api/os/api/sellos', (_req, res) => ok(res, { sellos: apiStore.listSellos() }));
   app.post('/api/os/api/sellos', wrap((req, res) => {
