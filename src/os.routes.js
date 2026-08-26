@@ -61,6 +61,8 @@ const configStore = require('./config-store');
 const telegram = require('./telegram');
 const importSheet = require('./import-sheet.service');
 const backup = require('./backup.service');
+const ofertas = require('./api-ofertas-store');
+const ofertaHtml = require('./api-oferta-html');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -106,6 +108,8 @@ function basePctEfectivo(cliente, panel, mes = mesTZ()) {
 
 function mount(app) {
   splitBase.seedIfEmpty();
+  // Los paquetes de la oferta comercial, una sola vez. Si ya hay alguno no se toca nada.
+  try { ofertas.sembrarPaquetes(); } catch (e) { console.warn('[Ofertas] no se pudieron sembrar:', e.message); }
   historial.repararTramosDadosVuelta();   // tramos que quedaron al revés por el bug de setVigencia
   tcSvc.startScheduler();
   tcDivisas.startScheduler();
@@ -1923,6 +1927,59 @@ function mount(app) {
   }));
 
   app.get('/api/os/api/sellos', (_req, res) => ok(res, { sellos: apiStore.listSellos() }));
+
+  /* ── OFERTAS COMERCIALES ─────────────────────────────────────────────────────────────────────
+     La oferta ES el precio: se arma una vez, se manda como documento y al aceptarla escribe la
+     matriz. Antes se cotizaba en una hoja aparte y después había que volver a tipear los mismos
+     números para poder facturar — dos lugares con el mismo dato es cómo terminan distintos. */
+  app.get('/api/os/api/paquetes', (_req, res) => ok(res, { paquetes: ofertas.listPaquetes() }));
+  app.post('/api/os/api/paquetes', wrap((req, res) => {
+    const r = ofertas.savePaquete(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/api/paquetes/:id', wrap((req, res) => ok(res, ofertas.removePaquete(req.params.id))));
+
+  app.get('/api/os/api/ofertas', (_req, res) => ok(res, { ofertas: ofertas.listOfertas() }));
+  app.get('/api/os/api/ofertas/:id', (req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    ok(res, { oferta: o, mostrar: ofertas.paraMostrar(o) });
+  });
+  app.post('/api/os/api/ofertas', wrap((req, res) => {
+    const r = ofertas.saveOferta(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/api/ofertas/:id', wrap((req, res) => ok(res, ofertas.removeOferta(req.params.id))));
+
+  // Qué cambiaría en la matriz. NO escribe: se mira antes de tocar precios que ya se facturan.
+  app.get('/api/os/api/ofertas/:id/diff', (req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const cid = req.query.cliente_id || o.cliente_id;
+    if (!cid) return err(res, 400, 'falta a qué cuenta compararla');
+    ok(res, ofertas.diff(o, cid));
+  });
+  /* El documento. Sale de `paraMostrar`, que devuelve SÓLO nombre de paquete, proveedores y el %
+     del cliente: ni el costo, ni el margen, ni los puntos de los socios, ni el nombre del sello.
+     La forma más segura de no filtrar un dato interno es no tenerlo a mano. */
+  app.get('/api/os/api/ofertas/:id/doc', (req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const m = ofertas.paraMostrar(o);
+    const html = ofertaHtml.pagina(m);
+    // Cinturón y tiradores: esto se le muestra a un cliente y no hay vuelta atrás.
+    if (/costo|margen|pts_ib|pts_henry|pct_proveedor|grupo_id/i.test(html)) {
+      return err(res, 500, 'el documento traía datos internos: NO se generó. Avisá que esto pasó.');
+    }
+    res.type('text/html; charset=utf-8').send(html);
+  });
+
+  app.post('/api/os/api/ofertas/:id/aplicar', wrap((req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const r = ofertas.aplicar(o, (req.body || {}).cliente_id);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
   app.post('/api/os/api/sellos', wrap((req, res) => {
     const r = apiStore.saveSello(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);

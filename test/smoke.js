@@ -1636,6 +1636,122 @@ async function main() {
       /async function apiUsarNombre\(id, v\)\{/.test(srcUi4)
       && /onclick="apiUsarNombre\('\$\{c\.id\}','\$\{esc\(v\)/.test(srcUi4));
   }
+  /* ── LAS OFERTAS COMERCIALES ─────────────────────────────────────────────────────────────────
+     La oferta ES el precio: se arma con paquetes, se manda como documento y al aplicarla escribe
+     la matriz. Antes se cotizaba en una hoja aparte y después había que volver a tipear los mismos
+     números para facturar — dos lugares con el mismo dato es cómo terminan distintos. */
+  {
+    const ofs = require('../src/api-ofertas-store');
+    const ofHtml = require('../src/api-oferta-html');
+    const apiSt2 = require('../src/api-store');
+    const { db: dbOf } = require('../src/db');
+
+    /* ── LOS NOMBRES QUE VE EL CLIENTE ─────────────────────────────────────────────────────────
+       TBS mete hasta DOS aclaraciones entre paréntesis al final y marcadores internos de variante
+       (OP/KN/EV/SZ). Sacando una sola quedaba "ELK Studios (Slot zona)" como si fuera el nombre de
+       un proveedor. */
+    check('oferta: saca las aclaraciones del final, incluso cuando son dos',
+      ofs.proveedoresDe('EGT Digital, Pragmatic Play, NetEnt, ELK Studios (Slot zona) (prepayment)')
+        .join('|') === 'EGT Digital|Pragmatic Play|NetEnt|ELK Studios',
+      ofs.proveedoresDe('EGT Digital, Pragmatic Play, NetEnt, ELK Studios (Slot zona) (prepayment)').join(' · '));
+    check('oferta: saca los marcadores internos de TBS del final del nombre',
+      ofs.proveedoresDe('PGSOFT OP KN OP').join('|') === 'PG Soft'
+      && ofs.proveedoresDe('EVOLUTION LOBBY PREMIUM OP').join('|') === 'Evolution Lobby Premium',
+      ofs.proveedoresDe('PGSOFT OP KN OP') + ' · ' + ofs.proveedoresDe('EVOLUTION LOBBY PREMIUM OP'));
+    /* La misma marca escrita distinto en dos sellos es UNA. Y el diccionario gana: son nombres de
+       empresas reales y este documento va a un cliente — "Igt" y "Netent" se notan. */
+    check('oferta: la misma marca escrita distinto aparece una sola vez, bien escrita',
+      ofs.unicos(['Igt', 'IGT', 'Netent', 'NetEnt', 'Playngo', 'Playn GO']).join(' · ') === "IGT · NetEnt · Play'n GO",
+      ofs.unicos(['Igt', 'IGT', 'Netent', 'NetEnt', 'Playngo', 'Playn GO']).join(' · '));
+
+    // ── armar una oferta y resolver los precios ──
+    const P1 = ofs.savePaquete({ nombre: 'ZZ Básico', sellos: ['ZZ-uno', 'ZZ-dos'] }).paquete;
+    const P2 = ofs.savePaquete({ nombre: 'ZZ Live', sellos: ['ZZ-tres'] }).paquete;
+    const O = ofs.saveOferta({ titulo: 'ZZ Prueba', lineas: [
+      { paquete_id: P1.id, pct: '8' }, { paquete_id: P2.id, pct: '12' },
+      { sello: 'ZZ-dos', pct: '15' },        // excepción suelta
+    ] }).oferta;
+
+    const r = ofs.resolver(O);
+    check('oferta: el paquete le pone el precio a todos sus sellos',
+      r.get('ZZ-uno').pct === '8' && r.get('ZZ-tres').pct === '12');
+    /* El sello suelto le gana al paquete. Sin esa regla habría que sacar el sello del paquete y
+       perder la agrupación del documento, que es justo lo que lo hace entendible. */
+    check('oferta: un sello negociado aparte le gana al precio del paquete',
+      r.get('ZZ-dos').pct === '15' && r.get('ZZ-dos').suelto === true
+      && r.get('ZZ-dos').paquete_id === P1.id,
+      'ZZ-dos va a 15% y sigue mostrándose dentro de ' + P1.nombre);
+    // El % pasa el mismo control que la matriz del cierre, por el mismo motivo.
+    check('oferta: un % mal escrito no entra',
+      ofs.saveOferta({ titulo: 'ZZ mal', lineas: [{ paquete_id: P1.id, pct: '12,5' }] }).ok === false
+      && ofs.saveOferta({ titulo: 'ZZ mal', lineas: [{ paquete_id: P1.id, pct: '120' }] }).ok === false);
+
+    /* ── QUÉ CAMBIA ANTES DE ESCRIBIR ──────────────────────────────────────────────────────────
+       Un cliente que ya venía facturando puede tener precios negociados que la oferta no menciona:
+       pisarlos sin verlos es cobrarle distinto sin haberlo decidido. */
+    const CID = 'zz-oferta-cli';
+    apiSt2.saveCliente({ id: CID, login: 'ZZOferta', agente: 'zz', alias: [] });
+    dbOf.prepare("INSERT INTO api_pct (cliente_id,sello,pct_cliente,origen) VALUES (?,?,?,'planilla')")
+      .run(CID, 'ZZ-uno', '5');                       // ya tenía otro precio
+    dbOf.prepare("INSERT INTO api_pct (cliente_id,sello,pct_cliente,origen) VALUES (?,?,?,'planilla')")
+      .run(CID, 'ZZ-ajeno', '99');                    // algo que la oferta no menciona
+    const d = ofs.diff(O, CID);
+    check('oferta: dice qué precios cambian y desde cuánto',
+      d.cambian.length === 1 && d.cambian[0].sello === 'ZZ-uno' && d.cambian[0].de === '5' && d.cambian[0].a === '8',
+      'ZZ-uno: 5% → 8%');
+    check('oferta: dice cuáles son nuevos', d.nuevos.length === 2);
+    check('oferta: avisa de lo que el cliente tiene y la oferta NO menciona',
+      d.fuera.length === 1 && d.fuera[0].sello === 'ZZ-ajeno');
+
+    // ── aplicar: escribe la matriz y NO toca lo que no menciona ──
+    const ap = ofs.aplicar(O, CID);
+    const enMatriz = new Map(dbOf.prepare('SELECT sello, pct_cliente FROM api_pct WHERE cliente_id=?')
+      .all(CID).map((x) => [x.sello, x.pct_cliente]));
+    check('oferta: aplicarla escribe los precios en la matriz',
+      ap.ok && enMatriz.get('ZZ-uno') === '8' && enMatriz.get('ZZ-dos') === '15' && enMatriz.get('ZZ-tres') === '12',
+      ap.escritos + ' escritos');
+    check('oferta: lo que la oferta no menciona queda como estaba',
+      enMatriz.get('ZZ-ajeno') === '99');
+    check('oferta: queda marcada como aplicada y enganchada a esa cuenta',
+      ofs.getOferta(O.id).estado === 'aplicada' && ofs.getOferta(O.id).cliente_id === CID);
+    // Y no se puede aplicar a una cuenta que no existe.
+    check('oferta: no se aplica a una cuenta que no existe',
+      ofs.aplicar(O, 'zz-no-existe').ok === false);
+
+    /* ── EL DOCUMENTO NO PUEDE LLEVAR NADA INTERNO ─────────────────────────────────────────────
+       Ni el costo del proveedor, ni el margen, ni los puntos de los socios, ni el nombre del sello,
+       ni el grupo de TBS. El generador recibe sólo lo que `paraMostrar` devuelve. */
+    const m = ofs.paraMostrar(ofs.getOferta(O.id));
+    const html = ofHtml.pagina(m);
+    check('oferta: el documento agrupa por paquete con el % de cada uno',
+      /ZZ Básico/.test(html) && /ZZ Live/.test(html) && /12%/.test(html));
+    check('oferta: el documento NO lleva costos, márgenes ni puntos de socios',
+      !/costo|margen|pts_ib|pts_henry|pct_proveedor|grupo_id/i.test(html));
+    // Un grupo con un solo precio muestra UN número; repetirlo en cada renglón no informa.
+    check('oferta: con un precio único muestra un número y la lista de proveedores',
+      (m.grupos.find((g) => g.nombre === 'ZZ Live') || {}).unico === '12');
+    check('oferta: con precios distintos NO inventa un número único',
+      (m.grupos.find((g) => g.nombre === 'ZZ Básico') || {}).unico === null,
+      'ZZ Básico tiene 8% y 15%: no hay un número solo');
+
+    // Los paquetes de arranque cubren el catálogo real y no se vuelven a sembrar si ya hay.
+    check('oferta: sembrar de nuevo no pisa los paquetes que ya están',
+      ofs.sembrarPaquetes().yaEstaban === true);
+
+    ofs.removeOferta(O.id); ofs.removePaquete(P1.id); ofs.removePaquete(P2.id);
+    dbOf.prepare('DELETE FROM api_pct WHERE cliente_id=?').run(CID);
+    apiSt2.removeCliente(CID);
+
+    // La ruta del documento tiene su propio cinturón: esto sale a un cliente y no hay vuelta atrás.
+    const srcRt5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('oferta: la ruta del documento frena si detecta un dato interno',
+      /el documento traía datos internos: NO se generó/.test(srcRt5));
+    const srcUi5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('oferta: tiene su pestaña y muestra los cambios antes de escribir',
+      /\['ofertas','💼 Ofertas'\]/.test(srcUi5) && /API\.ofertas = async/.test(srcUi5)
+      && /async function ofVerCambios\(id\)/.test(srcUi5)
+      && /Escribir estos precios en la matriz/.test(srcUi5));
+  }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió
   // "94.22" y el sistema borraba TODOS los puntos antes de leer el número. Y al revés, escribir

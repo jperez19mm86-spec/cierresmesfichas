@@ -4538,12 +4538,160 @@ async function tdCapturar(){
 }
 function apiSub(k){ _apiSub=k; document.getElementById('main').innerHTML=apiHeader(); (API[k]||API.matriz)(); }
 function apiHeader(){
-  const subs=[['matriz','🎯 Precios por cliente'],['clientes','👥 Clientes'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
+  const subs=[['ofertas','💼 Ofertas'],['matriz','🎯 Precios por cliente'],['clientes','👥 Clientes'],['cuentas','🧾 Cuentas del mes'],['resumen','📊 Cierre del mes']];
   return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_apiSub?'':'outline'} small" onclick="apiSub('${k}')">${l}</button>`).join('')+
     `</div></div><div id="api-body"></div>`;
 }
 const API={};
+
+/* ── LAS OFERTAS COMERCIALES ────────────────────────────────────────────────────────────────────
+   Cuando alguien pregunta "¿cuánto me cobrás por los proveedores?", la respuesta se armaba en una
+   hoja aparte y después había que volver a tipear esos mismos precios en la matriz para poder
+   facturar. Dos lugares con el mismo número es la forma más barata de que terminen distintos: se
+   cotiza 8% y se factura 12%, y nadie se entera hasta que el cliente reclama.
+
+   Acá la oferta ES el precio: se arma con PAQUETES —no con los 51 sellos uno por uno— se mira el
+   documento, y al aplicarla escribe la matriz. Antes de escribir muestra qué cambia, porque un
+   cliente que ya venía facturando puede tener precios negociados que la oferta no menciona. */
+let _ofSel=null, _ofPaquetes=[], _ofClientes=[];
+
+API.ofertas = async () => {
+  const b=document.getElementById('api-body');
+  b.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
+  const [lo,lp,lc]=await Promise.all([api('/api/os/api/ofertas'),api('/api/os/api/paquetes'),api('/api/os/api/clientes')]);
+  _ofPaquetes=lp.paquetes||[]; _ofClientes=(lc.clientes||[]).filter(c=>c.activo);
+  const ofs=lo.ofertas||[];
+  const nom=(c)=>String(c.de_quien||'').trim()||c.login;
+  b.innerHTML=`
+    <div class="card">
+      <h2>💼 Ofertas comerciales</h2>
+      <div class="muted" style="margin-bottom:10px;max-width:78ch">
+        La oferta <b>es</b> el precio: se arma con paquetes, se manda el documento, y al aplicarla
+        escribe los precios en la matriz. Así lo que cotizaste y lo que facturás salen del mismo dato.</div>
+      <div class="row" style="align-items:flex-end;gap:10px">
+        <div style="flex:0 0 240px"><label>Nueva oferta — a quién va</label>
+          <input id="of-nueva" placeholder="ej: Almir"></div>
+        <div style="flex:0"><button onclick="ofCrear()">+ Armar oferta</button></div>
+      </div>
+      ${ofs.length?`<div style="overflow-x:auto;margin-top:14px"><table style="min-width:100%"><thead><tr>
+        <th>Para</th><th>Estado</th><th>Cuenta</th><th class="right">Paquetes</th><th>Hecha</th><th></th>
+      </tr></thead><tbody>${ofs.map(o=>{
+        const cli=_ofClientes.find(c=>c.id===o.cliente_id);
+        return `<tr${_ofSel===o.id?' style="background:var(--bg3)"':''}>
+          <td style="cursor:pointer" onclick="ofAbrir('${o.id}')"><b>${esc(o.titulo)}</b></td>
+          <td>${o.estado==='aplicada'?'<span class="badge ok">aplicada</span>':'<span class="badge warn">borrador</span>'}</td>
+          <td class="muted">${cli?esc(nom(cli))+' <span style="font-size:10px">('+esc(cli.login)+')</span>':'—'}</td>
+          <td class="right">${(o.lineas||[]).filter(l=>l.paquete_id).length}</td>
+          <td class="muted" style="font-size:11px">${esc(String(o.createdAt||'').slice(0,10))}</td>
+          <td class="right"><button class="outline small" onclick="ofAbrir('${o.id}')">abrir</button>
+            <button class="outline small" onclick="ofBorrar('${o.id}','${esc(o.titulo).replace(/'/g,'')}')">✕</button></td>
+        </tr>`;}).join('')}</tbody></table></div>`
+      :'<div class="empty" style="margin-top:12px">Todavía no hay ninguna oferta. Escribí a quién va y armala.</div>'}
+    </div>
+    <div id="of-editor"></div>`;
+  if(_ofSel) ofAbrir(_ofSel);
+};
+
+async function ofCrear(){
+  const t=val('of-nueva'); if(!t) return toast('Poné a quién va la oferta');
+  const r=await api('/api/os/api/ofertas',{method:'POST',body:JSON.stringify({titulo:t,lineas:[]})});
+  if(!r||!r.ok) return;
+  _ofSel=r.oferta.id; API.ofertas();
+}
+async function ofBorrar(id,titulo){
+  if(!confirm('¿Borrar la oferta de '+titulo+'?\n\nNo toca los precios que ya se hayan aplicado.')) return;
+  await api('/api/os/api/ofertas/'+id,{method:'DELETE'});
+  if(_ofSel===id) _ofSel=null;
+  API.ofertas();
+}
+
+async function ofAbrir(id){
+  _ofSel=id;
+  const cont=document.getElementById('of-editor'); if(!cont) return;
+  const r=await api('/api/os/api/ofertas/'+id);
+  if(!r||!r.ok) return;
+  const o=r.oferta, m=r.mostrar;
+  const pctDe=(pid)=>{const l=(o.lineas||[]).find(x=>x.paquete_id===pid); return l?(l.pct||''):'';};
+  const nom=(c)=>String(c.de_quien||'').trim()||c.login;
+  cont.innerHTML=`
+    <div class="card">
+      <h2>Oferta para ${esc(o.titulo)}</h2>
+      <div class="muted" style="margin-bottom:12px">Poné el % de cada paquete. El que dejes vacío
+        no entra en la oferta.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${_ofPaquetes.map(p=>`<div class="card" style="flex:1;min-width:190px;margin:0;background:var(--bg3)">
+          <label>${esc(p.nombre)}</label>
+          <div class="row" style="align-items:center;gap:6px">
+            <input id="ofp-${p.id}" value="${esc(pctDe(p.id))}" placeholder="—"
+              onchange="ofGuardar('${o.id}')" style="width:74px;font-size:16px;text-align:center"><span class="muted">%</span>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:4px">${p.sellos.length} sellos</div>
+        </div>`).join('')}
+      </div>
+      <div class="row" style="margin-top:12px"><div style="flex:1">
+        <label>Nota para el documento (opcional)</label>
+        <input id="of-notas" value="${esc(o.notas||'')}" onchange="ofGuardar('${o.id}')"
+          placeholder="ej: precios sujetos a revisión trimestral" style="width:100%"></div></div>
+
+      <div class="row" style="margin-top:14px;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:0"><a class="btn" href="/api/os/api/ofertas/${o.id}/doc" target="_blank">📄 Ver el documento</a></div>
+        <div style="flex:1;min-width:200px"><label>Aplicar a la cuenta</label>
+          <select id="of-cli" onchange="ofVerCambios('${o.id}')" style="width:100%">
+            <option value="">— elegí una cuenta —</option>
+            ${_ofClientes.map(c=>`<option value="${esc(c.id)}"${c.id===o.cliente_id?' selected':''}>${esc(nom(c))} (${esc(c.login)})</option>`).join('')}
+          </select></div>
+      </div>
+      <div id="of-cambios" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>Así lo va a ver</h2>
+      <div class="muted" style="margin-bottom:8px">${m.proveedores.length} proveedores incluidos.</div>
+      ${m.grupos.length?m.grupos.map(g=>`<div style="border-top:1px solid var(--border);padding:8px 0">
+        <b>${esc(g.nombre)}</b> ${g.unico?`<span style="color:var(--gold);font-weight:700">${esc(g.unico)}%</span>`:'<span class="muted">varios precios</span>'}
+        <div class="muted" style="font-size:12px;margin-top:3px">${esc(g.items.flatMap(i=>i.proveedores).slice(0,14).join(' · '))}${g.items.flatMap(i=>i.proveedores).length>14?' …':''}</div>
+      </div>`).join(''):'<div class="empty">Poné el % de al menos un paquete.</div>'}
+    </div>`;
+  if(o.cliente_id) ofVerCambios(o.id);
+}
+
+async function ofGuardar(id){
+  const lineas=_ofPaquetes.map(p=>({paquete_id:p.id, pct:(document.getElementById('ofp-'+p.id)||{}).value||''}))
+    .filter(l=>String(l.pct).trim()!=='');
+  const r=await api('/api/os/api/ofertas',{method:'POST',
+    body:JSON.stringify({id, titulo:(await api('/api/os/api/ofertas/'+id)).oferta.titulo,
+      notas:(document.getElementById('of-notas')||{}).value||'', lineas})});
+  if(r&&r.ok) ofAbrir(id);
+}
+
+/* Qué cambiaría en la matriz. Se mira ANTES de escribir: un cliente que ya venía facturando puede
+   tener precios negociados que la oferta no menciona, y pisarlos sin verlos es cobrarle distinto
+   sin haberlo decidido. */
+async function ofVerCambios(id){
+  const cid=(document.getElementById('of-cli')||{}).value||'';
+  const box=document.getElementById('of-cambios'); if(!box) return;
+  if(!cid){ box.innerHTML=''; return; }
+  const d=await api('/api/os/api/ofertas/'+id+'/diff?cliente_id='+encodeURIComponent(cid));
+  if(!d||!d.ok) return;
+  const fila=(t,arr,col)=>arr.length?`<div style="margin-top:4px"><b style="color:${col}">${arr.length}</b> ${t}
+    <div class="muted" style="font-size:11.5px">${arr.slice(0,10).map(x=>esc(x.sello.slice(0,40))+(x.de?` (${esc(x.de)}% → ${esc(x.a)}%)`:'')).join(' · ')}${arr.length>10?' …':''}</div></div>`:'';
+  box.innerHTML=`<div class="card" style="margin:0;background:var(--bg3)">
+    ${fila('precios nuevos',d.nuevos,'var(--green)')}
+    ${fila('que CAMBIAN de precio',d.cambian,'var(--red)')}
+    ${d.iguales.length?`<div class="muted" style="margin-top:4px">${d.iguales.length} ya estaban igual</div>`:''}
+    ${d.fuera.length?`<div class="muted" style="margin-top:4px">${d.fuera.length} precio(s) que tiene y la oferta no menciona: <b>no se tocan</b></div>`:''}
+    <button style="margin-top:10px" onclick="ofAplicar('${id}')">✓ Escribir estos precios en la matriz</button>
+  </div>`;
+}
+async function ofAplicar(id){
+  const cid=(document.getElementById('of-cli')||{}).value||'';
+  if(!cid) return toast('Elegí a qué cuenta');
+  if(!confirm('¿Escribir los precios de esta oferta en la matriz?\n\nLo que el cliente tenga aparte y la oferta no mencione NO se toca.')) return;
+  const r=await api('/api/os/api/ofertas/'+id+'/aplicar',{method:'POST',body:JSON.stringify({cliente_id:cid})});
+  if(!r||!r.ok) return;
+  toast(r.escritos+' precio(s) escritos en la matriz');
+  API.ofertas();
+}
 
 /* ── DE QUIÉN ES LA CUENTA ──────────────────────────────────────────────────────────────────────
    La identidad de una cuenta es su LOGIN en TBS: "Raul-API", "TBSDavidLatam". Eso no cambia y es
