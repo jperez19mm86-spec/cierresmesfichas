@@ -1914,7 +1914,7 @@ function mount(app) {
   /* El nombre del cierre va por su propia ruta y no por `saveCliente`: aquélla reescribe login,
      agente y notas con lo que venga en el cuerpo, así que mandarle sólo el nombre los borraría. */
   app.put('/api/os/api/clientes/:id/nombre', wrap((req, res) => {
-    const r = apiStore.setNombreCierre(req.params.id, (req.body || {}).nombre);
+    const r = apiStore.setDeQuien(req.params.id, (req.body || {}).nombre);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.delete('/api/os/api/clientes/:id/nombres-viejos', wrap((req, res) => {

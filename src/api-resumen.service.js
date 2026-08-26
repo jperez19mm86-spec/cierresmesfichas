@@ -21,9 +21,15 @@ const apiStore = require('./api-store');
 const apiCuenta = require('./api-cuenta.service');
 const money = require('./lib/money');
 
-/** El nombre con el que el dueño lo llama, si lo cargó; si no, el login del panel. */
+/**
+ * Cómo se la nombra: de quién es, si está cargado; si no, el login de TBS.
+ *
+ * Es lo que hace que la cuenta que se le manda diga "Cuenta Raul" en vez de "Cuenta Raul-API". El
+ * login sigue estando adentro del documento, sección por sección: esto es el encabezado, no la
+ * identidad. Antes salía del primer `alias`, que era la lista de nombres de la planilla vieja.
+ */
 function comoLoLlama(c) {
-  return (Array.isArray(c.alias) && c.alias.length ? c.alias[0] : '') || c.login;
+  return String(c.de_quien || '').trim() || c.login;
 }
 
 /**

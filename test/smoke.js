@@ -1566,47 +1566,50 @@ async function main() {
     const ID = 'zz-nombre-test';
     apiSt.saveCliente({ id: ID, login: 'TBSPrueba', agente: 'zz', alias: [] });
 
-    // Sin nombre propio, el cierre lo llama como TBS.
+    // Sin nota, la cuenta del mes se nombra por el login de TBS.
     const resumen = require('../src/api-resumen.service');
-    check('nombre TBS: sin nombre propio, el cierre usa el login de TBS',
-      apiSt.getCliente(ID).alias.length === 0);
+    check('nombre TBS: sin nota, la cuenta se nombra por el login de TBS',
+      resumen.comoLoLlama(apiSt.getCliente(ID)) === 'TBSPrueba');
 
-    // Se le pone uno y ése pasa a ser el del cierre.
-    apiSt.setNombreCierre(ID, 'Prueba Bonita');
-    check('nombre TBS: el nombre que se escribe es el que va al cierre',
-      apiSt.getCliente(ID).alias[0] === 'Prueba Bonita');
+    /* Con la nota, la cuenta que se le manda dice "Cuenta Raul" en vez de "Cuenta Raul-API". Es un
+       encabezado: el login sigue estando adentro del documento, sección por sección. */
+    apiSt.setDeQuien(ID, 'Raul');
+    check('nombre TBS: con la nota, la cuenta se nombra por la persona',
+      resumen.comoLoLlama(apiSt.getCliente(ID)) === 'Raul'
+      && apiSt.getCliente(ID).login === 'TBSPrueba',
+      'se nombra Raul y en TBS sigue siendo TBSPrueba');
 
-    /* Poner el mismo nombre que el login no se guarda: el cierre ya cae al login solo, así que
-       guardarlo sería dejar un dato que no hace nada — justo lo que se está sacando. */
-    /* Un nombre que sólo cambia una MAYÚSCULA sí se guarda: es exactamente para lo que sirve el
-       campo. "Ars1api" en TBS y "Ars1Api" en el cierre son dos nombres distintos para quien los
-       lee, y el cierre imprime el valor tal cual. Comparar sin mayúsculas lo borraba. */
-    apiSt.setNombreCierre(ID, 'TBSPRUEBA');
-    check('nombre TBS: un nombre que sólo cambia mayúsculas SÍ se guarda',
-      apiSt.getCliente(ID).alias[0] === 'TBSPRUEBA', JSON.stringify(apiSt.getCliente(ID).alias));
-    // Idéntico al login sí se descarta: ahí no cambia nada.
-    apiSt.setNombreCierre(ID, 'TBSPrueba');
-    check('nombre TBS: idéntico al login no se guarda, porque no haría nada',
-      apiSt.getCliente(ID).alias.length === 0);
+    // Ponerle el mismo login no se guarda: nombrarla igual que su login es no poner nada.
+    apiSt.setDeQuien(ID, 'TBSPrueba');
+    check('nombre TBS: la nota igual al login no se guarda, porque no cambia nada',
+      apiSt.getCliente(ID).de_quien === ''
+      && resumen.comoLoLlama(apiSt.getCliente(ID)) === 'TBSPrueba');
 
-    /* ── VACIARLO SACA TAMBIÉN LOS VIEJOS ──────────────────────────────────────────────────────
-       Si se conservaran, el primero de ellos pasaría a ser el nombre del cierre —el cierre lee
-       alias[0]— y vaciar el campo terminaría cambiando el nombre por otro en vez de volver al de
-       TBS. Es el caso real de TBSArs2716, que tiene dos restos. */
-    apiSt.saveCliente({ id: ID, login: 'TBSPrueba', agente: 'zz', alias: ['Prueba Bonita', 'tbsprueba', 'TBSPRUEBA'] });
-    apiSt.setNombreCierre(ID, '');
-    check('nombre TBS: vaciarlo saca también los viejos, para que ninguno lo reemplace',
-      apiSt.getCliente(ID).alias.length === 0,
-      JSON.stringify(apiSt.getCliente(ID).alias));
-
-    // Y sacar los viejos deja el del cierre intacto.
-    apiSt.saveCliente({ id: ID, login: 'TBSPrueba', agente: 'zz', alias: ['Prueba Bonita', 'viejo1', 'viejo2'] });
-    const limp = apiSt.limpiarNombresViejos(ID);
-    check('nombre TBS: sacar los viejos no toca el nombre del cierre',
-      limp.ok && limp.sacados.length === 2 && apiSt.getCliente(ID).alias.length === 1
-      && apiSt.getCliente(ID).alias[0] === 'Prueba Bonita',
+    /* ── LA MUDANZA NO CAMBIA LO QUE SE VE ─────────────────────────────────────────────────────
+       El primer alias ERA el nombre que se mostraba, así que pasa a `de_quien` tal cual y sale de
+       la lista para no quedar duplicado. Lo que queda en `alias` son restos que no hacen nada. */
+    const ID2 = 'zz-mudanza-test';
+    require('../src/db').db.prepare(`INSERT INTO api_cliente (id,login,alias,agente,activo,excluye,notas,createdAt)
+      VALUES (?,?,?,?,1,'[]','',?)`).run(ID2, 'TBSViejo', JSON.stringify(['DAVID', 'David', 'tbsviejo']), 'zz', new Date().toISOString());
+    // La mudanza corre al cargar el módulo; acá se simula el mismo paso sobre esta fila.
+    const antesMud = apiSt.getCliente(ID2);
+    check('nombre TBS: una fila vieja llega con todo adentro de alias',
+      antesMud.de_quien === '' && antesMud.alias.length === 3);
+    delete require.cache[require.resolve('../src/api-store')];
+    const apiSt2 = require('../src/api-store');
+    const despMud = apiSt2.getCliente(ID2);
+    check('nombre TBS: la mudanza pasa el primero a la nota y no cambia lo que se ve',
+      despMud.de_quien === 'DAVID' && despMud.alias.length === 2
+      && resumen.comoLoLlama(despMud) === 'DAVID',
+      'de_quien=' + despMud.de_quien + ' · restos=' + JSON.stringify(despMud.alias));
+    // Y sacar los restos no toca la nota.
+    const limp = apiSt2.limpiarNombresViejos(ID2);
+    check('nombre TBS: sacar los restos no toca de quién es',
+      limp.ok && limp.sacados.length === 2 && apiSt2.getCliente(ID2).alias.length === 0
+      && apiSt2.getCliente(ID2).de_quien === 'DAVID',
       'sacó ' + limp.sacados.join(', '));
 
+    apiSt2.removeCliente(ID2);
     apiSt.removeCliente(ID);
 
     /* La ruta va aparte de `saveCliente` a propósito: aquélla reescribe login, agente y notas con
@@ -1614,16 +1617,24 @@ async function main() {
     const srcRt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('nombre TBS: se guarda por su propia ruta, no por la que reescribe toda la cuenta',
       /app\.put\('\/api\/os\/api\/clientes\/:id\/nombre'/.test(srcRt4)
+      && /apiStore\.setDeQuien/.test(srcRt4)
       && /app\.delete\('\/api\/os\/api\/clientes\/:id\/nombres-viejos'/.test(srcRt4));
 
     const srcUi4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    check('nombre TBS: la pantalla lo edita como un nombre, no como una lista',
-      /function apiNombre\(c\)\{/.test(srcUi4) && /Nombre en el cierre/.test(srcUi4)
+    check('nombre TBS: la pantalla pide de quién es, y muestra el login como la identidad',
+      /function apiNombre\(c\)\{/.test(srcUi4) && /De quién es<\/label>/.test(srcUi4)
+      && /En TBS se sigue llamando/.test(srcUi4)
       && !/Otros nombres<\/label>/.test(srcUi4));
     // Y dice qué son los que quedan, en vez de mostrarlos como si hubiera que mantenerlos.
     check('nombre TBS: los restos de la planilla se explican y se pueden sacar',
       /de cuando se traía la gente de la planilla/.test(srcUi4)
       && /apiNombresViejos\('\$\{c\.id\}'\)/.test(srcUi4));
+    /* Al mudar los datos reales, en varias cuentas el nombre de la PERSONA quedó entre los restos y
+       arriba quedó el login reescrito: Raul-API tiene "Raul-API" como nota y "Raul" abajo. Elegir
+       el bueno tiene que ser un clic. */
+    check('nombre TBS: cada resto se puede elegir con un clic',
+      /async function apiUsarNombre\(id, v\)\{/.test(srcUi4)
+      && /onclick="apiUsarNombre\('\$\{c\.id\}','\$\{esc\(v\)/.test(srcUi4));
   }
   // ── EL PUNTO Y LA COMA: EL ERROR DE LOS 100× ─────────────────────────────────────────────────
   // Un cliente avisó 9.422 USDT por una transferencia de 94,22. No lo escribió mal: escribió

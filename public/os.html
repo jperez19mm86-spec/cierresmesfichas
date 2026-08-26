@@ -4545,52 +4545,59 @@ function apiHeader(){
 }
 const API={};
 
-/* ── EL NOMBRE DEL CIERRE ───────────────────────────────────────────────────────────────────────
-   Esto se mostraba como "Otros nombres": una lista suelta de nombres sin decir para qué servían,
-   que se leía como plomería interna asomándose a la pantalla. Casi lo era.
+/* ── DE QUIÉN ES LA CUENTA ──────────────────────────────────────────────────────────────────────
+   La identidad de una cuenta es su LOGIN en TBS: "Raul-API", "TBSDavidLatam". Eso no cambia y es
+   con lo único con lo que se le puede pedir el profit al panel, así que la pantalla lo muestra
+   siempre y no se puede editar desde acá.
 
-   El campo nació para cruzar la planilla cuando se estaba migrando: TBS llama a las cuentas
-   "TBSGerson", "API-MOISES2025", "TBS45Ar23" y la planilla escribía "GERSON", "Moises",
-   "Colombians". Esa búsqueda ya no existe —la función no la llamaba nadie y se sacó— porque las
-   cuentas nuevas nacen acá, no vienen de ninguna planilla.
+   Aparte hace falta saber DE QUIÉN es —"Raul-API es de Raul"—, que no define nada: sirve para que
+   la cuenta que se le manda diga "Cuenta Raul" en vez de "Cuenta Raul-API", y para reconocerla de
+   un vistazo. Es una nota.
 
-   Lo único vivo del campo es el PRIMER valor: el nombre con el que la cuenta aparece en el cierre
-   del mes. Eso no es deuda de la migración, es un nombre para mostrar — así que ahora se edita
-   como un nombre y no como una lista, y los que sobran se pueden sacar. */
+   Antes esto vivía metido adentro de "otros nombres", que era otra cosa: la lista con la que la
+   planilla escribía a esa cuenta mientras se migraba del sistema viejo. Dos ideas en un campo, y
+   la que quedó viva era la que menos se parecía al nombre del campo. */
 function apiNombre(c){
-  const al=c.alias||[];
-  const nombre=al.length?al[0]:'';
-  const viejos=al.slice(1);
-  /* EXACTO, no ignorando mayúsculas: cambiar una mayúscula es para lo que sirve este campo —
-     "Ars1api" en TBS y "Ars1Api" en el cierre son dos nombres distintos para el que los lee.
-     Comparando sin mayúsculas, el campo mostraba "Ars1Api" y el texto de abajo decía "vacío". */
-  const propio = nombre && nombre !== c.login;
-  const igualAlLogin = nombre && nombre === c.login;
-  const pie = propio
-    ? `Así aparece en el cierre del mes. Vacío = como la llama TBS (<b>${esc(c.login)}</b>).`
-    : (igualAlLogin
-      ? `Es igual a como la llama TBS, así que no cambia nada. Se puede dejar vacío.`
-      : `Vacío: aparece como la llama TBS, <b>${esc(c.login)}</b>. Escribí otro sólo si querés verla distinto.`);
+  const dq=String(c.de_quien||'').trim();
+  const viejos=c.alias||[];
   const n=viejos.length;
-  return `<label>Nombre en el cierre</label>
-    <input id="nom-${c.id}" value="${esc(nombre)}" placeholder="${esc(c.login)}"
+  return `<label>De quién es</label>
+    <input id="nom-${c.id}" value="${esc(dq)}" placeholder="ej: Raul"
       onchange="apiNombreGuardar('${c.id}')" style="width:210px;font-size:12.5px">
-    <div class="muted" style="font-size:11px">${pie}</div>
+    <div class="muted" style="font-size:11px">${dq
+      ? `La cuenta del mes va a decir <b>«Cuenta ${esc(dq)}»</b>. En TBS se sigue llamando <b>${esc(c.login)}</b>.`
+      : `Opcional. Sin esto, la cuenta del mes dice <b>«Cuenta ${esc(c.login)}»</b>, que es como la llama TBS.`}</div>
     ${n?`<div class="muted" style="font-size:11px;margin-top:5px;padding-left:8px;border-left:2px solid var(--border)">
-      ${n===1?'Queda <b>1</b> nombre':'Quedan <b>'+n+'</b> nombres'} de cuando se traía la gente de la planilla
-      (<span style="font-family:monospace">${viejos.map(esc).join(' · ')}</span>). Ya no se ${n===1?'usa':'usan'} para nada.
-      <button class="outline small" style="font-size:10.5px;padding:2px 7px;margin-left:4px"
-        onclick="apiNombresViejos('${c.id}')">sacar</button></div>`:''}`;
+      ${n===1?'Queda <b>1</b> nombre':'Quedan <b>'+n+'</b> nombres'} de cuando se traía la gente de la planilla.
+      Ya no se ${n===1?'usa':'usan'} para nada.
+      <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${/* Cada uno con su botón: al mudar los datos, en varias cuentas el nombre de la PERSONA
+             quedó acá abajo y arriba quedó el login reescrito — "Raul-API" arriba y "Raul" acá.
+             Elegirlo tiene que ser un clic, no volver a tipearlo. */''}
+        ${viejos.map(v=>`<button class="outline small" style="font-size:10.5px;padding:2px 7px;font-family:monospace"
+          title="Usar «${esc(v)}» como de quién es la cuenta" onclick="apiUsarNombre('${c.id}','${esc(v).replace(/'/g,'')}')">${esc(v)}</button>`).join('')}
+        <button class="outline small" style="font-size:10.5px;padding:2px 7px"
+          onclick="apiNombresViejos('${c.id}')">✕ sacar ${n===1?'el resto':'los restos'}</button>
+      </div></div>`:''}`;
 }
 async function apiNombreGuardar(id){
   const el=document.getElementById('nom-'+id); if(!el) return;
   const r=await api('/api/os/api/clientes/'+id+'/nombre',{method:'PUT',body:JSON.stringify({nombre:el.value})});
   if(!r||!r.ok) return;
-  toast(el.value.trim()?('En el cierre se va a ver como «'+el.value.trim()+'»'):'Vuelve a verse como lo llama TBS');
+  const v=el.value.trim();
+  toast(v?('La cuenta del mes va a decir «Cuenta '+v+'»'):'Vuelve a nombrarse como la llama TBS');
+  API.clientes();
+}
+/* Promover un resto a "de quién es". Es lo que arregla el caso más común de la mudanza: el nombre
+   de la persona había quedado segundo y arriba quedó el login reescrito. */
+async function apiUsarNombre(id, v){
+  const r=await api('/api/os/api/clientes/'+id+'/nombre',{method:'PUT',body:JSON.stringify({nombre:v})});
+  if(!r||!r.ok) return;
+  toast('La cuenta del mes va a decir «Cuenta '+v+'»');
   API.clientes();
 }
 async function apiNombresViejos(id){
-  if(!confirm('¿Sacar los nombres viejos de la planilla?\n\nNo se usan para nada: la búsqueda por esos nombres ya no existe. El nombre del cierre no se toca.')) return;
+  if(!confirm('¿Sacar los nombres viejos de la planilla?\n\nNo se usan para nada: la búsqueda por esos nombres ya no existe. De quién es la cuenta no se toca.')) return;
   const r=await api('/api/os/api/clientes/'+id+'/nombres-viejos',{method:'DELETE'});
   if(!r||!r.ok) return;
   toast((r.sacados||[]).length+' nombre(s) viejo(s) sacado(s)');

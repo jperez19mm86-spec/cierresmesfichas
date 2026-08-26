@@ -21,7 +21,7 @@
  * llama "NachoAPI", "TBSGerson", "API-MOISES2025". La clave es el ID del nodo en el árbol de
  * TBS; el nombre de la planilla queda como alias para poder buscarlos como uno los llama.
  */
-const { db } = require('./db');
+const { db, ensureColumns } = require('./db');
 
 db.exec(`
   /* Un cliente de API = una cuenta del árbol de TBS. El id ES el del nodo, no uno inventado:
@@ -111,12 +111,50 @@ const K = (s) => String(s || '').trim().toLowerCase();
 // ── CLIENTES ──────────────────────────────────────────────────────────────────────────────
 function listClientes() {
   return db.prepare('SELECT * FROM api_cliente ORDER BY login COLLATE NOCASE').all()
-    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0, padre_id: r.padre_id || null, telegram_chat_id: r.telegram_chat_id || null }));
+    .map((r) => ({ ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0,
+      de_quien: r.de_quien || '', padre_id: r.padre_id || null, telegram_chat_id: r.telegram_chat_id || null }));
 }
 function getCliente(id) {
   const r = db.prepare('SELECT * FROM api_cliente WHERE id=?').get(String(id));
-  return r ? { ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0 } : null;
+  return r ? { ...r, alias: J(r.alias, []), excluye: J(r.excluye, []), activo: r.activo !== 0,
+    de_quien: r.de_quien || '' } : null;
 }
+/* ── DE QUIÉN ES LA CUENTA ──────────────────────────────────────────────────────────────────────
+ * La identidad de una cuenta es su LOGIN en TBS: "Raul-API", "TBSDavidLatam". Eso no cambia y es
+ * con lo único con lo que se le puede pedir el profit al panel.
+ *
+ * Aparte de eso hace falta saber DE QUIÉN es —"Raul-API es de Raul"— y eso no define nada: sirve
+ * para que la cuenta que se le manda diga "Cuenta Raul" en vez de "Cuenta Raul-API", y para
+ * reconocerla de un vistazo en las pantallas. Es una nota, no una clave.
+ *
+ * Vivía metido adentro de `alias`, que era otra cosa: la lista de nombres con los que la planilla
+ * escribía a esa cuenta mientras se migraba del sistema viejo. Dos ideas distintas en un campo, y
+ * la que quedó viva era la que menos se parecía al nombre del campo.
+ *
+ * Se separa: `de_quien` es la nota, y lo que queda en `alias` son restos que ya no hace nada.
+ */
+ensureColumns('api_cliente', { de_quien: 'TEXT' });
+
+/* La mudanza corre una sola vez y no cambia lo que se ve: el primer alias ERA el nombre que se
+ * mostraba, así que pasa a `de_quien` tal cual y se saca de la lista para que no quede duplicado.
+ * Es idempotente —sólo toca las que todavía tienen `de_quien` vacío y algo en `alias`— así que
+ * repetirla en cada arranque no hace nada. */
+(function mudarNombreDeQuien() {
+  const pend = db.prepare(`SELECT id, alias FROM api_cliente
+      WHERE (de_quien IS NULL OR de_quien='') AND alias IS NOT NULL AND alias<>'' AND alias<>'[]'`).all();
+  if (!pend.length) return;
+  const upd = db.prepare('UPDATE api_cliente SET de_quien=?, alias=? WHERE id=?');
+  const tx = db.transaction(() => {
+    for (const r of pend) {
+      let a = []; try { a = JSON.parse(r.alias) || []; } catch (e) { a = []; }
+      if (!a.length) continue;
+      upd.run(String(a[0]), JSON.stringify(a.slice(1)), r.id);
+    }
+  });
+  tx();
+  console.log(`[API] "de quién es" mudado desde el primer alias en ${pend.length} cuenta(s)`);
+}());
+
 /* ── LOS "OTROS NOMBRES" SON RESTOS DE LA MIGRACIÓN ─────────────────────────────────────────────
  * `alias` nació para cruzar la planilla: TBS llama a las cuentas "TBSGerson", "API-MOISES2025",
  * "TBS45Ar23" y la planilla escribía "GERSON", "Moises", "Colombians". Había una `buscarCliente`
@@ -133,34 +171,24 @@ function getCliente(id) {
  */
 
 /**
- * El nombre con el que la cuenta se ve en el cierre del mes.
- * Vacío = se muestra como la llama TBS (el login), que es lo que corresponde a una cuenta nueva.
- *
- * ⚠️ Vaciarlo saca TAMBIÉN los nombres viejos. Si se conservaran, el primero de ellos pasaría a ser
- * el nombre del cierre —el cierre lee `alias[0]`— y vaciar el campo terminaría cambiando el nombre
- * por otro en vez de volver al de TBS.
+ * De quién es la cuenta. Una nota, no una clave: la identidad sigue siendo el login de TBS.
+ * Vacío = se la nombra por su login, que es lo que corresponde a una cuenta recién creada.
  */
-function setNombreCierre(id, nombre) {
+function setDeQuien(id, texto) {
   const c = getCliente(id);
   if (!c) return { ok: false, error: 'no existe esa cuenta' };
-  const n = String(nombre == null ? '' : nombre).trim();
-  /* La comparación es EXACTA, letra por letra, y no ignorando mayúsculas: cambiar una mayúscula es
-     justamente para lo que sirve este campo. "Ars1api" en TBS y "Ars1Api" en el cierre son dos
-     nombres distintos a los ojos de quien lo lee, y el cierre imprime el valor tal cual.
-     Sólo se descarta cuando es idéntico al login, porque ahí sí no hace nada. */
-  const arr = (!n || n === c.login) ? [] : [n, ...(c.alias || []).slice(1)];
-  db.prepare('UPDATE api_cliente SET alias=? WHERE id=?')
-    .run(JSON.stringify([...new Set(arr)]), String(id));
+  const n = String(texto == null ? '' : texto).trim();
+  // Idéntico al login no se guarda: nombrarla igual que su login es lo mismo que no poner nada.
+  db.prepare('UPDATE api_cliente SET de_quien=? WHERE id=?').run(n === c.login ? '' : n, String(id));
   return { ok: true, cliente: getCliente(id) };
 }
 
-/** Saca los nombres viejos y deja sólo el del cierre. */
+/** Saca los nombres que quedaron de la planilla. No tocan nada: la búsqueda por ellos ya no existe. */
 function limpiarNombresViejos(id) {
   const c = getCliente(id);
   if (!c) return { ok: false, error: 'no existe esa cuenta' };
-  const sacados = (c.alias || []).slice(1);
-  db.prepare('UPDATE api_cliente SET alias=? WHERE id=?')
-    .run(JSON.stringify((c.alias || []).slice(0, 1)), String(id));
+  const sacados = c.alias || [];
+  db.prepare("UPDATE api_cliente SET alias='[]' WHERE id=?").run(String(id));
   return { ok: true, sacados, cliente: getCliente(id) };
 }
 function saveCliente(d) {
@@ -317,7 +345,7 @@ function setEnResumen(mes, clave, entra, motivo = '') {
 module.exports = {
   fueraDelResumen, setEnResumen,
   sembrar,
-  listClientes, getCliente, saveCliente, removeCliente, setNombreCierre, limpiarNombresViejos,
+  listClientes, getCliente, saveCliente, removeCliente, setDeQuien, limpiarNombresViejos,
   listSellos, saveSello, removeSello,
   matriz, getPct, setPct, removePct,
 };
