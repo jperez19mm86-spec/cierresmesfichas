@@ -142,6 +142,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS ix_chat_avmens ON chat_aviso_mens(fecha);
 
+  /* LAS WALLETS. Son varias y no una: hay una TRC20 y una BEP20 para el mantenimiento, y otra
+     distinta para lo del mes. Y no todos los clientes pagan a la misma — a uno se le manda una y a
+     otro otra— así que cada cliente puede tener la suya y, si no la tiene, se usa la de siempre.
+     La RED va en su propia columna: mandar USDT por la red equivocada es perder la plata. */
+  CREATE TABLE IF NOT EXISTS chat_wallet (
+    id TEXT PRIMARY KEY,
+    alias TEXT,                   -- cómo la llamás vos ("la de Binance")
+    red TEXT,                     -- TRC20, BEP20…
+    direccion TEXT,
+    activa INTEGER DEFAULT 1,
+    ord INTEGER,
+    createdAt TEXT
+  );
+
   /* PEDIDOS DE UN CHAT NUEVO.
      El cliente ya tiene el servicio en una caja y quiere otro. Lo pide desde su propio portal en
      vez de escribir por privado y que se pierda entre mensajes. No da de alta nada: llega como
@@ -177,6 +191,10 @@ db.exec(`
    Se agregan aparte porque ALTER TABLE tira error si la columna ya está. */
 for (const col of ['link_jugadores TEXT', 'link_panel TEXT', 'usuario_admin TEXT']) {
   try { db.exec(`ALTER TABLE chat_panel ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
+}
+// A qué wallet paga ESTE cliente cada cosa. Vacío = la de siempre.
+for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
+  try { db.exec(`ALTER TABLE chat_cliente ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
 }
 
 const nowISO = () => new Date().toISOString();
@@ -224,9 +242,11 @@ const BOT = 'chatBotToken';
    la hoja del cliente y en su portal: sin eso, la hoja dice cuánto pagar y no dice adónde.
    La RED va en su propio campo y no pegada a la dirección: mandar USDT por la red equivocada es
    perder la plata, y el que copia y pega una línea entera se lleva la red adentro de la dirección. */
-const WALLET = 'chatWallet';
-const RED = 'chatRed';
 const PAGO_NOTA = 'chatPagoNota';
+/* Cuál se usa por defecto para cada cosa. Se guarda el id de la wallet, no la dirección: el día que
+   cambie la dirección se cambia en un lugar y sigue valiendo para todos. */
+const W_GGR = 'chatWalletGgr';      // para el % sobre la ganancia del mes
+const W_MENS = 'chatWalletMens';    // para el mantenimiento
 
 /** El token, para usarlo. NO sale nunca en una respuesta HTTP: ver `config()`. */
 function botToken() {
@@ -242,9 +262,9 @@ function config() {
     costo_pct: cfg.getCfg(COSTO) || '2',
     mensualidad: cfg.getCfg(MENSUAL) || '',
     mensualidad_moneda: cfg.getCfg(MENSUAL_MON) || 'USDT',
-    wallet: cfg.getCfg(WALLET) || '',
-    red: cfg.getCfg(RED) || '',
     pago_nota: cfg.getCfg(PAGO_NOTA) || '',
+    wallet_ggr: cfg.getCfg(W_GGR) || '',
+    wallet_mens: cfg.getCfg(W_MENS) || '',
     bot_propio: !!propio,
     bot_hint: propio ? '…' + propio.slice(-6) : '',
     bot_general: !propio && !!cfg.getTelegramToken(),
@@ -263,17 +283,15 @@ function setConfig(d) {
     cfg.setCfg(MENSUAL, v);
   }
   if (d.mensualidad_moneda !== undefined) cfg.setCfg(MENSUAL_MON, String(d.mensualidad_moneda).trim() || 'USDT');
-  if (d.wallet !== undefined) {
-    const w = String(d.wallet).trim().slice(0, 200);
-    /* Una dirección no lleva espacios ni comas. Se avisa en vez de prohibir —puede haber una red
-       nueva con otro formato— pero una dirección pegada con la red adentro es plata perdida. */
-    if (w && /[\s,]/.test(w)) {
-      return { ok: false, error: 'La dirección no puede llevar espacios. La red va en su propio campo.' };
-    }
-    cfg.setCfg(WALLET, w);
-  }
-  if (d.red !== undefined) cfg.setCfg(RED, String(d.red).trim().toUpperCase().slice(0, 24));
   if (d.pago_nota !== undefined) cfg.setCfg(PAGO_NOTA, String(d.pago_nota).slice(0, 400));
+  for (const [k, clave] of [['wallet_ggr', W_GGR], ['wallet_mens', W_MENS]]) {
+    if (d[k] === undefined) continue;
+    const v = String(d[k] || '').trim();
+    if (v && !db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(v)) {
+      return { ok: false, error: 'esa wallet no existe' };
+    }
+    cfg.setCfg(clave, v);
+  }
   if (d.bot_token !== undefined) {
     const v = String(d.bot_token).trim();
     /* Un token de bot es 123456789:AA... — se valida la forma para no guardar una url pegada de
@@ -515,6 +533,119 @@ function mensualidadesDe(fecha) {
   };
 }
 
+/* La wallet vieja, cuando era UNA sola en la configuración. Si ya había una cargada y todavía no
+   hay ninguna en la tabla, se pasa sola y queda elegida para las dos cosas: si no, el día del
+   despliegue la dirección desaparecía de la pantalla y habría que acordarse de volver a escribirla.
+   Corre una vez y no vuelve a tocar nada. */
+(function migrarWalletVieja() {
+  try {
+    const dir = String(cfg.getCfg('chatWallet') || '').trim();
+    if (!dir) return;
+    if (db.prepare('SELECT COUNT(*) n FROM chat_wallet').get().n > 0) return;
+    const red = String(cfg.getCfg('chatRed') || '').trim().toUpperCase() || 'TRC20';
+    const id = 'chw_migrada';
+    db.prepare(`INSERT INTO chat_wallet (id,alias,red,direccion,activa,ord,createdAt)
+      VALUES (?,?,?,?,1,0,?)`).run(id, red, red, dir, nowISO());
+    cfg.setCfg(W_GGR, id);
+    cfg.setCfg(W_MENS, id);
+    console.log('[Chat] la wallet que estaba cargada pasó a la lista de wallets');
+  } catch (e) { console.warn('[Chat] no se pudo pasar la wallet vieja:', e.message); }
+}());
+
+/* ── LAS WALLETS ─────────────────────────────────────────────────────────────────────────────
+   Varias, no una: una TRC20 y una BEP20 para el mantenimiento, otra para lo del mes. Cada cliente
+   puede tener la suya y, si no la tiene, se usa la de siempre. */
+function wallets() {
+  return db.prepare('SELECT * FROM chat_wallet ORDER BY ord, createdAt')
+    .all().map((w) => ({ ...w, activa: w.activa !== 0 }));
+}
+
+function guardarWallet(d) {
+  const dir = String(d.direccion == null ? '' : d.direccion).trim().slice(0, 200);
+  if (!dir) return { ok: false, error: 'falta la dirección' };
+  /* Una dirección no lleva espacios ni comas: si los tiene, casi seguro le pegaron la red adentro,
+     y mandar por la red equivocada es perder la plata. */
+  if (/[\s,]/.test(dir)) {
+    return { ok: false, error: 'La dirección no puede llevar espacios. La red va en su propio campo.' };
+  }
+  const red = String(d.red || '').trim().toUpperCase().slice(0, 24);
+  if (!red) return { ok: false, error: 'falta la red (TRC20, BEP20…)' };
+  const id = String(d.id || '').trim() || 'chw_' + require('crypto').randomBytes(5).toString('hex');
+  const prev = db.prepare('SELECT * FROM chat_wallet WHERE id=?').get(id);
+  const ord = prev ? prev.ord : (db.prepare('SELECT COALESCE(MAX(ord),-1)+1 n FROM chat_wallet').get().n);
+  db.prepare(`INSERT INTO chat_wallet (id,alias,red,direccion,activa,ord,createdAt)
+      VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET alias=excluded.alias, red=excluded.red,
+      direccion=excluded.direccion, activa=excluded.activa`)
+    .run(id, String(d.alias || '').trim().slice(0, 60) || red, red, dir,
+      d.activa === false ? 0 : 1, ord, (prev && prev.createdAt) || nowISO());
+  return { ok: true, wallet: wallets().find((w) => w.id === id) };
+}
+
+function borrarWallet(id) {
+  const w = String(id || '');
+  /* No se borra la que está en uso: el cliente que la tenía elegida se quedaría sin adónde pagar y
+     nadie se enteraría hasta que preguntara. Se apaga, que deja de ofrecerse y no rompe nada. */
+  const usada = [cfg.getCfg(W_GGR), cfg.getCfg(W_MENS)].includes(w)
+    || db.prepare('SELECT COUNT(*) n FROM chat_cliente WHERE wallet_ggr=? OR wallet_mens=?').get(w, w).n > 0;
+  if (usada) return { ok: false, error: 'esa wallet está elegida en algún lado. Apagala en vez de borrarla, o cambiá primero quién la usa.' };
+  return { ok: true, borrados: db.prepare('DELETE FROM chat_wallet WHERE id=?').run(w).changes };
+}
+
+/**
+ * QUÉ WALLET LE TOCA A ESTE CLIENTE PARA ESTA COSA.
+ * La suya si tiene una elegida; si no, la de siempre; si no elegiste ninguna y hay UNA sola activa,
+ * esa — el caso de una sola wallet es el común y pedir que además la elija sería pedir dos veces lo
+ * mismo.
+ *
+ * ⚠️ Si la elegida está APAGADA no se reemplaza por otra: devuelve nada. Poner la que quedó
+ * prendida sería cambiarle al cliente la dirección donde paga sin que nadie lo haya decidido, y
+ * ésa es la clase de cambio silencioso que termina en plata mandada a otro lado. Sin wallet, la
+ * hoja no muestra "cómo pagar" y la pantalla avisa.
+ */
+function walletDe(clienteId, uso) {
+  const todas = wallets();
+  const act = todas.filter((w) => w.activa);
+  const viva = (id) => (id ? (act.find((w) => w.id === id) || null) : undefined);
+  const d = clienteId ? destino(clienteId) : null;
+  const propia = d && (uso === 'mens' ? d.wallet_mens : d.wallet_ggr);
+  const elegidaCli = viva(propia);
+  if (elegidaCli !== undefined) return elegidaCli;           // eligió una: vale, prendida o nada
+  const elegidaDef = viva(cfg.getCfg(uso === 'mens' ? W_MENS : W_GGR));
+  if (elegidaDef !== undefined) return elegidaDef;
+  return act.length === 1 ? act[0] : null;
+}
+
+/** Las elegidas que quedaron apagadas. La pantalla lo avisa: si no, no hay adónde pagar y no se ve. */
+function walletsApagadasEnUso() {
+  const todas = wallets();
+  const off = new Set(todas.filter((w) => !w.activa).map((w) => w.id));
+  const nombre = (id) => (todas.find((w) => w.id === id) || {}).alias || id;
+  const out = [];
+  for (const [k, quien] of [[cfg.getCfg(W_GGR), 'el servicio del mes'], [cfg.getCfg(W_MENS), 'el mantenimiento']]) {
+    if (k && off.has(k)) out.push({ wallet: nombre(k), donde: quien });
+  }
+  for (const f of db.prepare('SELECT * FROM chat_cliente').all()) {
+    for (const [k, quien] of [[f.wallet_ggr, 'el mes'], [f.wallet_mens, 'el mantenimiento']]) {
+      if (k && off.has(k)) out.push({ wallet: nombre(k), donde: `${quien} de un cliente` });
+    }
+  }
+  return out;
+}
+
+/** Lo que va en la hoja y en el portal: la del mes, la del mantenimiento y la aclaración. */
+function comoPagar(clienteId) {
+  const ggr = walletDe(clienteId, 'ggr');
+  const mens = walletDe(clienteId, 'mens');
+  const misma = ggr && mens && ggr.id === mens.id;
+  return {
+    nota: config().pago_nota,
+    misma: !!misma,
+    ggr: ggr ? { alias: ggr.alias, red: ggr.red, direccion: ggr.direccion } : null,
+    mens: mens ? { alias: mens.alias, red: mens.red, direccion: mens.direccion } : null,
+  };
+}
+
 /* ── EL DESTINO DE CADA CLIENTE ──────────────────────────────────────────────────────────────
    Dónde se le manda la cuenta de ESTE servicio. Ver el comentario de la tabla: es a propósito que
    no sea el mismo grupo que el de las fichas. */
@@ -537,16 +668,28 @@ function setDestino(d) {
   const vino = (k) => Object.prototype.hasOwnProperty.call(d, k);
   const val = (k) => (vino(k) ? String(d[k] == null ? '' : d[k]).trim() : String((prev && prev[k]) || ''));
   const grupo = partirGrupos(val('tg_grupo')).join(', ');
+  // La wallet propia de este cliente, si le pusiste una distinta de la de siempre.
+  const wsel = {};
+  for (const k of ['wallet_ggr', 'wallet_mens']) {
+    if (!vino(k)) continue;
+    const v = String(d[k] || '').trim();
+    if (v && !db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(v)) {
+      return { ok: false, error: 'esa wallet no existe' };
+    }
+    wsel[k] = v || null;
+  }
   /* Un chatId de Telegram es un número (los grupos son negativos) o un @nombre. Se avisa en vez de
      prohibir: puede pegarse un link y quererse arreglar después, pero mandar a un destino que no
      existe falla en silencio del lado de Telegram y la cuenta no llega. */
   const malos = partirGrupos(grupo).filter((g) => !/^-?\d+$/.test(g) && !/^@[\w]{3,}$/.test(g));
-  db.prepare(`INSERT INTO chat_cliente (cliente_id,tg_grupo,enviar_a,notas,createdAt)
-      VALUES (?,?,?,?,?)
+  const qw = (k) => (Object.prototype.hasOwnProperty.call(wsel, k) ? wsel[k] : ((prev && prev[k]) || null));
+  db.prepare(`INSERT INTO chat_cliente (cliente_id,tg_grupo,enviar_a,notas,createdAt,wallet_ggr,wallet_mens)
+      VALUES (?,?,?,?,?,?,?)
     ON CONFLICT(cliente_id) DO UPDATE SET tg_grupo=excluded.tg_grupo,
-      enviar_a=excluded.enviar_a, notas=excluded.notas`)
+      enviar_a=excluded.enviar_a, notas=excluded.notas,
+      wallet_ggr=excluded.wallet_ggr, wallet_mens=excluded.wallet_mens`)
     .run(id, grupo || null, val('enviar_a') || null, val('notas') || null,
-      (prev && prev.createdAt) || nowISO());
+      (prev && prev.createdAt) || nowISO(), qw('wallet_ggr'), qw('wallet_mens'));
   return {
     ok: true,
     destino: destino(id),
@@ -799,7 +942,7 @@ function portalDe(clienteId) {
     avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto, moneda: a.moneda, estado: a.estado })),
     solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at FROM chat_solicitud
       WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 10`).all(id),
-    pago: { wallet: config().wallet, red: config().red, nota: config().pago_nota },
+    pago: comoPagar(id),
   };
 }
 
@@ -983,6 +1126,7 @@ module.exports = {
   config, setConfig, list, set, quitar, gananciaDelMes, cierre, mensualidadesDe,
   destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken,
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
+  wallets, guardarWallet, borrarWallet, walletDe, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud,

@@ -1276,10 +1276,9 @@ app.get('/chat/:token', (req, res) => {
      es lo que tiene que pagar hoy, y puede arrastrar meses. Dos cosas distintas en la misma hoja. */
   const todo = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
   const esteMes = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
-  const cfgChat = chatStore.config();
   res.send(chatDoc.htmlCliente(r.doc, {
     token: req.params.token,
-    pago: { wallet: cfgChat.wallet, red: cfgChat.red, nota: cfgChat.pago_nota },
+    pago: chatStore.comoPagar(r.cliente_id),
     avisos: chatStore.avisosDe(r.cliente_id),
     saldo: todo ? { ...todo, otrosMeses: !esteMes || todo.cobrado !== esteMes.cobrado } : null,
   }));

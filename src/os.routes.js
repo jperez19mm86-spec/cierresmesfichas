@@ -1957,7 +1957,18 @@ function mount(app) {
     const r = chat.setConfig(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-  app.get('/api/os/chat/paneles', (_req, res) => ok(res, { paneles: chat.list(), config: chat.config(), destinos: chat.destinos() }));
+  app.get('/api/os/chat/paneles', (_req, res) => ok(res, {
+    paneles: chat.list(), config: chat.config(), destinos: chat.destinos(),
+    wallets: chat.wallets(), apagadas: chat.walletsApagadasEnUso(),
+  }));
+  app.post('/api/os/chat/wallets', wrap((req, res) => {
+    const r = chat.guardarWallet(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  app.delete('/api/os/chat/wallets/:id', wrap((req, res) => {
+    const r = chat.borrarWallet(req.params.id);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
   app.post('/api/os/chat/paneles', wrap((req, res) => {
     const r = chat.set(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
@@ -2006,9 +2017,8 @@ function mount(app) {
     // La vista previa muestra lo MISMO que va a ver el cliente, salvo el formulario: mirar una
     // versión distinta de la que se manda no sirve para revisarla.
     const todo = chat.cuentas(null).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
-    const c = chat.config();
     const html = chatDoc.htmlCliente(doc, {
-      pago: { wallet: c.wallet, red: c.red, nota: c.pago_nota }, saldo: todo });
+      pago: chat.comoPagar(req.params.clienteId), saldo: todo });
     if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
     res.type('text/html; charset=utf-8').send(html);
   });

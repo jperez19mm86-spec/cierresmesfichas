@@ -4086,12 +4086,16 @@ function renderNodos(){
 
    La ganancia NO se le pregunta al casino: sale del acumulado que el cron ya guarda todas las
    noches, cruzando conexión + nodo. */
-let _chatMes = mesDeCierre();
+let _chatMes = mesDeCierre(), _chatWs = [];
 function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
 
 VIEWS.chat = async () => {
   const main=document.getElementById('main');
   main.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
+  /* Los paneles se cargan ACÁ. Antes la lista salía vacía hasta que pasaras por 👥 Clientes, así
+     que la pantalla decía "elegí un panel" y el desplegable no tenía ninguno: no había forma de
+     empezar a usarla. Ninguna pantalla puede depender de que hayas visitado otra primero. */
+  if(!_paneles.length){ const dp=await api('/api/os/paneles'); _paneles=dp.paneles||[]; }
   const [lp, pc, me]=await Promise.all([
     api('/api/os/chat/paneles'), api('/api/os/chat/por-cliente?mes='+_chatMes),
     api('/api/os/chat/mensualidades')]);
@@ -4100,7 +4104,8 @@ VIEWS.chat = async () => {
   const cta=pc.cuentas||{clientes:[],totales:{cobrado:'0',pagado:'0',debe:'0'}};
   const arrastre=pc.arrastre||{clientes:[],totales:{debe:'0'}};
   const opciones=(_paneles.length?_paneles:[]).filter(p=>!ps.some(x=>x.panel_id===p.id));
-  const dest=lp.destinos||{};
+  const dest=lp.destinos||{}, ws=lp.wallets||[];
+  _chatWs=ws;   // para poder apagar una sin volver a pedir la lista
   /* Los clientes salen de los PANELES contratados, no del cierre: uno que recién entró todavía no
      facturó nada y si la lista saliera del mes no habría dónde cargarle el grupo. */
   const clis=[]; ps.forEach(p=>{ if(!p.cliente_id) return;
@@ -4131,21 +4136,52 @@ VIEWS.chat = async () => {
           Son iguales para todos los paneles, así que viven acá y no repetidos en cada uno.</div>
       </div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-        <div style="flex:0 0 110px"><label>Red</label>
-          <input id="chat-red" value="${esc(cfgC.red||'')}" onchange="chatCfg()" placeholder="TRC20"
-            style="width:100%;text-align:center;text-transform:uppercase"></div>
-        <div style="flex:1;min-width:260px"><label>Wallet donde te pagan el chat</label>
-          <input id="chat-wallet" value="${esc(cfgC.wallet||'')}" onchange="chatCfg()"
-            placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
-        <div style="flex:1;min-width:180px"><label>Aclaración <span class="muted">(opcional)</span></label>
+        <div style="flex:1;min-width:180px"><label>Aclaración para el cliente <span class="muted">(opcional)</span></label>
           <input id="chat-pagonota" value="${esc(cfgC.pago_nota||'')}" onchange="chatCfg()"
             placeholder="mandá el hash cuando pagues" style="width:100%"></div>
       </div>
-      <div class="row" style="margin-top:4px">
-        <div class="muted" style="flex:1;font-size:12px">La red va <b>en su propio campo</b>: mandar
-          USDT por la red equivocada es perder la plata, y el que copia una línea entera se lleva la
-          red adentro de la dirección. El cliente la ve con un botón de <b>copiar</b>. Es
-          <b>otra wallet</b> que la de las fichas — esta plata es de otro negocio.</div>
+
+      <h2 style="margin-top:20px">Dónde te pagan</h2>
+      <div class="muted" style="max-width:80ch">Podés tener varias. La <b>red</b> va en su propio
+        campo: mandar USDT por la red equivocada es perder la plata, y el que copia una línea entera
+        se lleva la red adentro de la dirección. Son <b>otras wallets</b> que las de las fichas —
+        esta plata <b>es de otro negocio</b>.</div>
+      ${(lp.apagadas||[]).length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:10px">
+        <b>Hay una wallet elegida que está apagada</b>: ${lp.apagadas.map(x=>esc(x.wallet)+' <span class="muted">('+esc(x.donde)+')</span>').join(' · ')}.
+        Mientras siga así, ahí no se muestra ninguna dirección — no se reemplaza sola por otra.</div>`:''}
+      ${(ws||[]).length?`<table style="margin-top:10px"><thead><tr>
+        <th>Nombre</th><th>Red</th><th>Dirección</th><th class="right">Activa</th><th></th>
+      </tr></thead><tbody>
+        ${ws.map(w=>`<tr${w.activa?'':' style="opacity:.5"'}>
+          <td><b>${esc(w.alias)}</b></td><td>${esc(w.red)}</td>
+          <td style="font-family:monospace;font-size:12px;word-break:break-all">${esc(w.direccion)}</td>
+          <td class="right"><input type="checkbox" ${w.activa?'checked':''}
+            onchange="chatWalletActiva('${w.id}',this.checked)" title="Apagada deja de ofrecerse"></td>
+          <td class="right"><button class="outline small" onclick="chatWalletBorrar('${w.id}','${esc(w.alias).replace(/'/g,'')}')">✕</button></td>
+        </tr>`).join('')}
+      </tbody></table>`:''}
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:10px">
+        <div style="flex:0 0 130px"><label>Nombre</label>
+          <input id="chat-w-alias" placeholder="la de Binance" style="width:100%"></div>
+        <div style="flex:0 0 100px"><label>Red</label>
+          <input id="chat-w-red" placeholder="TRC20" style="width:100%;text-align:center;text-transform:uppercase"></div>
+        <div style="flex:1;min-width:240px"><label>Dirección</label>
+          <input id="chat-w-dir" placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
+        <div style="flex:0"><button onclick="chatWalletNueva()">+ Agregar</button></div>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:14px;margin-top:12px">
+        <div style="flex:0 0 240px"><label>Para el servicio del mes, por defecto</label>
+          <select onchange="chatCfgWallet('wallet_ggr',this.value)" style="width:100%">
+            <option value="">— elegí una —</option>
+            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${cfgC.wallet_ggr===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
+          </select></div>
+        <div style="flex:0 0 240px"><label>Para el mantenimiento, por defecto</label>
+          <select onchange="chatCfgWallet('wallet_mens',this.value)" style="width:100%">
+            <option value="">— elegí una —</option>
+            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${cfgC.wallet_mens===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
+          </select></div>
+        <div class="muted" style="flex:1;min-width:200px;font-size:12px;align-self:center">
+          Es lo que se le muestra a todos, salvo a los que abajo tengan otra elegida.</div>
       </div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
         <div style="flex:1;min-width:260px"><label>Bot de Telegram de este servicio</label>
@@ -4177,7 +4213,7 @@ VIEWS.chat = async () => {
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
         <div style="flex:0"><button onclick="chatAgregar()">+ Agregar</button></div>
       </div>
-      ${!opciones.length&&!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Entrá una vez a 👥 Clientes para que se carguen los paneles.</div>':''}
+      ${!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todavía no hay ningún panel cargado en el sistema. Cargalos en 👥 Clientes.</div>':(!opciones.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todos los paneles ya tienen el chat.</div>':'')}
       ${ps.length?`<div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Caja</th><th>Nivel</th><th class="right">Le cobrás</th>
         <th class="right">Mensualidad el día</th><th></th></tr></thead><tbody>
@@ -4220,13 +4256,18 @@ VIEWS.chat = async () => {
         <b>más de uno</b> separados por coma —a veces el encargado tiene que enterarse y no está en
         el grupo del cliente—. El campo de al lado es una nota tuya y no lo usa el sistema.</div>
       ${clis.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
-        <th>Cliente</th><th>Grupo(s) de Telegram</th><th>Se la mando a…</th></tr></thead><tbody>
+        <th>Cliente</th><th>Grupo(s) de Telegram</th><th>Se la mando a…</th>
+        <th>Paga el mes a</th><th>Paga el mantenimiento a</th></tr></thead><tbody>
         ${clis.map(c=>`<tr>
-          <td><b>${esc(c.nombre)}</b>${c.paneles>1?`<span class="muted" style="font-size:11.5px"> · ${c.paneles} paneles</span>`:''}</td>
+          <td><b>${esc(c.nombre)}</b>${c.paneles>1?`<span class="muted" style="font-size:11.5px"> · ${c.paneles} cajas</span>`:''}</td>
           <td><input value="${esc((dest[c.id]||{}).tg_grupo||'')}" placeholder="-1002…, -1003…"
-            onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:230px"></td>
+            onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:200px"></td>
           <td><input value="${esc((dest[c.id]||{}).enviar_a||'')}" placeholder="a Raúl por privado"
-            onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%"></td>
+            onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%;min-width:120px"></td>
+          ${['wallet_ggr','wallet_mens'].map(k=>`<td><select onchange="chatDestino('${c.id}',{${k}:this.value})" style="width:140px">
+            <option value="">la de siempre</option>
+            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${(dest[c.id]||{})[k]===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
+          </select></td>`).join('')}
         </tr>`).join('')}
       </tbody></table></div>`:''}
     </div>
@@ -4458,7 +4499,7 @@ function chatGanancia(f){
 async function chatCfg(){
   const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify({
     costo_pct:val('chat-costo'), mensualidad:val('chat-mens'), mensualidad_moneda:val('chat-mensmon'),
-    wallet:val('chat-wallet'), red:val('chat-red'), pago_nota:val('chat-pagonota')})});
+    pago_nota:val('chat-pagonota')})});
   if(r&&r.ok){ toast('Guardado'); VIEWS.chat(); }
 }
 async function chatSet(id,campos){
@@ -4484,6 +4525,27 @@ async function chatBot(){
   const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify({bot_token:v})});
   el.value='';
   if(r&&r.ok){ toast('Bot guardado'); VIEWS.chat(); }
+}
+async function chatWalletNueva(){
+  const r=await api('/api/os/chat/wallets',{method:'POST',body:JSON.stringify({
+    alias:val('chat-w-alias'), red:val('chat-w-red'), direccion:val('chat-w-dir')})});
+  if(r&&r.ok){ toast('Wallet agregada'); VIEWS.chat(); }
+}
+async function chatWalletActiva(id,activa){
+  const w=(_chatWs||[]).find(x=>x.id===id)||{};
+  const r=await api('/api/os/chat/wallets',{method:'POST',body:JSON.stringify({
+    id:id, alias:w.alias, red:w.red, direccion:w.direccion, activa:activa})});
+  if(r&&r.ok) VIEWS.chat();
+}
+async function chatWalletBorrar(id,alias){
+  if(!confirm('¿Borrar la wallet «'+alias+'»?\n\nSi está elegida en algún lado no se va a poder: apagala en vez de borrarla.')) return;
+  const r=await api('/api/os/chat/wallets/'+id,{method:'DELETE'});
+  if(r&&r.ok){ toast('Borrada'); VIEWS.chat(); }
+}
+async function chatCfgWallet(campo,valor){
+  const b={}; b[campo]=valor;
+  const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify(b)});
+  if(r&&r.ok){ toast('Guardado'); VIEWS.chat(); }
 }
 async function chatDestino(cid,campos){
   const r=await api('/api/os/chat/destino/'+cid,{method:'PUT',body:JSON.stringify(campos)});

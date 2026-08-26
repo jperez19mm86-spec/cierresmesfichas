@@ -108,7 +108,10 @@
   .chip.ok{background:#e7f4ed;color:var(--verde)}
   .chip.no{background:#fbeceb;color:var(--rojo)}
   .paga{background:var(--lila2);border:1px solid var(--linea);border-radius:12px;padding:13px 15px;font-size:14.5px}
+  .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
+    font-weight:700;margin-bottom:6px}
   .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:7px}
+  .paga + .paga{margin-top:11px}
   .paga .dir{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     font-size:14px;background:#fff;border:1px solid var(--linea);border-radius:9px;padding:11px 12px}
   .paga .notap{margin-top:9px;font-size:13px;color:var(--tinta2)}
@@ -274,21 +277,34 @@ function pintar() {
 
 /* La RED va aparte de la dirección: mandar USDT por la red equivocada es perder la plata, y el que
    copia una línea entera se lleva la red adentro de la dirección. */
+function unaWallet(w, rotulo, id) {
+  return '<div class="paga">'
+    + (rotulo ? '<div class="rot">' + esc(rotulo) + '</div>' : '')
+    + '<div class="red">Red <b>' + esc(w.red) + '</b>'
+    + (w.alias && w.alias !== w.red ? ' · ' + esc(w.alias) : '') + '</div>'
+    + '<div class="dir" id="' + id + '">' + esc(w.direccion) + '</div>'
+    + '<button type="button" class="copiar" onclick="copiar(this,\'' + id + '\')">Copiar la dirección</button>'
+    + '</div>';
+}
+
+/* Puede haber una wallet para el servicio del mes y otra para el mantenimiento, y no la misma para
+   todos los clientes. Si las dos son la misma va un bloque solo: repetir la misma dirección invita
+   a mirar cuál es cuál. */
 function bloquePago() {
   var p = DATOS.pago || {};
-  if (!p.wallet) return '';
-  return '<h2 style="margin-top:20px">Cómo pagar</h2><div class="paga">'
-    + (p.red ? '<div class="red">Red <b>' + esc(p.red) + '</b></div>' : '')
-    + '<div class="dir" id="dir">' + esc(p.wallet) + '</div>'
-    + '<button type="button" class="copiar" onclick="copiar(this)">Copiar la dirección</button>'
-    + (p.nota ? '<div class="notap">' + esc(p.nota) + '</div>' : '')
-    + '</div>';
+  if (!p.ggr && !p.mens) return '';
+  var nota = p.nota ? '<div class="notap">' + esc(p.nota) + '</div>' : '';
+  var h = '<h2 style="margin-top:20px">Cómo pagar</h2>';
+  if (p.misma || !p.mens) return h + unaWallet(p.ggr || p.mens, '', 'dir1') + nota;
+  if (!p.ggr) return h + unaWallet(p.mens, 'Mantenimiento', 'dir2') + nota;
+  return h + unaWallet(p.ggr, 'Servicio del mes', 'dir1')
+    + unaWallet(p.mens, 'Mantenimiento', 'dir2') + nota;
 }
 
 /* `navigator.clipboard` sólo existe en https (o localhost) y el cliente abre esto desde cualquier
    lado: sin el plan B el botón no hace nada y no se entiende por qué. */
-function copiar(b) {
-  var t = document.getElementById('dir').textContent.trim();
+function copiar(b, id) {
+  var t = document.getElementById(id).textContent.trim();
   function ok() {
     b.textContent = 'Copiada'; b.className = 'copiar ok';
     setTimeout(function () { b.textContent = 'Copiar la dirección'; b.className = 'copiar'; }, 1800);

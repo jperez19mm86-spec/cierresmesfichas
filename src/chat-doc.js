@@ -85,7 +85,10 @@ const CSS = `
   .avi{margin-top:14px;padding:11px 14px;border-left:3px solid var(--uva3);background:#fff;
     border-radius:0 11px 11px 0;font-size:13.5px;color:var(--tinta2)}
   .paga{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:15px 16px;font-size:14.5px}
+  .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
+    font-weight:700;margin-bottom:6px}
   .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:8px}
+  .paga + .paga{margin-top:10px}
   .paga .dir{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     font-size:14px;background:var(--lila2);border:1px solid var(--linea);border-radius:10px;padding:12px 13px}
   .paga .notap{margin-top:9px;font-size:13px;color:var(--tinta2)}
@@ -191,6 +194,27 @@ function paraCliente(g, ctx = {}) {
   };
 }
 
+/* CÓMO PAGAR. Puede haber una wallet para el servicio del mes y otra para el mantenimiento —y no
+   la misma para todos los clientes—, así que se dibuja lo que le toca a ÉSTE. Si las dos son la
+   misma va un bloque solo: repetir la misma dirección dos veces invita a mirar cuál es cuál. */
+function unaWallet(w, rotulo, id) {
+  return `<div class="paga">
+    ${rotulo ? `<div class="rot">${esc(rotulo)}</div>` : ''}
+    <div class="red">Red <b>${esc(w.red)}</b>${w.alias && w.alias !== w.red ? ` · ${esc(w.alias)}` : ''}</div>
+    <div class="dir" id="${id}">${esc(w.direccion)}</div>
+    <button type="button" class="copiar" onclick="copiar(this,'${id}')">Copiar la dirección</button>
+  </div>`;
+}
+
+function bloquePago(p) {
+  if (!p || (!p.ggr && !p.mens)) return '';
+  const nota = p.nota ? `<div class="avi">${esc(p.nota)}</div>` : '';
+  if (p.misma || !p.mens) return `<h2>Cómo pagar</h2>${unaWallet(p.ggr || p.mens, '', 'dir1')}${nota}`;
+  if (!p.ggr) return `<h2>Cómo pagar</h2>${unaWallet(p.mens, 'Mantenimiento', 'dir2')}${nota}`;
+  return `<h2>Cómo pagar</h2>${unaWallet(p.ggr, 'Servicio del mes', 'dir1')}`
+    + `${unaWallet(p.mens, 'Mantenimiento', 'dir2')}${nota}`;
+}
+
 /**
  * LA HOJA DEL CLIENTE — HTML. Recibe lo que devuelve `paraCliente` y nada más de adentro.
  *
@@ -237,13 +261,7 @@ function htmlCliente(doc, ctx = {}) {
     <b>${n(doc.total, 2)} USDT</b>
   </div>` : ''}
 
-  ${(ctx.pago && ctx.pago.wallet) ? `<h2>Cómo pagar</h2>
-  <div class="paga">
-    ${ctx.pago.red ? `<div class="red">Red <b>${esc(ctx.pago.red)}</b></div>` : ''}
-    <div class="dir" id="dir">${esc(ctx.pago.wallet)}</div>
-    <button type="button" class="copiar" onclick="copiar(this)">Copiar la dirección</button>
-    ${ctx.pago.nota ? `<div class="notap">${esc(ctx.pago.nota)}</div>` : ''}
-  </div>` : ''}
+  ${bloquePago(ctx.pago)}
 
   ${ctx.token ? `
   ${pend.length ? `<div class="avi"><b>Ya nos avisaste ${pend.length === 1 ? 'un pago' : pend.length + ' pagos'}</b>
@@ -278,9 +296,9 @@ function htmlCliente(doc, ctx = {}) {
   /* `navigator.clipboard` sólo existe en https (o en localhost). El cliente puede abrir esto desde
      cualquier lado, así que hay un plan B con un textarea: sin eso el botón no hace nada y no se
      entiende por qué. */
-  const jsCopiar = (ctx.pago && ctx.pago.wallet) ? `<script>
-function copiar(b){
-  var t=document.getElementById('dir').textContent.trim();
+  const jsCopiar = (ctx.pago && (ctx.pago.ggr || ctx.pago.mens)) ? `<script>
+function copiar(b,id){
+  var t=document.getElementById(id).textContent.trim();
   function ok(){ b.textContent='Copiada'; b.className='copiar ok';
     setTimeout(function(){ b.textContent='Copiar la dirección'; b.className='copiar'; },1800); }
   if(navigator.clipboard&&window.isSecureContext){ navigator.clipboard.writeText(t).then(ok,plan_b); }

@@ -2167,16 +2167,52 @@ async function main() {
        equivocada es perder la plata, y el que copia una línea entera se lleva la red adentro de la
        dirección. */
     check('chat: una dirección con espacios no entra (la red va aparte)',
-      ch.setConfig({ wallet: 'TXwallet123 TRC20' }).ok === false);
-    ch.setConfig({ wallet: 'TXwallet123', red: 'trc20', pago_nota: 'mandá el hash' });
+      ch.guardarWallet({ red: 'TRC20', direccion: 'TXwallet123 TRC20' }).ok === false);
+    check('chat: una wallet sin red no entra',
+      ch.guardarWallet({ direccion: 'TXwallet123' }).ok === false);
+    const wA = ch.guardarWallet({ alias: 'Binance', red: 'trc20', direccion: 'TXwallet123' }).wallet;
+    const wB = ch.guardarWallet({ alias: 'BSC', red: 'bep20', direccion: '0xwallet456' }).wallet;
     check('chat: la red se guarda aparte y en mayúsculas',
-      ch.config().wallet === 'TXwallet123' && ch.config().red === 'TRC20');
-    const pagoCfg = { wallet: ch.config().wallet, red: ch.config().red, nota: ch.config().pago_nota };
+      wA.direccion === 'TXwallet123' && wA.red === 'TRC20' && ch.wallets().length >= 2);
+    ch.setConfig({ wallet_ggr: wA.id, wallet_mens: wB.id, pago_nota: 'mandá el hash' });
+    check('chat: cada cosa se paga a la wallet que elegiste',
+      ch.walletDe(null, 'ggr').alias === 'Binance' && ch.walletDe(null, 'mens').alias === 'BSC');
+    /* Y un cliente puede tener otra distinta: a uno se le manda una y a otro otra. */
+    ch.setDestino({ cliente_id: CLI.id, wallet_ggr: wB.id });
+    check('chat: un cliente puede pagar a una wallet distinta de la de siempre',
+      ch.walletDe(CLI.id, 'ggr').alias === 'BSC' && ch.walletDe(null, 'ggr').alias === 'Binance');
+    check('chat: volver a "la de siempre" es dejarla vacía',
+      ch.setDestino({ cliente_id: CLI.id, wallet_ggr: '' }).ok
+      && ch.walletDe(CLI.id, 'ggr').alias === 'Binance');
+    check('chat: no se puede elegir una wallet que no existe',
+      ch.setDestino({ cliente_id: CLI.id, wallet_ggr: 'chw_noexiste' }).ok === false
+      && ch.setConfig({ wallet_ggr: 'chw_noexiste' }).ok === false);
+    /* Borrar una wallet en uso dejaría al cliente sin adónde pagar y nadie se enteraría hasta que
+       preguntara. Se apaga, que deja de ofrecerse y no rompe nada. */
+    check('chat: una wallet en uso no se borra, se apaga',
+      ch.borrarWallet(wA.id).ok === false);
+    ch.guardarWallet({ ...wA, activa: false });
+    check('chat: una wallet apagada no se reemplaza sola por otra',
+      !ch.wallets().find((w) => w.id === wA.id).activa
+      && ch.walletDe(null, 'ggr') === null
+      && ch.walletsApagadasEnUso().some((x) => x.wallet === 'Binance'),
+      'devuelve nada y lo avisa, en vez de mandarle al cliente a otra dirección sin que nadie lo decida');
+    ch.guardarWallet({ ...wA, activa: true });
+    const pagoCfg = ch.comoPagar(CLI.id);
     const htmlPago = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: pagoCfg });
     check('chat: la hoja del cliente dice adónde pagar, con la red aparte y botón de copiar',
       htmlPago.includes('TXwallet123') && htmlPago.includes('Cómo pagar')
       && /Red <b>TRC20<\/b>/.test(htmlPago) && /Copiar la dirección/.test(htmlPago)
       && /function copiar/.test(htmlPago));
+    // Dos wallets distintas → dos bloques rotulados; la misma para las dos → uno solo.
+    check('chat: si el mes y el mantenimiento van a wallets distintas, se muestran las dos',
+      /Servicio del mes/.test(htmlPago) && /Mantenimiento/.test(htmlPago)
+      && htmlPago.includes('0xwallet456'));
+    ch.setConfig({ wallet_mens: wA.id });
+    const htmlUna = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
+    check('chat: si es la misma wallet para las dos cosas, va un bloque solo',
+      (htmlUna.match(/class="paga"/g) || []).length === 1 && !/Servicio del mes/.test(htmlUna));
+    ch.setConfig({ wallet_mens: wB.id });
     // El plan B importa: fuera de https `navigator.clipboard` no existe y el botón no haría nada.
     check('chat: copiar funciona aunque no haya https',
       /execCommand\('copy'\)/.test(htmlPago));
@@ -2230,7 +2266,9 @@ async function main() {
       && ch.avisosDe(CLI.id).some((x) => x.id === av100.aviso.id && x.estado === 'rechazado'));
     dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
     dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
-    ch.setConfig({ wallet: '', red: '', pago_nota: '' });
+    ch.setConfig({ wallet_ggr: '', wallet_mens: '', pago_nota: '' });
+    ch.setDestino({ cliente_id: CLI.id, wallet_ggr: '', wallet_mens: '' });
+    dbCh.prepare("DELETE FROM chat_wallet WHERE id IN (?,?)").run(wA.id, wB.id);
 
     /* ── LO QUE YA LE PAGASTE AL PROVEEDOR ───────────────────────────────────────────────────
        Antes un mes pagado y uno impago se veían idénticos. */
@@ -2393,7 +2431,13 @@ async function main() {
       /La cuenta del chat/.test(uiCh) && /es otra cuenta/.test(uiCh)
       && /ni entra en tu cierre del mes/.test(uiCh)
       && /es de otro negocio/.test(uiCh)
-      && /Wallet donde te pagan el chat/.test(uiCh) && /chat-red/.test(uiCh));
+      && /Dónde te pagan/.test(uiCh) && /chatWalletNueva\(/.test(uiCh)
+      && /Para el servicio del mes, por defecto/.test(uiCh)
+      && /Paga el mantenimiento a/.test(uiCh));
+    /* La pantalla no puede depender de que hayas pasado por otra: el desplegable de paneles salía
+       vacío hasta visitar 👥 Clientes, y no había forma de empezar a usarla. */
+    check('chat: la pantalla carga los paneles sola',
+      /if\(!_paneles\.length\)\{ const dp=await api\('\/api\/os\/paneles'\)/.test(uiCh));
     check('chat: los links de cada caja se cargan desde la pantalla, y la contraseña no',
       /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
       && /La contraseña no se guarda en ningún lado/.test(uiCh));
