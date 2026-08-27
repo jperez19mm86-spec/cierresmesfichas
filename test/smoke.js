@@ -1945,6 +1945,13 @@ async function main() {
       ch.set({ panel_id: PAN.id, desde: '2026-01-31' }).panel.dia_cobro === 28);
     check('chat: no se le cobra la mensualidad antes de que empiece',
       ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2025-12-01' }).ok === false);
+    /* Y tampoco APARECE en la lista de ese día. Faltaba: la lista salía igual y el botón invitaba a
+       cobrarle un mes que la caja todavía no había tenido. */
+    ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
+    check('chat: antes de arrancar, la caja no figura en las mensualidades del día',
+      ch.mensualidadesDe('2026-07-20').paneles.every((x) => x.panel !== 'ZZ-Panel-Chat')
+      && ch.mensualidadesDe('2026-08-20').paneles.some((x) => x.panel === 'ZZ-Panel-Chat'),
+      'el 20 de julio no, el 20 de agosto sí');
     ch.set({ panel_id: PAN.id, desde: '', dia_cobro: 10 });
 
     check('chat: no se puede poner un día que no existe en todos los meses',

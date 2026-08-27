@@ -557,7 +557,10 @@ function mensualidadesDe(fecha) {
   const cobradaHoy = (p) => yaHoy.has(`${p.cliente_id}|${p.panel}`);
   return {
     fecha: f, monto: c.mensualidad, moneda: c.mensualidad_moneda,
-    paneles: list().filter((p) => p.activo && Number(p.dia_cobro) === dia)
+    /* Una caja no paga mantenimiento antes de tenerlo: si arrancó el 20 de agosto, el 20 de julio
+       no le tocaba nada, y aparecer ahí era invitar a cobrarle un mes que no usó. */
+    paneles: list().filter((p) => p.activo && Number(p.dia_cobro) === dia
+      && (!p.desde || String(p.desde).slice(0, 10) <= f))
       .map((p) => ({
         ...p,
         cobrada: cobradaHoy(p),
