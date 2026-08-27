@@ -132,6 +132,18 @@
   .tapa h2{ margin:0 }
   .tapa .sub{ font-size:13px; color:var(--muted); margin-top:3px }
   .tapa .acciones{ margin-top:0 }
+  /* Las fichitas de «qué TC se usa este mes». Eran 23 tarjetas iguales con la palabra «promedio»
+     repetida abajo de cada una: el ojo no tenía dónde apoyarse. Ahora sólo se marca lo que NO es
+     el promedio automático —cargado a mano, o sin cargar— y esas van primero. */
+  .tc-tiles{ display:grid; gap:8px; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)) }
+  .tc-t{ background:var(--bg3); border:1px solid transparent; border-radius:10px; padding:8px 10px }
+  .tc-t .d{ font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--muted) }
+  .tc-t .v{ font-size:17px; font-weight:800; margin-top:1px; font-variant-numeric:tabular-nums;
+    letter-spacing:-.02em }
+  .tc-t .f{ font-size:10.5px; color:var(--muted); margin-top:1px }
+  .tc-t.mano{ background:var(--rosa-bg); border-color:#f0d6e4 }
+  .tc-t.mal .v{ color:var(--rosa); font-size:14px; font-weight:700 }
+  .tc-t.mal{ background:var(--rosa-bg); border-color:#f0d6e4 }
   .card h2 { font-size:15px; margin:0 0 10px; }
   label { display:block; font-size:11px; color:var(--muted); margin:0 0 3px; text-transform:uppercase; letter-spacing:.03em; }
   input, select { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:14px; outline:none; }
@@ -598,6 +610,22 @@ function cliFicha(n, prof=0){
    lo que tenías abierto y había que volver a buscar dónde estabas. */
 function cliPanEstado(id, abierto){ if(abierto) _cliAbiertos.add(id); else _cliAbiertos.delete(id); }
 function cliFichaEstado(id, abierto){ if(abierto) _cliFicha.add(id); else _cliFicha.delete(id); }
+
+/* Una sección plegable con su titular a la derecha: el título dice qué es y el número dice si vale
+   la pena abrirla. La usan el Pulso del mes y Tipos de cambio — pantallas de muchas tablas donde
+   casi siempre se mira una sola, y donde antes había que scrollear todo para encontrarla.
+   Lo que quedó abierto sobrevive al repintado, y `abrirSola` sólo manda hasta que la tocás. */
+const _secAb = new Set(), _secTocada = new Set();
+function seccion(id, titulo, resumen, cuerpo, abrirSola){
+  if(!_secTocada.has(id) && abrirSola) _secAb.add(id);
+  return `<details class="plegable" style="margin-bottom:8px"${_secAb.has(id)?' open':''}
+      ontoggle="secEstado('${id}',this.open)">
+    <summary class="fila"><span class="chev" aria-hidden="true"></span>
+      <span class="nom">${titulo}</span>
+      ${resumen?`<span class="cifra">${resumen}</span>`:''}</summary>
+    <div class="cuerpo">${cuerpo}</div></details>`;
+}
+function secEstado(id, abierto){ _secTocada.add(id); if(abierto) _secAb.add(id); else _secAb.delete(id); }
 function cliRamaEstado(id, abierto){
   _cerradasIni(_clientes);
   if(abierto) _cliCerradas.delete(id); else _cliCerradas.add(id);
@@ -3288,77 +3316,108 @@ VIEWS.tc = async () => {
   const disc = uso.discrepancias||[];
   const rows = (uso.monedas||[]);
 
+  // ── LO QUE SE VE SIEMPRE: qué número se está usando este mes ─────────────────────────────────
+  // Las 23 monedas salían todas iguales y con la palabra «promedio» repetida abajo de cada una.
+  // Ahora la etiqueta aparece SÓLO cuando NO es el promedio automático —a mano, o sin cargar—,
+  // que es justamente el caso que hay que mirar, y esas van primero.
+  const usadas = (rows.length?rows:[uso.ars].filter(Boolean)).slice().sort((a,b)=>{
+    const pa=!a.valor?0:(/a mano|cierre/.test(a.fuente||'')?1:2);
+    const pb=!b.valor?0:(/a mano|cierre/.test(b.fuente||'')?1:2);
+    return pa-pb || String(a.divisa||'').localeCompare(String(b.divisa||''));
+  });
+  const sinCargar = usadas.filter(x=>!x.valor).length;
+  const aMano = usadas.filter(x=>x.valor && /a mano|cierre/.test(x.fuente||'')).length;
+
   document.getElementById('main').innerHTML = CIE_STYLE + `
     <div class="card">
-      <div class="row" style="align-items:flex-end;margin-bottom:10px">
+      <div class="row" style="align-items:flex-end;margin-bottom:12px">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
         <div style="flex:1"><h2 style="margin:0">El TC que se está usando en ${esc(_tcMes)}</h2>
-          <div class="muted" style="font-size:12px">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
+          <div class="muted" style="font-size:12.5px;max-width:80ch">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
             Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.</div></div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${(rows.length?rows:[uso.ars].filter(Boolean)).map(x=>`
-          <div class="card" style="margin:0;background:var(--bg3);min-width:132px;flex:0 0 auto;padding:8px 10px">
-            <div style="font-size:11px;font-weight:700;letter-spacing:.4px">${esc(x.divisa||'ARS')}</div>
-            <div style="font-size:17px;font-weight:800;${x.valor?'':'color:var(--muted)'}">${x.valor?money(x.valor,x.valor>100?2:4):'— sin cargar'}</div>
-            <div class="muted" style="font-size:10px">${esc((x.fuente||'').replace('cargado a mano en el cierre','a mano').replace('promedio automático del mes','promedio'))}</div>
-          </div>`).join('')}
+      <div class="tc-tiles">
+        ${usadas.map(x=>{
+          const f=String(x.fuente||'');
+          const mano=/a mano|cierre/.test(f), unidad=/unidad/.test(f);
+          return `<div class="tc-t${!x.valor?' mal':(mano?' mano':'')}">
+            <div class="d">${esc(x.divisa||'ARS')}${mano?' <span class="señal rosa" style="padding:1px 6px;font-size:10px">a mano</span>':''}</div>
+            <div class="v">${x.valor?money(x.valor,x.valor>100?2:4):'sin cargar'}</div>
+            ${unidad?'<div class="f">el dólar es la unidad</div>':''}</div>`;
+        }).join('')}
       </div>
-      ${disc.length?('<div class="nota warn"><b style="color:var(--gold)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--gold)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal en la grilla: si el cargado a mano está bien, ignorá el aviso.</div></div>'):'<div class="muted" style="margin-top:10px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
+      <div class="muted" style="margin-top:10px">${usadas.length} moneda(s) en juego${
+        aMano?' · <b>'+aMano+'</b> cargada(s) a mano':''}${
+        sinCargar?' · <b style="color:var(--rosa)">'+sinCargar+' sin cargar</b>':''}</div>
+      ${disc.length?('<div class="nota-suave" style="margin-top:12px"><b style="color:var(--durazno)">⚠ '+disc.length+' moneda(s) donde las fuentes NO coinciden</b><table style="margin-top:6px"><thead><tr><th>Moneda</th><th class="right">Se usa</th><th>De dónde sale</th><th>Las otras fuentes dicen</th></tr></thead><tbody>'+disc.map(x=>'<tr><td><b>'+esc(x.divisa)+'</b></td><td class="right">'+money(x.valor,4)+'</td><td class="muted">'+esc(x.fuente)+'</td><td class="muted">'+x.conflicto.map(c=>esc(c.fuente)+' = '+money(c.valor,4)+' <span style="color:var(--durazno)">('+c.difPct+'%)</span>').join(' · ')+'</td></tr>').join('')+'</tbody></table><div class="muted" style="margin-top:6px">Corregí el que esté mal en la grilla: si el cargado a mano está bien, ignorá el aviso.</div></div>')
+        :'<div class="muted" style="margin-top:10px">✅ Las fuentes coinciden en todas las monedas de este mes.</div>'}
     </div>
 
-    <div class="card"><h2>Moneda × mes</h2>
-      <div class="muted">Es la que <b>manda</b>: la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes.
-        Se guarda sola al salir de la casilla. <b>${filas.length}</b> monedas × <b>${mesesCie.length}</b> meses.
-        La fila <b>ARS_OF</b> es el ARS que factura el <b>proveedor</b> — es la misma casilla que "TC Proveedor" de abajo.</div>
-      <div class="row" style="margin-top:10px;align-items:flex-end;gap:10px;flex-wrap:wrap">
-        <div style="flex:0"><label>➕ Mes</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
-        <div style="flex:0"><button class="small" onclick="cieAddMes()">Columna</button></div>
-        <div style="flex:0"><label>➕ Moneda</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
-        <div style="flex:0"><button class="small" onclick="cieAddMon()">Fila</button></div>
-        <div style="flex:1"></div>
-        <div style="flex:0"><button class="outline small" onclick="tcArmarColumna()">✨ Armar la columna de ${esc(_tcMes)} con los promedios</button></div>
+    <div style="margin-top:12px">
+    ${seccion('tc.grilla', 'La grilla · moneda × mes',
+      `<b>${filas.length}</b><span class="u">monedas × ${mesesCie.length} meses</span>`, `
+      <div class="muted" style="margin:12px 0 10px;max-width:80ch">Es la que <b>manda</b>: la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes.
+        Se guarda sola al salir de la casilla. La fila <b>ARS_OF</b> es el ARS que factura el <b>proveedor</b> —
+        es la misma casilla que «TC del proveedor» de más abajo.</div>
+      <div class="acciones" style="margin:0 0 10px">
+        <button class="outline small" onclick="tcArmarColumna()">✨ Armar la columna de ${esc(_tcMes)} con los promedios</button>
       </div>
-      <div style="overflow:auto;max-height:52vh;margin-top:10px">
+      <div style="overflow:auto;max-height:52vh">
         ${filas.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Sin tipos de cambio. Agregá una moneda y un mes, o importá la planilla.</div>'}
       </div>
-    </div>
+      <details class="cajas" style="margin-top:12px">
+        <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregar una columna o una fila</summary>
+        <div class="row" style="margin-top:10px;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div style="flex:0"><label>Mes nuevo</label><input id="cie-nmes" placeholder="ej: Junio_2026" style="width:150px"></div>
+          <div style="flex:0"><button class="small" onclick="cieAddMes()">Agregar columna</button></div>
+          <div style="flex:0"><label>Moneda nueva</label><input id="cie-nmon" placeholder="ej: ARS" style="width:110px"></div>
+          <div style="flex:0"><button class="small" onclick="cieAddMon()">Agregar fila</button></div>
+        </div>
+      </details>`)}
 
-    <div class="card"><h2>Lo que se está juntando en ${esc(_tcMes)}</h2>
-      <div class="muted">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
+    ${seccion('tc.junta', `Lo que se está juntando en ${esc(_tcMes)}`,
+      `<b>${prom.length}</b><span class="u">monedas con cotización</span>`, `
+      <div class="muted" style="margin:12px 0 10px;max-width:80ch">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
         se escribe solo como columna nueva de la grilla — sin pisar nada que hayas cargado a mano.
-        <br>Se siguen <b>solo las monedas que están como fila en la grilla de arriba</b> (la fuente publica ~160 y no sirven):
-        <span class="muted" style="font-size:11px">${(seg.monedas||[]).join(' · ')}</span>. Agregá una fila y al otro día ya se le junta la cotización.</div>
-      <div class="row" style="margin:10px 0 6px">
+        Se siguen <b>sólo las monedas que están como fila en la grilla</b> (la fuente publica ~160 y no sirven).
+        Agregá una fila y al otro día ya se le junta la cotización.</div>
+      <div class="acciones" style="margin:0 0 10px">
         <button class="outline small" onclick="snapNow()">📸 Guardar ARS ahora</button>
         <button class="outline small" onclick="snapDivisas()">📸 Guardar el resto ahora</button>
         <button class="outline small" onclick="tcAhora()">Ver ARS al instante</button>
         <div id="tc-now" class="muted" style="align-self:center"></div>
       </div>
       <table><thead><tr><th>Moneda</th><th class="right">Días juntados</th><th class="right">Promedio del mes</th><th>Ya está en la grilla</th></tr></thead><tbody>
-      ${prom.map(p=>{
-        const lbl=tcLabel(_tcMes); const yaVal=(tasas[p.divisa]||{})[lbl];
-        return `<tr><td><b>${esc(p.divisa)}</b>${p.fuente?' <span class="muted" style="font-size:10px">'+esc(p.fuente)+'</span>':''}</td>
-          <td class="right">${p.dias||0}</td><td class="right">${p.promedio?money(p.promedio,4):'—'}</td>
+      ${prom.map(x=>{
+        const lbl=tcLabel(_tcMes); const yaVal=(tasas[x.divisa]||{})[lbl];
+        return `<tr><td><b>${esc(x.divisa)}</b>${x.fuente?' <span class="muted" style="font-size:10.5px">'+esc(x.fuente)+'</span>':''}</td>
+          <td class="right">${x.dias||0}</td><td class="right">${x.promedio?money(x.promedio,4):'—'}</td>
           <td>${yaVal!=null?'<span class="badge ok">'+esc(yaVal)+'</span>':'<span class="muted">todavía no</span>'}</td></tr>`;
       }).join('') || '<tr><td colspan="4" class="empty">Sin cotizaciones guardadas este mes.</td></tr>'}
       </tbody></table>
-    </div>
+      <div class="muted" style="margin-top:8px;font-size:12px">Se siguen: ${(seg.monedas||[]).join(' · ')}</div>`)}
 
-    <div class="card"><h2>Cierre mensual: promedio contra el TC del proveedor</h2>
-      <div class="muted">El <b>TC Cliente</b> es el promedio del mes (Binance/criptoya) y es con el que se le cobra a los clientes.
-        El <b>TC Proveedor</b> sale de la factura del proveedor y es el mismo dato que la fila <b>ARS_OF</b> de la grilla: se escribe una vez y queda en los dos lados.</div>
-      <table style="margin-top:8px"><thead><tr><th>Mes</th><th class="right">TC Cliente (promedio)</th><th class="right">TC Proveedor (ARS_OF)</th><th class="right">Diferencia</th><th></th></tr></thead><tbody>
+    ${seccion('tc.prov', 'Contra el TC del proveedor',
+      (()=>{ const ch=meses.filter(m=>{const of=(tasas[PROV]||{})[tcLabel(m.mes)];
+               return of!=null && m.tc_proveedor_ext && String(of)!==String(m.tc_proveedor_ext);}).length;
+             const falta=meses.filter(m=>!m.tc_proveedor_ext).length;
+             return ch?`<b style="color:var(--rosa)">${ch}</b><span class="u">no coinciden</span>`
+                  : falta?`<b style="color:var(--durazno)">${falta}</b><span class="u">mes(es) sin su factura</span>`
+                        : `<b>${meses.length}</b><span class="u">meses al día</span>`; })(), `
+      <div class="muted" style="margin:12px 0 10px;max-width:80ch">El <b>TC Cliente</b> es el promedio del mes (Binance/criptoya) y es con el que se le cobra a los clientes.
+        El <b>TC Proveedor</b> sale de la factura del proveedor y es el mismo dato que la fila <b>ARS_OF</b> de la grilla:
+        se escribe una vez y queda en los dos lados.</div>
+      <table><thead><tr><th>Mes</th><th class="right">TC Cliente (promedio)</th><th class="right">TC Proveedor (ARS_OF)</th><th class="right">Diferencia</th><th></th></tr></thead><tbody>
       ${meses.map(m=>{
         const lbl=tcLabel(m.mes); const of=(tasas[PROV]||{})[lbl];
         const cruce = (of!=null && m.tc_proveedor_ext && String(of)!==String(m.tc_proveedor_ext));
         return `<tr><td><b>${esc(m.mes)}</b> <span class="muted">${esc(lbl)}</span></td>
           <td class="right">${m.tc_cliente?money(m.tc_cliente,2):'—'}</td>
           <td class="right">${m.tc_proveedor_ext?money(m.tc_proveedor_ext,2):'<input id="tcp-'+m.mes+'" placeholder="de su factura" style="width:120px">'}</td>
-          <td class="right ${m.diferencia_tc&&Number(m.diferencia_tc)<0?'':''}">${m.diferencia_tc?money(m.diferencia_tc,2):'—'}</td>
+          <td class="right">${m.diferencia_tc?money(m.diferencia_tc,2):'—'}</td>
           <td>${m.tc_proveedor_ext?(cruce?'<span class="badge err">la grilla dice '+esc(of)+'</span>':''):'<button class="small" onclick="setTcProv(\''+m.mes+'\')">Guardar</button>'}</td></tr>`;
       }).join('') || '<tr><td colspan="5" class="empty">Sin meses todavía.</td></tr>'}
-      </tbody></table>
+      </tbody></table>`)}
     </div>`;
 };
 const TC_MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -6962,7 +7021,7 @@ AC.pulso = async () => {
   const secs = [];
 
   // 1. Lo que pide acción. Es lo único que arranca abierto, y sólo si hay algo grave.
-  secs.push(pulSec('mirar', 'Qué mirar', p.alertas.length
+  secs.push(seccion('pulso.mirar', 'Qué mirar', p.alertas.length
       ? `<b style="${p.graves?'color:var(--rosa)':''}">${p.alertas.length}</b><span class="u">${p.graves?p.graves+' graves':'avisos'}</span>`
       : '<span class="u">nada raro ✅</span>', `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 10px">
@@ -7003,7 +7062,7 @@ AC.pulso = async () => {
       <td class="right muted">${money(c.inPrev,0)}</td>
       <td class="right"><b>${c.caidaUsdt>0?'−':'+'}${money(Math.abs(c.caidaUsdt),0)}</b></td>
       <td class="right">${flecha(c.varIn)}</td></tr>`;
-    secs.push(pulSec('venta', 'Quién está vendiendo menos',
+    secs.push(seccion('pulso.venta', 'Quién está vendiendo menos',
       cv.length?`<b style="${perdido>0?'color:var(--rosa)':''}">−${money(perdido,0)}</b><span class="u">USDT de venta</span>`:'<span class="u">sin datos</span>', `
       <div class="muted" style="margin:12px 0 10px;max-width:80ch">Lo que le cargan sus jugadores (el IN), en USDT,
         comparado contra <b>los mismos ${esc((p.comparacion||{}).hastaDia||'')} días</b> de ${esc(p.mesPrev)} y no contra
@@ -7020,7 +7079,7 @@ AC.pulso = async () => {
 
   // 3. Se apagaron. Un panel que baja aparece en las alertas; uno que pasó a CERO desaparece de la
   //    lista y el mes siguiente parece que nunca existió.
-  if((p.apagados||[]).length) secs.push(pulSec('apagados', 'Se apagaron',
+  if((p.apagados||[]).length) secs.push(seccion('pulso.apagados', 'Se apagaron',
     `<b>${p.apagados.length}</b><span class="u">movían ${money(p.apagados.reduce((t,x)=>t+x.moviaUsdt,0),0)} USDT</span>`, `
     <div class="muted" style="margin:12px 0 10px">Operaban en los mismos ${esc((p.comparacion||{}).hastaDia||'')} días de ${esc(p.mesPrev)} y este mes <b>no movieron nada</b>.</div>
     <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Movía (USDT)</th><th class="right">Días</th><th>Último movimiento</th></tr></thead><tbody>
@@ -7034,7 +7093,7 @@ AC.pulso = async () => {
 
   // 4. Sin dueño: están en el reporte del casino y no tienen caja en el OS, así que su ganancia no
   //    se le factura a nadie. La acción no es preguntar, es asignarles la caja.
-  if((p.sinDueno||[]).length) secs.push(pulSec('sindueno', 'Mueven y no son de nadie',
+  if((p.sinDueno||[]).length) secs.push(seccion('pulso.sindueno', 'Mueven y no son de nadie',
     `<b style="color:var(--durazno)">${p.sinDueno.length}</b><span class="u">${money(p.sinDueno.reduce((t,x)=>t+x.inUsdt,0),0)} USDT sin facturar</span>`, `
     <div class="muted" style="margin:12px 0 10px">Aparecen en el casino y <b>no tienen caja en el OS</b>, así que su ganancia no entra en la factura de ningún cliente.
       Se arreglan creándoles la caja en 👥 Clientes.</div>
@@ -7048,7 +7107,7 @@ AC.pulso = async () => {
     </tbody></table>`));
 
   // 5. Clientes para mirar: un panel roto es un problema; tres del mismo dueño es otra cosa.
-  if((p.clientes||[]).length) secs.push(pulSec('clientes', 'Clientes para mirar',
+  if((p.clientes||[]).length) secs.push(seccion('pulso.clientes', 'Clientes para mirar',
     `<b>${p.clientes.length}</b><span class="u">con alertas</span>`, `
     <div class="muted" style="margin:12px 0 10px">Un panel roto es un problema; tres del mismo dueño es otra cosa.</div>
     <table><thead><tr><th>Cliente</th><th class="right">🔴</th><th class="right">Alertas</th><th>Paneles</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
@@ -7064,7 +7123,7 @@ AC.pulso = async () => {
   // El titular no es cuántas cajas hay, es cuánto de la ganancia sale de las 12 primeras: eso es lo
   // que dice si el mes se apoya en unas pocas cuentas o está repartido.
   const top12 = (p.top||[]).slice(0,12).reduce((a,t)=>a+(t.profitUsdt||0),0);
-  secs.push(pulSec('top', 'De dónde sale la ganancia',
+  secs.push(seccion('pulso.top', 'De dónde sale la ganancia',
     totPr?`<b>${Math.round(top12/totPr*100)}%</b><span class="u">sale de 12 cajas</span>`
         :`<b>${(p.top||[]).length}</b><span class="u">cajas</span>`, `
     <div class="muted" style="margin:12px 0 10px">Las 12 que más ganan, de ${(p.top||[]).length} con movimiento.</div>
@@ -7079,7 +7138,7 @@ AC.pulso = async () => {
     </tbody></table>`));
 
   // 7. Por moneda.
-  secs.push(pulSec('monedas', 'Por moneda',
+  secs.push(seccion('pulso.monedas', 'Por moneda',
     `<b>${p.monedas.length}</b><span class="u">monedas</span>`, `
     <table style="margin-top:12px"><thead><tr><th>Moneda</th><th class="right">Paneles</th><th class="right">Movimiento</th><th class="right">Ganancia</th><th class="right">Se llevan</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">USDT</th></tr></thead><tbody>
     ${p.monedas.map(g=>`<tr>
@@ -7091,7 +7150,7 @@ AC.pulso = async () => {
     </tbody></table>`));
 
   // 8. Los gráficos que no son del día a día: se miran cuando se quiere mirar, no todos los días.
-  secs.push(pulSec('graficos', 'Los gráficos del mes',
+  secs.push(seccion('pulso.graficos', 'Los gráficos del mes',
     '<span class="u">tendencia, sistemas y RTP</span>', `
     <div class="row" style="gap:10px;margin:12px 0 0;align-items:stretch">
       <div class="card" style="flex:2 1 380px;margin:0"><h2>Los últimos 6 meses</h2>
@@ -7111,21 +7170,6 @@ AC.pulso = async () => {
 
   dest.innerHTML = cab + '<div style="margin-top:12px">' + secs.join('') + '</div>';
 };
-/* Una sección del Pulso: el título a la izquierda y, a la derecha, el número que decide si vale la
-   pena abrirla. Eran doce tarjetas apiladas y para llegar a la que importaba había que scrollear el
-   mes entero. Lo que quedó abierto sobrevive al repintado (filtrar una alerta repinta todo). */
-const _pulAb = new Set();
-let _pulInic = false;
-function pulSec(id, titulo, resumen, cuerpo, abrirSola){
-  if(!_pulInic && abrirSola) _pulAb.add(id);
-  return `<details class="plegable" style="margin-bottom:8px"${_pulAb.has(id)?' open':''}
-      ontoggle="pulSecEstado('${id}',this.open)">
-    <summary class="fila"><span class="chev" aria-hidden="true"></span>
-      <span class="nom">${titulo}</span>
-      ${resumen?`<span class="cifra">${resumen}</span>`:''}</summary>
-    <div class="cuerpo">${cuerpo}</div></details>`;
-}
-function pulSecEstado(id, abierto){ _pulInic=true; if(abierto) _pulAb.add(id); else _pulAb.delete(id); }
 /* 77 alertas abiertas de golpe eran otra pared de scroll. Se muestran las 12 más caras —vienen
    ordenadas por plata— y el resto a pedido. Cambiar de filtro vuelve a las 12. */
 let _pulTodas = false;
