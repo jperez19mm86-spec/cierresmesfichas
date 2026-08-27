@@ -406,7 +406,12 @@ function set(d) {
   let dia = vino('dia_cobro')
     ? (d.dia_cobro == null || d.dia_cobro === '' ? null : Number(d.dia_cobro))
     : ((prev && prev.dia_cobro) || null);
-  if (desdeNueva && !vino('dia_cobro')) {
+  /* SON DOS COSAS DISTINTAS Y NO SE PISAN.
+     `desde` es CUÁNDO EMPEZÓ a tener el chat; `dia_cobro` es QUÉ DÍA paga. Casi siempre coinciden
+     —el mantenimiento se cobra el día que arranca, por adelantado— así que la primera vez el día se
+     completa solo con el de la fecha. Pero si vos ya pusiste un día, corregir la fecha de alta no
+     te lo cambia por atrás: eran dos datos mezclados en uno y no se sabía cuál mandaba. */
+  if (desdeNueva && !vino('dia_cobro') && !(prev && prev.dia_cobro)) {
     const n = Number(desdeNueva.slice(8, 10));
     if (n >= 1 && n <= 31) dia = Math.min(n, 28);
   }
@@ -945,15 +950,23 @@ function devengarMensualidades(hasta) {
     if (!p.activo || !p.cliente_id || !p.desde) continue;
     const desde = String(p.desde).slice(0, 10);
     if (desde > tope) continue;
-    // Cada vencimiento desde el alta hasta hoy: el mismo día de cada mes, recortado si no existe.
-    const [y0, m0, d0] = desde.split('-').map(Number);
-    const dia = Math.min(28, Number(p.dia_cobro) || d0);
+    /* EL PRIMERO ES EL DÍA DEL ALTA, siempre: el mantenimiento se cobra POR ADELANTADO el día que
+       arranca. Después sigue por el día que tenga puesto. Cuando los dos coinciden —que es lo
+       normal— esto es una sola serie; cuando no, el cliente igual paga desde el día uno en vez de
+       esperar hasta el mes que viene. */
+    const [y0, m0] = desde.split('-').map(Number);
+    const dia = Math.min(28, Number(p.dia_cobro) || Number(desde.slice(8, 10)));
+    const fechas = [desde];
     for (let k = 0; k < 400; k++) {
       const base = new Date(Date.UTC(y0, (m0 - 1) + k, 1));
       const largo = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
       const f = `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(dia, largo)).padStart(2, '0')}`;
       if (f > tope) break;
-      if (f < desde) continue;               // el primer mes puede vencer antes del alta
+      if (f <= desde) continue;              // el del mes del alta ya está en la lista
+      fechas.push(f);
+    }
+    for (const f of fechas) {
+      if (f > tope) continue;
       const r = cobrarMensualidad({ cliente_id: p.cliente_id, panel: p.panel, fecha: f });
       if (r.ok) creadas += 1;                // si ya estaba, devuelve error y no se toca nada
     }

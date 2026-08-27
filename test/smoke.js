@@ -1935,18 +1935,26 @@ async function main() {
        Si contrató el 20, se le cobra el 20 de cada mes y el período va del 20 al 19. Pedir la fecha
        y además el día era pedir dos veces el mismo dato, y el día que no coincidieran nadie sabría
        cuál manda. */
+    /* La primera vez el día se completa solo con el de la fecha —el mantenimiento se cobra el día
+       que arranca— pero si ya hay un día puesto, corregir la fecha no lo pisa: son dos datos. */
+    ch.set({ panel_id: PAN.id, dia_cobro: '' });
     const rDesde = ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
-    check('chat: el día de la mensualidad sale de la fecha de inicio',
+    check('chat: la primera vez, el día se completa con el de la fecha de inicio',
       rDesde.ok && rDesde.panel.dia_cobro === 20 && rDesde.panel.desde === '2026-08-20');
+    check('chat: pero después la fecha ya no le pisa el día',
+      ch.set({ panel_id: PAN.id, desde: '2026-08-05' }).panel.dia_cobro === 20,
+      'eran dos datos mezclados en uno y no se sabía cuál mandaba');
     check('chat: el período va de fecha a fecha, no del 1 al 30',
       ch.periodoDesde('2026-08-20').texto === '20 ago – 19 sep');
     // Quien contrató un 31 se le cobra el 28: el día tiene que existir en todos los meses.
+    ch.set({ panel_id: PAN.id, dia_cobro: '' });
     check('chat: una fecha 31 se recorta al 28',
       ch.set({ panel_id: PAN.id, desde: '2026-01-31' }).panel.dia_cobro === 28);
     check('chat: no se le cobra la mensualidad antes de que empiece',
       ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2025-12-01' }).ok === false);
     /* Y tampoco APARECE en la lista de ese día. Faltaba: la lista salía igual y el botón invitaba a
        cobrarle un mes que la caja todavía no había tenido. */
+    ch.set({ panel_id: PAN.id, dia_cobro: '' });
     ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
     check('chat: antes de arrancar, la caja no figura en las mensualidades del día',
       ch.mensualidadesDe('2026-07-20').paneles.every((x) => x.panel !== 'ZZ-Panel-Chat')
@@ -1957,11 +1965,25 @@ async function main() {
     check('chat: no se puede poner un día que no existe en todos los meses',
       ch.set({ panel_id: PAN.id, dia_cobro: 31 }).ok === false
       && ch.set({ panel_id: PAN.id, dia_cobro: 28 }).ok === true);
+    /* Y el mantenimiento se cobra POR ADELANTADO EL DÍA DEL ALTA, aunque el día de cobro sea otro:
+       si no, una caja que arrancó el 25 con día de cobro 20 no pagaba nada hasta el mes siguiente. */
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    ch.set({ panel_id: PAN.id, desde: '2026-08-25', dia_cobro: 20 });
+    ch.devengarMensualidades('2026-08-27');
+    const mAd = (ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id) || { movs: [] })
+      .movs.filter((m) => m.tipo === 'mensualidad');
+    check('chat: el mantenimiento se cobra por adelantado el día que arranca',
+      mAd.some((m) => m.fecha === '2026-08-25'),
+      mAd.map((m) => m.fecha).join(' ') || 'ninguna');
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    ch.set({ panel_id: PAN.id, dia_cobro: '' });
+
     /* ── EL MANTENIMIENTO SE DEVENGA SOLO ────────────────────────────────────────────────────
        Se paga por TENER el servicio, así que apenas arranca el período ya es plata que debe.
        Esperar a que alguien apretara un botón hacía que el cliente entrara a su portal y viera
        "estás al día" debiendo un mes — y que después le aparecieran tres juntas de golpe. */
     dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    ch.set({ panel_id: PAN.id, dia_cobro: '' });
     ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
     const dev1 = ch.devengarMensualidades('2026-08-19');
     check('chat: el día antes de arrancar todavía no debe nada',

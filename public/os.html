@@ -4208,8 +4208,13 @@ VIEWS.chat = async () => {
         en ${new Set(ps.map(x=>x.cliente_id)).size} cliente${new Set(ps.map(x=>x.cliente_id)).size===1?'':'s'})</span></h2>
       <div class="muted" style="max-width:80ch">Un chat por caja. Un cliente puede tener varios,
         cada uno colgado de un agente distinto — y <b>cada uno se cobra sobre lo que ganó esa
-        caja</b>, no sobre el total del cliente. La <b>fecha de inicio</b> manda: si empezó un 20,
-        la mensualidad se le cobra el 20 de cada mes y el período va del 20 al 19.</div>
+        caja</b>, no sobre el total del cliente.</div>
+      <div class="muted" style="max-width:80ch;margin-top:6px;border-left:3px solid var(--gold);padding-left:8px">
+        <b>Son dos cobros distintos.</b> El <b>%</b> se cobra el <b>1ro</b>, con lo que ganó el mes
+        anterior. El <b>mantenimiento</b> se cobra <b>por adelantado el día que arranca</b> y vale un
+        mes: si empezó un 20, va del 20 al 19 y se le vuelve a cobrar el 20 siguiente. Se genera
+        solo — no hay que apretar nada. <b>Sin la fecha de «Empezó el» no se le cobra</b>, porque el
+        sistema no sabe desde cuándo.</div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
         <div style="flex:1;min-width:240px"><label>Agregar un panel al servicio</label>
           <select id="chat-nuevo" style="width:100%">
