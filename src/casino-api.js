@@ -14,7 +14,31 @@
 const axios = require('axios');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
-const CURRENCIES = ['ARS', 'BRL', 'CLP', 'DOP', 'EUR', 'MXN', 'PEN', 'USD', 'UYU', 'VEF'];
+/* ⚠️ LAS MONEDAS QUE SE LE PIDEN AL CASINO SALEN DEL CATÁLOGO DEL OS, NO DE UNA LISTA ACÁ.
+   Estaban escritas a mano y faltaba el GUARANÍ. Todo lo que una caja ganaba en PYG era invisible
+   para el sistema entero —el acumulado, el Pulso, la Foto, las cuentas— porque el casino sólo
+   contesta por las monedas que se le nombran. No daba error ni cero: la caja directamente no
+   aparecía, y el mensaje decía "todavía no hay datos", que manda a capturar de nuevo.
+   Pasó de verdad: dos cajas de un cliente con 172.892.679 PYG de ganancia en agosto de 2026 que el
+   sistema no veía. Ahora la lista sale de las divisas activas del OS, así que agregar una moneda es
+   agregarla en su pantalla y no tocar código. Las diez de antes quedan de piso por si el catálogo
+   viniera vacío. */
+const CURRENCIES_BASE = ['ARS', 'BRL', 'CLP', 'DOP', 'EUR', 'MXN', 'PEN', 'USD', 'UYU', 'VEF'];
+let _curCache = null; let _curAt = 0;
+function CURRENCIES_ACTIVAS() {
+  if (_curCache && Date.now() - _curAt < 60 * 1000) return _curCache;
+  let lista = [];
+  try {
+    lista = require('./divisas-store').listActivas()
+      .map((d) => String(d.codigo || '').trim().toUpperCase())
+      .filter((c) => /^[A-Z]{3,4}$/.test(c));
+  } catch (e) { lista = []; }
+  // USDT no es una moneda del casino: es la unidad en la que se lleva la cuenta acá.
+  const set = new Set([...CURRENCIES_BASE, ...lista].filter((c) => c !== 'USDT'));
+  _curCache = [...set]; _curAt = Date.now();
+  return _curCache;
+}
+
 
 function normUrl(u) {
   let s = String(u || '').trim().replace(/\/+$/, '');
@@ -104,7 +128,7 @@ function makeClient({ url, token, user, password } = {}) {
     }
   }
 
-  function curBody() { const o = {}; CURRENCIES.forEach((c) => { o[`currencies[${c}]`] = '1'; }); return o; }
+  function curBody() { const o = {}; CURRENCIES_ACTIVAS().forEach((c) => { o[`currencies[${c}]`] = '1'; }); return o; }
 
   /** Normaliza una fila de usuario del casino a un objeto limpio (valores en la moneda `cur`). */
   function mapNode(u, cur = 'ARS', multiMoneda = false) {
@@ -122,7 +146,7 @@ function makeClient({ url, token, user, password } = {}) {
       // montos por CADA moneda con actividad (la misma respuesta trae todas; solo guardamos las != 0).
       const nc = (x, c) => String((x && typeof x === 'object') ? (x[c] !== undefined ? x[c] : '') : (x == null ? '' : x)).replace(/,/g, '');
       const m = {};
-      CURRENCIES.forEach((c) => {
+      CURRENCIES_ACTIVAS().forEach((c) => {
         const iin = nc(u.in, c), oout = nc(u.out, c), prof = nc(u.profit, c);
         if (Number(iin) !== 0 || Number(oout) !== 0 || Number(prof) !== 0) m[c] = { in: iin, out: oout, profit: prof };
       });
@@ -520,16 +544,16 @@ function makeClient({ url, token, user, password } = {}) {
 
   /**
    * Reporte de proveedores en VARIAS monedas (la misma plataforma): corre uno por moneda, SECUENCIAL
-   * para no saturar el motor de reportes. `currencies` = subset de CURRENCIES (default todas).
+   * para no saturar el motor de reportes. `currencies` = subset (default: todas las activas).
    * Devuelve { ok, monedas: { ARS:{ok,filas}|{ok:false,error}, ... } }.
    */
   async function reporteProveedoresMonedas({ from = '', to = '', currencies = null, userGroupBy = '', activeTemplate = '' } = {}) {
-    // CURRENCIES son diez códigos escritos a mano acá y es SÓLO el valor por defecto. Si el que
+    // La lista sale del catálogo del OS y es SÓLO el valor por defecto. Si el que
     // llama pasa una lista, se respeta tal cual: esa lista sale del propio panel (la Foto lee las
     // divisas habilitadas de cada cuenta) y sabe más que esta constante. Filtrarla contra los diez
     // fue lo que hizo desaparecer los guaraníes de julio — PYG, COP, CRC, HNL, USDT, VES, ZAR y BOB
     // no están en esta lista y los paneles los usan igual.
-    const list = (currencies && currencies.length) ? currencies.slice() : CURRENCIES.slice();
+    const list = (currencies && currencies.length) ? currencies.slice() : CURRENCIES_ACTIVAS().slice();
     const monedas = {};
     for (const cur of list) {
       const r = await reporteProveedores({ from, to, currency: cur, userGroupBy, activeTemplate });
@@ -761,4 +785,4 @@ function makeClient({ url, token, user, password } = {}) {
   return { apiCall, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
 }
 
-module.exports = { makeClient, normUrl, CURRENCIES };
+module.exports = { makeClient, normUrl, CURRENCIES_ACTIVAS, CURRENCIES_BASE };

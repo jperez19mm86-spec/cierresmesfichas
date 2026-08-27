@@ -4677,11 +4677,28 @@ async function main() {
     const api = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'casino-api.js'), 'utf8');
     check('casino: una lista de divisas explícita se respeta tal cual',
       /currencies && currencies\.length\) \? currencies\.slice\(\)/.test(api));
-    const { CURRENCIES } = require('../src/casino-api');
-    // El testigo del bug: la constante NO alcanza. Si algún día la completan, este check avisa que
-    // se puede simplificar; mientras no la completen, deja escrito por qué no se la puede usar sola.
-    check('casino: la constante de divisas sigue sin cubrir las que los paneles usan',
-      ['PYG', 'COP', 'CRC', 'HNL', 'USDT', 'VES', 'ZAR', 'BOB'].some((d) => !CURRENCIES.includes(d)));
+    /* ── Y LA LISTA YA NO ESTÁ ESCRITA A MANO ────────────────────────────────────────────────
+       Este check era, hasta el 26-ago-2026, el TESTIGO del bug: dejaba escrito que la constante de
+       diez no alcanzaba. La constante siguió ahí y volvió a morder en otro lado — el acumulado le
+       pedía al casino sólo esas diez, así que dos cajas de un cliente con 172.892.679 PYG de
+       ganancia en agosto simplemente NO APARECÍAN, y la pantalla decía «todavía no hay datos».
+       Ahora la lista sale del catálogo de divisas del OS, que es donde ella las administra. */
+    const { CURRENCIES_ACTIVAS, CURRENCIES_BASE } = require('../src/casino-api');
+    const divSt = require('../src/divisas-store');
+    check('casino: las divisas que se le piden salen del catálogo, no de una lista a mano',
+      /CURRENCIES_ACTIVAS\(\)/.test(api) && !/const CURRENCIES = \[/.test(api));
+    const activas = CURRENCIES_ACTIVAS();
+    check('casino: se le piden TODAS las divisas activas del OS',
+      divSt.listActivas().map((d) => d.codigo).filter((c) => c !== 'USDT')
+        .every((c) => activas.includes(c)),
+      `${activas.length} divisas`);
+    check('casino: el guaraní entra (era la que faltaba)',
+      activas.includes('PYG'),
+      'dos cajas con 172.892.679 PYG en agosto no aparecían por esto');
+    check('casino: USDT no se le pide al casino, es la unidad de la cuenta de acá',
+      !activas.includes('USDT'));
+    check('casino: si el catálogo viniera vacío, quedan las de siempre de piso',
+      CURRENCIES_BASE.length === 10 && CURRENCIES_BASE.includes('ARS'));
   }
 
   // ── UN VÍNCULO NUEVO COMPLETA HUECOS, PERO NO PISA LA FOTO ──
