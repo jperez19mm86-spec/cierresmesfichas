@@ -517,11 +517,27 @@ function cierre(mes) {
         monedas.push({ moneda: mon, profit: v });
       }
     }
-    /* Una caja sin NINGUNA fila en su nivel no es una caja sin ganancias: es una caja que el
-       acumulado no está bajando. Cobrar cero por eso sería regalar el mes en silencio. */
+    /* Una caja sin NINGUNA fila en su nivel no es una caja sin ganancias: es una caja que no está
+       en el acumulado. Cobrar cero por eso sería regalar el mes en silencio.
+       Y hay DOS motivos posibles, que se arreglan de formas distintas:
+         · el mes de ese nivel no se bajó todavía  → hay que capturarlo
+         · el mes SÍ está y esa caja no figura     → el número de usuario no es el que el casino
+           reporta, y capturar de nuevo no va a cambiar nada
+       Decir siempre "todavía no hay datos" mandaba a apretar capturar una y otra vez sobre un
+       problema que no se arregla capturando. */
     if (!monedas.length) {
-      salteados.push({ panel: p.panel, cliente: p.cliente,
-        motivo: `todavía no hay datos de ${p.nivel || 'esa caja'} en ${m}` });
+      let hay = 0;
+      for (const k of g.keys()) {
+        const [cx, grp] = k.split('|');
+        if (cx === p.conexion_id && grp === p.grp) hay += 1;
+      }
+      salteados.push({
+        panel: p.panel, cliente: p.cliente, usuario: p.id_usuario, nivel: p.nivel,
+        motivo: hay
+          ? `no figura con el usuario ${p.id_usuario}: el mes SÍ está bajado (${hay} cajas de ${p.nivel || 'ese nivel'}), pero ésta no aparece. Revisá el número de usuario.`
+          : `todavía no se bajó el nivel ${p.nivel || '—'} de esa conexión en ${m}. Capturá el mes.`,
+        capturar: !hay,
+      });
       continue;
     }
     let profitUsdt = '0'; const detalle = [];

@@ -2085,6 +2085,27 @@ async function main() {
     const SIN = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Agente-SinDatos', sistema: 'Europa',
       nivel_usuario: 'Agente', id_usuario: '9990004', conexion_id: 'cx_zz', divisas: ['ARS'] });
     ch.set({ panel_id: SIN.id, pct_cliente: '3' });
+    /* Y el aviso dice CUÁL de los dos problemas es, porque se arreglan distinto: si el mes de ese
+       nivel no se bajó, hay que capturar; si el mes está y la caja no figura, capturar de nuevo no
+       cambia nada — el número de usuario no es el que el casino reporta. */
+    {
+      const SIN = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-Falta', sistema: 'Europa',
+        nivel_usuario: 'SuperAgente', id_usuario: '9998888', conexion_id: 'cx_zz', divisas: ['ARS'] });
+      ch.set({ panel_id: SIN.id, pct_cliente: '4' });
+      const sal = (ch.cierre('2026-08').salteados || []).find((x) => x.panel === 'ZZ-Falta');
+      check('chat: si el mes SÍ está bajado, el aviso apunta al número de usuario',
+        !!sal && /no figura con el usuario 9998888/.test(sal.motivo) && sal.capturar === false,
+        sal ? sal.motivo.slice(0, 70) : 'no salteó');
+      const SIN2 = panSt.create({ cliente_id: CLI.id, nombre: 'ZZ-SinMes', sistema: 'Europa',
+        nivel_usuario: 'Distribuidor', id_usuario: '9998889', conexion_id: 'cx_zz', divisas: ['ARS'] });
+      ch.set({ panel_id: SIN2.id, pct_cliente: '4' });
+      const sal2 = (ch.cierre('2026-08').salteados || []).find((x) => x.panel === 'ZZ-SinMes');
+      check('chat: si NO se bajó ese nivel, el aviso manda a capturar el mes',
+        !!sal2 && /todavía no se bajó el nivel Distribuidor/.test(sal2.motivo) && sal2.capturar === true,
+        sal2 ? sal2.motivo.slice(0, 70) : 'no salteó');
+      ch.quitar(SIN.id); panSt.remove(SIN.id);
+      ch.quitar(SIN2.id); panSt.remove(SIN2.id);
+    }
     check('chat: una caja de la que no hay datos se nombra, no se cobra en cero',
       (ch.cierre('2026-08').salteados || []).some((x) => x.panel === 'ZZ-Agente-SinDatos'),
       JSON.stringify(ch.cierre('2026-08').salteados));
