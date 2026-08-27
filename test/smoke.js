@@ -2837,9 +2837,26 @@ async function main() {
     check('chat: el espacio de adentro pide login; el portal del cliente no',
       /app\.get\('\/chat-externo'/.test(rutasCh) && !/chat-externo/.test(authCh));
     // La tabla muestra las dos columnas y el margen: ver sólo el total escondería el caso caro.
+    /* Cada número en su renglón, con su nombre: ver sólo el total escondería el caso caro. */
     check('chat: la pantalla muestra lo que cobrás, lo que pagás y lo tuyo por separado',
-      /Le cobrás<\/th>/.test(uiCh) && /Pagás \(\$\{esc\(pc\.costo_pct\)\}%\)/.test(uiCh)
-      && /Tuyo<\/th>/.test(uiCh));
+      /<dt>Le cobrás<\/dt>/.test(uiCh) && /<dt>Pagás al proveedor<\/dt>/.test(uiCh)
+      && /<dt>Te queda<\/dt>/.test(uiCh) && /<dt>Ganó<\/dt>/.test(uiCh));
+    /* Y cada cliente arranca CERRADO: con cincuenta, abiertos son una pared. Lo que necesita
+       atención se ve desde afuera — un problema no puede quedar escondido adentro de una tarjeta. */
+    check('chat: cada cliente arranca cerrado y se abre al tocarlo',
+      /<details class="plegable">/.test(uiCh) && /<summary class="fila">/.test(uiCh)
+      && !/<details class="plegable" open>/.test(uiCh));
+    check('chat: lo que necesita atención se ve con la tarjeta cerrada',
+      /señal durazno" title="Falta un tipo de cambio/.test(uiCh)
+      && /señal rosa" title="Le cobrás menos de lo que te cuesta/.test(uiCh)
+      && /señal durazno" title="No le cargaste precio/.test(uiCh));
+    /* Un botón lleno por tarjeta: el que hace la cosa. Antes «cobrar el mes» se veía igual que
+       «ver una hoja» y nada decía cuál movía plata. */
+    const cuerpoCierre = uiCh.slice(uiCh.indexOf('S.cierre = `'), uiCh.indexOf('S.pedidos = `'));
+    check('chat: en cada cliente hay un solo botón lleno, el que manda la cuenta',
+      (cuerpoCierre.match(/<button class="small"/g) || []).length === 1
+      && (cuerpoCierre.match(/<button class="outline small"/g) || []).length === 1,
+      'el resto va en contorno');
     // La cuenta se manda desde la misma pantalla y queda anotado si salió.
     check('chat: desde la pantalla se ve la hoja y se manda la cuenta',
       /chatHoja\(/.test(uiCh) && /chatEnviar\(/.test(uiCh) && /✓ enviada/.test(uiCh));

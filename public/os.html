@@ -34,6 +34,97 @@
   .sis.na  { background:var(--bg3); color:var(--muted); border-color:var(--border); }
   main { max-width:1000px; margin:0 auto; padding:18px; }
   .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+
+  /* ── LA FORMA NUEVA ──────────────────────────────────────────────────────────────────────────
+     Tres reglas, y valen para toda la aplicación:
+       · texto común  = es un dato, no hay nada detrás
+       · fila o subrayado punteado = SE ABRE (flecha adelante, el fondo cambia al pasar por encima)
+       · botón lleno  = hace algo, y hay UNO solo por tarjeta
+     Antes «cobrar el mes» y «ver una hoja» se veían igual, y «1 caja» era un dato y una puerta al
+     mismo tiempo sin forma de saber cuál. Los avisos van en pastel con el texto bastante más oscuro
+     que el fondo: un pastel sobre pastel queda lindo y no se lee con sol encima del teléfono. */
+  :root{
+    --rosa:#a24d5c; --rosa-bg:#fbeff1;
+    --durazno:#8a5c33; --durazno-bg:#fbf2e9;
+    --verde2:#3f7f60;
+    /* El rosa de la marca es lindo y claro: blanco encima casi no se lee. Para los bloques con
+       texto blanco va esta versión honda del mismo color. */
+    --uva:#8a2f74;
+  }
+  .totalote{ background:var(--uva); color:#fff; border-radius:16px; padding:20px 22px 18px; margin-bottom:14px; }
+  .totalote .k{ font-size:12px; letter-spacing:.1em; text-transform:uppercase; opacity:.72 }
+  .totalote .v{ font-size:31px; font-weight:800; letter-spacing:-.03em; margin-top:4px;
+    font-variant-numeric:tabular-nums; line-height:1.05 }
+  .totalote dl{ margin:15px 0 0; padding-top:13px; border-top:1px solid rgba(255,255,255,.22);
+    display:flex; flex-direction:column; gap:7px }
+  .totalote dl div{ display:flex; align-items:baseline; gap:14px }
+  .totalote dt{ font-size:13px; opacity:.78 }
+  .totalote dd{ margin:0 0 0 auto; font-size:15.5px; font-weight:650;
+    font-variant-numeric:tabular-nums; text-align:right }
+  .totalote .cuantos{ margin:11px 0 0; font-size:12.5px; opacity:.72 }
+
+  .plegable{ background:var(--bg2); border:1px solid var(--border); border-radius:12px; margin-bottom:6px }
+  .plegable[open]{ border-color:#dcc9d8; box-shadow:0 1px 2px rgba(34,27,38,.04),0 10px 26px -20px rgba(34,27,38,.35) }
+  .fila{ display:flex; align-items:center; gap:11px; cursor:pointer; list-style:none;
+    padding:12px 16px; border-radius:12px; flex-wrap:wrap }
+  .fila::-webkit-details-marker{ display:none }
+  .fila:hover{ background:var(--bg) }
+  .fila:focus-visible{ outline:2px solid var(--gold); outline-offset:-2px }
+  .fila .nom{ font-size:15.5px; font-weight:700; letter-spacing:-.01em; min-width:0 }
+  .fila .cifra{ margin-left:auto; display:flex; align-items:baseline; gap:5px; white-space:nowrap }
+  .fila .cifra b{ font-size:17.5px; font-weight:750; font-variant-numeric:tabular-nums; letter-spacing:-.02em }
+  .fila .cifra .u{ font-size:12px; color:var(--muted); font-weight:500 }
+  /* Si no entra, la cifra se va sola al renglón de abajo (`flex-wrap`) en vez de cortarse por la
+     mitad. Sin forzarlo con una medida fija: en un teléfono normal entra en una línea y forzar el
+     salto ahí era gastar un renglón por cliente. */
+  .chev{ width:0; height:0; border-left:6px solid var(--muted); border-top:5px solid transparent;
+    border-bottom:5px solid transparent; transition:transform .15s ease; flex:0 0 auto }
+  details[open] > summary .chev{ transform:rotate(90deg) }
+  @media (prefers-reduced-motion:reduce){ .chev{ transition:none } }
+  .cuerpo{ padding:2px 16px 16px; border-top:1px solid var(--border); margin-top:-1px }
+
+  /* La señal se ve CERRADO: un problema no puede quedar escondido adentro de una tarjeta. */
+  .señal{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:20px;
+    letter-spacing:.02em; white-space:nowrap; flex:0 0 auto }
+  .señal.durazno{ background:var(--durazno-bg); color:var(--durazno) }
+  .señal.rosa{ background:var(--rosa-bg); color:var(--rosa) }
+
+  dl.datos{ margin:13px 0 0; display:flex; flex-direction:column; gap:6px }
+  /* Dos columnas, no flex: cuando el número es largo y trae el tipo de cambio abajo, con flex el
+     rótulo se iba solo a un renglón y quedaba huérfano. Así el nombre queda siempre a la izquierda
+     y todo lo demás alineado a la derecha, ocupe uno o tres renglones. */
+  dl.datos div{ display:grid; grid-template-columns:auto minmax(0,1fr); gap:1px 14px; align-items:baseline }
+  dl.datos dt{ font-size:13px; color:var(--muted) }
+  dl.datos dd{ margin:0; font-size:14.5px; font-weight:650;
+    font-variant-numeric:tabular-nums; text-align:right; overflow-wrap:anywhere }
+  dl.datos dd.mal{ color:var(--rosa) } dl.datos dd.cero{ color:var(--muted) }
+  dl.datos dd.bien{ color:var(--verde2) }
+
+  .nota-suave{ margin:12px 0 0; font-size:13px; color:var(--durazno); background:var(--durazno-bg);
+    border-radius:9px; padding:9px 12px; line-height:1.45 }
+  .nota-suave.rosa{ color:var(--rosa); background:var(--rosa-bg) }
+
+  .abrir{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; list-style:none;
+    font-size:13px; color:var(--gold); font-weight:600; padding:5px 2px; border-radius:6px;
+    text-decoration:underline; text-decoration-style:dotted; text-underline-offset:4px }
+  .abrir::-webkit-details-marker{ display:none }
+  .abrir:hover{ text-decoration-style:solid }
+  .abrir:focus-visible{ outline:2px solid var(--gold); outline-offset:3px }
+  .abrir .chev{ border-left-color:currentColor; border-left-width:5px;
+    border-top-width:4px; border-bottom-width:4px }
+  .sublista{ margin-top:11px; display:flex; flex-direction:column; gap:9px }
+  .subcaja{ background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:11px 13px }
+  .subcaja .cn{ font-weight:700; font-size:14px; margin-bottom:8px }
+  .subcaja .cn small{ font-weight:400; font-size:12px; color:var(--muted); margin-left:8px }
+  .subdatos{ display:flex; flex-direction:column; gap:5px }
+  .subdatos > div{ display:grid; grid-template-columns:auto minmax(0,1fr); gap:1px 12px; align-items:baseline }
+  .subdatos .k{ font-size:12.5px; color:var(--muted) }
+  .subdatos .v{ text-align:right; font-size:13.5px; font-weight:600;
+    font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
+  .subdatos .v.fuerte{ font-size:15px; font-weight:750 }
+  .subdatos .tc{ grid-column:2; text-align:right; font-size:12.5px; color:var(--muted) }
+  .subdatos .tc.falta{ color:var(--durazno) }
+  .acciones{ margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center }
   .card h2 { font-size:15px; margin:0 0 10px; }
   label { display:block; font-size:11px; color:var(--muted); margin:0 0 3px; text-transform:uppercase; letter-spacing:.03em; }
   input, select { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:14px; outline:none; }
@@ -4368,68 +4459,103 @@ VIEWS.chat = async () => {
       </tbody></table></div>`:''}
     </div>`;
 
+  /* ── EL CIERRE DEL MES, PLEGADO ──────────────────────────────────────────────────────────────
+     Cada cliente arranca CERRADO en una línea: nombre y lo que le cobrás. Con cincuenta clientes,
+     abiertos era una pared y había que bajar un minuto para llegar al que buscabas.
+     Lo que necesita atención —falta un tipo de cambio, le cobrás menos de lo que te cuesta— se ve
+     DESDE AFUERA con su etiqueta: un problema no puede quedar escondido adentro de una tarjeta. */
   S.cierre = `
     <div class="card">
       <h2>Cierre del mes <span class="muted">(${esc(_chatMes)})</span></h2>
       ${bannerMes(_chatMes,'chatIrA')}
-      ${(pc.salteados||[]).length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
-        <b>${pc.salteados.length} panel(es) quedaron afuera de la cuenta</b>:
+      ${(pc.salteados||[]).length?`<div class="nota-suave rosa">
+        <b>${pc.salteados.length} caja(s) quedaron afuera de la cuenta</b>:
         ${pc.salteados.map(x=>esc(x.panel)+' <span class="muted">('+esc(x.motivo)+')</span>').join(' · ')}</div>`:''}
-      ${(()=>{const sp=cs.filter(g=>g.sinPrecio); return sp.length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
+      ${(()=>{const sp=cs.filter(g=>g.sinPrecio); return sp.length?`<div class="nota-suave">
         <b>${sp.length} sin precio confirmado</b>: ${sp.map(g=>esc(g.cliente)).join(', ')}.
-        Se les está cobrando el <b>mínimo (${esc(pc.costo_pct)}%)</b>, que es lo que a vos te cuesta, así que no perdés —
-        pero el precio está sin decidir. Cargáselo arriba.</div>`:'';})()}
-      ${(()=>{const pd=cs.filter(g=>!g.sinPrecio&&Number(g.margen)<0); return pd.length?`<div class="avi" style="border-left:3px solid var(--red);background:rgba(217,83,79,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
-        <b>${pd.length} donde cobrás MENOS de lo que te cuesta</b>: ${pd.map(g=>esc(g.cliente)).join(', ')}.</div>`:'';})()}
-      ${(pc.sinTC||[]).length?`<div class="avi" style="border-left:3px solid var(--gold);background:rgba(196,86,173,.07);padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:10px">
-        Falta el tipo de cambio de <b>${pc.sinTC.map(esc).join(', ')}</b> en ${esc(_chatMes)}: lo ganado en ${pc.sinTC.length===1?'esa moneda':'esas monedas'} no entra en el total.</div>`:''}
-      ${cs.length?`<div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
-        <th>Cliente</th><th class="right">Ganancia del mes</th><th class="right">En USDT</th><th class="right">%</th>
-        <th class="right">Le cobrás</th><th class="right">Pagás (${esc(pc.costo_pct)}%)</th><th class="right">Tuyo</th>
-        <th>La cuenta</th>
-      </tr></thead><tbody>
-        ${cs.map(g=>{
-          const e=env[g.cliente_id]||null;
-          const pcts=[...new Set(g.paneles.map(p=>p.pct_cliente))];
-          const gan=g.paneles.reduce((a,p)=>a+Number(p.profit_usdt||0),0);
-          return `<tr>
-          <td><b>${esc(g.cliente)}</b>${g.paneles.length>1
-            ?`<div class="muted" style="font-size:11.5px">${g.paneles.map(p=>esc(p.panel)).join(' · ')}</div>`
-            :`<div class="muted" style="font-size:11.5px">${esc((g.paneles[0]||{}).panel||'')}</div>`}</td>
-          <td class="right">${chatMonedas(g.monedas)}</td>
-          <td class="right">${money(gan,2)}</td>
-          <td class="right">${pcts.map(x=>esc(x)+'%').join(' / ')}${
-            g.sinPrecio?'<div><span class="badge err" title="No le cargaste precio: se cobra el mínimo, lo que te cuesta">al mínimo</span></div>':''}</td>
-          <td class="right"><b>${money(g.cobra,2)}</b></td>
-          <td class="right muted">${money(g.paga,2)}</td>
-          <td class="right"><b style="${Number(g.margen)<0?'color:var(--red)':''}">${money(g.margen,2)}</b></td>
-          <td style="white-space:nowrap">
-            <button class="outline small" onclick="chatHoja('${g.cliente_id}')" title="Ver la hoja tal cual la ve el cliente">👁 hoja</button>
-            <button class="outline small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
-              onclick="chatEnviar(this.dataset.id,this.dataset.nom)"
-              ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram arriba"'}
-              >📤 enviar${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
-            ${e?`<div style="font-size:11px;margin-top:3px" class="${e.ok?'':'muted'}">${e.ok
-              ?'<span style="color:var(--green)">✓ enviada '+esc(String(e.at).slice(0,10))+'</span>'
-              :'<span style="color:var(--red)">✕ no salió</span> <span class="muted">'+esc(String(e.error||'').slice(0,40))+'</span>'}</div>`:''}
-          </td>
-        </tr>`;}).join('')}
-      </tbody><tfoot><tr>
-        <td colspan="4" class="right"><b>Total en USDT</b></td>
-        <td class="right"><b>${money(T.cobra,2)}</b></td>
-        <td class="right muted"><b>${money(T.paga,2)}</b></td>
-        <td class="right"><b style="color:var(--green)">${money(T.margen,2)}</b></td>
-        <td></td>
-      </tr></tfoot></table></div>
-      <div class="row" style="align-items:center;gap:10px;margin-top:12px">
-        <button onclick="chatCobrar()">🧾 Cobrar el mes</button>
-        <div class="muted" style="font-size:12px;flex:1;min-width:260px">
+        Se les cobra el <b>mínimo (${esc(pc.costo_pct)}%)</b>, que es lo que a vos te cuesta — no perdés,
+        pero el precio está sin decidir.</div>`:'';})()}
+      ${(pc.sinTC||[]).length?`<div class="nota-suave">
+        Falta el tipo de cambio de <b>${pc.sinTC.map(esc).join(', ')}</b> en ${esc(_chatMes)}:
+        lo ganado en ${pc.sinTC.length===1?'esa moneda':'esas monedas'} no entra en el total.</div>`:''}
+
+      ${cs.length?`
+      <div class="totalote" style="margin-top:14px">
+        <div class="k">Te queda de ${esc(mesNombre(_chatMes))}</div>
+        <div class="v">${money(T.margen,2)} USDT</div>
+        <dl>
+          <div><dt>Les cobrás</dt><dd>${money(T.cobra,2)}</dd></div>
+          <div><dt>Pagás al proveedor</dt><dd>${money(T.paga,2)}</dd></div>
+        </dl>
+        <p class="cuantos">${cs.length} cliente${cs.length===1?'':'s'} ·
+          ${cs.reduce((a,g)=>a+g.paneles.length,0)} cajas</p>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin:0 4px 8px">Tocá un cliente para abrir su cuenta.</div>
+
+      ${cs.map(g=>{
+        const e=env[g.cliente_id]||null;
+        const pcts=[...new Set(g.paneles.map(p=>p.pct_cliente))];
+        const gan=g.paneles.reduce((a,p)=>a+Number(p.profit_usdt||0),0);
+        const pierde=!g.sinPrecio&&Number(g.margen)<0;
+        const col=Number(g.margen)<0?'mal':(Number(g.margen)===0?'cero':'bien');
+        const nc=g.paneles.length;
+        return `<details class="plegable">
+          <summary class="fila">
+            <span class="chev" aria-hidden="true"></span>
+            <span class="nom">${esc(g.cliente)}</span>
+            ${g.sinTC?'<span class="señal durazno" title="Falta un tipo de cambio de este mes">falta TC</span>':''}
+            ${pierde?'<span class="señal rosa" title="Le cobrás menos de lo que te cuesta">perdés</span>':''}
+            ${g.sinPrecio?'<span class="señal durazno" title="No le cargaste precio: se cobra el mínimo">al mínimo</span>':''}
+            <span class="cifra"><b>${money(g.cobra,2)}</b><span class="u">USDT</span></span>
+          </summary>
+          <div class="cuerpo">
+            <dl class="datos">
+              <div><dt>Ganó</dt><dd>${chatMonedas(g.monedas)}</dd></div>
+              <div><dt>En USDT</dt><dd>${money(gan,2)}</dd></div>
+              <div><dt>Le cobrás</dt><dd>${pcts.map(x=>esc(x)+'%').join(' / ')}</dd></div>
+              <div><dt>Pagás al proveedor</dt><dd>${money(g.paga,2)}</dd></div>
+              <div><dt>Te queda</dt><dd class="${col}">${money(g.margen,2)}</dd></div>
+            </dl>
+            ${pierde?'<p class="nota-suave rosa">Le cobrás menos de lo que te cuesta.</p>':''}
+            <details class="cajas" style="margin-top:13px">
+              <summary class="abrir"><span class="chev" aria-hidden="true"></span>${
+                nc===1?'Ver su caja':'Ver sus '+nc+' cajas'}</summary>
+              <div class="sublista">
+                ${g.paneles.map(p=>`<div class="subcaja">
+                  <div class="cn">${esc(p.panel)}<small>${esc(p.nivel||'')}</small></div>
+                  <div class="subdatos">
+                    <div><span class="k">Ganó</span><span class="v">${chatMonedas((p.detalle||[]).filter(x=>Number(x.profit)>0))}</span></div>
+                    <div><span class="k">En USDT</span><span class="v">${money(p.profit_usdt,2)}</span></div>
+                    <div><span class="k">Le cobrás</span><span class="v">${esc(p.pct_cliente)}%${
+                      p.pctMinimo?' <span class="muted">(mínimo)</span>':''}</span></div>
+                    <div><span class="k">Se le cobra</span><span class="v fuerte">${money(p.cobra,2)}</span></div>
+                  </div>
+                </div>`).join('')}
+              </div>
+            </details>
+            <div class="acciones">
+              <button class="outline small" onclick="chatHoja('${g.cliente_id}')"
+                title="Ver la hoja tal cual la ve el cliente">Ver la hoja</button>
+              <button class="small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+                onclick="chatEnviar(this.dataset.id,this.dataset.nom)"
+                ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram en Cajas y clientes"'}
+                >Enviársela${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
+              ${e?`<span style="font-size:12px">${e.ok
+                ?'<span style="color:var(--green)">✓ enviada '+esc(String(e.at).slice(0,10))+'</span>'
+                :'<span style="color:var(--rosa)">✕ no salió</span> <span class="muted">'+esc(String(e.error||'').slice(0,40))+'</span>'}</span>`:''}
+            </div>
+          </div>
+        </details>`;}).join('')}
+
+      <div class="row" style="align-items:center;gap:12px;margin-top:16px">
+        <button onclick="chatCobrar()">Cobrar el mes</button>
+        <div class="muted" style="font-size:12.5px;flex:1;min-width:260px">
           ${cta.clientes.length?`Cobrado: <b>${cta.clientes.filter(g=>Number(g.cobrado)>0).length}</b> cliente(s) por
              <b>${money(cta.totales.cobrado,2)} USDT</b>. Si a alguno le faltaba un precio o el tipo
-             de cambio, deshacé <b>ese</b> en la tabla de abajo, arreglalo y volvé a cobrar.`
+             de cambio, deshacé <b>ese</b> en la cuenta de abajo, arreglalo y volvé a cobrar.`
             :'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.'}</div>
       </div>`
-      :'<div class="empty">Ningún panel tiene el servicio todavía. Agregá uno abajo.</div>'}
+      :'<div class="empty">Ninguna caja tiene el servicio todavía. Agregá una en 🏷 Cajas y clientes.</div>'}
     </div>`;
 
   S.pedidos = `
@@ -4516,13 +4642,13 @@ VIEWS.chat = async () => {
       </tr></tfoot></table></div>
       ${cta.clientes.some(g=>g.movs.some(m=>m.tipo!=='cobro'))?`<div style="margin-top:10px">
         <div class="muted" style="font-size:12px;margin-bottom:4px">Pagos y mensualidades de este mes</div>
-        <table><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo!=='cobro').map(m=>`<tr>
+        <div style="overflow-x:auto"><table style="min-width:100%"><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo!=='cobro').map(m=>`<tr>
           <td>${esc(m.fecha)}</td><td><b>${esc(g.cliente)}</b>
             ${m.tipo==='mensualidad'?'<span class="badge">mantenimiento</span>':''}</td>
           <td class="muted">${esc(m.nota||'')}</td>
           <td class="right"><b>${money(m.monto,2)}</b> <span class="muted">${esc(m.moneda)}</span></td>
           <td class="right"><button class="outline small" onclick="chatBorrarMov('${m.id}')">✕</button></td>
-        </tr>`)).join('')}</tbody></table></div>`:''}`
+        </tr>`)).join('')}</tbody></table></div></div>`:''}`
       :'<div class="empty" style="margin-top:10px">Todavía no cobraste este mes. Usá «Cobrar el mes» arriba.</div>'}
     </div>`;
 
