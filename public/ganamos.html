@@ -119,7 +119,7 @@
     border-radius:10px;background:var(--uva2);color:#fff;cursor:pointer;width:100%}
   .copiar.ok{background:var(--verde)}
   label.campo{display:block;font-size:12.5px;color:var(--tinta2);margin-bottom:12px}
-  label.campo input,label.campo textarea{
+  label.campo input,label.campo textarea,label.campo select{
     width:100%;margin-top:5px;padding:12px 13px;font:inherit;border:1px solid var(--linea);
     border-radius:11px;background:#fff;color:inherit;
   }
@@ -379,7 +379,22 @@ function ver(cual) {
     h = '<div class="hoja"><h2>Pedir un chat nuevo</h2>'
       + '<p class="vacio" style="margin-top:-4px">Decinos para qué caja lo querés y te avisamos cuando esté.</p>'
       + '<form onsubmit="return pedirNuevo(event)">'
-      + '<label class="campo">Para qué caja<input name="caja" placeholder="el usuario de la caja" required></label>'
+      /* La caja puede ser una que ya tiene o una nueva: si es nueva, el login lo elige él, que es
+         el que después se lo va a dar a su gente. */
+      + '<label class="campo">Para qué caja'
+      + '<select name="cual" onchange="cambioCaja(this)">'
+      + (DATOS.cajas || []).map(function (c) {
+        return '<option value="' + esc(c.caja) + '">' + esc(c.caja) + '</option>';
+      }).join('')
+      + '<option value="">— una caja nueva —</option></select></label>'
+      + '<label class="campo" id="lblNueva" style="display:' + ((DATOS.cajas || []).length ? 'none' : 'block') + '">'
+      + 'Cómo se va a llamar<input name="caja" placeholder="el login que quieras"></label>'
+      + '<label class="campo">Página que vas a usar'
+      + '<input name="pagina" placeholder="Zeus, Ganamos, TioRico, Bet30…" required></label>'
+      + '<label class="campo">Dominio que vas a usar <span class="tenue">(opcional)</span>'
+      + '<input name="dominio" placeholder="micasino.com" autocapitalize="off" spellcheck="false"></label>'
+      + '<label class="campo">Divisa <span class="tenue">(opcional)</span>'
+      + '<input name="divisa" placeholder="ARS, USD…" autocapitalize="characters" style="text-transform:uppercase"></label>'
       + '<label class="campo">Algo que quieras aclarar <span class="tenue">(opcional)</span>'
       + '<textarea name="nota" placeholder="cuándo lo necesitás, para qué…"></textarea></label>'
       + '<button class="btn uva" type="submit" id="bNuevo">Enviar el pedido</button>'
@@ -388,7 +403,9 @@ function ver(cual) {
         + DATOS.solicitudes.map(function (s) {
           var c = s.estado === 'listo' ? 'ok' : (s.estado === 'pendiente' ? 'esp' : 'no');
           var t = s.estado === 'listo' ? 'listo' : (s.estado === 'pendiente' ? 'lo estamos viendo' : 'no se pudo');
-          return '<tr><td>' + esc(String(s.creado_at).slice(0, 10)) + '<div class="tenue">' + esc(s.caja) + '</div></td>'
+          return '<tr><td>' + esc(String(s.creado_at).slice(0, 10))
+            + '<div class="tenue">' + esc(s.caja)
+            + (s.pagina ? ' · ' + esc(s.pagina) : '') + '</div></td>'
             + '<td class="r"><span class="chip ' + c + '">' + t + '</span></td></tr>';
         }).join('') + '</tbody></table>' : '')
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
@@ -427,11 +444,23 @@ async function avisar(e) {
   return false;
 }
 
+/* Si elige "una caja nueva", aparece el campo para que ponga el login que quiera. */
+function cambioCaja(sel) {
+  var l = document.getElementById('lblNueva');
+  if (l) l.style.display = sel.value ? 'none' : 'block';
+}
+
 async function pedirNuevo(e) {
   e.preventDefault();
   var f = e.target, b = $('bNuevo'), m = $('mNuevo');
+  var caja = (f.cual && f.cual.value) || (f.caja && f.caja.value) || '';
+  if (!caja.trim()) { m.textContent = 'Decinos para qué caja lo querés.'; m.className = 'msg mal'; return false; }
   b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
-  var r = await pedir('/chat/nuevo', { usuario: USUARIO, caja: f.caja.value, nota: f.nota.value });
+  var r = await pedir('/chat/nuevo', {
+    usuario: USUARIO, caja: caja, nota: f.nota.value,
+    pagina: f.pagina.value, dominio: f.dominio.value, divisa: f.divisa.value,
+    caja_nueva: !(f.cual && f.cual.value),
+  });
   if (r.ok) {
     m.textContent = 'Listo, nos llegó tu pedido. Te avisamos cuando esté.'; m.className = 'msg bien';
     f.reset(); await refrescar(); ver('nuevo');

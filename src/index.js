@@ -1274,6 +1274,7 @@ app.get('/chat/:token', (req, res) => {
   if (r.revocado) return res.status(410).send(chatDoc.paginaError('Este link ya no está disponible'));
   /* El DETALLE del mes queda congelado —es lo que se le mandó— pero el SALDO se calcula al abrir:
      es lo que tiene que pagar hoy, y puede arrastrar meses. Dos cosas distintas en la misma hoja. */
+  try { chatStore.devengarMensualidades(); } catch (e) { /* que no tumbe la hoja */ }
   const todo = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
   const esteMes = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
   const html = chatDoc.htmlCliente(r.doc, {
@@ -1304,6 +1305,9 @@ app.get('/chat', (_req, res) => {
 
 app.post('/chat/entrar', (req, res) => {
   const chatStore = require('./chat-externo.store');
+  // Lo que ya venció tiene que estar adentro ANTES de mostrarle el saldo: si no, entra y ve
+  // "estás al día" debiendo un mes.
+  try { chatStore.devengarMensualidades(); } catch (e) { /* que no tumbe la puerta */ }
   const q = chatStore.quienEntra((req.body || {}).usuario);
   // El mensaje es el mismo para "no existe" y "no tiene el chat": decir cuál de las dos es sería
   // contarle a cualquiera qué usuarios existen.
@@ -1329,7 +1333,10 @@ app.post('/chat/nuevo', (req, res) => {
   const b = req.body || {};
   const q = chatStore.quienEntra(b.usuario);
   if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
-  const out = chatStore.pedirChat({ cliente_id: q.cliente_id, caja: b.caja, nota: b.nota });
+  const out = chatStore.pedirChat({
+    cliente_id: q.cliente_id, caja: b.caja, nota: b.nota,
+    pagina: b.pagina, dominio: b.dominio, divisa: b.divisa, caja_nueva: b.caja_nueva,
+  });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${q.cliente} pidió un chat nuevo para ${out.solicitud.caja}`);
   res.json(out);

@@ -1957,6 +1957,38 @@ async function main() {
     check('chat: no se puede poner un día que no existe en todos los meses',
       ch.set({ panel_id: PAN.id, dia_cobro: 31 }).ok === false
       && ch.set({ panel_id: PAN.id, dia_cobro: 28 }).ok === true);
+    /* ── EL MANTENIMIENTO SE DEVENGA SOLO ────────────────────────────────────────────────────
+       Se paga por TENER el servicio, así que apenas arranca el período ya es plata que debe.
+       Esperar a que alguien apretara un botón hacía que el cliente entrara a su portal y viera
+       "estás al día" debiendo un mes — y que después le aparecieran tres juntas de golpe. */
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    ch.set({ panel_id: PAN.id, desde: '2026-08-20' });
+    const dev1 = ch.devengarMensualidades('2026-08-19');
+    check('chat: el día antes de arrancar todavía no debe nada',
+      !ch.cuentas('2026-08').clientes.some((x) => x.cliente_id === CLI.id
+        && x.movs.some((m) => m.tipo === 'mensualidad')),
+      JSON.stringify(dev1));
+    ch.devengarMensualidades('2026-08-20');
+    const conMens = ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id) || { movs: [] };
+    check('chat: el día que arranca ya le aparece en lo que debe, sin apretar nada',
+      conMens.movs.some((m) => m.tipo === 'mensualidad' && m.fecha === '2026-08-20'),
+      'antes había que cobrarla a mano y hasta entonces el portal decía "estás al día"');
+    const antes = ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).debe;
+    ch.devengarMensualidades('2026-08-21');
+    check('chat: pasarlo de nuevo no cobra dos veces',
+      ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).debe === antes);
+    ch.devengarMensualidades('2026-11-25');
+    const tres = ch.cuentas(null).clientes.find((x) => x.cliente_id === CLI.id).movs
+      .filter((m) => m.tipo === 'mensualidad');
+    check('chat: si el proceso estuvo caído, se pone al día con los meses que faltan',
+      tres.length === 4 && tres.map((m) => m.fecha).join(' ') === '2026-08-20 2026-09-20 2026-10-20 2026-11-20',
+      tres.map((m) => m.fecha).join(' '));
+    check('chat: y cada uno con su período de fecha a fecha',
+      /20 ago – 19 sep/.test(tres[0].nota) && /20 nov – 19 dic/.test(tres[3].nota),
+      tres[0].nota);
+    dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    ch.set({ panel_id: PAN.id, desde: '', dia_cobro: 28 });
+
     /* Tocar el precio no puede borrar el día de cobro: son dos pantallas distintas y el que guarda
        el % no está pensando en la mensualidad. Lo que no se manda, queda como estaba. */
     ch.set({ panel_id: PAN.id, pct_cliente: '5' });
@@ -2558,14 +2590,25 @@ async function main() {
         JSON.stringify(rSi.data.portal).slice(0, 90));
 
       // Pedir un chat nuevo NO da de alta nada: llega como pedido.
+      /* El pedido pregunta lo que hace falta para abrir la caja y que sólo sabe el cliente: en qué
+         página juega su gente, con qué dominio y en qué moneda. Sin la página no entra: es el dato
+         que arranca todo el trámite. */
+      check('portal: un pedido sin decir qué página va a usar no entra',
+        (await axios.post(BASE + '/chat/nuevo', { usuario: 'Fran44', caja: 'Fran55' },
+          { validateStatus: () => true })).data.ok === false);
       const rPide = await axios.post(BASE + '/chat/nuevo',
-        { usuario: 'Fran44', caja: 'Fran55', nota: 'para el lunes' }, { validateStatus: () => true });
+        { usuario: 'Fran44', caja: 'Fran55', nota: 'para el lunes', pagina: 'Zeus',
+          dominio: 'zeus.bet', divisa: 'ars', caja_nueva: true }, { validateStatus: () => true });
       const pend = (await get('/api/os/chat/por-cliente?mes=2026-08')).data.solicitudes || [];
       check('portal: pedir un chat nuevo llega como pedido y no abre nada',
         rPide.data.ok === true && pend.some((x) => x.caja === 'Fran55')
         && !((await get('/api/os/chat/paneles')).data.paneles || []).some((x) => x.panel === 'Fran55'),
         `${pend.length} pedido(s) esperando`);
       const laSol = pend.find((x) => x.caja === 'Fran55');
+      check('portal: y lo que contestó el cliente te llega entero',
+        !!laSol && laSol.pagina === 'Zeus' && laSol.dominio === 'zeus.bet'
+        && laSol.divisa === 'ARS' && laSol.caja_nueva === 1,
+        laSol ? `${laSol.pagina} · ${laSol.dominio} · ${laSol.divisa}` : 'sin pedido');
       check('portal: el pedido se marca resuelto y deja de aparecer',
         (await post('/api/os/chat/solicitudes/' + laSol.id, { listo: true })).data.ok === true
         && !((await get('/api/os/chat/por-cliente?mes=2026-08')).data.solicitudes || [])

@@ -201,6 +201,12 @@ for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
    "Ariel-A1" está adentro de "Ariel-A10": una caja quedaba marcada como cobrada por el nombre de
    otra. El dato se guarda, no se adivina. */
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya estaba */ }
+/* Lo que hace falta saber para abrir una caja, y que sólo sabe el cliente: en qué página juega su
+   gente, con qué dominio y en qué moneda. Preguntarlo en el pedido evita la ida y vuelta de tres
+   mensajes que hoy pasa por privado. */
+for (const col of ['pagina TEXT', 'dominio TEXT', 'divisa TEXT', 'caja_nueva INTEGER']) {
+  try { db.exec(`ALTER TABLE chat_solicitud ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
+}
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN archivo_tipo_seguro TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('CREATE INDEX IF NOT EXISTS ix_chat_cmp_cli ON chat_comprobante(cliente_id)'); } catch (e) { /* ya estaba */ }
 
@@ -915,6 +921,46 @@ function cobrarMensualidad(d) {
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
+/**
+ * DEVENGA SOLAS LAS MENSUALIDADES QUE YA EMPEZARON.
+ *
+ * El mantenimiento se paga POR TENER el servicio, no por usarlo: apenas arranca el período, ya es
+ * plata que el cliente debe. Antes había que apretar "+ cobrar" a mano y hasta que alguien lo
+ * hiciera el cliente entraba a su portal y veía "estás al día" debiendo un mes — y el día que se
+ * apretaran tres juntas, le aparecían tres de golpe sin entender de dónde salieron.
+ *
+ * Recorre, para cada caja activa con fecha de inicio, todos los períodos que ya empezaron y crea
+ * los que falten. Es idempotente: la llave (cliente, caja, fecha) impide repetir, así que se puede
+ * llamar todas las veces que haga falta —al abrir la pantalla, al abrir el portal, o de noche— y
+ * siempre deja lo mismo. No cobra hacia atrás de la fecha de inicio ni hacia adelante de hoy.
+ */
+function devengarMensualidades(hasta) {
+  const tope = String(hasta || '').slice(0, 10) || hoy();
+  const c = config();
+  if (!money.esNumero(String(c.mensualidad || '')) || !money.isPos(String(c.mensualidad || ''))) {
+    return { ok: true, creadas: 0, motivo: 'no hay mensualidad cargada' };
+  }
+  let creadas = 0;
+  for (const p of list()) {
+    if (!p.activo || !p.cliente_id || !p.desde) continue;
+    const desde = String(p.desde).slice(0, 10);
+    if (desde > tope) continue;
+    // Cada vencimiento desde el alta hasta hoy: el mismo día de cada mes, recortado si no existe.
+    const [y0, m0, d0] = desde.split('-').map(Number);
+    const dia = Math.min(28, Number(p.dia_cobro) || d0);
+    for (let k = 0; k < 400; k++) {
+      const base = new Date(Date.UTC(y0, (m0 - 1) + k, 1));
+      const largo = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+      const f = `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(dia, largo)).padStart(2, '0')}`;
+      if (f > tope) break;
+      if (f < desde) continue;               // el primer mes puede vencer antes del alta
+      const r = cobrarMensualidad({ cliente_id: p.cliente_id, panel: p.panel, fecha: f });
+      if (r.ok) creadas += 1;                // si ya estaba, devuelve error y no se toca nada
+    }
+  }
+  return { ok: true, creadas };
+}
+
 /** Registra lo que te pagó un cliente por el chat. Otra wallet, otra cuenta. */
 function pagarCliente(d) {
   const id = String(d.cliente_id || '').trim();
@@ -1041,7 +1087,7 @@ function portalDe(clienteId) {
     })),
     cajas,
     avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto, moneda: a.moneda, estado: a.estado })),
-    solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at FROM chat_solicitud
+    solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at, pagina, dominio, divisa, caja_nueva FROM chat_solicitud
       WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 10`).all(id),
     pago: comoPagar(id),
   };
@@ -1053,9 +1099,18 @@ function pedirChat(d) {
   if (!id) return { ok: false, error: 'falta el cliente' };
   const caja = String(d.caja || '').trim().slice(0, 80);
   if (!caja) return { ok: false, error: 'decinos para qué caja lo querés' };
+  const pagina = String(d.pagina || '').trim().slice(0, 80);
+  if (!pagina) return { ok: false, error: 'decinos qué página vas a usar' };
+  /* Un cliente puede meter pedidos hasta cansarse: el portal se abre escribiendo el nombre de una
+     caja y no pide contraseña. Con unos cuantos sin resolver ya alcanza para llamarlo por teléfono. */
+  const esperando = db.prepare("SELECT COUNT(*) n FROM chat_solicitud WHERE cliente_id=? AND estado='pendiente'").get(id).n;
+  if (esperando >= 10) return { ok: false, error: 'Ya tenés varios pedidos esperando. Escribinos y los vemos.' };
   const sid = 'chs_' + require('crypto').randomBytes(6).toString('hex');
-  db.prepare(`INSERT INTO chat_solicitud (id,cliente_id,caja,nota,estado,creado_at)
-    VALUES (?,?,?,?,'pendiente',?)`).run(sid, id, caja, String(d.nota || '').slice(0, 400), nowISO());
+  db.prepare(`INSERT INTO chat_solicitud (id,cliente_id,caja,nota,estado,creado_at,pagina,dominio,divisa,caja_nueva)
+    VALUES (?,?,?,?,'pendiente',?,?,?,?,?)`).run(sid, id, caja, String(d.nota || '').slice(0, 400), nowISO(),
+    pagina, String(d.dominio || '').trim().slice(0, 120) || null,
+    String(d.divisa || '').trim().toUpperCase().slice(0, 8) || null,
+    d.caja_nueva ? 1 : 0);
   return { ok: true, solicitud: { id: sid, caja } };
 }
 
@@ -1255,6 +1310,7 @@ module.exports = {
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
   wallets, guardarWallet, borrarWallet, walletDe, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
+  devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud,
 };

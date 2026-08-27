@@ -4352,13 +4352,17 @@ VIEWS.chat = async () => {
       <div class="muted" style="max-width:80ch">Lo pidieron desde su portal. <b>No da de alta nada</b>:
         abrir un chat te cuesta plata todos los meses, así que lo resolvés vos.</div>
       <div class="muted" style="font-size:12px;margin-top:6px;border-left:3px solid var(--gold);padding-left:8px">
-        <b>Para abrir la caja vas a necesitar:</b> de qué cuenta cuelga · el link para los jugadores ·
-        el link del panel · el usuario del administrador. Cuando la caja exista, cargala en
-        <b>Clientes</b> y después agregala acá arriba con esos datos.</div>
+        <b>Te dicen</b> la página, el dominio y la divisa. <b>Te falta</b>: de qué cuenta cuelga,
+        el link para los jugadores, el link del panel y el usuario del administrador. Cuando la caja
+        exista, cargala en <b>Clientes</b> y después agregala acá arriba con esos datos.</div>
       <table style="margin-top:10px"><tbody>
         ${pc.solicitudes.map(x=>`<tr>
           <td>${esc(String(x.creado_at).slice(0,10))}</td>
           <td><b>${esc(x.cliente)}</b> <span class="muted">para ${esc(x.caja)}</span>
+            ${x.caja_nueva?'<span class="badge warn">caja nueva</span>':'<span class="badge">ya la tiene</span>'}
+            <div class="muted" style="font-size:12px">
+              ${x.pagina?`<b>${esc(x.pagina)}</b>`:'<span style="color:var(--red)">sin página</span>'}
+              ${x.dominio?` · ${esc(x.dominio)}`:''}${x.divisa?` · ${esc(x.divisa)}`:''}</div>
             ${x.nota?`<div class="muted" style="font-size:12px">${esc(x.nota)}</div>`:''}</td>
           <td class="right" style="white-space:nowrap">
             <button class="outline small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"

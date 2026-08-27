@@ -120,6 +120,19 @@ function mount(app) {
   // TBS tiene su propio cron y su propia hora: corta los días en la zona del panel (GMT+2), no en
   // la nuestra. Pedirle "ayer" según la hora argentina traería un día que allá no terminó.
   tbsDiarioSvc.startCron();
+  /* EL MANTENIMIENTO SE DEVENGA SOLO. Se paga por TENER el servicio, así que apenas arranca el
+     período ya es plata que el cliente debe: esperar a que alguien apretara un botón hacía que
+     entrara a su portal y viera "estás al día" debiendo un mes. Cada media hora se pone al día y
+     además se llama al abrir la pantalla y el portal, por si el proceso estuvo caído: es
+     idempotente, la llave (cliente, caja, fecha) impide repetir. */
+  const _devengar = () => {
+    try {
+      const r = chat.devengarMensualidades();
+      if (r.creadas) console.log(`[Chat] ${r.creadas} mantenimiento(s) devengado(s)`);
+    } catch (e) { console.warn('[Chat] devengar:', e.message); }
+  };
+  setTimeout(_devengar, 20 * 1000);
+  setInterval(_devengar, 30 * 60 * 1000);
 
   // Panel del OS (HTML estático, detrás del gate de auth)
   const path = require('path');
@@ -1957,10 +1970,10 @@ function mount(app) {
     const r = chat.setConfig(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-  app.get('/api/os/chat/paneles', (_req, res) => ok(res, {
+  app.get('/api/os/chat/paneles', (_req, res) => (chat.devengarMensualidades(), ok(res, {
     paneles: chat.list(), config: chat.config(), destinos: chat.destinos(),
     wallets: chat.wallets(), apagadas: chat.walletsApagadasEnUso(),
-  }));
+  })));
   app.post('/api/os/chat/wallets', wrap((req, res) => {
     const r = chat.guardarWallet(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
@@ -1980,6 +1993,7 @@ function mount(app) {
   /* ── EL MES AGRUPADO POR CLIENTE ────────────────────────────────────────────────────────────
      La cuenta se la mandás al CLIENTE, no al panel: uno con tres paneles paga una sola cuenta. */
   app.get('/api/os/chat/por-cliente', (req, res) => {
+    chat.devengarMensualidades();      // al mirar la pantalla, lo vencido ya está adentro
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
     const pc = chat.porCliente(mes);
     ok(res, {
