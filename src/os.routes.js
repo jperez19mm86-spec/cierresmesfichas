@@ -328,6 +328,21 @@ function mount(app) {
      Darle acceso a 45 clientes de a uno —abrir la ficha, buscar el botón, copiar la clave, cerrar—
      son 45 idas y vueltas, y en el medio se pierde la cuenta de quién ya tiene y quién no. Acá
      salen todos juntos con lo que puede hacer cada uno, y las acciones valen para los que marques. */
+  /* Subir un logo propio. Tope chico a propósito: es un logo, no una foto — y viaja en cada
+     pantalla que lo muestre. */
+  app.get('/api/os/logo', (_req, res) => ok(res, { propio: !!configStore.getCfg('logoPng') }));
+  app.put('/api/os/logo', wrap((req, res) => {
+    const b = req.body || {};
+    if (b.quitar === true) { configStore.setCfg('logoPng', ''); return ok(res, { propio: false }); }
+    const d = String(b.dataUri || '');
+    const m = /^data:(image\/(png|jpeg|jpg|webp|svg\+xml));base64,(.+)$/.exec(d);
+    if (!m) return err(res, 400, 'Tiene que ser una imagen PNG, JPG, WEBP o SVG.');
+    const bytes = Math.floor((m[3].length * 3) / 4);
+    if (bytes > 400 * 1024) return err(res, 400, `Ese archivo pesa ${Math.round(bytes / 1024)} KB. El logo tiene que pesar menos de 400 KB: se carga en cada pantalla.`);
+    configStore.setCfg('logoPng', d);
+    ok(res, { propio: true, bytes });
+  }));
+
   app.get('/api/os/accesos', (_req, res) => {
     const conChat = new Set(chat.list().filter((p) => p.activo && p.cliente_id).map((p) => p.cliente_id));
     const filas = clientes.list().clientes.map((c) => {

@@ -3,13 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>LATAM Games OS</title>
+<title>Latam Games</title>
 <style>
   :root { --bg:#fbf4fa; --bg2:#fff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; --blue:#3b7fe0; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; }
   header { background:var(--bg2); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
-  header h1 { font-size:16px; margin:0; } header h1 small { color:var(--muted); font-weight:400; }
+  header h1 { font-size:16px; margin:0; display:flex; align-items:center; gap:9px; }
+  header h1 small { color:var(--muted); font-weight:400; }
+  /* El logo, no el nombre escrito a mano: así el nombre se escribe de UNA forma sola y el día que
+     lo cambies se cambia en un archivo, no en cinco pantallas. */
+  .hd-logo { height:46px; width:auto; display:block; flex:0 0 auto; margin:-8px 0; }
   .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
   .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
@@ -159,7 +163,8 @@ tr.vta-ahora.vta-ok td{background:#eaf5ec}
 </head>
 <body>
 <header>
-  <h1>🎰 LATAM Games <small id="hd-sub"></small></h1>
+  <h1><img src="/logo.png" alt="Latam Games" class="hd-logo"
+    onerror="this.outerHTML='<span>Latam Games</span>'"> <small id="hd-sub"></small></h1>
   <div id="hd-nav" style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center"></div>
 </header>
 <nav class="nav" id="nav"></nav>
@@ -346,9 +351,12 @@ function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.hre
 
 function renderHeader(){
   document.getElementById('hd-sub').textContent =
-    ES_CHAT ? 'Chat Externo — Ganamos × Latam' : (ES_TBS ? 'TBS — el sistema de API' : 'OS — núcleo comercial');
+    ES_CHAT ? 'Chat Externo — Ganamos × Latam'
+      : (ES_TBS ? 'TBS — el sistema de API' : 'Fichas — carga, cuentas y cierre');
   const aqui = ES_CHAT ? '/chat-externo' : (ES_TBS ? '/tbs' : '/os');
-  const otros = [['/','↩ Operativo'], ['/os','🎰 Comercial'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat']]
+  /* Los espacios se llaman por lo que se hace adentro, no por cómo se llamaban cuando se
+     escribieron: "Comercial" y "Operativo" no le dicen a nadie qué hay del otro lado. */
+  const otros = [['/','📊 Dashboard'], ['/os','🎰 Fichas'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat']]
     .filter(([h])=>h !== aqui);
   document.getElementById('hd-nav').innerHTML =
     otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
@@ -2108,7 +2116,7 @@ async function refrescarTodoPendiente() {
   renderNav();
   // El título de la pestaña del navegador también, para verlo con el OS en segundo plano.
   const n = _pendTotal();
-  document.title = (n ? '(' + n + ') ' : '') + 'LATAM Games OS';
+  document.title = (n ? '(' + n + ') ' : '') + 'Latam Games';
 }
 
 VIEWS.pendientes = async () => {
@@ -3808,6 +3816,17 @@ CFG.telegram = async () => {
           ? '<span class="badge ok">bot cargado '+esc(cfg.telegramTokenHint||'')+'</span>'
           : '<span class="badge err">todavía no hay bot: no se puede mandar nada</span>'}</div>
       </div>
+      <div class="row" style="margin-top:12px;align-items:flex-end;gap:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="flex:0 0 auto"><label>Logo</label>
+          <img src="/logo.png?v=${Date.now()}" alt="" style="height:44px;display:block;border:1px solid var(--border);border-radius:8px;padding:4px;background:#fff"></div>
+        <div style="flex:0 0 240px"><label>Cambiarlo</label>
+          <input type="file" id="cfg-logo" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            onchange="cfgLogo(this)" style="width:100%"></div>
+        <div style="flex:0"><button class="outline" onclick="cfgLogoQuitar()">Volver al de siempre</button></div>
+        <div class="muted" style="flex:1;min-width:220px;align-self:center;font-size:12px">
+          Se ve en el panel, en el login y en la pantalla de pedidos. Menos de 400 KB: se carga en
+          cada pantalla. Se guarda en la base, así que no se pierde en el próximo despliegue.</div>
+      </div>
       <div class="row" style="margin-top:12px;align-items:flex-end">
         <div style="flex:0 0 260px"><label>Dominio de los links del cliente</label>
           <input id="cfg-url" value="${esc(cfg.urlPublica||'')}" placeholder="app.latamgames.online"
@@ -3947,6 +3966,18 @@ async function tgPegar(){
   out.innerHTML=`${ok.length?`<div class="nota ok"><span class="tit">${ok.length} cargado(s)</span>${ok.map(esc).join('<br>')}</div>`:''}
     ${no.length?`<div class="nota err"><span class="tit">${no.length} sin cargar</span>${no.map(esc).join('<br>')}</div>`:''}`;
   if(ok.length){ document.getElementById('tg-pegar').value=no.length?no.join('\n'):''; setTimeout(()=>CFG.telegram(),1200); }
+}
+async function cfgLogo(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  if(f.size>400*1024) return toast('Ese archivo pesa '+Math.round(f.size/1024)+' KB. Tiene que pesar menos de 400 KB.');
+  const dataUri=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(String(fr.result)); fr.readAsDataURL(f); });
+  const r=await api('/api/os/logo',{method:'PUT',body:JSON.stringify({dataUri})});
+  if(r&&r.ok){ toast('Logo cambiado'); CFG.telegram(); }
+}
+async function cfgLogoQuitar(){
+  if(!confirm('¿Volver al logo original?')) return;
+  const r=await api('/api/os/logo',{method:'PUT',body:JSON.stringify({quitar:true})});
+  if(r&&r.ok){ toast('Listo'); CFG.telegram(); }
 }
 async function cfgGuardarUrl(){
   const r=await api('/api/config',{method:'PUT',body:JSON.stringify({urlPublica:val('cfg-url')})});

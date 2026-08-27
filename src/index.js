@@ -1404,6 +1404,23 @@ app.get('/factura/:token/planilla.csv', (req, res) => {
    despliegue nuevo no aparece en pantalla y se ve igual que si no se hubiera subido. `no-cache` no
    significa "no guardes" sino "preguntá siempre si cambió", y con el ETag que ya manda express eso
    se contesta con un 304 sin cuerpo. */
+/* ── EL LOGO, CAMBIABLE SIN TOCAR EL CÓDIGO ─────────────────────────────────────────────────────
+   Va ANTES de express.static: si el archivo del repo se sirviera primero, el que suba la dueña no
+   se vería nunca. Se guarda en la base y no en el disco porque el disco del servidor se borra en
+   cada despliegue —la base vive en el volumen— así que un logo subido a disco duraría hasta el
+   próximo deploy y volvería el viejo sin que nadie entienda por qué. */
+app.get('/logo.png', (_req, res, next) => {
+  try {
+    const guardado = String(config.getCfg('logoPng') || '');
+    if (!guardado) return next();          // no subió ninguno: vale el del repo
+    const [, tipo, b64] = /^data:([^;]+);base64,(.+)$/.exec(guardado) || [];
+    if (!b64) return next();
+    res.setHeader('Content-Type', tipo || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=300');   // corto: para verlo apenas lo cambia
+    return res.send(Buffer.from(b64, 'base64'));
+  } catch (e) { return next(); }
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, ruta) => {
     res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');

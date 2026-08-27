@@ -6256,7 +6256,40 @@ async function main() {
 
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
-  check('panel /os sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /VIEWS/.test(r.data));
+  /* El nombre va UNA sola vez y en el logo, no escrito a mano en cada pantalla: antes decía
+     "LATAM Games" en el encabezado y "Latam Games" en el login, con la mezcla de mayúsculas que se
+     ve en cuanto hay dos pantallas abiertas al lado. */
+  check('panel /os sirve HTML', r.status === 200 && /Latam Games/.test(r.data) && /VIEWS/.test(r.data));
+  check('panel: el nombre no se escribe a mano en el encabezado, va el logo',
+    /<img src="\/logo\.png" alt="Latam Games" class="hd-logo"/.test(r.data)
+    && !/LATAM Games/.test(r.data),
+    'y si el logo no carga, cae a "Latam Games" escrito de una sola forma');
+  /* Los espacios se llaman por lo que se hace adentro: "Comercial" y "Operativo" no le dicen a
+     nadie qué hay del otro lado. */
+  /* El logo se puede cambiar sin tocar el código, y se guarda en la BASE: el disco del servidor se
+     borra en cada despliegue, así que uno subido a disco duraría hasta el próximo deploy. */
+  const logoAntes = await axios.get(BASE + '/logo.png', { validateStatus: () => true, responseType: 'arraybuffer' });
+  check('logo: el del repo se sirve mientras no subas otro', logoAntes.status === 200);
+  const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  check('logo: no entra cualquier archivo',
+    (await axios.put(BASE + '/api/os/logo', { dataUri: 'data:text/html;base64,PGgxPmhvbGE8L2gxPg==' },
+      H({ validateStatus: () => true }))).data.ok !== true);
+  check('logo: y no entra uno pesado',
+    (await axios.put(BASE + '/api/os/logo', { dataUri: 'data:image/png;base64,' + 'A'.repeat(600 * 1024) },
+      H({ validateStatus: () => true }))).data.ok !== true);
+  check('logo: se sube el propio y pasa a servirse ése',
+    (await put('/api/os/logo', { dataUri: png1x1 })).data.propio === true
+    && (await axios.get(BASE + '/logo.png', { validateStatus: () => true, responseType: 'arraybuffer' }))
+      .data.length < logoAntes.data.length,
+    'el subido pesa menos que el del repo, así que se nota cuál salió');
+  check('logo: se puede volver al de siempre',
+    (await put('/api/os/logo', { quitar: true })).data.propio === false
+    && (await axios.get(BASE + '/logo.png', { validateStatus: () => true, responseType: 'arraybuffer' }))
+      .data.length === logoAntes.data.length);
+
+  check('panel: los espacios se llaman por lo que hacen',
+    /\['\/','📊 Dashboard'\]/.test(r.data) && /\['\/os','🎰 Fichas'\]/.test(r.data)
+    && /\['\/chat-externo','💬 Chat'\]/.test(r.data));
 
   // ── que el JAVASCRIPT DE LA PÁGINA COMPILE ──
   // Faltaba, y se notó: un reemplazo mal cortado duplicó 179 líneas, el script tiró
@@ -6279,7 +6312,7 @@ async function main() {
   }
   // TBS es su propio espacio: misma página, pero la barra se arma según por dónde se entró.
   r = await axios.get(BASE + '/tbs', H());
-  check('panel /tbs sirve HTML', r.status === 200 && /LATAM Games/.test(r.data) && /TABS_TBS/.test(r.data));
+  check('panel /tbs sirve HTML', r.status === 200 && /Latam Games/.test(r.data) && /TABS_TBS/.test(r.data));
   check('/tbs decide el modo por la URL, no por un flag guardado',
     /location\.pathname[\s\S]{0,60}\/tbs/.test(r.data), 'ES_TBS sale de location.pathname');
   check('la pestaña API ya no está en el comercial', !/'api','🔌 API \(TBS\)'/.test(r.data));
