@@ -59,7 +59,7 @@ const PUBLIC = [
      largo, abre UNA hoja de UN cliente y no lleva a ningún listado.
      Sin esto el link cae en el login, y el cliente no tiene usuario. */
   /^\/chat\/?$/,
-  /^\/chat\/(entrar|aviso|nuevo)\/?$/,
+  /^\/chat\/(entrar|aviso|nuevo|accesos)\/?$/,
   /^\/chat\/[A-Za-z0-9_-]+(\/pague)?\/?$/,
   /^\/ganamos\.html$/,
   /^\/logo\.png$/,

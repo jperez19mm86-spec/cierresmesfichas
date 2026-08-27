@@ -1328,6 +1328,18 @@ app.post('/chat/aviso', (req, res) => {
   res.json(out);
 });
 
+/* LOS ACCESOS, DETRÁS DE LA CLAVE. Al portal se entra con el nombre de una caja: la contraseña del
+   panel no puede estar del otro lado de esa puerta. */
+app.post('/chat/accesos', (req, res) => {
+  const chatStore = require('./chat-externo.store');
+  const b = req.body || {};
+  const q = chatStore.quienEntra(b.usuario);
+  if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
+  const r = chatStore.accesosDe(q.cliente_id, b.clave);
+  if (!r.ok) return res.status(403).json(r);
+  res.json(r);
+});
+
 app.post('/chat/nuevo', (req, res) => {
   const chatStore = require('./chat-externo.store');
   const b = req.body || {};

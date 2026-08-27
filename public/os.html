@@ -4110,7 +4110,7 @@ function renderNodos(){
 
    La ganancia NO se le pregunta al casino: sale del acumulado que el cron ya guarda todas las
    noches, cruzando conexión + nodo. */
-let _chatMes = mesDeCierre(), _chatWs = [];
+let _chatMes = mesDeCierre(), _chatWs = [], _chatOpc = [];
 function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
 
 /* ⚠️ LOS DATOS NO VAN ADENTRO DEL onclick, VAN EN data-*.
@@ -4138,6 +4138,7 @@ VIEWS.chat = async () => {
   const arrastre=pc.arrastre||{clientes:[],totales:{debe:'0'}};
   const opciones=(_paneles.length?_paneles:[]).filter(p=>!ps.some(x=>x.panel_id===p.id));
   const dest=lp.destinos||{}, ws=lp.wallets||[];
+  _chatOpc = opciones;   // para filtrar el desplegable por sistema sin volver a pedir la lista
   _chatWs=ws;   // para poder apagar una sin volver a pedir la lista
   /* Los clientes salen de los PANELES contratados, no del cierre: uno que recién entró todavía no
      facturó nada y si la lista saliera del mes no habría dónde cargarle el grupo. */
@@ -4250,11 +4251,13 @@ VIEWS.chat = async () => {
         solo — no hay que apretar nada. <b>Sin la fecha de «Empezó el» no se le cobra</b>, porque el
         sistema no sabe desde cuándo.</div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
-        <div style="flex:1;min-width:240px"><label>Agregar un panel al servicio</label>
-          <select id="chat-nuevo" style="width:100%">
-            <option value="">— elegí la caja que contrató el chat —</option>
-            ${chatOpciones(opciones)}
+        <div style="flex:0 0 130px"><label>Sistema</label>
+          <select id="chat-nuevo-sis" onchange="chatFiltrarCajas()" style="width:100%">
+            ${[...new Set(opciones.map(p=>p.sistema||'Sin sistema'))].sort((a,b)=>a.localeCompare(b,'es'))
+              .map(k=>`<option value="${esc(k)}">${esc(k)} (${opciones.filter(p=>(p.sistema||'Sin sistema')===k).length})</option>`).join('')}
           </select></div>
+        <div style="flex:1;min-width:220px"><label>Agregar una caja al servicio</label>
+          <select id="chat-nuevo" style="width:100%"></select></div>
         <div style="flex:0 0 90px"><label>Le cobrás</label>
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
         <div style="flex:0 0 150px"><label>Desde</label>
@@ -4292,13 +4295,18 @@ VIEWS.chat = async () => {
                 onchange="chatSet('${p.panel_id}',{link_panel:this.value})" style="width:100%;font-size:12px"></div>
             <div style="flex:0 0 130px"><label style="font-size:11px">Usuario del panel</label>
               <input value="${esc(p.usuario_admin||'')}" placeholder="—"
-                title="Sólo el usuario. La contraseña no se guarda: el portal del cliente se abre sin clave."
                 onchange="chatSet('${p.panel_id}',{usuario_admin:this.value})" style="width:100%;font-size:12px"></div>
+            <div style="flex:0 0 140px"><label style="font-size:11px">Contraseña del panel</label>
+              <input value="${esc(p.clave_admin||'')}" placeholder="—"
+                title="La ve el cliente en su portal, pero SÓLO después de escribir la clave que le diste. Sin esa clave no se muestra."
+                onchange="chatSet('${p.panel_id}',{clave_admin:this.value})" style="width:100%;font-size:12px"></div>
           </div></td></tr>`).join('')}
       </tbody></table></div>
-      <div class="muted" style="font-size:12px;margin-top:6px">Los dos links se ven en el portal del
-        cliente. <b>La contraseña no se guarda en ningún lado</b>: al portal se entra sin clave, así
-        que ahí quedaría a la vista de cualquiera que adivine el nombre de una caja.</div>`
+      <div class="muted" style="font-size:12px;margin-top:6px;max-width:90ch">Los dos links y el
+        usuario se ven en el portal del cliente. <b>La contraseña no</b>: al portal se entra
+        escribiendo el nombre de una caja, sin nada más, así que ahí quedaría a la vista de
+        cualquiera que adivine un nombre. Se muestra sólo cuando el cliente escribe la
+        <b>clave del portal</b> que le pusiste abajo — una por cliente, se la das una vez.</div>`
       :'<div class="empty" style="margin-top:12px">Ninguno todavía. Elegí un panel acá arriba.</div>'}
 
       <h2 style="margin-top:22px">A dónde le mando la cuenta a cada uno</h2>
@@ -4308,13 +4316,18 @@ VIEWS.chat = async () => {
         el grupo del cliente—. El campo de al lado es una nota tuya y no lo usa el sistema.</div>
       ${clis.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
         <th>Cliente</th><th>Grupo(s) de Telegram</th><th>Se la mando a…</th>
-        <th>Paga el mes a</th><th>Paga el mantenimiento a</th></tr></thead><tbody>
+        <th>Clave del portal</th><th>Paga el mes a</th><th>Paga el mantenimiento a</th></tr></thead><tbody>
         ${clis.map(c=>`<tr>
           <td><b>${esc(c.nombre)}</b>${c.paneles>1?`<span class="muted" style="font-size:11.5px"> · ${c.paneles} cajas</span>`:''}</td>
           <td><input value="${esc((dest[c.id]||{}).tg_grupo||'')}" placeholder="-1002…, -1003…"
             onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:200px"></td>
           <td><input value="${esc((dest[c.id]||{}).enviar_a||'')}" placeholder="a Raúl por privado"
             onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%;min-width:120px"></td>
+          <td><input value="${esc((dest[c.id]||{}).clave_portal||'')}" placeholder="—"
+            onchange="chatDestino('${c.id}',{clave_portal:this.value})"
+            title="Con esta clave el cliente ve las contraseñas de sus paneles en su portal. Se la das una vez. Sin clave, no las ve."
+            style="width:110px">
+            ${(dest[c.id]||{}).clave_portal?'':'<div style="font-size:11px;color:var(--muted)">no ve accesos</div>'}</td>
           ${['wallet_ggr','wallet_mens'].map(k=>`<td><select onchange="chatDestino('${c.id}',{${k}:this.value})" style="width:140px">
             <option value="">la de siempre</option>
             ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${(dest[c.id]||{})[k]===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
@@ -4550,12 +4563,24 @@ VIEWS.chat = async () => {
 
   document.getElementById('main').innerHTML =
     (SUB_CHAT[_chatSub] || SUB_CHAT.cuentas).map(k => S[k] || '').join('');
+  chatFiltrarCajas();      // el desplegable arranca con las del primer sistema
 };
 
 /* Doscientas cajas en una lista suelta no se pueden recorrer con el ojo. Se agrupan por sistema y
    se ordenan alfabéticamente adentro de cada grupo: buscar "Fran44" es mirar una sola columna, no
    toda la lista. `localeCompare` con sensitivity:'base' pone Ávila al lado de Avila y no manda las
    minúsculas al final, que es lo que hace comparar strings a secas. */
+/* PRIMERO EL SISTEMA, DESPUÉS LA CAJA. Con 94 cajas en Casino, el desplegable era una lista que no
+   se termina de leer: elegir el sistema deja diez o veinte y ahí sí se encuentra la que buscás. */
+function chatFiltrarCajas(){
+  const sis=(document.getElementById('chat-nuevo-sis')||{}).value||'';
+  const sel=document.getElementById('chat-nuevo'); if(!sel) return;
+  const ps=(_chatOpc||[]).filter(p=>(p.sistema||'Sin sistema')===sis)
+    .slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es',{sensitivity:'base',numeric:true}));
+  sel.innerHTML='<option value="">— elegí la caja que contrató el chat —</option>'
+    + ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('');
+}
+
 function chatOpciones(lista){
   const grupos={};
   (lista||[]).forEach(p=>{ const k=p.sistema||'Sin sistema'; (grupos[k]=grupos[k]||[]).push(p); });

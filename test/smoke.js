@@ -1832,8 +1832,13 @@ async function main() {
     ch.setConfig({ costo_pct: '2', mensualidad: '30', mensualidad_moneda: 'USDT' });
     check('chat: el costo y la mensualidad viven en un solo lugar',
       ch.config().costo_pct === '2' && ch.config().mensualidad === '30');
-    check('chat: un costo mal escrito no entra',
-      ch.setConfig({ costo_pct: '2,5' }).ok === false && ch.config().costo_pct === '2');
+    /* La coma es como se escribe un número acá: "2,5" es 2.5 y se guarda normalizado. Un % no lleva
+       separador de miles —nadie cobra el 1.500%— así que no hay nada que adivinar. */
+    check('chat: un porcentaje con coma entra y se guarda con punto',
+      ch.setConfig({ costo_pct: '2,5' }).ok === true && ch.config().costo_pct === '2.5');
+    check('chat: un costo que no es un número no entra',
+      ch.setConfig({ costo_pct: 'dos y medio' }).ok === false && ch.config().costo_pct === '2.5');
+    ch.setConfig({ costo_pct: '2' });
 
     /* El % del cliente se guarda como el TOTAL que paga, no como el adicional: es el número que va
        en su factura y el que se piensa al negociar. El margen se calcula restando el costo. */
@@ -1851,12 +1856,22 @@ async function main() {
 
     /* Cobrarle MENOS de lo que cuesta se puede querer (una promoción) pero no por accidente: no se
        prohíbe, se marca. Ver sólo el total cobrado escondería justo este caso. */
-    ch.set({ panel_id: PAN.id, pct_cliente: '1', dia_cobro: 10 });
+    check('chat: no se puede cobrar menos de lo que te cuesta',
+      ch.set({ panel_id: PAN.id, pct_cliente: '1' }).ok === false
+      && ch.list().find((x) => x.panel_id === PAN.id).pct_cliente === '4',
+      'es pagar de tu bolsillo para que el cliente tenga el servicio: no se guarda');
+    check('chat: cobrar justo lo que te cuesta sí se puede',
+      ch.set({ panel_id: PAN.id, pct_cliente: '2', dia_cobro: 10 }).ok === true);
+    /* Pero el aviso sigue haciendo falta para el OTRO caso: que el costo SUBA después de haber
+       puesto los precios. Ahí nadie tipeó nada mal y sin embargo estás perdiendo. */
+    ch.setConfig({ costo_pct: '3' });
     const ci2 = ch.cierre('2026-08');
-    check('chat: avisa cuando le cobrás menos de lo que te cuesta',
+    check('chat: si el costo sube después, avisa que ese cliente pasó a perder',
       ci2.pierden.length === 1 && ci2.filas[0].pierde === true
       && moneyCh.isNeg(ci2.filas[0].margen),
-      'cobra 1% y cuesta 2%: margen ' + ci2.filas[0].margen);
+      'cobra 2% y pasó a costar 3%: margen ' + ci2.filas[0].margen);
+    ch.setConfig({ costo_pct: '2' });
+    ch.set({ panel_id: PAN.id, pct_cliente: '4', dia_cobro: 10 });
     /* SIN PRECIO NO ES GRATIS. Cobrar cero sería regalar el servicio y pagarlo del bolsillo por un
        olvido; se cobra el MÍNIMO, que es lo que cuesta, y queda marcado para confirmarlo. */
     ch.set({ panel_id: PAN.id, pct_cliente: '', dia_cobro: 10 });
@@ -2096,9 +2111,28 @@ async function main() {
     check('chat: el cliente ve los links de su caja en el portal',
       !!cajaZ && cajaZ.link_jugadores === 'https://juegan.ganamos.vip'
       && cajaZ.usuario_admin === 'ZZadm');
-    check('chat: al portal no viaja ninguna contraseña',
-      !/clave|password|contrase/i.test(JSON.stringify(portZ)),
-      JSON.stringify(Object.keys(cajaZ || {})));
+    /* LA CONTRASEÑA DEL PANEL SÍ SE GUARDA —hay clientes con muchas cuentas y no se acuerdan cuál va
+       con cuál— pero NO viaja al portal hasta que el cliente escribe la clave que vos le diste. Al
+       portal se entra con el nombre de una caja y nada más: dejarla del otro lado de esa puerta
+       sería regalarle el panel a cualquiera que adivine un nombre. */
+    ch.set({ panel_id: PAN.id, clave_admin: 'ZZsecreta777' });
+    check('chat: la contraseña del panel NO está en lo que el portal le manda al cliente',
+      !JSON.stringify(ch.portalDe(CLI.id)).includes('ZZsecreta777'),
+      'sólo viaja el usuario, que solo no abre nada');
+    check('chat: sin clave cargada, los accesos no se muestran ni pidiéndolos',
+      ch.accesosDe(CLI.id, '').ok === false && ch.accesosDe(CLI.id, 'loquesea').ok === false);
+    check('chat: una clave demasiado corta no se puede poner',
+      ch.setDestino({ cliente_id: CLI.id, clave_portal: 'abc' }).ok === false);
+    ch.setDestino({ cliente_id: CLI.id, clave_portal: 'ZZclave2026' });
+    check('chat: con la clave equivocada tampoco',
+      ch.accesosDe(CLI.id, 'otra').ok === false
+      && !JSON.stringify(ch.accesosDe(CLI.id, 'otra')).includes('ZZsecreta777'));
+    const acc = ch.accesosDe(CLI.id, 'ZZclave2026');
+    check('chat: con la clave, el cliente ve la contraseña de cada caja',
+      acc.ok && acc.cajas.some((x) => x.caja === 'ZZ-Panel-Chat' && x.clave === 'ZZsecreta777'),
+      JSON.stringify((acc.cajas || []).map((x) => x.caja)));
+    ch.set({ panel_id: PAN.id, clave_admin: '' });
+    ch.setDestino({ cliente_id: CLI.id, clave_portal: '' });
 
     /* ── LO QUE EL CLIENTE NO PUEDE VER NO ENTRA AL DOCUMENTO ─────────────────────────────────
        No se filtra al imprimir: no está en el objeto. Si mañana alguien agrega una columna al
@@ -2578,6 +2612,13 @@ async function main() {
       await put('/api/os/paneles/' + panP.id, { alias: 'Fran-44' });
       await post('/api/os/chat/paneles', { panel_id: panP.id, pct_cliente: '4', dia_cobro: 10 });
 
+      /* La puerta de los accesos, por HTTP: sin clave contesta 403 y no manda nada. */
+      const rAcc = await axios.post(BASE + '/chat/accesos', { usuario: 'Fran44', clave: 'x' },
+        { validateStatus: () => true });
+      check('portal: pedir los accesos sin la clave no devuelve nada',
+        rAcc.status === 403 && rAcc.data.ok === false && !rAcc.data.cajas,
+        'HTTP ' + rAcc.status);
+
       const rPortada = await axios.get(BASE + '/chat', { validateStatus: () => true });
       check('portal: la portada abre sin login y se llama GANAMOS x Latam',
         rPortada.status === 200 && /GANAMOS/.test(String(rPortada.data))
@@ -2725,15 +2766,18 @@ async function main() {
        vacío hasta visitar 👥 Clientes, y no había forma de empezar a usarla. */
     /* 204 cajas en una lista suelta no se recorren con el ojo: van agrupadas por sistema y
        alfabéticas adentro de cada grupo. */
-    check('chat: la lista de cajas va agrupada por sistema y ordenada de la A a la Z',
-      /<optgroup label="\$\{esc\(k\)\}/.test(uiCh)
-      && /localeCompare\(String\(b\.nombre\|\|''\),'es',\{sensitivity:'base',numeric:true\}\)/.test(uiCh)
-      && /chatOpciones\(opciones\)/.test(uiCh));
+    check('chat: primero se elige el sistema y después la caja',
+      /id="chat-nuevo-sis" onchange="chatFiltrarCajas\(\)"/.test(uiCh)
+      && /function chatFiltrarCajas\(\)/.test(uiCh)
+      && /localeCompare\(String\(b\.nombre\|\|''\),'es',\{sensitivity:'base',numeric:true\}\)/.test(uiCh));
     check('chat: la pantalla carga los paneles sola',
       /if\(!_paneles\.length\)\{ const dp=await api\('\/api\/os\/paneles'\)/.test(uiCh));
-    check('chat: los links de cada caja se cargan desde la pantalla, y la contraseña no',
+    check('chat: los links, el usuario y la contraseña de cada caja se cargan desde la pantalla',
       /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
-      && /La contraseña no se guarda en ningún lado/.test(uiCh));
+      && /clave_admin:this\.value/.test(uiCh) && /clave_portal:this\.value/.test(uiCh));
+    check('chat: y la pantalla explica que la contraseña va detrás de la clave del portal',
+      /La contraseña no<\/b>: al portal se entra/.test(uiCh)
+      && /clave del portal<\/b> que le pusiste abajo/.test(uiCh));
     check('chat: desde la pantalla se le avisa la mensualidad a cada caja por separado',
       /chatAvisarMens\(/.test(uiCh) && /📤 avisar/.test(uiCh)
       && /El aviso se manda <b>de a una<\/b>/.test(uiCh));
@@ -2750,8 +2794,8 @@ async function main() {
       iQui > iCfg && iQui < iCie && iCfg > 0 && iCie > 0,
       `config ${iCfg} · quiénes ${iQui} · cierre ${iCie}`);
     check('chat: agregar una caja está arriba de la lista, no debajo',
-      uiCh.indexOf('Agregar un panel al servicio') > iQui
-      && uiCh.indexOf('Agregar un panel al servicio') < uiCh.indexOf('A dónde le mando la cuenta'));
+      uiCh.indexOf('Agregar una caja al servicio') > iQui
+      && uiCh.indexOf('Agregar una caja al servicio') < uiCh.indexOf('A dónde le mando la cuenta'));
     // La cuenta del chat en la pantalla del cliente tiene que llamarse por su nombre.
     const cuentaHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
     const pedirHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');

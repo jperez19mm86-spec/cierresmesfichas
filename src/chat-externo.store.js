@@ -201,6 +201,16 @@ for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
    "Ariel-A1" está adentro de "Ariel-A10": una caja quedaba marcada como cobrada por el nombre de
    otra. El dato se guarda, no se adivina. */
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya estaba */ }
+/* LA CONTRASEÑA DEL PANEL DE CADA CAJA, y la clave con la que el cliente puede verla.
+   Hay clientes con muchas cuentas y no se acuerdan cuál va con cuál; tenerlas acá les resuelve el
+   problema. Pero al portal se entra escribiendo el NOMBRE DE UNA CAJA, sin contraseña: dejarlas a
+   la vista ahí sería regalarle el panel a cualquiera que adivine un nombre. Por eso los accesos
+   sólo se muestran después de escribir una clave que vos le das una vez, y que vive en el cliente,
+   no en la caja: es la llave del portal, no la del casino. */
+for (const col of ['clave_admin TEXT']) {
+  try { db.exec(`ALTER TABLE chat_panel ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
+}
+try { db.exec('ALTER TABLE chat_cliente ADD COLUMN clave_portal TEXT'); } catch (e) { /* ya estaba */ }
 /* Lo que hace falta saber para abrir una caja, y que sólo sabe el cliente: en qué página juega su
    gente, con qué dominio y en qué moneda. Preguntarlo en el pedido evita la ida y vuelta de tres
    mensajes que hoy pasa por privado. */
@@ -211,6 +221,13 @@ try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN archivo_tipo_seguro TEXT'
 try { db.exec('CREATE INDEX IF NOT EXISTS ix_chat_cmp_cli ON chat_comprobante(cliente_id)'); } catch (e) { /* ya estaba */ }
 
 const nowISO = () => new Date().toISOString();
+
+/* UN PORCENTAJE ESCRITO CON COMA ES EL MISMO NÚMERO. "2,5" es como se escribe acá, y rechazarlo
+   obligaba a volver a tipear lo mismo con un punto — la forma natural de escribir un número no
+   puede ser la forma equivocada. Un % no lleva separador de miles (nadie cobra el 1.500%), así que
+   la coma siempre es decimal y no hay nada que adivinar: no es el caso de los montos, donde "94.22"
+   sí es ambiguo. Se guarda normalizado con punto, que es lo que entiende el resto del sistema. */
+const normPct = (x) => String(x == null ? '' : x).trim().replace(',', '.');
 /* ⚠️ LAS FECHAS DEL CHAT SON EN HORA ARGENTINA, NO UTC. `nowISO().slice(0,10)` da el día UTC, que
    entre las 21 y las 24 de acá YA ES MAÑANA: la mensualidad se guardaba con la fecha de mañana y
    la pantalla la buscaba con la de hoy, así que "ya cobrada" no se marcaba y se podía cobrar dos
@@ -292,7 +309,7 @@ function config() {
 }
 function setConfig(d) {
   if (d.costo_pct !== undefined) {
-    const v = String(d.costo_pct).trim();
+    const v = normPct(d.costo_pct);
     if (!money.esNumero(v)) return { ok: false, error: `"${v}" no es un número. Usá punto para los decimales` };
     if (money.isNeg(v) || money.cmp(v, '100') > 0) return { ok: false, error: 'el costo tiene que estar entre 0 y 100' };
     cfg.setCfg(COSTO, v);
@@ -347,7 +364,7 @@ function list() {
       panel: p.nombre || '(panel borrado)', sistema: p.sistema || '', id_usuario: p.id_usuario || '',
       nivel: p.nivel_usuario || '', grp: GRP_DE_NIVEL[p.nivel_usuario] || 'superagent',
       link_jugadores: f.link_jugadores || '', link_panel: f.link_panel || '',
-      usuario_admin: f.usuario_admin || '',
+      usuario_admin: f.usuario_admin || '', clave_admin: f.clave_admin || '',
       conexion_id: p.conexion_id || null,
       cliente_id: p.cliente_id || null, cliente: c.nombre || c.codigo || '—',
     };
@@ -366,13 +383,20 @@ function set(d) {
      decisión, no un olvido. Por eso se mira si el campo vino, no si tiene valor. */
   const vino = (k) => Object.prototype.hasOwnProperty.call(d, k);
   const pct = vino('pct_cliente')
-    ? String(d.pct_cliente == null ? '' : d.pct_cliente).trim()
+    ? normPct(d.pct_cliente)
     : String((prev && prev.pct_cliente) || '');
   if (pct) {
-    if (!money.esNumero(pct)) return { ok: false, error: `"${pct}" no es un número. Usá punto para los decimales: 2.5` };
+    if (!money.esNumero(pct)) return { ok: false, error: `"${d.pct_cliente}" no es un número. Podés escribirlo con coma o con punto: 2,5` };
     if (money.isNeg(pct) || money.cmp(pct, '100') > 0) return { ok: false, error: 'el % tiene que estar entre 0 y 100' };
-    // Cobrarle MENOS de lo que cuesta se puede querer (una promoción), pero no por accidente.
-    // No se frena: se avisa al calcular el mes, donde el margen sale en rojo.
+    /* ⚠️ NUNCA POR DEBAJO DE LO QUE TE CUESTA. Un 1% cuando el proveedor te cobra 2 es pagar de tu
+       bolsillo para que el cliente tenga el servicio, y eso no se decide tipeando un número en una
+       tabla: no se guarda. Si alguna vez hace falta —una promoción de verdad— se baja primero el
+       costo, que es el número que manda. El aviso de "cobrás menos de lo que te cuesta" sigue
+       existiendo para el otro caso: que el costo SUBA después de haber puesto los precios. */
+    const costo = String(config().costo_pct || '0');
+    if (money.esNumero(costo) && money.cmp(pct, costo) < 0) {
+      return { ok: false, error: `No podés cobrar ${pct}%: te cuesta ${costo}%. Estarías pagando vos la diferencia.` };
+    }
   }
   /* ⚠️ LOS LINKS NO SE DEDUCEN NUNCA. Ni del nombre de la caja, ni del dominio de otra parecida:
      hay muchos dominios en juego y no hay relación entre la cuenta y el que le toca. Un link mal
@@ -393,6 +417,7 @@ function set(d) {
     links[k] = con;
   }
   if (vino('usuario_admin')) links.usuario_admin = String(d.usuario_admin || '').trim().slice(0, 80) || null;
+  if (vino('clave_admin')) links.clave_admin = String(d.clave_admin || '').trim().slice(0, 120) || null;
   if (/contrase|password|clave/i.test(JSON.stringify(d.usuario_admin || ''))) {
     return { ok: false, error: 'Acá no va la contraseña: el portal del cliente se abre sin clave y quedaría a la vista.' };
   }
@@ -420,18 +445,18 @@ function set(d) {
   }
   const q = (k) => (Object.prototype.hasOwnProperty.call(links, k) ? links[k] : ((prev && prev[k]) || null));
   db.prepare(`INSERT INTO chat_panel
-      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin,clave_admin)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(panel_id) DO UPDATE SET pct_cliente=excluded.pct_cliente, dia_cobro=excluded.dia_cobro,
       activo=excluded.activo, desde=excluded.desde, notas=excluded.notas,
       link_jugadores=excluded.link_jugadores, link_panel=excluded.link_panel,
-      usuario_admin=excluded.usuario_admin`)
+      usuario_admin=excluded.usuario_admin, clave_admin=excluded.clave_admin`)
     .run(id, pct || null, dia,
       vino('activo') ? (d.activo === false ? 0 : 1) : (prev ? prev.activo : 1),
       String(d.desde || (prev && prev.desde) || '').slice(0, 10) || null,
       vino('notas') ? String(d.notas || '') : String((prev && prev.notas) || ''),
       (prev && prev.createdAt) || nowISO(),
-      q('link_jugadores'), q('link_panel'), q('usuario_admin'));
+      q('link_jugadores'), q('link_panel'), q('usuario_admin'), q('clave_admin'));
   return { ok: true, panel: list().find((x) => x.panel_id === id) };
 }
 function quitar(panelId) {
@@ -723,6 +748,13 @@ function setDestino(d) {
   const val = (k) => (vino(k) ? String(d[k] == null ? '' : d[k]).trim() : String((prev && prev[k]) || ''));
   const grupo = partirGrupos(val('tg_grupo')).join(', ');
   // La wallet propia de este cliente, si le pusiste una distinta de la de siempre.
+  if (vino('clave_portal')) {
+    const c = String(d.clave_portal || '').trim().slice(0, 40);
+    if (c && c.length < 4) return { ok: false, error: 'la clave tiene que tener al menos 4 caracteres' };
+    db.prepare(`INSERT INTO chat_cliente (cliente_id,clave_portal,createdAt) VALUES (?,?,?)
+      ON CONFLICT(cliente_id) DO UPDATE SET clave_portal=excluded.clave_portal`)
+      .run(id, c || null, nowISO());
+  }
   const wsel = {};
   for (const k of ['wallet_ggr', 'wallet_mens']) {
     if (!vino(k)) continue;
@@ -1084,7 +1116,9 @@ function portalDe(clienteId) {
     .map((p) => ({
       caja: p.panel, desde: p.desde || null, dia_cobro: p.dia_cobro || null,
       link_jugadores: p.link_jugadores || '', link_panel: p.link_panel || '',
+      // El usuario sí —solo no abre nada—; la contraseña NO viaja hasta que escriba la clave.
       usuario_admin: p.usuario_admin || '',
+      tiene_clave: !!p.clave_admin,
     }));
   const c = clientes.list().clientes.find((x) => x.id === id) || {};
   return {
@@ -1103,6 +1137,26 @@ function portalDe(clienteId) {
     solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at, pagina, dominio, divisa, caja_nueva FROM chat_solicitud
       WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 10`).all(id),
     pago: comoPagar(id),
+    // Si no tiene clave puesta, el portal ni ofrece ver los accesos: le dice que te los pida.
+    pide_clave: !!(destino(id).clave_portal),
+  };
+}
+
+/**
+ * LOS ACCESOS DE SUS CAJAS, DETRÁS DE UNA CLAVE.
+ * Al portal se entra con el nombre de una caja y nada más, así que la contraseña del panel no puede
+ * estar del otro lado de esa puerta: se pide una clave que vos le diste una vez. Sin clave cargada
+ * no se muestran, ni siquiera vacíos — que es distinto de "no tiene": tiene, pero no acá.
+ */
+function accesosDe(clienteId, clave) {
+  const id = String(clienteId || '');
+  const guardada = String(destino(id).clave_portal || '');
+  if (!guardada) return { ok: false, error: 'Todavía no tenés clave para ver los accesos. Pedínosla y te la damos.' };
+  if (String(clave || '').trim() !== guardada) return { ok: false, error: 'Esa clave no es' };
+  return {
+    ok: true,
+    cajas: list().filter((p) => p.cliente_id === id && p.activo && (p.usuario_admin || p.clave_admin))
+      .map((p) => ({ caja: p.panel, usuario: p.usuario_admin || '', clave: p.clave_admin || '', link: p.link_panel || '' })),
   };
 }
 
@@ -1325,5 +1379,5 @@ module.exports = {
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
-  quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud,
+  quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

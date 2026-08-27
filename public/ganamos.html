@@ -348,6 +348,7 @@ function ver(cual) {
           + '<div class="caja-n"><b>' + esc(c.caja) + '</b>'
           + (c.dia_cobro ? '<span class="tenue"> · mensualidad el ' + esc(c.dia_cobro) + '</span>' : '') + '</div>'
           + (c.usuario_admin ? '<div class="tenue">usuario del panel: <b>' + esc(c.usuario_admin) + '</b></div>' : '')
+          + (c.tiene_clave ? '<div class="tenue" id="acc-' + esc(c.caja) + '"></div>' : '')
           + (c.link_jugadores || c.link_panel ? '<div class="links">'
             + (c.link_jugadores ? '<a class="lk" href="' + esc(c.link_jugadores) + '" target="_blank" rel="noopener">🎲 Para jugadores</a>' : '')
             + (c.link_panel ? '<a class="lk" href="' + esc(c.link_panel) + '" target="_blank" rel="noopener">🛠 Panel</a>' : '')
@@ -355,6 +356,18 @@ function ver(cual) {
           + '</div>';
       }).join('')
         : '<p class="vacio">No tenés ninguna caja con el chat.</p>')
+      /* La contraseña del panel no está en esta página hasta que escriba la clave: al portal se
+         entra con el nombre de una caja y nada más. */
+      + ((DATOS.cajas || []).some(function (c) { return c.tiene_clave; })
+        ? (DATOS.pide_clave
+          ? '<div id="zAcc" style="margin-top:14px"><form onsubmit="return verAccesos(event)">'
+            + '<label class="campo">Para ver las contraseñas, poné tu clave'
+            + '<input name="clave" type="password" autocomplete="off" required></label>'
+            + '<button class="btn uva" type="submit" id="bAcc">Ver mis accesos</button>'
+            + '<p class="msg" id="mAcc" role="status"></p></form></div>'
+          : '<p class="vacio" style="margin-top:12px">Para ver las contraseñas de tus paneles hace '
+            + 'falta una clave. Escribinos y te la damos.</p>')
+        : '')
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
   } else if (cual === 'pagar') {
     h = '<div class="hoja"><h2>Avisar que pagué</h2>'
@@ -448,6 +461,21 @@ async function avisar(e) {
 function cambioCaja(sel) {
   var l = document.getElementById('lblNueva');
   if (l) l.style.display = sel.value ? 'none' : 'block';
+}
+
+async function verAccesos(e) {
+  e.preventDefault();
+  var f = e.target, b = $('bAcc'), m = $('mAcc');
+  b.disabled = true; m.textContent = 'Un segundo…'; m.className = 'msg';
+  var r = await pedir('/chat/accesos', { usuario: USUARIO, clave: f.clave.value });
+  if (!r.ok) { m.textContent = r.error || 'No se pudo'; m.className = 'msg mal'; b.disabled = false; return false; }
+  (r.cajas || []).forEach(function (c) {
+    var el = document.getElementById('acc-' + c.caja);
+    if (el) el.innerHTML = 'contraseña: <b>' + esc(c.clave || '—') + '</b>';
+  });
+  var z = document.getElementById('zAcc');
+  if (z) z.innerHTML = '<p class="vacio">Ahí están, arriba de cada caja. No los compartas.</p>';
+  return false;
 }
 
 async function pedirNuevo(e) {
