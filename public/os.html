@@ -192,8 +192,6 @@ const TABS_COMERCIAL = [
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
-  ['chat','💬 Chat Externo'],
-  '|',
   ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
 ];
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
@@ -206,9 +204,33 @@ const TABS_TBS = [
   '|',
   ['tc','💱 Tipos de cambio'],
 ];
+/* EL CHAT TIENE SU PROPIO ESPACIO, como TBS. Es otro negocio: otra cuenta, otra wallet, otro grupo
+   y otra gente que le paga. Metido como una pestaña más del comercial, sus pagos y sus pedidos
+   llegaban al medio de todo lo demás y había que ir a buscarlos. Los datos los sigue tomando del
+   OS —los mismos clientes, las mismas cajas— pero lo que espera una decisión vive acá. */
+const TABS_CHAT = [
+  ['chatcuentas','🧾 Cuentas del mes'],
+  ['chatpend', ()=>{ const n=_chatPend(); return (n?'📥':'✅')+' Pendientes' + (n?' <span class="nb urg">'+n+'</span>':''); }],
+  ['chatcajas','🏷 Cajas y clientes'],
+  '|',
+  ['chatprov','🤝 El proveedor'], ['chatcfg','⚙ Config'],
+];
 const ES_TBS = location.pathname.replace(/\/+$/,'') === '/tbs';
-const TABS = ES_TBS ? TABS_TBS : TABS_COMERCIAL;
-let _tab = ES_TBS ? 'tbsmatriz' : 'clientes';
+const ES_CHAT = location.pathname.replace(/\/+$/,'') === '/chat-externo';
+const TABS = ES_CHAT ? TABS_CHAT : (ES_TBS ? TABS_TBS : TABS_COMERCIAL);
+let _tab = ES_CHAT ? 'chatcuentas' : (ES_TBS ? 'tbsmatriz' : 'clientes');
+/* Qué tarjetas muestra cada pantalla del chat. Una sola fuente: cambiar el orden acá lo cambia en
+   la pantalla, sin tocar el armado de las tarjetas. */
+const SUB_CHAT = {
+  cuentas: ['cierre','cuenta'],
+  pend:    ['avisos','pedidos','hoy'],
+  cajas:   ['cajas'],
+  prov:    ['proveedor'],
+  cfg:     ['config'],
+};
+let _chatSub = 'cuentas';
+let _chatPendN = 0;                       // cuántas cosas esperan: va en la pestaña
+const _chatPend = () => _chatPendN;
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'revision';
 let _repSub = 'mes', _repCli = '';   // Reparto: qué subpantalla y qué cliente se está editando
 let _cxSel = '', _cxNodos = [];
@@ -322,9 +344,11 @@ async function api(path, opts={}){
 function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
 
 function renderHeader(){
-  document.getElementById('hd-sub').textContent = ES_TBS ? 'TBS — el sistema de API' : 'OS — núcleo comercial';
-  const otros = [['/','↩ Operativo'], ['/os','🎰 Comercial'], ['/tbs','🔌 TBS']]
-    .filter(([h])=>h !== (ES_TBS?'/tbs':'/os'));
+  document.getElementById('hd-sub').textContent =
+    ES_CHAT ? 'Chat Externo — Ganamos × Latam' : (ES_TBS ? 'TBS — el sistema de API' : 'OS — núcleo comercial');
+  const aqui = ES_CHAT ? '/chat-externo' : (ES_TBS ? '/tbs' : '/os');
+  const otros = [['/','↩ Operativo'], ['/os','🎰 Comercial'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat']]
+    .filter(([h])=>h !== aqui);
   document.getElementById('hd-nav').innerHTML =
     otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
     + '<button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>';
@@ -4094,6 +4118,10 @@ function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
    atributo: el navegador decodifica &#39; antes de que el JS lo vea, así que escapar para HTML no
    alcanza. Con data-* el valor nunca es código. Y el monto tampoco entra con JSON.stringify, que
    mete comillas dobles adentro de un atributo con comillas dobles y deja el botón muerto. */
+['cuentas','pend','cajas','prov','cfg'].forEach(k=>{
+  VIEWS['chat'+k] = () => { _chatSub = k; return VIEWS.chat(); };
+});
+
 VIEWS.chat = async () => {
   const main=document.getElementById('main');
   main.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
@@ -4119,7 +4147,12 @@ VIEWS.chat = async () => {
   clis.sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
   const debeProv=(x=>x)(T.paga||'0');
 
-  main.innerHTML=`
+  /* ── LAS TARJETAS, POR SEPARADO ────────────────────────────────────────────────────────────
+     El chat es otro negocio y tiene su propio espacio, con sus pantallas. Cada tarjeta se arma acá
+     y cada pantalla elige las suyas: los datos se piden UNA vez y se reparten, en vez de repetir el
+     mismo pedido en cinco vistas. */
+  const S = {};
+  S.config = `
     <div class="card">
       <h2>💬 Chat Externo</h2>
       <div class="muted" style="max-width:80ch">Se cobra a mes vencido sobre la ganancia del panel,
@@ -4201,8 +4234,9 @@ VIEWS.chat = async () => {
               ? 'Todavía no hay bot propio: se usa el general del sistema.'
               : 'No hay ningún bot cargado: la cuenta no se va a poder mandar.')}</div>
       </div>
-    </div>
+    </div>`;
 
+  S.cajas = `
     <div class="card">
       <h2>Quiénes tienen el chat <span class="muted">(${ps.length} chat${ps.length===1?'':'s'}
         en ${new Set(ps.map(x=>x.cliente_id)).size} cliente${new Set(ps.map(x=>x.cliente_id)).size===1?'':'s'})</span></h2>
@@ -4287,8 +4321,9 @@ VIEWS.chat = async () => {
           </select></td>`).join('')}
         </tr>`).join('')}
       </tbody></table></div>`:''}
-    </div>
+    </div>`;
 
+  S.cierre = `
     <div class="card">
       <h2>Cierre del mes <span class="muted">(${esc(_chatMes)})</span></h2>
       ${bannerMes(_chatMes,'chatIrA')}
@@ -4350,8 +4385,9 @@ VIEWS.chat = async () => {
             :'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.'}</div>
       </div>`
       :'<div class="empty">Ningún panel tiene el servicio todavía. Agregá uno abajo.</div>'}
-    </div>
+    </div>`;
 
+  S.pedidos = `
     ${(pc.solicitudes||[]).length?`<div class="card" style="border-color:var(--gold)">
       <h2>➕ Piden un chat nuevo <span class="muted">(${pc.solicitudes.length})</span></h2>
       <div class="muted" style="max-width:80ch">Lo pidieron desde su portal. <b>No da de alta nada</b>:
@@ -4376,8 +4412,9 @@ VIEWS.chat = async () => {
               onclick="chatSolicitud(this.dataset.id,false,this.dataset.caja)">✕</button>
           </td></tr>`).join('')}
       </tbody></table>
-    </div>`:''}
+    </div>`:''}`;
 
+  S.avisos = `
     ${(pc.avisos||[]).length?`<div class="card" style="border-color:var(--gold)">
       <h2>💬 Avisos de pago esperando <span class="muted">(${pc.avisos.length})</span></h2>
       <div class="muted">El cliente dice que pagó y subió el comprobante desde su hoja.
@@ -4398,8 +4435,9 @@ VIEWS.chat = async () => {
               onclick="chatAviso(this.dataset.id,false,this.dataset.nom,this.dataset.monto)">✕</button>
           </td></tr>`).join('')}
       </tbody></table>
-    </div>`:''}
+    </div>`:''}`;
 
+  S.cuenta = `
     <div class="card">
       <h2>La cuenta del chat <span class="muted">(es otra cuenta)</span></h2>
       <div class="muted" style="max-width:80ch">Lo que cada cliente te debe <b>por el chat</b>.
@@ -4441,8 +4479,9 @@ VIEWS.chat = async () => {
           <td class="right"><button class="outline small" onclick="chatBorrarMov('${m.id}')">✕</button></td>
         </tr>`)).join('')}</tbody></table></div>`:''}`
       :'<div class="empty" style="margin-top:10px">Todavía no cobraste este mes. Usá «Cobrar el mes» arriba.</div>'}
-    </div>
+    </div>`;
 
+  S.proveedor = `
     <div class="card">
       <h2>El proveedor del servicio</h2>
       <div class="muted">Lo que <b>vos</b> le pagás por el mes, al ${esc(pc.costo_pct)}%. La hoja que se le manda
@@ -4471,8 +4510,9 @@ VIEWS.chat = async () => {
           <input id="chat-pago-nota" placeholder="transferencia, wallet…" style="width:100%"></div>
         <div style="flex:0"><button onclick="chatPagar()">+ Registrar</button></div>
       </div>
-    </div>
+    </div>`;
 
+  S.hoy = `
     <div class="card">
       <h2>Mensualidades de hoy</h2>
       <div class="muted">Cada caja tiene su día: no se cobran todas a principio de mes.
@@ -4501,6 +4541,15 @@ VIEWS.chat = async () => {
           cuatro juntas sería cobrarle tres antes de tiempo.</div>`
       :'<div class="empty" style="margin-top:8px">Hoy no toca ninguna.</div>'}
     </div>`;
+
+  /* Lo que espera una decisión se anuncia solo en la pestaña: si hay que entrar a buscarlo, se
+     atiende tarde. Los avisos de pago y los pedidos de caja son plata y gente esperando. */
+  const antes = _chatPendN;
+  _chatPendN = (pc.avisos||[]).length + (pc.solicitudes||[]).length;
+  if (antes !== _chatPendN && ES_CHAT) renderNav();
+
+  document.getElementById('main').innerHTML =
+    (SUB_CHAT[_chatSub] || SUB_CHAT.cuentas).map(k => S[k] || '').join('');
 };
 
 /* Doscientas cajas en una lista suelta no se pueden recorrer con el ojo. Se agrupan por sistema y
@@ -6559,10 +6608,10 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
 // estés en otra pantalla, que es todo el punto de haberlos metido ahí adentro.
-renderNav(); go(ES_TBS ? 'tbsmatriz' : 'acumulado');
+renderNav(); go(ES_CHAT ? 'chatcuentas' : (ES_TBS ? 'tbsmatriz' : 'acumulado'));
 // Se cuenta al abrir y cada 45 segundos: un pendiente que llega mientras la pantalla está
 // abierta tiene que aparecer solo. Cada 45s son tres pedidos chicos, no molesta a nadie.
-if(!ES_TBS){ refrescarTodoPendiente(); setInterval(refrescarTodoPendiente, 45000); }
+if(!ES_TBS && !ES_CHAT){ refrescarTodoPendiente(); setInterval(refrescarTodoPendiente, 45000); }
 </script>
 </body>
 </html>

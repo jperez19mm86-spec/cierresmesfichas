@@ -155,6 +155,9 @@ function mount(app) {
   // proveedores y otro cierre de mes. Sirve el MISMO archivo — duplicarlo para no compartir los
   // helpers habría sido peor — y la página se arma distinto según por dónde se entró.
   app.get('/tbs', (_req, res) => html(res, 'os.html'));
+  /* El chat tiene su propio espacio, con la misma pantalla y otra barra. Ojo con el nombre: `/chat`
+     es el portal PÚBLICO del cliente y no lleva login; éste es el de adentro y sí. */
+  app.get('/chat-externo', (_req, res) => html(res, 'os.html'));
 
   // ───────── CLIENTES (comercial) ─────────
   app.get('/api/os/clientes', (_req, res) => {

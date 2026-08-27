@@ -2682,9 +2682,28 @@ async function main() {
     // La pestaña va en el espacio COMERCIAL: son clientes de Imperia, no de TBS.
     const uiCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     const navCom = uiCh.slice(uiCh.indexOf('const TABS_COMERCIAL'), uiCh.indexOf('const TABS_TBS'));
-    check('chat: la pestaña está en la barra del comercial, que es donde están estos clientes',
-      /\['chat','💬 Chat Externo'\]/.test(navCom) && /VIEWS\.chat = async/.test(uiCh),
-      navCom.replace(/\s+/g, ' ').slice(-130));
+    /* EL CHAT TIENE SU PROPIO ESPACIO, como TBS. Metido como una pestaña más del comercial, sus
+       pagos y sus pedidos llegaban al medio de todo lo demás y había que ir a buscarlos. */
+    const navChat = uiCh.slice(uiCh.indexOf('const TABS_CHAT'), uiCh.indexOf('const ES_TBS'));
+    check('chat: tiene su propio espacio, con su propia barra',
+      /\['chatcuentas','🧾 Cuentas del mes'\]/.test(navChat)
+      && /\['chatcajas','🏷 Cajas y clientes'\]/.test(navChat)
+      && /ES_CHAT = location\.pathname/.test(uiCh) && /\/chat-externo/.test(uiCh),
+      navChat.replace(/\s+/g, ' ').slice(0, 110));
+    check('chat: y ya no es una pestaña perdida adentro del comercial',
+      !/\['chat','💬 Chat Externo'\]/.test(uiCh));
+    /* Lo que espera una decisión —los pagos avisados y los pedidos de caja— se anuncia en la
+       pestaña: si hay que entrar a buscarlo, se atiende tarde. */
+    check('chat: los pendientes se cuentan en la pestaña, no hay que ir a buscarlos',
+      /\['chatpend', \(\)=>\{ const n=_chatPend\(\)/.test(navChat)
+      && /_chatPendN = \(pc\.avisos\|\|\[\]\)\.length \+ \(pc\.solicitudes\|\|\[\]\)\.length/.test(uiCh));
+    check('chat: cada pantalla del espacio elige sus tarjetas de un solo lugar',
+      /const SUB_CHAT = \{/.test(uiCh) && /cuentas: \['cierre','cuenta'\]/.test(uiCh));
+    // El espacio de adentro pide login; /chat (sin guión) es el portal público del cliente.
+    const rutasCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const authCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('chat: el espacio de adentro pide login; el portal del cliente no',
+      /app\.get\('\/chat-externo'/.test(rutasCh) && !/chat-externo/.test(authCh));
     // La tabla muestra las dos columnas y el margen: ver sólo el total escondería el caso caro.
     check('chat: la pantalla muestra lo que cobrás, lo que pagás y lo tuyo por separado',
       /Le cobrás<\/th>/.test(uiCh) && /Pagás \(\$\{esc\(pc\.costo_pct\)\}%\)/.test(uiCh)
