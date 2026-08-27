@@ -6390,6 +6390,26 @@ async function main() {
 
   /* En «/» se cargan FICHAS y «/os» es el PANEL. Estuvieron cruzados y el nombre mandaba al lugar
      equivocado, que es peor que no tener nombre. */
+  /* LA LETRA DE MÁQUINA DE ESCRIBIR queda sólo donde se gana el lugar: algo que se copia carácter
+     por carácter, donde la O y el 0 se tienen que distinguir. Estaba en 17 lugares —montos, ids de
+     nodo, nombres de usuario, dominios— y ahí sólo endurece la lectura. Los números que se alinean
+     en columna usan tabular-nums, que hace lo mismo sin cambiar la letra. */
+  {
+    const ui = r.data;
+    const mono = (ui.match(/font-family:(ui-)?monospace|font-family:ui-monospace/g) || []).length;
+    check('panel: la letra de máquina queda sólo donde se copia carácter por carácter',
+      mono <= 6, `${mono} lugares`);
+    check('panel: la contraseña generada SÍ la conserva',
+      /title="Se copia carácter por carácter/.test(ui));
+    check('panel: la dirección de la wallet también',
+      /<td style="font-family:monospace;font-size:12px;word-break:break-all">\$\{esc\(w\.direccion\)\}/.test(ui));
+    /* Y las tablas que quedan: una línea fina entre filas en vez de una marcada en cada celda. */
+    check('panel: las tablas tienen una sola línea fina y más aire',
+      /th,td \{ text-align:left; padding:10px 9px; border-bottom:1px solid var\(--bg3\); \}/.test(ui)
+      && /tr:last-child td \{ border-bottom:none; \}/.test(ui)
+      && /td\.right, th\.right \{ font-variant-numeric:tabular-nums; \}/.test(ui));
+  }
+
   check('panel: los espacios se llaman por lo que hacen',
     /\['\/','🎰 Fichas'\]/.test(r.data) && /\['\/os','📊 Panel'\]/.test(r.data)
     && /\['\/chat-externo','💬 Chat'\]/.test(r.data));

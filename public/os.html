@@ -158,13 +158,21 @@
   .row > div:has(> label + input[type=month]) input, .row > div:has(> label + input[type=date]) input {
     width:100%;
   }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--border); }
-  th { color:var(--muted); font-size:11px; text-transform:uppercase; }
-  .badge { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:700; }
-  .badge.ok { background:rgba(46,160,67,.15); color:var(--green); }
-  .badge.warn { background:rgba(196,86,173,.14); color:var(--gold); }
-  .badge.err { background:rgba(217,83,79,.15); color:var(--red); }
+  /* Las tablas que quedan: una línea FINA entre filas en vez de una marcada en cada celda, más
+     aire vertical, y el encabezado en gris y liviano. Antes todo pesaba lo mismo y competía por la
+     atención; ahora el ojo va a los números. Los que se alinean en columna llevan tabular-nums. */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:10px 9px; border-bottom:1px solid var(--bg3); }
+  tr:last-child td { border-bottom:none; }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; font-weight:600;
+    letter-spacing:.05em; border-bottom:1px solid var(--border); padding-bottom:8px; }
+  td.right, th.right { font-variant-numeric:tabular-nums; }
+  /* Las etiquetas, en pastel. Las de aviso pasaron a durazno y rosa viejo: el texto va bastante más
+     oscuro que el fondo porque un pastel sobre pastel queda lindo y no se lee con sol encima. */
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge.ok { background:#e9f3ee; color:var(--verde2); }
+  .badge.warn { background:var(--durazno-bg); color:var(--durazno); }
+  .badge.err { background:var(--rosa-bg); color:var(--rosa); }
   /* Bloques de aviso. Antes cada uno traía su propio background:rgba(196,86,173,.07); a mano — un marrón oscuro
      que venía de cuando el panel era oscuro. Con el tema claro quedaba texto oscuro sobre fondo
      oscuro: ilegible. Ahora es una clase, tintada sobre el fondo claro y con una barra de color
@@ -208,7 +216,7 @@
   .right { text-align:right; }
   .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:50; }
   .toast.show { opacity:1; }
-  .pill { font-family:monospace; background:var(--bg); padding:1px 6px; border-radius:5px; }
+  .pill { font-variant-numeric:tabular-nums; background:var(--bg); padding:1px 6px; border-radius:5px; }
   hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
 
   /* ── Fila desplegada de un cliente (sus paneles) ──────────────────────────
@@ -445,8 +453,6 @@ function renderHeader(){
     ES_CHAT ? 'Chat Externo — Ganamos × Latam'
       : (ES_TBS ? 'TBS — el sistema de API' : 'Panel — clientes, cuentas y cierre');
   const aqui = ES_CHAT ? '/chat-externo' : (ES_TBS ? '/tbs' : '/os');
-  /* Los espacios se llaman por lo que se hace adentro, no por cómo se llamaban cuando se
-     escribieron: "Comercial" y "Operativo" no le dicen a nadie qué hay del otro lado. */
   /* Cada espacio se llama por lo que se hace adentro: en «/» se cargan FICHAS (los pedidos que
      entran y se despachan) y «/os» es el PANEL (clientes, cuentas, cierre). Estuvieron cruzados un
      rato y el nombre mandaba al lugar equivocado. */
@@ -536,7 +542,10 @@ function cliFilas(n, prof=0){
       ${flecha} ${_nom(c)}
       ${c.es_vendedor?`<span class="cie-tag">vendedor</span>`:''}
 </td>
-    <td><span class="badge ${c.estado==='activo'?'ok':'warn'}">${esc(c.estado||'')}</span></td>
+    <td>${c.estado==='activo'
+      // "activo" es lo normal: ponerle una etiqueta verde a los 47 es ruido. Sólo se marca lo raro.
+      ? '<span class="muted" style="font-size:12px">—</span>'
+      : `<span class="badge warn">${esc(c.estado||'')}</span>`}</td>
     <td>${c.es_vendedor
       ? '<span class="muted" title="A un vendedor no le aplica un % base: paga el costo real de los proveedores que use">no aplica</span>'
       : (c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">sin cargar</span>')}</td>
@@ -777,7 +786,7 @@ async function solicitudesCaja(soloPendientes){
     +l.map(s=>'<tr><td class="muted" style="font-size:11px">'+esc(String(s.creada_at||'').slice(0,16).replace('T',' '))
       +'<br>'+esc(s.pedida_por||'')+'</td>'
       +'<td><b>'+esc(s.cliente)+'</b></td><td class="muted">'+esc(s.sistema)+'</td>'
-      +'<td class="muted" style="font-family:monospace">'+esc(s.nodo)+'</td>'
+      +'<td class="muted" style="font-variant-numeric:tabular-nums">'+esc(s.nodo)+'</td>'
       +'<td>'+esc(s.login)+'</td>'
       +'<td class="muted" style="font-size:11px">'+esc(s.nota||'—')+'</td>'
       +'<td class="right" style="white-space:nowrap">'+(s.estado==='pendiente'
@@ -918,7 +927,7 @@ function bloquePaneles(c){
           // "sobran" sólo si el panel MOVIÓ algo: sin datos no se puede afirmar que no las use.
           const sobran=(g.usadas&&g.usadas.length)?(g.sobran||[]):[];
           return `<input value="${esc((p.divisas||[]).join(','))}" placeholder="ARS"
-            style="width:190px;font-size:11px;font-family:monospace"
+            style="width:190px;font-size:11px"
             title="Las monedas que este panel puede mover. Vinieron del casino cuando se linkeó: son las que la cuenta tiene HABILITADAS, no las que usa. Separá con comas. Cada una de más es una consulta de más en la Foto del mes y una alerta de 'moneda sin tipo de cambio'."
             onchange="setDivisas('${p.id}', this.value)">`
           + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
@@ -2447,7 +2456,7 @@ const MX_STYLE = `<style>
   .mx-banda td{ background:var(--bg3); text-align:left!important; padding:0!important;
     font-size:12px; border-top:2px solid var(--border); border-bottom:1px solid var(--border) }
   .mx-banda td > div{ position:sticky; left:0; width:max-content; max-width:100vw; padding:7px 10px }
-  .mx-banda .mx-n{ font-family:ui-monospace,monospace; font-size:11px; color:var(--muted);
+  .mx-banda .mx-n{ font-variant-numeric:tabular-nums; font-size:11px; color:var(--muted);
     background:var(--bg); border:1px solid var(--border); border-radius:9px; padding:0 6px; margin-left:4px }
 
   /* Interno: barra al costado en la columna fija, así se sabe aunque la banda quedó arriba. */
@@ -3923,8 +3932,7 @@ CFG.telegram = async () => {
       </div>
       <div class="row" style="margin-top:12px;align-items:flex-end">
         <div style="flex:0 0 260px"><label>Dominio de los links del cliente</label>
-          <input id="cfg-url" value="${esc(cfg.urlPublica||'')}" placeholder="app.latamgames.online"
-            style="font-family:monospace"></div>
+          <input id="cfg-url" value="${esc(cfg.urlPublica||'')}" placeholder="app.latamgames.online"></div>
         <div style="flex:0"><button onclick="cfgGuardarUrl()">Guardar</button></div>
         <div class="muted" style="flex:1;align-self:center">Con qué dirección salen la factura, la
           cuenta de API y la hoja del chat. <b>Sin esto sale el dominio por el que entraste vos</b>,
@@ -3933,7 +3941,7 @@ CFG.telegram = async () => {
       <div class="row" style="margin-top:12px;align-items:flex-end">
         <div style="flex:0 0 260px"><label>Grupo matriz de las cuentas de API</label>
           <input id="tg-matriz" value="${esc(cfg.apiGrupoMatriz||'')}" placeholder="-4721694040"
-            style="font-family:monospace"></div>
+            style="font-variant-numeric:tabular-nums"></div>
         <div style="flex:0"><button onclick="tgGuardarMatriz()">Guardar</button></div>
         <div class="muted" style="flex:1;align-self:center">Toda cuenta de TBS que se manda va <b>siempre</b> acá —
           es tu copia de lo que se emitió. Mandarla además al grupo del cliente es un botón aparte.</div>
@@ -3995,7 +4003,7 @@ function tgGrupos(cs, pans){
       <td><input id="tgc-${c.id}" value="${esc(propio)}"
         placeholder="${hered?'hereda de '+esc(jefe.nombre||jefe.codigo):'-1001234567890'}"
         onchange="tgFila('${c.id}')" title="${hered?'Vacío = le llega al grupo de '+esc(jefe.nombre||jefe.codigo)+'. Escribí uno acá sólo si este cliente tiene grupo propio.':''}"
-        style="width:190px;font-family:monospace;font-size:12px${hered?';background:rgba(46,160,67,.10)':''}">
+        style="width:190px;font-variant-numeric:tabular-nums;font-size:12px${hered?';background:rgba(46,160,67,.10)':''}">
         ${hered?'<span class="badge ok" style="margin-left:5px">hereda</span>':''}
         ${!propio&&!hered?'<span class="badge err" style="margin-left:5px">no le llega</span>':''}</td>
       <td><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
@@ -5069,8 +5077,9 @@ VIEWS.accesos = async () => {
           copiarlas, hay que generarlas de nuevo.</div>
         <table style="margin-top:8px"><tbody>
           ${_accClaves.map(k=>`<tr><td><b>${esc(k.cliente)}</b></td>
-            <td style="font-family:monospace">${esc(k.usuario)}</td>
-            <td style="font-family:monospace"><b>${esc(k.clave)}</b></td></tr>`).join('')}
+            <td>${esc(k.usuario)}</td>
+            <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace"
+              title="Se copia carácter por carácter: acá la letra de máquina sirve, distingue la O del 0"><b>${esc(k.clave)}</b></td></tr>`).join('')}
         </tbody></table>
         <div class="row" style="gap:8px;margin-top:10px">
           <button onclick="accCopiar()">📋 Copiar todas</button>
@@ -5089,7 +5098,7 @@ VIEWS.accesos = async () => {
             onchange="accMarcar('${c.id}',this.checked)"></td>
           <td><b>${esc(c.nombre)}</b>${c.codigo&&c.codigo!==c.nombre?`<span class="muted" style="font-size:11.5px"> · ${esc(c.codigo)}</span>`:''}</td>
           <td>${c.acceso
-            ? `<span style="font-family:monospace">${esc(c.entra)}</span> <span class="badge ok">con contraseña</span>`
+            ? `<span>${esc(c.entra)}</span> <span class="badge ok">con contraseña</span>`
             : `<span class="muted">su código</span> <span class="badge warn">sin contraseña</span>`}</td>
           <td class="right">${sw(c,'avisa_pagos',c.avisa_pagos,'Puede subir comprobantes de pago')}</td>
           <td class="right">${sw(c,'mover_balance',c.mover_balance,'Puede mover fichas entre sus propias cajas')}</td>
@@ -5828,7 +5837,7 @@ function apiNombre(c){
         ${/* Cada uno con su botón: al mudar los datos, en varias cuentas el nombre de la PERSONA
              quedó acá abajo y arriba quedó el login reescrito — "Raul-API" arriba y "Raul" acá.
              Elegirlo tiene que ser un clic, no volver a tipearlo. */''}
-        ${viejos.map(v=>`<button class="outline small" style="font-size:10.5px;padding:2px 7px;font-family:monospace"
+        ${viejos.map(v=>`<button class="outline small" style="font-size:10.5px;padding:2px 7px"
           title="Usar «${esc(v)}» como de quién es la cuenta" onclick="apiUsarNombre('${c.id}','${esc(v).replace(/'/g,'')}')">${esc(v)}</button>`).join('')}
         <button class="outline small" style="font-size:10.5px;padding:2px 7px"
           onclick="apiNombresViejos('${c.id}')">✕ sacar ${n===1?'el resto':'los restos'}</button>
@@ -5878,7 +5887,7 @@ API.clientes = async () => {
           <div class="row" style="gap:14px;flex-wrap:wrap">
             <div style="flex:0 0 230px"><label>Grupo de Telegram</label>
               <input id="tgapi-${c.id}" value="${esc(c.telegram_chat_id||'')}" placeholder="-1001234567890"
-                onchange="apiTgGuardar('${c.id}')" style="width:200px;font-family:monospace;font-size:12px">
+                onchange="apiTgGuardar('${c.id}')" style="width:200px;font-variant-numeric:tabular-nums;font-size:12px">
               <div class="muted" style="font-size:11px">Donde se le manda la cuenta del mes. La matriz la recibe siempre.</div></div>
             <div style="flex:1;min-width:260px">${apiNombre(c)}</div>
             ${c.notas?`<div style="flex:1 0 100%" class="muted" style="font-size:11px">${esc(c.notas)}</div>`:''}
