@@ -2905,10 +2905,10 @@ async function main() {
       /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
       && /clave_admin:this\.value/.test(uiCh) && /clave_portal:this\.value/.test(uiCh));
     check('chat: y la pantalla explica que la contraseña va detrás de la clave del portal',
-      /La contraseña no<\/b>: al portal se entra/.test(uiCh)
+      /La contraseña no<\/b>:\s*\n?\s*al portal se entra/.test(uiCh)
       && /clave del portal<\/b> que le pusiste abajo/.test(uiCh));
     check('chat: desde la pantalla se le avisa la mensualidad a cada caja por separado',
-      /chatAvisarMens\(/.test(uiCh) && /📤 avisar/.test(uiCh)
+      /chatAvisarMens\(/.test(uiCh) && />Avisarle</.test(uiCh)
       && /El aviso se manda <b>de a una<\/b>/.test(uiCh));
     check('chat: los avisos de pago que llegan se ven y se aprueban desde la pantalla',
       /Dicen que pagaron/.test(uiCh) && /chatAviso\(/.test(uiCh)
@@ -6388,8 +6388,10 @@ async function main() {
     && (await axios.get(BASE + '/logo.png', { validateStatus: () => true, responseType: 'arraybuffer' }))
       .data.length === logoAntes.data.length);
 
+  /* En «/» se cargan FICHAS y «/os» es el PANEL. Estuvieron cruzados y el nombre mandaba al lugar
+     equivocado, que es peor que no tener nombre. */
   check('panel: los espacios se llaman por lo que hacen',
-    /\['\/','📊 Dashboard'\]/.test(r.data) && /\['\/os','🎰 Fichas'\]/.test(r.data)
+    /\['\/','🎰 Fichas'\]/.test(r.data) && /\['\/os','📊 Panel'\]/.test(r.data)
     && /\['\/chat-externo','💬 Chat'\]/.test(r.data));
 
   // ── que el JAVASCRIPT DE LA PÁGINA COMPILE ──

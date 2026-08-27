@@ -443,11 +443,14 @@ function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.hre
 function renderHeader(){
   document.getElementById('hd-sub').textContent =
     ES_CHAT ? 'Chat Externo — Ganamos × Latam'
-      : (ES_TBS ? 'TBS — el sistema de API' : 'Fichas — carga, cuentas y cierre');
+      : (ES_TBS ? 'TBS — el sistema de API' : 'Panel — clientes, cuentas y cierre');
   const aqui = ES_CHAT ? '/chat-externo' : (ES_TBS ? '/tbs' : '/os');
   /* Los espacios se llaman por lo que se hace adentro, no por cómo se llamaban cuando se
      escribieron: "Comercial" y "Operativo" no le dicen a nadie qué hay del otro lado. */
-  const otros = [['/','📊 Dashboard'], ['/os','🎰 Fichas'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat']]
+  /* Cada espacio se llama por lo que se hace adentro: en «/» se cargan FICHAS (los pedidos que
+     entran y se despachan) y «/os» es el PANEL (clientes, cuentas, cierre). Estuvieron cruzados un
+     rato y el nombre mandaba al lugar equivocado. */
+  const otros = [['/','🎰 Fichas'], ['/os','📊 Panel'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat']]
     .filter(([h])=>h !== aqui);
   document.getElementById('hd-nav').innerHTML =
     otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
@@ -4360,6 +4363,10 @@ VIEWS.chat = async () => {
       </div>
     </div>`;
 
+  /* ── QUIÉNES TIENEN EL CHAT ──────────────────────────────────────────────────────────────────
+     Una ficha plegable por caja: cerrada, quién y a cuánto; abierta, todo lo que hay que cargarle.
+     Eran siete columnas con inputs adentro y una fila extra debajo con los links — con veinte cajas
+     había que contar columnas para no escribir el precio en la fila de al lado. */
   S.cajas = `
     <div class="card">
       <h2>Quiénes tienen el chat <span class="muted">(${ps.length} chat${ps.length===1?'':'s'}
@@ -4367,13 +4374,14 @@ VIEWS.chat = async () => {
       <div class="muted" style="max-width:80ch">Un chat por caja. Un cliente puede tener varios,
         cada uno colgado de un agente distinto — y <b>cada uno se cobra sobre lo que ganó esa
         caja</b>, no sobre el total del cliente.</div>
-      <div class="muted" style="max-width:80ch;margin-top:6px;border-left:3px solid var(--gold);padding-left:8px">
+      <div class="nota-suave" style="color:var(--muted);background:var(--bg3);max-width:80ch">
         <b>Son dos cobros distintos.</b> El <b>%</b> se cobra el <b>1ro</b>, con lo que ganó el mes
         anterior. El <b>mantenimiento</b> se cobra <b>por adelantado el día que arranca</b> y vale un
         mes: si empezó un 20, va del 20 al 19 y se le vuelve a cobrar el 20 siguiente. Se genera
-        solo — no hay que apretar nada. <b>Sin la fecha de «Empezó el» no se le cobra</b>, porque el
-        sistema no sabe desde cuándo.</div>
-      <div class="row" style="align-items:flex-end;gap:10px;margin-top:6px;padding:12px;background:var(--bg3);border-radius:9px">
+        solo. <b>Sin la fecha de «Empezó el» no se le cobra</b>, porque el sistema no sabe desde
+        cuándo.</div>
+
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:14px;padding:14px;background:var(--bg3);border-radius:11px">
         <div style="flex:0 0 130px"><label>Sistema</label>
           <select id="chat-nuevo-sis" onchange="chatFiltrarCajas()" style="width:100%">
             ${[...new Set(opciones.map(p=>p.sistema||'Sin sistema'))].sort((a,b)=>a.localeCompare(b,'es'))
@@ -4383,80 +4391,110 @@ VIEWS.chat = async () => {
           <select id="chat-nuevo" style="width:100%"></select></div>
         <div style="flex:0 0 90px"><label>Le cobrás</label>
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
-        <div style="flex:0 0 150px"><label>Desde</label>
+        <div style="flex:0 0 150px"><label>Empezó el</label>
           <input type="date" id="chat-nuevo-desde" value="${new Date().toISOString().slice(0,10)}"
-            title="De acá sale el día de la mensualidad" style="width:100%"></div>
-        <div style="flex:0"><button onclick="chatAgregar()">+ Agregar</button></div>
+            title="De acá sale el día del mantenimiento" style="width:100%"></div>
+        <div style="flex:0"><button onclick="chatAgregar()">Agregar</button></div>
       </div>
-      ${!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todavía no hay ningún panel cargado en el sistema. Cargalos en 👥 Clientes.</div>':(!opciones.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todos los paneles ya tienen el chat.</div>':'')}
-      ${ps.length?`<div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr>
-        <th>Cliente</th><th>Caja</th><th>Nivel</th><th class="right">Le cobrás</th>
-        <th class="right">Desde</th><th class="right">Se cobra</th><th></th></tr></thead><tbody>
-        ${ps.map(p=>`<tr${p.activo?'':' style="opacity:.5"'}>
-          <td><b>${esc(p.cliente)}</b></td><td>${esc(p.panel)}</td>
-          <td class="muted" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</td>
-          <td class="right"><input value="${esc(p.pct_cliente||'')}" placeholder="${esc(cfgC.costo_pct||'2')}"
-            onchange="chatSet('${p.panel_id}',{pct_cliente:this.value})"
-            title="Si lo dejás vacío se le cobra el mínimo: lo que a vos te cuesta."
-            style="width:64px;text-align:center${p.pct_cliente?'':';border-color:var(--red)'}"> %
-            ${p.pct_cliente?'':'<div style="font-size:11px;color:var(--red)">al mínimo</div>'}</td>
-          <td class="right"><input type="date" value="${esc(p.desde||'')}"
-            onchange="chatSet('${p.panel_id}',{desde:this.value})"
-            title="Desde cuándo tiene el chat. De acá sale el día de la mensualidad: si empezó un 20, se le cobra el 20 de cada mes, del 20 al 19."
-            style="width:140px"></td>
-          <td class="right muted">${p.dia_cobro?('el '+esc(p.dia_cobro)):'<span class="badge err">sin fecha</span>'}</td>
-          <td class="right"><button class="outline small" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
-            onclick="chatQuitar(this.dataset.id,this.dataset.nom)">✕ sacar</button></td>
-        </tr>
-        <tr${p.activo?'':' style="opacity:.5"'}><td colspan="7" style="padding-top:0;border-top:0">
-          <div class="row" style="gap:8px;align-items:flex-end;padding:2px 0 10px">
-            <div style="flex:1;min-width:200px"><label style="font-size:11px">Link para los jugadores</label>
-              <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
-                onchange="chatSet('${p.panel_id}',{link_jugadores:this.value})" style="width:100%;font-size:12px"></div>
-            <div style="flex:1;min-width:200px"><label style="font-size:11px">Link del panel</label>
-              <input value="${esc(p.link_panel||'')}" placeholder="donde entra a administrar"
-                onchange="chatSet('${p.panel_id}',{link_panel:this.value})" style="width:100%;font-size:12px"></div>
-            <div style="flex:0 0 130px"><label style="font-size:11px">Usuario del panel</label>
-              <input value="${esc(p.usuario_admin||'')}" placeholder="—"
-                onchange="chatSet('${p.panel_id}',{usuario_admin:this.value})" style="width:100%;font-size:12px"></div>
-            <div style="flex:0 0 140px"><label style="font-size:11px">Contraseña del panel</label>
-              <input value="${esc(p.clave_admin||'')}" placeholder="—"
-                title="La ve el cliente en su portal, pero SÓLO después de escribir la clave que le diste. Sin esa clave no se muestra."
-                onchange="chatSet('${p.panel_id}',{clave_admin:this.value})" style="width:100%;font-size:12px"></div>
-          </div></td></tr>`).join('')}
-      </tbody></table></div>
-      <div class="muted" style="font-size:12px;margin-top:6px;max-width:90ch">Los dos links y el
-        usuario se ven en el portal del cliente. <b>La contraseña no</b>: al portal se entra
-        escribiendo el nombre de una caja, sin nada más, así que ahí quedaría a la vista de
-        cualquiera que adivine un nombre. Se muestra sólo cuando el cliente escribe la
-        <b>clave del portal</b> que le pusiste abajo — una por cliente, se la das una vez.</div>`
-      :'<div class="empty" style="margin-top:12px">Ninguno todavía. Elegí un panel acá arriba.</div>'}
+      ${!_paneles.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todavía no hay ninguna caja cargada en el sistema. Cargalas en 👥 Clientes.</div>':(!opciones.length?'<div class="muted" style="font-size:12px;margin-top:6px">Todas las cajas ya tienen el chat.</div>':'')}
 
-      <h2 style="margin-top:22px">A dónde le mando la cuenta a cada uno</h2>
+      ${ps.length?`<div style="margin-top:14px">${ps.map(p=>`
+        <details class="plegable"${p.activo?'':' style="opacity:.5"'}>
+          <summary class="fila">
+            <span class="chev" aria-hidden="true"></span>
+            <span class="nom">${esc(p.cliente)}</span>
+            <span class="muted" style="font-size:13.5px">${esc(p.panel)}</span>
+            ${p.desde?'':'<span class="señal rosa" title="Sin esta fecha no se le cobra el mantenimiento">falta la fecha</span>'}
+            ${p.pct_cliente?'':'<span class="señal durazno" title="Se le cobra el mínimo: lo que a vos te cuesta">al mínimo</span>'}
+            <span class="cifra"><b>${esc(p.pct_cliente||cfgC.costo_pct||'2')}</b><span class="u">%</span></span>
+          </summary>
+          <div class="cuerpo">
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:14px">
+              <div style="flex:0 0 90px"><label>Le cobrás</label>
+                <input value="${esc(p.pct_cliente||'')}" placeholder="${esc(cfgC.costo_pct||'2')}"
+                  onchange="chatSet('${p.panel_id}',{pct_cliente:this.value})"
+                  title="Si lo dejás vacío se le cobra el mínimo: lo que a vos te cuesta."
+                  style="width:100%;text-align:center"></div>
+              <div style="flex:0 0 150px"><label>Empezó el</label>
+                <input type="date" value="${esc(p.desde||'')}"
+                  onchange="chatSet('${p.panel_id}',{desde:this.value})"
+                  style="width:100%${p.desde?'':';border-color:var(--rosa)'}"></div>
+              <div style="flex:0 0 90px"><label>Paga el día</label>
+                <input value="${esc(p.dia_cobro||'')}" placeholder="—"
+                  onchange="chatSet('${p.panel_id}',{dia_cobro:this.value})"
+                  title="Se completa solo con el día en que empezó. Cambialo sólo si con ese cliente quedó otro día."
+                  style="width:100%;text-align:center"></div>
+              <div style="flex:0 0 110px"><label>Nivel</label>
+                <div class="muted" style="padding:8px 0" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</div></div>
+            </div>
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
+              <div style="flex:1;min-width:200px"><label>Link para los jugadores</label>
+                <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
+                  onchange="chatSet('${p.panel_id}',{link_jugadores:this.value})" style="width:100%"></div>
+              <div style="flex:1;min-width:200px"><label>Link del panel</label>
+                <input value="${esc(p.link_panel||'')}" placeholder="donde entra a administrar"
+                  onchange="chatSet('${p.panel_id}',{link_panel:this.value})" style="width:100%"></div>
+            </div>
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
+              <div style="flex:0 0 150px"><label>Usuario del panel</label>
+                <input value="${esc(p.usuario_admin||'')}" placeholder="—"
+                  onchange="chatSet('${p.panel_id}',{usuario_admin:this.value})" style="width:100%"></div>
+              <div style="flex:0 0 160px"><label>Contraseña del panel</label>
+                <input value="${esc(p.clave_admin||'')}" placeholder="—"
+                  title="La ve el cliente en su portal, pero SÓLO después de escribir la clave que le diste."
+                  onchange="chatSet('${p.panel_id}',{clave_admin:this.value})" style="width:100%"></div>
+              <div class="muted" style="flex:1;min-width:220px;font-size:12px;align-self:center">
+                Los dos links y el usuario se ven en el portal del cliente. <b>La contraseña no</b>:
+                al portal se entra escribiendo el nombre de una caja, así que ahí quedaría a la vista
+                de cualquiera que la adivine. Se muestra sólo cuando el cliente escribe la
+                <b>clave del portal</b> que le pusiste abajo.</div>
+            </div>
+            <div class="acciones">
+              <button class="outline small" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
+                onclick="chatQuitar(this.dataset.id,this.dataset.nom)">Sacarla del servicio</button>
+            </div>
+          </div>
+        </details>`).join('')}</div>`
+      :'<div class="empty" style="margin-top:14px">Ninguna todavía. Elegí una caja acá arriba.</div>'}
+
+      <h2 style="margin-top:24px">A dónde le mando la cuenta a cada uno</h2>
       <div class="muted" style="max-width:80ch">El grupo de <b>este servicio</b>, que no es el mismo
         que el de las fichas: son otros mensajes y suele haber otra gente adentro. Podés poner
         <b>más de uno</b> separados por coma —a veces el encargado tiene que enterarse y no está en
-        el grupo del cliente—. El campo de al lado es una nota tuya y no lo usa el sistema.</div>
-      ${clis.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
-        <th>Cliente</th><th>Grupo(s) de Telegram</th><th>Se la mando a…</th>
-        <th>Clave del portal</th><th>Paga el mes a</th><th>Paga el mantenimiento a</th></tr></thead><tbody>
-        ${clis.map(c=>`<tr>
-          <td><b>${esc(c.nombre)}</b>${c.paneles>1?`<span class="muted" style="font-size:11.5px"> · ${c.paneles} cajas</span>`:''}</td>
-          <td><input value="${esc((dest[c.id]||{}).tg_grupo||'')}" placeholder="-1002…, -1003…"
-            onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:200px"></td>
-          <td><input value="${esc((dest[c.id]||{}).enviar_a||'')}" placeholder="a Raúl por privado"
-            onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%;min-width:120px"></td>
-          <td><input value="${esc((dest[c.id]||{}).clave_portal||'')}" placeholder="—"
-            onchange="chatDestino('${c.id}',{clave_portal:this.value})"
-            title="Con esta clave el cliente ve las contraseñas de sus paneles en su portal. Se la das una vez. Sin clave, no las ve."
-            style="width:110px">
-            ${(dest[c.id]||{}).clave_portal?'':'<div style="font-size:11px;color:var(--muted)">no ve accesos</div>'}</td>
-          ${['wallet_ggr','wallet_mens'].map(k=>`<td><select onchange="chatDestino('${c.id}',{${k}:this.value})" style="width:140px">
-            <option value="">la de siempre</option>
-            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${(dest[c.id]||{})[k]===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
-          </select></td>`).join('')}
-        </tr>`).join('')}
-      </tbody></table></div>`:''}
+        el grupo del cliente—.</div>
+      ${clis.length?`<div style="margin-top:14px">${clis.map(c=>`
+        <details class="plegable">
+          <summary class="fila">
+            <span class="chev" aria-hidden="true"></span>
+            <span class="nom">${esc(c.nombre)}</span>
+            ${c.paneles>1?`<span class="muted" style="font-size:13px">${c.paneles} cajas</span>`:''}
+            ${(dest[c.id]||{}).tg_grupo?'':'<span class="señal rosa" title="Sin grupo no se le puede mandar la cuenta">sin grupo</span>'}
+            ${(dest[c.id]||{}).clave_portal?'':'<span class="señal durazno" title="Sin clave no ve las contraseñas de sus paneles">sin clave</span>'}
+          </summary>
+          <div class="cuerpo">
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:14px">
+              <div style="flex:1;min-width:220px"><label>Grupo(s) de Telegram</label>
+                <input value="${esc((dest[c.id]||{}).tg_grupo||'')}" placeholder="-1002…, -1003…"
+                  onchange="chatDestino('${c.id}',{tg_grupo:this.value})" style="width:100%"></div>
+              <div style="flex:1;min-width:180px"><label>Se la mando a… <span class="muted">(nota tuya)</span></label>
+                <input value="${esc((dest[c.id]||{}).enviar_a||'')}" placeholder="a Raúl por privado"
+                  onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%"></div>
+              <div style="flex:0 0 140px"><label>Clave del portal</label>
+                <input value="${esc((dest[c.id]||{}).clave_portal||'')}" placeholder="—"
+                  onchange="chatDestino('${c.id}',{clave_portal:this.value})"
+                  title="Con esta clave el cliente ve las contraseñas de sus paneles en su portal. Se la das una vez."
+                  style="width:100%"></div>
+            </div>
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
+              ${[['wallet_ggr','Paga el mes a'],['wallet_mens','Paga el mantenimiento a']].map(([k,rot])=>`
+                <div style="flex:0 0 200px"><label>${rot}</label>
+                  <select onchange="chatDestino('${c.id}',{${k}:this.value})" style="width:100%">
+                    <option value="">la de siempre</option>
+                    ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${(dest[c.id]||{})[k]===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
+                  </select></div>`).join('')}
+            </div>
+          </div>
+        </details>`).join('')}</div>`:''}
     </div>`;
 
   /* ── EL CIERRE DEL MES, PLEGADO ──────────────────────────────────────────────────────────────
@@ -4688,66 +4726,87 @@ VIEWS.chat = async () => {
       :'<div class="empty" style="margin-top:10px">Todavía no cobraste este mes. Usá «Cobrar el mes» arriba.</div>'}
     </div>`;
 
+  /* ── EL PROVEEDOR ────────────────────────────────────────────────────────────────────────────
+     Lo que importa acá es UN número: cuánto le falta pagarle. Iba tercero entre otros dos del mismo
+     tamaño, así que había que leer los rótulos para saber cuál era cuál. */
   S.proveedor = `
     <div class="card">
       <h2>El proveedor del servicio</h2>
-      <div class="muted">Lo que <b>vos</b> le pagás por el mes, al ${esc(pc.costo_pct)}%. La hoja que se le manda
-        muestra la ganancia de cada panel y ese %, y no dice qué le cobrás vos a cada cliente.</div>
-      <div class="row" style="align-items:flex-end;gap:16px;margin-top:12px">
-        <div><label>Le debés por ${esc(_chatMes)}</label>
-          <div style="font-size:22px;font-weight:800">${money(debeProv,2)} <span class="muted" style="font-size:13px">USDT</span></div></div>
-        <div><label>Ya le pagaste</label>
-          <div style="font-size:22px;font-weight:800;color:${Number(pc.pagado)>0?'var(--green)':'var(--muted)'}">${money(pc.pagado,2)}</div></div>
-        <div><label>Queda</label>
-          <div style="font-size:22px;font-weight:800">${money(Number(debeProv)-Number(pc.pagado||0),2)}</div></div>
-        <div style="flex:0"><button class="outline" onclick="chatHojaProv()">👁 ver la hoja del proveedor</button></div>
+      <div class="muted" style="max-width:80ch">Lo que <b>vos</b> le pagás por el mes, al
+        ${esc(pc.costo_pct)}%. La hoja que se le manda muestra la ganancia de cada caja y ese %,
+        y no dice qué le cobrás vos a cada cliente.</div>
+      <div class="totalote" style="margin-top:14px">
+        <div class="k">Le falta cobrarte de ${esc(mesNombre(_chatMes))}</div>
+        <div class="v">${money(Number(debeProv)-Number(pc.pagado||0),2)} USDT</div>
+        <dl>
+          <div><dt>Le debés del mes</dt><dd>${money(debeProv,2)}</dd></div>
+          <div><dt>Ya le pagaste</dt><dd>${money(pc.pagado,2)}</dd></div>
+        </dl>
       </div>
-      ${(pc.pagos||[]).length?`<table style="margin-top:12px"><thead><tr>
-        <th>Fecha</th><th>Nota</th><th class="right">Monto</th><th></th></tr></thead><tbody>
-        ${pc.pagos.map(x=>`<tr><td>${esc(x.fecha)}</td><td class="muted">${esc(x.nota||'')}</td>
-          <td class="right"><b>${money(x.monto,2)}</b> <span class="muted">${esc(x.moneda)}</span></td>
-          <td class="right"><button class="outline small" onclick="chatBorrarPago('${x.id}')">✕</button></td></tr>`).join('')}
-      </tbody></table>`:''}
-      <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
-        <div style="flex:0 0 130px"><label>Registrar un pago</label>
-          <input id="chat-pago-monto" placeholder="${money(debeProv,2)}" style="width:100%;text-align:right"></div>
+      <div class="acciones">
+        <button class="outline" onclick="chatHojaProv()">Ver la hoja del proveedor</button>
+      </div>
+
+      <h2 style="margin-top:20px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Registrar un pago</h2>
+      <div class="row" style="align-items:flex-end;gap:10px">
+        <div style="flex:0 0 130px"><label>Cuánto le pagaste</label>
+          <input id="chat-pago-monto" placeholder="${money(Number(debeProv)-Number(pc.pagado||0),2)}" style="width:100%;text-align:right"></div>
         <div style="flex:0 0 150px"><label>Fecha</label>
           <input type="date" id="chat-pago-fecha" value="${new Date().toISOString().slice(0,10)}" style="width:100%"></div>
         <div style="flex:1;min-width:180px"><label>Nota</label>
           <input id="chat-pago-nota" placeholder="transferencia, wallet…" style="width:100%"></div>
-        <div style="flex:0"><button onclick="chatPagar()">+ Registrar</button></div>
+        <div style="flex:0"><button onclick="chatPagar()">Registrar</button></div>
       </div>
+
+      ${(pc.pagos||[]).length?`<div style="margin-top:18px">
+        <div class="muted" style="font-size:12px;margin-bottom:8px">Lo que ya le pagaste este mes</div>
+        <div class="sublista">${pc.pagos.map(x=>`<div class="subcaja">
+          <div class="subdatos">
+            <div><span class="k">${esc(x.fecha)}${x.nota?' · '+esc(x.nota):''}</span>
+              <span class="v fuerte">${money(x.monto,2)} <span class="muted" style="font-size:12px">${esc(x.moneda)}</span></span></div>
+          </div>
+          <div class="acciones" style="margin-top:9px">
+            <button class="outline small" onclick="chatBorrarPago('${x.id}')">Borrar</button>
+          </div>
+        </div>`).join('')}</div>
+      </div>`:''}
     </div>`;
 
   S.hoy = `
     <div class="card">
-      <h2>Mensualidades de hoy</h2>
-      <div class="muted">Cada caja tiene su día: no se cobran todas a principio de mes.
-        Se cobra haya o no ganancias — es por tener el servicio, no por usarlo.
+      <h2>Mantenimientos de hoy</h2>
+      <div class="muted" style="max-width:80ch">Cada caja tiene su día: no se cobran todas a
+        principio de mes. Se cobra haya o no ganancias — es por tener el servicio, no por usarlo.
+        Se genera solo; esto es para avisarle, y para el caso raro de tener que cobrarlo a mano.
         ${me.paneles&&me.paneles.length&&me.paneles[0].periodo
-          ? `Lo que se cobra hoy cubre <b>${esc(me.paneles[0].periodo.texto)}</b>, y así queda escrito en su cuenta.`
-          : ''}</div>
-      ${(me.paneles||[]).length?`<table style="margin-top:8px"><tbody>${me.paneles.map(p=>`<tr>
-        <td><b>${esc(p.cliente)}</b> <span class="muted">${esc(p.panel)}</span></td>
-        <td class="right"><b>${money(me.monto,2)} ${esc(me.moneda)}</b></td>
-        <td class="right" style="white-space:nowrap">
-          ${p.cobrada
-            ? '<span class="badge ok">✓ cobrada</span>'
-            : `<button class="outline small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
-              onclick="chatMensualidad(this.dataset.id,this.dataset.caja)">+ cobrar</button>`}
-          <button class="outline small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
-            onclick="chatAvisarMens(this.dataset.id,this.dataset.caja)"
-            title="Le manda un mensaje al grupo del chat avisando que vence">📤 avisar</button>
-          ${p.aviso?`<div style="font-size:11px;margin-top:3px">${p.aviso.ok
-            ?'<span style="color:var(--green)">✓ avisado</span>'
-            :'<span style="color:var(--red)">✕ no salió</span> <span class="muted">'+esc(String(p.aviso.error||'').slice(0,32))+'</span>'}</div>`:''}
-        </td>
-        </tr>`).join('')}</tbody></table>
-        <div class="muted" style="font-size:12px;margin-top:6px">Va a la cuenta del chat, no a la de
-          las fichas. El aviso se manda <b>de a una</b>: cada caja tiene su día, y mandarle las
-          cuatro juntas sería cobrarle tres antes de tiempo.</div>`
-      :'<div class="empty" style="margin-top:8px">Hoy no toca ninguna.</div>'}
+          ? `Lo de hoy cubre <b>${esc(me.paneles[0].periodo.texto)}</b>.` : ''}</div>
+      ${(me.paneles||[]).length?`<div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+        ${me.paneles.map(p=>`<div class="subcaja" style="background:var(--bg2)">
+          <div class="cn" style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+            ${esc(p.cliente)}
+            <small style="font-weight:400">${esc(p.panel)}</small>
+            ${p.cobrada?'<span class="señal" style="background:var(--bg3);color:var(--verde2)">ya está cobrada</span>':''}
+            <span style="margin-left:auto;font-size:16px;font-weight:750;font-variant-numeric:tabular-nums">${
+              money(me.monto,2)} <span class="muted" style="font-size:12px;font-weight:500">${esc(me.moneda)}</span></span>
+          </div>
+          <div class="acciones">
+            ${p.cobrada?'':`<button class="small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
+              onclick="chatMensualidad(this.dataset.id,this.dataset.caja)">Cobrarla ahora</button>`}
+            <button class="outline small" data-id="${esc(p.cliente_id)}" data-caja="${esc(p.panel)}"
+              onclick="chatAvisarMens(this.dataset.id,this.dataset.caja)"
+              title="Le manda un mensaje al grupo del chat avisando que vence">Avisarle</button>
+            ${p.aviso?`<span style="font-size:12px">${p.aviso.ok
+              ?'<span style="color:var(--green)">✓ avisado</span>'
+              :'<span style="color:var(--rosa)">✕ no salió</span> <span class="muted">'+esc(String(p.aviso.error||'').slice(0,32))+'</span>'}</span>`:''}
+          </div>
+        </div>`).join('')}
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:10px">Va a la cuenta del chat, no a la de
+        las fichas. El aviso se manda <b>de a una</b>: cada caja tiene su día, y mandarle las cuatro
+        juntas sería cobrarle tres antes de tiempo.</div>`
+      :'<div class="empty" style="margin-top:12px">Hoy no le toca a ninguna.</div>'}
     </div>`;
+
 
   /* Lo que espera una decisión se anuncia solo en la pestaña: si hay que entrar a buscarlo, se
      atiende tarde. Los avisos de pago y los pedidos de caja son plata y gente esperando. */
