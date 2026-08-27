@@ -192,7 +192,8 @@ const TABS_COMERCIAL = [
   '|',
   ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
   '|',
-  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'], ['config','⚙ Config'],
+  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'],
+  ['accesos','🔐 Accesos'], ['config','⚙ Config'],
 ];
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
 // de API se convierten con él: sin eso habría que saltar al otro espacio para revisar un TC.
@@ -4765,6 +4766,150 @@ async function chatBorrarPago(id){
   if(!confirm('¿Borrar ese pago?')) return;
   await api('/api/os/chat/pagos/'+id,{method:'DELETE'});
   VIEWS.chat();
+}
+
+/* ───────── ACCESOS: QUIÉN ENTRA CON QUÉ Y QUÉ PUEDE HACER ─────────────────────────────────────
+   Darle acceso a 45 clientes de a uno —abrir la ficha, buscar el botón, copiar la clave, cerrar—
+   son 45 idas y vueltas, y en el medio se pierde la cuenta de quién ya tiene y quién no. Acá salen
+   todos juntos y las acciones valen para los que marques.
+
+   La clave se muestra UNA vez y no vuelve: se guarda cifrada, ni vos podés volver a leerla. Por eso
+   al generarlas quedan a la vista en un panel con un botón para copiarlas todas de una — si se
+   cierra sin copiarlas, hay que generarlas de nuevo. */
+let _accSel = new Set(), _accClaves = [], _accFiltro = '';
+VIEWS.accesos = async () => {
+  const main=document.getElementById('main');
+  main.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
+  const d=await api('/api/os/accesos');
+  const cl=(d.clientes||[]).filter(c=>!_accFiltro
+    || (c.nombre+' '+c.codigo).toLowerCase().includes(_accFiltro.toLowerCase()));
+  const con=cl.filter(c=>c.acceso).length;
+  const marcados=cl.filter(c=>_accSel.has(c.id)).length;
+  const sw=(c,campo,val,tit)=>`<input type="checkbox" ${val?'checked':''} title="${esc(tit)}"
+    onchange="accPermiso(['${c.id}'],'${campo}',this.checked)">`;
+
+  main.innerHTML=`
+    <div class="card">
+      <h2>🔐 Accesos <span class="muted">(${con} de ${cl.length} con contraseña)</span></h2>
+      <div class="muted" style="max-width:85ch">Quién entra con qué, y qué puede hacer cada uno.
+        El que <b>no tiene contraseña sigue entrando con su código</b>, como hasta hoy: darle acceso
+        a uno no deja afuera a los demás. Podés marcar varios y hacerlo de una.</div>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
+        <div style="flex:0 0 220px"><label>Buscar</label>
+          <input id="acc-q" value="${esc(_accFiltro)}" placeholder="nombre o código"
+            oninput="_accFiltro=this.value; clearTimeout(window._accT); window._accT=setTimeout(()=>VIEWS.accesos(),250)"
+            style="width:100%"></div>
+        <div class="muted" style="flex:1;min-width:260px;align-self:center">
+          ${marcados?`<b>${marcados} marcado(s)</b>`:'Marcá los que quieras cambiar de a varios.'}</div>
+      </div>
+      ${marcados?`<div class="row" style="gap:8px;margin-top:10px;padding:10px;background:var(--bg3);border-radius:9px">
+        <button onclick="accGenerar()">🔑 Dar acceso y generar contraseña (${marcados})</button>
+        <button class="outline" onclick="accPermiso([..._accSel],'avisa_pagos',true)">✓ avisa pagos</button>
+        <button class="outline" onclick="accPermiso([..._accSel],'avisa_pagos',false)">✕ no avisa</button>
+        <button class="outline" onclick="accPermiso([..._accSel],'mover_balance',true)">✓ mueve fichas</button>
+        <button class="outline" onclick="accPermiso([..._accSel],'mover_balance',false)">✕ no mueve</button>
+        <button class="outline danger" onclick="accQuitarVarios()">🚫 quitar acceso</button>
+      </div>`:''}
+
+      ${_accClaves.length?`<div class="card" style="border-color:var(--gold);margin-top:12px">
+        <h2>🔑 Contraseñas nuevas <span class="muted">(${_accClaves.length})</span></h2>
+        <div class="muted"><b>No se pueden volver a ver.</b> Se guardan cifradas: si cerrás esto sin
+          copiarlas, hay que generarlas de nuevo.</div>
+        <table style="margin-top:8px"><tbody>
+          ${_accClaves.map(k=>`<tr><td><b>${esc(k.cliente)}</b></td>
+            <td style="font-family:monospace">${esc(k.usuario)}</td>
+            <td style="font-family:monospace"><b>${esc(k.clave)}</b></td></tr>`).join('')}
+        </tbody></table>
+        <div class="row" style="gap:8px;margin-top:10px">
+          <button onclick="accCopiar()">📋 Copiar todas</button>
+          <button class="outline" onclick="_accClaves=[];VIEWS.accesos()">Ya las copié, cerrar</button>
+        </div>
+      </div>`:''}
+
+      <div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr>
+        <th style="width:26px"><input type="checkbox" onchange="accTodos(this.checked)"
+          title="Marcar todos los de la lista"></th>
+        <th>Cliente</th><th>Entra con</th>
+        <th class="right">Avisa pagos</th><th class="right">Mueve fichas</th><th class="right">Chat</th>
+        <th></th></tr></thead><tbody>
+        ${cl.map(c=>`<tr${c.estado==='activo'?'':' style="opacity:.5"'}>
+          <td><input type="checkbox" ${_accSel.has(c.id)?'checked':''}
+            onchange="accMarcar('${c.id}',this.checked)"></td>
+          <td><b>${esc(c.nombre)}</b>${c.codigo&&c.codigo!==c.nombre?`<span class="muted" style="font-size:11.5px"> · ${esc(c.codigo)}</span>`:''}</td>
+          <td>${c.acceso
+            ? `<span style="font-family:monospace">${esc(c.entra)}</span> <span class="badge ok">con contraseña</span>`
+            : `<span class="muted">su código</span> <span class="badge warn">sin contraseña</span>`}</td>
+          <td class="right">${sw(c,'avisa_pagos',c.avisa_pagos,'Puede subir comprobantes de pago')}</td>
+          <td class="right">${sw(c,'mover_balance',c.mover_balance,'Puede mover fichas entre sus propias cajas')}</td>
+          <td class="right">${c.chat?'<span class="badge">sí</span>':'<span class="muted">—</span>'}</td>
+          <td class="right" style="white-space:nowrap">
+            <button class="outline small" data-id="${esc(c.id)}" data-nom="${esc(c.nombre)}"
+              onclick="accGenerarUno(this.dataset.id,this.dataset.nom)">🔑 ${c.acceso?'nueva clave':'dar acceso'}</button>
+            ${c.acceso?`<button class="outline small danger" data-id="${esc(c.id)}" data-nom="${esc(c.nombre)}"
+              onclick="accQuitarUno(this.dataset.id,this.dataset.nom)">🚫</button>`:''}
+          </td>
+        </tr>`).join('')}
+      </tbody></table></div>
+      ${cl.length?'':'<div class="empty">Ningún cliente con ese nombre.</div>'}
+    </div>`;
+};
+
+function accMarcar(id,v){ if(v)_accSel.add(id); else _accSel.delete(id); VIEWS.accesos(); }
+async function accTodos(v){
+  if(!v){ _accSel=new Set(); return VIEWS.accesos(); }
+  const d=await api('/api/os/accesos');
+  (d.clientes||[]).filter(c=>!_accFiltro||(c.nombre+' '+c.codigo).toLowerCase().includes(_accFiltro.toLowerCase()))
+    .forEach(c=>_accSel.add(c.id));
+  VIEWS.accesos();
+}
+async function accGenerar(){
+  const ids=[..._accSel]; if(!ids.length) return toast('No marcaste ninguno');
+  if(!confirm('¿Generar contraseña para '+ids.length+' cliente(s)?\n\nAl que ya tenía, se le CAMBIA: la vieja deja de servir.\nLas nuevas se muestran una sola vez.')) return;
+  const r=await api('/api/os/accesos/generar',{method:'POST',body:JSON.stringify({ids})});
+  if(r&&r.ok){ _accClaves=r.claves||[]; _accSel=new Set();
+    let m='Listo: '+r.generadas+' contraseña(s)';
+    if((r.fallaron||[]).length) m+=' · '+r.fallaron.length+' no se pudo: '+r.fallaron.map(x=>x.cliente).join(', ');
+    toast(m);
+  }
+  VIEWS.accesos();
+}
+async function accGenerarUno(id,nombre){
+  if(!confirm('¿Generar contraseña para «'+nombre+'»?\n\nSi ya tenía una, deja de servir.\nSe muestra una sola vez.')) return;
+  const r=await api('/api/os/accesos/generar',{method:'POST',body:JSON.stringify({ids:[id]})});
+  if(r&&r.ok){ _accClaves=r.claves||[];
+    if((r.fallaron||[]).length) toast('⚠ '+r.fallaron[0].error);
+  }
+  VIEWS.accesos();
+}
+async function accQuitarUno(id,nombre){
+  if(!confirm('¿Sacarle el acceso a «'+nombre+'»?\n\nDeja de poder entrar con contraseña y vuelve a entrar con su código.')) return;
+  await api('/api/os/accesos/quitar',{method:'POST',body:JSON.stringify({ids:[id]})});
+  VIEWS.accesos();
+}
+async function accQuitarVarios(){
+  const ids=[..._accSel]; if(!ids.length) return;
+  if(!confirm('¿Sacarle el acceso a '+ids.length+' cliente(s)?\n\nVuelven a entrar con su código.')) return;
+  await api('/api/os/accesos/quitar',{method:'POST',body:JSON.stringify({ids})});
+  _accSel=new Set(); VIEWS.accesos();
+}
+async function accPermiso(ids,campo,valor){
+  if(!ids.length) return;
+  const r=await api('/api/os/accesos/permiso',{method:'POST',body:JSON.stringify({ids,campo,valor})});
+  if(r&&r.ok) toast(r.cambiados+' cliente(s) actualizados');
+  VIEWS.accesos();
+}
+/* Copiar TODAS de una: mandarlas de a una por Telegram es el momento donde se pierde alguna. */
+function accCopiar(){
+  const t=_accClaves.map(k=>k.cliente+' — usuario: '+k.usuario+' — contraseña: '+k.clave).join('\n');
+  const ok=()=>toast('Copiadas: pegalas donde las vayas a guardar');
+  if(navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(t).then(ok,()=>_accPlanB(t,ok));
+  else _accPlanB(t,ok);
+}
+function _accPlanB(t,ok){
+  const a=document.createElement('textarea'); a.value=t; a.style.position='fixed'; a.style.opacity='0';
+  document.body.appendChild(a); a.select();
+  try{ document.execCommand('copy'); ok(); }catch(e){ toast('No pude copiar: copialas a mano'); }
+  document.body.removeChild(a);
 }
 
 // ───────── FACTURACIÓN (datos reales del casino) ─────────

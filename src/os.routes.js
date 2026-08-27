@@ -324,6 +324,74 @@ function mount(app) {
     ok(res, { ...r, acceso: acceso.estado(req.params.id) });
   }));
 
+  /* ── LOS ACCESOS DE TODOS, EN UNA PANTALLA ──────────────────────────────────────────────────
+     Darle acceso a 45 clientes de a uno —abrir la ficha, buscar el botón, copiar la clave, cerrar—
+     son 45 idas y vueltas, y en el medio se pierde la cuenta de quién ya tiene y quién no. Acá
+     salen todos juntos con lo que puede hacer cada uno, y las acciones valen para los que marques. */
+  app.get('/api/os/accesos', (_req, res) => {
+    const conChat = new Set(chat.list().filter((p) => p.activo && p.cliente_id).map((p) => p.cliente_id));
+    const filas = clientes.list().clientes.map((c) => {
+      const e = acceso.estado(c.id) || {};
+      return {
+        id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible || c.codigo,
+        estado: c.estado || 'activo',
+        entra: e.habilitado ? (e.usuario || c.codigo) : null,
+        acceso: !!e.habilitado, desde: e.desde || null,
+        // Lo que puede hacer hoy. `avisa_pagos` viene en true cuando nunca se tocó.
+        avisa_pagos: c.avisa_pagos !== false,
+        mover_balance: !!c.mover_balance,
+        chat: conChat.has(c.id),
+      };
+    });
+    ok(res, { clientes: filas });
+  });
+
+  /* Dar acceso a varios de una. La clave viaja UNA vez en esta respuesta: se guarda cifrada y no se
+     puede volver a mostrar, así que la pantalla la muestra y avisa que no vuelve. */
+  app.post('/api/os/accesos/generar', wrap((req, res) => {
+    const ids = Array.isArray((req.body || {}).ids) ? req.body.ids : [];
+    if (!ids.length) return err(res, 400, 'no marcaste ningún cliente');
+    const hechos = []; const fallaron = [];
+    for (const id of ids) {
+      const r = acceso.habilitar(id, {});
+      const c = clientes.get(id) || {};
+      if (r.ok) hechos.push({ id, cliente: c.nombre || c.codigo, usuario: r.usuario, clave: r.clave });
+      else fallaron.push({ id, cliente: c.nombre || c.codigo || id, error: r.error });
+    }
+    ok(res, { generadas: hechos.length, claves: hechos, fallaron });
+  }));
+
+  app.post('/api/os/accesos/quitar', wrap((req, res) => {
+    const ids = Array.isArray((req.body || {}).ids) ? req.body.ids : [];
+    ids.forEach((id) => acceso.deshabilitar(id));
+    ok(res, { quitados: ids.length });
+  }));
+
+  /* Qué puede hacer cada uno, para varios a la vez. Sólo estos dos campos: son permisos, y el resto
+     de la ficha del cliente son números que no se tocan en masa. */
+  app.post('/api/os/accesos/permiso', wrap((req, res) => {
+    const b = req.body || {};
+    const ids = Array.isArray(b.ids) ? b.ids : [];
+    if (!['avisa_pagos', 'mover_balance'].includes(b.campo)) return err(res, 400, 'ese permiso no se toca desde acá');
+    const valor = b.valor === true;
+    for (const id of ids) {
+      const c = clientes.get(id);
+      // updateCliente sólo toca código y nombre: los permisos viven en updateComercial. Pasarlos
+      // por la otra función los descartaba en silencio y la pantalla mostraba un cambio que no fue.
+      if (c) clientes.updateComercial(id, { [b.campo]: valor });
+    }
+    ok(res, { cambiados: ids.length, campo: b.campo, valor });
+  }));
+
+  app.put('/api/os/accesos/:id/usuario', wrap((req, res) => {
+    const u = String((req.body || {}).usuario || '').trim();
+    if (!u) return err(res, 400, 'falta el usuario');
+    /* Cambiar el usuario le cambia la puerta: la clave que tenía sigue valiendo, pero el nombre con
+       el que entra es otro. Se avisa en la pantalla porque hay que volver a decírselo. */
+    const r = acceso.habilitar(req.params.id, { usuario: u, clave: (req.body || {}).clave });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
     if ((req.body || {}).moneda_cuenta !== undefined) {

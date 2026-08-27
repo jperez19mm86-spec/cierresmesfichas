@@ -2602,6 +2602,80 @@ async function main() {
     dbCh.prepare("DELETE FROM tc_mes WHERE mes='2026-08'").run();
     panSt.remove(PAN.id); cliSt3.removeCliente(CLI.id);
 
+    /* ── LOS ACCESOS DE TODOS, EN UNA PANTALLA ───────────────────────────────────────────────
+       Darle acceso a 45 clientes de a uno son 45 idas y vueltas, y en el medio se pierde la cuenta
+       de quién ya tiene. Acá se hace de a varios, y el que no tiene contraseña sigue entrando con
+       su código: darle acceso a uno no deja afuera a los demás. */
+    {
+      const c1 = (await post('/api/os/clientes', { codigo: 'ZZ-ACC1', nombre: 'Acceso Uno' })).data.cliente;
+      const c2 = (await post('/api/os/clientes', { codigo: 'ZZ-ACC2', nombre: 'Acceso Dos' })).data.cliente;
+
+      const lista = (await get('/api/os/accesos')).data.clientes || [];
+      const f1 = lista.find((x) => x.id === c1.id);
+      check('accesos: la pantalla lista a todos con lo que puede hacer cada uno',
+        !!f1 && f1.acceso === false && f1.avisa_pagos === true && f1.mover_balance === false
+        && f1.chat === false,
+        f1 ? `${f1.nombre}: entra con ${f1.entra || 'su código'}` : 'no está');
+
+      const gen = (await post('/api/os/accesos/generar', { ids: [c1.id, c2.id] })).data;
+      check('accesos: se le da acceso a varios de una vez',
+        gen.ok && gen.generadas === 2 && gen.claves.length === 2
+        && gen.claves.every((k) => k.clave && k.clave.length >= 8),
+        gen.claves.map((k) => k.cliente).join(', '));
+      /* La clave viaja UNA vez y no vuelve: se guarda cifrada. Si volviera a salir en alguna
+         respuesta, alcanzaría con mirar la pantalla para llevarse las 45. */
+      const dosVeces = (await get('/api/os/accesos')).data.clientes.find((x) => x.id === c1.id);
+      check('accesos: la contraseña no vuelve a salir por ningún lado',
+        !JSON.stringify(dosVeces).includes(gen.claves[0].clave)
+        && dosVeces.acceso === true && !!dosVeces.entra,
+        'sólo se ve en el momento de generarla');
+      /* Se prueba POR HTTP: el server corre con otra base (DB_PATH), así que el store de este
+         proceso no ve al cliente que se creó por la API. */
+      const rLogin = await axios.post(BASE + '/api/cuenta/login',
+        { usuario: gen.claves[0].usuario, clave: gen.claves[0].clave }, { validateStatus: () => true });
+      check('accesos: y con esa clave el cliente entra de verdad',
+        rLogin.status === 200 && rLogin.data.ok === true && !!rLogin.data.token,
+        'HTTP ' + rLogin.status);
+      check('accesos: con la clave equivocada no entra, y no dice cuál de los dos falló',
+        (await axios.post(BASE + '/api/cuenta/login',
+          { usuario: gen.claves[0].usuario, clave: 'otra' }, { validateStatus: () => true }))
+          .data.error === 'Usuario o contraseña incorrectos');
+
+      /* Los permisos, también de a varios. Iban por updateCliente, que sólo toca código y nombre:
+         se descartaban en silencio y la pantalla mostraba un cambio que no había pasado. */
+      await post('/api/os/accesos/permiso', { ids: [c1.id, c2.id], campo: 'mover_balance', valor: true });
+      const tras = (await get('/api/os/accesos')).data.clientes;
+      check('accesos: un permiso se cambia para varios y QUEDA guardado',
+        tras.find((x) => x.id === c1.id).mover_balance === true
+        && tras.find((x) => x.id === c2.id).mover_balance === true);
+      await post('/api/os/accesos/permiso', { ids: [c1.id], campo: 'avisa_pagos', valor: false });
+      check('accesos: y se puede apagar',
+        (await get('/api/os/accesos')).data.clientes.find((x) => x.id === c1.id).avisa_pagos === false);
+      check('accesos: no se puede tocar cualquier campo del cliente desde acá',
+        (await axios.post(BASE + '/api/os/accesos/permiso',
+          { ids: [c1.id], campo: 'permite_deuda', valor: true }, H({ validateStatus: () => true })))
+          .data.ok !== true);
+
+      /* Quitarle el acceso lo devuelve a entrar con su código: no lo deja afuera del sistema. */
+      await post('/api/os/accesos/quitar', { ids: [c1.id] });
+      const sinAcc = (await get('/api/os/accesos')).data.clientes.find((x) => x.id === c1.id);
+      check('accesos: quitar el acceso lo devuelve a su código, no lo deja afuera',
+        sinAcc.acceso === false && sinAcc.entra === null
+        && (await axios.post(BASE + '/api/cuenta/login',
+          { usuario: gen.claves[0].usuario, clave: gen.claves[0].clave },
+          { validateStatus: () => true })).status === 401);
+
+      await axios.delete(BASE + '/api/os/clientes/' + c1.id, H());
+      await axios.delete(BASE + '/api/os/clientes/' + c2.id, H());
+    }
+    // La pantalla existe y hace las cosas de a varios.
+    const uiAcc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('accesos: hay una pantalla propia y las acciones valen para los marcados',
+      /\['accesos','🔐 Accesos'\]/.test(uiAcc) && /VIEWS\.accesos = async/.test(uiAcc)
+      && /Dar acceso y generar contraseña/.test(uiAcc) && /accCopiar\(\)/.test(uiAcc));
+    check('accesos: la pantalla avisa que la contraseña no se puede volver a ver',
+      /No se pueden volver a ver/.test(uiAcc));
+
     /* ── EL PORTAL DEL CLIENTE, DE PUNTA A PUNTA ─────────────────────────────────────────────
        Contra el server de verdad: se crea el cliente y la caja por la API, se le da el chat, y se
        entra al portal escribiendo el usuario de la caja — que es lo que va a hacer el cliente. */
