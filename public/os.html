@@ -6919,13 +6919,17 @@ AC.pulso = async () => {
 
   const kpi = (t,v,s) => `<div class="card" style="flex:1 1 150px;margin:0;padding:12px 14px">
     <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.03em">${t}</div>
-    <div style="font-size:23px;font-weight:800;margin-top:2px">${v}</div>
+    <div style="font-size:21px;font-weight:800;margin-top:3px;letter-spacing:-.02em">${v}</div>
     <div class="muted" style="font-size:11.5px">${s||''}</div></div>`;
 
   const tipos = {}; p.alertas.forEach(a=>{ tipos[a.tipo]=(tipos[a.tipo]||0)+1; });
   const lista = p.alertas.filter(a=>!_pulFiltro||a.tipo===_pulFiltro);
 
-  dest.innerHTML = `
+  // ── LO QUE SE VE SIEMPRE ────────────────────────────────────────────────────────────────────
+  // Arriba: en qué mes estamos, cuánto se ganó y cómo viene el día a día. Todo lo demás son
+  // secciones plegadas: eran doce tarjetas apiladas y había que scrollear el mes entero para
+  // encontrar la que importaba.
+  const cab = `
     <div class="card">
       <div class="row" style="align-items:flex-end">
         <div style="flex:0 0 auto"><label>Mes</label><div style="display:flex;gap:6px;align-items:center">
@@ -6936,7 +6940,7 @@ AC.pulso = async () => {
           ${p.diasCapturados} día(s) capturado(s)${p.ultimoDia?', hasta el <b>'+esc(p.ultimoDia)+'</b>':''} ·
           ${p.activos} panel(es) con movimiento</div>
       </div>
-      ${p.faltaCaptura?`<div class="card" style="margin:10px 0 0;border-left:3px solid var(--gold);background:var(--bg3)">
+      ${p.faltaCaptura?`<div class="nota-suave" style="margin-top:10px">
         <b>⚠ ${esc(p.faltaCaptura)}</b> <span class="muted">Los números de abajo no incluyen ese día.</span>
         <button class="small" style="margin-left:8px" onclick="capturarAyer()">＋ Capturar ahora</button></div>`:''}
       ${p.sinTC.length?`<div class="muted" style="margin-top:8px">⚠ Sin tipo de cambio de ${esc(p.sinTC.join(', '))}: esas monedas no entran en los totales en USDT.
@@ -6951,9 +6955,145 @@ AC.pulso = async () => {
     </div>
 
     <div class="card"><h2>El mes día por día <span class="muted">(en USDT)</span></h2>
-      ${graficoMes(p.serieDia)}</div>
+      ${graficoMes(p.serieDia)}</div>`;
 
-    <div class="row" style="gap:10px;margin-bottom:12px;align-items:stretch">
+  // ── LAS SECCIONES ───────────────────────────────────────────────────────────────────────────
+  // Cada una lleva a la derecha el número que decide si vale la pena abrirla.
+  const secs = [];
+
+  // 1. Lo que pide acción. Es lo único que arranca abierto, y sólo si hay algo grave.
+  secs.push(pulSec('mirar', 'Qué mirar', p.alertas.length
+      ? `<b style="${p.graves?'color:var(--rosa)':''}">${p.alertas.length}</b><span class="u">${p.graves?p.graves+' graves':'avisos'}</span>`
+      : '<span class="u">nada raro ✅</span>', `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 10px">
+      <button class="${_pulFiltro?'outline ':''}small" onclick="pulFiltro('')">Todo (${p.alertas.length})</button>
+      ${Object.keys(tipos).map(t=>`<button class="${_pulFiltro===t?'':'outline '}small" onclick="pulFiltro('${t}')">${esc(_TIPOS[t]||t)} (${tipos[t]})</button>`).join('')}
+    </div>
+    ${lista.length ? lista.slice(0, _pulTodas?lista.length:12).map(a=>{
+      const n=_NIV[a.nivel]||_NIV.info;
+      return `<div class="card" style="margin:8px 0;border-left:3px solid ${n.col}">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="flex:1">
+            <b>${n.ico} ${esc(a.titulo)}</b>
+            <div style="margin-top:3px">${sisPill(a.sistema)} <span class="pill">${esc(a.login)}</span> <span class="muted">${esc(a.moneda)}</span>
+              ${a.cliente?'· cliente <b>'+esc(a.cliente)+'</b>':'<span class="badge warn">sin cliente asignado</span>'}</div>
+            <div style="margin-top:5px;font-size:13px">${esc(a.detalle)}</div>
+            <div class="muted" style="margin-top:5px">📍 ${esc(a.donde||'')}</div>
+          </div>
+          ${a.montoUsdt!=null?`<div style="flex:0;text-align:right;white-space:nowrap">
+            <div class="muted" style="font-size:11px">en juego</div>
+            <div style="font-size:17px;font-weight:800">${money(a.montoUsdt,0)}</div>
+            <div class="muted" style="font-size:11px">USDT</div></div>`:''}
+        </div></div>`;
+    }).join('') : '<div class="empty">✅ Nada raro en este filtro.</div>'}
+    ${(!_pulTodas && lista.length>12)?`<button class="outline small" style="margin-top:6px"
+      onclick="_pulTodas=true;AC.pulso()">Ver las ${lista.length-12} restantes</button>`:''}`,
+    !!p.graves));
+
+  // 2. Quién vende menos. Va antes del top de ganancia a propósito: el top dice de dónde sale la
+  //    plata hoy, y esto dice de dónde va a dejar de salir. Ordenado por DÓLARES y no por
+  //    porcentaje — caer 80% sobre 200 USDT importa menos que caer 15% sobre 40.000.
+  {
+    const cv=(p.clientesVenta||[]).filter(c=>c.inPrev>500||c.in>500);
+    const bajan=cv.filter(c=>c.caidaUsdt>0), suben=cv.filter(c=>c.caidaUsdt<0);
+    const perdido=bajan.reduce((t,c)=>t+c.caidaUsdt,0);
+    const fila=(c)=>`<tr>
+      <td><b>${esc(c.cliente)}</b> <span class="muted">${c.paneles} panel${c.paneles===1?'':'es'}</span></td>
+      <td class="right">${money(c.in,0)}</td>
+      <td class="right muted">${money(c.inPrev,0)}</td>
+      <td class="right"><b>${c.caidaUsdt>0?'−':'+'}${money(Math.abs(c.caidaUsdt),0)}</b></td>
+      <td class="right">${flecha(c.varIn)}</td></tr>`;
+    secs.push(pulSec('venta', 'Quién está vendiendo menos',
+      cv.length?`<b style="${perdido>0?'color:var(--rosa)':''}">−${money(perdido,0)}</b><span class="u">USDT de venta</span>`:'<span class="u">sin datos</span>', `
+      <div class="muted" style="margin:12px 0 10px;max-width:80ch">Lo que le cargan sus jugadores (el IN), en USDT,
+        comparado contra <b>los mismos ${esc((p.comparacion||{}).hastaDia||'')} días</b> de ${esc(p.mesPrev)} y no contra
+        el mes entero: si no, el que lleva menos días siempre parece que cae.
+        ${(p.comparacion||{}).desparejo?'<b style="color:var(--rosa)">⚠ Al mes anterior le faltan días capturados en ese tramo, así que la comparación se inclina sola.</b>':''}</div>
+      ${!cv.length?'<div class="empty">Sin datos suficientes para comparar.</div>'
+        :'<table><thead><tr><th>Cliente</th><th class="right">Vende ahora</th>'
+          +'<th class="right">Vendía</th><th class="right">Diferencia</th><th class="right">%</th></tr></thead><tbody>'
+          +bajan.map(fila).join('')
+          +(suben.length?'<tr><td colspan="5" class="muted" style="padding-top:12px"><b>Los que crecen</b></td></tr>'+suben.slice().reverse().map(fila).join(''):'')
+          +'</tbody></table>'
+          +`<div class="muted" style="margin-top:8px">Neto: se perdieron <b>${money(perdido,0)}</b> USDT de venta y se ganaron <b>${money(suben.reduce((t,c)=>t-c.caidaUsdt,0),0)}</b>.</div>`}`));
+  }
+
+  // 3. Se apagaron. Un panel que baja aparece en las alertas; uno que pasó a CERO desaparece de la
+  //    lista y el mes siguiente parece que nunca existió.
+  if((p.apagados||[]).length) secs.push(pulSec('apagados', 'Se apagaron',
+    `<b>${p.apagados.length}</b><span class="u">movían ${money(p.apagados.reduce((t,x)=>t+x.moviaUsdt,0),0)} USDT</span>`, `
+    <div class="muted" style="margin:12px 0 10px">Operaban en los mismos ${esc((p.comparacion||{}).hastaDia||'')} días de ${esc(p.mesPrev)} y este mes <b>no movieron nada</b>.</div>
+    <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Movía (USDT)</th><th class="right">Días</th><th>Último movimiento</th></tr></thead><tbody>
+    ${p.apagados.slice(0,20).map(x=>`<tr>
+      <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
+      <td class="muted">${esc(x.cliente||'—')}</td><td class="muted">${esc(x.moneda)}</td>
+      <td class="right"><b>${money(x.moviaUsdt,0)}</b></td>
+      <td class="right muted">${x.dias}</td>
+      <td class="muted">${esc(x.ultimo||'—')}</td></tr>`).join('')}
+    </tbody></table>`));
+
+  // 4. Sin dueño: están en el reporte del casino y no tienen caja en el OS, así que su ganancia no
+  //    se le factura a nadie. La acción no es preguntar, es asignarles la caja.
+  if((p.sinDueno||[]).length) secs.push(pulSec('sindueno', 'Mueven y no son de nadie',
+    `<b style="color:var(--durazno)">${p.sinDueno.length}</b><span class="u">${money(p.sinDueno.reduce((t,x)=>t+x.inUsdt,0),0)} USDT sin facturar</span>`, `
+    <div class="muted" style="margin:12px 0 10px">Aparecen en el casino y <b>no tienen caja en el OS</b>, así que su ganancia no entra en la factura de ningún cliente.
+      Se arreglan creándoles la caja en 👥 Clientes.</div>
+    <table><thead><tr><th>Sistema</th><th>Panel</th><th>Nodo</th><th>Mon.</th><th class="right">Movió (USDT)</th><th class="right">Ganancia</th><th class="right">Días</th></tr></thead><tbody>
+    ${p.sinDueno.map(x=>`<tr>
+      <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
+      <td class="muted">${esc(x.nodo)}</td><td class="muted">${esc(x.moneda)}</td>
+      <td class="right"><b>${money(x.inUsdt,0)}</b></td>
+      <td class="right">${money(x.profitUsdt,0)}</td>
+      <td class="right muted">${x.dias}</td></tr>`).join('')}
+    </tbody></table>`));
+
+  // 5. Clientes para mirar: un panel roto es un problema; tres del mismo dueño es otra cosa.
+  if((p.clientes||[]).length) secs.push(pulSec('clientes', 'Clientes para mirar',
+    `<b>${p.clientes.length}</b><span class="u">con alertas</span>`, `
+    <div class="muted" style="margin:12px 0 10px">Un panel roto es un problema; tres del mismo dueño es otra cosa.</div>
+    <table><thead><tr><th>Cliente</th><th class="right">🔴</th><th class="right">Alertas</th><th>Paneles</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
+    ${p.clientes.slice(0,10).map(c=>`<tr>
+      <td><b>${esc(c.cliente)}</b></td>
+      <td class="right">${c.graves?'<span style="color:var(--rosa);font-weight:800">'+c.graves+'</span>':'<span class="muted">—</span>'}</td>
+      <td class="right muted">${c.alertas}</td>
+      <td class="muted" style="font-size:12px">${c.paneles.slice(0,3).map(esc).join(', ')}${c.paneles.length>3?' +'+(c.paneles.length-3):''}</td>
+      <td class="right"><b>${money(c.usdt,0)}</b></td></tr>`).join('')}
+    </tbody></table>`));
+
+  // 6. De dónde sale la plata.
+  // El titular no es cuántas cajas hay, es cuánto de la ganancia sale de las 12 primeras: eso es lo
+  // que dice si el mes se apoya en unas pocas cuentas o está repartido.
+  const top12 = (p.top||[]).slice(0,12).reduce((a,t)=>a+(t.profitUsdt||0),0);
+  secs.push(pulSec('top', 'De dónde sale la ganancia',
+    totPr?`<b>${Math.round(top12/totPr*100)}%</b><span class="u">sale de 12 cajas</span>`
+        :`<b>${(p.top||[]).length}</b><span class="u">cajas</span>`, `
+    <div class="muted" style="margin:12px 0 10px">Las 12 que más ganan, de ${(p.top||[]).length} con movimiento.</div>
+    <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}${(p.comparacion||{}).hastaDia?' <span class="muted">(1-'+esc(p.comparacion.hastaDia)+')</span>':''}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
+    ${p.top.slice(0,12).map(t=>`<tr>
+      <td>${sisPill(t.sistema)}</td>
+      <td><b>${esc(t.login)}</b></td><td class="muted">${esc(t.cliente||'—')}</td><td class="muted">${esc(t.moneda)}</td>
+      <td class="right"><b>${money(t.profitUsdt,0)}</b></td>
+      <td class="right">${flecha(t.varProfit)}</td>
+      <td class="right ${t.rtp>0.85?'':'muted'}" ${t.rtp>0.85?'style="color:var(--rosa);font-weight:700"':''}>${t.rtp!=null?(t.rtp*100).toFixed(0)+'%':'—'}</td>
+      <td class="right muted">${t.activos}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Todavía no hay nada capturado en este mes.</td></tr>'}
+    </tbody></table>`));
+
+  // 7. Por moneda.
+  secs.push(pulSec('monedas', 'Por moneda',
+    `<b>${p.monedas.length}</b><span class="u">monedas</span>`, `
+    <table style="margin-top:12px"><thead><tr><th>Moneda</th><th class="right">Paneles</th><th class="right">Movimiento</th><th class="right">Ganancia</th><th class="right">Se llevan</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">USDT</th></tr></thead><tbody>
+    ${p.monedas.map(g=>`<tr>
+      <td><b>${esc(g.moneda)}</b></td><td class="right muted">${g.paneles}</td>
+      <td class="right">${money(g.in,0)}</td><td class="right">${money(g.profit,0)}</td>
+      <td class="right muted">${g.rtp!=null?(g.rtp*100).toFixed(0)+'%':'—'}</td>
+      <td class="right">${flecha(g.varIn)}</td>
+      <td class="right">${g.profitUsdt!=null?'<b>'+money(g.profitUsdt,0)+'</b>':'<span class="badge warn">sin TC</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Todavía no hay nada capturado en este mes.</td></tr>'}
+    </tbody></table>`));
+
+  // 8. Los gráficos que no son del día a día: se miran cuando se quiere mirar, no todos los días.
+  secs.push(pulSec('graficos', 'Los gráficos del mes',
+    '<span class="u">tendencia, sistemas y RTP</span>', `
+    <div class="row" style="gap:10px;margin:12px 0 0;align-items:stretch">
       <div class="card" style="flex:2 1 380px;margin:0"><h2>Los últimos 6 meses</h2>
         ${tnd.ok?graficoTendencia(tnd.meses):'<div class="empty">—</div>'}
         ${tnd.ok&&tnd.sinTC.length?`<div class="muted" style="margin-top:6px">⚠ Sin TC: ${esc(tnd.sinTC.slice(0,6).join(', '))}${tnd.sinTC.length>6?'…':''} — esos meses quedan cortos.</div>`:''}</div>
@@ -6962,130 +7102,34 @@ AC.pulso = async () => {
           <div>${sisPill(g.sistema)} <span class="muted">${g.paneles} panel(es)</span></div>
           <div style="font-size:19px;font-weight:800;margin-top:2px">${money(g.profitUsdt,0)} <span class="muted" style="font-size:11px">USDT</span></div>
           <div class="muted" style="font-size:11.5px">movió ${money(g.inUsdt,0)} · se llevan ${g.rtp!=null?(g.rtp*100).toFixed(0)+'%':'—'}
-            ${g.sinTC?'· <span style="color:var(--gold)">'+g.sinTC+' sin TC</span>':''}</div>
+            ${g.sinTC?'· <span style="color:var(--durazno)">'+g.sinTC+' sin TC</span>':''}</div>
         </div>`).join('')||'<div class="empty">—</div>'}</div>
     </div>
+    <div class="card" style="margin:10px 0 0"><h2>Cuánto se llevan los jugadores
+      <span class="muted">(barra gris = el mes pasado; rosa = subió)</span></h2>
+      ${graficoRtp(p.rtp||[])}</div>`));
 
-    ${(p.clientes||[]).length?`<div class="card"><h2>Clientes para mirar
-      <span class="muted">(un panel roto es un problema; tres del mismo dueño es otra cosa)</span></h2>
-      <table><thead><tr><th>Cliente</th><th class="right">🔴</th><th class="right">Alertas</th><th>Paneles</th><th class="right">En juego (USDT)</th></tr></thead><tbody>
-      ${p.clientes.slice(0,10).map(c=>`<tr>
-        <td><b>${esc(c.cliente)}</b></td>
-        <td class="right">${c.graves?'<span style="color:var(--red);font-weight:800">'+c.graves+'</span>':'<span class="muted">—</span>'}</td>
-        <td class="right muted">${c.alertas}</td>
-        <td class="muted" style="font-size:12px">${c.paneles.slice(0,3).map(esc).join(', ')}${c.paneles.length>3?' +'+(c.paneles.length-3):''}</td>
-        <td class="right"><b>${money(c.usdt,0)}</b></td></tr>`).join('')}
-      </tbody></table></div>`:''}
-
-    <div class="card"><h2>Cuánto se llevan los jugadores <span class="muted">(barra gris = el mes pasado; roja = subió)</span></h2>
-      ${graficoRtp(p.rtp||[])}</div>
-
-    <div class="card">
-      <h2>Qué mirar <span class="muted">(${p.alertas.length}, lo más caro primero)</span></h2>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="${_pulFiltro?'outline ':''}small" onclick="pulFiltro('')">Todo (${p.alertas.length})</button>
-        ${Object.keys(tipos).map(t=>`<button class="${_pulFiltro===t?'':'outline '}small" onclick="pulFiltro('${t}')">${esc(_TIPOS[t]||t)} (${tipos[t]})</button>`).join('')}
-      </div>
-      ${lista.length ? lista.map(a=>{
-        const n=_NIV[a.nivel]||_NIV.info;
-        return `<div class="card" style="margin:8px 0;border-left:3px solid ${n.col}">
-          <div style="display:flex;gap:10px;align-items:flex-start">
-            <div style="flex:1">
-              <b>${n.ico} ${esc(a.titulo)}</b>
-              <div style="margin-top:3px">${sisPill(a.sistema)} <span class="pill">${esc(a.login)}</span> <span class="muted">${esc(a.moneda)}</span>
-                ${a.cliente?'· cliente <b>'+esc(a.cliente)+'</b>':'<span class="badge warn">sin cliente asignado</span>'}</div>
-              <div class="muted" style="margin-top:5px;color:var(--text);font-size:13px">${esc(a.detalle)}</div>
-              <div class="muted" style="margin-top:5px">📍 ${esc(a.donde||'')}</div>
-            </div>
-            ${a.montoUsdt!=null?`<div style="flex:0;text-align:right;white-space:nowrap">
-              <div class="muted" style="font-size:11px">en juego</div>
-              <div style="font-size:17px;font-weight:800">${money(a.montoUsdt,0)}</div>
-              <div class="muted" style="font-size:11px">USDT</div></div>`:''}
-          </div></div>`;
-      }).join('') : '<div class="empty">✅ Nada raro en este filtro.</div>'}
-    </div>
-
-    <!-- ── QUIÉN VENDE MENOS ────────────────────────────────────────────────────────────────────
-         Va ARRIBA del top de ganancia a propósito: el top dice de dónde sale la plata hoy, y esto
-         dice de dónde va a dejar de salir. Ordenado por DÓLARES perdidos y no por porcentaje —
-         caer 80% sobre 200 USDT importa menos que caer 15% sobre 40.000. -->
-    <div class="card"><h2>Quién está vendiendo menos
-        <span class="muted">— lo que le cargan sus jugadores (el IN), en USDT</span></h2>
-      <div class="muted" style="margin-bottom:8px">Comparado contra <b>los mismos ${esc((p.comparacion||{}).hastaDia||'')} días</b> de ${esc(p.mesPrev)},
-        no contra el mes entero: si no, el que lleva menos días siempre parece que cae.
-        ${(p.comparacion||{}).desparejo?'<b style="color:var(--red)">⚠ Al mes anterior le faltan días capturados en ese tramo, así que la comparación se inclina sola.</b>':''}</div>
-      ${(() => {
-        const cv=(p.clientesVenta||[]).filter(c=>c.inPrev>500||c.in>500);
-        const bajan=cv.filter(c=>c.caidaUsdt>0), suben=cv.filter(c=>c.caidaUsdt<0);
-        if(!cv.length) return '<div class="empty">Sin datos suficientes para comparar.</div>';
-        const fila=(c)=>`<tr>
-          <td><b>${esc(c.cliente)}</b> <span class="muted">${c.paneles} panel${c.paneles===1?'':'es'}</span></td>
-          <td class="right">${money(c.in,0)}</td>
-          <td class="right muted">${money(c.inPrev,0)}</td>
-          <td class="right"><b>${c.caidaUsdt>0?'−':'+'}${money(Math.abs(c.caidaUsdt),0)}</b></td>
-          <td class="right">${flecha(c.varIn)}</td></tr>`;
-        return '<table><thead><tr><th>Cliente</th><th class="right">Vende ahora</th>'
-          +'<th class="right">Vendía</th><th class="right">Diferencia</th><th class="right">%</th></tr></thead><tbody>'
-          +bajan.map(fila).join('')
-          +(suben.length?'<tr><td colspan="5" class="muted" style="padding-top:12px"><b>Los que crecen</b></td></tr>'+suben.reverse().map(fila).join(''):'')
-          +'</tbody></table>'
-          +`<div class="muted" style="margin-top:8px">Neto: se perdieron <b>${money(bajan.reduce((t,c)=>t+c.caidaUsdt,0),0)}</b> USDT de venta y se ganaron <b>${money(suben.reduce((t,c)=>t-c.caidaUsdt,0),0)}</b>.</div>`;
-      })()}
-    </div>
-
-    <!-- ── SE APAGARON ──────────────────────────────────────────────────────────────────────────
-         Un panel que baja aparece en las alertas; uno que pasó a CERO desaparece de la lista y el
-         mes siguiente parece que nunca existió. -->
-    ${(p.apagados||[]).length?`<div class="card"><h2>Se apagaron <span class="muted">(${p.apagados.length})</span></h2>
-      <div class="muted" style="margin-bottom:8px">Operaban en los mismos ${esc((p.comparacion||{}).hastaDia||'')} días de ${esc(p.mesPrev)} y este mes <b>no movieron nada</b>.
-        Juntos movían ${money(p.apagados.reduce((t,x)=>t+x.moviaUsdt,0),0)} USDT.</div>
-      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Movía (USDT)</th><th class="right">Días</th><th>Último movimiento</th></tr></thead><tbody>
-      ${p.apagados.slice(0,20).map(x=>`<tr>
-        <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
-        <td class="muted">${esc(x.cliente||'—')}</td><td class="muted">${esc(x.moneda)}</td>
-        <td class="right"><b>${money(x.moviaUsdt,0)}</b></td>
-        <td class="right muted">${x.dias}</td>
-        <td class="muted">${esc(x.ultimo||'—')}</td></tr>`).join('')}
-      </tbody></table></div>`:''}
-
-    <!-- ── SIN DUEÑO ────────────────────────────────────────────────────────────────────────────
-         Están en el reporte del casino y no tienen panel en el OS: su ganancia no se le factura a
-         nadie. Es plata sin dueño, y la acción no es preguntar sino asignar. -->
-    ${(p.sinDueno||[]).length?`<div class="card" style="border-left:3px solid var(--gold)"><h2>Mueven y no son de nadie <span class="muted">(${p.sinDueno.length})</span></h2>
-      <div class="muted" style="margin-bottom:8px">Aparecen en el casino y <b>no tienen panel en el OS</b>, así que su ganancia no entra en la factura de ningún cliente.
-        Juntos movieron ${money(p.sinDueno.reduce((t,x)=>t+x.inUsdt,0),0)} USDT este mes.
-        Se arreglan creándoles el panel en 👥 Clientes.</div>
-      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Nodo</th><th>Mon.</th><th class="right">Movió (USDT)</th><th class="right">Ganancia</th><th class="right">Días</th></tr></thead><tbody>
-      ${p.sinDueno.map(x=>`<tr>
-        <td>${sisPill(x.sistema)}</td><td><b>${esc(x.login)}</b></td>
-        <td class="muted">${esc(x.nodo)}</td><td class="muted">${esc(x.moneda)}</td>
-        <td class="right"><b>${money(x.inUsdt,0)}</b></td>
-        <td class="right">${money(x.profitUsdt,0)}</td>
-        <td class="right muted">${x.dias}</td></tr>`).join('')}
-      </tbody></table></div>`:''}
-
-    <div class="card"><h2>De dónde sale la ganancia <span class="muted">(top 12)</span></h2>
-      <table><thead><tr><th>Sistema</th><th>Panel</th><th>Cliente</th><th>Mon.</th><th class="right">Ganancia (USDT)</th><th class="right">vs ${esc(p.mesPrev)}${(p.comparacion||{}).hastaDia?' <span class="muted">(1-'+esc(p.comparacion.hastaDia)+')</span>':''}</th><th class="right">Se llevan</th><th class="right">Días</th></tr></thead><tbody>
-      ${p.top.slice(0,12).map(t=>`<tr>
-        <td>${sisPill(t.sistema)}</td>
-        <td><b>${esc(t.login)}</b></td><td class="muted">${esc(t.cliente||'—')}</td><td class="muted">${esc(t.moneda)}</td>
-        <td class="right"><b>${money(t.profitUsdt,0)}</b></td>
-        <td class="right">${flecha(t.varProfit)}</td>
-        <td class="right ${t.rtp>0.85?'':'muted'}" ${t.rtp>0.85?'style="color:var(--red);font-weight:700"':''}>${t.rtp!=null?(t.rtp*100).toFixed(0)+'%':'—'}</td>
-        <td class="right muted">${t.activos}</td></tr>`).join('')}
-      </tbody></table></div>
-
-    <div class="card"><h2>Por moneda</h2>
-      <table><thead><tr><th>Moneda</th><th class="right">Paneles</th><th class="right">Movimiento</th><th class="right">Ganancia</th><th class="right">Se llevan</th><th class="right">vs ${esc(p.mesPrev)}</th><th class="right">USDT</th></tr></thead><tbody>
-      ${p.monedas.map(g=>`<tr>
-        <td><b>${esc(g.moneda)}</b></td><td class="right muted">${g.paneles}</td>
-        <td class="right">${money(g.in,0)}</td><td class="right">${money(g.profit,0)}</td>
-        <td class="right muted">${g.rtp!=null?(g.rtp*100).toFixed(0)+'%':'—'}</td>
-        <td class="right">${flecha(g.varIn)}</td>
-        <td class="right">${g.profitUsdt!=null?'<b>'+money(g.profitUsdt,0)+'</b>':'<span class="badge warn">sin TC</span>'}</td></tr>`).join('')}
-      </tbody></table></div>`;
+  dest.innerHTML = cab + '<div style="margin-top:12px">' + secs.join('') + '</div>';
 };
-function pulFiltro(t){ _pulFiltro=t; AC.pulso(); }
+/* Una sección del Pulso: el título a la izquierda y, a la derecha, el número que decide si vale la
+   pena abrirla. Eran doce tarjetas apiladas y para llegar a la que importaba había que scrollear el
+   mes entero. Lo que quedó abierto sobrevive al repintado (filtrar una alerta repinta todo). */
+const _pulAb = new Set();
+let _pulInic = false;
+function pulSec(id, titulo, resumen, cuerpo, abrirSola){
+  if(!_pulInic && abrirSola) _pulAb.add(id);
+  return `<details class="plegable" style="margin-bottom:8px"${_pulAb.has(id)?' open':''}
+      ontoggle="pulSecEstado('${id}',this.open)">
+    <summary class="fila"><span class="chev" aria-hidden="true"></span>
+      <span class="nom">${titulo}</span>
+      ${resumen?`<span class="cifra">${resumen}</span>`:''}</summary>
+    <div class="cuerpo">${cuerpo}</div></details>`;
+}
+function pulSecEstado(id, abierto){ _pulInic=true; if(abierto) _pulAb.add(id); else _pulAb.delete(id); }
+/* 77 alertas abiertas de golpe eran otra pared de scroll. Se muestran las 12 más caras —vienen
+   ordenadas por plata— y el resto a pedido. Cambiar de filtro vuelve a las 12. */
+let _pulTodas = false;
+function pulFiltro(t){ _pulFiltro=t; _pulTodas=false; AC.pulso(); }
 function pulMes(delta){ const el=document.getElementById('pul-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} _acMes=y+'-'+String(m).padStart(2,'0'); AC.pulso(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
 // init
