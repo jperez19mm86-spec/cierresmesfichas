@@ -881,10 +881,47 @@ app.get('/api/movimiento-panel/:codigo', (req, res) => {
  *
  * No dice nunca si falló el usuario o la clave: decirlo confirma qué usuarios existen.
  */
+/* ── TOPE DE INTENTOS ────────────────────────────────────────────────────────────────────────
+   La puerta del cliente es pública y la clave son 10 caracteres: sin tope, probar de a millones es
+   gratis. Y cada intento cuesta CPU de verdad —la verificación es scrypt y es lenta a propósito—
+   así que un aluvión de intentos también frena al resto del sistema.
+   Se cuenta por IP Y por usuario: sólo por IP, uno detrás de un mismo internet tapa a los demás;
+   sólo por usuario, se prueba contra los 45 desde el mismo lado. La ventana se limpia sola. */
+const _intentos = new Map();
+/* Dos topes distintos a propósito: 10 por USUARIO y 40 por IP en 15 minutos. Diez por IP parece más
+   seguro y es peor — un cliente que se equivoca tres veces, su encargado otras tres y el vendedor
+   dos, todos detrás del mismo internet, se quedan afuera sin haber hecho nada raro. Lo que hay que
+   frenar es probar muchas claves contra UNA cuenta, y eso lo corta el tope por usuario. */
+function demasiadosIntentos(clave) {
+  const ahora = Date.now();
+  const VENTANA = 15 * 60 * 1000;
+  const TOPE = clave.startsWith('ip:') ? 40 : 10;
+  const prev = (_intentos.get(clave) || []).filter((t) => ahora - t < VENTANA);
+  if (_intentos.size > 5000) _intentos.clear();          // no crece para siempre
+  _intentos.set(clave, prev);
+  return prev.length >= TOPE;
+}
+function anotarIntento(clave) {
+  const arr = _intentos.get(clave) || [];
+  arr.push(Date.now());
+  _intentos.set(clave, arr);
+}
+function limpiarIntentos(clave) { _intentos.delete(clave); }
+
 app.post('/api/cuenta/login', (req, res) => {
   const b = req.body || {};
+  const quien = String(b.usuario || '').trim().toLowerCase();
+  const ip = String(req.ip || (req.socket && req.socket.remoteAddress) || '');
+  if (demasiadosIntentos('ip:' + ip) || demasiadosIntentos('u:' + quien)) {
+    console.log(`[Cuenta] demasiados intentos ${quien} desde ${ip}`);
+    return res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá unos minutos.' });
+  }
   const cli = accesoCli.autenticar(b.usuario, b.clave);
-  if (!cli) return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
+  if (!cli) {
+    anotarIntento('ip:' + ip); anotarIntento('u:' + quien);
+    return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
+  }
+  limpiarIntentos('ip:' + ip); limpiarIntentos('u:' + quien);
   // Un token firmado con el mismo secreto que el panel, pero de OTRA familia: un token de cliente
   // nunca puede servir para entrar al OS.
   const token = auth.firmarCliente ? auth.firmarCliente(cli.id) : null;
@@ -902,6 +939,14 @@ app.post('/api/cuenta/login', (req, res) => {
 app.get('/api/cuenta/mio', (req, res) => {
   const cid = auth.clienteDeToken ? auth.clienteDeToken(req) : null;
   if (!cid) return res.status(401).json({ ok: false, error: 'Entrá de nuevo' });
+  /* Se le manda un token fresco cuando el suyo ya pasó la mitad de la vida: así el que entra
+     seguido no vuelve nunca al formulario. La pantalla lo guarda si viene. */
+  let tokenNuevo = null;
+  try {
+    const raw = String((req.headers.authorization || '').replace(/^Bearer\s+/i, '')).trim();
+    const ts = Number((/^cli:[\w-]+:(\d+)/.exec(raw) || [])[1] || 0);
+    if (ts && Date.now() - ts > auth.CLIENTE_RENOVAR_MS) tokenNuevo = auth.firmarCliente(cid);
+  } catch (e) { /* si no se puede, sigue con el que tiene */ }
   const cli = clientes.get(cid);
   if (!cli) return res.status(404).json({ ok: false, error: 'cuenta no encontrada' });
   const mes = new Date().toISOString().slice(0, 7);
@@ -935,6 +980,7 @@ app.get('/api/cuenta/mio', (req, res) => {
     .map((c) => ({ fecha: String(c.creado_at || '').slice(0, 10),
       monto: c.monto, divisa: c.divisa, via: c.via }));
   res.json({ ok: true,
+    token: tokenNuevo,
     cliente: { codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
     mes, pendientes,
     // La MISMA resolución que usa el resto del sistema (el historial manda sobre el campo suelto):

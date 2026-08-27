@@ -592,6 +592,9 @@ ensureColumns('clientes', {
   acceso_usuario: 'TEXT',
   acceso_clave: 'TEXT',
   acceso_at: 'TEXT',
+  // Desde cuándo vale un token de ese cliente: cambiarle la clave o sacarle el acceso corta las
+  // sesiones que ya tenía abiertas, en vez de dejarlas vivas hasta que venzan solas.
+  acceso_corte: 'INTEGER',
 });
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_cliente_acceso ON clientes(lower(acceso_usuario)) WHERE acceso_usuario IS NOT NULL');
 

@@ -2636,6 +2636,23 @@ async function main() {
       check('accesos: y con esa clave el cliente entra de verdad',
         rLogin.status === 200 && rLogin.data.ok === true && !!rLogin.data.token,
         'HTTP ' + rLogin.status);
+      /* La puerta es pública y la clave son 10 caracteres: sin tope, probarlas todas es gratis. Y
+         cada intento cuesta CPU de verdad, así que un aluvión también frena al resto. */
+      const victima = 'zz-bruto-' + Date.now();
+      let corte = 0;
+      for (let i = 0; i < 14; i++) {
+        const rr = await axios.post(BASE + '/api/cuenta/login',
+          { usuario: victima, clave: 'x' + i }, { validateStatus: () => true });
+        if (rr.status === 429) { corte = i + 1; break; }
+      }
+      check('accesos: probar muchas claves contra UNA cuenta se corta solo',
+        corte > 0 && corte <= 12, `cortó al intento ${corte || '(nunca)'}`);
+      /* Y el que no tiene nada que ver sigue entrando: el tope por IP es mucho más ancho, si no
+         una equivocación de tres personas detrás del mismo internet deja afuera a todas. */
+      check('accesos: el tope de uno no deja afuera a los demás',
+        (await axios.post(BASE + '/api/cuenta/login',
+          { usuario: gen.claves[0].usuario, clave: gen.claves[0].clave },
+          { validateStatus: () => true })).status === 200);
       check('accesos: con la clave equivocada no entra, y no dice cuál de los dos falló',
         (await axios.post(BASE + '/api/cuenta/login',
           { usuario: gen.claves[0].usuario, clave: 'otra' }, { validateStatus: () => true }))
@@ -4834,8 +4851,30 @@ async function main() {
 
     // ── EL TOKEN DE CLIENTE NO SIRVE PARA ENTRAR AL OS ──
     const auth = require('../src/auth');
-    const t = auth.firmarCliente('c_test');
-    check('acceso: el token de cliente se lee', auth.clienteDeToken({ headers: { 'x-cuenta': t } }) === 'c_test');
+    /* El token vale mientras el cliente TENGA el acceso prendido: sacárselo lo echa en el momento,
+       en vez de dejarlo adentro hasta que el token venza solo. Por eso la prueba usa un cliente de
+       verdad y con acceso, no un id inventado. */
+    const accT = require('../src/cliente-acceso');
+    const cliT = require('../src/clientes-store');
+    cliT.list().clientes.filter((x) => x.codigo === 'ZZ-TOK').forEach((x) => cliT.removeCliente(x.id));
+    const cTok = cliT.createCliente({ codigo: 'ZZ-TOK', nombre: 'Token' });
+    accT.habilitar(cTok.id, { usuario: 'zz-tok', clave: 'clave12345' });
+    const t = auth.firmarCliente(cTok.id);
+    check('acceso: el token de cliente se lee', auth.clienteDeToken({ headers: { 'x-cuenta': t } }) === cTok.id);
+    accT.deshabilitar(cTok.id);
+    check('acceso: sacarle el acceso corta la sesión que ya tenía abierta',
+      auth.clienteDeToken({ headers: { 'x-cuenta': t } }) === null,
+      'antes seguía adentro hasta que el token venciera solo');
+    accT.habilitar(cTok.id, { usuario: 'zz-tok', clave: 'clave12345' });
+    const t2 = auth.firmarCliente(cTok.id);
+    check('acceso: y cambiarle la clave también corta las viejas',
+      auth.clienteDeToken({ headers: { 'x-cuenta': t2 } }) === cTok.id
+      && (accT.habilitar(cTok.id, { clave: 'otraclave123' }),
+        auth.clienteDeToken({ headers: { 'x-cuenta': t2 } }) === null));
+    check('acceso: regenerar la clave NO le cambia el usuario',
+      accT.habilitar(cTok.id, {}).usuario === 'zz-tok',
+      'antes volvía al código y el cliente entraba con un nombre que ya no existía');
+    cliT.removeCliente(cTok.id);
     // ⚠️ El cambio tiene que ser SIEMPRE un cambio. Antes ponía 'ff' al final, y cuando la firma
     // ya terminaba en 'ff' —1 de cada 256 veces— el token "manipulado" era idéntico al bueno y el
     // check fallaba sin motivo. Un test que falla a veces enseña a correrlo de nuevo en vez de

@@ -61,23 +61,42 @@ function generarClave(largo = 10) {
 
 /** Prende la cuenta y devuelve la clave EN CLARO una sola vez: no se puede volver a mostrar. */
 function habilitar(cliente_id, { usuario, clave } = {}) {
-  const c = db.prepare('SELECT id, codigo FROM clientes WHERE id=?').get(String(cliente_id || ''));
+  const c = db.prepare('SELECT id, codigo, acceso_usuario FROM clientes WHERE id=?').get(String(cliente_id || ''));
   if (!c) return { ok: false, error: 'no encontré ese cliente' };
-  const user = String(usuario || c.codigo || '').trim().toLowerCase();
+  /* ⚠️ REGENERAR LA CLAVE NO LE CAMBIA EL USUARIO. Antes, llamar a esto sin `usuario` lo volvía al
+     código: al que tenía "titan.mza" le quedaba "titan" y, del otro lado, el cliente entraba con un
+     nombre que ya no existía sin que nadie hubiera decidido cambiárselo. El usuario sólo cambia si
+     se manda uno nuevo a propósito. */
+  const user = String(usuario || c.acceso_usuario || c.codigo || '').trim().toLowerCase();
   if (!user) return { ok: false, error: 'falta el usuario' };
   // Dos clientes con el mismo usuario haría que uno entre a la cuenta del otro.
   const repe = db.prepare('SELECT id FROM clientes WHERE lower(acceso_usuario)=? AND id<>?').get(user, c.id);
   if (repe) return { ok: false, error: `el usuario "${user}" ya lo tiene otro cliente` };
   const enClaro = String(clave || '').trim() || generarClave();
   if (enClaro.length < 8) return { ok: false, error: 'la clave tiene que tener al menos 8 caracteres' };
-  db.prepare(`UPDATE clientes SET acceso_habilitado=1, acceso_usuario=?, acceso_clave=?, acceso_at=? WHERE id=?`)
-    .run(user, hashear(enClaro), new Date().toISOString(), c.id);
+  /* Cambiar la clave CIERRA las sesiones abiertas: si no, el que tenía el teléfono con la sesión
+     puesta sigue adentro hasta una semana con la clave vieja ya cambiada. `acceso_corte` guarda
+     desde cuándo vale un token; los de antes dejan de servir. */
+  const ahora = new Date().toISOString();
+  db.prepare(`UPDATE clientes SET acceso_habilitado=1, acceso_usuario=?, acceso_clave=?, acceso_at=?, acceso_corte=? WHERE id=?`)
+    .run(user, hashear(enClaro), ahora, Date.now(), c.id);
   return { ok: true, usuario: user, clave: enClaro, generada: !clave };
 }
 
 function deshabilitar(cliente_id) {
-  db.prepare('UPDATE clientes SET acceso_habilitado=0 WHERE id=?').run(String(cliente_id || ''));
+  /* Y le corta la sesión que ya tenía abierta. Sin el corte, "le saqué el acceso" era mentira
+     durante una semana: el token sigue firmado y válido hasta que vence solo. */
+  db.prepare('UPDATE clientes SET acceso_habilitado=0, acceso_corte=? WHERE id=?')
+    .run(Date.now(), String(cliente_id || ''));
   return { ok: true };
+}
+
+/** Desde cuándo vale un token de este cliente. Todo lo anterior a esto está cortado. */
+function corteDe(cliente_id) {
+  const c = db.prepare('SELECT acceso_corte, acceso_habilitado FROM clientes WHERE id=?')
+    .get(String(cliente_id || ''));
+  if (!c) return { corte: Infinity, habilitado: false };
+  return { corte: Number(c.acceso_corte || 0), habilitado: !!c.acceso_habilitado };
 }
 
 /** El cliente que corresponde a ese usuario y clave, o null. Nunca dice cuál de los dos falló. */
@@ -107,4 +126,4 @@ function estado(cliente_id) {
     desde: c.acceso_at || null, tieneClave: !!c.acceso_usuario };
 }
 
-module.exports = { habilitar, deshabilitar, autenticar, estado, generarClave, hashear, verificar };
+module.exports = { habilitar, deshabilitar, autenticar, estado, generarClave, hashear, verificar, corteDe };

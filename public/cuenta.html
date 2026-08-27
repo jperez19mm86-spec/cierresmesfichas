@@ -120,6 +120,8 @@ async function cargar() {
   // 401 = el token venció o se lo dieron de baja: vuelve al login sin cartel de error, que sería
   // alarmar por algo normal.
   if (!r.ok) { borrarTok(); return; }
+  // Si el servidor mandó uno nuevo, se guarda: es lo que hace que no haya que volver a entrar.
+  if (r.token) guardarTok(r.token);
   $('login').classList.add('oculto');
   $('panel').classList.remove('oculto');
   pintar(r);

@@ -130,7 +130,14 @@ function sign(value) {
  * Dura una semana: es su cuenta, no una sesión operativa, y pedirle la clave todos los días para
  * mirar un saldo termina en una clave escrita en un papel.
  */
-const CLIENTE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/* Y SE RENUEVA SOLA MIENTRAS LA USE. Con 7 días fijos, el cliente que entra todos los días igual
+   volvía al formulario cada semana — y una clave que hay que escribir seguido termina anotada en un
+   papel o en el chat. Ahora vale 60 días desde la última vez que entró: el que la usa no la escribe
+   nunca más, y el que no aparece en dos meses sí. */
+const CLIENTE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+/* Pasada la mitad de la vida se le manda uno nuevo, para que no se le venza a alguien que está
+   entrando seguido. Antes no se renovaba nunca: el reloj arrancaba en el login y no se movía más. */
+const CLIENTE_RENOVAR_MS = 30 * 24 * 60 * 60 * 1000;
 
 function firmarCliente(clienteId) {
   const value = `cli:${clienteId}:${Date.now()}`;
@@ -159,7 +166,17 @@ function clienteDeToken(req) {
   if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(esperado))) return null;
   const m = /^cli:([\w-]+):(\d+)$/.exec(value);
   if (!m) return null;
-  if (Date.now() - Number(m[2]) > CLIENTE_TTL_MS) return null;
+  const emitido = Number(m[2]);
+  if (Date.now() - emitido > CLIENTE_TTL_MS) return null;
+  /* ⚠️ EL CORTE. Sacarle el acceso a un cliente —o cambiarle la clave— tiene que echarlo YA. Sin
+     esto, el token seguía firmado y válido: "le saqué el acceso" era mentira hasta que venciera
+     solo. Ahora un token emitido antes del corte no vale, y el que tenía la sesión puesta en el
+     teléfono queda afuera en el momento. */
+  try {
+    const { corte, habilitado } = require('./cliente-acceso').corteDe(m[1]);
+    if (!habilitado) return null;
+    if (corte && emitido < corte) return null;
+  } catch (e) { /* si no se puede consultar, manda la firma y el vencimiento */ }
   return m[1];
 }
 
@@ -294,5 +311,5 @@ function logoutHandler(req, res) {
 }
 
 module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador,
-  firmarCliente, clienteDeToken,
+  firmarCliente, clienteDeToken, CLIENTE_RENOVAR_MS,
   USING_DEFAULT_PASSWORD, PANEL_USER, HAY_OPERADOR };

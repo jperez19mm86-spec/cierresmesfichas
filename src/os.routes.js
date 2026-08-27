@@ -368,6 +368,8 @@ function mount(app) {
     if (!ids.length) return err(res, 400, 'no marcaste ningún cliente');
     const hechos = []; const fallaron = [];
     for (const id of ids) {
+      // Sin usuario: `habilitar` conserva el que ya tenía. Mandarle el código acá le cambiaría el
+      // nombre con el que entra a todo el que tuviera uno propio.
       const r = acceso.habilitar(id, {});
       const c = clientes.get(id) || {};
       if (r.ok) hechos.push({ id, cliente: c.nombre || c.codigo, usuario: r.usuario, clave: r.clave });

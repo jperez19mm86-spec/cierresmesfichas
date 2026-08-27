@@ -49,6 +49,7 @@ function load() {
       acceso_usuario: r.acceso_usuario || null,
       acceso_clave: r.acceso_clave || null,
       acceso_at: r.acceso_at || null,
+      acceso_corte: r.acceso_corte != null ? Number(r.acceso_corte) : null,
       // Vacío = USDT: es como estaban todos antes de que esto existiera.
       moneda_cuenta: (r.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
       margen_externos_pct: r.margen_externos_pct || null,
@@ -72,11 +73,11 @@ const _saveTx = db.transaction((data) => {
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
      mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,avisa_pagos,moneda_cuenta,
-     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at)
+     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
      @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@avisa,@mcta,
-     @accOn,@accU,@accC,@accAt)`);
+     @accOn,@accU,@accC,@accAt,@accCorte)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -90,6 +91,9 @@ const _saveTx = db.transaction((data) => {
     mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
     avisa: (c.avisa_pagos === false) ? 0 : 1,
     accOn: c.acceso_habilitado ? 1 : 0, accU: nn(c.acceso_usuario), accC: nn(c.acceso_clave), accAt: nn(c.acceso_at),
+    // Sin esto, guardar cualquier cliente le devolvía la sesión a todos los que se la habías
+    // cortado: el guardado reescribe la tabla entera y lo que no está en la lista se pierde.
+    accCorte: c.acceso_corte != null ? Number(c.acceso_corte) : null,
   }));
 });
 function save(data) { _saveTx(data); }
