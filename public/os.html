@@ -125,6 +125,13 @@
   .subdatos .tc{ grid-column:2; text-align:right; font-size:12.5px; color:var(--muted) }
   .subdatos .tc.falta{ color:var(--durazno) }
   .acciones{ margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+  /* Cabecera de tarjeta: el título a la izquierda, los controles a la derecha. Reemplaza al
+     `float:right` que se metía adentro del <h2> y hacía que el texto de abajo lo esquivara,
+     quedando el párrafo partido alrededor de los botones. */
+  .tapa{ display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap }
+  .tapa h2{ margin:0 }
+  .tapa .sub{ font-size:13px; color:var(--muted); margin-top:3px }
+  .tapa .acciones{ margin-top:0 }
   .card h2 { font-size:15px; margin:0 0 10px; }
   label { display:block; font-size:11px; color:var(--muted); margin:0 0 3px; text-transform:uppercase; letter-spacing:.03em; }
   input, select { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:14px; outline:none; }
@@ -226,13 +233,23 @@
      que marca que está anidado es la barra de acento a la izquierda más la
      sangría, no un cambio de color. */
   tr.sub > td { background:var(--bg2); padding:4px 0 16px 0; border-bottom:1px solid var(--border); }
-  .subwrap { margin-left:22px; padding-left:14px; border-left:2px solid var(--gold); }
-  /* La tabla interna necesita leerse como un objeto propio sobre el blanco:
-     se lo dan el marco y la cabecera tenue, no el fondo. */
-  .subwrap table { margin:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
-  .subwrap thead th { background:var(--bg3); font-size:10px; padding:6px 9px; border-bottom:1px solid var(--border); }
+  /* Antes esto colgaba de una fila de tabla y necesitaba una barra dorada al costado para que se
+     entendiera de quién era. Ahora vive adentro de la ficha del cliente, así que la sangría y la
+     barra sobraban: sólo apretaban la tabla contra el borde. */
+  .subwrap { overflow-x:auto; }
+  .subwrap table { margin:0; border:1px solid var(--border); border-radius:10px; overflow:hidden;
+    min-width:900px; }
+  /* Nombre, sistema y nivel se partían en dos y tres renglones y la fila quedaba el triple de
+     alta de lo necesario. Si no entra, la tabla scrollea de costado — no se apila. */
+  .subwrap tbody td:nth-child(-n+3), .subwrap thead th:nth-child(-n+3) { white-space:nowrap; }
+  .subwrap .badge, .subwrap .pill { white-space:nowrap; }
+  .subwrap thead th { background:var(--bg3); font-size:11px; font-weight:700; letter-spacing:.03em;
+    text-transform:uppercase; color:var(--muted); padding:9px 11px; border-bottom:1px solid var(--border); }
+  .subwrap tbody td { padding:9px 11px; vertical-align:middle; }
   .subwrap tbody tr:last-child td { border-bottom:none; }
   .subwrap tbody tr:hover td { background:var(--bg); }
+  /* 11px era ilegible y no se parecía a ningún otro campo del panel. */
+  .subwrap input[type=text], .subwrap input:not([type]), .subwrap select { font-size:13px; }
   /* Dota.click declara 24 divisas y reventaba el ancho de la columna. */
   .subwrap td.divs { max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* Las filas de cliente se despliegan al hacer clic: que se note que son vivas. */
@@ -474,7 +491,8 @@ function go(t){ _tab=t; renderNav(); VIEWS[t](); }
 // Un panel no existe solo: siempre es de alguien. Tenerlos en pestañas separadas obligaba a ir y
 // venir para algo tan simple como "¿qué paneles tiene Titan?". Ahora cada cliente se despliega.
 const VIEWS = {}, CFG = {};
-const _cliAbiertos = new Set();      // qué clientes quedaron desplegados (sobrevive al re-render)
+const _cliAbiertos = new Set();      // qué clientes tienen las CAJAS abiertas (sobrevive al re-render)
+const _cliFicha = new Set();         // qué fichas de cliente quedaron abiertas
 
 /* ── EL ÁRBOL DE LA CARTERA ──────────────────────────────────────────────────────────────────
    Un vendedor puede tener vendedores abajo (Alexa → Julian, GanamosSarah), y cada vendedor sus
@@ -493,9 +511,10 @@ function _cerradasIni(lista){
 function cliFold(k){ _cliCerradas.has(k)?_cliCerradas.delete(k):_cliCerradas.add(k); VIEWS.clientes(); }
 /** Plegar todo (deja solo los de arriba) o abrir todo. */
 function cliFoldAll(lista){
-  const conGente = lista.filter(c=>lista.some(x=>x.vendedor_id===c.id)).map(c=>c.id);
-  if(_cliCerradas && _cliCerradas.size >= conGente.length){ _cliCerradas = new Set(); _cliAbiertos.clear(); }
-  else { _cliCerradas = new Set(conGente); _cliAbiertos.clear(); }
+  const todosAbiertos = _cliFicha.size >= lista.length;
+  _cliFicha.clear(); _cliCerradas = new Set();
+  if(!todosAbiertos) lista.forEach(c=>_cliFicha.add(c.id));
+  else _cliAbiertos.clear();
   VIEWS.clientes();
 }
 
@@ -518,46 +537,70 @@ function cliDeuda(n){
   return n.subs.reduce((a,x)=>a+cliDeuda(x),p);
 }
 
-/* Pinta un nodo del árbol y todo lo que cuelga. La sangría dice el nivel; un vendedor con gente
-   abajo se puede plegar entero. */
-function cliFilas(n, prof=0){
+/* Pinta un nodo del árbol y todo lo que cuelga, como fichas plegables.
+   ⚠️ UN CLIENTE PUEDE ABRIR DOS COSAS DISTINTAS —su gente y sus cajas— y con una sola flecha no se
+   sabía cuál se estaba abriendo: con la lista plegada, tocar a Alexa cerraba su rama y sus 13 cajas
+   parecían haber desaparecido. Ahora abrir el cliente muestra ADENTRO dos cosas separadas, cada una
+   con su propio "ver": «Sus N cajas» y «Su gente (N)». Cada apertura dice qué abre. */
+function cliFicha(n, prof=0){
   const c=n.cliente;
-  const tienePaneles=_paneles.filter(p=>p.cliente_id===c.id).length;
-  const ab=_cliAbiertos.has(c.id);
-  const plegado=_cerradasIni(_clientes).has(c.id);
-  const sangria=prof*22;
+  const cajas=_paneles.filter(p=>p.cliente_id===c.id);
+  const sinLink=cajas.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
+  const abiertoPan=_cliAbiertos.has(c.id);
+  const abiertoRama=!_cerradasIni(_clientes).has(c.id);
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
-  // ⚠️ Una fila puede desplegar DOS cosas distintas —su gente y sus paneles— y con una sola
-  // flecha no se sabía cuál se estaba abriendo: con la lista plegada, tocar a Alexa cerraba su
-  // rama y sus 13 paneles parecían haber desaparecido. Ahora cada cosa tiene su control:
-  // la flecha del NOMBRE abre la rama, el NÚMERO de paneles abre los paneles.
-  const flecha = n.subs.length
-    ? `<span style="color:var(--gold);font-size:11px">${plegado?'▸':'▾'}</span>`
-    : '<span style="opacity:.2">·</span>';
-  const abrirRama = n.subs.length ? `cliFold('${c.id}')` : `togglePan('${c.id}')`;
-  const fila=`<tr${c.es_vendedor?' class="cie-tv"':''}>
-    <td style="white-space:nowrap;cursor:pointer;padding-left:${8+sangria}px" onclick="${abrirRama}"
-        title="${n.subs.length?'ver quiénes cuelgan de acá':'ver sus paneles'}">
-      ${flecha} ${_nom(c)}
-      ${c.es_vendedor?`<span class="cie-tag">vendedor</span>`:''}
-</td>
-    <td>${c.estado==='activo'
-      // "activo" es lo normal: ponerle una etiqueta verde a los 47 es ruido. Sólo se marca lo raro.
-      ? '<span class="muted" style="font-size:12px">—</span>'
-      : `<span class="badge warn">${esc(c.estado||'')}</span>`}</td>
-    <td>${c.es_vendedor
-      ? '<span class="muted" title="A un vendedor no le aplica un % base: paga el costo real de los proveedores que use">no aplica</span>'
-      : (c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'<span class="badge warn">sin cargar</span>')}</td>
-    <td class="muted">${cuantos?cuantos:'—'}</td>
-    <td style="cursor:pointer" onclick="togglePan('${c.id}')" title="${tienePaneles?'ver sus paneles':'sin paneles'}">${
-      tienePaneles?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${tienePaneles}</b>`:'<span class="muted">—</span>'}</td>
-    <td class="right" title="consumo (fichas) + proveedores externos − pagos"><b>${money(c.deuda?c.deuda.total:0)}</b>${
-      n.subs.length&&deudaRama!==Number((c.deuda&&c.deuda.total)||0)?`<div class="muted" style="font-size:10.5px;white-space:nowrap">con su gente ${money(deudaRama,0)}</div>`:''}</td>
-    <td class="right" style="white-space:nowrap"><button class="outline small" onclick="abrirCliente('${c.id}','resumen')">Abrir ficha</button> <button class="danger small" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">🗑</button></td>
-  </tr>
-  <tr id="pan-${c.id}" class="sub" ${ab?'':'style="display:none"'}><td colspan="7" style="padding-left:${18+sangria}px">${bloquePaneles(c)}</td></tr>`;
-  return fila + (plegado ? '' : n.subs.map(x=>cliFilas(x, prof+1)).join(''));
+  const propia=Number((c.deuda&&c.deuda.total)||0);
+  const señales=[
+    c.estado!=='activo' ? `<span class="señal durazno">${esc(c.estado||'')}</span>` : '',
+    (!c.es_vendedor && c.precio_base_pct==null) ? '<span class="señal rosa" title="Sin % base no se le puede facturar">sin % base</span>' : '',
+    sinLink ? `<span class="señal durazno" title="Esas cajas no están linkeadas al casino">${sinLink} sin linkear</span>` : '',
+  ].filter(Boolean).join('');
+
+  return `<div style="margin-left:${prof*18}px">
+    <details class="plegable"${_cliFicha.has(c.id)?' open':''} ontoggle="cliFichaEstado('${c.id}',this.open)">
+      <summary class="fila">
+        <span class="chev" aria-hidden="true"></span>
+        <span class="nom">${_nom(c)}</span>
+        ${c.es_vendedor?'<span class="señal" style="background:var(--bg3);color:var(--gold)">vendedor</span>':''}
+        ${señales}
+        <span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">USDT</span></span>
+      </summary>
+      <div class="cuerpo">
+        <dl class="datos">
+          ${c.es_vendedor
+            ? '<div><dt>% base</dt><dd class="cero" title="A un vendedor no le aplica: paga el costo real de los proveedores que use">no le aplica</dd></div>'
+            : `<div><dt>% base</dt><dd${c.precio_base_pct==null?' class="mal"':''}>${
+                c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'sin cargar'}</dd></div>`}
+          <div><dt>Debe</dt><dd>${money(propia,2)}</dd></div>
+          ${n.subs.length?`<div><dt>Debe con su gente</dt><dd>${money(deudaRama,2)}</dd></div>`:''}
+        </dl>
+        <div class="acciones">
+          <button class="small" onclick="abrirCliente('${c.id}','resumen')">Abrir su ficha</button>
+          <button class="outline small danger" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">Borrar</button>
+        </div>
+        <details class="cajas" style="margin-top:14px"${abiertoPan?' open':''}
+          ontoggle="cliPanEstado('${c.id}',this.open)">
+          <summary class="abrir"><span class="chev" aria-hidden="true"></span>${
+            cajas.length? (cajas.length===1?'Ver su caja':'Ver sus '+cajas.length+' cajas') : 'Todavía no tiene cajas — agregarle una'}</summary>
+          <div style="margin-top:11px">${bloquePaneles(c)}</div>
+        </details>
+        ${n.subs.length?`<details class="cajas" style="margin-top:10px"${abiertoRama?' open':''}
+          ontoggle="cliRamaEstado('${c.id}',this.open)">
+          <summary class="abrir"><span class="chev" aria-hidden="true"></span>Su gente (${cuantos})</summary>
+          <div style="margin-top:11px">${n.subs.map(x=>cliFicha(x, 1)).join('')}</div>
+        </details>`:''}
+      </div>
+    </details>
+  </div>`;
+}
+/* El estado de cada apertura sobrevive al repintado: sin esto, guardar cualquier cosa cerraba todo
+   lo que tenías abierto y había que volver a buscar dónde estabas. */
+function cliPanEstado(id, abierto){ if(abierto) _cliAbiertos.add(id); else _cliAbiertos.delete(id); }
+function cliFichaEstado(id, abierto){ if(abierto) _cliFicha.add(id); else _cliFicha.delete(id); }
+function cliRamaEstado(id, abierto){
+  _cerradasIni(_clientes);
+  if(abierto) _cliCerradas.delete(id); else _cliCerradas.add(id);
 }
 
 VIEWS.clientes = async () => {
@@ -583,31 +626,43 @@ VIEWS.clientes = async () => {
         <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
         <button onclick="nuevoCliente()">Crear cliente</button>
       </div>
-      <div class="muted" style="margin-top:4px">Después, con <b>Abrir ficha</b>, le ponés % base, proveedores, su vendedor y su grupo de Telegram. Los paneles se agregan desplegando su fila ▸.</div>
+      <div class="muted" style="margin-top:6px">Después, con <b>Abrir su ficha</b>, le ponés % base, proveedores, vendedor y grupo de Telegram.</div>
     </div>
     <div class="card">
-      <h2>Clientes por vendedor <span class="muted">(${_clientes.length} · ${_paneles.length} paneles${sinLinkear?' · <span style="color:var(--gold)">'+sinLinkear+' sin linkear</span>':''})</span>
-        <span style="float:right;display:flex;gap:6px">
-          <button class="outline small" onclick="cliFoldAll(_clientes)">${(_cliCerradas&&_cliCerradas.size)?'▾ Abrir todo':'▸ Plegar todo'}</button>
-          <button class="outline small" onclick="togglePanTodos()">Paneles</button>
-
+      <div class="tapa">
+        <div>
+          <h2>Clientes</h2>
+          <div class="sub">${_clientes.length} ${_clientes.length===1?'cliente':'clientes'} · ${_paneles.length} ${_paneles.length===1?'caja':'cajas'}${
+            sinLinkear?' · <b style="color:var(--durazno)">'+sinLinkear+' sin linkear</b>':''}</div>
+        </div>
+        <div class="acciones">
+          <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
+          <button class="outline small" onclick="togglePanTodos()">${_cliAbiertos.size>=_clientes.length?'Cerrar las cajas':'Abrir todas las cajas'}</button>
+        </div>
+      </div>
+      <div class="muted" style="margin:10px 0 14px;max-width:80ch">Tocá un cliente para abrir su cuenta.
+        Adentro están <b>sus cajas</b> y, si tiene gente colgando, <b>su gente</b>, cada una con su
+        propio botón. El número de la derecha es lo que debe.</div>
+      <!-- Los tres historiales viven acá adentro: son cosas que se miran de vez en cuando, y arriba
+           competían de igual a igual con los botones de todos los días. -->
+      <details class="cajas" style="margin-bottom:14px">
+        <summary class="abrir"><span class="chev" aria-hidden="true"></span>Historiales y herramientas</summary>
+        <div class="acciones" style="margin-top:11px">
           <button class="outline small" onclick="solicitudesCaja()"
             title="TODAS las solicitudes con su estado y su motivo — el historial. Lo que está esperando una decisión se atiende en 🔔 Pendientes.">📦 Solicitudes de caja <span class="muted" style="font-weight:400">(historial)</span> <span id="sol-badge"></span></button>
           <button class="outline small" onclick="movimientosPanel()"
             title="TODOS los movimientos con su estado — el historial. Lo que está esperando o quedó a medias se atiende en 🔔 Pendientes.">🔀 Mover fichas <span class="muted" style="font-weight:400">(historial)</span> <span id="mov-badge"></span></button>
           <button class="outline small" onclick="divisasCasino()"
-            title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button></span></h2>
-       <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
-       <div id="sol-aviso"></div>
-       <div id="sol-caja" style="margin:10px 0"></div>
-       <div id="mov-aviso"></div>
-       <div id="mov-caja" style="margin:10px 0"></div>
-      <div class="muted" style="margin-bottom:8px">Tocá el <b>nombre</b> para ver quiénes cuelgan de él, y el <b>número de paneles</b> para ver sus paneles.
-        La <b>base</b> es lo único de esta tabla que factura.
-        A un <b>vendedor</b> no le aplica: no paga un % de lo que carga, paga el <b>costo real</b> de los proveedores que use — su cuenta sale en 🧮 Cierre de Mes → 🤝 Vendedores.</div>
-      <table><thead><tr><th>Cliente</th><th>Estado</th><th>Base</th><th>Su gente</th><th>Paneles</th><th class="right">Deuda (USDT)</th><th></th></tr></thead><tbody>
-      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFilas(n)).join('')) || '<tr><td colspan="7" class="empty">Sin clientes todavía. Creá uno arriba ☝️</td></tr>'}
-      </tbody></table>
+            title="Lee del casino, panel por panel, qué divisas tiene habilitadas cada nodo y lo cruza con lo guardado. Sólo lee. Tarda: es un pedido por panel.">💱 Cruzar divisas con el casino</button>
+        </div>
+      </details>
+      <div id="div-cruce" class="nota" style="display:none;margin:10px 0"></div>
+      <div id="sol-aviso"></div>
+      <div id="sol-caja" style="margin:10px 0"></div>
+      <div id="mov-aviso"></div>
+      <div id="mov-caja" style="margin:10px 0"></div>
+      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFicha(n)).join(''))
+        || '<div class="empty">Sin clientes todavía. Creá uno arriba ☝️</div>'}
     </div>
     <div class="card"><h2>🪙 Divisas de los paneles <span class="muted">(¿son las que se usan?)</span></h2>
       <div class="muted">Lo que trae el casino es lo que la cuenta tiene <b>habilitado</b>, no lo que <b>mueve</b>.
@@ -842,9 +897,10 @@ async function setEnFoto(id, v){
    botón para resolverlo al lado. */
 function nivelPanel(p){
   if (p.arbol_at) return esc(p.nivel_usuario||'');
-  return `<span class="badge warn" title="Este nivel es el que se eligió al crear el panel, no el que dice el casino. Hasta resolverlo, la carga de fichas puede fallar.">sin resolver</span>
-    <div class="muted" style="font-size:10.5px;margin-top:2px">dice «${esc(p.nivel_usuario||'—')}»</div>
-    <button class="outline small" style="margin-top:3px;font-size:10.5px;padding:3px 7px"
+  // Tres renglones apilados (badge / «dice X» / botón) hacían la fila el triple de alta. El «dice»
+  // pasó al title del badge: es el detalle, no el titular.
+  return `<span class="badge warn" title="Acá dice «${esc(p.nivel_usuario||'—')}», pero ese nivel es el que se eligió al crear la caja, no el que dice el casino. Hasta resolverlo, la carga de fichas puede fallar.">sin resolver</span>
+    <button class="outline small" style="margin-left:6px;padding:3px 8px"
       onclick="resolverPanel('${p.id}','${esc(p.nombre).replace(/'/g,'')}')">⟳ resolver</button>`;
 }
 
@@ -927,7 +983,7 @@ function bloquePaneles(c){
           // "sobran" sólo si el panel MOVIÓ algo: sin datos no se puede afirmar que no las use.
           const sobran=(g.usadas&&g.usadas.length)?(g.sobran||[]):[];
           return `<input value="${esc((p.divisas||[]).join(','))}" placeholder="ARS"
-            style="width:190px;font-size:11px"
+            style="width:190px"
             title="Las monedas que este panel puede mover. Vinieron del casino cuando se linkeó: son las que la cuenta tiene HABILITADAS, no las que usa. Separá con comas. Cada una de más es una consulta de más en la Foto del mes y una alerta de 'moneda sin tipo de cambio'."
             onchange="setDivisas('${p.id}', this.value)">`
           + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
@@ -940,14 +996,16 @@ function bloquePaneles(c){
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
-       <td><input value="${esc((p.alias||[]).join(', '))}" placeholder="—" style="width:150px;font-size:11px"
+       <td><input value="${esc((p.alias||[]).join(', '))}" placeholder="—" style="width:150px"
             title="Si el sistema de pedidos lo escribe distinto (463.life vs 463.live), poné acá esa otra forma. Separá con comas."
             onchange="setAlias('${p.id}', this.value)"></td>
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
      </tr>`).join('') || '<tr><td colspan="7" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
    </table>
+   <details class="cajas" style="margin-top:12px">
+   <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregarle una caja</summary>
    <div class="row" style="margin-top:10px;gap:6px">
-     <div style="min-width:120px"><label>Panel nuevo</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
+     <div style="min-width:120px"><label>Nombre</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
      <div style="flex:0"><label>Sistema</label><select id="pn-sis-${c.id}"><option>Casino</option><option>Europa</option></select></div>
      <div style="flex:0"><label>Nivel</label><select id="pn-niv-${c.id}"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
      <div style="flex:0"><label>Divisas</label><input id="pn-div-${c.id}" placeholder="ARS" style="width:80px"/></div>
@@ -956,24 +1014,18 @@ function bloquePaneles(c){
      <div style="flex:0"><button class="outline small" onclick="buscarNodo('${c.id}')">🔎 buscar</button></div>
      <div style="flex:0"><button class="small" onclick="addPanel('${c.id}')">Agregar</button></div>
    </div>
+   </details>
    </div>`;
 }
 
-function togglePan(id){
-  const tr=document.getElementById('pan-'+id); if(!tr) return;
-  const abierto = tr.style.display!=='none';
-  tr.style.display = abierto?'none':'';
-  const car=document.getElementById('car-'+id); if(car) car.textContent = abierto?'▸':'▾';
-  if(abierto) _cliAbiertos.delete(id); else _cliAbiertos.add(id);
-}
+/* Abrir o cerrar las cajas de TODOS. Abre también la ficha del cliente: si no, se marcaban como
+   abiertas unas cajas que estaban adentro de una tarjeta cerrada y el botón parecía no hacer nada. */
 function togglePanTodos(){
   const abrir = _cliAbiertos.size < _clientes.length;
   _clientes.forEach(c=>{
-    const tr=document.getElementById('pan-'+c.id); if(!tr) return;
-    tr.style.display = abrir?'':'none';
-    const car=document.getElementById('car-'+c.id); if(car) car.textContent = abrir?'▾':'▸';
-    if(abrir) _cliAbiertos.add(c.id); else _cliAbiertos.delete(c.id);
+    if(abrir){ _cliAbiertos.add(c.id); _cliFicha.add(c.id); } else _cliAbiertos.delete(c.id);
   });
+  VIEWS.clientes();
 }
 async function moverPanel(id, cliente_id){
   if(!cliente_id) return;
