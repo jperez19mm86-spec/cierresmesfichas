@@ -2911,8 +2911,15 @@ async function main() {
       /chatAvisarMens\(/.test(uiCh) && /📤 avisar/.test(uiCh)
       && /El aviso se manda <b>de a una<\/b>/.test(uiCh));
     check('chat: los avisos de pago que llegan se ven y se aprueban desde la pantalla',
-      /Avisos de pago esperando/.test(uiCh) && /chatAviso\(/.test(uiCh)
+      /Dicen que pagaron/.test(uiCh) && /chatAviso\(/.test(uiCh)
       && /No mueve el saldo hasta que lo apruebes/.test(uiCh));
+    /* Una ficha por cosa, no una fila de tabla: cada una tiene su propio par de botones y en una
+       tabla de cinco columnas el «aprobar» de una fila se confunde con el de la de al lado. */
+    const pend = uiCh.slice(uiCh.indexOf('S.pedidos = `'), uiCh.indexOf('S.cuenta = `'));
+    check('chat: lo que espera decisión va en fichas, con un solo botón lleno cada una',
+      (pend.match(/<button class="small"/g) || []).length === 2
+      && !/S\.avisos[\s\S]{0,400}<table/.test(pend),
+      'uno en cada ficha: acreditar y dar por abierta');
     /* "¿dónde selecciono quiénes tienen el chat?" — estaba al fondo de la pantalla, después de
        tres tarjetas. Ahora es la primera cosa abajo de la configuración y el alta está arriba de
        todo dentro de la tarjeta. */

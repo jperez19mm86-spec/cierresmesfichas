@@ -4558,97 +4558,133 @@ VIEWS.chat = async () => {
       :'<div class="empty">Ninguna caja tiene el servicio todavía. Agregá una en 🏷 Cajas y clientes.</div>'}
     </div>`;
 
+  /* ── LO QUE ESPERA UNA DECISIÓN ──────────────────────────────────────────────────────────────
+     Una ficha por cosa, no una fila de tabla: cada una tiene su propio par de botones y en una
+     tabla de cinco columnas el «✓ aprobar» de una fila se confunde con el de la de al lado.
+     Un solo botón lleno por ficha —el que acredita o el que da por hecho— y el resto en contorno. */
   S.pedidos = `
-    ${(pc.solicitudes||[]).length?`<div class="card" style="border-color:var(--gold)">
-      <h2>➕ Piden un chat nuevo <span class="muted">(${pc.solicitudes.length})</span></h2>
+    ${(pc.solicitudes||[]).length?`<div class="card">
+      <h2>Piden un chat nuevo <span class="muted">(${pc.solicitudes.length})</span></h2>
       <div class="muted" style="max-width:80ch">Lo pidieron desde su portal. <b>No da de alta nada</b>:
-        abrir un chat te cuesta plata todos los meses, así que lo resolvés vos.</div>
-      <div class="muted" style="font-size:12px;margin-top:6px;border-left:3px solid var(--gold);padding-left:8px">
-        <b>Te dicen</b> la página, el dominio y la divisa. <b>Te falta</b>: de qué cuenta cuelga,
-        el link para los jugadores, el link del panel y el usuario del administrador. Cuando la caja
-        exista, cargala en <b>Clientes</b> y después agregala acá arriba con esos datos.</div>
-      <table style="margin-top:10px"><tbody>
-        ${pc.solicitudes.map(x=>`<tr>
-          <td>${esc(String(x.creado_at).slice(0,10))}</td>
-          <td><b>${esc(x.cliente)}</b> <span class="muted">para ${esc(x.caja)}</span>
-            ${x.caja_nueva?'<span class="badge warn">caja nueva</span>':'<span class="badge">ya la tiene</span>'}
-            <div class="muted" style="font-size:12px">
-              ${x.pagina?`<b>${esc(x.pagina)}</b>`:'<span style="color:var(--red)">sin página</span>'}
-              ${x.dominio?` · ${esc(x.dominio)}`:''}${x.divisa?` · ${esc(x.divisa)}`:''}</div>
-            ${x.nota?`<div class="muted" style="font-size:12px">${esc(x.nota)}</div>`:''}</td>
-          <td class="right" style="white-space:nowrap">
+        abrir un chat te cuesta plata todos los meses, así que lo resolvés vos. Te falta saber de qué
+        cuenta cuelga y los dos links; cuando la caja exista, cargala en 👥 Clientes y agregala en
+        🏷 Cajas y clientes.</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+        ${pc.solicitudes.map(x=>`<div class="subcaja" style="background:var(--bg2)">
+          <div class="cn" style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+            ${esc(x.cliente)}
+            <span class="señal ${x.caja_nueva?'durazno':''}" style="${x.caja_nueva?'':'background:var(--bg3);color:var(--muted)'}">${
+              x.caja_nueva?'caja nueva':'una que ya tiene'}</span>
+            <small style="margin-left:auto;font-weight:400">${esc(String(x.creado_at).slice(0,10))}</small>
+          </div>
+          <div class="subdatos">
+            <div><span class="k">Para la caja</span><span class="v">${esc(x.caja)}</span></div>
+            <div><span class="k">Página</span><span class="v">${x.pagina?esc(x.pagina)
+              :'<span style="color:var(--rosa)">no la dijo</span>'}</span></div>
+            ${x.dominio?`<div><span class="k">Dominio</span><span class="v">${esc(x.dominio)}</span></div>`:''}
+            ${x.divisa?`<div><span class="k">Divisa</span><span class="v">${esc(x.divisa)}</span></div>`:''}
+          </div>
+          ${x.nota?`<div class="nota-suave" style="color:var(--muted);background:var(--bg)">${esc(x.nota)}</div>`:''}
+          <div class="acciones">
+            <button class="small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"
+              onclick="chatSolicitud(this.dataset.id,true,this.dataset.caja)">Ya está abierta</button>
             <button class="outline small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"
-              onclick="chatSolicitud(this.dataset.id,true,this.dataset.caja)">✓ listo</button>
-            <button class="outline small" data-id="${esc(x.id)}" data-caja="${esc(x.caja)}"
-              onclick="chatSolicitud(this.dataset.id,false,this.dataset.caja)">✕</button>
-          </td></tr>`).join('')}
-      </tbody></table>
+              onclick="chatSolicitud(this.dataset.id,false,this.dataset.caja)">Rechazar</button>
+          </div>
+        </div>`).join('')}
+      </div>
     </div>`:''}`;
 
   S.avisos = `
-    ${(pc.avisos||[]).length?`<div class="card" style="border-color:var(--gold)">
-      <h2>💬 Avisos de pago esperando <span class="muted">(${pc.avisos.length})</span></h2>
-      <div class="muted">El cliente dice que pagó y subió el comprobante desde su hoja.
+    ${(pc.avisos||[]).length?`<div class="card">
+      <h2>Dicen que pagaron <span class="muted">(${pc.avisos.length})</span></h2>
+      <div class="muted" style="max-width:80ch">Subieron el comprobante desde su hoja.
         <b>No mueve el saldo hasta que lo apruebes acá</b>: acreditar un pago porque alguien subió
         una imagen sería confiar en la imagen.</div>
-      <table style="margin-top:10px"><tbody>
-        ${pc.avisos.map(a=>`<tr>
-          <td>${esc(String(a.creado_at).slice(0,10))}</td>
-          <td><b>${esc(a.cliente)}</b> <span class="muted">${esc(a.mes)}</span></td>
-          <td class="muted">${esc(a.referencia||'')}</td>
-          <td class="right"><b>${money(a.monto,2)}</b> <span class="muted">${esc(a.moneda)}</span></td>
-          <td class="right" style="white-space:nowrap">
-            ${a.archivo_bytes?`<button class="outline small" onclick="window.open('/api/os/chat/avisos/${a.id}/archivo','_blank')">👁 comprobante</button>`
-              :'<span class="badge warn">sin comprobante</span>'}
+      <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
+        ${pc.avisos.map(a=>`<div class="subcaja" style="background:var(--bg2)">
+          <div class="cn" style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+            ${esc(a.cliente)}
+            <small style="font-weight:400">${esc(a.mes)}</small>
+            <span style="margin-left:auto;font-size:17px;font-weight:750;font-variant-numeric:tabular-nums">${
+              money(a.monto,2)} <span class="muted" style="font-size:12px;font-weight:500">${esc(a.moneda)}</span></span>
+          </div>
+          <div class="subdatos">
+            <div><span class="k">Avisó el</span><span class="v">${esc(String(a.creado_at).slice(0,10))}</span></div>
+            ${a.referencia?`<div><span class="k">Referencia</span><span class="v">${esc(a.referencia)}</span></div>`:''}
+          </div>
+          ${a.archivo_bytes?'':'<div class="nota-suave">Vino sin comprobante: sólo dijo el monto.</div>'}
+          <div class="acciones">
+            <button class="small" data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}" data-monto="${esc(a.monto)}"
+              onclick="chatAviso(this.dataset.id,true,this.dataset.nom,this.dataset.monto)">Acreditar</button>
+            ${a.archivo_bytes?`<button class="outline small"
+              onclick="window.open('/api/os/chat/avisos/${a.id}/archivo','_blank')">Ver el comprobante</button>`:''}
             <button class="outline small" data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}" data-monto="${esc(a.monto)}"
-              onclick="chatAviso(this.dataset.id,true,this.dataset.nom,this.dataset.monto)">✓ aprobar</button>
-            <button class="outline small" data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}" data-monto="${esc(a.monto)}"
-              onclick="chatAviso(this.dataset.id,false,this.dataset.nom,this.dataset.monto)">✕</button>
-          </td></tr>`).join('')}
-      </tbody></table>
+              onclick="chatAviso(this.dataset.id,false,this.dataset.nom,this.dataset.monto)">Rechazar</button>
+          </div>
+        </div>`).join('')}
+      </div>
     </div>`:''}`;
 
+  /* ── LA CUENTA DEL CHAT ──────────────────────────────────────────────────────────────────────
+     Plegada como el cierre: cerrado se ve lo único que importa —quién y cuánto debe— y adentro el
+     desglose y el registro del pago. Antes eran seis columnas con un input adentro de una celda, y
+     con veinte clientes había que ir contando columnas para no equivocarse de fila. */
   S.cuenta = `
     <div class="card">
       <h2>La cuenta del chat <span class="muted">(es otra cuenta)</span></h2>
       <div class="muted" style="max-width:80ch">Lo que cada cliente te debe <b>por el chat</b>.
         No se mezcla con lo de las fichas ni entra en tu cierre del mes: esta plata no es toda tuya
         —la mitad se la pagás al proveedor—, se cobra en otra wallet y se habla en otro grupo.</div>
-      ${cta.clientes.length?`<div style="overflow-x:auto"><table style="min-width:100%;margin-top:10px"><thead><tr>
-        <th>Cliente</th><th class="right">Le cobraste</th><th class="right">Pagó</th><th class="right">Debe</th>
-        <th class="right">Arrastre</th><th>Registrar un pago</th></tr></thead><tbody>
-        ${cta.clientes.map(g=>{
-          const arr=(arrastre.clientes||[]).find(x=>x.cliente_id===g.cliente_id)||{debe:'0'};
-          return `<tr>
-          <td><b>${esc(g.cliente)}</b></td>
-          <td class="right">${money(g.cobrado,2)}</td>
-          <td class="right muted">${money(g.pagado,2)}</td>
-          <td class="right"><b style="${Number(g.debe)>0?'color:var(--red)':'color:var(--green)'}">${money(g.debe,2)}</b></td>
-          <td class="right muted" title="Todo lo que arrastra, de todos los meses">${money(arr.debe,2)}</td>
-          <td style="white-space:nowrap">
-            <input id="chp-${g.cliente_id}" placeholder="${money(g.debe,2)}" style="width:90px;text-align:right">
-            <button class="outline small" onclick="chatCobrarle('${g.cliente_id}')">+ pagó</button>
-            ${Number(g.cobrado)>0?`<button class="outline small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
-              onclick="chatDescobrar(this.dataset.id,this.dataset.nom)"
-              title="Deshace lo cobrado de este mes a este cliente, para arreglarlo y volver a cobrar. No toca sus pagos.">↺</button>`:''}
-          </td>
-        </tr>`;}).join('')}
-      </tbody><tfoot><tr>
-        <td class="right"><b>Total</b></td>
-        <td class="right"><b>${money(cta.totales.cobrado,2)}</b></td>
-        <td class="right muted"><b>${money(cta.totales.pagado,2)}</b></td>
-        <td class="right"><b>${money(cta.totales.debe,2)}</b></td>
-        <td class="right muted"><b>${money(arrastre.totales.debe,2)}</b></td><td></td>
-      </tr></tfoot></table></div>
-      ${cta.clientes.some(g=>g.movs.some(m=>m.tipo!=='cobro'))?`<div style="margin-top:10px">
-        <div class="muted" style="font-size:12px;margin-bottom:4px">Pagos y mensualidades de este mes</div>
-        <div style="overflow-x:auto"><table style="min-width:100%"><tbody>${cta.clientes.flatMap(g=>g.movs.filter(m=>m.tipo!=='cobro').map(m=>`<tr>
-          <td>${esc(m.fecha)}</td><td><b>${esc(g.cliente)}</b>
-            ${m.tipo==='mensualidad'?'<span class="badge">mantenimiento</span>':''}</td>
-          <td class="muted">${esc(m.nota||'')}</td>
-          <td class="right"><b>${money(m.monto,2)}</b> <span class="muted">${esc(m.moneda)}</span></td>
-          <td class="right"><button class="outline small" onclick="chatBorrarMov('${m.id}')">✕</button></td>
-        </tr>`)).join('')}</tbody></table></div></div>`:''}`
+      ${cta.clientes.length?`
+      <div class="totalote" style="margin-top:14px">
+        <div class="k">Te deben en total</div>
+        <div class="v">${money(cta.totales.debe,2)} USDT</div>
+        <dl>
+          <div><dt>Les cobraste</dt><dd>${money(cta.totales.cobrado,2)}</dd></div>
+          <div><dt>Te pagaron</dt><dd>${money(cta.totales.pagado,2)}</dd></div>
+          <div><dt>Arrastre de todos los meses</dt><dd>${money(arrastre.totales.debe,2)}</dd></div>
+        </dl>
+      </div>
+      ${cta.clientes.map(g=>{
+        const arr=(arrastre.clientes||[]).find(x=>x.cliente_id===g.cliente_id)||{debe:'0'};
+        const debe=Number(g.debe);
+        return `<details class="plegable">
+          <summary class="fila">
+            <span class="chev" aria-hidden="true"></span>
+            <span class="nom">${esc(g.cliente)}</span>
+            ${debe<=0?'<span class="señal" style="background:var(--bg3);color:var(--verde2)">al día</span>':''}
+            <span class="cifra"><b style="${debe>0?'':'color:var(--verde2)'}">${money(g.debe,2)}</b><span class="u">USDT</span></span>
+          </summary>
+          <div class="cuerpo">
+            <dl class="datos">
+              <div><dt>Le cobraste</dt><dd>${money(g.cobrado,2)}</dd></div>
+              <div><dt>Te pagó</dt><dd>${money(g.pagado,2)}</dd></div>
+              <div><dt>Arrastra de todos los meses</dt><dd>${money(arr.debe,2)}</dd></div>
+            </dl>
+            <div class="acciones">
+              <input id="chp-${g.cliente_id}" placeholder="${money(g.debe,2)}"
+                title="Cuánto te pagó" style="width:110px;text-align:right">
+              <button class="small" onclick="chatCobrarle('${g.cliente_id}')">Registrar el pago</button>
+              ${Number(g.cobrado)>0?`<button class="outline small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+                onclick="chatDescobrar(this.dataset.id,this.dataset.nom)"
+                title="Deshace lo cobrado de este mes a este cliente, para arreglarlo y volver a cobrar. No toca sus pagos.">Deshacer el cobro</button>`:''}
+            </div>
+            ${g.movs.filter(m=>m.tipo!=='cobro').length?`<div style="margin-top:14px">
+              <div class="muted" style="font-size:12px;margin-bottom:6px">Sus pagos y mantenimientos de este mes</div>
+              <div class="sublista">${g.movs.filter(m=>m.tipo!=='cobro').map(m=>`<div class="subcaja">
+                <div class="subdatos">
+                  <div><span class="k">${m.tipo==='mensualidad'?'Mantenimiento':'Pago'} · ${esc(m.fecha)}</span>
+                    <span class="v fuerte">${m.tipo==='pago'?'− ':''}${money(m.monto,2)} <span class="muted" style="font-size:12px">${esc(m.moneda)}</span></span></div>
+                  ${m.nota?`<div><span class="k">${esc(m.nota)}</span><span class="v"></span></div>`:''}
+                </div>
+                <div class="acciones" style="margin-top:9px">
+                  <button class="outline small" onclick="chatBorrarMov('${m.id}')">Borrar</button>
+                </div>
+              </div>`).join('')}</div>
+            </div>`:''}
+          </div>
+        </details>`;}).join('')}`
       :'<div class="empty" style="margin-top:10px">Todavía no cobraste este mes. Usá «Cobrar el mes» arriba.</div>'}
     </div>`;
 
