@@ -5901,13 +5901,20 @@ VIEWS.tbsdiario = async () => {
      distintas. Va también la DIFERENCIA en la moneda del cliente, que es la pregunta de "cuánto
      más, cuánto menos". El «vs. julio» se fue al encabezado: era la misma palabra repetida
      veintidós veces, una por fila. */
+  /* TRES RENGLONES, EN EL ORDEN EN QUE SE LEE: este mes, el mes pasado, y la diferencia.
+     Estaba el número, después el % con la diferencia, y recién abajo el mes pasado — así los dos
+     números que hay que comparar quedaban separados por un renglón y no se podían mirar juntos.
+     Ahora van pegados y alineados a la derecha, que es lo que deja ver de un vistazo cuál es más
+     grande sin leer una sola cifra. */
   const celda = (val, pct, ratio, neg, antes) => {
     const col = pct==null ? 'var(--muted)' : (pct<0?'var(--rosa)':(pct>0?'var(--verde2)':'var(--muted)'));
     const dif = (antes==null||val==null) ? null : val-antes;
     return `<div style="font-weight:700;${neg?'color:var(--rosa)':''}">${money(val,0)}</div>
-      ${pct==null?'':`<div style="font-size:11px;color:${col}">${esc(tdDelta(pct,ratio))}${
-        dif==null?'':` <span class="muted">·</span> ${dif>=0?'+':'−'}${money(Math.abs(dif),0)}`}</div>`}
-      ${antes==null?'':`<div class="muted" style="font-size:10.5px">${esc(nomAnt)} ${money(antes,0)}</div>`}`;
+      ${antes==null?'':`<div class="muted" style="font-size:12.5px">${money(antes,0)}
+        <span style="font-size:11px">${esc(nomAnt)}</span></div>`}
+      ${(dif==null&&pct==null)?'':`<div style="font-size:12.5px;color:${col};font-weight:600">${
+        dif==null?'':(dif>=0?'+':'−')+money(Math.abs(dif),0)}${
+        pct==null?'':` <span style="font-size:11px;font-weight:400">${esc(tdDelta(pct,ratio))}</span>`}</div>`}`;
   };
 
   const filaCliente = (c, a, sub) => {   // `a` trae el veredicto en a.v: de ahí sale el color
@@ -5918,8 +5925,10 @@ VIEWS.tbsdiario = async () => {
         ${a.nuevo?`<div class="muted" style="font-size:11px">no jugaba en ${esc(nomAnt)}</div>`:''}</td>
       <td class="right" style="padding-right:20px">${a.aPerdida
         ? `<div style="font-weight:700;color:var(--rosa)">${money(c.profit,0)}</div>
-           <div style="font-size:11px;color:var(--rosa)">pasó a pérdida</div>
-           <div class="muted" style="font-size:10.5px">${esc(nomAnt)} ${money(a.ant.profit,0)}</div>`
+           <div class="muted" style="font-size:12.5px">${money(a.ant.profit,0)}
+             <span style="font-size:11px">${esc(nomAnt)}</span></div>
+           <div style="font-size:12.5px;color:var(--rosa);font-weight:600">−${money(Math.abs(c.profit-a.ant.profit),0)}
+             <span style="font-size:11px;font-weight:400">pasó a pérdida</span></div>`
         : celda(c.profit, a.volP, a.rVolP, c.profit<0, a.ant?a.ant.profit:null)}</td>
       <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(100-a.queda,1)+'%'}</div>
         ${(a.hay && !a.nuevo && a.qAnt!=null)?(()=>{
