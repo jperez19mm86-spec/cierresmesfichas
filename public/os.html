@@ -132,6 +132,14 @@
   .tapa h2{ margin:0 }
   .tapa .sub{ font-size:13px; color:var(--muted); margin-top:3px }
   .tapa .acciones{ margin-top:0 }
+  /* La tarjeta de un comprobante: plegada muestra quién, cuánto y cuándo —lo que hace falta para
+     saber cuál es— y se abre para resolverlo. Con seis esperando y todos abiertos había que
+     scrollear el buzón entero para llegar al último, atendiendo uno. */
+  details.cmp > summary{ list-style:none; padding:2px 0 }
+  details.cmp > summary::-webkit-details-marker{ display:none }
+  details.cmp > summary:hover{ opacity:.85 }
+  details.cmp[open] > summary{ border-bottom:1px solid var(--border); padding-bottom:11px; margin-bottom:4px }
+  details.cmp.pend:not([open]){ background:var(--durazno-bg) }
   /* Las fichitas de «qué TC se usa este mes». Eran 23 tarjetas iguales con la palabra «promedio»
      repetida abajo de cada una: el ojo no tenía dónde apoyarse. Ahora sólo se marca lo que NO es
      el promedio automático —cargado a mano, o sin cargar— y esas van primero. */
@@ -2047,18 +2055,30 @@ async function pintarComprobantes(estado, conFiltros) {
   _cmpPend = c0.pendiente || 0; renderNav();
   const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
 
+  /* ── UNO POR VEZ ─────────────────────────────────────────────────────────────────────────────
+     Cada comprobante pendiente abría con sus dos caminos y sus cinco campos: 300px de alto cada
+     uno. Con seis esperando había que scrollear el buzón entero para llegar al último, y estás
+     atendiendo UNO. Ahora vienen plegados —con lo que hace falta para saber cuál es— y el primero
+     abierto, que es el que estás por resolver. Al resolverlo desaparece y se abre el que sigue.
+     Los ya resueltos no se pliegan: ahí no hay nada que decidir, se está leyendo. */
+  let _abiertos = 0;
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
     const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
     const arch = c.archivo_bytes
       ? '<a href="/api/os/comprobantes/' + c.id + '/archivo" target="_blank" class="pill">📎 ver comprobante</a>'
       : '<span class="pill" style="background:var(--red);color:#000">SIN comprobante</span>';
-    return '<div class="card" style="margin:8px 0;border-left:3px solid ' + (pend ? 'var(--gold)' : (c.estado === 'aprobado' ? '#3c9' : 'var(--red)')) + '">'
-      + '<div class="row" style="align-items:center;gap:10px">'
+    // El primero que espera arranca abierto; los demás, plegados.
+    const abrir = !pend || (_abiertos++ === 0);
+    return '<details class="card cmp' + (pend ? ' pend' : '') + '"' + (abrir ? ' open' : '')
+      + ' style="margin:8px 0;border-left:3px solid ' + (pend ? 'var(--durazno)' : (c.estado === 'aprobado' ? 'var(--verde2)' : 'var(--rosa)')) + '">'
+      + '<summary class="row" style="align-items:center;gap:10px;cursor:pointer;list-style:none">'
+      +   '<span class="chev" aria-hidden="true" style="flex:0 0 auto"></span>'
       +   '<div style="flex:1"><b>' + esc(c.cliente_nombre || c.codigo) + '</b> <span class="pill">' + esc(c.codigo) + '</span>'
       +     '<div class="muted" style="font-size:11.5px;margin-top:3px">' + esc(String(c.creado_at || '').slice(0,16).replace('T',' ')) + ' · ' + via + (c.referencia ? ' · ref ' + esc(c.referencia) : '') + '</div></div>'
       +   '<div style="flex:0;text-align:right"><div class="muted" style="font-size:11px">declarado</div><div style="font-size:19px;font-weight:800">' + money(c.monto,2) + ' ' + esc(c.divisa) + '</div></div>'
-      + '</div>'
+      + '</summary>'
+      + '<div>'
       + '<div style="margin-top:8px">' + arch + (c.notas ? ' <span class="muted">' + esc(c.notas) + '</span>' : '') + '</div>'
       // ── ¿EL AVISO AL GRUPO SALIÓ? ────────────────────────────────────────────────────────────
       // Antes esto no se veía en ningún lado: el envío fallaba, se escribía en un log que se pierde
@@ -2088,7 +2108,9 @@ async function pintarComprobantes(estado, conFiltros) {
         // distintas. En una pantalla angosta el renglón se partía, el botón del TC del mes
         // quedaba FUERA DE LA VISTA, y lo que se apretaba era el otro — el que pide un monto en
         // la moneda de la cuenta. Cada botón va pegado al campo que lee, y se ve cuál es cuál.
-        ? '<div style="margin-top:10px"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional" style="max-width:420px"></div>'
+        // La nota se fue ABAJO, al lado de Rechazar: encabezaba la tarjeta siendo lo último que
+        // se llena, y encima es privada — no la ve el cliente ni sale por Telegram.
+        ? ''
 
           /* ── LAS DOS CAJAS SON DOS CAMINOS, NO UNO BUENO Y UNO GRIS ────────────────────────
              El fondo de la caja era `--bg3`, el MISMO rosa que el de los campos: todo se fundía y
@@ -2136,7 +2158,11 @@ async function pintarComprobantes(estado, conFiltros) {
           +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
           + '</div>'
 
-          + '<div style="margin-top:8px"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          + '<div class="row" style="margin-top:10px;align-items:flex-end;gap:10px">'
+          +   '<div style="flex:1 1 300px"><label>Nota <span class="muted" style="text-transform:none;letter-spacing:0">— sólo la ves vos</span></label>'
+          +     '<input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
+          +   '<div style="flex:0 0 auto"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          + '</div>'
         : '<div style="margin-top:8px">'
           // ── LO QUE SE ACREDITÓ DE VERDAD ────────────────────────────────────────────────────
           // El cliente declara un monto y el comprobante puede decir otro. Se acredita el del
@@ -2158,7 +2184,7 @@ async function pintarComprobantes(estado, conFiltros) {
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
           + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>'
           + '</div>')
-      + '</div>';
+      + '</div></details>';
   };
   dest.innerHTML = '<div class="card"><h2>🧾 ' + (estado === 'pendiente' ? 'Comprobantes por aprobar' : 'Comprobantes ya resueltos') + '</h2>'
     + '<div class="muted">Los sube el cliente desde la pantalla pública. Aprobar uno <b>registra el pago y le baja la deuda</b>, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
