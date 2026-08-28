@@ -2988,20 +2988,42 @@ async function cieExternos() {
   if (!_extCli && lista.length) _extCli = lista[0].nombre;
   const cong = (await api('/api/os/cierre/meses-congelados')).meses || [];
   const estaCong = cong.some(x => x.mes === _extMes);
-  cont.innerHTML = '<div class="card">' + bannerMes(_extMes, 'extIrA')
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">'
-    + '<div><label class="muted">Cliente</label><br><select id="ext-cli" onchange="_extCli=this.value;_extData=null;cieExternos()">'
+  /* ⚠️ CONGELAR EL MES VOLVIÓ A EXISTIR. Estaba adentro de un `<div style="display:none">` desde
+     el 21/08/2026: ese día se agregó `#ext-emi-out` para mostrar a quién no se le pudo cobrar, hubo
+     que cerrar el flex de los controles, y el <span> que quedaba suelto —el estado del mes y su
+     botón— terminó envuelto en un div escondido. No lo dice ningún comentario ni el mensaje de
+     aquel commit: fue de arrastre.
+     Y no es un adorno: si el mes NO está congelado, la factura se calcula con los precios de HOY,
+     así que tocar un % hoy cambia lo que ya cobraste el mes pasado. La propia pantalla lo avisa
+     («congelalo para poder reproducirlo») y al emitir el servidor contesta «conviene congelar el
+     mes primero» — pedía algo que no había forma de hacer. */
+  cont.innerHTML = '<div class="card">'
+    + '<div class="tapa"><div><h2>🧾 Factura de externos</h2>'
+    +   '<div class="sub">Lo que se le cobra al cliente por los proveedores que usó: '
+    +   'la diferencia entre su celda y su % base.</div></div>'
+    +   '<div class="acciones">'
+    +     '<span class="señal ' + (estaCong ? '' : 'durazno') + '" title="'
+    +       (estaCong ? 'Los números de este mes se reproducen igual aunque cambies un precio'
+                      : 'Sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes') + '">'
+    +       (estaCong ? '🧊 mes congelado' : '⚠ sin congelar') + '</span>'
+    +     '<button class="' + (estaCong ? 'outline small' : 'grave small') + '" onclick="extCongelar(' + estaCong + ')">'
+    +       (estaCong ? 'Descongelar' : '🧊 Congelar el mes') + '</button>'
+    +   '</div></div>'
+    + ayuda('cie-ext',
+        'Un mes <b>congelado</b> usa los precios de ESE mes; uno sin congelar, los de HOY.',
+        'Congelar es lo que hace que un mes ya facturado se pueda reproducir y auditar: a partir de ahí se calcula siempre con esos precios, aunque después los cambies. Se puede descongelar, pero entonces sus números vuelven a moverse.')
+    + bannerMes(_extMes, 'extIrA')
+    /* `flex:0` es flex-basis 0 y el botón se encogía hasta partir «Emitir TODO el mes a la deuda»
+       en una palabra por renglón. Va `flex:0 0 auto`, que es «lo que mida el contenido». */
+    + '<div class="row" style="margin-top:10px">'
+    + '<div style="flex:1 1 220px"><label>Cliente</label><select id="ext-cli" onchange="_extCli=this.value;_extData=null;cieExternos()">'
     + lista.map(c => '<option value="' + esc(c.nombre) + '"' + (c.nombre === _extCli ? ' selected' : '') + '>' + esc(c.nombre) + (c.es_vendedor ? ' · vendedor' : '') + '</option>').join('')
     + '</select></div>'
-    + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
-    + '<button onclick="extCalcular()">Calcular</button>'
-    + '<button class="grave" style="margin-left:6px" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button>'
-    + '</div><div id="ext-emi-out"></div><div style="display:none">'
-    + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
-    + '<span class="muted">' + (estaCong ? '🧊 congelado: usa los precios de ESE mes' : '⚠ sin congelar: usa los precios de HOY') + '</span>'
-    + '<button class="small ' + (estaCong ? 'outline' : '') + '" onclick="extCongelar(' + estaCong + ')">' + (estaCong ? 'Descongelar' : '🧊 Congelar el mes') + '</button>'
-    + '</span>'
-    + '</div></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
+    + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
+    + '<div style="flex:0 0 auto"><button onclick="extCalcular()">Calcular</button></div>'
+    + '<div style="flex:0 0 auto;margin-left:auto"><button class="grave" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button></div>'
+    + '</div><div id="ext-emi-out"></div>'
+    + '</div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
 }
 

@@ -3150,6 +3150,25 @@ async function main() {
        «Calcular» y «Emitir a la deuda» eran el MISMO botón violeta, uno al lado del otro: uno se
        aprieta cien veces sin consecuencia y el otro le manda una factura a todos los clientes.
        `.grave` los separa. Si mañana alguien agrega otra emisión, este chequeo la reclama. */
+    /* ── CONGELAR EL MES TIENE QUE VERSE ─────────────────────────────────────────────────────
+       Estuvo adentro de un `<div style="display:none">` desde el 21/08/2026 y nadie lo notó: se
+       agregó #ext-emi-out, hubo que cerrar el flex de los controles, y el <span> que quedaba
+       suelto terminó envuelto en un div escondido. Sin congelar, la factura se calcula con los
+       precios de HOY: tocar un % hoy cambia lo que ya cobraste el mes pasado, y el propio
+       servidor contesta al emitir «conviene congelar el mes primero». */
+    check('externos: el botón de congelar el mes está a la vista', (() => {
+      // `cieExternos` arma la pantalla como UNA sola cadena. Así que basta con mirar el tramo que
+      // va del arranque de la función hasta el botón: cualquier `display:none` ahí adentro lo está
+      // tapando. Mirar «cuántos caracteres antes» no servía — depende de cómo quede el HTML.
+      const i = h10.indexOf('async function cieExternos');
+      const j = h10.indexOf('extCongelar(', i);
+      if (i < 0 || j < 0) return false;
+      // Sin los comentarios: el que explica ESTE arreglo cita el `display:none` que lo tapaba, y
+      // el chequeo se tropezaba con su propia explicación.
+      const tramo = h10.slice(i, j).replace(/\/\*[^]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      return !tramo.includes('display:none');
+    })(), 'extCongelar quedó adentro de algo escondido');
+
     check('los botones que emiten o mandan van en .grave, no en el violeta de todos los días',
       /button\.grave \{/.test(h10)
       && ['venEmitir(false)', 'pagoEmitir()', 'extEmitir()', 'facEmitir()', 'chatCobrar()', 'chatEnviar(']
