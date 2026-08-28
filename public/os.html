@@ -5830,11 +5830,45 @@ VIEWS.tbsdiario = async () => {
       v: tdVeredicto(cmp.vol, cmp.qAnt, cmp.qNue, cmp.nuevo, nomAnt, cmp.hay) };
   };
 
+  /* ── PARTIR AL PADRE EN «SIN EL HIJO» Y «SÓLO EL HIJO» ───────────────────────────────────────
+     El número de NachoAPI incluye a MULT2-CAL-ARS-PROD, y los dos están en la tabla: se ve el
+     total dos veces y no se ve nunca cuánto es cada parte. Como el hijo está ENTERO adentro del
+     padre, restarlo es exacto — y sólo en su misma moneda, que es donde el hijo suma.
+     Se muestran las tres: sin él, sólo él, y el total (que es lo que muestra el panel de TBS). */
+  const hijosDe = new Map();
+  (dat.clientes||[]).forEach(h => {
+    if (!h.dentroDe) return;
+    const k = h.dentroDe + '|' + h.moneda;
+    hijosDe.set(k, [...(hijosDe.get(k) || []), h]);
+  });
+  const restar = (padre, hijos) => {
+    const dias2 = {};
+    Object.keys(padre.dias || {}).forEach(f => {
+      const d = padre.dias[f];
+      const m = hijos.reduce((a,h)=>{ const x=(h.dias||{})[f]; return x ? {bet:a.bet+x.bet, win:a.win+x.win, profit:a.profit+x.profit} : a; },
+        {bet:0,win:0,profit:0});
+      dias2[f] = { bet: d.bet-m.bet, win: d.win-m.win, profit: d.profit-m.profit };
+    });
+    return { ...padre, login: padre.login, dias: dias2, dentroDe: null,
+      bet: padre.bet - hijos.reduce((a,h)=>a+h.bet,0),
+      win: padre.win - hijos.reduce((a,h)=>a+h.win,0),
+      profit: padre.profit - hijos.reduce((a,h)=>a+h.profit,0) };
+  };
+
+  /* Una fila armada por nosotros no está en `idxAnt`, así que su mes anterior también hay que
+     restarlo: el padre de julio menos el hijo de julio, o la comparación saldría contra el total. */
+  const analizarArmada = (nue, ant) => {
+    const cmp = tdComparar(ant ? { bet:nue.bet, win:nue.win, profit:nue.profit } : null, ant);
+    return { ...cmp, queda: queda(nue.bet, nue.profit), ant,
+      v: tdVeredicto(cmp.vol, cmp.qAnt, cmp.qNue, cmp.nuevo, nomAnt, cmp.hay) };
+  };
+
   const grupos = [...porCliente.values()].map(g => {
     g.filas.sort((a,b)=>Math.abs(b.bet)-Math.abs(a.bet));   // manda la moneda de más JUGADO
     g.principal = g.filas[0];
     g.otras = g.filas.slice(1);
     g.a = analizar(g.principal);
+    g.hijos = hijosDe.get(g.principal.login + '|' + g.principal.moneda) || [];
     return g;
   });
   // Primero lo que hay que mirar: los que traen menos jugado, después los de racha, después el resto.
@@ -5987,10 +6021,13 @@ VIEWS.tbsdiario = async () => {
       ${grupos.map(g=>{
         const ab = _tdAbiertos.has(g.login);
         const tono = {mal:'var(--red)',ojo:'var(--gold)',bien:'var(--green)',''  :''}[g.a.v.tono];
+        const abrible = g.otras.length || g.hijos.length;   // se abre también si hay que partirlo
         return `<tr${g.a.v.tono==='mal'?' style="background:rgba(217,83,79,.06)"':''}>
-          <td style="${g.otras.length?'cursor:pointer':''}" ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
-            ${g.otras.length?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
+          <td style="${abrible?'cursor:pointer':''}" ${abrible?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
+            ${abrible?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
             ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}
+            ${g.hijos.length?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
+              title="Este número es el TOTAL, como lo muestra el panel de TBS. Abrilo para verlo partido.">incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}</div>`:''}
             <!-- En TBS un padre trae su subárbol adentro. Sin decirlo acá, la tabla invita a sumar
                  esta fila con la de su padre — que es justo lo que inflaba el total en un millón. -->
             ${g.principal.dentroDe?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
@@ -5999,7 +6036,25 @@ VIEWS.tbsdiario = async () => {
           <td style="font-size:12px${tono?';color:'+tono:''}"><b>${esc(g.a.v.txt)}</b>
             ${g.a.v.det?`<div class="muted" style="font-size:11px">${esc(g.a.v.det)}</div>`:''}</td>
         </tr>`
-        + (ab ? g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
+        + (ab ? (g.hijos.length ? (()=>{
+            // Las tres vistas de lo mismo: sin el hijo, sólo el hijo, y el total de arriba.
+            const sinH = restar(g.principal, g.hijos);
+            const antP = g.a.ant;
+            const antH = g.hijos.map(h=>idxAnt.get(h.agente_id+'|'+h.moneda)).filter(Boolean);
+            const antSin = (antP && antH.length===g.hijos.length)
+              ? { bet: antP.bet-antH.reduce((a,x)=>a+x.bet,0), win: antP.win-antH.reduce((a,x)=>a+x.win,0),
+                  profit: antP.profit-antH.reduce((a,x)=>a+x.profit,0) } : null;
+            const linea = (etq, fila, ana, fuerte) => `<tr class="sub">
+              <td style="padding-left:18px;font-size:12px${fuerte?';font-weight:700':''}">${etq}</td>
+              ${filaCliente(fila, ana, true)}
+              <td class="muted" style="font-size:11px">${esc(ana.v.txt||'')}</td></tr>`;
+            return linea('sin ' + esc(g.hijos.map(h=>h.login).join(' ni ')),
+                         sinH, analizarArmada(sinH, antSin), true)
+              + g.hijos.map(h=>linea('sólo ' + esc(h.login), h, analizar(h), false)).join('')
+              + `<tr class="sub"><td style="padding-left:18px;font-size:12px" class="muted">total (lo de arriba)</td>
+                 ${filaCliente(g.principal, g.a, true)}<td></td></tr>`;
+          })() : '')
+          + g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
             <td></td>${filaCliente(o, a2, true)}
             <td class="muted" style="font-size:11px">${esc(a2.v.txt)}</td></tr>`;}).join('')
               + `<tr class="sub"><td colspan="7" style="padding:8px 0 14px">
