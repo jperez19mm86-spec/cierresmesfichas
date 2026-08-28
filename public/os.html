@@ -5932,16 +5932,18 @@ VIEWS.tbsdiario = async () => {
         : celda(c.profit, a.volP, a.rVolP, c.profit<0, a.ant?a.ant.profit:null)}</td>
       <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(100-a.queda,1)+'%'}</div>
         ${(a.hay && !a.nuevo && a.qAnt!=null)?(()=>{
-          /* ⚠️ EL RTP VA AL REVÉS QUE LAS OTRAS DOS COLUMNAS. En jugado y profit, subir es bueno.
-             Acá subir es que los jugadores se llevaron MÁS, o sea peor para vos. Por eso el verde
-             y el rosa están dados vuelta a propósito: relabelar la columna sin dar vuelta el color
-             habría dejado un ▲ verde donde el mes fue peor. */
+          /* Los mismos tres renglones que las otras dos columnas: ahora, antes, y la diferencia.
+             ⚠️ PERO EL RTP VA AL REVÉS. En jugado y profit, subir es bueno. Acá subir es que los
+             jugadores se llevaron MÁS, o sea peor. El verde y el rosa están dados vuelta a
+             propósito: sin eso quedaría un ▲ verde justo donde el mes fue peor. */
           const rtpNue = 100 - a.queda, rtpAnt = 100 - a.qAnt;
           const d = rtpNue - rtpAnt;
           const col = Math.abs(d) < 0.05 ? 'var(--muted)' : (d > 0 ? 'var(--rosa)' : 'var(--verde2)');
           const sig = Math.abs(d) < 0.05 ? '=' : (d > 0 ? '▲' : '▼');
-          return `<div style="font-size:11px;color:${col}">${sig} ${money(Math.abs(d),1)} pts
-            <span class="muted">· ${esc(nomAnt)} ${money(rtpAnt,1)}%</span></div>`;
+          return `<div class="muted" style="font-size:12.5px">${money(rtpAnt,1)}%
+              <span style="font-size:11px">${esc(nomAnt)}</span></div>
+            <div style="font-size:12.5px;color:${col};font-weight:600">${sig} ${money(Math.abs(d),1)}
+              <span style="font-size:11px;font-weight:400">pts</span></div>`;
         })():''}</td>`;
   };
 
@@ -5965,27 +5967,36 @@ VIEWS.tbsdiario = async () => {
         <h2>${esc(nomEste.charAt(0).toUpperCase()+nomEste.slice(1))} contra ${esc(nomAnt)}</h2>
         <div class="sub">Del <b>${esc(tramo)}</b> de los dos meses, todo pasado a USDT</div>
       </div></div>
-      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
-        <div class="tc-t">
-          <div class="d">JUGARON</div>
-          <div class="v">${money(TOT.bet,0)}</div>
-          <div class="f">${flechaT(varPct(TOT.bet, TOTA.bet))} · ${esc(nomAnt)} ${money(TOTA.bet,0)}</div>
-        </div>
-        <div class="tc-t">
-          <div class="d">TE QUEDÓ</div>
-          <div class="v">${money(TOT.profit,0)}</div>
-          <div class="f">${flechaT(varPct(TOT.profit, TOTA.profit))} · ${esc(nomAnt)} ${money(TOTA.profit,0)}</div>
-        </div>
-        <div class="tc-t">
-          <div class="d">RTP</div>
-          <div class="v">${TOT.bet?money(100-TOT.profit/TOT.bet*100,1)+'%':'—'}</div>
-          <div class="f">${esc(nomAnt)} ${TOTA.bet?money(100-TOTA.profit/TOTA.bet*100,1)+'%':'—'} · se llevan los jugadores</div>
-        </div>
-        <div class="tc-t${(TOT.profit-TOTA.profit)<0?' mal':''}">
-          <div class="d">DIFERENCIA</div>
-          <div class="v">${(TOT.profit-TOTA.profit)>=0?'+':'−'}${money(Math.abs(TOT.profit-TOTA.profit),0)}</div>
-          <div class="f">USDT ${(TOT.profit-TOTA.profit)>=0?'más':'menos'} que en ${esc(nomAnt)}</div>
-        </div>
+      <!-- Las mismas tres líneas que la tabla de abajo: ahora, antes, y la diferencia. Antes cada
+           fichita tenía su propia forma —una mezclaba la flecha con el mes anterior, el RTP no
+           traía diferencia y había una fichita entera sólo para la diferencia del profit— así que
+           arriba y abajo se leían distinto. -->
+      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+        ${(()=>{
+          const rtpN = TOT.bet ? 100-TOT.profit/TOT.bet*100 : null;
+          const rtpA = TOTA.bet ? 100-TOTA.profit/TOTA.bet*100 : null;
+          const ficha = (rot, ahora, antes, dif, pct, alReves, pie) => {
+            const bien = alReves ? (dif<0) : (dif>0);
+            const col = (dif==null||Math.abs(dif)<1e-9) ? 'var(--muted)' : (bien?'var(--verde2)':'var(--rosa)');
+            const sig = (dif==null||Math.abs(dif)<1e-9) ? '=' : (dif>0?'▲':'▼');
+            return `<div class="tc-t">
+              <div class="d">${rot}</div>
+              <div class="v">${ahora}</div>
+              <div class="f" style="font-size:12.5px">${antes} <span style="font-size:11px">${esc(nomAnt)}</span></div>
+              ${dif==null?'':`<div class="f" style="font-size:12.5px;color:${col};font-weight:600">${sig} ${pie}</div>`}
+            </div>`;
+          };
+          return ficha('JUGARON', money(TOT.bet,0), money(TOTA.bet,0), TOT.bet-TOTA.bet, null, false,
+                  money(Math.abs(TOT.bet-TOTA.bet),0)+' <span style="font-size:11px;font-weight:400">USDT · '
+                  + money(Math.abs(varPct(TOT.bet,TOTA.bet)||0),0)+'%</span>')
+            + ficha('TE QUEDÓ', money(TOT.profit,0), money(TOTA.profit,0), TOT.profit-TOTA.profit, null, false,
+                  money(Math.abs(TOT.profit-TOTA.profit),0)+' <span style="font-size:11px;font-weight:400">USDT · '
+                  + money(Math.abs(varPct(TOT.profit,TOTA.profit)||0),0)+'%</span>')
+            + ficha('RTP', rtpN==null?'—':money(rtpN,1)+'%', rtpA==null?'—':money(rtpA,1)+'%',
+                  (rtpN==null||rtpA==null)?null:rtpN-rtpA, null, true,
+                  ((rtpN==null||rtpA==null)?'':money(Math.abs(rtpN-rtpA),1))
+                  + ' <span style="font-size:11px;font-weight:400">pts · se llevan los jugadores</span>');
+        })()}
       </div>
       <div class="muted" style="margin-top:10px;max-width:85ch;font-size:12.5px">
         Los dos meses se pasan a USDT con <b>el mismo tipo de cambio</b> —el de este mes— a propósito:
