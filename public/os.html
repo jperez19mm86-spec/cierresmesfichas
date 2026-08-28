@@ -6011,52 +6011,34 @@ VIEWS.tbsdiario = async () => {
         <h2>${esc(nomEste.charAt(0).toUpperCase()+nomEste.slice(1))} contra ${esc(nomAnt)}</h2>
         <div class="sub">Del <b>${esc(tramo)}</b> de los dos meses, todo pasado a USDT</div>
       </div></div>
-      <!-- Las mismas tres líneas que la tabla de abajo: ahora, antes, y la diferencia. Antes cada
-           fichita tenía su propia forma —una mezclaba la flecha con el mes anterior, el RTP no
-           traía diferencia y había una fichita entera sólo para la diferencia del profit— así que
-           arriba y abajo se leían distinto. -->
-      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+      <!-- ── SÓLO EL PORCENTAJE ──────────────────────────────────────────────────────────────
+           Los montos en USDT salían de pasar nueve monedas a dólares con un tipo de cambio que
+           todavía se mueve: son un estimado, y puesto en grande al lado de cifras exactas se lee
+           como si fuera plata cerrada. El PORCENTAJE, en cambio, aguanta: si los dos meses se
+           convierten con el mismo cambio, la proporción no depende de cuál sea.
+           Y el RTP no va: está en la tabla de abajo, cliente por cliente, que es donde sirve. -->
+      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
         ${(()=>{
-          const rtpN = TOT.bet ? 100-TOT.profit/TOT.bet*100 : null;
-          const rtpA = TOTA.bet ? 100-TOTA.profit/TOTA.bet*100 : null;
-          const ficha = (rot, ahora, antes, dif, pct, alReves, pie) => {
-            const bien = alReves ? (dif<0) : (dif>0);
-            const col = (dif==null||Math.abs(dif)<1e-9) ? 'var(--muted)' : (bien?'var(--verde2)':'var(--rosa)');
-            const sig = (dif==null||Math.abs(dif)<1e-9) ? '=' : (dif>0?'▲':'▼');
-            return `<div class="tc-t">
-              <div class="d">${rot}</div>
-              <div class="v">${ahora}</div>
-              <div class="f" style="font-size:12.5px">${antes} <span style="font-size:11px">${esc(nomAnt)}</span></div>
-              ${dif==null?'':`<div class="f" style="font-size:12.5px;color:${col};font-weight:600">${sig} ${pie}</div>`}
-            </div>`;
+          const ficha = (rot, pct) => {
+            const col = pct==null ? 'var(--muted)' : (pct>=0?'var(--verde2)':'var(--rosa)');
+            const sig = pct==null ? '' : (pct>=0?'▲':'▼');
+            return `<div class="tc-t"><div class="d">${rot}</div>
+              <div class="v" style="color:${col}">${pct==null?'—':sig+' '+money(Math.abs(pct),0)+'%'}</div>
+              <div class="f">contra ${esc(nomAnt)}</div></div>`;
           };
-          return ficha('JUGARON', money(TOT.bet,0), money(TOTA.bet,0), TOT.bet-TOTA.bet, null, false,
-                  money(Math.abs(TOT.bet-TOTA.bet),0)+' <span style="font-size:11px;font-weight:400">USDT · '
-                  + money(Math.abs(varPct(TOT.bet,TOTA.bet)||0),0)+'%</span>')
-            + ficha('TE QUEDÓ', money(TOT.profit,0), money(TOTA.profit,0), TOT.profit-TOTA.profit, null, false,
-                  money(Math.abs(TOT.profit-TOTA.profit),0)+' <span style="font-size:11px;font-weight:400">USDT · '
-                  + money(Math.abs(varPct(TOT.profit,TOTA.profit)||0),0)+'%</span>')
-            + ficha('RTP', rtpN==null?'—':money(rtpN,1)+'%', rtpA==null?'—':money(rtpA,1)+'%',
-                  (rtpN==null||rtpA==null)?null:rtpN-rtpA, null, true,
-                  ((rtpN==null||rtpA==null)?'':money(Math.abs(rtpN-rtpA),1))
-                  + ' <span style="font-size:11px;font-weight:400">pts · se llevan los jugadores</span>');
+          return ficha('IN', varPct(TOT.bet, TOTA.bet)) + ficha('PROFIT', varPct(TOT.profit, TOTA.profit));
         })()}
       </div>
-      <div class="muted" style="margin-top:10px;max-width:85ch;font-size:12.5px">
-        Los dos meses se pasan a USDT con <b>el mismo tipo de cambio</b> —el de este mes— a propósito:
-        si cada uno usara el suyo, una devaluación sola aparecería como que el negocio se cayó.
-        Acá se mide el negocio, no el dólar.
-        ${sinTC.size?`<b style="color:var(--rosa)"> ⚠ Falta el tipo de cambio de ${[...sinTC].join(', ')}:
-          esos clientes NO están sumados acá.</b> Cargalo en 💱 Tipos de cambio.`:''}
-        ${anidados.length?`<div style="margin-top:6px">${anidados.map(c=>'<b>'+esc(c.login)+'</b>').join(', ')}
-          no se suma${anidados.length===1?'':'n'} aparte: ya está${anidados.length===1?'':'n'} contado${anidados.length===1?'':'s'}
-          adentro de <b>${esc(anidados[0].dentroDe)}</b>. En TBS un padre trae su subárbol adentro,
-          así que sumarlos daría casi un millón de USDT de más. En la lista de abajo sí aparece
-          suelto, para poder mirarlo solo.</div>`:''}
+      <div class="muted" style="margin-top:10px;font-size:12px">* son un estimado: los dos meses
+        se pasan a USDT con el mismo tipo de cambio, y puede cambiar.
+        ${sinTC.size?`<b style="color:var(--rosa)">Falta el de ${[...sinTC].join(', ')}: esos clientes no están adentro.</b>`:''}
       </div>
     </div>
 
-    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    <!-- align-items:stretch — la clase .row alinea abajo, así que las tres tarjetas quedaban a
+         distinta altura según cuánto texto tuviera cada una y se veían escalonadas.
+         (Sin comillas invertidas acá: esto vive adentro de una plantilla y las corta.) -->
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch">
       <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--red)">
         <label>Traen menos jugado</label>
         <div style="font-size:26px;font-weight:800;color:${cuenta('mal')?'var(--red)':'inherit'}">${cuenta('mal')}</div>
