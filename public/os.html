@@ -5659,25 +5659,69 @@ function tdComparar(h, a) {
     volP:  conP ? ((h.profit - a.profit) / a.profit) * 100 : null,
     rVolP: conP ? h.profit / a.profit : null,
     qAnt: q(a.bet, a.profit), qNue: q(h.bet, h.profit),
+    // Los profits crudos: el veredicto necesita saber si SUBIÓ o BAJÓ incluso cuando no se puede
+    // dar un porcentaje (el mes pasado en cero, o de ganancia a pérdida).
+    pAnt: a.profit, pNue: h.profit,
   };
 }
 
-/* El veredicto en castellano. El orden importa: primero se pregunta por el JUGADO, porque es el
-   único de los dos que significa que se está yendo el cliente. */
-function tdVeredicto(volPct, quedaAnt, quedaNue, nuevo, nomAnt, hay) {
-  if (!hay) return { txt: '', tono: '', det: '' };
-  if (nuevo) return { txt: 'nuevo', tono: 'bien', det: 'no jugaba en ' + nomAnt };
+/* ── EL CARTEL DICE LAS DOS COSAS QUE PASARON ────────────────────────────────────────────────
+   Un mes se explica con dos movimientos y nada más:
+
+     · el JUGADO — cuánta plata entró a apostarse. Es el negocio: si cae, se está yendo el cliente
+       y no vuelve solo.
+     · el RTP — qué parte se llevaron los jugadores. A un mes es suerte, y se da vuelta solo.
+
+   Y el PROFIT es el resultado de los dos: jugado × (1 − RTP). Por eso el cartel nombra los dos
+   movimientos —«menos jugado, más profit»— en vez de una sola palabra: «estable» para NachoAPI
+   escondía la noticia, que era que jugaron 11% menos y aun así quedó 11% más.
+
+   El TONO (de qué tarjeta cuenta arriba) lo sigue decidiendo el JUGADO, no el profit: un mes con
+   más profit sobre un jugado que se derrumba no es una buena noticia, es un buen mes adentro de
+   un cliente que se va. */
+function tdVeredicto(cmp, nomAnt) {
+  if (!cmp || !cmp.hay) return { txt: '', tono: '', det: '' };
+  if (cmp.nuevo) return { txt: 'nuevo', tono: 'bien', det: 'no jugaba en ' + nomAnt };
+  const volPct = cmp.vol;
   if (volPct == null) return { txt: '', tono: '', det: '' };
-  const dpp = (quedaNue != null && quedaAnt != null) ? (quedaNue - quedaAnt) : null;
-  if (volPct <= -15) return { txt: 'trae menos jugado', tono: 'mal', det: 'se le está yendo el negocio' };
-  // El detalle tiene que decir la verdad de ESTE caso: "juega lo mismo" es falso si el jugado
-  // subió ×10, y era lo que decía. Lo que no cambia es la conclusión: el negocio no se fue.
-  if (dpp != null && dpp <= -3) return { txt: 'ganaron los jugadores', tono: 'ojo',
-    det: (volPct >= 15 ? 'trae más jugado que en ' + nomAnt + ', pero ganaron los jugadores'
-                       : 'juega lo mismo: es racha, no negocio perdido') };
-  if (volPct >= 15) return { txt: 'creciendo', tono: 'bien', det: 'está trayendo más jugado' };
-  if (dpp != null && dpp >= 3) return { txt: 'mejor racha', tono: 'bien', det: 'lo mismo jugado y bajó el RTP' };
-  return { txt: 'estable', tono: '', det: '' };
+  const dpp = (cmp.qNue != null && cmp.qAnt != null) ? (cmp.qNue - cmp.qAnt) : null;
+
+  // Se movió de verdad, o es ruido. 10% en cualquiera de los dos.
+  const MOV = 10;
+  const dirJ = volPct >= MOV ? 1 : (volPct <= -MOV ? -1 : 0);
+  /* La dirección del profit sale de los números crudos y no del porcentaje: hay meses sin
+     porcentaje posible —el anterior en cero, o de ganancia a pérdida— y ahí igual se sabe
+     perfectamente para qué lado se movió. */
+  const dirP = (cmp.pAnt == null || cmp.pNue == null) ? 0 : (() => {
+    const base = Math.abs(cmp.pAnt) || Math.abs(cmp.pNue);
+    if (!base) return 0;
+    const d = ((cmp.pNue - cmp.pAnt) / base) * 100;
+    return d >= MOV ? 1 : (d <= -MOV ? -1 : 0);
+  })();
+
+  const PAL = { '-1': 'menos', 0: 'mismo', 1: 'más' };
+  const txt = dirJ === 0 && dirP === 0 ? 'igual que en ' + nomAnt
+    : PAL[dirJ] + ' jugado, ' + PAL[dirP] + ' profit';
+
+  // El detalle: qué significa esa combinación, en una línea.
+  let det = '';
+  if (dirJ < 0 && dirP > 0) det = 'jugaron menos y aun así te quedó más: lo puso el RTP, no el cliente';
+  else if (dirJ < 0 && dirP < 0) det = 'se le está yendo el negocio';
+  else if (dirJ < 0) det = 'trae menos jugado y el profit se mantuvo';
+  else if (dirJ > 0 && dirP > 0) det = 'está creciendo';
+  else if (dirJ > 0 && dirP < 0) det = 'trae más jugado, pero ganaron los jugadores';
+  else if (dirJ > 0) det = 'trae más jugado y el profit se mantuvo';
+  else if (dirP < 0) det = 'juega lo mismo: ganaron los jugadores, es racha';
+  else if (dirP > 0) det = 'juega lo mismo y te quedó más: bajó el RTP';
+
+  /* El tono, igual que antes: manda el jugado, y sólo si el jugado está quieto se mira el RTP.
+     Son las tres tarjetas de arriba y por eso no se tocan sus umbrales. */
+  let tono = '';
+  if (volPct <= -15) tono = 'mal';
+  else if (dpp != null && dpp <= -3) tono = 'ojo';
+  else if (volPct >= 15) tono = 'bien';
+  else if (dpp != null && dpp >= 3) tono = 'bien';
+  return { txt, tono, det };
 }
 
 /* Una línea que se lee de un vistazo: el jugado de cada día. No lleva ejes ni números —para eso
@@ -5844,7 +5888,7 @@ VIEWS.tbsdiario = async () => {
     const a = hayComp ? idxAnt.get(c.agente_id+'|'+c.moneda) : null;
     const cmp = tdComparar(a ? sumar(c, dat.mes) : null, a);
     return { ...cmp, queda: queda(c.bet, c.profit), ant: a,
-      v: tdVeredicto(cmp.vol, cmp.qAnt, cmp.qNue, cmp.nuevo, nomAnt, cmp.hay) };
+      v: tdVeredicto(cmp, nomAnt) };
   };
 
   /* ── PARTIR AL PADRE EN «SIN EL HIJO» Y «SÓLO EL HIJO» ───────────────────────────────────────
@@ -5877,7 +5921,7 @@ VIEWS.tbsdiario = async () => {
   const analizarArmada = (nue, ant) => {
     const cmp = tdComparar(ant ? { bet:nue.bet, win:nue.win, profit:nue.profit } : null, ant);
     return { ...cmp, queda: queda(nue.bet, nue.profit), ant,
-      v: tdVeredicto(cmp.vol, cmp.qAnt, cmp.qNue, cmp.nuevo, nomAnt, cmp.hay) };
+      v: tdVeredicto(cmp, nomAnt) };
   };
 
   const grupos = [...porCliente.values()].map(g => {

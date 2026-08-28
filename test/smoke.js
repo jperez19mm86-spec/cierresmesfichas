@@ -537,11 +537,15 @@ async function main() {
          · ganaron los jugadores → juega lo mismo, es racha, se da vuelta solo */
     const seVa = TD.tdComparar({ bet: 61, win: 56, profit: 5 }, { bet: 100, win: 92, profit: 8 });
     const racha = TD.tdComparar({ bet: 100, win: 96, profit: 4 }, { bet: 100, win: 88, profit: 12 });
+    /* El cartel nombra los DOS movimientos —jugado y profit— y el TONO lo sigue decidiendo el
+       jugado, que es el único que significa que se está yendo el cliente. */
     check('tbs diario: distingue perder el negocio de perder una racha',
-      TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, seVa.nuevo, 'julio', true).txt === 'trae menos jugado'
-      && TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true).txt === 'ganaron los jugadores',
-      'jugado −39% → ' + TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, false, 'julio', true).txt
-      + ' | queda 12%→4% con el mismo jugado → ' + TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, false, 'julio', true).txt);
+      TD.tdVeredicto(seVa, 'julio').tono === 'mal'
+      && /menos jugado, menos profit/.test(TD.tdVeredicto(seVa, 'julio').txt)
+      && TD.tdVeredicto(racha, 'julio').tono === 'ojo'
+      && /ganaron los jugadores/.test(TD.tdVeredicto(racha, 'julio').det),
+      'jugado −39% → ' + TD.tdVeredicto(seVa, 'julio').txt
+      + ' | queda 12%→4% con el mismo jugado → ' + TD.tdVeredicto(racha, 'julio').txt);
     // Y el que crece, y el que no se movió.
     const sube = TD.tdComparar({ bet: 200, win: 180, profit: 20 }, { bet: 100, win: 90, profit: 10 });
     const igual = TD.tdComparar({ bet: 102, win: 92, profit: 10 }, { bet: 100, win: 90, profit: 10 });
@@ -549,16 +553,34 @@ async function main() {
        había subido ×10 —el caso real de TBSEcuaB—. La conclusión no cambia (el negocio no se fue),
        pero el motivo escrito al lado tiene que ser el de ESTE cliente. */
     const subeYpierde = TD.tdComparar({ bet: 6300, win: 6362, profit: -62 }, { bet: 605, win: 481, profit: 124 });
-    const vSube = TD.tdVeredicto(subeYpierde.vol, subeYpierde.qAnt, subeYpierde.qNue, subeYpierde.nuevo, 'julio', true);
-    const vIgual = TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true);
+    const vSube = TD.tdVeredicto(subeYpierde, 'julio');
+    const vIgual = TD.tdVeredicto(racha, 'julio');
     check('tbs diario: no dice "juega lo mismo" de uno que jugó diez veces más',
-      vSube.txt === 'ganaron los jugadores' && /trae más jugado que en julio/.test(vSube.det)
-      && vIgual.txt === 'ganaron los jugadores' && /juega lo mismo/.test(vIgual.det),
-      vSube.det + '  ·  ' + vIgual.det);
+      /más jugado, menos profit/.test(vSube.txt) && /ganaron los jugadores/.test(vSube.det)
+      && /mismo jugado, menos profit/.test(vIgual.txt) && /juega lo mismo/.test(vIgual.det),
+      vSube.txt + ' — ' + vSube.det + '  ·  ' + vIgual.txt + ' — ' + vIgual.det);
 
     check('tbs diario: el que crece y el que no se movió',
-      TD.tdVeredicto(sube.vol, sube.qAnt, sube.qNue, sube.nuevo, 'julio', true).txt === 'creciendo'
-      && TD.tdVeredicto(igual.vol, igual.qAnt, igual.qNue, igual.nuevo, 'julio', true).txt === 'estable');
+      /más jugado, más profit/.test(TD.tdVeredicto(sube, 'julio').txt)
+      && TD.tdVeredicto(igual, 'julio').txt === 'igual que en julio',
+      TD.tdVeredicto(sube, 'julio').txt + ' · ' + TD.tdVeredicto(igual, 'julio').txt);
+
+    /* ── EL CASO QUE PIDIÓ ESTE CAMBIO ────────────────────────────────────────────────────
+       NachoAPI: jugaron 11% menos y aun así quedó 11% más. El cartel decía «estable», que es
+       verdad de ninguna de las dos cosas y escondía la única noticia del renglón. */
+    const menosMas = TD.tdComparar({ bet: 59176, win: 52408, profit: 6768 },
+                                   { bet: 66497, win: 60406, profit: 6091 });
+    const vMM = TD.tdVeredicto(menosMas, 'julio');
+    check('tbs diario: "menos jugado, más profit" no se dice "estable"',
+      vMM.txt === 'menos jugado, más profit' && /lo puso el RTP/.test(vMM.det),
+      vMM.txt + ' — ' + vMM.det);
+
+    /* La dirección del profit sale de los números crudos, no del porcentaje: cuando el mes pasado
+       dio pérdida no hay porcentaje posible y antes eso se leía como "mismo profit". */
+    const salioDePerdida = TD.tdComparar({ bet: 100, win: 80, profit: 20 }, { bet: 100, win: 110, profit: -10 });
+    check('tbs diario: sin porcentaje posible igual sabe para qué lado se movió el profit',
+      /más profit/.test(TD.tdVeredicto(salioDePerdida, 'julio').txt),
+      TD.tdVeredicto(salioDePerdida, 'julio').txt);
 
     /* ── EL QUE NO JUGABA EL MES PASADO ────────────────────────────────────────────────────
        Una cuenta que arrancó de cero daba +1.716.225% y otra +25.079%. No es un error de cálculo
@@ -567,7 +589,7 @@ async function main() {
     const cero = TD.tdComparar({ bet: 100000, win: 90000, profit: 10000 }, { bet: 6, win: 5, profit: 1 });
     check('tbs diario: el que no jugaba el mes pasado lo dice, no muestra un porcentaje absurdo',
       cero.nuevo === true && cero.vol === null && cero.volP === null
-      && TD.tdVeredicto(cero.vol, cero.qAnt, cero.qNue, cero.nuevo, 'julio', true).txt === 'nuevo');
+      && TD.tdVeredicto(cero, 'julio').txt === 'nuevo');
     // Pero uno que sí jugaba y creció mucho NO es "nuevo": es un cliente que creció, y hay que verlo.
     const crecio = TD.tdComparar({ bet: 1000, win: 900, profit: 100 }, { bet: 100, win: 90, profit: 10 });
     check('tbs diario: crecer mucho no es lo mismo que arrancar de cero',
@@ -596,7 +618,7 @@ async function main() {
     // Sin mes anterior no se inventa una tendencia: se dice que no hay contra qué comparar.
     check('tbs diario: sin mes anterior no inventa una tendencia',
       TD.tdComparar({ bet: 100, win: 90, profit: 10 }, null).hay === false
-      && TD.tdVeredicto(null, null, null, false, 'junio', false).txt === ''
+      && TD.tdVeredicto({ hay: false }, 'junio').txt === ''
       && /No hay días guardados de/.test(h12));
 
     /* ── CONTRA EL MISMO TRAMO DEL MES PASADO ──────────────────────────────────────────────
