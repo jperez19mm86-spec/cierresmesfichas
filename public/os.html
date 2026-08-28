@@ -6675,6 +6675,19 @@ function apiDoc(id,vista,alcance,caja){
 // ───────── REPORTES (diario por superagente/distribuidor — data REAL del casino) ─────────
 VIEWS.reportes = async () => {
   const cxs=(await api('/api/os/casino/conexiones')).conexiones||[];
+  /* ── LAS MONEDAS SALEN DE LAS CAJAS, NO DE UNA LISTA FIJA ────────────────────────────────────
+     Acá había diez monedas escritas a mano: ARS BRL CLP DOP EUR MXN PEN USD UYU VEF. Es la misma
+     lista que causó el agujero del guaraní — el casino sólo contesta por las monedas que le
+     nombrás, y las que no están vuelven SIN montos, en silencio. Con esa lista, PYG (que declaran
+     33 cajas) y COP (23) no se podían ni tildar: el reporte salía sin ellas y parecía completo.
+     Ahora salen de lo que declaran las cajas cargadas, ordenadas por cuántas la usan. */
+  if(!_paneles.length){ const dp=await api('/api/os/paneles'); _paneles=dp.paneles||[]; }
+  const _usoMon={}; _paneles.forEach(p=>(p.divisas||[]).forEach(c=>{ _usoMon[c]=(_usoMon[c]||0)+1; }));
+  const _mons=Object.keys(_usoMon).sort((a,b)=>_usoMon[b]-_usoMon[a]||a.localeCompare(b));
+  const _monsTop=_mons.filter(c=>_usoMon[c]>=3), _monsResto=_mons.filter(c=>_usoMon[c]<3);
+  const _chk=(c)=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px"
+      title="la declaran ${_usoMon[c]} caja${_usoMon[c]===1?'':'s'}"><input type="checkbox" class="pr-cur"
+      value="${esc(c)}" ${c==='ARS'?'checked':''} style="width:auto;margin:0"> ${esc(c)}</label>`;
   const cxOpts=cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')||'<option value="">(sin conexión)</option>';
   const hoy=new Date().toISOString().slice(0,10);
   document.getElementById('main').innerHTML=`
@@ -6717,11 +6730,16 @@ VIEWS.reportes = async () => {
         <div style="flex:1 1 150px;min-width:130px"><label>Buscar proveedor</label><input id="pr-q" placeholder="🔍 filtrar…" oninput="renderProv()" autocomplete="off"></div>
         <button class="outline" id="pr-csv" onclick="descargarProvCSV()" disabled>⬇ CSV</button>
       </div>
-      <div style="margin-top:8px"><label class="muted">Monedas</label>
-        <div id="pr-curs" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;align-items:center">${['ARS','BRL','CLP','DOP','EUR','MXN','PEN','USD','UYU','VEF'].map(c=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" class="pr-cur" value="${c}" ${c==='ARS'?'checked':''} style="width:auto;margin:0"> ${c}</label>`).join('')}
+      <div style="margin-top:8px"><label>Monedas <span class="muted" style="text-transform:none;letter-spacing:0">— las que declaran tus cajas, la más usada primero</span></label>
+        <div id="pr-curs" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:5px;align-items:center">${
+          _monsTop.map(_chk).join('')}
           <a onclick="prCurs(true)" style="cursor:pointer;text-decoration:underline;font-size:12px">todas</a>
           <a onclick="prCurs(false)" style="cursor:pointer;text-decoration:underline;font-size:12px">ninguna</a>
         </div>
+        ${_monsResto.length?`<details class="cajas" style="margin-top:8px">
+          <summary class="abrir"><span class="chev" aria-hidden="true"></span>Las otras ${_monsResto.length} monedas <span class="muted">(una o dos cajas cada una)</span></summary>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:9px">${_monsResto.map(_chk).join('')}</div>
+        </details>`:''}
       </div>
       <div id="pr-out" class="muted" style="margin-top:12px; overflow-x:auto">—</div>
     </div>`;
@@ -6801,7 +6819,13 @@ function renderRM(){
 }
 // ───────── REPORTE DE PROVEEDORES (general/por-superagente, multimoneda) ─────────
 let _provData=null;
-function prCurs(on){ document.querySelectorAll('.pr-cur').forEach(c=>{ c.checked=on; }); }
+/* «Todas» son 50 y pico de monedas, y el reporte hace UNA consulta por moneda. Se avisa antes:
+   antes se tildaban las diez de la lista fija y no había mucho que perder; ahora sí. */
+function prCurs(on){
+  const todas=document.querySelectorAll('.pr-cur');
+  if(on && todas.length>15 && !confirm('Son '+todas.length+' monedas, y el reporte hace una consulta por cada una.\n\nVa a tardar un buen rato. ¿Tildarlas todas igual?')) return;
+  todas.forEach(c=>{ c.checked=on; });
+}
 function prSelectedCurs(){ return [...document.querySelectorAll('.pr-cur:checked')].map(c=>c.value); }
 async function genProveedores(){
   const cid=val('pr-cx'); if(!cid)return toast('Elegí una conexión');

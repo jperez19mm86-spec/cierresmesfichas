@@ -3156,6 +3156,16 @@ async function main() {
        suelto terminó envuelto en un div escondido. Sin congelar, la factura se calcula con los
        precios de HOY: tocar un % hoy cambia lo que ya cobraste el mes pasado, y el propio
        servidor contesta al emitir «conviene congelar el mes primero». */
+    /* ── EL PUNTO CIEGO DEL GUARANÍ, OTRA VEZ ────────────────────────────────────────────────
+       El casino sólo contesta por las monedas que le nombrás; las que no le nombrás vuelven SIN
+       montos y en silencio. Por eso el reporte de proveedores no puede ofrecer una lista escrita
+       a mano: tenía diez y dejaba afuera PYG (33 cajas) y COP (23), así que salía incompleto y
+       parecía completo. Sale de lo que declaran las cajas. */
+    check('reportes: las monedas salen de las cajas, no de una lista escrita a mano',
+      !/\['ARS','BRL','CLP','DOP','EUR','MXN','PEN','USD','UYU','VEF'\]/.test(h10)
+      && /_paneles\.forEach\(p=>\(p\.divisas\|\|\[\]\)\.forEach/.test(h10),
+      'volvió una lista fija de monedas al reporte de proveedores');
+
     check('externos: el botón de congelar el mes está a la vista', (() => {
       // `cieExternos` arma la pantalla como UNA sola cadena. Así que basta con mirar el tramo que
       // va del arranque de la función hasta el botón: cualquier `display:none` ahí adentro lo está
