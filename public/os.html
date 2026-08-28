@@ -1262,13 +1262,6 @@ function editCli(id){
   loadCliPlat(id);
   loadCliProv(id);
 }
-// Quedó de cuando la ficha era un modal; hoy la salida es `salirCliente`.
-function closeCliModal(){
-  if(_cliDirty){
-    if(confirm('Tenés cambios sin guardar.\n\nAceptar = GUARDAR y salir\nCancelar = salir SIN guardar')){ saveCli(_cliModalId); return; }
-  }
-  const e=document.getElementById('cliEdit'); if(e) e.innerHTML='';
-}
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
 async function fillDivisas(curCsv){
   const d=await api('/api/os/divisas?activas=1'); const box=document.getElementById('e-divisas'); if(!box)return;
