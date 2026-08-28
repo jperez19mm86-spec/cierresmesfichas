@@ -156,6 +156,18 @@
   a.btn { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px;
     font-weight:700; cursor:pointer; font-size:13px; text-decoration:none; display:inline-block; }
   button.danger { background:transparent; border:1px solid var(--red); color:var(--red); }
+  /* ── EL BOTÓN QUE SALE PARA AFUERA ────────────────────────────────────────────────────────
+     "los botones no siempre tienen otro color y eso confunde a la vista". Y era peor que eso:
+     «Calcular» y «Emitir a la deuda» eran EL MISMO botón violeta, uno al lado del otro. Uno se
+     puede apretar cien veces sin consecuencia; el otro le manda una factura a todos los clientes.
+     Regla: un solo botón lleno por tarjeta —el de todos los días— y lo que sale para afuera o
+     mueve plata va en durazno. Se ve que es otra cosa antes de leerlo. */
+  /* Durazno lleno quedaba marrón y sucio al lado del violeta: `--durazno` es un color pensado
+     para TEXTO sobre su pastel, no para pintar un fondo. Va al revés —pastel de fondo, texto
+     oscuro y el borde marcado—, que es el mismo idioma que las etiquetas `.señal.durazno` y
+     mantiene los colores suaves. Igual de distinto del violeta, sin gritar. */
+  button.grave { background:var(--durazno-bg); color:var(--durazno); border:1.5px solid var(--durazno); }
+  button.grave:hover { background:#f6e7d6; }
   button.small { padding:5px 9px; font-size:12px; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
   .row > div { flex:1; min-width:120px; }
@@ -626,6 +638,18 @@ function seccion(id, titulo, resumen, cuerpo, abrirSola){
     <div class="cuerpo">${cuerpo}</div></details>`;
 }
 function secEstado(id, abierto){ _secTocada.add(id); if(abierto) _secAb.add(id); else _secAb.delete(id); }
+
+/* LA EXPLICACIÓN LARGA, PLEGADA. Casi todas las pantallas abrían con dos, tres o cuatro párrafos
+   en gris antes de mostrar un solo dato. Eso no es documentar de más: la primera vez sirve y las
+   otras doscientas tapa lo que venís a ver. Queda una línea a la vista —la que hace falta para no
+   equivocarse— y el resto detrás de «Cómo funciona esto», que se acuerda de si lo abriste. */
+function ayuda(id, resumen, detalle){
+  return `<div class="muted" style="margin:6px 0 ${detalle?'8px':'12px'};max-width:85ch">${resumen}</div>`
+    + (detalle?`<details class="cajas" style="margin:0 0 12px"${_secAb.has('ayuda.'+id)?' open':''}
+        ontoggle="secEstado('ayuda.${id}',this.open)">
+        <summary class="abrir"><span class="chev" aria-hidden="true"></span>Cómo funciona esto</summary>
+        <div class="muted" style="margin-top:9px;max-width:85ch">${detalle}</div></details>`:'');
+}
 function cliRamaEstado(id, abierto){
   _cerradasIni(_clientes);
   if(abierto) _cliCerradas.delete(id); else _cliCerradas.add(id);
@@ -1701,12 +1725,10 @@ VIEWS.foto = async () => {
   document.getElementById('main').innerHTML =
       '<div class="card"><h2>📸 Foto del mes</h2>' + bannerMes(_fotoMes, 'fotoIrA')
     + (fotoMesSinTerminar(_fotoMes) ? AVISO_FOTO_EN_CURSO : '')
-    + '<div class="nota"><b>Para qué es.</b> El reporte de <b>proveedores externos</b> necesita saber cuánto ganó cada '
-    + 'proveedor en cada panel. Preguntárselo al casino en vivo son ~525 consultas de hasta 16 segundos: con un cliente '
-    + 'multidivisa el reporte no llega a terminar. Como <b>un mes cerrado ya no cambia</b>, se le pregunta una sola vez, '
-    + 'queda guardado, y después cualquier reporte sale de la base al instante — aunque el casino esté caído.'
-    + '<div style="margin-top:6px"><b>Cuándo se saca:</b> a principio del mes siguiente, una vez. '
-    + 'Si un mes no tiene foto, su reporte de externos igual funciona, pero lento y puede fallar.</div></div>'
+    + ayuda('foto',
+        'Se saca <b>a principio del mes siguiente, una vez</b>. Es lo que hace que el reporte de <b>proveedores externos</b> salga al instante.',
+        'Ese reporte necesita saber cuánto ganó cada proveedor en cada panel. Preguntárselo al casino en vivo son ~525 consultas de hasta 16 segundos: con un cliente multidivisa no llega a terminar. Como <b>un mes cerrado ya no cambia</b>, se le pregunta una sola vez, queda guardado, y después cualquier reporte sale de la base al instante — aunque el casino esté caído.'
+        + '<div style="margin-top:9px">Si un mes no tiene foto, su reporte de externos igual funciona, pero lento y puede fallar.</div>')
     + '<div class="row" style="margin-top:10px;align-items:flex-end">'
     + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
     + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Consultas listas</label>'
@@ -1720,8 +1742,7 @@ VIEWS.foto = async () => {
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
     // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
     + '<div class="nota" style="margin-top:10px"><span class="tit">Las tres vueltas</span>'
-    + 'El nivel no se elige acá: lo decide <b>Agrupar por</b> dentro del casino. El OS lee cómo está y saca esa vuelta, '
-    + 'así que para completar el mes hay que pasar por las tres.<br>'
+    + 'Hay que pasar por las <b>tres</b>: el nivel no se elige acá, lo decide <b>Agrupar por</b> adentro del casino.<br>'
     + '<b>Superagente</b> y <b>Distribuidor</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente. '
     + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.'
     + '<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">'
@@ -2398,7 +2419,9 @@ VIEWS.proveedores = async () => {
         <div style="flex:0 0 190px"><label>Hasta</label><input id="pr-to" type="date" style="width:100%"/></div>
         <div style="flex:0"><button class="outline" onclick="importarProvReporte()">⤓ Importar del reporte</button></div>
       </div>
-      <div class="muted" style="margin-top:6px">Trae los proveedores <b>tal como aparecen en el Reporte de Proveedores</b> (unión de las conexiones — la misma marca en Europa y Casino cuenta una sola vez). Después completá el <b>% de costo</b> de cada uno. Es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.</div>
+      ${ayuda('prov-alta',
+        'Trae los proveedores <b>tal como aparecen en el Reporte de Proveedores</b> y después les completás el <b>% de costo</b>.',
+        'La unión de las conexiones: la misma marca en Europa y Casino cuenta una sola vez. El % de costo es un <b>gasto fijo, igual para TODOS los clientes</b>, independiente de lo que se le cobre a cada uno.')}
       <div class="row" style="margin-top:8px; align-items:flex-end">
         <div style="flex:2"><label>Agregar uno manual</label><select id="pr-sel">${provOpts}</select></div>
         <button onclick="addProv()">Agregar</button>
@@ -2407,10 +2430,10 @@ VIEWS.proveedores = async () => {
     <datalist id="pr-mlist">${(_lk.matriz||[]).map(m=>`<option value="${esc(m)}">`).join('')}</datalist>
     <div class="card">
       <h2>Catálogo (${_proveedores.length})</h2>
-      <div class="muted" style="margin-bottom:8px">Cada fila es un proveedor <b>como lo nombra el casino</b> ("RUBYPLAY XG"). La columna del medio dice a qué fila de la <b>matriz de Alexa</b> apunta ("RUBYPLAY OP"), porque los dos lados usan nombres distintos. El <b>% costo</b> es el % base de esa fila: editarlo acá o en 🧮 Cierre de Mes es lo mismo, es la misma data.</div>
-      <div class="muted" style="margin-bottom:8px;border-left:3px solid var(--gold);padding-left:8px">
-        ⚠️ <b>El sufijo es el producto, no un adorno.</b> <span class="pill">3OAKS SL</span>, <span class="pill">3OAKS SL2</span> y <span class="pill">3OAKS OP</span> son proveedores <b>distintos</b> y cuestan distinto (0 · 0,5 · 8,5).
-        Por eso <b>Auto-vincular une SOLO los idénticos</b> (Marca+Vendor exacto); lo parecido queda como sugerencia para que lo elijas vos.</div>
+      ${ayuda('prov-cat',
+        'Cada fila es un proveedor <b>como lo nombra el casino</b>. La del medio dice a qué fila de <b>tu matriz</b> apunta, porque los dos lados usan nombres distintos.',
+        'El <b>% costo</b> es el % base de esa fila: editarlo acá o en 🧮 Cierre de Mes es lo mismo, es la misma data.'
+        + '<div style="margin-top:9px">⚠️ <b>El sufijo es el producto, no un adorno.</b> <span class="pill">3OAKS SL</span>, <span class="pill">3OAKS SL2</span> y <span class="pill">3OAKS OP</span> son proveedores <b>distintos</b> y cuestan distinto (0 · 0,5 · 8,5). Por eso <b>Auto-vincular une SÓLO los idénticos</b> (Marca+Vendor exacto); lo parecido queda como sugerencia para que lo elijas vos.</div>')}
       <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
         <button class="small" onclick="provAuto()">🪄 Auto-vincular</button>
         <span class="badge ok">${_lkN('exacto')+_lkN('vinculado')} vinculados</span>
@@ -2620,23 +2643,23 @@ async function ciePago(){
   document.getElementById('cie-body').innerHTML = `
     <div class="card">
       <h2>💸 Cuánto le pagamos a los proveedores</h2>
-      <div class="muted" style="margin-bottom:10px">Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.
-        Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.</div>
+      ${ayuda('cie-pago',
+        'Por cada proveedor: <b>su ganancia × su costo</b>, pasado a USDT con el tipo de cambio del mes.',
+        'Es la cuenta inversa a la <b>Factura de externos</b>, que le cobra al cliente la diferencia entre su celda y su % base.'
+        + '<div style="margin-top:9px">La primera vez de cada mes consulta los tres paneles y tarda varios minutos; después sale de lo guardado. <b>Volver a consultar</b> los pregunta de nuevo. Un mes <b>congelado</b> usa los precios de ese mes.</div>'
+        + '<div style="margin-top:9px"><b>Vista previa</b> se vuelve a calcular cada vez, así que puede cambiar. <b>Emitir documento</b> guarda una copia congelada — es la que se manda y la que vas a poder volver a abrir igual dentro de un año.</div>')}
       ${bannerMes(_pagoMes, 'pagoIrA')}
       <div class="row" style="align-items:flex-end">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="pago-mes" value="${esc(_pagoMes)}"/></div>
         <div style="flex:0 0 auto;min-width:0"><button onclick="pagoCalcular()">Calcular</button></div>
         <div style="flex:1;min-width:0"></div>
         <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoRefrescar()">↻ Volver a consultar</button></div>
-        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button> <button class="outline small" onclick="pagoHoja()">👁 Vista previa</button> <button class="small" onclick="pagoEmitir()">📄 Emitir documento</button></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="outline small" onclick="pagoCSV()">⤓ Exportar CSV</button> <button class="outline small" onclick="pagoHoja()">👁 Vista previa</button> <button class="grave small" onclick="pagoEmitir()">📄 Emitir documento</button></div>
       </div>
-      <div class="muted" style="margin-top:6px">La primera vez de cada mes consulta los tres paneles y tarda varios minutos; después sale de lo guardado.
-        <b>Volver a consultar</b> los pregunta de nuevo. Un mes <b>congelado</b> usa los precios de ese mes.</div>
-      <!-- La distinción que pidió el dueño: "quiero siempre poder acceder a EXACTAMENTE lo mismo que
+      <!-- La distinción que pidió la dueña: "quiero siempre poder acceder a EXACTAMENTE lo mismo que
            envié". La vista previa se recalcula y puede cambiar; el documento emitido es una copia
-           congelada que no se toca nunca más. -->
-      <div class="muted" style="margin-top:4px"><b>Vista previa</b> se vuelve a calcular cada vez, así que puede cambiar.
-        <b>Emitir documento</b> guarda una copia congelada — es la que se manda y la que vas a poder volver a abrir igual dentro de un año.</div>
+           congelada que no se toca nunca más. Los dos párrafos que lo explicaban se fueron al
+           «Cómo funciona esto» de arriba. -->
       <div id="pago-body" style="margin-top:14px"><div class="muted">Elegí el mes y apretá Calcular.</div></div>
     </div>
     <div class="card" id="pago-docs"><div class="muted">Cargando documentos emitidos…</div></div>`;
@@ -2866,17 +2889,19 @@ async function cieVendedores(){
   b.innerHTML = `
     <div class="card">
       <h2>🤝 Cuenta de vendedores <span class="muted">— pagan el costo real, no un %</span></h2>
-      <div class="muted" style="margin-bottom:10px">Los vendedores revenden a sus propios clientes. No se les cobra un porcentaje sobre lo que cargan: pagan <b>lo que cuestan los proveedores</b> que usaron. Un panel de un cliente que cuelga del vendedor aparece en las dos cuentas y <b>está bien</b>: el cliente paga su %, el vendedor paga el costo. Son dos cobros distintos sobre el mismo movimiento.</div>
+      ${ayuda('cie-vend',
+        'No se les cobra un % sobre lo que cargan: pagan <b>lo que cuestan los proveedores</b> que usaron.',
+        'Los vendedores revenden a sus propios clientes. Un panel de un cliente que cuelga del vendedor aparece en las dos cuentas y <b>está bien</b>: el cliente paga su %, el vendedor paga el costo. Son dos cobros distintos sobre el mismo movimiento.'
+        + '<div style="margin-top:9px">Se emite como <b>proveedor_extra</b>, en su propia columna de la cuenta corriente y <b>aparte</b> de la factura de externos de los clientes. Emitir dos veces no duplica; para corregir se anula y se vuelve a emitir.</div>')}
       ${bannerMes(_venMes, 'venIrA')}
       <div class="row" style="align-items:flex-end">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ven-mes" value="${esc(_venMes)}" style="width:100%"/></div>
         <div style="flex:0"><button onclick="venCalcular()">Calcular</button></div>
         <div style="flex:1"></div>
         <div style="flex:0"><button class="outline small" onclick="venEmitir(true)">👁 Ver qué emitiría</button></div>
-        <div style="flex:0"><button class="small" onclick="venEmitir(false)">📤 Emitir a la deuda</button></div>
+        <div style="flex:0"><button class="grave small" onclick="venEmitir(false)">📤 Emitir a la deuda</button></div>
         <div style="flex:0"><button class="danger small" onclick="venAnular()">↩ Anular</button></div>
       </div>
-      <div class="muted" style="margin-top:6px">Se emite como <b>proveedor_extra</b>, en su propia columna de la cuenta corriente y <b>aparte</b> de la factura de externos de los clientes. Emitir dos veces no duplica; para corregir se anula y se vuelve a emitir.</div>
       <div id="ven-emi-out"></div>
       <div id="ven-body" style="margin-top:14px"><div class="muted">Apretá Calcular. Consulta el casino, así que tarda.</div></div>
     </div>`;
@@ -2970,7 +2995,7 @@ async function cieExternos() {
     + '</select></div>'
     + '<div><label class="muted">Mes</label><br><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
     + '<button onclick="extCalcular()">Calcular</button>'
-    + '<button class="outline" style="margin-left:6px" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button>'
+    + '<button class="grave" style="margin-left:6px" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button>'
     + '</div><div id="ext-emi-out"></div><div style="display:none">'
     + '<span style="margin-left:auto;display:flex;gap:8px;align-items:center">'
     + '<span class="muted">' + (estaCong ? '🧊 congelado: usa los precios de ESE mes' : '⚠ sin congelar: usa los precios de HOY') + '</span>'
@@ -3228,23 +3253,40 @@ async function cieMatriz(){
     return cab + (cerrada ? '' : filas);
   }).join('');
   document.getElementById('cie-body').innerHTML = cruceCard(cruce) + `
-  <div class="card"><div class="muted">Réplica <b>editable</b> de la planilla de Alexa. Filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes; cada celda = el % de ese proveedor para ese cliente. <b>% base</b> = rate mínimo/costo. Se guarda solo al salir de cada casilla. <b>${provs.length}</b> proveedores × <b>${clis.length}</b> clientes, agrupados por familia.</div>
-    <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">
-      <span class="muted">Los <b>${nVend} vendedores</b> no están acá: no son clientes, pagan <b>siempre el costo real</b> del proveedor por todo lo que usen.</span>
-      <span class="cie-est cie-est-ok">n</span><span class="muted">lo pagan n clientes</span>
-      <span class="cie-est cie-est-nc">no se cobra</span><span class="muted">decidido que no</span>
-      <span class="cie-est cie-est-sc">sin configurar</span><span class="muted">el casino lo reporta y no está cargado</span>
-      <span class="cie-est cie-est-nc">sin uso</span><span class="muted">no lo reporta nadie</span>
-      <button class="small outline" onclick="cieFoldAll()">Plegar todo</button>
+  <div class="card">
+    <div class="tapa">
+      <div>
+        <h2>Matriz de %</h2>
+        <div class="sub">${provs.length} proveedores × ${clis.length} clientes, agrupados por familia</div>
+      </div>
+      <div class="acciones">
+        <input id="cie-q" oninput="filtCie()" placeholder="🔎 buscar proveedor" style="width:210px">
+        <button class="small outline" onclick="cieFoldAll()">Plegar todo</button>
+      </div>
     </div>
-    <div class="row" style="margin-top:8px;align-items:flex-end;gap:10px;flex-wrap:wrap">
-      <div style="flex:1;min-width:160px"><label>🔎 Buscar proveedor</label><input id="cie-q" oninput="filtCie()" placeholder="ej: PRAGMATIC"></div>
-      <div style="flex:0"><label>➕ Proveedor (Marca Vendor)</label><input id="cie-np" placeholder="ej: NETENT OP" style="width:180px"></div>
-      <div style="flex:0"><button class="small" onclick="addCieProv()">Fila</button></div>
-      <div style="flex:0"><button class="small outline" onclick="cieAgregarFaltantes()" title="Agrega todos los proveedores del casino (Casino+Europa) que falten, sin %">➕ Faltantes del casino</button></div>
-      <div style="flex:0"><label>➕ Cliente</label><input id="cie-nc" placeholder="nombre" style="width:140px"></div>
-      <div style="flex:0"><button class="small" onclick="addCieCli()">Columna</button></div>
-    </div>
+    ${ayuda('cie-matriz',
+      'Cada celda es el % de ese proveedor para ese cliente. El <b>% base</b> es el costo. Se guarda sola al salir de la casilla.',
+      'Es la réplica editable de tu planilla: filas = proveedores (<b>Marca&nbsp;Vendor</b>), columnas = clientes.'
+      + '<div style="margin-top:9px">Los <b>' + nVend + ' vendedores</b> no están acá: no son clientes, pagan <b>siempre el costo real</b> del proveedor por todo lo que usen.</div>'
+      + '<div style="margin-top:9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">'
+      +   '<span class="cie-est cie-est-ok">n</span><span>lo pagan n clientes</span>'
+      +   '<span class="cie-est cie-est-nc">no se cobra</span><span>decidido que no</span>'
+      +   '<span class="cie-est cie-est-sc">sin configurar</span><span>el casino lo reporta y no está cargado</span>'
+      +   '<span class="cie-est cie-est-nc">sin uso</span><span>no lo reporta nadie</span>'
+      + '</div>')}
+    <!-- Agregar filas y columnas es de vez en cuando: arriba peleaba el ancho con el buscador,
+         que se usa siempre, y el botón de «faltantes» quedaba flotando a otra altura. -->
+    <details class="cajas">
+      <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregar un proveedor o un cliente</summary>
+      <div class="row" style="margin-top:11px;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div style="flex:0"><label>Proveedor nuevo (Marca Vendor)</label><input id="cie-np" placeholder="ej: NETENT OP" style="width:180px"></div>
+        <div style="flex:0"><button class="small" onclick="addCieProv()">Agregar fila</button></div>
+        <div style="flex:0"><label>Cliente nuevo</label><input id="cie-nc" placeholder="nombre" style="width:140px"></div>
+        <div style="flex:0"><button class="small" onclick="addCieCli()">Agregar columna</button></div>
+        <div style="flex:1"></div>
+        <div style="flex:0"><button class="small outline" onclick="cieAgregarFaltantes()" title="Agrega todos los proveedores del casino (Casino+Europa) que falten, sin %">➕ Faltantes del casino</button></div>
+      </div>
+    </details>
   </div>
   <div class="card" style="overflow:auto;max-height:74vh;padding:6px">
     ${provs.length? `<table class="ciet"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">Matriz vacía.</div>'}
@@ -3654,7 +3696,7 @@ REP.mes = async () => {
       <div class="muted" style="margin-bottom:8px;font-size:12px">Cada moneda se pasa a USDT con su propio tipo de cambio:
         ${(d.tcPorDivisa||[]).map(t=>'<span class="pill" style="margin-right:3px" title="'+esc(t.fuente||'sin cargar')+'">'+esc(t.divisa)+(t.tc?' '+money(t.tc,2):' ⚠ sin TC')+'</span>').join('')||'—'}</div>
       <div class="row" style="align-items:stretch">
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Σ A cobrar</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>A cobrar</label><div style="font-size:24px;font-weight:800">${money(d.total)}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Repartido</label><div style="font-size:24px;font-weight:800;color:var(--gold)">${money(d.repartido)}</div></div>
         <div class="card" style="flex:1;background:${pend?'rgba(217,83,79,.12)':'var(--bg3)'};margin:0"><label>Sin asignar</label><div style="font-size:24px;font-weight:800;color:${pend?'var(--red)':'inherit'}">${money(d.sin_asignar)}</div><div class="muted" style="font-size:11px">puntos del base que nadie cobra</div></div>
       </div>
@@ -4788,7 +4830,7 @@ VIEWS.chat = async () => {
             <div class="acciones">
               <button class="outline small" onclick="chatHoja('${g.cliente_id}')"
                 title="Ver la hoja tal cual la ve el cliente">Ver la hoja</button>
-              <button class="small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+              <button class="grave small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
                 onclick="chatEnviar(this.dataset.id,this.dataset.nom)"
                 ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram en Cajas y clientes"'}
                 >Enviársela${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
@@ -4800,7 +4842,7 @@ VIEWS.chat = async () => {
         </details>`;}).join('')}
 
       <div class="row" style="align-items:center;gap:12px;margin-top:16px">
-        <button onclick="chatCobrar()">Cobrar el mes</button>
+        <button class="grave" onclick="chatCobrar()">Cobrar el mes</button>
         <div class="muted" style="font-size:12.5px;flex:1;min-width:260px">
           ${cta.clientes.length?`Cobrado: <b>${cta.clientes.filter(g=>Number(g.cobrado)>0).length}</b> cliente(s) por
              <b>${money(cta.totales.cobrado,2)} USDT</b>. Si a alguno le faltaba un precio o el tipo
@@ -5257,9 +5299,9 @@ VIEWS.accesos = async () => {
   main.innerHTML=`
     <div class="card">
       <h2>🔐 Accesos <span class="muted">(${con} de ${cl.length} con contraseña)</span></h2>
-      <div class="muted" style="max-width:85ch">Quién entra con qué, y qué puede hacer cada uno.
-        El que <b>no tiene contraseña sigue entrando con su código</b>, como hasta hoy: darle acceso
-        a uno no deja afuera a los demás. Podés marcar varios y hacerlo de una.</div>
+      ${ayuda('accesos',
+        'Quién entra con qué, y qué puede hacer cada uno. Marcá varios y cambialos de una.',
+        'El que <b>no tiene contraseña sigue entrando con su código</b>, como hasta hoy: darle acceso a uno no deja afuera a los demás.')}
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
         <div style="flex:0 0 220px"><label>Buscar</label>
           <input id="acc-q" value="${esc(_accFiltro)}" placeholder="nombre o código"
@@ -5388,8 +5430,9 @@ VIEWS.facturacion = async () => {
     <div class="card">
       <h2>🧾 Factura de consumo <span class="muted">(se cobra por los PEDIDOS)</span></h2>
       ${bannerMes(mes, 'facIrA')}
-      <div class="muted" style="margin-bottom:8px">Lo que se cobra sale de los <b>pedidos</b> del sistema en línea: <b>fee = % base × vendido</b>. El <b>casino va al lado como control</b>, con la diferencia en %.</div>
-      <div class="muted" style="margin-bottom:8px">Ese control ahora sale del <b>acumulado guardado</b> (el cron lo baja todas las noches), así que es instantáneo. Antes se le preguntaba al casino en cada pantallazo y tardaba más de un minuto para llegar al mismo número — y un mes cerrado ya no cambia.</div>
+      ${ayuda('fac',
+        'Lo que se cobra sale de los <b>pedidos</b>: <b>fee = % base × vendido</b>. El <b>casino va al lado como control</b>, con la diferencia en %.',
+        'Ese control sale del <b>acumulado guardado</b> —el cron lo baja todas las noches—, así que es instantáneo. Antes se le preguntaba al casino en cada pantallazo y tardaba más de un minuto para llegar al mismo número, y un mes cerrado ya no cambia.')}
       <div class="row" style="align-items:flex-end">
         <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}" onchange="_facMes=this.value"></div>
         <div><label>Desde (opcional)</label><input type="date" id="fac-from"></div>
@@ -5441,7 +5484,7 @@ async function calcularFac(vivo){
         + '<button class="danger small" style="margin-top:8px" onclick="facAnular()">↩ Anular la emisión</button></div>'
       : '<div class="card" style="background:var(--bg3);margin:0 0 10px"><b>Todavía no se pasó a la deuda</b>'
         + '<div class="muted" style="margin-top:4px">Emitir genera un movimiento por cliente y le suma el fee a su cuenta corriente. Los que no tienen % base quedan afuera.</div>'
-        + '<button style="margin-top:8px" onclick="facEmitir()">💸 Emitir a la deuda</button></div>')
+        + '<button class="grave" style="margin-top:8px" onclick="facEmitir()">💸 Emitir a la deuda</button></div>')
     + '<div class="row" style="align-items:stretch">'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Vendido (USDT)</label><div style="font-size:20px;font-weight:800">'+money(T.vendido_usdt,2)+'</div><div class="muted" style="font-size:11px">pedidos cargados</div></div>'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>A cobrar (USDT)</label><div style="font-size:20px;font-weight:800;color:var(--gold)">'+money(T.fee_usdt,2)+'</div><div class="muted" style="font-size:11px">% base × vendido</div></div>'

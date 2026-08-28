@@ -2872,10 +2872,13 @@ async function main() {
       && /señal rosa" title="Le cobrás menos de lo que te cuesta/.test(uiCh)
       && /señal durazno" title="No le cargaste precio/.test(uiCh));
     /* Un botón lleno por tarjeta: el que hace la cosa. Antes «cobrar el mes» se veía igual que
-       «ver una hoja» y nada decía cuál movía plata. */
+       «ver una hoja» y nada decía cuál movía plata.
+       Y desde que existe `.grave`, ese único botón lleno además va en durazno: «Enviársela» le
+       llega de verdad al cliente por Telegram, así que no se puede ver igual que «Calcular». */
     const cuerpoCierre = uiCh.slice(uiCh.indexOf('S.cierre = `'), uiCh.indexOf('S.pedidos = `'));
     check('chat: en cada cliente hay un solo botón lleno, el que manda la cuenta',
-      (cuerpoCierre.match(/<button class="small"/g) || []).length === 1
+      (cuerpoCierre.match(/<button class="grave small"/g) || []).length === 1
+      && (cuerpoCierre.match(/<button class="small"/g) || []).length === 0
       && (cuerpoCierre.match(/<button class="outline small"/g) || []).length === 1,
       'el resto va en contorno');
     // La cuenta se manda desde la misma pantalla y queda anotado si salió.
@@ -3142,6 +3145,24 @@ async function main() {
     // Y en Clientes se dice que eso es el historial, para que no parezca lo mismo.
     check('clientes: los botones aclaran que son el historial',
       (h10.match(/\(historial\)/g) || []).length >= 2 && /se atiende en 🔔 Pendientes/.test(h10));
+
+    /* ── LO QUE SALE PARA AFUERA NO SE PUEDE VER IGUAL QUE «CALCULAR» ────────────────────────
+       «Calcular» y «Emitir a la deuda» eran el MISMO botón violeta, uno al lado del otro: uno se
+       aprieta cien veces sin consecuencia y el otro le manda una factura a todos los clientes.
+       `.grave` los separa. Si mañana alguien agrega otra emisión, este chequeo la reclama. */
+    check('los botones que emiten o mandan van en .grave, no en el violeta de todos los días',
+      /button\.grave \{/.test(h10)
+      && ['venEmitir(false)', 'pagoEmitir()', 'extEmitir()', 'facEmitir()', 'chatCobrar()', 'chatEnviar(']
+           .every((fn) => {
+             // Se busca el ONCLICK, no el nombre suelto: `facEmitir()` aparece antes como
+             // `async function facEmitir()` y mirar hacia atrás desde ahí caía en otro botón.
+             const i = h10.indexOf('onclick="' + fn);
+             if (i < 0) return false;
+             // el <button ...> que lo dispara: se mira hacia atrás hasta abrir la etiqueta
+             const tag = h10.slice(h10.lastIndexOf('<button', i), i);
+             return /class="[^"]*\bgrave\b/.test(tag);
+           }),
+      'alguna emisión quedó con el botón de todos los días');
   }
 
   // ── LA CUENTA DE CADA CLIENTE, RENGLÓN POR RENGLÓN ───────────────────────────────────────────
