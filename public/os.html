@@ -5825,8 +5825,16 @@ VIEWS.tbsdiario = async () => {
   // movió nada: una fila de ceros no es información.
   const vivos = (dat.clientes||[]).filter(c => c.bet !== 0 || c.win !== 0 || c.profit !== 0);
   const escondidas = (dat.clientes||[]).length - vivos.length;
+  /* ── EL QUE ESTÁ ADENTRO DE OTRO NO VA COMO FILA SUELTA ──────────────────────────────────────
+     Desde que el padre se abre en Total / Sin / Sólo, tener al hijo TAMBIÉN arriba es mostrar lo
+     mismo dos veces. Y era peor que redundante: MULT2 caía en «traen menos jugado» y sumaba al
+     contador de esa tarjeta, así que un problema que ya estaba adentro de NachoAPI se contaba como
+     un cliente aparte. Los contadores de arriba y la lista tienen que ser cosas que se puedan
+     sumar; lo de adentro se mira abriendo su padre. */
+  const anidadasVivas = vivos.filter(c => c.dentroDe);
+  const sueltos = vivos.filter(c => !c.dentroDe);
   const porCliente = new Map();
-  vivos.forEach(c => {
+  sueltos.forEach(c => {
     const g = porCliente.get(c.login) || { login: c.login, filas: [] };
     g.filas.push(c); porCliente.set(c.login, g);
   });
@@ -6035,8 +6043,16 @@ VIEWS.tbsdiario = async () => {
           <td style="${abrible?'cursor:pointer':''}" ${abrible?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
             ${abrible?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
             ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}
-            ${g.hijos.length?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
-              title="Este número es el TOTAL: incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}. Abrilo para verlo partido.">incluye ${g.hijos.map(h=>esc(tdCorto(h.login))).join(' + ')}</div>`:''}
+            ${g.hijos.length?(()=>{
+              // Si adentro hay uno que viene mal, la tarjeta cerrada tiene que decirlo: si no, el
+              // problema se esconde justo por haberlo metido adentro del padre.
+              const malos = g.hijos.filter(h=>{ const a2=analizar(h); return a2.v && a2.v.tono==='mal'; });
+              return `<div class="señal ${malos.length?'rosa':'durazno'}" style="margin-top:4px;font-size:10.5px"
+                title="Este número es el TOTAL: incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}. Abrilo para verlo partido.">incluye ${
+                g.hijos.map(h=>esc(tdCorto(h.login))).join(' + ')}${malos.length?' ⚠':''}</div>`
+              + (malos.length?`<div class="muted" style="font-size:10.5px;margin-top:2px">${
+                  malos.map(h=>esc(tdCorto(h.login))).join(', ')} trae menos jugado — abrilo</div>`:'');
+            })():''}
             <!-- En TBS un padre trae su subárbol adentro. Sin decirlo acá, la tabla invita a sumar
                  esta fila con la de su padre — que es justo lo que inflaba el total en un millón. -->
             ${g.principal.dentroDe?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
@@ -6076,7 +6092,11 @@ VIEWS.tbsdiario = async () => {
       <div class="muted" style="margin-top:8px;font-size:12px">
         Las cuentas que en ${esc(nomAnt)} casi no jugaban dicen «nuevo» en vez de un porcentaje, y a partir
         de 6 veces se pasa a «×6», «×20» — un porcentaje de cuatro cifras hay que traducirlo.
-        ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}</div>
+        ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}
+        ${anidadasVivas.length?` ${anidadasVivas.map(c=>'<b>'+esc(c.login)+'</b>').join(', ')}
+          no ${anidadasVivas.length===1?'aparece':'aparecen'} como fila aparte:
+          ${anidadasVivas.length===1?'está':'están'} adentro de
+          ${[...new Set(anidadasVivas.map(c=>c.dentroDe))].map(esc).join(', ')}, que se abre para verlo partido.`:''}</div>
     </div>`}
   `;
 };
