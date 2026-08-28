@@ -5859,8 +5859,16 @@ VIEWS.tbsdiario = async () => {
         ? `<div style="font-weight:700;color:var(--red)">${money(c.profit,0)}</div>
            <div style="font-size:11px;color:var(--red)">pasó a pérdida <span class="muted">vs. ${esc(nomAnt)}</span></div>`
         : celda(c.profit, a.volP, a.rVolP, c.profit<0)}</td>
-      <td class="right"><div>${a.queda==null?'—':money(a.queda,1)+'%'}</div>
-        ${(a.hay && !a.nuevo && a.qAnt!=null)?`<div class="muted" style="font-size:11px">${esc(nomAnt)} ${money(a.qAnt,1)}%</div>`:''}</td>`;
+      <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(a.queda,1)+'%'}</div>
+        ${(a.hay && !a.nuevo && a.qAnt!=null)?(()=>{
+          // Eran dos porcentajes uno debajo del otro y había que restarlos de cabeza para saber si
+          // subió. Ahora lo dice, con el mismo código de color que las otras dos columnas.
+          const d = a.queda - a.qAnt;
+          const col = Math.abs(d) < 0.05 ? 'var(--muted)' : (d > 0 ? 'var(--verde2)' : 'var(--rosa)');
+          const sig = Math.abs(d) < 0.05 ? '=' : (d > 0 ? '▲' : '▼');
+          return `<div style="font-size:11px;color:${col}">${sig} ${money(Math.abs(d),1)} pts
+            <span class="muted">· ${esc(nomAnt)} ${money(a.qAnt,1)}%</span></div>`;
+        })():''}</td>`;
   };
 
   main.innerHTML = `
@@ -5966,7 +5974,11 @@ VIEWS.tbsdiario = async () => {
         return `<tr${g.a.v.tono==='mal'?' style="background:rgba(217,83,79,.06)"':''}>
           <td style="${g.otras.length?'cursor:pointer':''}" ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
             ${g.otras.length?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
-            ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}</td>
+            ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}
+            <!-- En TBS un padre trae su subárbol adentro. Sin decirlo acá, la tabla invita a sumar
+                 esta fila con la de su padre — que es justo lo que inflaba el total en un millón. -->
+            ${g.principal.dentroDe?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
+              title="Su número ya está contado adentro de ${esc(g.principal.dentroDe)}: no se suman los dos">ya contado en ${esc(g.principal.dentroDe)}</div>`:''}</td>
           ${filaCliente(g.principal, g.a, false)}
           <td style="font-size:12px${tono?';color:'+tono:''}"><b>${esc(g.a.v.txt)}</b>
             ${g.a.v.det?`<div class="muted" style="font-size:11px">${esc(g.a.v.det)}</div>`:''}</td>
