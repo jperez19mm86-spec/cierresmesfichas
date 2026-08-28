@@ -5618,6 +5618,15 @@ const TD_MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'ju
 
 /* Un porcentaje deja de leerse cuando pasa de unos cientos: "+1.900%" hay que traducirlo, "×20"
    no. Se cambia de unidad a partir de 6 veces, que es donde el porcentaje ya no ayuda. */
+/* «MULT2-CAL-ARS-PROD» adentro de una etiqueta la parte en dos renglones y no aporta: el sufijo
+   dice la moneda y el ambiente, que ya están en la fila. Se deja la primera parte, que es como lo
+   nombra la dueña ("sin Mult2"). Si el nombre ya es corto, no se toca. */
+function tdCorto(login) {
+  const s = String(login || '');
+  if (s.length <= 12 || !s.includes('-')) return s;
+  return s.split('-')[0];
+}
+
 function tdDelta(pct, ratio) {
   if (pct == null) return null;
   if (ratio != null && ratio >= 6) return '×' + money(ratio, ratio < 10 ? 1 : 0);
@@ -6027,7 +6036,7 @@ VIEWS.tbsdiario = async () => {
             ${abrible?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
             ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}
             ${g.hijos.length?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
-              title="Este número es el TOTAL, como lo muestra el panel de TBS. Abrilo para verlo partido.">incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}</div>`:''}
+              title="Este número es el TOTAL: incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}. Abrilo para verlo partido.">incluye ${g.hijos.map(h=>esc(tdCorto(h.login))).join(' + ')}</div>`:''}
             <!-- En TBS un padre trae su subárbol adentro. Sin decirlo acá, la tabla invita a sumar
                  esta fila con la de su padre — que es justo lo que inflaba el total en un millón. -->
             ${g.principal.dentroDe?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
@@ -6037,22 +6046,22 @@ VIEWS.tbsdiario = async () => {
             ${g.a.v.det?`<div class="muted" style="font-size:11px">${esc(g.a.v.det)}</div>`:''}</td>
         </tr>`
         + (ab ? (g.hijos.length ? (()=>{
-            // Las tres vistas de lo mismo: sin el hijo, sólo el hijo, y el total de arriba.
+            // Las tres vistas de lo mismo, en el orden en que se piensan: primero el total —que es
+            // el número que muestra el panel de TBS— y después de qué está hecho.
             const sinH = restar(g.principal, g.hijos);
             const antP = g.a.ant;
             const antH = g.hijos.map(h=>idxAnt.get(h.agente_id+'|'+h.moneda)).filter(Boolean);
             const antSin = (antP && antH.length===g.hijos.length)
               ? { bet: antP.bet-antH.reduce((a,x)=>a+x.bet,0), win: antP.win-antH.reduce((a,x)=>a+x.win,0),
                   profit: antP.profit-antH.reduce((a,x)=>a+x.profit,0) } : null;
-            const linea = (etq, fila, ana, fuerte) => `<tr class="sub">
-              <td style="padding-left:18px;font-size:12px${fuerte?';font-weight:700':''}">${etq}</td>
+            const linea = (etq, fila, ana) => `<tr class="sub">
+              <td style="padding-left:18px;font-size:12.5px;font-weight:700">${etq}</td>
               ${filaCliente(fila, ana, true)}
-              <td class="muted" style="font-size:11px">${esc(ana.v.txt||'')}</td></tr>`;
-            return linea('sin ' + esc(g.hijos.map(h=>h.login).join(' ni ')),
-                         sinH, analizarArmada(sinH, antSin), true)
-              + g.hijos.map(h=>linea('sólo ' + esc(h.login), h, analizar(h), false)).join('')
-              + `<tr class="sub"><td style="padding-left:18px;font-size:12px" class="muted">total (lo de arriba)</td>
-                 ${filaCliente(g.principal, g.a, true)}<td></td></tr>`;
+              <td class="muted" style="font-size:11px">${esc((ana.v&&ana.v.txt)||'')}</td></tr>`;
+            const corto = g.hijos.map(h=>esc(tdCorto(h.login))).join(' ni ');
+            return linea('Total', g.principal, g.a)
+              + linea('Sin ' + corto, sinH, analizarArmada(sinH, antSin))
+              + g.hijos.map(h=>linea('Sólo ' + esc(tdCorto(h.login)), h, analizar(h))).join('');
           })() : '')
           + g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
             <td></td>${filaCliente(o, a2, true)}
