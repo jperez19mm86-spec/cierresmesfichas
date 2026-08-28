@@ -2090,8 +2090,17 @@ async function pintarComprobantes(estado, conFiltros) {
         // la moneda de la cuenta. Cada botón va pegado al campo que lee, y se ve cuál es cuál.
         ? '<div style="margin-top:10px"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional" style="max-width:420px"></div>'
 
-          + '<div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">'
-          +   '<b style="font-size:12px">Ya sé a qué cambio recibí esta plata</b>'
+          /* ── LAS DOS CAJAS SON DOS CAMINOS, NO UNO BUENO Y UNO GRIS ────────────────────────
+             El fondo de la caja era `--bg3`, el MISMO rosa que el de los campos: todo se fundía y
+             el botón de contorno del segundo camino desaparecía. «Aprobar con el TC del mes» no
+             se leía como algo que se aprieta.
+             Ahora la caja va blanca con borde —los campos rosas resaltan encima— y los DOS botones
+             son botones de verdad. No rompen la regla de «uno lleno por tarjeta»: esa regla separa
+             lo cotidiano de lo que sale para afuera, y acá las dos cosas son lo mismo —aprobar—,
+             sólo cambia si ya sabés el cambio o todavía no. Poner una en gris sugería que era la
+             segunda opción, y para el que cobra en pesos todo el mes es la primera. */
+          + '<div class="card" style="margin:8px 0 0;background:var(--bg2);border:1px solid var(--border);padding:11px 13px">'
+          +   '<b style="font-size:12.5px">Ya sé a qué cambio recibí esta plata</b>'
           +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
           // y se le lleva la cuenta en pesos. Lo que se acredita es lo que resta la deuda.
@@ -2116,12 +2125,12 @@ async function pintarComprobantes(estado, conFiltros) {
           // ⚠️ ESTE CAMPO ES OTRO, y no es un capricho: el de arriba está rotulado en la moneda de
           // la CUENTA y éste acredita en la moneda del PAGO. Cuando compartían input, escribir
           // "1000" siguiendo la etiqueta "Acreditar (USDT)" grababa 1000 PESOS.
-          + '<div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">'
-          +   '<b style="font-size:12px">Todavía no sé el tipo de cambio</b>'
+          + '<div class="card" style="margin:8px 0 0;background:var(--bg2);border:1px solid var(--border);padding:11px 13px">'
+          +   '<b style="font-size:12.5px">Todavía no sé el tipo de cambio</b>'
           +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           +     '<div style="flex:0 0 auto"><label>Entraron (' + esc(c.divisa || 'ARS') + ')</label>'
           +       '<input id="cmp-m-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
-          +     '<div style="flex:0 0 auto"><button class="small outline" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Aprobar con el TC del mes</button></div>'
+          +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Aprobar con el TC del mes</button></div>'
           +   '</div>'
           +   '<div class="muted" style="margin-top:6px;font-size:12px">Se acredita en ' + esc(c.divisa || 'ARS')
           +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
