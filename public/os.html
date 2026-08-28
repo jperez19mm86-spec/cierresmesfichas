@@ -2160,7 +2160,7 @@ async function pintarComprobantes(estado, conFiltros) {
     // está filtrado y se ofrece salir del filtro, que si no hay que ir a buscar el desplegable.
     + (cs.length ? cs.map(fila).join('')
       : '<div class="card"><div class="empty">'
-        + (_cmpCli
+        + (_cmpCli && conFiltros
             ? 'Ese cliente no tiene comprobantes ' + (estado === 'pendiente' ? 'esperando aprobación' : 'acá')
               + '. <button class="outline small" style="margin-left:6px" onclick="_cmpCli=\'\';VIEWS.movimientos()">Ver todos los clientes</button>'
             : (estado === 'pendiente' ? '✅ No hay nada esperando aprobación.' : 'No hay comprobantes acá.'))
@@ -3488,38 +3488,133 @@ function movSub(s){ _movSub=s; VIEWS.movimientos(); }
 MOV.pendientes = () => pintarComprobantes('pendiente', false);
 MOV.historial  = () => pintarComprobantes(_cmpFiltro, true);
 
+/* Cuánto se ve de una: la lista traía 298 movimientos, se pintaban los primeros 50 y no lo decía
+   en ningún lado — parecía que no había más. */
+let _movCli = '', _movTipo = '', _movQ = '', _movTope = 40;
+const MOV_TIPO = { carga: 'carga', pago: 'pago', ajuste: 'ajuste' };
+function movFiltro(k, v){ if(k==='cli') _movCli=v; if(k==='tipo') _movTipo=v; if(k==='q') _movQ=v;
+  _movTope = 40; MOV.cuenta(); }
+function movMas(){ _movTope += 60; MOV.cuenta(); }
+
 MOV.cuenta = async () => {
   if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
-  if(!_paneles.length){ const d=await api('/api/os/paneles'); _paneles=d.paneles||[]; }
-  const cliOpts = _clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('');
   const movs = (await api('/api/os/movimientos')).movimientos||[];
+  const nom = {}; _clientes.forEach(c=>{ nom[c.id]=c; });
+
+  // ── el filtro ───────────────────────────────────────────────────────────────────────────────
+  const q = _movQ.trim().toLowerCase();
+  const vistos = movs.filter(m=>{
+    if(_movCli && m.cliente_id!==_movCli) return false;
+    if(_movTipo && m.tipo!==_movTipo) return false;
+    if(!q) return true;
+    const c = nom[m.cliente_id];
+    return [c&&c.codigo, c&&c.nombre, m.notas, m.medio, m.tipo]
+      .some(x=>String(x||'').toLowerCase().includes(q));
+  });
+
+  // ── el titular: qué se cargó y qué se cobró de lo que se está viendo ─────────────────────────
+  // Sin esto la lista contestaba "qué pasó" pero no "cuánto", que es la pregunta de verdad.
+  const suma = (t) => vistos.filter(m=>m.tipo===t).reduce((a,m)=>a+Number(m.monto_usdt||0),0);
+  const cargas = suma('carga'), pagos = suma('pago'), ajustes = suma('ajuste');
+  const provis = vistos.filter(m=>m.provisional).length;
+  const cliSel = _movCli ? nom[_movCli] : null;
+
+  /* ⚠️ LO QUE DEBEN NO SE RESTA ACÁ. La tentación es hacer «cargas − pagos» y mostrarlo, pero da
+     otro número: la deuda de verdad la calcula el servidor e incluye lo de proveedores. Con los
+     datos de hoy la resta daba 80.049,78 y la deuda real es 80.239,30 — 190 USDT de diferencia
+     puestos al lado de cifras que sí son exactas. Así que se muestra la del servidor.
+     Y agrupada por la moneda de la CUENTA: hoy están todos en USDT, pero el que lleve la suya en
+     pesos no se puede sumar con los demás. */
+  const deudaPorMoneda = {};
+  (cliSel ? [cliSel] : _clientes).forEach(c=>{
+    if(!c.deuda) return;
+    const k = c.deuda.moneda || 'USDT';
+    deudaPorMoneda[k] = (deudaPorMoneda[k]||0) + Number(c.deuda.total||0);
+  });
+  const deudaProv = (cliSel ? [cliSel] : _clientes).filter(c=>c.deuda && c.deuda.provisional).length;
+
+  const cliOpts = _clientes.slice().sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo)))
+    .map(c=>`<option value="${c.id}"${c.id===_movCli?' selected':''}>${esc(c.codigo)} · ${esc(c.nombre||'')}</option>`).join('');
+
   document.getElementById('mov-body').innerHTML = `
-    ${_cmpPend ? `<div class="card" style="border-left:3px solid var(--gold)"><b>⏳ Hay ${_cmpPend} comprobante(s) esperando aprobación.</b>
+    ${_cmpPend ? `<div class="nota-suave" style="margin-bottom:12px"><b>⏳ Hay ${_cmpPend} comprobante(s) esperando aprobación.</b>
       <span class="muted">Hasta que los apruebes no bajan ninguna deuda.</span>
       <button class="small" style="margin-left:8px" onclick="movSub('pendientes')">Verlos</button></div>` : ''}
-    <div class="card"><h2>💳 Registrar pago</h2>
-      <div class="row">
-        <div><label>Cliente</label><select id="mp-cli">${cliOpts}</select></div>
+
+    <div class="card"><h2>💳 Registrar un pago a mano</h2>
+      <div class="muted" style="margin-bottom:10px;max-width:80ch">Para lo que no entra por un comprobante:
+        un pago en efectivo, una transferencia que llegó por otro lado. Baja la deuda igual que aprobar un comprobante.</div>
+      <div class="row" style="align-items:flex-end">
+        <div><label>Cliente</label><select id="mp-cli">
+          <!-- Arrancaba en el primero por orden alfabético: apretar «Registrar» sin tocar nada
+               le cargaba el pago a un cliente que nadie eligió. -->
+          <option value="">— elegí el cliente —</option>${cliOpts}</select></div>
         <div><label>Monto (USDT)</label><input id="mp-monto" type="number" placeholder="1000"/></div>
-        <div style="flex:0"><label>¿POR DÓNDE?</label><select id="mp-medio"><option value="cvu">CVU / transferencia</option><option value="usdt">USDT</option><option value="efectivo">Efectivo</option><option value="otro">Otro</option></select></div><button onclick="regPago()">Registrar pago</button>
+        <div style="flex:0"><label>¿Por dónde?</label><select id="mp-medio">
+          <option value="cvu">CVU / transferencia</option><option value="usdt">USDT</option>
+          <option value="efectivo">Efectivo</option><option value="otro">Otro</option></select></div>
+        <div style="flex:0"><button onclick="regPago()">Registrar pago</button></div>
       </div>
     </div>
-    <div class="card"><h2>Movimientos (${movs.length})</h2>
-      <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th><th class="right">ARS</th><th class="right">USDT</th><th>TC</th></tr></thead><tbody>
-      ${movs.slice(0,50).map(m=>{ const c=_clientes.find(x=>x.id===m.cliente_id);
-        return `<tr><td class="muted">${esc((m.fecha||'').slice(0,16).replace('T',' '))}</td><td><span class="badge ${m.tipo==='pago'?'ok':'warn'}">${esc(m.tipo)}</span></td><td>${c?esc(c.codigo):'—'}</td><td class="right">${m.monto_ars?money(m.monto_ars,0):''}</td><td class="right"><b>${m.monto_usdt?money(m.monto_usdt,2):''}</b></td><td class="muted">${m.tc_momento?money(m.tc_momento,0):''}</td></tr>`;
-      }).join('') || '<tr><td colspan="6" class="empty">Sin movimientos.</td></tr>'}
+
+    <div class="card">
+      <div class="tapa">
+        <div>
+          <h2>Movimientos</h2>
+          <div class="sub">${vistos.length===movs.length
+            ? `${movs.length} en total`
+            : `${vistos.length} de ${movs.length}${cliSel?' · '+esc(cliSel.nombre||cliSel.codigo):''}`}</div>
+        </div>
+        <div class="acciones">
+          <input id="mov-q" placeholder="🔍 cliente, nota, medio…" value="${esc(_movQ)}"
+            oninput="clearTimeout(window._movT);window._movT=setTimeout(()=>movFiltro('q',this.value),250)" style="width:210px">
+          <select onchange="movFiltro('cli',this.value)" style="width:210px">
+            <option value="">Todos los clientes</option>${cliOpts}</select>
+          <select onchange="movFiltro('tipo',this.value)" style="width:130px">
+            <option value="">Todo</option>
+            ${Object.keys(MOV_TIPO).map(t=>`<option value="${t}"${t===_movTipo?' selected':''}>${MOV_TIPO[t]}s</option>`).join('')}
+          </select>
+          ${(_movCli||_movTipo||_movQ)?`<button class="outline small" onclick="_movCli='';_movTipo='';_movQ='';movFiltro('q','')">✕ limpiar</button>`:''}
+        </div>
+      </div>
+
+      <div class="tc-tiles" style="margin:12px 0 4px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+        <!-- Con el filtro en «pagos», una fichita que dice «SE CARGÓ 0,00» no informa nada: se
+             esconde lo que quedó en cero, salvo cuando no hay ningún filtro puesto. -->
+        ${(cargas||!_movTipo)?`<div class="tc-t"><div class="d">SE CARGÓ</div><div class="v">${money(cargas,2)}</div><div class="f">USDT</div></div>`:''}
+        ${(pagos||!_movTipo)?`<div class="tc-t"><div class="d">PAGÓ</div><div class="v" style="color:var(--verde2)">${money(pagos,2)}</div><div class="f">USDT</div></div>`:''}
+        ${ajustes?`<div class="tc-t"><div class="d">AJUSTES</div><div class="v">${money(ajustes,2)}</div><div class="f">USDT</div></div>`:''}
+        ${Object.keys(deudaPorMoneda).map(k=>`<div class="tc-t mal">
+          <div class="d">${cliSel?'DEBE':'DEBEN'}${deudaProv?' <span class="badge warn" title="Parte de esa deuda está con el TC del mes y se ajusta cuando cargues el definitivo">prov.</span>':''}</div>
+          <div class="v">${money(deudaPorMoneda[k],2)}</div><div class="f">${esc(k)} · al día de hoy</div></div>`).join('')}
+      </div>
+      ${provis?`<div class="muted" style="margin-bottom:8px">⏳ <b>${provis}</b> movimiento(s) todavía con el TC del mes: se ajustan solos cuando cargues el definitivo en 💱 Tipos de cambio.</div>`:''}
+
+      <table style="margin-top:8px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Cliente</th>
+        <th class="right">ARS</th><th class="right">USDT</th><th class="right">TC</th><th>De dónde</th></tr></thead><tbody>
+      ${vistos.slice(0,_movTope).map(m=>{ const c=nom[m.cliente_id];
+        const cls = m.tipo==='pago'?'ok':(m.tipo==='ajuste'?'err':'warn');
+        return `<tr>
+          <td class="muted" style="white-space:nowrap">${esc((m.fecha||'').slice(0,16).replace('T',' '))}</td>
+          <td><span class="badge ${cls}">${esc(m.tipo)}</span></td>
+          <td>${c?'<b>'+esc(c.codigo)+'</b>':'<span class="muted">—</span>'}</td>
+          <td class="right">${m.monto_ars?money(m.monto_ars,0):''}</td>
+          <td class="right"${m.tipo==='pago'?' style="color:var(--verde2)"':''}><b>${m.monto_usdt?money(m.monto_usdt,2):''}</b></td>
+          <td class="right muted">${m.tc_momento?money(m.tc_momento,0):(m.tc_usado?money(m.tc_usado,0):'')}${m.provisional?' <span class="badge warn" title="Con el TC del mes: se ajusta solo cuando cargues el definitivo">prov.</span>':''}</td>
+          <td class="muted" style="font-size:12px">${esc(m.medio||m.notas||'')}</td></tr>`;
+      }).join('') || '<tr><td colspan="7" class="empty">Ningún movimiento con ese filtro.</td></tr>'}
       </tbody></table>
+      ${vistos.length>_movTope?`<div style="margin-top:10px"><button class="outline small" onclick="movMas()">
+        Ver ${Math.min(60, vistos.length-_movTope)} más <span class="muted">(quedan ${vistos.length-_movTope})</span></button></div>`:''}
     </div>`;
-  mcPaneles();
   refrescarPendientes();
 };
-function mcPaneles(){
-  const cli=val('mc-cli'); const opts=_paneles.filter(p=>p.cliente_id===cli).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
-  const sel=document.getElementById('mc-pan'); if(sel) sel.innerHTML = opts||'<option value="">(sin paneles)</option>';
-}
 async function regPago(){
-  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:val('mp-cli'),monto_usdt:val('mp-monto'),medio:val('mp-medio')})});
+  // El desplegable arranca vacío a propósito; sin esta guarda el POST salía con cliente_id='' y el
+  // servidor contestaba un error críptico en vez de decir qué falta.
+  const cli=val('mp-cli'); if(!cli) return toast('Elegí a qué cliente es el pago');
+  const monto=val('mp-monto'); if(!monto || Number(monto)<=0) return toast('Poné el monto en USDT');
+  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:cli,monto_usdt:monto,medio:val('mp-medio')})});
   if(r.ok) toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT');
   _movSub='cuenta'; VIEWS.movimientos();
 }
