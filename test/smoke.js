@@ -583,9 +583,13 @@ async function main() {
         sinDatos: [], filas: [{ nombre: 'X', moneda: 'ARS', dentroDe: null, otras: [],
           nue: { bet: 100, win: 40, profit: 60 }, ant: { bet: 200, win: 210, profit: -10 } }] };
       const t = CMP.textoPlano(d);
+      const lProfit = t.split('\n').find((x) => x.startsWith('PROFIT')) || '';
+      const lIn = t.split('\n').find((x) => x.startsWith('IN')) || '';
       check('comparativa: no pone un porcentaje sobre una base negativa',
-        /jugado/.test(t) && /\(−50%\)/.test(t) && !/%\)[\s\S]*−10/.test(t.split('profit')[1] || ''),
-        t.split('\n').filter((x) => /profit|\+70/.test(x)).join(' | '));
+        // el IN va de 200 a 100 y sí lleva %; el PROFIT viene de −10 y ahí el % mentiría,
+        // así que en el paréntesis va la diferencia en plata.
+        /\(−50%\)/.test(lIn) && !/%/.test(lProfit) && /\(\+70,00\)/.test(lProfit),
+        lIn + '  ||  ' + lProfit);
       check('comparativa: dice contra qué tramo se está comparando',
         /los mismos 2 días de los dos meses/.test(t), t.split('\n').slice(-2).join(' | '));
     }

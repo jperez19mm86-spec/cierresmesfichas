@@ -133,11 +133,14 @@ function texto(d) {
   const L = [];
   /* El porcentaje sólo cuando significa algo. Sobre una base negativa o en cero da un número que
      además apunta para el lado contrario: el profit de una cuenta que pasó de −92.985 a 0 subió,
-     y la cuenta daba «−100%». En esos casos va la diferencia sola, que nunca miente. */
-  const dif = (nue, ant) => {
+     y la cuenta daba «−100%». Ahí va la diferencia en plata, que nunca miente. */
+  const pctTxt = (nue, ant) => {
+    if (ant > 0) {
+      const p = (nue / ant - 1) * 100;
+      return `(${p >= 0 ? '+' : '−'}${Math.abs(p).toFixed(0)}%)`;
+    }
     const x = nue - ant;
-    const p = (ant > 0) ? ((nue / ant - 1) * 100) : null;
-    return `${x >= 0 ? '+' : '−'}${num(Math.abs(x))}${p == null ? '' : `  (${p >= 0 ? '+' : '−'}${Math.abs(p).toFixed(0)}%)`}`;
+    return `(${x >= 0 ? '+' : '−'}${num(Math.abs(x))})`;
   };
 
   L.push(`📊 <b>${cap(nombreMes(d.mes))} contra ${nombreMes(d.mesAnt)}</b> · del <b>${d.desde} al ${d.hasta}</b>`);
@@ -145,13 +148,15 @@ function texto(d) {
   for (const f of d.filas) {
     L.push('');
     L.push(`<b>${f.nombre}</b> · ${f.moneda}${f.dentroDe ? ` <i>(ya contado adentro de ${f.dentroDe})</i>` : ''}`);
-    const bloque = (rot, nue, ant) => {
-      L.push(`${rot}  <code>${num(ant)} → ${num(nue)}</code>`);
-      L.push(`  <code>${dif(nue, ant)}</code>`);
-    };
-    bloque('jugado', f.nue.bet, f.ant.bet);
-    bloque('premios', f.nue.win, f.ant.win);
-    bloque('profit', f.nue.profit, f.ant.profit);
+    L.push('');
+    // Un renglón por número: los dos meses y el porcentaje. La diferencia en plata no va —los dos
+    // números están, y el renglón de más por cada uno hacía el mensaje el doble de largo.
+    const linea = (rot, nue, ant) => L.push(`<b>${rot}</b>  <code>${num(ant)} → ${num(nue)}</code>  ${pctTxt(nue, ant)}`);
+    linea('IN', f.nue.bet, f.ant.bet);
+    linea('OUT', f.nue.win, f.ant.win);
+    linea('PROFIT', f.nue.profit, f.ant.profit);
+    // Las otras monedas se nombran, no se detallan: que se sepa que existen sin tapar la respuesta.
+    if (f.otras.length) { L.push(''); L.push(`<i>también hay movimiento en ${f.otras.join(', ')}</i>`); }
   }
 
   L.push('');
