@@ -571,6 +571,25 @@ async function main() {
     const menosMas = TD.tdComparar({ bet: 59176, win: 52408, profit: 6768 },
                                    { bet: 66497, win: 60406, profit: 6091 });
     const vMM = TD.tdVeredicto(menosMas, 'julio');
+    /* ── LA COMPARATIVA QUE SE MANDA POR TELEGRAM ────────────────────────────────────────────
+       Es el mensaje que se escribía a mano. Dos cosas tienen que ser ciertas siempre:
+       el tramo es el que está capturado en LOS DOS meses, y el texto lo arma el SERVIDOR. */
+    {
+      const CMP = require('../src/tbs-comparativa');
+      check('comparativa: el mes anterior cruza bien el año',
+        CMP.mesAnterior('2026-01') === '2025-12' && CMP.mesAnterior('2026-08') === '2026-07');
+      // El % sobre una base negativa o en cero apunta para el lado contrario: va la diferencia sola.
+      const d = { ok: true, mes: '2026-08', mesAnt: '2026-07', dias: 2, desde: '01', hasta: '02',
+        sinDatos: [], filas: [{ nombre: 'X', moneda: 'ARS', dentroDe: null, otras: [],
+          nue: { bet: 100, win: 40, profit: 60 }, ant: { bet: 200, win: 210, profit: -10 } }] };
+      const t = CMP.textoPlano(d);
+      check('comparativa: no pone un porcentaje sobre una base negativa',
+        /jugado/.test(t) && /\(−50%\)/.test(t) && !/%\)[\s\S]*−10/.test(t.split('profit')[1] || ''),
+        t.split('\n').filter((x) => /profit|\+70/.test(x)).join(' | '));
+      check('comparativa: dice contra qué tramo se está comparando',
+        /los mismos 2 días de los dos meses/.test(t), t.split('\n').slice(-2).join(' | '));
+    }
+
     check('tbs diario: "menos jugado, más profit" no se dice "estable"',
       vMM.txt === 'menos jugado, más profit' && /lo puso el RTP/.test(vMM.det),
       vMM.txt + ' — ' + vMM.det);
@@ -6492,8 +6511,12 @@ async function main() {
   {
     const ui = r.data;
     const mono = (ui.match(/font-family:(ui-)?monospace|font-family:ui-monospace/g) || []).length;
+    /* El séptimo es la VISTA PREVIA de la comparativa de TBS. Ahí no endurece la lectura: el
+       mensaje sale con los números en <code>, que Telegram muestra en ancho fijo para que los dos
+       meses queden alineados. Mostrar la vista previa en otra letra sería mostrar una cosa y
+       mandar otra, que es justo lo que hace que después nadie confíe en el botón. */
     check('panel: la letra de máquina queda sólo donde se copia carácter por carácter',
-      mono <= 6, `${mono} lugares`);
+      mono <= 7, `${mono} lugares`);
     check('panel: la contraseña generada SÍ la conserva',
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',

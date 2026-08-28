@@ -6071,6 +6071,31 @@ VIEWS.tbsdiario = async () => {
         <div class="muted" style="font-size:12px">Traen más jugado que en ${esc(nomAnt)}, o les bajó el RTP.</div></div>
     </div>` : ''}
 
+    <!-- ── MANDAR LA COMPARATIVA ────────────────────────────────────────────────────────────────
+         El mensaje que se escribía a mano en WhatsApp cuando le preguntan por un cliente. Se
+         elige a quién, se MIRA lo que va a salir, y recién ahí se manda o se copia. -->
+    <details class="plegable" style="margin-bottom:12px"${_secAb.has('tbs.comp')?' open':''}
+        ontoggle="secEstado('tbs.comp',this.open); if(this.open) tdCompPintar()">
+      <summary class="fila"><span class="chev" aria-hidden="true"></span>
+        <span class="nom">📨 Mandar una comparativa</span>
+        <span class="cifra"><span class="u">elegís a quién y sale por Telegram</span></span></summary>
+      <div class="cuerpo">
+        ${ayuda('tbs-comp',
+          'Arma el mensaje que mandás cuando te preguntan por un cliente: jugado, premios y profit de los dos meses, con la diferencia.',
+          'Sale por el <b>grupo interno</b> —el que está en ⚙ Config → Telegram—, nunca al grupo de un cliente. El tramo son los días capturados en <b>los dos</b> meses: 27 contra 26 daría una caída que no existe.')}
+        <div class="acciones" style="margin:0 0 10px">
+          <button class="outline small" onclick="tdCompTodos(true)">Marcar todos</button>
+          <button class="outline small" onclick="tdCompTodos(false)">Ninguno</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px">
+          ${grupos.map(g=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+            <input type="checkbox" class="td-comp" value="${esc(g.principal.agente_id)}"
+              onchange="tdCompPintar()" style="width:auto;margin:0"> ${esc(g.login)}</label>`).join('')}
+        </div>
+        <div id="td-comp-out" style="margin-top:12px"></div>
+      </div>
+    </details>
+
     <div class="card">
       <h2>Cada cliente <span class="muted">(${grupos.length})</span></h2>
       <div class="muted" style="margin-bottom:10px;max-width:900px">
@@ -7630,6 +7655,41 @@ AC.pulso = async () => {
 /* 77 alertas abiertas de golpe eran otra pared de scroll. Se muestran las 12 más caras —vienen
    ordenadas por plata— y el resto a pedido. Cambiar de filtro vuelve a las 12. */
 let _pulTodas = false;
+/* ── LA COMPARATIVA: MIRARLA ANTES DE MANDARLA ───────────────────────────────────────────────
+   El texto lo arma el servidor y la pantalla lo muestra tal cual: lo que se ve acá es EXACTAMENTE
+   lo que va a salir. Mostrar una cosa y mandar otra es la forma de perder la confianza en el
+   botón, y a partir de ahí nadie lo usa. */
+function tdCompIds(){ return [...document.querySelectorAll('.td-comp:checked')].map(c=>c.value); }
+function tdCompTodos(v){ document.querySelectorAll('.td-comp').forEach(c=>{c.checked=v;}); tdCompPintar(); }
+async function tdCompPintar(){
+  const out=document.getElementById('td-comp-out'); if(!out) return;
+  const ids=tdCompIds();
+  if(!ids.length){ out.innerHTML='<div class="empty">Marcá al menos una cuenta.</div>'; return; }
+  out.innerHTML='<div class="muted">Armando el mensaje…</div>';
+  const r=await api('/api/os/tbs/comparativa?mes='+encodeURIComponent(_tdMes)+'&ids='+encodeURIComponent(ids.join(',')));
+  if(!r.ok){ out.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
+  window._tdCompPlano = r.plano;
+  out.innerHTML =
+    '<div style="background:var(--bg3);border-radius:10px;padding:12px 14px;white-space:pre-wrap;'
+    + 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;'
+    + 'max-height:46vh;overflow:auto">'+esc(r.plano)+'</div>'
+    + '<div class="acciones"><button class="outline small" onclick="tdCompCopiar()">📋 Copiar</button>'
+    + '<button class="grave small" onclick="tdCompEnviar()">📨 Mandar al grupo</button>'
+    + '<span class="muted" style="font-size:12px;align-self:center">Va al grupo interno, no al del cliente.</span></div>';
+}
+async function tdCompCopiar(){
+  try { await navigator.clipboard.writeText(window._tdCompPlano||''); toast('Copiado'); }
+  catch(e){ toast('No se pudo copiar: seleccionalo y copialo a mano'); }
+}
+async function tdCompEnviar(){
+  const ids=tdCompIds(); if(!ids.length) return toast('Marcá al menos una cuenta');
+  // SALE PARA AFUERA: se pregunta siempre, y se dice a dónde.
+  if(!confirm('¿Mandar esta comparativa al grupo de Telegram?\n\nVa al grupo interno (⚙ Config), no al de ningún cliente.')) return;
+  const r=await api('/api/os/tbs/comparativa/enviar',{method:'POST',
+    body:JSON.stringify({mes:_tdMes, ids})});
+  toast(r&&r.ok ? ('Mandada · '+r.cuentas+' cuenta(s)') : ('No salió: '+((r&&r.error)||'')));
+}
+
 function pulFiltro(t){ _pulFiltro=t; _pulTodas=false; AC.pulso(); }
 function pulMes(delta){ const el=document.getElementById('pul-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} _acMes=y+'-'+String(m).padStart(2,'0'); AC.pulso(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
