@@ -651,14 +651,28 @@ async function main() {
        era cruzar toda la pantalla. Cada número lleva su comparación DEBAJO, en chico: lo que se
        compara con algo va junto a ese algo. */
     const enc = h12.slice(h12.indexOf('<th>Cliente</th><th>Div</th>'), h12.indexOf('</tr></thead><tbody>\n      ${grupos.map'));
-    check('tbs diario: jugado y profit quedan uno al lado del otro',
-      enc.indexOf('Jugado (in)') >= 0 && enc.indexOf('Profit') >= 0
-      && enc.indexOf('Profit') - enc.indexOf('Jugado (in)') < 80,
-      enc.replace(/\s+/g, ' ').slice(0, 150));
-    // "Margen" no lo entiende nadie que no lo haya estudiado. La misma cuenta dicha en castellano.
-    check('tbs diario: el margen se dice como "queda de cada 100"',
-      /de cada 100/.test(h12) && /cuánto de cada 100 jugados te quedaste/.test(h12)
-      && !/>Margen</.test(h12));
+    check('tbs diario: jugado y profit quedan uno al lado del otro', (() => {
+      // Se cuentan las COLUMNAS que hay entre los dos, no los caracteres: medir por distancia de
+      // texto se rompía sola en cuanto un encabezado ganaba un subtítulo, sin que nada se hubiera
+      // movido de lugar.
+      const i = enc.indexOf('Jugado (in)'), j = enc.indexOf('>Profit');
+      if (i < 0 || j < 0 || j < i) return false;
+      return (enc.slice(i, j).match(/<th\b/g) || []).length === 1;   // sólo el <th> del propio Profit
+    })(), enc.replace(/\s+/g, ' ').slice(0, 150));
+    /* Se llamó "margen" (nadie lo entiende), después "te queda de cada 100", y ahora RTP — que
+       es el nombre que la dueña ya usa en los paneles del casino. Lo pidió así de explícito:
+       "no necesito que me muestre te queda 9% de cada 100 jugados, quiero el RTP normal".
+       "Margen" sigue prohibido. */
+    check('tbs diario: la columna se llama RTP y dice qué es',
+      />RTP</.test(h12) && /se llevan los jugadores/.test(h12) && !/>Margen</.test(h12));
+
+    /* ⚠️ Y EL RTP VA AL REVÉS QUE LAS OTRAS DOS COLUMNAS. En jugado y profit subir es bueno; acá
+       subir es que los jugadores se llevaron más. Cambiar el rótulo sin dar vuelta el color
+       dejaría un ▲ verde justo donde el mes fue peor, que es peor que no mostrarlo. */
+    check('tbs diario: en el RTP el verde y el rosa están dados vuelta',
+      /const rtpNue = 100 - a\.queda/.test(h12)
+      && /d > 0 \? 'var\(--rosa\)' : 'var\(--verde2\)'/.test(h12),
+      'el RTP quedó con el color al derecho: subir aparecería como bueno');
 
     /* ── EL DÍA A DÍA, HACIA ABAJO ─────────────────────────────────────────────────────────
        Los días eran columnas: a partir del día 12 la tabla se salía de la pantalla y seguir a un

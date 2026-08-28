@@ -5667,7 +5667,7 @@ function tdVeredicto(volPct, quedaAnt, quedaNue, nuevo, nomAnt, hay) {
     det: (volPct >= 15 ? 'trae más jugado que en ' + nomAnt + ', pero ganaron los jugadores'
                        : 'juega lo mismo: es racha, no negocio perdido') };
   if (volPct >= 15) return { txt: 'creciendo', tono: 'bien', det: 'está trayendo más jugado' };
-  if (dpp != null && dpp >= 3) return { txt: 'mejor racha', tono: 'bien', det: 'lo mismo jugado y le queda más' };
+  if (dpp != null && dpp >= 3) return { txt: 'mejor racha', tono: 'bien', det: 'lo mismo jugado y bajó el RTP' };
   return { txt: 'estable', tono: '', det: '' };
 }
 
@@ -5723,7 +5723,8 @@ function tdDetalle(c, dias, ref) {
       <td class="right" style="font-size:12px;${fuerte?'':'color:var(--muted)'}"><b>${money(b,0)}</b></td>
       <td class="right" style="font-size:12px;color:var(--muted)"><b>${money(w2,0)}</b></td>
       <td class="right" style="font-size:12px;${fuerte?'':'color:var(--muted)'}"><b style="${p<0?'color:var(--red)':''}">${money(p,0)}</b></td>
-      <td class="right" style="font-size:11px;${fuerte?'':'color:var(--muted)'}"><b>${b?money((p/b)*100,1)+'%':''}</b></td></tr>`;
+      <!-- RTP = lo que se llevan los jugadores = premios / jugado. Es 100 menos lo que te queda. -->
+      <td class="right" style="font-size:11px;${fuerte?'':'color:var(--muted)'}"><b>${b?money(100-(p/b)*100,1)+'%':''}</b></td></tr>`;
   return `<div style="max-width:640px">
     <div class="muted" style="font-size:11px;margin:0 0 4px">Día a día · ${esc(c.moneda)}</div>
     <table style="width:100%"><thead><tr>
@@ -5731,7 +5732,7 @@ function tdDetalle(c, dias, ref) {
       <th class="right" style="font-size:10px">Jugado (in)</th>
       <th class="right" style="font-size:10px">Premios (out)</th>
       <th class="right" style="font-size:10px">Profit</th>
-      <th class="right" style="font-size:10px" title="Es el revés del RTP: lo que te queda de cada 100 jugados. RTP 88,2% → te queda 11,8%.">Te queda</th>
+      <th class="right" style="font-size:10px" title="Lo que se llevan los jugadores de cada 100 jugados. Cuanto más alto, menos te queda a vos.">RTP</th>
     </tr></thead><tbody>${filas}
       ${tot('Este mes', tb, tw, tp, true)}
       ${ref ? tot(ref.lab, ref.bet, ref.win, ref.profit, false) : ''}
@@ -5845,29 +5846,42 @@ VIEWS.tbsdiario = async () => {
      cuatro columnas entre los dos números —vs, margen, margen 1ª→2ª— y para leer un cliente había
      que cruzar toda la pantalla. Lo que se compara con algo va junto a ese algo, no en otra
      columna. */
-  const celda = (val, pct, ratio, neg) => `<div style="font-weight:700;${neg?'color:var(--red)':''}">${money(val,0)}</div>
-    ${pct==null?'':`<div style="font-size:11px;color:${pct<0?'var(--red)':(pct>0?'var(--green)':'var(--muted)')}">
-      ${esc(tdDelta(pct,ratio))} <span class="muted">vs. ${esc(nomAnt)}</span></div>`}`;
+  /* El % solo no alcanza: «−68%» no dice si se perdieron mil o un millón, y son dos conversaciones
+     distintas. Va también la DIFERENCIA en la moneda del cliente, que es la pregunta de "cuánto
+     más, cuánto menos". El «vs. julio» se fue al encabezado: era la misma palabra repetida
+     veintidós veces, una por fila. */
+  const celda = (val, pct, ratio, neg, antes) => {
+    const col = pct==null ? 'var(--muted)' : (pct<0?'var(--rosa)':(pct>0?'var(--verde2)':'var(--muted)'));
+    const dif = (antes==null||val==null) ? null : val-antes;
+    return `<div style="font-weight:700;${neg?'color:var(--rosa)':''}">${money(val,0)}</div>
+      ${pct==null?'':`<div style="font-size:11px;color:${col}">${esc(tdDelta(pct,ratio))}${
+        dif==null?'':` <span class="muted">·</span> ${dif>=0?'+':'−'}${money(Math.abs(dif),0)}`}</div>`}
+      ${antes==null?'':`<div class="muted" style="font-size:10.5px">${esc(nomAnt)} ${money(antes,0)}</div>`}`;
+  };
 
   const filaCliente = (c, a, sub) => {   // `a` trae el veredicto en a.v: de ahí sale el color
     const vals = dias.map(f=>(c.dias[f]||{}).bet||0);
     return `<td class="muted">${esc(c.moneda)}</td>
       <td>${sub?'':tdSpark(vals, a.v && a.v.tono)}</td>
-      <td class="right" style="padding-right:20px">${celda(c.bet, a.vol, a.rVol, false)}
+      <td class="right" style="padding-right:20px">${celda(c.bet, a.vol, a.rVol, false, a.ant?a.ant.bet:null)}
         ${a.nuevo?`<div class="muted" style="font-size:11px">no jugaba en ${esc(nomAnt)}</div>`:''}</td>
       <td class="right" style="padding-right:20px">${a.aPerdida
-        ? `<div style="font-weight:700;color:var(--red)">${money(c.profit,0)}</div>
-           <div style="font-size:11px;color:var(--red)">pasó a pérdida <span class="muted">vs. ${esc(nomAnt)}</span></div>`
-        : celda(c.profit, a.volP, a.rVolP, c.profit<0)}</td>
-      <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(a.queda,1)+'%'}</div>
+        ? `<div style="font-weight:700;color:var(--rosa)">${money(c.profit,0)}</div>
+           <div style="font-size:11px;color:var(--rosa)">pasó a pérdida</div>
+           <div class="muted" style="font-size:10.5px">${esc(nomAnt)} ${money(a.ant.profit,0)}</div>`
+        : celda(c.profit, a.volP, a.rVolP, c.profit<0, a.ant?a.ant.profit:null)}</td>
+      <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(100-a.queda,1)+'%'}</div>
         ${(a.hay && !a.nuevo && a.qAnt!=null)?(()=>{
-          // Eran dos porcentajes uno debajo del otro y había que restarlos de cabeza para saber si
-          // subió. Ahora lo dice, con el mismo código de color que las otras dos columnas.
-          const d = a.queda - a.qAnt;
-          const col = Math.abs(d) < 0.05 ? 'var(--muted)' : (d > 0 ? 'var(--verde2)' : 'var(--rosa)');
+          /* ⚠️ EL RTP VA AL REVÉS QUE LAS OTRAS DOS COLUMNAS. En jugado y profit, subir es bueno.
+             Acá subir es que los jugadores se llevaron MÁS, o sea peor para vos. Por eso el verde
+             y el rosa están dados vuelta a propósito: relabelar la columna sin dar vuelta el color
+             habría dejado un ▲ verde donde el mes fue peor. */
+          const rtpNue = 100 - a.queda, rtpAnt = 100 - a.qAnt;
+          const d = rtpNue - rtpAnt;
+          const col = Math.abs(d) < 0.05 ? 'var(--muted)' : (d > 0 ? 'var(--rosa)' : 'var(--verde2)');
           const sig = Math.abs(d) < 0.05 ? '=' : (d > 0 ? '▲' : '▼');
           return `<div style="font-size:11px;color:${col}">${sig} ${money(Math.abs(d),1)} pts
-            <span class="muted">· ${esc(nomAnt)} ${money(a.qAnt,1)}%</span></div>`;
+            <span class="muted">· ${esc(nomAnt)} ${money(rtpAnt,1)}%</span></div>`;
         })():''}</td>`;
   };
 
@@ -5903,9 +5917,9 @@ VIEWS.tbsdiario = async () => {
           <div class="f">${flechaT(varPct(TOT.profit, TOTA.profit))} · ${esc(nomAnt)} ${money(TOTA.profit,0)}</div>
         </div>
         <div class="tc-t">
-          <div class="d">DE CADA 100 JUGADOS</div>
-          <div class="v">${TOT.bet?money(TOT.profit/TOT.bet*100,1)+'%':'—'}</div>
-          <div class="f">${esc(nomAnt)} ${TOTA.bet?money(TOTA.profit/TOTA.bet*100,1)+'%':'—'}</div>
+          <div class="d">RTP</div>
+          <div class="v">${TOT.bet?money(100-TOT.profit/TOT.bet*100,1)+'%':'—'}</div>
+          <div class="f">${esc(nomAnt)} ${TOTA.bet?money(100-TOTA.profit/TOTA.bet*100,1)+'%':'—'} · se llevan los jugadores</div>
         </div>
         <div class="tc-t${(TOT.profit-TOTA.profit)<0?' mal':''}">
           <div class="d">DIFERENCIA</div>
@@ -5939,18 +5953,19 @@ VIEWS.tbsdiario = async () => {
       <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--green)">
         <label>Creciendo</label>
         <div style="font-size:26px;font-weight:800">${cuenta('bien')}</div>
-        <div class="muted" style="font-size:12px">Traen más jugado que en ${esc(nomAnt)}, o les queda más.</div></div>
+        <div class="muted" style="font-size:12px">Traen más jugado que en ${esc(nomAnt)}, o les bajó el RTP.</div></div>
     </div>` : ''}
 
     <div class="card">
       <h2>Cada cliente <span class="muted">(${grupos.length})</span></h2>
       <div class="muted" style="margin-bottom:10px;max-width:900px">
         <b>Jugado</b> es todo lo que apostaron. <b>Profit</b> es lo que quedó (jugado − premios).
-        <b>Te queda</b> es cuánto de cada 100 jugados te quedaste, y <b>es el revés del RTP</b>:
-        el RTP es lo que se llevan los jugadores, esto es lo que te queda a vos. Suman 100 —
-        RTP 88,2% es lo mismo que decir que te queda 11,8%.
+        <b>RTP</b> es lo que se llevan los jugadores de cada 100 jugados.
+        <b style="color:var(--rosa)">Ojo: en esta columna, más alto es peor</b> — cuanto más se
+        llevan, menos te queda. Por eso acá el ▲ va en rosa y el ▼ en verde, al revés que en las
+        otras dos.
         <div style="margin-top:4px">Sirve para separar dos cosas que en el profit se ven iguales:
-        si <b>cae el jugado</b> se está yendo el negocio; si el jugado se mantiene pero <b>queda menos</b>,
+        si <b>cae el jugado</b> se está yendo el negocio; si el jugado se mantiene pero <b>sube el RTP</b>,
         ganaron los jugadores y se da vuelta solo.</div>
         ${hayComp
           ? `<div style="margin-top:6px">Todo se compara contra <b>el mismo tramo de ${esc(nomAnt)}</b>:
@@ -5964,8 +5979,9 @@ VIEWS.tbsdiario = async () => {
       <div style="overflow-x:auto">
       <table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Div</th><th>Jugado por día</th>
-        <th class="right">Jugado (in)</th><th class="right">Profit</th>
-        <th class="right" title="Es el revés del RTP. El RTP es lo que se llevan los jugadores; esto es lo que te queda. Suman 100: RTP 88,2% → te queda 11,8%.">Te queda<div style="font-weight:400;text-transform:none;letter-spacing:0">de cada 100 jugados</div></th>
+        <th class="right">Jugado (in)<div style="font-weight:400;text-transform:none;letter-spacing:0">y cuánto vs. ${esc(nomAnt)}</div></th>
+        <th class="right">Profit<div style="font-weight:400;text-transform:none;letter-spacing:0">y cuánto vs. ${esc(nomAnt)}</div></th>
+        <th class="right" title="Lo que se llevan los jugadores de cada 100 jugados. OJO: acá más alto es PEOR — cuanto más se llevan, menos te queda.">RTP<div style="font-weight:400;text-transform:none;letter-spacing:0">se llevan los jugadores</div></th>
         <th>Qué pasó</th>
       </tr></thead><tbody>
       ${grupos.map(g=>{
