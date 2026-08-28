@@ -5618,6 +5618,15 @@ const TD_MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'ju
 
 /* Un porcentaje deja de leerse cuando pasa de unos cientos: "+1.900%" hay que traducirlo, "×20"
    no. Se cambia de unidad a partir de 6 veces, que es donde el porcentaje ya no ayuda. */
+/* «MULT2-CAL-ARS-PROD» adentro de una etiqueta la parte en dos renglones y no aporta: el sufijo
+   dice la moneda y el ambiente, que ya están en la fila. Se deja la primera parte, que es como lo
+   nombra la dueña ("sin Mult2"). Si el nombre ya es corto, no se toca. */
+function tdCorto(login) {
+  const s = String(login || '');
+  if (s.length <= 12 || !s.includes('-')) return s;
+  return s.split('-')[0];
+}
+
 function tdDelta(pct, ratio) {
   if (pct == null) return null;
   if (ratio != null && ratio >= 6) return '×' + money(ratio, ratio < 10 ? 1 : 0);
@@ -5650,25 +5659,69 @@ function tdComparar(h, a) {
     volP:  conP ? ((h.profit - a.profit) / a.profit) * 100 : null,
     rVolP: conP ? h.profit / a.profit : null,
     qAnt: q(a.bet, a.profit), qNue: q(h.bet, h.profit),
+    // Los profits crudos: el veredicto necesita saber si SUBIÓ o BAJÓ incluso cuando no se puede
+    // dar un porcentaje (el mes pasado en cero, o de ganancia a pérdida).
+    pAnt: a.profit, pNue: h.profit,
   };
 }
 
-/* El veredicto en castellano. El orden importa: primero se pregunta por el JUGADO, porque es el
-   único de los dos que significa que se está yendo el cliente. */
-function tdVeredicto(volPct, quedaAnt, quedaNue, nuevo, nomAnt, hay) {
-  if (!hay) return { txt: '', tono: '', det: '' };
-  if (nuevo) return { txt: 'nuevo', tono: 'bien', det: 'no jugaba en ' + nomAnt };
+/* ── EL CARTEL DICE LAS DOS COSAS QUE PASARON ────────────────────────────────────────────────
+   Un mes se explica con dos movimientos y nada más:
+
+     · el JUGADO — cuánta plata entró a apostarse. Es el negocio: si cae, se está yendo el cliente
+       y no vuelve solo.
+     · el RTP — qué parte se llevaron los jugadores. A un mes es suerte, y se da vuelta solo.
+
+   Y el PROFIT es el resultado de los dos: jugado × (1 − RTP). Por eso el cartel nombra los dos
+   movimientos —«menos jugado, más profit»— en vez de una sola palabra: «estable» para NachoAPI
+   escondía la noticia, que era que jugaron 11% menos y aun así quedó 11% más.
+
+   El TONO (de qué tarjeta cuenta arriba) lo sigue decidiendo el JUGADO, no el profit: un mes con
+   más profit sobre un jugado que se derrumba no es una buena noticia, es un buen mes adentro de
+   un cliente que se va. */
+function tdVeredicto(cmp, nomAnt) {
+  if (!cmp || !cmp.hay) return { txt: '', tono: '', det: '' };
+  if (cmp.nuevo) return { txt: 'nuevo', tono: 'bien', det: 'no jugaba en ' + nomAnt };
+  const volPct = cmp.vol;
   if (volPct == null) return { txt: '', tono: '', det: '' };
-  const dpp = (quedaNue != null && quedaAnt != null) ? (quedaNue - quedaAnt) : null;
-  if (volPct <= -15) return { txt: 'trae menos jugado', tono: 'mal', det: 'se le está yendo el negocio' };
-  // El detalle tiene que decir la verdad de ESTE caso: "juega lo mismo" es falso si el jugado
-  // subió ×10, y era lo que decía. Lo que no cambia es la conclusión: el negocio no se fue.
-  if (dpp != null && dpp <= -3) return { txt: 'ganaron los jugadores', tono: 'ojo',
-    det: (volPct >= 15 ? 'trae más jugado que en ' + nomAnt + ', pero ganaron los jugadores'
-                       : 'juega lo mismo: es racha, no negocio perdido') };
-  if (volPct >= 15) return { txt: 'creciendo', tono: 'bien', det: 'está trayendo más jugado' };
-  if (dpp != null && dpp >= 3) return { txt: 'mejor racha', tono: 'bien', det: 'lo mismo jugado y le queda más' };
-  return { txt: 'estable', tono: '', det: '' };
+  const dpp = (cmp.qNue != null && cmp.qAnt != null) ? (cmp.qNue - cmp.qAnt) : null;
+
+  // Se movió de verdad, o es ruido. 10% en cualquiera de los dos.
+  const MOV = 10;
+  const dirJ = volPct >= MOV ? 1 : (volPct <= -MOV ? -1 : 0);
+  /* La dirección del profit sale de los números crudos y no del porcentaje: hay meses sin
+     porcentaje posible —el anterior en cero, o de ganancia a pérdida— y ahí igual se sabe
+     perfectamente para qué lado se movió. */
+  const dirP = (cmp.pAnt == null || cmp.pNue == null) ? 0 : (() => {
+    const base = Math.abs(cmp.pAnt) || Math.abs(cmp.pNue);
+    if (!base) return 0;
+    const d = ((cmp.pNue - cmp.pAnt) / base) * 100;
+    return d >= MOV ? 1 : (d <= -MOV ? -1 : 0);
+  })();
+
+  const PAL = { '-1': 'menos', 0: 'mismo', 1: 'más' };
+  const txt = dirJ === 0 && dirP === 0 ? 'igual que en ' + nomAnt
+    : PAL[dirJ] + ' jugado, ' + PAL[dirP] + ' profit';
+
+  // El detalle: qué significa esa combinación, en una línea.
+  let det = '';
+  if (dirJ < 0 && dirP > 0) det = 'jugaron menos y aun así te quedó más: lo puso el RTP, no el cliente';
+  else if (dirJ < 0 && dirP < 0) det = 'se le está yendo el negocio';
+  else if (dirJ < 0) det = 'trae menos jugado y el profit se mantuvo';
+  else if (dirJ > 0 && dirP > 0) det = 'está creciendo';
+  else if (dirJ > 0 && dirP < 0) det = 'trae más jugado, pero ganaron los jugadores';
+  else if (dirJ > 0) det = 'trae más jugado y el profit se mantuvo';
+  else if (dirP < 0) det = 'juega lo mismo: ganaron los jugadores, es racha';
+  else if (dirP > 0) det = 'juega lo mismo y te quedó más: bajó el RTP';
+
+  /* El tono, igual que antes: manda el jugado, y sólo si el jugado está quieto se mira el RTP.
+     Son las tres tarjetas de arriba y por eso no se tocan sus umbrales. */
+  let tono = '';
+  if (volPct <= -15) tono = 'mal';
+  else if (dpp != null && dpp <= -3) tono = 'ojo';
+  else if (volPct >= 15) tono = 'bien';
+  else if (dpp != null && dpp >= 3) tono = 'bien';
+  return { txt, tono, det };
 }
 
 /* Una línea que se lee de un vistazo: el jugado de cada día. No lleva ejes ni números —para eso
@@ -5723,7 +5776,8 @@ function tdDetalle(c, dias, ref) {
       <td class="right" style="font-size:12px;${fuerte?'':'color:var(--muted)'}"><b>${money(b,0)}</b></td>
       <td class="right" style="font-size:12px;color:var(--muted)"><b>${money(w2,0)}</b></td>
       <td class="right" style="font-size:12px;${fuerte?'':'color:var(--muted)'}"><b style="${p<0?'color:var(--red)':''}">${money(p,0)}</b></td>
-      <td class="right" style="font-size:11px;${fuerte?'':'color:var(--muted)'}"><b>${b?money((p/b)*100,1)+'%':''}</b></td></tr>`;
+      <!-- RTP = lo que se llevan los jugadores = premios / jugado. Es 100 menos lo que te queda. -->
+      <td class="right" style="font-size:11px;${fuerte?'':'color:var(--muted)'}"><b>${b?money(100-(p/b)*100,1)+'%':''}</b></td></tr>`;
   return `<div style="max-width:640px">
     <div class="muted" style="font-size:11px;margin:0 0 4px">Día a día · ${esc(c.moneda)}</div>
     <table style="width:100%"><thead><tr>
@@ -5731,7 +5785,7 @@ function tdDetalle(c, dias, ref) {
       <th class="right" style="font-size:10px">Jugado (in)</th>
       <th class="right" style="font-size:10px">Premios (out)</th>
       <th class="right" style="font-size:10px">Profit</th>
-      <th class="right" style="font-size:10px">Queda</th>
+      <th class="right" style="font-size:10px" title="Lo que se llevan los jugadores de cada 100 jugados. Cuanto más alto, menos te queda a vos.">RTP</th>
     </tr></thead><tbody>${filas}
       ${tot('Este mes', tb, tw, tp, true)}
       ${ref ? tot(ref.lab, ref.bet, ref.win, ref.profit, false) : ''}
@@ -5743,11 +5797,14 @@ VIEWS.tbsdiario = async () => {
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const mesAnt = tdMesAnterior(_tdMes);
   const nomAnt = TD_MESES[Number(mesAnt.slice(5,7))] || mesAnt;
-  const [plan, dat, ant] = await Promise.all([
+  const nomEste = TD_MESES[Number(_tdMes.slice(5,7))] || _tdMes;
+  const [plan, dat, ant, tcd] = await Promise.all([
     api('/api/os/tbs/diario/plan?mes='+_tdMes),
     api('/api/os/tbs/diario?mes='+_tdMes),
     api('/api/os/tbs/diario?mes='+mesAnt),
+    api('/api/os/tc/del-mes?mes='+_tdMes),
   ]);
+  const TC = {}; (tcd.monedas||[]).forEach(m=>{ if(Number(m.valor)) TC[m.divisa]=Number(m.valor); });
   const dias = dat.dias||[];
   const falt = (plan.faltan||[]).length;
   const seg = plan.segundos_estimados;
@@ -5766,12 +5823,62 @@ VIEWS.tbsdiario = async () => {
   const idxAnt = new Map();
   if (hayComp) (ant.clientes||[]).forEach(c => idxAnt.set(c.agente_id+'|'+c.moneda, sumar(c, ant.mes)));
 
+  /* ── EL TOTAL DE LOS DOS MESES, EN EL MISMO TRAMO ────────────────────────────────────────────
+     Cada cliente ya traía su comparación, pero no había en ningún lado la respuesta a la pregunta
+     de arriba de todo: «¿este mes viene mejor o peor que el pasado, y por cuánto?».
+
+     Se pasa a USDT porque los clientes están en nueve monedas y en pesos no se suman. Y los DOS
+     meses se convierten con el MISMO tipo de cambio —el de este mes— a propósito: con el de cada
+     mes, una devaluación sola aparecería como que el negocio se cayó. Acá se quiere medir el
+     negocio, no el dólar.
+
+     ⚠️ Una moneda sin tipo de cambio NO se suma como cero: se la nombra abajo. Sumarla en cero es
+     la forma de que falte plata sin que nadie lo note — ya pasó con el guaraní. */
+  const sinTC = new Set();
+  const aUsdt = (v, mon) => {
+    if (mon === 'USD' || mon === 'USDT') return v;
+    const t = TC[mon];
+    if (!t) { sinTC.add(mon); return null; }
+    return v / t;
+  };
+  /* ⚠️ NO SE SUMAN LOS QUE ESTÁN ADENTRO DE OTRO. En TBS un padre trae su subárbol adentro, y de
+     los agentes que se capturan hay uno que cuelga de otro: MULT2-CAL-ARS-PROD cuelga de NachoAPI,
+     así que el número de NachoAPI YA lo incluye. Sumando los 22 el total daba 6.302.228 USDT
+     cuando lo real son 5.360.000 — casi un millón de más, y en pantalla no se nota. El servidor
+     los marca con `dentroDe` para que ninguna pantalla tenga que acordarse sola. */
+  const anidados = (dat.clientes||[]).filter(c => c.dentroDe);
+  const totalDe = (lista, mes) => {
+    let bet = 0, profit = 0;
+    for (const c of lista) {
+      if (c.dentroDe) continue;
+      const x = sumar(c, mes);
+      const b = aUsdt(x.bet, c.moneda), pr = aUsdt(x.profit, c.moneda);
+      if (b == null || pr == null) continue;
+      bet += b; profit += pr;
+    }
+    return { bet, profit };
+  };
+  const TOT  = hayComp ? totalDe(dat.clientes||[], dat.mes) : null;
+  const TOTA = hayComp ? totalDe(ant.clientes||[], ant.mes) : null;
+  const varPct = (nue, viejo) => (viejo ? (nue / viejo - 1) * 100 : null);
+  const flechaT = (v) => v == null ? '<span class="muted">—</span>'
+    : `<span style="color:${v >= 0 ? 'var(--verde2)' : 'var(--rosa)'};font-weight:700">${
+        v >= 0 ? '▲' : '▼'} ${money(Math.abs(v), 0)}%</span>`;
+
   // Una fila por CLIENTE con su moneda principal; las otras se despliegan. Se esconde lo que no
   // movió nada: una fila de ceros no es información.
   const vivos = (dat.clientes||[]).filter(c => c.bet !== 0 || c.win !== 0 || c.profit !== 0);
   const escondidas = (dat.clientes||[]).length - vivos.length;
+  /* ── EL QUE ESTÁ ADENTRO DE OTRO NO VA COMO FILA SUELTA ──────────────────────────────────────
+     Desde que el padre se abre en Total / Sin / Sólo, tener al hijo TAMBIÉN arriba es mostrar lo
+     mismo dos veces. Y era peor que redundante: MULT2 caía en «traen menos jugado» y sumaba al
+     contador de esa tarjeta, así que un problema que ya estaba adentro de NachoAPI se contaba como
+     un cliente aparte. Los contadores de arriba y la lista tienen que ser cosas que se puedan
+     sumar; lo de adentro se mira abriendo su padre. */
+  const anidadasVivas = vivos.filter(c => c.dentroDe);
+  const sueltos = vivos.filter(c => !c.dentroDe);
   const porCliente = new Map();
-  vivos.forEach(c => {
+  sueltos.forEach(c => {
     const g = porCliente.get(c.login) || { login: c.login, filas: [] };
     g.filas.push(c); porCliente.set(c.login, g);
   });
@@ -5781,7 +5888,40 @@ VIEWS.tbsdiario = async () => {
     const a = hayComp ? idxAnt.get(c.agente_id+'|'+c.moneda) : null;
     const cmp = tdComparar(a ? sumar(c, dat.mes) : null, a);
     return { ...cmp, queda: queda(c.bet, c.profit), ant: a,
-      v: tdVeredicto(cmp.vol, cmp.qAnt, cmp.qNue, cmp.nuevo, nomAnt, cmp.hay) };
+      v: tdVeredicto(cmp, nomAnt) };
+  };
+
+  /* ── PARTIR AL PADRE EN «SIN EL HIJO» Y «SÓLO EL HIJO» ───────────────────────────────────────
+     El número de NachoAPI incluye a MULT2-CAL-ARS-PROD, y los dos están en la tabla: se ve el
+     total dos veces y no se ve nunca cuánto es cada parte. Como el hijo está ENTERO adentro del
+     padre, restarlo es exacto — y sólo en su misma moneda, que es donde el hijo suma.
+     Se muestran las tres: sin él, sólo él, y el total (que es lo que muestra el panel de TBS). */
+  const hijosDe = new Map();
+  (dat.clientes||[]).forEach(h => {
+    if (!h.dentroDe) return;
+    const k = h.dentroDe + '|' + h.moneda;
+    hijosDe.set(k, [...(hijosDe.get(k) || []), h]);
+  });
+  const restar = (padre, hijos) => {
+    const dias2 = {};
+    Object.keys(padre.dias || {}).forEach(f => {
+      const d = padre.dias[f];
+      const m = hijos.reduce((a,h)=>{ const x=(h.dias||{})[f]; return x ? {bet:a.bet+x.bet, win:a.win+x.win, profit:a.profit+x.profit} : a; },
+        {bet:0,win:0,profit:0});
+      dias2[f] = { bet: d.bet-m.bet, win: d.win-m.win, profit: d.profit-m.profit };
+    });
+    return { ...padre, login: padre.login, dias: dias2, dentroDe: null,
+      bet: padre.bet - hijos.reduce((a,h)=>a+h.bet,0),
+      win: padre.win - hijos.reduce((a,h)=>a+h.win,0),
+      profit: padre.profit - hijos.reduce((a,h)=>a+h.profit,0) };
+  };
+
+  /* Una fila armada por nosotros no está en `idxAnt`, así que su mes anterior también hay que
+     restarlo: el padre de julio menos el hijo de julio, o la comparación saldría contra el total. */
+  const analizarArmada = (nue, ant) => {
+    const cmp = tdComparar(ant ? { bet:nue.bet, win:nue.win, profit:nue.profit } : null, ant);
+    return { ...cmp, queda: queda(nue.bet, nue.profit), ant,
+      v: tdVeredicto(cmp, nomAnt) };
   };
 
   const grupos = [...porCliente.values()].map(g => {
@@ -5789,6 +5929,7 @@ VIEWS.tbsdiario = async () => {
     g.principal = g.filas[0];
     g.otras = g.filas.slice(1);
     g.a = analizar(g.principal);
+    g.hijos = hijosDe.get(g.principal.login + '|' + g.principal.moneda) || [];
     return g;
   });
   // Primero lo que hay que mirar: los que traen menos jugado, después los de racha, después el resto.
@@ -5800,22 +5941,54 @@ VIEWS.tbsdiario = async () => {
      cuatro columnas entre los dos números —vs, margen, margen 1ª→2ª— y para leer un cliente había
      que cruzar toda la pantalla. Lo que se compara con algo va junto a ese algo, no en otra
      columna. */
-  const celda = (val, pct, ratio, neg) => `<div style="font-weight:700;${neg?'color:var(--red)':''}">${money(val,0)}</div>
-    ${pct==null?'':`<div style="font-size:11px;color:${pct<0?'var(--red)':(pct>0?'var(--green)':'var(--muted)')}">
-      ${esc(tdDelta(pct,ratio))} <span class="muted">vs. ${esc(nomAnt)}</span></div>`}`;
+  /* El % solo no alcanza: «−68%» no dice si se perdieron mil o un millón, y son dos conversaciones
+     distintas. Va también la DIFERENCIA en la moneda del cliente, que es la pregunta de "cuánto
+     más, cuánto menos". El «vs. julio» se fue al encabezado: era la misma palabra repetida
+     veintidós veces, una por fila. */
+  /* TRES RENGLONES, EN EL ORDEN EN QUE SE LEE: este mes, el mes pasado, y la diferencia.
+     Estaba el número, después el % con la diferencia, y recién abajo el mes pasado — así los dos
+     números que hay que comparar quedaban separados por un renglón y no se podían mirar juntos.
+     Ahora van pegados y alineados a la derecha, que es lo que deja ver de un vistazo cuál es más
+     grande sin leer una sola cifra. */
+  const celda = (val, pct, ratio, neg, antes) => {
+    const col = pct==null ? 'var(--muted)' : (pct<0?'var(--rosa)':(pct>0?'var(--verde2)':'var(--muted)'));
+    const dif = (antes==null||val==null) ? null : val-antes;
+    return `<div style="font-weight:700;${neg?'color:var(--rosa)':''}">${money(val,0)}</div>
+      ${antes==null?'':`<div class="muted" style="font-size:12.5px">${money(antes,0)}
+        <span style="font-size:11px">${esc(nomAnt)}</span></div>`}
+      ${(dif==null&&pct==null)?'':`<div style="font-size:12.5px;color:${col};font-weight:600">${
+        dif==null?'':(dif>=0?'+':'−')+money(Math.abs(dif),0)}${
+        pct==null?'':` <span style="font-size:11px;font-weight:400">${esc(tdDelta(pct,ratio))}</span>`}</div>`}`;
+  };
 
   const filaCliente = (c, a, sub) => {   // `a` trae el veredicto en a.v: de ahí sale el color
     const vals = dias.map(f=>(c.dias[f]||{}).bet||0);
     return `<td class="muted">${esc(c.moneda)}</td>
       <td>${sub?'':tdSpark(vals, a.v && a.v.tono)}</td>
-      <td class="right" style="padding-right:20px">${celda(c.bet, a.vol, a.rVol, false)}
+      <td class="right" style="padding-right:20px">${celda(c.bet, a.vol, a.rVol, false, a.ant?a.ant.bet:null)}
         ${a.nuevo?`<div class="muted" style="font-size:11px">no jugaba en ${esc(nomAnt)}</div>`:''}</td>
       <td class="right" style="padding-right:20px">${a.aPerdida
-        ? `<div style="font-weight:700;color:var(--red)">${money(c.profit,0)}</div>
-           <div style="font-size:11px;color:var(--red)">pasó a pérdida <span class="muted">vs. ${esc(nomAnt)}</span></div>`
-        : celda(c.profit, a.volP, a.rVolP, c.profit<0)}</td>
-      <td class="right"><div>${a.queda==null?'—':money(a.queda,1)+'%'}</div>
-        ${(a.hay && !a.nuevo && a.qAnt!=null)?`<div class="muted" style="font-size:11px">${esc(nomAnt)} ${money(a.qAnt,1)}%</div>`:''}</td>`;
+        ? `<div style="font-weight:700;color:var(--rosa)">${money(c.profit,0)}</div>
+           <div class="muted" style="font-size:12.5px">${money(a.ant.profit,0)}
+             <span style="font-size:11px">${esc(nomAnt)}</span></div>
+           <div style="font-size:12.5px;color:var(--rosa);font-weight:600">−${money(Math.abs(c.profit-a.ant.profit),0)}
+             <span style="font-size:11px;font-weight:400">pasó a pérdida</span></div>`
+        : celda(c.profit, a.volP, a.rVolP, c.profit<0, a.ant?a.ant.profit:null)}</td>
+      <td class="right"><div style="font-weight:700">${a.queda==null?'—':money(100-a.queda,1)+'%'}</div>
+        ${(a.hay && !a.nuevo && a.qAnt!=null)?(()=>{
+          /* Los mismos tres renglones que las otras dos columnas: ahora, antes, y la diferencia.
+             ⚠️ PERO EL RTP VA AL REVÉS. En jugado y profit, subir es bueno. Acá subir es que los
+             jugadores se llevaron MÁS, o sea peor. El verde y el rosa están dados vuelta a
+             propósito: sin eso quedaría un ▲ verde justo donde el mes fue peor. */
+          const rtpNue = 100 - a.queda, rtpAnt = 100 - a.qAnt;
+          const d = rtpNue - rtpAnt;
+          const col = Math.abs(d) < 0.05 ? 'var(--muted)' : (d > 0 ? 'var(--rosa)' : 'var(--verde2)');
+          const sig = Math.abs(d) < 0.05 ? '=' : (d > 0 ? '▲' : '▼');
+          return `<div class="muted" style="font-size:12.5px">${money(rtpAnt,1)}%
+              <span style="font-size:11px">${esc(nomAnt)}</span></div>
+            <div style="font-size:12.5px;color:${col};font-weight:600">${sig} ${money(Math.abs(d),1)}
+              <span style="font-size:11px;font-weight:400">pts</span></div>`;
+        })():''}</td>`;
   };
 
   main.innerHTML = `
@@ -5833,7 +6006,39 @@ VIEWS.tbsdiario = async () => {
     </div>
 
     ${!grupos.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
-    ${hayComp ? `<div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    ${hayComp ? `<div class="card">
+      <div class="tapa"><div>
+        <h2>${esc(nomEste.charAt(0).toUpperCase()+nomEste.slice(1))} contra ${esc(nomAnt)}</h2>
+        <div class="sub">Del <b>${esc(tramo)}</b> de los dos meses, todo pasado a USDT</div>
+      </div></div>
+      <!-- ── SÓLO EL PORCENTAJE ──────────────────────────────────────────────────────────────
+           Los montos en USDT salían de pasar nueve monedas a dólares con un tipo de cambio que
+           todavía se mueve: son un estimado, y puesto en grande al lado de cifras exactas se lee
+           como si fuera plata cerrada. El PORCENTAJE, en cambio, aguanta: si los dos meses se
+           convierten con el mismo cambio, la proporción no depende de cuál sea.
+           Y el RTP no va: está en la tabla de abajo, cliente por cliente, que es donde sirve. -->
+      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+        ${(()=>{
+          const ficha = (rot, pct) => {
+            const col = pct==null ? 'var(--muted)' : (pct>=0?'var(--verde2)':'var(--rosa)');
+            const sig = pct==null ? '' : (pct>=0?'▲':'▼');
+            return `<div class="tc-t"><div class="d">${rot}</div>
+              <div class="v" style="color:${col}">${pct==null?'—':sig+' '+money(Math.abs(pct),0)+'%'}</div>
+              <div class="f">contra ${esc(nomAnt)}</div></div>`;
+          };
+          return ficha('IN', varPct(TOT.bet, TOTA.bet)) + ficha('PROFIT', varPct(TOT.profit, TOTA.profit));
+        })()}
+      </div>
+      <div class="muted" style="margin-top:10px;font-size:12px">* son un estimado: los dos meses
+        se pasan a USDT con el mismo tipo de cambio, y puede cambiar.
+        ${sinTC.size?`<b style="color:var(--rosa)">Falta el de ${[...sinTC].join(', ')}: esos clientes no están adentro.</b>`:''}
+      </div>
+    </div>
+
+    <!-- align-items:stretch — la clase .row alinea abajo, así que las tres tarjetas quedaban a
+         distinta altura según cuánto texto tuviera cada una y se veían escalonadas.
+         (Sin comillas invertidas acá: esto vive adentro de una plantilla y las corta.) -->
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch">
       <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--red)">
         <label>Traen menos jugado</label>
         <div style="font-size:26px;font-weight:800;color:${cuenta('mal')?'var(--red)':'inherit'}">${cuenta('mal')}</div>
@@ -5845,16 +6050,44 @@ VIEWS.tbsdiario = async () => {
       <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--green)">
         <label>Creciendo</label>
         <div style="font-size:26px;font-weight:800">${cuenta('bien')}</div>
-        <div class="muted" style="font-size:12px">Traen más jugado que en ${esc(nomAnt)}, o les queda más.</div></div>
+        <div class="muted" style="font-size:12px">Traen más jugado que en ${esc(nomAnt)}, o les bajó el RTP.</div></div>
     </div>` : ''}
+
+    <!-- ── MANDAR LA COMPARATIVA ────────────────────────────────────────────────────────────────
+         El mensaje que se escribía a mano en WhatsApp cuando le preguntan por un cliente. Se
+         elige a quién, se MIRA lo que va a salir, y recién ahí se manda o se copia. -->
+    <details class="plegable" style="margin-bottom:12px"${_secAb.has('tbs.comp')?' open':''}
+        ontoggle="secEstado('tbs.comp',this.open); if(this.open) tdCompPintar()">
+      <summary class="fila"><span class="chev" aria-hidden="true"></span>
+        <span class="nom">📨 Mandar una comparativa</span>
+        <span class="cifra"><span class="u">elegís a quién y sale por Telegram</span></span></summary>
+      <div class="cuerpo">
+        ${ayuda('tbs-comp',
+          'Arma el mensaje que mandás cuando te preguntan por un cliente: jugado, premios y profit de los dos meses, con la diferencia.',
+          'Sale por el <b>grupo interno</b> —el que está en ⚙ Config → Telegram—, nunca al grupo de un cliente. El tramo son los días capturados en <b>los dos</b> meses: 27 contra 26 daría una caída que no existe.')}
+        <div class="acciones" style="margin:0 0 10px">
+          <button class="outline small" onclick="tdCompTodos(true)">Marcar todos</button>
+          <button class="outline small" onclick="tdCompTodos(false)">Ninguno</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px">
+          ${grupos.map(g=>`<label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
+            <input type="checkbox" class="td-comp" value="${esc(g.principal.agente_id)}"
+              onchange="tdCompPintar()" style="width:auto;margin:0"> ${esc(g.login)}</label>`).join('')}
+        </div>
+        <div id="td-comp-out" style="margin-top:12px"></div>
+      </div>
+    </details>
 
     <div class="card">
       <h2>Cada cliente <span class="muted">(${grupos.length})</span></h2>
       <div class="muted" style="margin-bottom:10px;max-width:900px">
         <b>Jugado</b> es todo lo que apostaron. <b>Profit</b> es lo que quedó (jugado − premios).
-        <b>Queda</b> es cuánto de cada 100 jugados te quedaste: si jugaron 100 y quedaron 11,8, queda 11,8%.
+        <b>RTP</b> es lo que se llevan los jugadores de cada 100 jugados.
+        <b style="color:var(--rosa)">Ojo: en esta columna, más alto es peor</b> — cuanto más se
+        llevan, menos te queda. Por eso acá el ▲ va en rosa y el ▼ en verde, al revés que en las
+        otras dos.
         <div style="margin-top:4px">Sirve para separar dos cosas que en el profit se ven iguales:
-        si <b>cae el jugado</b> se está yendo el negocio; si el jugado se mantiene pero <b>queda menos</b>,
+        si <b>cae el jugado</b> se está yendo el negocio; si el jugado se mantiene pero <b>sube el RTP</b>,
         ganaron los jugadores y se da vuelta solo.</div>
         ${hayComp
           ? `<div style="margin-top:6px">Todo se compara contra <b>el mismo tramo de ${esc(nomAnt)}</b>:
@@ -5868,22 +6101,56 @@ VIEWS.tbsdiario = async () => {
       <div style="overflow-x:auto">
       <table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Div</th><th>Jugado por día</th>
-        <th class="right">Jugado (in)</th><th class="right">Profit</th>
-        <th class="right">Queda<div style="font-weight:400;text-transform:none;letter-spacing:0">de cada 100</div></th>
+        <th class="right">Jugado (in)<div style="font-weight:400;text-transform:none;letter-spacing:0">y cuánto vs. ${esc(nomAnt)}</div></th>
+        <th class="right">Profit<div style="font-weight:400;text-transform:none;letter-spacing:0">y cuánto vs. ${esc(nomAnt)}</div></th>
+        <th class="right" title="Lo que se llevan los jugadores de cada 100 jugados. OJO: acá más alto es PEOR — cuanto más se llevan, menos te queda.">RTP<div style="font-weight:400;text-transform:none;letter-spacing:0">se llevan los jugadores</div></th>
         <th>Qué pasó</th>
       </tr></thead><tbody>
       ${grupos.map(g=>{
         const ab = _tdAbiertos.has(g.login);
         const tono = {mal:'var(--red)',ojo:'var(--gold)',bien:'var(--green)',''  :''}[g.a.v.tono];
+        const abrible = g.otras.length || g.hijos.length;   // se abre también si hay que partirlo
         return `<tr${g.a.v.tono==='mal'?' style="background:rgba(217,83,79,.06)"':''}>
-          <td style="${g.otras.length?'cursor:pointer':''}" ${g.otras.length?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
-            ${g.otras.length?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
-            ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}</td>
+          <td style="${abrible?'cursor:pointer':''}" ${abrible?`onclick="tdToggle('${esc(g.login).replace(/'/g,"")}')"`:''}>
+            ${abrible?`<span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> `:''}<b>${esc(g.login)}</b>
+            ${g.otras.length?`<span class="muted" style="font-size:11px">+${g.otras.length}</span>`:''}
+            ${g.hijos.length?(()=>{
+              // Si adentro hay uno que viene mal, la tarjeta cerrada tiene que decirlo: si no, el
+              // problema se esconde justo por haberlo metido adentro del padre.
+              const malos = g.hijos.filter(h=>{ const a2=analizar(h); return a2.v && a2.v.tono==='mal'; });
+              return `<div class="señal ${malos.length?'rosa':'durazno'}" style="margin-top:4px;font-size:10.5px"
+                title="Este número es el TOTAL: incluye ${g.hijos.map(h=>esc(h.login)).join(' + ')}. Abrilo para verlo partido.">incluye ${
+                g.hijos.map(h=>esc(tdCorto(h.login))).join(' + ')}${malos.length?' ⚠':''}</div>`
+              + (malos.length?`<div class="muted" style="font-size:10.5px;margin-top:2px">${
+                  malos.map(h=>esc(tdCorto(h.login))).join(', ')} trae menos jugado — abrilo</div>`:'');
+            })():''}
+            <!-- En TBS un padre trae su subárbol adentro. Sin decirlo acá, la tabla invita a sumar
+                 esta fila con la de su padre — que es justo lo que inflaba el total en un millón. -->
+            ${g.principal.dentroDe?`<div class="señal durazno" style="margin-top:4px;font-size:10.5px"
+              title="Su número ya está contado adentro de ${esc(g.principal.dentroDe)}: no se suman los dos">ya contado en ${esc(g.principal.dentroDe)}</div>`:''}</td>
           ${filaCliente(g.principal, g.a, false)}
           <td style="font-size:12px${tono?';color:'+tono:''}"><b>${esc(g.a.v.txt)}</b>
             ${g.a.v.det?`<div class="muted" style="font-size:11px">${esc(g.a.v.det)}</div>`:''}</td>
         </tr>`
-        + (ab ? g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
+        + (ab ? (g.hijos.length ? (()=>{
+            // Las tres vistas de lo mismo, en el orden en que se piensan: primero el total —que es
+            // el número que muestra el panel de TBS— y después de qué está hecho.
+            const sinH = restar(g.principal, g.hijos);
+            const antP = g.a.ant;
+            const antH = g.hijos.map(h=>idxAnt.get(h.agente_id+'|'+h.moneda)).filter(Boolean);
+            const antSin = (antP && antH.length===g.hijos.length)
+              ? { bet: antP.bet-antH.reduce((a,x)=>a+x.bet,0), win: antP.win-antH.reduce((a,x)=>a+x.win,0),
+                  profit: antP.profit-antH.reduce((a,x)=>a+x.profit,0) } : null;
+            const linea = (etq, fila, ana) => `<tr class="sub">
+              <td style="padding-left:18px;font-size:12.5px;font-weight:700">${etq}</td>
+              ${filaCliente(fila, ana, true)}
+              <td class="muted" style="font-size:11px">${esc((ana.v&&ana.v.txt)||'')}</td></tr>`;
+            const corto = g.hijos.map(h=>esc(tdCorto(h.login))).join(' ni ');
+            return linea('Total', g.principal, g.a)
+              + linea('Sin ' + corto, sinH, analizarArmada(sinH, antSin))
+              + g.hijos.map(h=>linea('Sólo ' + esc(tdCorto(h.login)), h, analizar(h))).join('');
+          })() : '')
+          + g.otras.map(o=>{const a2=analizar(o);return `<tr class="sub">
             <td></td>${filaCliente(o, a2, true)}
             <td class="muted" style="font-size:11px">${esc(a2.v.txt)}</td></tr>`;}).join('')
               + `<tr class="sub"><td colspan="7" style="padding:8px 0 14px">
@@ -5896,7 +6163,11 @@ VIEWS.tbsdiario = async () => {
       <div class="muted" style="margin-top:8px;font-size:12px">
         Las cuentas que en ${esc(nomAnt)} casi no jugaban dicen «nuevo» en vez de un porcentaje, y a partir
         de 6 veces se pasa a «×6», «×20» — un porcentaje de cuatro cifras hay que traducirlo.
-        ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}</div>
+        ${escondidas?`Se ocultaron <b>${escondidas}</b> cuenta(s) que no movieron nada.`:''}
+        ${anidadasVivas.length?` ${anidadasVivas.map(c=>'<b>'+esc(c.login)+'</b>').join(', ')}
+          no ${anidadasVivas.length===1?'aparece':'aparecen'} como fila aparte:
+          ${anidadasVivas.length===1?'está':'están'} adentro de
+          ${[...new Set(anidadasVivas.map(c=>c.dentroDe))].map(esc).join(', ')}, que se abre para verlo partido.`:''}</div>
     </div>`}
   `;
 };
@@ -7366,6 +7637,41 @@ AC.pulso = async () => {
 /* 77 alertas abiertas de golpe eran otra pared de scroll. Se muestran las 12 más caras —vienen
    ordenadas por plata— y el resto a pedido. Cambiar de filtro vuelve a las 12. */
 let _pulTodas = false;
+/* ── LA COMPARATIVA: MIRARLA ANTES DE MANDARLA ───────────────────────────────────────────────
+   El texto lo arma el servidor y la pantalla lo muestra tal cual: lo que se ve acá es EXACTAMENTE
+   lo que va a salir. Mostrar una cosa y mandar otra es la forma de perder la confianza en el
+   botón, y a partir de ahí nadie lo usa. */
+function tdCompIds(){ return [...document.querySelectorAll('.td-comp:checked')].map(c=>c.value); }
+function tdCompTodos(v){ document.querySelectorAll('.td-comp').forEach(c=>{c.checked=v;}); tdCompPintar(); }
+async function tdCompPintar(){
+  const out=document.getElementById('td-comp-out'); if(!out) return;
+  const ids=tdCompIds();
+  if(!ids.length){ out.innerHTML='<div class="empty">Marcá al menos una cuenta.</div>'; return; }
+  out.innerHTML='<div class="muted">Armando el mensaje…</div>';
+  const r=await api('/api/os/tbs/comparativa?mes='+encodeURIComponent(_tdMes)+'&ids='+encodeURIComponent(ids.join(',')));
+  if(!r.ok){ out.innerHTML='<div class="nota err">'+esc(r.error||'no se pudo')+'</div>'; return; }
+  window._tdCompPlano = r.plano;
+  out.innerHTML =
+    '<div style="background:var(--bg3);border-radius:10px;padding:12px 14px;white-space:pre-wrap;'
+    + 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;'
+    + 'max-height:46vh;overflow:auto">'+esc(r.plano)+'</div>'
+    + '<div class="acciones"><button class="outline small" onclick="tdCompCopiar()">📋 Copiar</button>'
+    + '<button class="grave small" onclick="tdCompEnviar()">📨 Mandar al grupo</button>'
+    + '<span class="muted" style="font-size:12px;align-self:center">Va al grupo interno, no al del cliente.</span></div>';
+}
+async function tdCompCopiar(){
+  try { await navigator.clipboard.writeText(window._tdCompPlano||''); toast('Copiado'); }
+  catch(e){ toast('No se pudo copiar: seleccionalo y copialo a mano'); }
+}
+async function tdCompEnviar(){
+  const ids=tdCompIds(); if(!ids.length) return toast('Marcá al menos una cuenta');
+  // SALE PARA AFUERA: se pregunta siempre, y se dice a dónde.
+  if(!confirm('¿Mandar esta comparativa al grupo de Telegram?\n\nVa al grupo interno (⚙ Config), no al de ningún cliente.')) return;
+  const r=await api('/api/os/tbs/comparativa/enviar',{method:'POST',
+    body:JSON.stringify({mes:_tdMes, ids})});
+  toast(r&&r.ok ? ('Mandada · '+r.cuentas+' cuenta(s)') : ('No salió: '+((r&&r.error)||'')));
+}
+
 function pulFiltro(t){ _pulFiltro=t; _pulTodas=false; AC.pulso(); }
 function pulMes(delta){ const el=document.getElementById('pul-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} _acMes=y+'-'+String(m).padStart(2,'0'); AC.pulso(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }

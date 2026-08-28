@@ -537,11 +537,15 @@ async function main() {
          · ganaron los jugadores → juega lo mismo, es racha, se da vuelta solo */
     const seVa = TD.tdComparar({ bet: 61, win: 56, profit: 5 }, { bet: 100, win: 92, profit: 8 });
     const racha = TD.tdComparar({ bet: 100, win: 96, profit: 4 }, { bet: 100, win: 88, profit: 12 });
+    /* El cartel nombra los DOS movimientos —jugado y profit— y el TONO lo sigue decidiendo el
+       jugado, que es el único que significa que se está yendo el cliente. */
     check('tbs diario: distingue perder el negocio de perder una racha',
-      TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, seVa.nuevo, 'julio', true).txt === 'trae menos jugado'
-      && TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true).txt === 'ganaron los jugadores',
-      'jugado −39% → ' + TD.tdVeredicto(seVa.vol, seVa.qAnt, seVa.qNue, false, 'julio', true).txt
-      + ' | queda 12%→4% con el mismo jugado → ' + TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, false, 'julio', true).txt);
+      TD.tdVeredicto(seVa, 'julio').tono === 'mal'
+      && /menos jugado, menos profit/.test(TD.tdVeredicto(seVa, 'julio').txt)
+      && TD.tdVeredicto(racha, 'julio').tono === 'ojo'
+      && /ganaron los jugadores/.test(TD.tdVeredicto(racha, 'julio').det),
+      'jugado −39% → ' + TD.tdVeredicto(seVa, 'julio').txt
+      + ' | queda 12%→4% con el mismo jugado → ' + TD.tdVeredicto(racha, 'julio').txt);
     // Y el que crece, y el que no se movió.
     const sube = TD.tdComparar({ bet: 200, win: 180, profit: 20 }, { bet: 100, win: 90, profit: 10 });
     const igual = TD.tdComparar({ bet: 102, win: 92, profit: 10 }, { bet: 100, win: 90, profit: 10 });
@@ -549,16 +553,57 @@ async function main() {
        había subido ×10 —el caso real de TBSEcuaB—. La conclusión no cambia (el negocio no se fue),
        pero el motivo escrito al lado tiene que ser el de ESTE cliente. */
     const subeYpierde = TD.tdComparar({ bet: 6300, win: 6362, profit: -62 }, { bet: 605, win: 481, profit: 124 });
-    const vSube = TD.tdVeredicto(subeYpierde.vol, subeYpierde.qAnt, subeYpierde.qNue, subeYpierde.nuevo, 'julio', true);
-    const vIgual = TD.tdVeredicto(racha.vol, racha.qAnt, racha.qNue, racha.nuevo, 'julio', true);
+    const vSube = TD.tdVeredicto(subeYpierde, 'julio');
+    const vIgual = TD.tdVeredicto(racha, 'julio');
     check('tbs diario: no dice "juega lo mismo" de uno que jugó diez veces más',
-      vSube.txt === 'ganaron los jugadores' && /trae más jugado que en julio/.test(vSube.det)
-      && vIgual.txt === 'ganaron los jugadores' && /juega lo mismo/.test(vIgual.det),
-      vSube.det + '  ·  ' + vIgual.det);
+      /más jugado, menos profit/.test(vSube.txt) && /ganaron los jugadores/.test(vSube.det)
+      && /mismo jugado, menos profit/.test(vIgual.txt) && /juega lo mismo/.test(vIgual.det),
+      vSube.txt + ' — ' + vSube.det + '  ·  ' + vIgual.txt + ' — ' + vIgual.det);
 
     check('tbs diario: el que crece y el que no se movió',
-      TD.tdVeredicto(sube.vol, sube.qAnt, sube.qNue, sube.nuevo, 'julio', true).txt === 'creciendo'
-      && TD.tdVeredicto(igual.vol, igual.qAnt, igual.qNue, igual.nuevo, 'julio', true).txt === 'estable');
+      /más jugado, más profit/.test(TD.tdVeredicto(sube, 'julio').txt)
+      && TD.tdVeredicto(igual, 'julio').txt === 'igual que en julio',
+      TD.tdVeredicto(sube, 'julio').txt + ' · ' + TD.tdVeredicto(igual, 'julio').txt);
+
+    /* ── EL CASO QUE PIDIÓ ESTE CAMBIO ────────────────────────────────────────────────────
+       NachoAPI: jugaron 11% menos y aun así quedó 11% más. El cartel decía «estable», que es
+       verdad de ninguna de las dos cosas y escondía la única noticia del renglón. */
+    const menosMas = TD.tdComparar({ bet: 59176, win: 52408, profit: 6768 },
+                                   { bet: 66497, win: 60406, profit: 6091 });
+    const vMM = TD.tdVeredicto(menosMas, 'julio');
+    /* ── LA COMPARATIVA QUE SE MANDA POR TELEGRAM ────────────────────────────────────────────
+       Es el mensaje que se escribía a mano. Dos cosas tienen que ser ciertas siempre:
+       el tramo es el que está capturado en LOS DOS meses, y el texto lo arma el SERVIDOR. */
+    {
+      const CMP = require('../src/tbs-comparativa');
+      check('comparativa: el mes anterior cruza bien el año',
+        CMP.mesAnterior('2026-01') === '2025-12' && CMP.mesAnterior('2026-08') === '2026-07');
+      // El % sobre una base negativa o en cero apunta para el lado contrario: va la diferencia sola.
+      const d = { ok: true, mes: '2026-08', mesAnt: '2026-07', dias: 2, desde: '01', hasta: '02',
+        sinDatos: [], filas: [{ nombre: 'X', moneda: 'ARS', dentroDe: null, otras: [],
+          nue: { bet: 100, win: 40, profit: 60 }, ant: { bet: 200, win: 210, profit: -10 } }] };
+      const t = CMP.textoPlano(d);
+      const lProfit = t.split('\n').find((x) => x.startsWith('PROFIT')) || '';
+      const lIn = t.split('\n').find((x) => x.startsWith('IN')) || '';
+      check('comparativa: no pone un porcentaje sobre una base negativa',
+        // el IN va de 200 a 100 y sí lleva %; el PROFIT viene de −10 y ahí el % mentiría,
+        // así que en el paréntesis va la diferencia en plata.
+        /\(−50%\)/.test(lIn) && !/%/.test(lProfit) && /\(\+70,00\)/.test(lProfit),
+        lIn + '  ||  ' + lProfit);
+      check('comparativa: dice contra qué tramo se está comparando',
+        /los mismos 2 días de los dos meses/.test(t), t.split('\n').slice(-2).join(' | '));
+    }
+
+    check('tbs diario: "menos jugado, más profit" no se dice "estable"',
+      vMM.txt === 'menos jugado, más profit' && /lo puso el RTP/.test(vMM.det),
+      vMM.txt + ' — ' + vMM.det);
+
+    /* La dirección del profit sale de los números crudos, no del porcentaje: cuando el mes pasado
+       dio pérdida no hay porcentaje posible y antes eso se leía como "mismo profit". */
+    const salioDePerdida = TD.tdComparar({ bet: 100, win: 80, profit: 20 }, { bet: 100, win: 110, profit: -10 });
+    check('tbs diario: sin porcentaje posible igual sabe para qué lado se movió el profit',
+      /más profit/.test(TD.tdVeredicto(salioDePerdida, 'julio').txt),
+      TD.tdVeredicto(salioDePerdida, 'julio').txt);
 
     /* ── EL QUE NO JUGABA EL MES PASADO ────────────────────────────────────────────────────
        Una cuenta que arrancó de cero daba +1.716.225% y otra +25.079%. No es un error de cálculo
@@ -567,7 +612,7 @@ async function main() {
     const cero = TD.tdComparar({ bet: 100000, win: 90000, profit: 10000 }, { bet: 6, win: 5, profit: 1 });
     check('tbs diario: el que no jugaba el mes pasado lo dice, no muestra un porcentaje absurdo',
       cero.nuevo === true && cero.vol === null && cero.volP === null
-      && TD.tdVeredicto(cero.vol, cero.qAnt, cero.qNue, cero.nuevo, 'julio', true).txt === 'nuevo');
+      && TD.tdVeredicto(cero, 'julio').txt === 'nuevo');
     // Pero uno que sí jugaba y creció mucho NO es "nuevo": es un cliente que creció, y hay que verlo.
     const crecio = TD.tdComparar({ bet: 1000, win: 900, profit: 100 }, { bet: 100, win: 90, profit: 10 });
     check('tbs diario: crecer mucho no es lo mismo que arrancar de cero',
@@ -596,7 +641,7 @@ async function main() {
     // Sin mes anterior no se inventa una tendencia: se dice que no hay contra qué comparar.
     check('tbs diario: sin mes anterior no inventa una tendencia',
       TD.tdComparar({ bet: 100, win: 90, profit: 10 }, null).hay === false
-      && TD.tdVeredicto(null, null, null, false, 'junio', false).txt === ''
+      && TD.tdVeredicto({ hay: false }, 'junio').txt === ''
       && /No hay días guardados de/.test(h12));
 
     /* ── CONTRA EL MISMO TRAMO DEL MES PASADO ──────────────────────────────────────────────
@@ -651,14 +696,28 @@ async function main() {
        era cruzar toda la pantalla. Cada número lleva su comparación DEBAJO, en chico: lo que se
        compara con algo va junto a ese algo. */
     const enc = h12.slice(h12.indexOf('<th>Cliente</th><th>Div</th>'), h12.indexOf('</tr></thead><tbody>\n      ${grupos.map'));
-    check('tbs diario: jugado y profit quedan uno al lado del otro',
-      enc.indexOf('Jugado (in)') >= 0 && enc.indexOf('Profit') >= 0
-      && enc.indexOf('Profit') - enc.indexOf('Jugado (in)') < 80,
-      enc.replace(/\s+/g, ' ').slice(0, 150));
-    // "Margen" no lo entiende nadie que no lo haya estudiado. La misma cuenta dicha en castellano.
-    check('tbs diario: el margen se dice como "queda de cada 100"',
-      /de cada 100/.test(h12) && /cuánto de cada 100 jugados te quedaste/.test(h12)
-      && !/>Margen</.test(h12));
+    check('tbs diario: jugado y profit quedan uno al lado del otro', (() => {
+      // Se cuentan las COLUMNAS que hay entre los dos, no los caracteres: medir por distancia de
+      // texto se rompía sola en cuanto un encabezado ganaba un subtítulo, sin que nada se hubiera
+      // movido de lugar.
+      const i = enc.indexOf('Jugado (in)'), j = enc.indexOf('>Profit');
+      if (i < 0 || j < 0 || j < i) return false;
+      return (enc.slice(i, j).match(/<th\b/g) || []).length === 1;   // sólo el <th> del propio Profit
+    })(), enc.replace(/\s+/g, ' ').slice(0, 150));
+    /* Se llamó "margen" (nadie lo entiende), después "te queda de cada 100", y ahora RTP — que
+       es el nombre que la dueña ya usa en los paneles del casino. Lo pidió así de explícito:
+       "no necesito que me muestre te queda 9% de cada 100 jugados, quiero el RTP normal".
+       "Margen" sigue prohibido. */
+    check('tbs diario: la columna se llama RTP y dice qué es',
+      />RTP</.test(h12) && /se llevan los jugadores/.test(h12) && !/>Margen</.test(h12));
+
+    /* ⚠️ Y EL RTP VA AL REVÉS QUE LAS OTRAS DOS COLUMNAS. En jugado y profit subir es bueno; acá
+       subir es que los jugadores se llevaron más. Cambiar el rótulo sin dar vuelta el color
+       dejaría un ▲ verde justo donde el mes fue peor, que es peor que no mostrarlo. */
+    check('tbs diario: en el RTP el verde y el rosa están dados vuelta',
+      /const rtpNue = 100 - a\.queda/.test(h12)
+      && /d > 0 \? 'var\(--rosa\)' : 'var\(--verde2\)'/.test(h12),
+      'el RTP quedó con el color al derecho: subir aparecería como bueno');
 
     /* ── EL DÍA A DÍA, HACIA ABAJO ─────────────────────────────────────────────────────────
        Los días eran columnas: a partir del día 12 la tabla se salía de la pantalla y seguir a un
@@ -3161,6 +3220,15 @@ async function main() {
        montos y en silencio. Por eso el reporte de proveedores no puede ofrecer una lista escrita
        a mano: tenía diez y dejaba afuera PYG (33 cajas) y COP (23), así que salía incompleto y
        parecía completo. Sale de lo que declaran las cajas. */
+    /* ── EN TBS UN PADRE TRAE SU SUBÁRBOL ADENTRO ────────────────────────────────────────────
+       Se capturan los agentes que le interesan a la dueña y alguno cuelga de otro que también se
+       captura (hoy MULT2-CAL-ARS-PROD de NachoAPI). Cada fila por separado está bien; SUMARLAS
+       todas cuenta a ese dos veces — el total daba 6.302.228 USDT cuando lo real son 5.360.000.
+       La marca la pone el servidor (`dentroDe`) para que ninguna pantalla tenga que acordarse. */
+    check('tbs: el que cuelga de otro capturado viene marcado, y el total lo saltea',
+      /c\.dentroDe\b/.test(h10) && /if \(c\.dentroDe\) continue;/.test(h10),
+      'el total del reporte diario de TBS volvería a contar dos veces');
+
     check('reportes: las monedas salen de las cajas, no de una lista escrita a mano',
       !/\['ARS','BRL','CLP','DOP','EUR','MXN','PEN','USD','UYU','VEF'\]/.test(h10)
       && /_paneles\.forEach\(p=>\(p\.divisas\|\|\[\]\)\.forEach/.test(h10),
@@ -6447,8 +6515,12 @@ async function main() {
   {
     const ui = r.data;
     const mono = (ui.match(/font-family:(ui-)?monospace|font-family:ui-monospace/g) || []).length;
+    /* El séptimo es la VISTA PREVIA de la comparativa de TBS. Ahí no endurece la lectura: el
+       mensaje sale con los números en <code>, que Telegram muestra en ancho fijo para que los dos
+       meses queden alineados. Mostrar la vista previa en otra letra sería mostrar una cosa y
+       mandar otra, que es justo lo que hace que después nadie confíe en el botón. */
     check('panel: la letra de máquina queda sólo donde se copia carácter por carácter',
-      mono <= 6, `${mono} lugares`);
+      mono <= 7, `${mono} lugares`);
     check('panel: la contraseña generada SÍ la conserva',
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',

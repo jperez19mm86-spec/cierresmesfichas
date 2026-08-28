@@ -21,6 +21,7 @@ const tcColumna = require('./tc-columna.service');
 const apiStore = require('./api-store');
 const tbsDiario = require('./tbs-diario-store');
 const tbsDiarioSvc = require('./tbs-diario.service');
+const tbsComparativa = require('./tbs-comparativa');
 const { parseMonto } = require('./lib/monto');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
@@ -2561,6 +2562,41 @@ function mount(app) {
     const fecha = String((req.body || {}).fecha || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err(res, 400, 'falta la fecha (YYYY-MM-DD)');
     ok(res, { fecha, borradas: tbsDiario.borrarDia(fecha) });
+  }));
+
+  /* ── LA COMPARATIVA QUE SE MANDA POR TELEGRAM ────────────────────────────────────────────────
+     Es el mensaje que la dueña venía escribiendo a mano cuando le preguntan por un cliente. El
+     texto lo arma el SERVIDOR con los datos de la base: si la pantalla mandara el texto ya hecho,
+     cualquier cosa que llegue a la ruta de enviar se publicaría tal cual. */
+  app.get('/api/os/tbs/comparativa', (req, res) => {
+    const ids = String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const d = tbsComparativa.armar({ mes: req.query.mes || mesTZ(), ids });
+    if (!d.ok) return err(res, 400, d.error);
+    ok(res, { ...d, texto: tbsComparativa.texto(d), plano: tbsComparativa.textoPlano(d) });
+  });
+
+  /* Va SÓLO al grupo interno (⚙ Config → Telegram). Es una decisión, no una limitación: la dueña
+     lo usa para contestarle a su gente, y un clic de más no puede terminar en el chat de un
+     cliente con los números de otro. El día que haga falta mandárselo a un cliente, se agrega
+     pidiéndolo explícitamente, como ya hace la cuenta del mes. */
+  app.post('/api/os/tbs/comparativa/enviar', wrap(async (req, res) => {
+    const b = req.body || {};
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
+    const chat = configStore.getApiGrupoMatriz();
+    if (!chat) return err(res, 400, 'falta el grupo de Telegram (⚙ Config → Telegram → grupo de la matriz)');
+    const ids = Array.isArray(b.ids) ? b.ids : String(b.ids || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const d = tbsComparativa.armar({ mes: b.mes || mesTZ(), ids });
+    if (!d.ok) return err(res, 400, d.error);
+    if (!d.filas.length) return err(res, 400, 'no hay ninguna cuenta con movimiento para mandar');
+    const txt = tbsComparativa.texto(d);
+    const partes = facturaSvc.partir(txt);
+    for (const p of partes) {
+      const x = await telegram.sendMessage(tok, chat, p);
+      if (!x.ok) return err(res, 502, `no se pudo mandar: ${x.error}`);
+    }
+    console.log(`[TBS] comparativa ${d.mesAnt}→${d.mes} (${d.filas.length} cuentas) al grupo ${chat}`);
+    ok(res, { enviado: true, partes: partes.length, cuentas: d.filas.length, chat });
   }));
 
   app.post('/api/os/casino/conexiones/:id/test', wrap(async (req, res) => {

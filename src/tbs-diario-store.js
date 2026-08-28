@@ -123,6 +123,32 @@ function delMes(mes) {
     c.bet += Number(f.bet) || 0; c.win += Number(f.win) || 0; c.profit += Number(f.profit) || 0;
   }
   const clientes = [...porClave.values()].sort((a, b) => Math.abs(b.profit) - Math.abs(a.profit));
+
+  /* ── CUÁLES SE PUEDEN SUMAR Y CUÁLES NO ──────────────────────────────────────────────────────
+   * En TBS un padre TRAE SU SUBÁRBOL ADENTRO (ver `sumarPorDivisa` en tbs-api.js). Se capturan
+   * los agentes que le interesan a la dueña, y algunos de esos cuelgan de otro que también se
+   * captura: hoy MULT2-CAL-ARS-PROD cuelga de NachoAPI, así que el número de NachoAPI ya incluye
+   * el de MULT2. Cada fila por separado está bien —para ver si un cliente sube o baja— pero
+   * SUMARLAS TODAS cuenta a MULT2 dos veces.
+   *
+   * Por eso la marca viaja con el dato y no la deduce cada pantalla: la de acá se olvidaría, y un
+   * total inflado no se nota mirándolo.
+   */
+  let padres = new Map();
+  try {
+    padres = new Map(db.prepare('SELECT id, login, padre_id FROM api_cliente').all()
+      .map((c) => [String(c.id), c]));
+  } catch (e) { /* si la tabla no está, no hay de dónde saberlo: no se marca nada */ }
+  const capturados = new Set(clientes.map((c) => String(c.agente_id)));
+  clientes.forEach((c) => {
+    const yo = padres.get(String(c.agente_id));
+    const pid = yo && yo.padre_id ? String(yo.padre_id) : '';
+    // Sólo cuenta si el padre TAMBIÉN se está capturando: si no, no hay duplicado que evitar.
+    if (pid && capturados.has(pid)) {
+      const padre = padres.get(pid);
+      c.dentroDe = (padre && padre.login) || pid;
+    }
+  });
   return { mes: m, dias, clientes };
 }
 
