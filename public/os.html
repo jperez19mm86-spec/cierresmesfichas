@@ -5731,7 +5731,7 @@ function tdDetalle(c, dias, ref) {
       <th class="right" style="font-size:10px">Jugado (in)</th>
       <th class="right" style="font-size:10px">Premios (out)</th>
       <th class="right" style="font-size:10px">Profit</th>
-      <th class="right" style="font-size:10px">Queda</th>
+      <th class="right" style="font-size:10px" title="Es el revés del RTP: lo que te queda de cada 100 jugados. RTP 88,2% → te queda 11,8%.">Te queda</th>
     </tr></thead><tbody>${filas}
       ${tot('Este mes', tb, tw, tp, true)}
       ${ref ? tot(ref.lab, ref.bet, ref.win, ref.profit, false) : ''}
@@ -5743,11 +5743,14 @@ VIEWS.tbsdiario = async () => {
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const mesAnt = tdMesAnterior(_tdMes);
   const nomAnt = TD_MESES[Number(mesAnt.slice(5,7))] || mesAnt;
-  const [plan, dat, ant] = await Promise.all([
+  const nomEste = TD_MESES[Number(_tdMes.slice(5,7))] || _tdMes;
+  const [plan, dat, ant, tcd] = await Promise.all([
     api('/api/os/tbs/diario/plan?mes='+_tdMes),
     api('/api/os/tbs/diario?mes='+_tdMes),
     api('/api/os/tbs/diario?mes='+mesAnt),
+    api('/api/os/tc/del-mes?mes='+_tdMes),
   ]);
+  const TC = {}; (tcd.monedas||[]).forEach(m=>{ if(Number(m.valor)) TC[m.divisa]=Number(m.valor); });
   const dias = dat.dias||[];
   const falt = (plan.faltan||[]).length;
   const seg = plan.segundos_estimados;
@@ -5765,6 +5768,48 @@ VIEWS.tbsdiario = async () => {
     return { bet:b, win:w, profit:p }; };
   const idxAnt = new Map();
   if (hayComp) (ant.clientes||[]).forEach(c => idxAnt.set(c.agente_id+'|'+c.moneda, sumar(c, ant.mes)));
+
+  /* ── EL TOTAL DE LOS DOS MESES, EN EL MISMO TRAMO ────────────────────────────────────────────
+     Cada cliente ya traía su comparación, pero no había en ningún lado la respuesta a la pregunta
+     de arriba de todo: «¿este mes viene mejor o peor que el pasado, y por cuánto?».
+
+     Se pasa a USDT porque los clientes están en nueve monedas y en pesos no se suman. Y los DOS
+     meses se convierten con el MISMO tipo de cambio —el de este mes— a propósito: con el de cada
+     mes, una devaluación sola aparecería como que el negocio se cayó. Acá se quiere medir el
+     negocio, no el dólar.
+
+     ⚠️ Una moneda sin tipo de cambio NO se suma como cero: se la nombra abajo. Sumarla en cero es
+     la forma de que falte plata sin que nadie lo note — ya pasó con el guaraní. */
+  const sinTC = new Set();
+  const aUsdt = (v, mon) => {
+    if (mon === 'USD' || mon === 'USDT') return v;
+    const t = TC[mon];
+    if (!t) { sinTC.add(mon); return null; }
+    return v / t;
+  };
+  /* ⚠️ NO SE SUMAN LOS QUE ESTÁN ADENTRO DE OTRO. En TBS un padre trae su subárbol adentro, y de
+     los agentes que se capturan hay uno que cuelga de otro: MULT2-CAL-ARS-PROD cuelga de NachoAPI,
+     así que el número de NachoAPI YA lo incluye. Sumando los 22 el total daba 6.302.228 USDT
+     cuando lo real son 5.360.000 — casi un millón de más, y en pantalla no se nota. El servidor
+     los marca con `dentroDe` para que ninguna pantalla tenga que acordarse sola. */
+  const anidados = (dat.clientes||[]).filter(c => c.dentroDe);
+  const totalDe = (lista, mes) => {
+    let bet = 0, profit = 0;
+    for (const c of lista) {
+      if (c.dentroDe) continue;
+      const x = sumar(c, mes);
+      const b = aUsdt(x.bet, c.moneda), pr = aUsdt(x.profit, c.moneda);
+      if (b == null || pr == null) continue;
+      bet += b; profit += pr;
+    }
+    return { bet, profit };
+  };
+  const TOT  = hayComp ? totalDe(dat.clientes||[], dat.mes) : null;
+  const TOTA = hayComp ? totalDe(ant.clientes||[], ant.mes) : null;
+  const varPct = (nue, viejo) => (viejo ? (nue / viejo - 1) * 100 : null);
+  const flechaT = (v) => v == null ? '<span class="muted">—</span>'
+    : `<span style="color:${v >= 0 ? 'var(--verde2)' : 'var(--rosa)'};font-weight:700">${
+        v >= 0 ? '▲' : '▼'} ${money(Math.abs(v), 0)}%</span>`;
 
   // Una fila por CLIENTE con su moneda principal; las otras se despliegan. Se esconde lo que no
   // movió nada: una fila de ceros no es información.
@@ -5833,7 +5878,48 @@ VIEWS.tbsdiario = async () => {
     </div>
 
     ${!grupos.length ? '<div class="card"><div class="empty">Todavía no hay días guardados de este mes.</div></div>' : `
-    ${hayComp ? `<div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
+    ${hayComp ? `<div class="card">
+      <div class="tapa"><div>
+        <h2>${esc(nomEste.charAt(0).toUpperCase()+nomEste.slice(1))} contra ${esc(nomAnt)}</h2>
+        <div class="sub">Del <b>${esc(tramo)}</b> de los dos meses, todo pasado a USDT</div>
+      </div></div>
+      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">
+        <div class="tc-t">
+          <div class="d">JUGARON</div>
+          <div class="v">${money(TOT.bet,0)}</div>
+          <div class="f">${flechaT(varPct(TOT.bet, TOTA.bet))} · ${esc(nomAnt)} ${money(TOTA.bet,0)}</div>
+        </div>
+        <div class="tc-t">
+          <div class="d">TE QUEDÓ</div>
+          <div class="v">${money(TOT.profit,0)}</div>
+          <div class="f">${flechaT(varPct(TOT.profit, TOTA.profit))} · ${esc(nomAnt)} ${money(TOTA.profit,0)}</div>
+        </div>
+        <div class="tc-t">
+          <div class="d">DE CADA 100 JUGADOS</div>
+          <div class="v">${TOT.bet?money(TOT.profit/TOT.bet*100,1)+'%':'—'}</div>
+          <div class="f">${esc(nomAnt)} ${TOTA.bet?money(TOTA.profit/TOTA.bet*100,1)+'%':'—'}</div>
+        </div>
+        <div class="tc-t${(TOT.profit-TOTA.profit)<0?' mal':''}">
+          <div class="d">DIFERENCIA</div>
+          <div class="v">${(TOT.profit-TOTA.profit)>=0?'+':'−'}${money(Math.abs(TOT.profit-TOTA.profit),0)}</div>
+          <div class="f">USDT ${(TOT.profit-TOTA.profit)>=0?'más':'menos'} que en ${esc(nomAnt)}</div>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:10px;max-width:85ch;font-size:12.5px">
+        Los dos meses se pasan a USDT con <b>el mismo tipo de cambio</b> —el de este mes— a propósito:
+        si cada uno usara el suyo, una devaluación sola aparecería como que el negocio se cayó.
+        Acá se mide el negocio, no el dólar.
+        ${sinTC.size?`<b style="color:var(--rosa)"> ⚠ Falta el tipo de cambio de ${[...sinTC].join(', ')}:
+          esos clientes NO están sumados acá.</b> Cargalo en 💱 Tipos de cambio.`:''}
+        ${anidados.length?`<div style="margin-top:6px">${anidados.map(c=>'<b>'+esc(c.login)+'</b>').join(', ')}
+          no se suma${anidados.length===1?'':'n'} aparte: ya está${anidados.length===1?'':'n'} contado${anidados.length===1?'':'s'}
+          adentro de <b>${esc(anidados[0].dentroDe)}</b>. En TBS un padre trae su subárbol adentro,
+          así que sumarlos daría casi un millón de USDT de más. En la lista de abajo sí aparece
+          suelto, para poder mirarlo solo.</div>`:''}
+      </div>
+    </div>
+
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <div class="card" style="flex:1;min-width:200px;margin:0;border-left:3px solid var(--red)">
         <label>Traen menos jugado</label>
         <div style="font-size:26px;font-weight:800;color:${cuenta('mal')?'var(--red)':'inherit'}">${cuenta('mal')}</div>
@@ -5852,7 +5938,9 @@ VIEWS.tbsdiario = async () => {
       <h2>Cada cliente <span class="muted">(${grupos.length})</span></h2>
       <div class="muted" style="margin-bottom:10px;max-width:900px">
         <b>Jugado</b> es todo lo que apostaron. <b>Profit</b> es lo que quedó (jugado − premios).
-        <b>Queda</b> es cuánto de cada 100 jugados te quedaste: si jugaron 100 y quedaron 11,8, queda 11,8%.
+        <b>Te queda</b> es cuánto de cada 100 jugados te quedaste, y <b>es el revés del RTP</b>:
+        el RTP es lo que se llevan los jugadores, esto es lo que te queda a vos. Suman 100 —
+        RTP 88,2% es lo mismo que decir que te queda 11,8%.
         <div style="margin-top:4px">Sirve para separar dos cosas que en el profit se ven iguales:
         si <b>cae el jugado</b> se está yendo el negocio; si el jugado se mantiene pero <b>queda menos</b>,
         ganaron los jugadores y se da vuelta solo.</div>
@@ -5869,7 +5957,7 @@ VIEWS.tbsdiario = async () => {
       <table style="min-width:100%"><thead><tr>
         <th>Cliente</th><th>Div</th><th>Jugado por día</th>
         <th class="right">Jugado (in)</th><th class="right">Profit</th>
-        <th class="right">Queda<div style="font-weight:400;text-transform:none;letter-spacing:0">de cada 100</div></th>
+        <th class="right" title="Es el revés del RTP. El RTP es lo que se llevan los jugadores; esto es lo que te queda. Suman 100: RTP 88,2% → te queda 11,8%.">Te queda<div style="font-weight:400;text-transform:none;letter-spacing:0">de cada 100 jugados</div></th>
         <th>Qué pasó</th>
       </tr></thead><tbody>
       ${grupos.map(g=>{

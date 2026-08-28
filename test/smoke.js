@@ -3161,6 +3161,15 @@ async function main() {
        montos y en silencio. Por eso el reporte de proveedores no puede ofrecer una lista escrita
        a mano: tenía diez y dejaba afuera PYG (33 cajas) y COP (23), así que salía incompleto y
        parecía completo. Sale de lo que declaran las cajas. */
+    /* ── EN TBS UN PADRE TRAE SU SUBÁRBOL ADENTRO ────────────────────────────────────────────
+       Se capturan los agentes que le interesan a la dueña y alguno cuelga de otro que también se
+       captura (hoy MULT2-CAL-ARS-PROD de NachoAPI). Cada fila por separado está bien; SUMARLAS
+       todas cuenta a ese dos veces — el total daba 6.302.228 USDT cuando lo real son 5.360.000.
+       La marca la pone el servidor (`dentroDe`) para que ninguna pantalla tenga que acordarse. */
+    check('tbs: el que cuelga de otro capturado viene marcado, y el total lo saltea',
+      /c\.dentroDe\b/.test(h10) && /if \(c\.dentroDe\) continue;/.test(h10),
+      'el total del reporte diario de TBS volvería a contar dos veces');
+
     check('reportes: las monedas salen de las cajas, no de una lista escrita a mano',
       !/\['ARS','BRL','CLP','DOP','EUR','MXN','PEN','USD','UYU','VEF'\]/.test(h10)
       && /_paneles\.forEach\(p=>\(p\.divisas\|\|\[\]\)\.forEach/.test(h10),
