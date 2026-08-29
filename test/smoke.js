@@ -2964,8 +2964,49 @@ async function main() {
     check('chat: la pantalla carga los paneles sola',
       /if\(!_paneles\.length\)\{ const dp=await api\('\/api\/os\/paneles'\)/.test(uiCh));
     check('chat: los links, el usuario y la contraseña de cada caja se cargan desde la pantalla',
-      /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
-      && /clave_admin:this\.value/.test(uiCh) && /clave_portal:this\.value/.test(uiCh));
+      /data-campo="link_jugadores"/.test(uiCh) && /data-campo="link_panel"/.test(uiCh)
+      && /data-campo="usuario_admin"/.test(uiCh) && /data-campo="clave_admin"/.test(uiCh)
+      && /clave_portal:this\.value/.test(uiCh));
+
+    /* ── LOS CAMPOS DE UNA CAJA NO SE GUARDAN SOLOS ──────────────────────────────────────────
+       Guardaban al salir de cada campo, y guardar repintaba la pantalla entera: se cerraban
+       todas las cajas abiertas. Cargarle a una caja el link, el usuario y la contraseña eran
+       tres recorridos. Se escriben los siete y se guarda una vez, sin repintar. */
+    /* ── RENOMBRAR TIENE QUE VERSE EN TODOS LADOS ────────────────────────────────────────────
+       Un cliente tiene `nombre` y `nombreVisible`. Fichas muestra y editaba SÓLO el segundo; el
+       Panel, el Chat y la matriz del cierre muestran el primero. Renombrar desde el lápiz no se
+       veía en ninguna otra pantalla: GANAMOS PISTACHO se pasó a «GANAMOS P» y siguió saliendo
+       con el nombre viejo en todos lados menos en Fichas. */
+    {
+      const fichas = (await axios.get(BASE + '/', { headers: { Cookie: cookie } })).data;
+      check('fichas: renombrar un cliente escribe los DOS nombres',
+        /JSON\.stringify\(\{ codigo, nombre, nombreVisible: nombre \}\)/.test(fichas),
+        'el lápiz volvió a escribir sólo nombreVisible y el rename no se vería en el Panel');
+    }
+
+    /* Renombrar vivía sólo en el lápiz de Fichas, que es el OTRO espacio: con la ficha del
+       cliente abierta en el Panel, ir a buscarlo allá no se le ocurre a nadie. Y desde acá
+       también se mandan los dos nombres. */
+    {
+      // `h10` no existe en este bloque: el panel se pide acá.
+      const panel = (await axios.get(BASE + '/os', { headers: { Cookie: cookie } })).data;
+      check('panel: se puede renombrar un cliente desde su propia ficha',
+        /onclick="renombrarCliente\('\$\{c\.id\}'\)"/.test(panel)
+        && /async function renombrarCliente\(id\)/.test(panel)
+        && /codigo:codigo\.trim\(\), nombre:nombre\.trim\(\), nombreVisible:nombre\.trim\(\)/.test(panel),
+        'o falta el botón, o volvió a escribir un solo nombre');
+    }
+
+    check('chat: los campos de la caja no guardan solos — hay un botón',
+      !/chatSet\('\$\{p\.panel_id\}',\{(pct_cliente|desde|dia_cobro|link_|usuario_admin|clave_admin)/.test(uiCh)
+      && /function chatGuardar\(id\)/.test(uiCh)
+      && /id="chat-guardar-\$\{p\.panel_id\}" disabled/.test(uiCh),
+      'algún campo de la caja volvió a guardar por su cuenta');
+    // Y al guardar no se repinta: el único dato que se ve afuera se actualiza a mano.
+    check('chat: guardar no repinta la pantalla',
+      /const h=document\.getElementById\('chat-pct-'\+id\)/.test(uiCh)
+      && !/chatGuardar[^]{0,900}VIEWS\.chat\(\)/.test(uiCh),
+      'chatGuardar volvió a repintar y se cierran las cajas abiertas');
     check('chat: y la pantalla explica que la contraseña va detrás de la clave del portal',
       /La contraseña no<\/b>:\s*\n?\s*al portal se entra/.test(uiCh)
       && /clave del portal<\/b> que le pusiste abajo/.test(uiCh));

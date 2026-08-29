@@ -132,6 +132,14 @@
   .tapa h2{ margin:0 }
   .tapa .sub{ font-size:13px; color:var(--muted); margin-top:3px }
   .tapa .acciones{ margin-top:0 }
+  /* La tarjeta de un comprobante: plegada muestra quién, cuánto y cuándo —lo que hace falta para
+     saber cuál es— y se abre para resolverlo. Con seis esperando y todos abiertos había que
+     scrollear el buzón entero para llegar al último, atendiendo uno. */
+  details.cmp > summary{ list-style:none; padding:2px 0 }
+  details.cmp > summary::-webkit-details-marker{ display:none }
+  details.cmp > summary:hover{ opacity:.85 }
+  details.cmp[open] > summary{ border-bottom:1px solid var(--border); padding-bottom:11px; margin-bottom:4px }
+  details.cmp.pend:not([open]){ background:var(--durazno-bg) }
   /* Las fichitas de «qué TC se usa este mes». Eran 23 tarjetas iguales con la palabra «promedio»
      repetida abajo de cada una: el ojo no tenía dónde apoyarse. Ahora sólo se marca lo que NO es
      el promedio automático —cargado a mano, o sin cargar— y esas van primero. */
@@ -1089,6 +1097,26 @@ async function nuevoCliente(){
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
   if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
 }
+/* ── RENOMBRAR, DESDE DONDE SE MIRA AL CLIENTE ────────────────────────────────────────────────
+   Vivía sólo en el lápiz de 🎰 Fichas, en el otro espacio. Con la ficha del cliente abierta en el
+   Panel, ir a buscarlo allá no se le ocurre a nadie.
+   ⚠️ Se mandan los DOS nombres. Un cliente tiene `nombre` y `nombreVisible`, y Fichas escribía
+   sólo el segundo — el único que muestra esa pantalla. El Panel, el Chat y la matriz del cierre
+   muestran el primero, así que renombrar no se veía en ningún otro lado. */
+async function renombrarCliente(id){
+  const c=(_clientes||[]).find(x=>x.id===id); if(!c) return;
+  const nombre=prompt('Nombre del cliente:', c.nombre||c.codigo||'');
+  if(nombre===null) return;
+  const codigo=prompt('Código con el que pide fichas:', c.codigo||'');
+  if(codigo===null) return;
+  const r=await api('/api/clientes/'+id,{method:'PUT',
+    body:JSON.stringify({codigo:codigo.trim(), nombre:nombre.trim(), nombreVisible:nombre.trim()})});
+  if(!r||!r.ok) return toast((r&&r.error)||'no se pudo');
+  toast('Guardado');
+  // Se recarga la lista: el nombre y el código se ven en todas las demás pantallas.
+  const d=await api('/api/os/clientes'); _clientes=d.clientes||[];
+  abrirCliente(id, _cliTab);
+}
 async function borrarCliente(id, codigo){
   if(!confirm('¿Borrar el cliente "'+codigo+'"?\n\nEsto borra TAMBIÉN sus plataformas/paneles, % de proveedores, participaciones y movimientos. No se puede deshacer.')) return;
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
@@ -1112,6 +1140,11 @@ async function abrirCliente(id, tab){
         <button class="outline small" onclick="salirCliente()">← Clientes</button>
         <h2 style="margin:0 0 0 10px">${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</h2>
         <div class="muted" style="margin-left:10px">${c.vendedor_id?('lo maneja <b>'+esc(nom[c.vendedor_id]||'')+'</b>'):(c.es_vendedor?'':'sin vendedor asignado')}</div>
+        <div style="flex:1"></div>
+        <!-- Renombrar vivía SÓLO en el lápiz de Fichas, que es el otro espacio. Estando la ficha
+             del cliente abierta, ir a buscarlo allá no se le ocurre a nadie. -->
+        <button class="outline small" onclick="renombrarCliente('${c.id}')"
+          title="Cambia el nombre y el código en todas las pantallas">✎ Nombre y código</button>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
         ${TABS.map(([k,l])=>`<button class="${k===_cliTab?'':'outline'} small" onclick="abrirCliente('${id}','${k}')">${l}</button>`).join('')}
@@ -1253,13 +1286,6 @@ function editCli(id){
   accEstado(id);          // si puede ver su cuenta, y con qué usuario
   loadCliPlat(id);
   loadCliProv(id);
-}
-// Quedó de cuando la ficha era un modal; hoy la salida es `salirCliente`.
-function closeCliModal(){
-  if(_cliDirty){
-    if(confirm('Tenés cambios sin guardar.\n\nAceptar = GUARDAR y salir\nCancelar = salir SIN guardar')){ saveCli(_cliModalId); return; }
-  }
-  const e=document.getElementById('cliEdit'); if(e) e.innerHTML='';
 }
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
 async function fillDivisas(curCsv){
@@ -2047,18 +2073,30 @@ async function pintarComprobantes(estado, conFiltros) {
   _cmpPend = c0.pendiente || 0; renderNav();
   const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
 
+  /* ── UNO POR VEZ ─────────────────────────────────────────────────────────────────────────────
+     Cada comprobante pendiente abría con sus dos caminos y sus cinco campos: 300px de alto cada
+     uno. Con seis esperando había que scrollear el buzón entero para llegar al último, y estás
+     atendiendo UNO. Ahora vienen plegados —con lo que hace falta para saber cuál es— y el primero
+     abierto, que es el que estás por resolver. Al resolverlo desaparece y se abre el que sigue.
+     Los ya resueltos no se pliegan: ahí no hay nada que decidir, se está leyendo. */
+  let _abiertos = 0;
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
     const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
     const arch = c.archivo_bytes
       ? '<a href="/api/os/comprobantes/' + c.id + '/archivo" target="_blank" class="pill">📎 ver comprobante</a>'
       : '<span class="pill" style="background:var(--red);color:#000">SIN comprobante</span>';
-    return '<div class="card" style="margin:8px 0;border-left:3px solid ' + (pend ? 'var(--gold)' : (c.estado === 'aprobado' ? '#3c9' : 'var(--red)')) + '">'
-      + '<div class="row" style="align-items:center;gap:10px">'
+    // El primero que espera arranca abierto; los demás, plegados.
+    const abrir = !pend || (_abiertos++ === 0);
+    return '<details class="card cmp' + (pend ? ' pend' : '') + '"' + (abrir ? ' open' : '')
+      + ' style="margin:8px 0;border-left:3px solid ' + (pend ? 'var(--durazno)' : (c.estado === 'aprobado' ? 'var(--verde2)' : 'var(--rosa)')) + '">'
+      + '<summary class="row" style="align-items:center;gap:10px;cursor:pointer;list-style:none">'
+      +   '<span class="chev" aria-hidden="true" style="flex:0 0 auto"></span>'
       +   '<div style="flex:1"><b>' + esc(c.cliente_nombre || c.codigo) + '</b> <span class="pill">' + esc(c.codigo) + '</span>'
       +     '<div class="muted" style="font-size:11.5px;margin-top:3px">' + esc(String(c.creado_at || '').slice(0,16).replace('T',' ')) + ' · ' + via + (c.referencia ? ' · ref ' + esc(c.referencia) : '') + '</div></div>'
       +   '<div style="flex:0;text-align:right"><div class="muted" style="font-size:11px">declarado</div><div style="font-size:19px;font-weight:800">' + money(c.monto,2) + ' ' + esc(c.divisa) + '</div></div>'
-      + '</div>'
+      + '</summary>'
+      + '<div>'
       + '<div style="margin-top:8px">' + arch + (c.notas ? ' <span class="muted">' + esc(c.notas) + '</span>' : '') + '</div>'
       // ── ¿EL AVISO AL GRUPO SALIÓ? ────────────────────────────────────────────────────────────
       // Antes esto no se veía en ningún lado: el envío fallaba, se escribía en un log que se pierde
@@ -2088,7 +2126,9 @@ async function pintarComprobantes(estado, conFiltros) {
         // distintas. En una pantalla angosta el renglón se partía, el botón del TC del mes
         // quedaba FUERA DE LA VISTA, y lo que se apretaba era el otro — el que pide un monto en
         // la moneda de la cuenta. Cada botón va pegado al campo que lee, y se ve cuál es cuál.
-        ? '<div style="margin-top:10px"><label>Nota</label><input id="cmp-n-' + c.id + '" placeholder="opcional" style="max-width:420px"></div>'
+        // La nota se fue ABAJO, al lado de Rechazar: encabezaba la tarjeta siendo lo último que
+        // se llena, y encima es privada — no la ve el cliente ni sale por Telegram.
+        ? ''
 
           /* ── LAS DOS CAJAS SON DOS CAMINOS, NO UNO BUENO Y UNO GRIS ────────────────────────
              El fondo de la caja era `--bg3`, el MISMO rosa que el de los campos: todo se fundía y
@@ -2136,7 +2176,11 @@ async function pintarComprobantes(estado, conFiltros) {
           +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
           + '</div>'
 
-          + '<div style="margin-top:8px"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          + '<div class="row" style="margin-top:10px;align-items:flex-end;gap:10px">'
+          +   '<div style="flex:1 1 300px"><label>Nota <span class="muted" style="text-transform:none;letter-spacing:0">— sólo la ves vos</span></label>'
+          +     '<input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
+          +   '<div style="flex:0 0 auto"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          + '</div>'
         : '<div style="margin-top:8px">'
           // ── LO QUE SE ACREDITÓ DE VERDAD ────────────────────────────────────────────────────
           // El cliente declara un monto y el comprobante puede decir otro. Se acredita el del
@@ -2158,7 +2202,7 @@ async function pintarComprobantes(estado, conFiltros) {
           + ' · ' + esc(String(c.resuelto_at || '').slice(0,16).replace('T',' '))
           + (c.motivo ? ' · ' + esc(c.motivo) : '') + (c.movimiento_id ? ' · movimiento ' + esc(c.movimiento_id) : '') + '</div>'
           + '</div>')
-      + '</div>';
+      + '</div></details>';
   };
   dest.innerHTML = '<div class="card"><h2>🧾 ' + (estado === 'pendiente' ? 'Comprobantes por aprobar' : 'Comprobantes ya resueltos') + '</h2>'
     + '<div class="muted">Los sube el cliente desde la pantalla pública. Aprobar uno <b>registra el pago y le baja la deuda</b>, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
@@ -4693,22 +4737,22 @@ VIEWS.chat = async () => {
             <span class="muted" style="font-size:13.5px">${esc(p.panel)}</span>
             ${p.desde?'':'<span class="señal rosa" title="Sin esta fecha no se le cobra el mantenimiento">falta la fecha</span>'}
             ${p.pct_cliente?'':'<span class="señal durazno" title="Se le cobra el mínimo: lo que a vos te cuesta">al mínimo</span>'}
-            <span class="cifra"><b>${esc(p.pct_cliente||cfgC.costo_pct||'2')}</b><span class="u">%</span></span>
+            <span class="cifra"><b id="chat-pct-${p.panel_id}">${esc(p.pct_cliente||cfgC.costo_pct||'2')}</b><span class="u">%</span></span>
           </summary>
           <div class="cuerpo">
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:14px">
               <div style="flex:0 0 90px"><label>Le cobrás</label>
                 <input value="${esc(p.pct_cliente||'')}" placeholder="${esc(cfgC.costo_pct||'2')}"
-                  onchange="chatSet('${p.panel_id}',{pct_cliente:this.value})"
+                  data-caja="${p.panel_id}" data-campo="pct_cliente" oninput="chatTocar('${p.panel_id}')"
                   title="Si lo dejás vacío se le cobra el mínimo: lo que a vos te cuesta."
                   style="width:100%;text-align:center"></div>
               <div style="flex:0 0 150px"><label>Empezó el</label>
                 <input type="date" value="${esc(p.desde||'')}"
-                  onchange="chatSet('${p.panel_id}',{desde:this.value})"
+                  data-caja="${p.panel_id}" data-campo="desde" oninput="chatTocar('${p.panel_id}')"
                   style="width:100%${p.desde?'':';border-color:var(--rosa)'}"></div>
               <div style="flex:0 0 90px"><label>Paga el día</label>
                 <input value="${esc(p.dia_cobro||'')}" placeholder="—"
-                  onchange="chatSet('${p.panel_id}',{dia_cobro:this.value})"
+                  data-caja="${p.panel_id}" data-campo="dia_cobro" oninput="chatTocar('${p.panel_id}')"
                   title="Se completa solo con el día en que empezó. Cambialo sólo si con ese cliente quedó otro día."
                   style="width:100%;text-align:center"></div>
               <div style="flex:0 0 110px"><label>Nivel</label>
@@ -4717,19 +4761,19 @@ VIEWS.chat = async () => {
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               <div style="flex:1;min-width:200px"><label>Link para los jugadores</label>
                 <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
-                  onchange="chatSet('${p.panel_id}',{link_jugadores:this.value})" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="link_jugadores" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
               <div style="flex:1;min-width:200px"><label>Link del panel</label>
                 <input value="${esc(p.link_panel||'')}" placeholder="donde entra a administrar"
-                  onchange="chatSet('${p.panel_id}',{link_panel:this.value})" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="link_panel" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
             </div>
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               <div style="flex:0 0 150px"><label>Usuario del panel</label>
                 <input value="${esc(p.usuario_admin||'')}" placeholder="—"
-                  onchange="chatSet('${p.panel_id}',{usuario_admin:this.value})" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="usuario_admin" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
               <div style="flex:0 0 160px"><label>Contraseña del panel</label>
                 <input value="${esc(p.clave_admin||'')}" placeholder="—"
                   title="La ve el cliente en su portal, pero SÓLO después de escribir la clave que le diste."
-                  onchange="chatSet('${p.panel_id}',{clave_admin:this.value})" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="clave_admin" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
               <div class="muted" style="flex:1;min-width:220px;font-size:12px;align-self:center">
                 Los dos links y el usuario se ven en el portal del cliente. <b>La contraseña no</b>:
                 al portal se entra escribiendo el nombre de una caja, así que ahí quedaría a la vista
@@ -4737,7 +4781,11 @@ VIEWS.chat = async () => {
                 <b>clave del portal</b> que le pusiste abajo.</div>
             </div>
             <div class="acciones">
-              <button class="outline small" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
+              <button class="small" id="chat-guardar-${p.panel_id}" disabled
+                onclick="chatGuardar('${p.panel_id}')">Guardar cambios</button>
+              <span id="chat-aviso-${p.panel_id}" class="muted" style="font-size:12.5px;align-self:center"></span>
+              <div style="flex:1"></div>
+              <button class="outline small danger" data-id="${esc(p.panel_id)}" data-nom="${esc(p.panel)}"
                 onclick="chatQuitar(this.dataset.id,this.dataset.nom)">Sacarla del servicio</button>
             </div>
           </div>
@@ -5163,9 +5211,40 @@ async function chatCfg(){
     pago_nota:val('chat-pagonota')})});
   if(r&&r.ok){ toast('Guardado'); VIEWS.chat(); }
 }
+/* ── UN SOLO GUARDADO POR CAJA ────────────────────────────────────────────────────────────────
+   Cada campo guardaba solo al salir, y guardar REPINTABA la pantalla entera: se cerraban todas
+   las cajas que tenías abiertas. Para cargarle a una caja el link, el usuario y la contraseña
+   había que recorrer el camino tres veces, abriendo de nuevo cada vez.
+
+   Ahora se escriben los siete campos y se guarda una vez. Y al guardar NO se repinta: se
+   actualiza a mano el único dato que se ve afuera de la caja —el % del encabezado— y se marca
+   «guardado». La pantalla queda como la dejaste. */
+function chatTocar(id){
+  const b=document.getElementById('chat-guardar-'+id); if(b){ b.disabled=false; b.textContent='Guardar cambios'; }
+  const a=document.getElementById('chat-aviso-'+id); if(a) a.textContent='sin guardar';
+}
+async function chatGuardar(id){
+  const campos={};
+  document.querySelectorAll('[data-caja="'+id+'"]').forEach(el=>{ campos[el.dataset.campo]=el.value; });
+  const b=document.getElementById('chat-guardar-'+id), a=document.getElementById('chat-aviso-'+id);
+  if(b){ b.disabled=true; b.textContent='Guardando…'; }
+  const r=await api('/api/os/chat/paneles',{method:'POST',body:JSON.stringify({panel_id:id,...campos})});
+  if(!r||!r.ok){
+    // El servidor rechaza un % por debajo de lo que te cuesta: eso hay que MOSTRARLO, no perderlo.
+    if(b){ b.disabled=false; b.textContent='Guardar cambios'; }
+    if(a){ a.textContent=''; }
+    return toast((r&&r.error)||'no se pudo guardar');
+  }
+  const h=document.getElementById('chat-pct-'+id);
+  if(h) h.textContent = String(campos.pct_cliente||'').trim() || h.textContent;
+  if(b){ b.textContent='✓ Guardado'; }
+  if(a){ a.textContent='guardado'; setTimeout(()=>{ if(a) a.textContent=''; }, 2500); }
+}
+/* Sigue existiendo para lo que SÍ tiene que repintar —un interruptor, sacar una caja— donde el
+   cambio se ve en otro lado de la pantalla. */
 async function chatSet(id,campos){
   const r=await api('/api/os/chat/paneles',{method:'POST',body:JSON.stringify({panel_id:id,...campos})});
-  if(r&&r.ok) VIEWS.chat();
+  if(r&&r.ok) VIEWS.chat(); else if(r&&r.error) toast(r.error);
 }
 async function chatAgregar(){
   const id=val('chat-nuevo'); if(!id) return toast('Elegí un panel');
