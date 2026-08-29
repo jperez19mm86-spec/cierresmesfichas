@@ -2997,6 +2997,19 @@ async function main() {
         'o falta el botón, o volvió a escribir un solo nombre');
     }
 
+    /* ── EL NAVEGADOR NO TIENE QUE RELLENAR ESTOS CAMPOS ────────────────────────────────────
+       Chrome miró la etiqueta «Dirección» de la wallet, decidió que era un domicilio y le metió
+       «Alexa» adentro. Un clic en Agregar y quedaba guardada una wallet cuya dirección es un
+       nombre propio — plata mandada a la nada. Y al campo del bot, por ser type=password, le
+       ofrecía una contraseña guardada. */
+    check('chat: la wallet y los tokens no se autocompletan solos', (() => {
+      const inputs = uiCh.match(/<input[^>]*>/g) || [];
+      const marcas = ['chat-w-dir', 'chat-w-alias', 'chat-w-red', 'chat-bot',
+        'usuario_admin', 'clave_admin', 'clave_portal'];
+      return /const NOFILL = 'autocomplete="off"/.test(uiCh)
+        && marcas.every((m) => { const el = inputs.find((x) => x.includes(m)); return el && /NOFILL/.test(el); });
+    })(), 'algún campo de wallet, token o credencial volvió a quedar autocompletable');
+
     check('chat: los campos de la caja no guardan solos — hay un botón',
       !/chatSet\('\$\{p\.panel_id\}',\{(pct_cliente|desde|dia_cobro|link_|usuario_admin|clave_admin)/.test(uiCh)
       && /function chatGuardar\(id\)/.test(uiCh)
