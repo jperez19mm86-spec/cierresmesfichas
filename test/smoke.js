@@ -2984,6 +2984,15 @@ async function main() {
         'el lápiz volvió a escribir sólo nombreVisible y el rename no se vería en el Panel');
     }
 
+    /* Renombrar vivía sólo en el lápiz de Fichas, que es el OTRO espacio: con la ficha del
+       cliente abierta en el Panel, ir a buscarlo allá no se le ocurre a nadie. Y desde acá
+       también se mandan los dos nombres. */
+    check('panel: se puede renombrar un cliente desde su propia ficha',
+      /onclick="renombrarCliente\('\$\{c\.id\}'\)"/.test(h10)
+      && /async function renombrarCliente\(id\)/.test(h10)
+      && /codigo:codigo\.trim\(\), nombre:nombre\.trim\(\), nombreVisible:nombre\.trim\(\)/.test(h10),
+      'o falta el botón, o volvió a escribir un solo nombre');
+
     check('chat: los campos de la caja no guardan solos — hay un botón',
       !/chatSet\('\$\{p\.panel_id\}',\{(pct_cliente|desde|dia_cobro|link_|usuario_admin|clave_admin)/.test(uiCh)
       && /function chatGuardar\(id\)/.test(uiCh)

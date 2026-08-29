@@ -1097,6 +1097,26 @@ async function nuevoCliente(){
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
   if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
 }
+/* ── RENOMBRAR, DESDE DONDE SE MIRA AL CLIENTE ────────────────────────────────────────────────
+   Vivía sólo en el lápiz de 🎰 Fichas, en el otro espacio. Con la ficha del cliente abierta en el
+   Panel, ir a buscarlo allá no se le ocurre a nadie.
+   ⚠️ Se mandan los DOS nombres. Un cliente tiene `nombre` y `nombreVisible`, y Fichas escribía
+   sólo el segundo — el único que muestra esa pantalla. El Panel, el Chat y la matriz del cierre
+   muestran el primero, así que renombrar no se veía en ningún otro lado. */
+async function renombrarCliente(id){
+  const c=(_clientes||[]).find(x=>x.id===id); if(!c) return;
+  const nombre=prompt('Nombre del cliente:', c.nombre||c.codigo||'');
+  if(nombre===null) return;
+  const codigo=prompt('Código con el que pide fichas:', c.codigo||'');
+  if(codigo===null) return;
+  const r=await api('/api/clientes/'+id,{method:'PUT',
+    body:JSON.stringify({codigo:codigo.trim(), nombre:nombre.trim(), nombreVisible:nombre.trim()})});
+  if(!r||!r.ok) return toast((r&&r.error)||'no se pudo');
+  toast('Guardado');
+  // Se recarga la lista: el nombre y el código se ven en todas las demás pantallas.
+  const d=await api('/api/os/clientes'); _clientes=d.clientes||[];
+  abrirCliente(id, _cliTab);
+}
 async function borrarCliente(id, codigo){
   if(!confirm('¿Borrar el cliente "'+codigo+'"?\n\nEsto borra TAMBIÉN sus plataformas/paneles, % de proveedores, participaciones y movimientos. No se puede deshacer.')) return;
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
@@ -1120,6 +1140,11 @@ async function abrirCliente(id, tab){
         <button class="outline small" onclick="salirCliente()">← Clientes</button>
         <h2 style="margin:0 0 0 10px">${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</h2>
         <div class="muted" style="margin-left:10px">${c.vendedor_id?('lo maneja <b>'+esc(nom[c.vendedor_id]||'')+'</b>'):(c.es_vendedor?'':'sin vendedor asignado')}</div>
+        <div style="flex:1"></div>
+        <!-- Renombrar vivía SÓLO en el lápiz de Fichas, que es el otro espacio. Estando la ficha
+             del cliente abierta, ir a buscarlo allá no se le ocurre a nadie. -->
+        <button class="outline small" onclick="renombrarCliente('${c.id}')"
+          title="Cambia el nombre y el código en todas las pantallas">✎ Nombre y código</button>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
         ${TABS.map(([k,l])=>`<button class="${k===_cliTab?'':'outline'} small" onclick="abrirCliente('${id}','${k}')">${l}</button>`).join('')}
