@@ -2972,6 +2972,18 @@ async function main() {
        Guardaban al salir de cada campo, y guardar repintaba la pantalla entera: se cerraban
        todas las cajas abiertas. Cargarle a una caja el link, el usuario y la contraseña eran
        tres recorridos. Se escriben los siete y se guarda una vez, sin repintar. */
+    /* ── RENOMBRAR TIENE QUE VERSE EN TODOS LADOS ────────────────────────────────────────────
+       Un cliente tiene `nombre` y `nombreVisible`. Fichas muestra y editaba SÓLO el segundo; el
+       Panel, el Chat y la matriz del cierre muestran el primero. Renombrar desde el lápiz no se
+       veía en ninguna otra pantalla: GANAMOS PISTACHO se pasó a «GANAMOS P» y siguió saliendo
+       con el nombre viejo en todos lados menos en Fichas. */
+    {
+      const fichas = (await axios.get(BASE + '/', { headers: { Cookie: cookie } })).data;
+      check('fichas: renombrar un cliente escribe los DOS nombres',
+        /JSON\.stringify\(\{ codigo, nombre, nombreVisible: nombre \}\)/.test(fichas),
+        'el lápiz volvió a escribir sólo nombreVisible y el rename no se vería en el Panel');
+    }
+
     check('chat: los campos de la caja no guardan solos — hay un botón',
       !/chatSet\('\$\{p\.panel_id\}',\{(pct_cliente|desde|dia_cobro|link_|usuario_admin|clave_admin)/.test(uiCh)
       && /function chatGuardar\(id\)/.test(uiCh)

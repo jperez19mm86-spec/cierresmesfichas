@@ -703,9 +703,14 @@
     if (!c) return;
     const codigo = prompt('Código del cliente:', String(c.codigo || '').toUpperCase());
     if (codigo === null) return;
-    const nombreVisible = prompt('Nombre visible:', c.nombreVisible || '');
-    if (nombreVisible === null) return;
-    const { body } = await api('/api/clientes/' + id, { method: 'PUT', body: JSON.stringify({ codigo, nombreVisible }) });
+    /* ⚠️ SE MANDAN LOS DOS NOMBRES. Un cliente tiene `nombre` y `nombreVisible`, y sólo se
+       escribía el segundo — que es el único que muestra ESTA pantalla. El Panel, el Chat y la
+       matriz del cierre muestran `nombre`, así que renombrar acá no se veía en ningún otro lado:
+       GANAMOS PISTACHO se pasó a «GANAMOS P» y siguió apareciendo con el nombre viejo en todos
+       lados menos acá. Se guardan juntos hasta que quede uno solo. */
+    const nombre = prompt('Nombre del cliente:', c.nombre || c.nombreVisible || '');
+    if (nombre === null) return;
+    const { body } = await api('/api/clientes/' + id, { method: 'PUT', body: JSON.stringify({ codigo, nombre, nombreVisible: nombre }) });
     if (body && body.ok) await loadClientes(); else alert(body && body.error || 'error');
   }
 
