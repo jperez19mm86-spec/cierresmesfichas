@@ -566,6 +566,9 @@ function cierre(mes) {
     const margen = money.sub(cobra, paga);
     filas.push({
       panel_id: p.panel_id, panel: p.panel, cliente: p.cliente, cliente_id: p.cliente_id,
+      // El link de jugadores viaja con la fila: en la hoja, el nombre de la caja solo no le dice
+      // al cliente CUÁL es —tiene varias— y el link es como la reconoce.
+      link_jugadores: p.link_jugadores || '',
       sistema: p.sistema, pct_cliente: pctCli, pct_costo: c.costo_pct,
       profit_usdt: profitUsdt, cobra, paga, margen,
       /* Cobrarle menos de lo que cuesta se puede querer (una promoción) pero no por accidente.

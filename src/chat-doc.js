@@ -77,6 +77,15 @@ const CSS = `
   .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
   .tc{color:var(--tinta2);font-size:12px}
   .mon{margin-bottom:5px} .mon:last-child{margin-bottom:0}
+  /* El link de la caja, debajo de su nombre: sin protocolo, que no aporta y ocupa. */
+  .lnk{margin-top:3px;font-size:12.5px;word-break:break-all}
+  .lnk a{color:var(--tinta2);text-decoration:none;border-bottom:1px solid currentColor}
+  .lnk a:hover{color:var(--acento)}
+  /* Volver: una barra fina arriba de todo, fuera de la hoja. */
+  .volver{padding:12px 20px 0}
+  .volver a,.volver button{display:inline-flex;align-items:center;gap:7px;background:none;border:none;
+    color:#fff;opacity:.82;font:inherit;font-size:14.5px;cursor:pointer;text-decoration:none;padding:0}
+  .volver a:hover,.volver button:hover{opacity:1}
   tfoot td{font-weight:700;border-top:2px solid var(--lila);border-bottom:none}
   .sub-tot{margin-top:14px;background:#fff;border:1px solid var(--linea);border-radius:13px;
     padding:13px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap}
@@ -129,7 +138,19 @@ const PERRO = `<svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
   <circle cx="39" cy="45" r="4.5" fill="#fff"/><circle cx="61" cy="45" r="4.5" fill="#fff"/>
   <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/></svg>`;
 
-const cabecera = (titulo, sub) => `<div class="cab"><div class="adentro">${PERRO}
+/* ── CÓMO SE VUELVE, SEGÚN QUIÉN ESTÉ MIRANDO ────────────────────────────────────────────────
+   La hoja se abre en una pestaña nueva, así que la flecha del navegador queda apagada: no hay a
+   dónde volver. Y son dos lectores distintos:
+     · el CLIENTE llega con su token desde el portal → un link de vuelta al portal.
+     · la dueña la abre desde el panel para mirarla antes de mandarla → cerrar la pestaña, que es
+       lo único que tiene sentido cuando la pestaña la abrió un script.
+   `window.close()` sólo funciona en pestañas abiertas por script, que es justo este caso. */
+const volver = (ctx) => (ctx && ctx.token)
+  ? '<div class="volver"><a href="/chat">← Volver</a></div>'
+  : '<div class="volver"><button type="button" onclick="window.close()">← Cerrar</button></div>';
+
+const cabecera = (titulo, sub, ctx) => `<div class="cab"><div class="adentro">${volver(ctx)}</div>
+  <div class="adentro">${PERRO}
   <div><div class="marca">Ganamos × Latam</div><h1>${esc(titulo)}</h1>
   <div class="sub">${esc(sub)}</div></div></div></div>`;
 
@@ -185,6 +206,9 @@ function paraCliente(g, ctx = {}) {
        necesita el número en la moneda en que lo ve ahí, no sólo el convertido. */
     paneles: (g.paneles || []).map((p) => ({
       panel: p.panel, pct: p.pct_cliente, ganancia: p.profit_usdt, cobra: p.cobra,
+      // El link de jugadores: un cliente con varias cajas reconoce cuál es por el link, no por
+      // el nombre interno del panel.
+      link: p.link_jugadores || '',
       monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
         .map((d) => ({ moneda: d.moneda, profit: String(d.profit), tc: d.tc || null, usdt: d.usdt })),
     })),
@@ -237,7 +261,7 @@ function htmlCliente(doc, ctx = {}) {
   const pend = avisos.filter((a) => a.estado === 'pendiente');
 
   const debe = saldo ? Number(saldo.debe) : Number(doc.total);
-  const cuerpo = cabecera(doc.cliente, mesLargo(doc.mes)) + `<div class="hoja">
+  const cuerpo = cabecera(doc.cliente, mesLargo(doc.mes), ctx) + `<div class="hoja">
   <div class="tot">
     <span>${saldo
       ? (debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día'))
@@ -255,7 +279,8 @@ function htmlCliente(doc, ctx = {}) {
   ${varios ? `<h2>Por caja</h2>
   <div class="caja"><table><thead><tr><th>Caja</th><th class="r">Ganancia</th>
     <th class="r">En USDT</th><th class="r">%</th><th class="r">A pagar</th></tr></thead>
-    <tbody>${doc.paneles.map((p) => `<tr><td>${esc(p.panel)}</td>
+    <tbody>${doc.paneles.map((p) => `<tr><td>${esc(p.panel)}${
+      p.link ? `<div class="lnk"><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link.replace(/^https?:\/\//, ''))}</a></div>` : ''}</td>
       <td class="r">${celdaMonedas(p.monedas)}</td>
       <td class="r">${n(p.ganancia, 2)}</td><td class="r">${esc(pctTxt(p.pct))}</td>
       <td class="r">${n(p.cobra, 2)}</td></tr>`).join('')}</tbody></table></div>` : ''}

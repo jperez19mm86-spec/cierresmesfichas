@@ -3002,6 +3002,26 @@ async function main() {
        «Alexa» adentro. Un clic en Agregar y quedaba guardada una wallet cuya dirección es un
        nombre propio — plata mandada a la nada. Y al campo del bot, por ser type=password, le
        ofrecía una contraseña guardada. */
+    /* ── LA HOJA DEL CLIENTE ─────────────────────────────────────────────────────────────────
+       Se abre en una pestaña nueva, así que la flecha del navegador queda apagada: no hay a
+       dónde volver. Y el nombre interno de la caja no le dice al cliente CUÁL es cuando tiene
+       varias — el link de jugadores sí. */
+    {
+      const doc = require('../src/chat-doc');
+      const base = { cliente: 'X', mes: '2026-08', monedas: [], total: '10', pct: '4',
+        pctUnico: true, paneles: [
+          { panel: 'CajaUno', pct: '4', ganancia: '100', cobra: '4', link: 'https://juega.test', monedas: [] },
+          { panel: 'CajaDos', pct: '4', ganancia: '50', cobra: '2', link: '', monedas: [] }] };
+      const conToken = doc.htmlCliente(base, { token: 'abc' });
+      const sinToken = doc.htmlCliente(base, {});
+      check('hoja del chat: hay cómo volver, y depende de quién mira',
+        /href="\/chat"/.test(conToken) && /window\.close\(\)/.test(sinToken),
+        'el cliente vuelve al portal; la dueña cierra la pestaña que abrió el panel');
+      check('hoja del chat: cada caja muestra su link de jugadores',
+        /juega\.test/.test(sinToken) && !/CajaDos<\/td>\s*<div class="lnk"/.test(sinToken),
+        'la caja sin link cargado no tiene que mostrar un renglón vacío');
+    }
+
     check('chat: la wallet y los tokens no se autocompletan solos', (() => {
       const inputs = uiCh.match(/<input[^>]*>/g) || [];
       const marcas = ['chat-w-dir', 'chat-w-alias', 'chat-w-red', 'chat-bot',
