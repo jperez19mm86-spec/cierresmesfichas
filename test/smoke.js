@@ -2964,8 +2964,24 @@ async function main() {
     check('chat: la pantalla carga los paneles sola',
       /if\(!_paneles\.length\)\{ const dp=await api\('\/api\/os\/paneles'\)/.test(uiCh));
     check('chat: los links, el usuario y la contraseña de cada caja se cargan desde la pantalla',
-      /link_jugadores:this\.value/.test(uiCh) && /link_panel:this\.value/.test(uiCh)
-      && /clave_admin:this\.value/.test(uiCh) && /clave_portal:this\.value/.test(uiCh));
+      /data-campo="link_jugadores"/.test(uiCh) && /data-campo="link_panel"/.test(uiCh)
+      && /data-campo="usuario_admin"/.test(uiCh) && /data-campo="clave_admin"/.test(uiCh)
+      && /clave_portal:this\.value/.test(uiCh));
+
+    /* ── LOS CAMPOS DE UNA CAJA NO SE GUARDAN SOLOS ──────────────────────────────────────────
+       Guardaban al salir de cada campo, y guardar repintaba la pantalla entera: se cerraban
+       todas las cajas abiertas. Cargarle a una caja el link, el usuario y la contraseña eran
+       tres recorridos. Se escriben los siete y se guarda una vez, sin repintar. */
+    check('chat: los campos de la caja no guardan solos — hay un botón',
+      !/chatSet\('\$\{p\.panel_id\}',\{(pct_cliente|desde|dia_cobro|link_|usuario_admin|clave_admin)/.test(uiCh)
+      && /function chatGuardar\(id\)/.test(uiCh)
+      && /id="chat-guardar-\$\{p\.panel_id\}" disabled/.test(uiCh),
+      'algún campo de la caja volvió a guardar por su cuenta');
+    // Y al guardar no se repinta: el único dato que se ve afuera se actualiza a mano.
+    check('chat: guardar no repinta la pantalla',
+      /const h=document\.getElementById\('chat-pct-'\+id\)/.test(uiCh)
+      && !/chatGuardar[^]{0,900}VIEWS\.chat\(\)/.test(uiCh),
+      'chatGuardar volvió a repintar y se cierran las cajas abiertas');
     check('chat: y la pantalla explica que la contraseña va detrás de la clave del portal',
       /La contraseña no<\/b>:\s*\n?\s*al portal se entra/.test(uiCh)
       && /clave del portal<\/b> que le pusiste abajo/.test(uiCh));
