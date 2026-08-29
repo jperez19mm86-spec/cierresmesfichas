@@ -389,6 +389,20 @@ let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = 
 let _repSub = 'mes', _repCli = '';   // Reparto: qué subpantalla y qué cliente se está editando
 let _cxSel = '', _cxNodos = [];
 
+/* ── QUE EL NAVEGADOR NO RELLENE LO QUE NO ES UNA CONTRASEÑA ──────────────────────────────────
+   Chrome miró la etiqueta «Dirección» de la wallet, decidió que era un domicilio y le metió
+   «Alexa» adentro. Un clic en Agregar y quedaba guardada una wallet cuya dirección es un nombre
+   propio — plata mandada a la nada. Y al campo del bot, por ser type=password, el administrador
+   de contraseñas le ofrecía una guardada.
+
+   `autocomplete="off"` solo no alcanza: Chrome lo ignora en los campos que cree de domicilio o
+   de contraseña. Hace falta además un `name` que no se parezca a nada conocido y las marcas que
+   respetan los otros administradores. */
+const NOFILL = 'autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"'
+  + ' data-lpignore="true" data-1p-ignore data-form-type="other"';
+/** Para los que además son secretos: le dice a Chrome «esto es nuevo», así no ofrece uno viejo. */
+const NOFILL_SECRETO = 'autocomplete="new-password" ' + NOFILL.replace('autocomplete="off" ', '');
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
@@ -4235,7 +4249,7 @@ CFG.telegram = async () => {
         y el <b>grupo</b> de ese cliente. Si falta cualquiera de las dos, no se manda nada.</div>
       <div class="row" style="margin-top:12px;align-items:flex-end">
         <div style="flex:2"><label>Token del bot (te lo da @BotFather)</label>
-          <input id="tg-token" type="password" placeholder="${cfg.telegramConfigured?'ya hay uno cargado — escribí otro para reemplazarlo':'123456789:AA...'}"
+          <input id="tg-token" type="password" name="bot-os" ${NOFILL_SECRETO} placeholder="${cfg.telegramConfigured?'ya hay uno cargado — escribí otro para reemplazarlo':'123456789:AA...'}"
             autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly')" style="width:100%"></div>
         <div style="flex:0"><button onclick="tgGuardarToken()">Guardar</button></div>
         <div style="flex:0;padding-bottom:8px">${cfg.telegramConfigured
@@ -4659,11 +4673,11 @@ VIEWS.chat = async () => {
       </tbody></table>`:''}
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:10px">
         <div style="flex:0 0 130px"><label>Nombre</label>
-          <input id="chat-w-alias" placeholder="la de Binance" style="width:100%"></div>
+          <input id="chat-w-alias" name="wal-a" ${NOFILL} placeholder="la de Binance" style="width:100%"></div>
         <div style="flex:0 0 100px"><label>Red</label>
-          <input id="chat-w-red" placeholder="TRC20" style="width:100%;text-align:center;text-transform:uppercase"></div>
+          <input id="chat-w-red" name="wal-r" ${NOFILL} placeholder="TRC20" style="width:100%;text-align:center;text-transform:uppercase"></div>
         <div style="flex:1;min-width:240px"><label>Dirección</label>
-          <input id="chat-w-dir" placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
+          <input id="chat-w-dir" name="wal-d" ${NOFILL} placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
         <div style="flex:0"><button onclick="chatWalletNueva()">+ Agregar</button></div>
       </div>
       <div class="row" style="align-items:flex-end;gap:14px;margin-top:12px">
@@ -4682,7 +4696,7 @@ VIEWS.chat = async () => {
       </div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
         <div style="flex:1;min-width:260px"><label>Bot de Telegram de este servicio</label>
-          <input id="chat-bot" type="password" placeholder="${cfgC.bot_propio?'ya hay uno cargado — pegá otro para cambiarlo':'123456789:AAF…  (te lo da @BotFather)'}"
+          <input id="chat-bot" type="password" name="bot-chat" ${NOFILL_SECRETO} placeholder="${cfgC.bot_propio?'ya hay uno cargado — pegá otro para cambiarlo':'123456789:AAF…  (te lo da @BotFather)'}"
             style="width:100%"></div>
         <div style="flex:0"><button class="outline" onclick="chatBot()">Guardar bot</button></div>
         <div class="muted" style="flex:1;min-width:220px;font-size:12px;align-self:center">
@@ -4769,11 +4783,11 @@ VIEWS.chat = async () => {
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               <div style="flex:0 0 150px"><label>Usuario del panel</label>
                 <input value="${esc(p.usuario_admin||'')}" placeholder="—"
-                  data-caja="${p.panel_id}" data-campo="usuario_admin" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="usuario_admin" name="pan-u-${p.panel_id}" ${NOFILL} oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
               <div style="flex:0 0 160px"><label>Contraseña del panel</label>
                 <input value="${esc(p.clave_admin||'')}" placeholder="—"
                   title="La ve el cliente en su portal, pero SÓLO después de escribir la clave que le diste."
-                  data-caja="${p.panel_id}" data-campo="clave_admin" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
+                  data-caja="${p.panel_id}" data-campo="clave_admin" name="pan-c-${p.panel_id}" ${NOFILL} oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
               <div class="muted" style="flex:1;min-width:220px;font-size:12px;align-self:center">
                 Los dos links y el usuario se ven en el portal del cliente. <b>La contraseña no</b>:
                 al portal se entra escribiendo el nombre de una caja, así que ahí quedaría a la vista
@@ -4816,7 +4830,7 @@ VIEWS.chat = async () => {
                   onchange="chatDestino('${c.id}',{enviar_a:this.value})" style="width:100%"></div>
               <div style="flex:0 0 140px"><label>Clave del portal</label>
                 <input value="${esc((dest[c.id]||{}).clave_portal||'')}" placeholder="—"
-                  onchange="chatDestino('${c.id}',{clave_portal:this.value})"
+                  name="port-c-${c.id}" ${NOFILL} onchange="chatDestino('${c.id}',{clave_portal:this.value})"
                   title="Con esta clave el cliente ve las contraseñas de sus paneles en su portal. Se la das una vez."
                   style="width:100%"></div>
             </div>
