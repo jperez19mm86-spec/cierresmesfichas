@@ -665,20 +665,18 @@ function secEstado(id, abierto){ _secTocada.add(id); if(abierto) _secAb.add(id);
    en gris antes de mostrar un solo dato. Eso no es documentar de más: la primera vez sirve y las
    otras doscientas tapa lo que venís a ver. Queda una línea a la vista —la que hace falta para no
    equivocarse— y el resto detrás de «Cómo funciona esto», que se acuerda de si lo abriste. */
-/* ── DOS ANCHOS, POR UN MOTIVO ────────────────────────────────────────────────────────────────
-   El RESUMEN es un renglón que se escanea: cortarlo a 80ch lo partía en tres renglones usando la
-   mitad de la tarjeta y dejando la otra mitad vacía. Va a 100ch (~610px de los 932 que tiene la
-   tarjeta), que entra en menos renglones y todavía se lee.
-   El DETALLE sí es prosa de varias oraciones, y ahí el límite corto es el que hace que el ojo
-   encuentre el principio del renglón siguiente. Se queda en 85ch.
-   No se saca el límite del todo: la tarjeta entera son ~150 caracteres por renglón, el doble de
-   lo que se lee cómodo. */
+/* ── EL TEXTO LLEGA HASTA EL FINAL, COMO TODO LO DEMÁS ───────────────────────────────────────
+   Estos párrafos tenían un tope de ancho por legibilidad —un renglón muy largo cansa— pero el
+   resto del panel nunca lo tuvo: al lado de un «Cobrado: 3 clientes por 1.050,00 USDT» que llega
+   hasta el borde, un párrafo que corta a dos tercios se lee como un error de maquetado, no como
+   una decisión. Y la inconsistencia molesta más de lo que ayudaba el tope.
+   El ancho lo pone `main`, que ya está en 1000px: ése es el límite real y es el mismo para todo. */
 function ayuda(id, resumen, detalle){
-  return `<div class="muted" style="margin:6px 0 ${detalle?'8px':'12px'};max-width:100ch">${resumen}</div>`
+  return `<div class="muted" style="margin:6px 0 ${detalle?'8px':'12px'}">${resumen}</div>`
     + (detalle?`<details class="cajas" style="margin:0 0 12px"${_secAb.has('ayuda.'+id)?' open':''}
         ontoggle="secEstado('ayuda.${id}',this.open)">
         <summary class="abrir"><span class="chev" aria-hidden="true"></span>Cómo funciona esto</summary>
-        <div class="muted" style="margin-top:9px;max-width:85ch">${detalle}</div></details>`:'');
+        <div class="muted" style="margin-top:9px">${detalle}</div></details>`:'');
 }
 function cliRamaEstado(id, abierto){
   _cerradasIni(_clientes);
@@ -722,7 +720,7 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="togglePanTodos()">${_cliAbiertos.size>=_clientes.length?'Cerrar las cajas':'Abrir todas las cajas'}</button>
         </div>
       </div>
-      <div class="muted" style="margin:10px 0 14px;max-width:100ch">Tocá un cliente para abrir su cuenta.
+      <div class="muted" style="margin:10px 0 14px">Tocá un cliente para abrir su cuenta.
         Adentro están <b>sus cajas</b> y, si tiene gente colgando, <b>su gente</b>, cada una con su
         propio botón. El número de la derecha es lo que debe.</div>
       <!-- Los tres historiales viven acá adentro: son cosas que se miran de vez en cuando, y arriba
@@ -3472,7 +3470,7 @@ VIEWS.tc = async () => {
       <div class="row" style="align-items:flex-end;margin-bottom:12px">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
         <div style="flex:1"><h2 style="margin:0">El TC que se está usando en ${esc(_tcMes)}</h2>
-          <div class="muted" style="font-size:12.5px;max-width:100ch">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
+          <div class="muted" style="font-size:12.5px">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
             Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.</div></div>
       </div>
       <div class="tc-tiles">
@@ -3495,7 +3493,7 @@ VIEWS.tc = async () => {
     <div style="margin-top:12px">
     ${seccion('tc.grilla', 'La grilla · moneda × mes',
       `<b>${filas.length}</b><span class="u">monedas × ${mesesCie.length} meses</span>`, `
-      <div class="muted" style="margin:12px 0 10px;max-width:100ch">Es la que <b>manda</b>: la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes.
+      <div class="muted" style="margin:12px 0 10px">Es la que <b>manda</b>: la ganancia de cada proveedor se convierte con la tasa de su moneda en ese mes.
         Se guarda sola al salir de la casilla. La fila <b>ARS_OF</b> es el ARS que factura el <b>proveedor</b> —
         es la misma casilla que «TC del proveedor» de más abajo.</div>
       <div class="acciones" style="margin:0 0 10px">
@@ -3516,7 +3514,7 @@ VIEWS.tc = async () => {
 
     ${seccion('tc.junta', `Lo que se está juntando en ${esc(_tcMes)}`,
       `<b>${prom.length}</b><span class="u">monedas con cotización</span>`, `
-      <div class="muted" style="margin:12px 0 10px;max-width:100ch">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
+      <div class="muted" style="margin:12px 0 10px">Todos los días se guarda la cotización de cada moneda. Cuando el mes termina, este promedio
         se escribe solo como columna nueva de la grilla — sin pisar nada que hayas cargado a mano.
         Se siguen <b>sólo las monedas que están como fila en la grilla</b> (la fuente publica ~160 y no sirven).
         Agregá una fila y al otro día ya se le junta la cotización.</div>
@@ -3543,7 +3541,7 @@ VIEWS.tc = async () => {
              return ch?`<b style="color:var(--rosa)">${ch}</b><span class="u">no coinciden</span>`
                   : falta?`<b style="color:var(--durazno)">${falta}</b><span class="u">mes(es) sin su factura</span>`
                         : `<b>${meses.length}</b><span class="u">meses al día</span>`; })(), `
-      <div class="muted" style="margin:12px 0 10px;max-width:100ch">El <b>TC Cliente</b> es el promedio del mes (Binance/criptoya) y es con el que se le cobra a los clientes.
+      <div class="muted" style="margin:12px 0 10px">El <b>TC Cliente</b> es el promedio del mes (Binance/criptoya) y es con el que se le cobra a los clientes.
         El <b>TC Proveedor</b> sale de la factura del proveedor y es el mismo dato que la fila <b>ARS_OF</b> de la grilla:
         se escribe una vez y queda en los dos lados.</div>
       <table><thead><tr><th>Mes</th><th class="right">TC Cliente (promedio)</th><th class="right">TC Proveedor (ARS_OF)</th><th class="right">Diferencia</th><th></th></tr></thead><tbody>
@@ -3681,7 +3679,7 @@ MOV.cuenta = async () => {
       <button class="small" style="margin-left:8px" onclick="movSub('pendientes')">Verlos</button></div>` : ''}
 
     <div class="card"><h2>💳 Registrar un pago a mano</h2>
-      <div class="muted" style="margin-bottom:10px;max-width:100ch">Para lo que no entra por un comprobante:
+      <div class="muted" style="margin-bottom:10px">Para lo que no entra por un comprobante:
         un pago en efectivo, una transferencia que llegó por otro lado. Baja la deuda igual que aprobar un comprobante.</div>
       <div class="row" style="align-items:flex-end">
         <div><label>Cliente</label><select id="mp-cli">
@@ -3989,7 +3987,7 @@ CFG.backup = async () => {
   b.innerHTML = `
     <div class="card">
       <h2>🛟 Copia de seguridad</h2>
-      <div class="muted" style="margin-bottom:12px;max-width:70ch">
+      <div class="muted" style="margin-bottom:12px">
         Baja <b>la base entera</b> en un solo archivo: los ${r.cuantasTablas} conjuntos de datos que
         tiene el sistema, con los ${money(r.filas,0)} registros adentro. Para volver atrás se pone
         ese archivo en el servidor y listo.</div>
@@ -4003,7 +4001,7 @@ CFG.backup = async () => {
       </div>
 
       <div class="avi" style="margin-top:14px;border-left:3px solid var(--red);background:rgba(217,83,79,.06);
-        padding:10px 12px;border-radius:0 8px 8px 0;max-width:74ch">
+        padding:10px 12px;border-radius:0 8px 8px 0">
         <b>Este archivo no se comparte.</b> Adentro van las contraseñas del casino, en texto legible
         — es a propósito, para que la copia sirva para levantar el sistema en otro servidor. Guardalo
         en un disco tuyo: nada de mandarlo por chat, Telegram, mail ni Drive compartido.</div>
@@ -4019,7 +4017,7 @@ CFG.backup = async () => {
         </tbody></table></div>
       </details>
 
-      <div class="muted" style="margin-top:14px;font-size:12px;max-width:74ch">
+      <div class="muted" style="margin-top:14px;font-size:12px">
         <b>No alcanza con copiar el archivo de la base del servidor.</b> La base guarda lo más
         reciente en un archivo aparte y todavía no lo pasó al principal: copiando sólo el principal,
         la copia abre vacía. Este botón pide la base entera, junta las dos partes y le corre un
@@ -4635,7 +4633,7 @@ VIEWS.chat = async () => {
   S.config = `
     <div class="card">
       <h2>💬 Chat Externo</h2>
-      <div class="muted" style="max-width:100ch">Se cobra a mes vencido sobre la ganancia del panel,
+      <div class="muted" >Se cobra a mes vencido sobre la ganancia del panel,
         más una mensualidad por panel. <b>Vos pagás un % fijo</b> y le cobrás al cliente lo que
         negociaste: la diferencia es tuya. La ganancia sale del acumulado que ya se guarda todas
         las noches — no se le vuelve a preguntar al casino.</div>
@@ -4660,7 +4658,7 @@ VIEWS.chat = async () => {
       </div>
 
       <h2 style="margin-top:20px">Dónde te pagan</h2>
-      <div class="muted" style="max-width:100ch">Podés tener varias. La <b>red</b> va en su propio
+      <div class="muted" >Podés tener varias. La <b>red</b> va en su propio
         campo: mandar USDT por la red equivocada es perder la plata, y el que copia una línea entera
         se lleva la red adentro de la dirección. Son <b>otras wallets</b> que las de las fichas —
         esta plata <b>es de otro negocio</b>.</div>
@@ -4728,9 +4726,9 @@ VIEWS.chat = async () => {
            algo que no sabe que tiene que preguntar: dejar «Empezó el» vacío significa que a ese
            cliente NO se le cobra el mantenimiento, y eso es plata. Lo que cuesta plata si falta se
            ve sin hacer clic. El resto —cómo se calculan los dos cobros— sí se pliega. -->
-      <div class="muted" style="max-width:100ch">Un chat por caja, y <b>cada uno se cobra sobre lo
+      <div class="muted" >Un chat por caja, y <b>cada uno se cobra sobre lo
         que ganó esa caja</b>, no sobre el total del cliente.</div>
-      <div class="nota-suave" style="max-width:100ch">⚠️ <b>Sin la fecha de «Empezó el» no se le
+      <div class="nota-suave" >⚠️ <b>Sin la fecha de «Empezó el» no se le
         cobra el mantenimiento</b>, porque el sistema no sabe desde cuándo.</div>
       ${ayuda('chat-cobros',
         'Son <b>dos cobros distintos</b>: el % de la ganancia y el mantenimiento de cada caja.',
@@ -4962,7 +4960,7 @@ VIEWS.chat = async () => {
   S.pedidos = `
     ${(pc.solicitudes||[]).length?`<div class="card">
       <h2>Piden un chat nuevo <span class="muted">(${pc.solicitudes.length})</span></h2>
-      <div class="muted" style="max-width:100ch">Lo pidieron desde su portal. <b>No da de alta nada</b>:
+      <div class="muted" >Lo pidieron desde su portal. <b>No da de alta nada</b>:
         abrir un chat te cuesta plata todos los meses, así que lo resolvés vos. Te falta saber de qué
         cuenta cuelga y los dos links; cuando la caja exista, cargala en 👥 Clientes y agregala en
         🏷 Cajas y clientes.</div>
@@ -4995,7 +4993,7 @@ VIEWS.chat = async () => {
   S.avisos = `
     ${(pc.avisos||[]).length?`<div class="card">
       <h2>Dicen que pagaron <span class="muted">(${pc.avisos.length})</span></h2>
-      <div class="muted" style="max-width:100ch">Subieron el comprobante desde su hoja.
+      <div class="muted" >Subieron el comprobante desde su hoja.
         <b>No mueve el saldo hasta que lo apruebes acá</b>: acreditar un pago porque alguien subió
         una imagen sería confiar en la imagen.</div>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
@@ -5030,7 +5028,7 @@ VIEWS.chat = async () => {
   S.cuenta = `
     <div class="card">
       <h2>La cuenta del chat <span class="muted">(es otra cuenta)</span></h2>
-      <div class="muted" style="max-width:100ch">Lo que cada cliente te debe <b>por el chat</b>.
+      <div class="muted" >Lo que cada cliente te debe <b>por el chat</b>.
         No se mezcla con lo de las fichas ni entra en tu cierre del mes: esta plata no es toda tuya
         —la mitad se la pagás al proveedor—, se cobra en otra wallet y se habla en otro grupo.</div>
       ${cta.clientes.length?`
@@ -5091,7 +5089,7 @@ VIEWS.chat = async () => {
   S.proveedor = `
     <div class="card">
       <h2>El proveedor del servicio</h2>
-      <div class="muted" style="max-width:100ch">Lo que <b>vos</b> le pagás por el mes, al
+      <div class="muted" >Lo que <b>vos</b> le pagás por el mes, al
         ${esc(pc.costo_pct)}%. La hoja que se le manda muestra la ganancia de cada caja y ese %,
         y no dice qué le cobrás vos a cada cliente.</div>
       <div class="totalote" style="margin-top:14px">
@@ -5134,7 +5132,7 @@ VIEWS.chat = async () => {
   S.hoy = `
     <div class="card">
       <h2>Mantenimientos de hoy</h2>
-      <div class="muted" style="max-width:100ch">Cada caja tiene su día: no se cobran todas a
+      <div class="muted" >Cada caja tiene su día: no se cobran todas a
         principio de mes. Se cobra haya o no ganancias — es por tener el servicio, no por usarlo.
         Se genera solo; esto es para avisarle, y para el caso raro de tener que cobrarlo a mano.
         ${me.paneles&&me.paneles.length&&me.paneles[0].periodo
@@ -6335,7 +6333,7 @@ API.ofertas = async () => {
   b.innerHTML=`
     <div class="card">
       <h2>💼 Ofertas comerciales</h2>
-      <div class="muted" style="margin-bottom:10px;max-width:78ch">
+      <div class="muted" style="margin-bottom:10px">
         La oferta <b>es</b> el precio: se arma con paquetes, se manda el documento, y al aplicarla
         escribe los precios en la matriz. Así lo que cotizaste y lo que facturás salen del mismo dato.</div>
       <div class="row" style="align-items:flex-end;gap:10px">
@@ -7631,7 +7629,7 @@ AC.pulso = async () => {
       <td class="right">${flecha(c.varIn)}</td></tr>`;
     secs.push(seccion('pulso.venta', 'Quién está vendiendo menos',
       cv.length?`<b style="${perdido>0?'color:var(--rosa)':''}">−${money(perdido,0)}</b><span class="u">USDT de venta</span>`:'<span class="u">sin datos</span>', `
-      <div class="muted" style="margin:12px 0 10px;max-width:100ch">Lo que le cargan sus jugadores (el IN), en USDT,
+      <div class="muted" style="margin:12px 0 10px">Lo que le cargan sus jugadores (el IN), en USDT,
         comparado contra <b>los mismos ${esc((p.comparacion||{}).hastaDia||'')} días</b> de ${esc(p.mesPrev)} y no contra
         el mes entero: si no, el que lleva menos días siempre parece que cae.
         ${(p.comparacion||{}).desparejo?'<b style="color:var(--rosa)">⚠ Al mes anterior le faltan días capturados en ese tramo, así que la comparación se inclina sola.</b>':''}</div>
