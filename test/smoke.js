@@ -2439,7 +2439,10 @@ async function main() {
     const hojaViva = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
       { saldo: saldoZ, comoPaga: 'wallet', token: 'tok123', avisos: [] });
     check('chat: la hoja le dice cuánto debe HOY, no sólo lo del mes',
-      hojaViva.includes('Tenés que pagar') && hojaViva.includes('De este mes'),
+      // El saldo vivo arriba, y lo de ESTE mes abajo — desglosado si hay movimientos, y si no,
+      // en un solo renglón. Lo que no puede faltar es la mitad de abajo.
+      hojaViva.includes('Tenés que pagar')
+      && (/De este mes/.test(hojaViva) || /Total del mes/.test(hojaViva)),
       `saldo ${saldoZ.debe} · mes ${gZ.cobra}`);
     check('chat: con el link puede avisar que pagó desde la misma hoja',
       /¿Ya pagaste\?/.test(hojaViva) && /\/pague/.test(hojaViva) && /type="file"/.test(hojaViva));
@@ -2592,7 +2595,8 @@ async function main() {
     const hojaDos = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
       { saldo: { cobrado: '100', pagado: '0', debe: '100' }, cobradoMes: '100' });
     check('revisión: la hoja muestra UN solo número del mes, el que está en su cuenta',
-      (hojaDos.match(/100,00 USDT/g) || []).length >= 2 && !/De este mes[\s\S]{0,80}8\.194/.test(hojaDos),
+      (hojaDos.match(/100,00 USDT/g) || []).length >= 2
+      && !/(De este mes|Total del mes)[\s\S]{0,80}8\.194/.test(hojaDos),
       'manda lo cobrado, no lo recalculado');
 
     // 5. Una caja de agente sin cliente se le pagaba al proveedor y no se le cobraba a nadie.
@@ -3017,6 +3021,31 @@ async function main() {
       check('hoja del chat: hay cómo volver, y depende de quién mira',
         /href="\/chat"/.test(conToken) && /window\.close\(\)/.test(sinToken),
         'el cliente vuelve al portal; la dueña cierra la pestaña que abrió el panel');
+      /* ── EL % Y EL MANTENIMIENTO SON DOS COBROS DISTINTOS ────────────────────────────────
+         La hoja decía «De este mes · 4% de la ganancia» encima del total del mes. Con los datos
+         reales de agosto ese total era PURO MANTENIMIENTO en los tres clientes —el % se cobra a
+         mes cerrado— así que le decía al cliente que 300 USDT eran el 4% de su ganancia cuando
+         eran dos mensualidades de 150. No era un dato repetido: era uno equivocado. */
+      const conMant = doc.htmlCliente(base, { saldo: { cobrado: '300', pagado: '0', debe: '300' },
+        cobradoMes: '300', movsMes: [
+          { tipo: 'mensualidad', panel: 'CajaUno', monto: '150' },
+          { tipo: 'mensualidad', panel: 'CajaDos', monto: '150' }] });
+      check('hoja del chat: el mantenimiento no se rotula como el % de la ganancia',
+        !/De este mes/.test(conMant)
+        && /Mantenimiento · CajaUno/.test(conMant) && /Mantenimiento · CajaDos/.test(conMant)
+        && /Total del mes/.test(conMant)
+        && /todavía no se cobró/.test(conMant),
+        'el total del mes volvió a salir rotulado como si fuera el porcentaje');
+
+      const conAmbos = doc.htmlCliente(base, { saldo: { cobrado: '331', pagado: '0', debe: '331' },
+        cobradoMes: '331', movsMes: [
+          { tipo: 'cobro', panel: 'CajaUno', monto: '181' },
+          { tipo: 'mensualidad', panel: 'CajaUno', monto: '150' }] });
+      check('hoja del chat: cuando están los dos cobros, se ven los dos',
+        /4% de la ganancia/.test(conAmbos) && /Mantenimiento · CajaUno/.test(conAmbos)
+        && !/todavía no se cobró/.test(conAmbos),
+        conAmbos.includes('181') ? 'ok' : 'falta el renglón del porcentaje');
+
       check('hoja del chat: cada caja muestra su link de jugadores',
         /juega\.test/.test(sinToken) && !/CajaDos<\/td>\s*<div class="lnk"/.test(sinToken),
         'la caja sin link cargado no tiene que mostrar un renglón vacío');

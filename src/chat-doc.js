@@ -78,6 +78,7 @@ const CSS = `
   .tc{color:var(--tinta2);font-size:12px}
   .mon{margin-bottom:5px} .mon:last-child{margin-bottom:0}
   /* El link de la caja, debajo de su nombre: sin protocolo, que no aporta y ocupa. */
+  .tot-fila td{border-top:2px solid var(--linea);padding-top:11px}
   .lnk{margin-top:3px;font-size:12.5px;word-break:break-all}
   .lnk a{color:var(--tinta2);text-decoration:none;border-bottom:1px solid currentColor}
   .lnk a:hover{color:var(--acento)}
@@ -148,6 +149,48 @@ const PERRO = `<svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
 const volver = (ctx) => (ctx && ctx.token)
   ? '<div class="volver"><a href="/chat">← Volver</a></div>'
   : '<div class="volver"><button type="button" onclick="window.close()">← Cerrar</button></div>';
+
+/* ── DE QUÉ ESTÁ HECHO LO QUE SE LE COBRÓ ESTE MES ───────────────────────────────────────────
+   Acá hay DOS cobros distintos: el % sobre la ganancia, que se cobra el 1ro con el mes cerrado, y
+   el mantenimiento de cada caja, que se cobra por adelantado el día que arranca.
+
+   El renglón que había decía «De este mes · 4% de la ganancia» encima del total del mes — y hoy
+   ese total, en los tres clientes, es PURO MANTENIMIENTO: el % de agosto todavía no se cobró. O
+   sea que la hoja le decía al cliente que 300 USDT eran el 4% de su ganancia cuando eran dos
+   mensualidades de 150. No era un dato repetido: era un dato equivocado.
+
+   Ahora se abre en sus partes. Y cuando el % todavía no se cobró se dice, porque arriba está la
+   tabla «Por caja» con una columna «A pagar» que es una PROYECCIÓN, y sin esta línea el cliente
+   suma esos números al total y no le cierra. */
+function desgloseMes(ctx, doc) {
+  const movs = (ctx.movsMes || []).filter((m) => m.tipo !== 'pago');
+  const total = ctx.cobradoMes != null ? ctx.cobradoMes : doc.total;
+  if (!ctx.saldo) return '';
+  const mant = movs.filter((m) => m.tipo === 'mensualidad');
+  const pct = movs.filter((m) => m.tipo === 'cobro');
+  const filas = [];
+  if (pct.length) {
+    filas.push([`${doc.pctUnico ? esc(pctTxt(doc.pct)) + ' de la ganancia' : 'Por la ganancia'}`,
+      n(pct.reduce((a, m) => a + Number(m.monto || 0), 0), 2)]);
+  }
+  for (const m of mant) {
+    filas.push([`Mantenimiento${m.panel ? ' · ' + esc(m.panel) : ''}`, n(m.monto, 2)]);
+  }
+  /* Sin movimientos no hay de qué hacer un desglose, pero el total del mes tiene que salir igual:
+     es la mitad de la respuesta —lo de este mes contra lo que debe en total— y sin él la hoja
+     muestra un saldo sin decir qué parte es de acá. */
+  if (!filas.length) {
+    return `<div class="sub-tot"><span>De este mes</span><b>${n(total, 2)} USDT</b></div>`;
+  }
+  return `<h2>Qué se te cobró de ${esc(mesLargo(doc.mes))}</h2>
+  <div class="caja"><table><tbody>
+    ${filas.map(([q, c]) => `<tr><td>${q}</td><td class="r">${c}</td></tr>`).join('')}
+    <tr class="tot-fila"><td><b>Total del mes</b></td><td class="r"><b>${n(total, 2)} USDT</b></td></tr>
+  </tbody></table></div>
+  ${!pct.length ? `<p class="bajo">El ${doc.pctUnico ? esc(pctTxt(doc.pct)) : 'porcentaje'} sobre la
+    ganancia de ${esc(mesLargo(doc.mes))} todavía no se cobró: se cobra a mes cerrado. Los números
+    de arriba son un adelanto de cuánto va a ser.</p>` : ''}`;
+}
 
 const cabecera = (titulo, sub, ctx) => `<div class="cab"><div class="adentro">${volver(ctx)}</div>
   <div class="adentro">${PERRO}
@@ -285,10 +328,7 @@ function htmlCliente(doc, ctx = {}) {
       <td class="r">${n(p.ganancia, 2)}</td><td class="r">${esc(pctTxt(p.pct))}</td>
       <td class="r">${n(p.cobra, 2)}</td></tr>`).join('')}</tbody></table></div>` : ''}
 
-  ${saldo ? `<div class="sub-tot">
-    <span>De este mes${doc.pctUnico ? ` · ${esc(pctTxt(doc.pct))} de la ganancia` : ''}</span>
-    <b>${n(ctx.cobradoMes != null ? ctx.cobradoMes : doc.total, 2)} USDT</b>
-  </div>` : ''}
+  ${desgloseMes(ctx, doc)}
 
   ${bloquePago(ctx.pago)}
 

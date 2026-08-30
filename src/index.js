@@ -1331,6 +1331,8 @@ app.get('/chat/:token', (req, res) => {
     // Lo COBRADO de ese mes, no el total recalculado: si cambió un TC, los dos números no coinciden
     // y el que vale es el que está en su cuenta.
     cobradoMes: esteMes ? esteMes.cobrado : null,
+    // Y de qué está hecho: el % y el mantenimiento son dos cobros distintos.
+    movsMes: esteMes ? esteMes.movs : [],
   });
   /* El mismo cinturón que la vista previa, PERO ACÁ, que es la hoja que abre el cliente: tenerlo
      sólo del lado de adentro cuidaba justo la copia que no sale. */

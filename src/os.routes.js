@@ -2123,7 +2123,10 @@ function mount(app) {
     const esteMes = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
     const html = chatDoc.htmlCliente(doc, {
       pago: chat.comoPagar(req.params.clienteId), saldo: todo,
-      cobradoMes: esteMes ? esteMes.cobrado : null });
+      cobradoMes: esteMes ? esteMes.cobrado : null,
+      // Los movimientos del mes, para poder decir DE QUÉ está hecho ese total: el % y el
+      // mantenimiento son dos cobros distintos y meterlos en un solo número los confunde.
+      movsMes: esteMes ? esteMes.movs : [] });
     if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
     res.type('text/html; charset=utf-8').send(html);
   });
