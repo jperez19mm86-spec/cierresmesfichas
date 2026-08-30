@@ -179,8 +179,12 @@
   button.small { padding:5px 9px; font-size:12px; }
     /* Marcar más de una wallet para lo mismo: el mantenimiento se cobra por dos redes. */
     .wsel { display:flex; flex-direction:column; gap:4px; margin-top:5px }
-    .wopt { display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer }
-    .wopt input { margin:0 }
+    /* `width:auto` y `text-transform:none` porque el panel le pone a TODO `label` mayúsculas y a
+       TODO `input` ancho completo: sin esto el casillero se estira media columna y el alias de la
+       wallet —que ella escribió como quiso— sale gritado. */
+    .wopt { display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;
+      white-space:nowrap; text-transform:none; letter-spacing:0; font-weight:500; color:var(--text) }
+    .wopt input { margin:0; width:auto; flex:0 0 auto }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
   .row > div { flex:1; min-width:120px; }
   /* Un selector de mes o fecha no entra en 120px: el campo quedaba más angosto que su propio
@@ -4852,7 +4856,7 @@ VIEWS.chat = async () => {
             </div>
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               ${[['wallet_ggr','Paga el mes a'],['wallet_mens','Paga el mantenimiento a']].map(([k,rot])=>`
-                <div style="flex:0 0 200px"><label>${rot}</label>
+                <div style="flex:0 0 235px"><label>${rot}</label>
                   <div class="wsel" data-wsel="${c.id}|${k}">
                     ${ws.filter(w=>w.activa).map(w=>`<label class="wopt"><input type="checkbox" value="${w.id}"
                       ${((dest[c.id]||{})[k==='wallet_ggr'?'wallets_ggr':'wallets_mens']||[]).includes(w.id)?'checked':''}
