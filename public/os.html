@@ -4623,7 +4623,12 @@ VIEWS.chat = async () => {
     const y=clis.find(x=>x.id===p.cliente_id);
     if(y) y.paneles++; else clis.push({id:p.cliente_id,nombre:p.cliente,paneles:1}); });
   clis.sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
-  const debeProv=(x=>x)(T.paga||'0');
+  /* Lo que le debés al proveedor viene ABIERTO del servidor: el % y el mantenimiento, cada uno
+     con lo pagado y lo que falta. Antes acá se usaba sólo `T.paga`, que es el %, y el
+     mantenimiento —que va entero al proveedor— no aparecía en ningún lado. */
+  const dp = pc.deudaProv || { ganancia:{debe:'0',pagado:'0',falta:'0'},
+    mantenimiento:{debe:'0',pagado:'0',falta:'0',cajas:0}, total:{debe:'0',pagado:'0',falta:'0'} };
+  window._chatDP = dp;
 
   /* ── LAS TARJETAS, POR SEPARADO ────────────────────────────────────────────────────────────
      El chat es otro negocio y tiene su propio espacio, con sus pantallas. Cada tarjeta se arma acá
@@ -5093,16 +5098,32 @@ VIEWS.chat = async () => {
   S.proveedor = `
     <div class="card">
       <h2>El proveedor del servicio</h2>
-      <div class="muted" >Lo que <b>vos</b> le pagás por el mes, al
-        ${esc(pc.costo_pct)}%. La hoja que se le manda muestra la ganancia de cada caja y ese %,
-        y no dice qué le cobrás vos a cada cliente.</div>
+      ${ayuda('chat-prov',
+        'Le pagás <b>dos cosas</b>: el <b>' + esc(pc.costo_pct) + '%</b> de la ganancia, y el <b>mantenimiento de cada caja entero</b>.',
+        'Van a wallets distintas y se pagan en fechas distintas, por eso cada pago dice de cuál de las dos es.'
+        + '<div style="margin-top:9px">La hoja que se le manda muestra la ganancia de cada caja y ese %, y no dice qué le cobrás vos a cada cliente.</div>')}
+      <!-- ⚠️ ANTES ACÁ SÓLO ESTABA EL %. El mantenimiento no entraba, y va entero al proveedor:
+           en agosto la pantalla decía 169,44 cuando lo real eran 1.219,44 — faltaban los 1.050 de
+           las siete mensualidades. Ahora el total arriba y las dos partes abajo. -->
       <div class="totalote" style="margin-top:14px">
         <div class="k">Le falta cobrarte de ${esc(mesNombre(_chatMes))}</div>
-        <div class="v">${money(Number(debeProv)-Number(pc.pagado||0),2)} USDT</div>
+        <div class="v">${money(dp.total.falta,2)} USDT</div>
         <dl>
-          <div><dt>Le debés del mes</dt><dd>${money(debeProv,2)}</dd></div>
-          <div><dt>Ya le pagaste</dt><dd>${money(pc.pagado,2)}</dd></div>
+          <div><dt>Le debés en total</dt><dd>${money(dp.total.debe,2)}</dd></div>
+          <div><dt>Ya le pagaste</dt><dd>${money(dp.total.pagado,2)}</dd></div>
         </dl>
+      </div>
+      <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))">
+        <div class="tc-t${Number(dp.ganancia.falta)>0?' mal':''}">
+          <div class="d">POR LA GANANCIA · ${esc(pc.costo_pct)}%</div>
+          <div class="v">${money(dp.ganancia.falta,2)}</div>
+          <div class="f">de ${money(dp.ganancia.debe,2)} · pagaste ${money(dp.ganancia.pagado,2)}</div>
+        </div>
+        <div class="tc-t${Number(dp.mantenimiento.falta)>0?' mal':''}">
+          <div class="d">MANTENIMIENTO · ${dp.mantenimiento.cajas} CAJA${dp.mantenimiento.cajas===1?'':'S'}</div>
+          <div class="v">${money(dp.mantenimiento.falta,2)}</div>
+          <div class="f">de ${money(dp.mantenimiento.debe,2)} · pagaste ${money(dp.mantenimiento.pagado,2)}</div>
+        </div>
       </div>
       <div class="acciones">
         <button class="outline" onclick="chatHojaProv()">Ver la hoja del proveedor</button>
@@ -5110,8 +5131,13 @@ VIEWS.chat = async () => {
 
       <h2 style="margin-top:20px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Registrar un pago</h2>
       <div class="row" style="align-items:flex-end;gap:10px">
+        <div style="flex:0 0 190px"><label>¿De qué es este pago?</label>
+          <select id="chat-pago-concepto" onchange="chatPagoConcepto()" style="width:100%">
+            <option value="ganancia">Por la ganancia (el ${esc(pc.costo_pct)}%)</option>
+            <option value="mantenimiento">Mantenimiento</option>
+          </select></div>
         <div style="flex:0 0 130px"><label>Cuánto le pagaste</label>
-          <input id="chat-pago-monto" placeholder="${money(Number(debeProv)-Number(pc.pagado||0),2)}" style="width:100%;text-align:right"></div>
+          <input id="chat-pago-monto" placeholder="${money(dp.ganancia.falta,2)}" style="width:100%;text-align:right"></div>
         <div style="flex:0 0 150px"><label>Fecha</label>
           <input type="date" id="chat-pago-fecha" value="${new Date().toISOString().slice(0,10)}" style="width:100%"></div>
         <div style="flex:1;min-width:180px"><label>Nota</label>
@@ -5123,7 +5149,7 @@ VIEWS.chat = async () => {
         <div class="muted" style="font-size:12px;margin-bottom:8px">Lo que ya le pagaste este mes</div>
         <div class="sublista">${pc.pagos.map(x=>`<div class="subcaja">
           <div class="subdatos">
-            <div><span class="k">${esc(x.fecha)}${x.nota?' · '+esc(x.nota):''}</span>
+            <div><span class="k">${esc(x.fecha)} · ${(x.concepto||'ganancia')==='mantenimiento'?'mantenimiento':'por la ganancia'}${x.nota?' · '+esc(x.nota):''}</span>
               <span class="v fuerte">${money(x.monto,2)} <span class="muted" style="font-size:12px">${esc(x.moneda)}</span></span></div>
           </div>
           <div class="acciones" style="margin-top:9px">
@@ -5401,10 +5427,20 @@ async function chatBorrarMov(id){
   await api('/api/os/chat/movs/'+id,{method:'DELETE'});
   VIEWS.chat();
 }
+/* El sugerido cambia con el concepto: si vas a pagar el mantenimiento, el número que te propone
+   tiene que ser el del mantenimiento, no el del %. */
+function chatPagoConcepto(){
+  const sel=document.getElementById('chat-pago-concepto'), inp=document.getElementById('chat-pago-monto');
+  if(!sel||!inp||!window._chatDP) return;
+  const d=window._chatDP[sel.value]; if(d) inp.placeholder=money(d.falta,2);
+}
 async function chatPagar(){
   const r=await api('/api/os/chat/pagos',{method:'POST',body:JSON.stringify({
-    mes:_chatMes, monto:val('chat-pago-monto'), fecha:val('chat-pago-fecha'), nota:val('chat-pago-nota')})});
+    mes:_chatMes, monto:val('chat-pago-monto'), fecha:val('chat-pago-fecha'), nota:val('chat-pago-nota'),
+    // De cuál de los dos es: van a wallets distintas y en fechas distintas.
+    concepto:val('chat-pago-concepto')||'ganancia'})});
   if(r&&r.ok){ toast('Pago registrado'); VIEWS.chat(); }
+  else if(r&&r.error) toast(r.error);
 }
 async function chatBorrarPago(id){
   if(!confirm('¿Borrar ese pago?')) return;

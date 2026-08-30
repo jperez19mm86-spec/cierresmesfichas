@@ -2087,6 +2087,9 @@ function mount(app) {
     const pc = chat.porCliente(mes);
     ok(res, {
       ...pc, pagado: chat.pagado(mes), pagos: chat.pagos(mes),
+      // Lo que le debés al proveedor, abierto en sus dos partes: el % y el mantenimiento van a
+      // wallets distintas y se pagan en fechas distintas.
+      deudaProv: chat.deudaProveedor(mes),
       envios: chat.envios(mes), cuentas: chat.cuentas(mes), arrastre: chat.cuentas(null),
       avisos: chat.avisosPendientes(), solicitudes: chat.solicitudesPendientes(),
     });

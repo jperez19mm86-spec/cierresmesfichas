@@ -3051,6 +3051,30 @@ async function main() {
         'la caja sin link cargado no tiene que mostrar un renglón vacío');
     }
 
+    /* ── AL PROVEEDOR SE LE PAGAN DOS COSAS ──────────────────────────────────────────────────
+       «Le debés del mes» era SÓLO el % sobre la ganancia. El mantenimiento no entraba, y va
+       ENTERO al proveedor —a otra wallet y en otras fechas—. Con los datos de agosto la pantalla
+       decía 169,44 cuando lo real eran 1.219,44: faltaban los 1.050 de las siete mensualidades. */
+    {
+      // El bloque de arriba borró las mensualidades: se crea una para tener qué medir.
+      const mm = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat' });
+      const dpv = ch.deudaProveedor('2026-08');
+      check('chat: lo que le debés al proveedor incluye el mantenimiento',
+        mm.ok
+        && Number(dpv.total.debe) === Number(dpv.ganancia.debe) + Number(dpv.mantenimiento.debe)
+        && Number(dpv.mantenimiento.debe) > 0,
+        `% ${dpv.ganancia.debe} + mantenimiento ${dpv.mantenimiento.debe} = ${dpv.total.debe}`);
+
+      // Y cada pago dice de cuál de los dos es: si no, un saldo a medias no dice qué falta.
+      const pg = ch.pagar({ mes: '2026-08', monto: '5', concepto: 'mantenimiento' });
+      const dpv2 = ch.deudaProveedor('2026-08');
+      check('chat: un pago se imputa al concepto que se eligió',
+        pg.ok && Number(dpv2.mantenimiento.pagado) === 5 && Number(dpv2.ganancia.pagado) === 0,
+        `mantenimiento pagado ${dpv2.mantenimiento.pagado} · ganancia pagado ${dpv2.ganancia.pagado}`);
+      if (pg.ok) ch.borrarPago(pg.pago.id);
+      dbCh.prepare("DELETE FROM chat_mov WHERE tipo='mensualidad'").run();
+    }
+
     check('chat: la wallet y los tokens no se autocompletan solos', (() => {
       const inputs = uiCh.match(/<input[^>]*>/g) || [];
       const marcas = ['chat-w-dir', 'chat-w-alias', 'chat-w-red', 'chat-bot',

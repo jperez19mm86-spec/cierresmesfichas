@@ -201,6 +201,10 @@ for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
    "Ariel-A1" está adentro de "Ariel-A10": una caja quedaba marcada como cobrada por el nombre de
    otra. El dato se guarda, no se adivina. */
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya estaba */ }
+/* AL PROVEEDOR SE LE PAGAN DOS COSAS, Y NO JUNTAS. El % de la ganancia y el mantenimiento de cada
+   caja van a wallets distintas y en fechas distintas, así que cada pago tiene que decir de cuál de
+   las dos es: si no, un saldo a medias no dice qué falta. */
+try { db.exec("ALTER TABLE chat_pago_proveedor ADD COLUMN concepto TEXT"); } catch (e) { /* ya estaba */ }
 /* LA CONTRASEÑA DEL PANEL DE CADA CAJA, y la clave con la que el cliente puede verla.
    Hay clientes con muchas cuentas y no se acuerdan cuál va con cuál; tenerlas acá les resuelve el
    problema. Pero al portal se entra escribiendo el NOMBRE DE UNA CAJA, sin contraseña: dejarlas a
@@ -1370,6 +1374,37 @@ function pagado(mes) {
   return money.round(money.sum(pagos(mes).map((p) => p.monto || '0')), 2);
 }
 
+/* ── LO QUE LE DEBÉS AL PROVEEDOR, ABIERTO EN SUS DOS PARTES ─────────────────────────────────
+   Antes «le debés del mes» era SÓLO el % sobre la ganancia. El mantenimiento no entraba, y va
+   entero al proveedor —a otra wallet y en otras fechas—. Con los datos de agosto eso daba
+   169,44 cuando lo real eran 1.219,44: faltaban los 1.050 de las siete mensualidades enteros.
+
+   El mantenimiento que le debés es el que YA le cobraste al cliente ese mes: lo que entró por ese
+   concepto sale por el mismo. No se recalcula sobre las cajas activas, porque una caja que arrancó
+   a mitad de mes no debe un mes entero — y eso ya lo resolvió el devengo al cobrarlo. */
+function deudaProveedor(mes) {
+  const m = String(mes || '').slice(0, 7);
+  const c = cierre(m);
+  const porGanancia = c.totales.paga;
+  const mant = db.prepare("SELECT monto FROM chat_mov WHERE mes=? AND tipo='mensualidad'").all(m);
+  const mantenimiento = money.round(money.sum(mant.map((x) => x.monto || '0')), 2);
+  const ps = pagos(m);
+  const pagadoDe = (k) => money.round(money.sum(
+    ps.filter((p) => (p.concepto || 'ganancia') === k).map((p) => p.monto || '0')), 2);
+  const pagG = pagadoDe('ganancia');
+  const pagM = pagadoDe('mantenimiento');
+  return {
+    mes: m,
+    ganancia: { debe: porGanancia, pagado: pagG, falta: money.round(money.sub(porGanancia, pagG), 2) },
+    mantenimiento: { debe: mantenimiento, pagado: pagM, falta: money.round(money.sub(mantenimiento, pagM), 2), cajas: mant.length },
+    total: {
+      debe: money.round(money.add(porGanancia, mantenimiento), 2),
+      pagado: money.round(money.add(pagG, pagM), 2),
+      falta: money.round(money.sub(money.add(porGanancia, mantenimiento), money.add(pagG, pagM)), 2),
+    },
+  };
+}
+
 function pagar(d) {
   const m = String(d.mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
@@ -1379,9 +1414,11 @@ function pagar(d) {
   }
   const fecha = String(d.fecha || '').slice(0, 10) || hoy();
   const id = 'chp_' + require('crypto').randomBytes(6).toString('hex');
-  db.prepare(`INSERT INTO chat_pago_proveedor (id,mes,monto,moneda,fecha,nota,createdAt)
-    VALUES (?,?,?,?,?,?,?)`).run(id, m, money.round(monto, 2),
-    String(d.moneda || 'USDT').toUpperCase().slice(0, 8), fecha, String(d.nota || ''), nowISO());
+  // Sin concepto se asume el %, que es lo único que existía antes de que se separaran.
+  const concepto = d.concepto === 'mantenimiento' ? 'mantenimiento' : 'ganancia';
+  db.prepare(`INSERT INTO chat_pago_proveedor (id,mes,monto,moneda,fecha,nota,concepto,createdAt)
+    VALUES (?,?,?,?,?,?,?,?)`).run(id, m, money.round(monto, 2),
+    String(d.moneda || 'USDT').toUpperCase().slice(0, 8), fecha, String(d.nota || ''), concepto, nowISO());
   return { ok: true, pago: db.prepare('SELECT * FROM chat_pago_proveedor WHERE id=?').get(id) };
 }
 
@@ -1392,7 +1429,7 @@ function borrarPago(id) {
 
 module.exports = {
   config, setConfig, list, set, quitar, gananciaDelMes, cierre, mensualidadesDe,
-  destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken,
+  destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken, deudaProveedor,
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
   wallets, guardarWallet, borrarWallet, walletDe, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
