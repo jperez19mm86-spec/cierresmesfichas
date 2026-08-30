@@ -2430,6 +2430,53 @@ async function main() {
     check('chat: sin wallet cargada la hoja no inventa un "cómo pagar" vacío',
       !chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), {}).includes('Cómo pagar'));
 
+    /* ── MÁS DE UNA WALLET PARA LA MISMA COSA ────────────────────────────────────────────────
+       El mantenimiento se cobra por TRC20 y por BEP20 y la red la elige el cliente. Lo que se
+       guarda es una lista en el mismo campo; con un id solo el valor queda idéntico al de antes,
+       que es lo que hace que no haya nada que migrar. */
+    check('chat: se pueden ofrecer las dos redes para el mantenimiento',
+      ch.setConfig({ wallet_mens: `${wA.id}, ${wB.id}` }).ok
+      && ch.walletsDe(null, 'mens').length === 2);
+    check('chat: con una sola elegida se guarda y se lee igual que antes',
+      ch.setConfig({ wallet_ggr: wA.id }).ok && ch.config().wallet_ggr === wA.id
+      && ch.walletDe(null, 'ggr').alias === 'Binance',
+      'el valor guardado sigue siendo el id pelado: nada que migrar');
+    check('chat: si una de la lista no existe, no se guarda ninguna',
+      ch.setConfig({ wallet_mens: `${wA.id}, chw_noexiste` }).ok === false
+      && ch.config().wallets_mens.length === 2,
+      'media lista guardada es peor que ninguna');
+    const htmlDos = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
+    check('chat: la hoja muestra las dos direcciones del mantenimiento, cada una con su red',
+      htmlDos.includes('TXwallet123') && htmlDos.includes('0xwallet456')
+      && /Red <b>TRC20<\/b>/.test(htmlDos) && /Red <b>BEP20<\/b>/.test(htmlDos));
+    /* ⚠️ copiar() busca por getElementById: dos bloques con el mismo id hacen que el segundo botón
+       copie la PRIMERA dirección. El cliente manda por la red equivocada y esa plata no vuelve. */
+    const idsDir = htmlDos.match(/id="dir\d+"/g) || [];
+    check('chat: cada dirección tiene su propio id, o el botón copia la equivocada',
+      idsDir.length >= 2 && new Set(idsDir).size === idsDir.length
+      && (htmlDos.match(/class="copiar"/g) || []).length === idsDir.length,
+      `${idsDir.length} direcciones, ${new Set(idsDir).size} ids distintos`);
+    check('chat: cuando hay dos redes para lo mismo, se dice por qué',
+      /Mandá por la red que uses/.test(htmlDos),
+      'sin esto se leen como dos cuentas distintas y la pregunta vuelve por privado');
+    check('chat: la segunda de la lista tampoco se puede borrar',
+      ch.borrarWallet(wB.id).ok === false);
+    /* El chequeo de "en uso" no puede ser por substring: «chw_ab» está adentro de «chw_ab1». */
+    const wPref = ch.guardarWallet({ id: 'chw_zz', alias: 'Corta', red: 'TRC20', direccion: 'Tcorta1' }).wallet;
+    const wLarga = ch.guardarWallet({ id: 'chw_zz9', alias: 'Larga', red: 'TRC20', direccion: 'Tlarga1' }).wallet;
+    ch.setDestino({ cliente_id: CLI.id, wallet_mens: wLarga.id });
+    check('chat: se borra la wallet que pediste, no la que se le parece',
+      ch.borrarWallet(wPref.id).ok === true && ch.borrarWallet(wLarga.id).ok === false,
+      'chw_zz está adentro de chw_zz9: comparar por substring borraría la equivocada');
+    ch.setDestino({ cliente_id: CLI.id, wallet_mens: '' });
+    ch.borrarWallet(wLarga.id);
+    ch.guardarWallet({ ...wB, activa: false });
+    check('chat: apagada una de las dos del mantenimiento, se sigue ofreciendo la otra',
+      ch.walletsDe(null, 'mens').length === 1
+      && ch.walletsApagadasEnUso().some((x) => x.wallet === 'BSC'));
+    ch.guardarWallet({ ...wB, activa: true });
+    ch.setConfig({ wallet_mens: wB.id });
+
     /* ── LO QUE VE EL CLIENTE ────────────────────────────────────────────────────────────────
        No alcanza con decirle cuánto salió el mes: tiene que ver cuánto debe HOY —puede arrastrar
        meses— y tener dónde avisar que pagó. Si no, lee un número y no puede hacer nada con él. */
@@ -2478,6 +2525,84 @@ async function main() {
     check('chat: rechazarlo no mueve nada y queda registrado',
       res2.ok && res2.estado === 'rechazado'
       && ch.avisosDe(CLI.id).some((x) => x.id === av100.aviso.id && x.estado === 'rechazado'));
+    /* ── DE QUÉ ES EL PAGO ───────────────────────────────────────────────────────────────────
+       Al cliente se le cobran DOS cosas —el % del mes y el mantenimiento— y hasta ahora avisaba
+       "pagué 150" sin decir de cuál, así que había que adivinarlo mirando el monto. */
+    const avM = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '3', concepto: 'mantenimiento' });
+    check('chat: el aviso guarda de qué es el pago',
+      avM.ok && ch.avisosDe(CLI.id).find((x) => x.id === avM.aviso.id).concepto === 'mantenimiento');
+    /* Los links que ya andan no mandan el concepto: rechazarlos sería romperle el aviso a alguien
+       que sí pagó. Y un valor inventado tampoco puede tumbarlo. */
+    const avSin = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '4' });
+    const avRaro = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '5', concepto: 'cualquier cosa' });
+    check('chat: un aviso sin concepto, o con uno inventado, se sigue aceptando',
+      avSin.ok && avRaro.ok
+      && ch.avisosDe(CLI.id).find((x) => x.id === avSin.aviso.id).concepto === null
+      && ch.avisosDe(CLI.id).find((x) => x.id === avRaro.aviso.id).concepto === null);
+    const antesConc = ch.saldoPorConcepto(CLI.id, '2026-08');
+    ch.resolverAviso(avM.aviso.id, true);
+    const luegoConc = ch.saldoPorConcepto(CLI.id, '2026-08');
+    check('chat: aprobar un aviso de mantenimiento imputa el pago al mantenimiento',
+      moneyCh.cmp(luegoConc.mantenimiento.pagado, antesConc.mantenimiento.pagado) > 0
+      && luegoConc.ganancia.pagado === antesConc.ganancia.pagado,
+      `mantenimiento ${antesConc.mantenimiento.pagado} → ${luegoConc.mantenimiento.pagado}`);
+    check('chat: partir el saldo en dos no cambia el total',
+      moneyCh.round(moneyCh.add(luegoConc.mantenimiento.debe, luegoConc.ganancia.debe), 2)
+        === luegoConc.total.debe,
+      `${luegoConc.mantenimiento.debe} + ${luegoConc.ganancia.debe} = ${luegoConc.total.debe}`);
+    /* Un pago viejo no dice de qué era. Si quedara afuera, los dos números no darían el total y el
+       cliente vería tres cifras que no cierran, que es peor que no partirlo. */
+    dbCh.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
+      VALUES ('chm_viejo',?, '2026-08','pago','2','USDT','2026-08-10','', '2026-08-10T00:00:00Z')`).run(CLI.id);
+    const conViejo = ch.saldoPorConcepto(CLI.id, '2026-08');
+    check('chat: un pago viejo sin concepto no desaparece del saldo',
+      moneyCh.round(moneyCh.add(conViejo.mantenimiento.debe, conViejo.ganancia.debe), 2)
+        === conViejo.total.debe
+      && moneyCh.cmp(conViejo.total.pagado, luegoConc.total.pagado) > 0,
+      'se reparte en cascada, no se pierde');
+    dbCh.prepare("DELETE FROM chat_mov WHERE id='chm_viejo'").run();
+    /* "Todavía no lo generaste" y "lo generaste y te dio cero" NO son lo mismo: decir lo primero
+       cuando es lo segundo es mentirle a alguien que va a mirar su cuenta el mes que viene. */
+    const opSin = ch.opcionesDeConcepto('c_que_no_existe', '2026-11');
+    check('chat: si el mes todavía no se cobró se dice, no sale un cero',
+      opSin.opciones[1].rotulo === 'Servicio del mes — todavía no está'
+      && /se calcula con el mes cerrado/.test(opSin.aclaracion),
+      opSin.opciones[1].rotulo);
+    const opCero = ch.opcionesDeConcepto('c_que_no_existe', '2026-08');
+    check('chat: cuando el mes ya se cobró deja de decir que no está',
+      opCero.opciones[1].rotulo === 'Servicio del mes — este mes no te cobramos nada'
+      && opCero.aclaracion === '',
+      opCero.opciones[1].rotulo);
+    check('chat: el rótulo lleva el monto y viene marcado el que más debe',
+      /^Mantenimiento — (debés|tenés|estás)/.test(ch.opcionesDeConcepto(CLI.id, '2026-08').opciones[0].rotulo)
+      && ch.opcionesDeConcepto(CLI.id, '2026-08').opciones.filter((o) => o.sugerida).length === 1);
+    const hojaConc = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
+      { saldo: saldoZ, token: 'tok123', avisos: [], conceptos: ch.opcionesDeConcepto(CLI.id, '2026-08') });
+    check('chat: la hoja pregunta de qué es el pago y lo manda',
+      /¿De qué es este pago\?/.test(hojaConc) && /name="concepto"/.test(hojaConc)
+      && /datos\.concepto=f\.concepto\.value/.test(hojaConc));
+    check('chat: la vista previa que mirás vos tampoco lleva el selector',
+      !/¿De qué es este pago\?/.test(htmlPago),
+      'el espejo del check del formulario: una hoja que se mira no trae nada que no se vea');
+    /* EL CINTURÓN: el texto nuevo sale para afuera y hay DOS guards que lo pueden tumbar con un
+       500 —el de la vista previa y el de la hoja del cliente—. Se corren las dos regex reales. */
+    check('chat: el texto nuevo de la hoja no dispara los guards de datos internos',
+      !/margen|costo|pct_costo|te cuesta|paga:/i.test(hojaConc)
+      && !/margen|costo|pct_costo|te cuesta|sin confirmar/i.test(hojaConc),
+      'por eso el campo se llama «concepto» y no «paga»');
+    const portalHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
+    check('portal: el cliente también puede elegir de qué es el pago',
+      /name="concepto"/.test(portalHtml) && /¿De qué es este pago\?|conc\.titulo/.test(portalHtml)
+      && /nombreConcepto/.test(portalHtml));
+    const osHtmlConc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: al aprobar un aviso se ve de qué dijo que era',
+      /De qué es/.test(osHtmlConc) && /a\.concepto==='mantenimiento'/.test(osHtmlConc)
+      && /no lo dijo/.test(osHtmlConc));
+    check('panel: se puede marcar más de una wallet para cada cosa',
+      /chatCfgWallets\(/.test(osHtmlConc) && /class="wsel"/.test(osHtmlConc)
+      && osHtmlConc.includes('Para el servicio del mes, por defecto')
+      && osHtmlConc.includes('Paga el mantenimiento a'));
+
     dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
     dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
     ch.setConfig({ wallet_ggr: '', wallet_mens: '', pago_nota: '' });

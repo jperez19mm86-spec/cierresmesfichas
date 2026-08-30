@@ -221,6 +221,13 @@ try { db.exec('ALTER TABLE chat_cliente ADD COLUMN clave_portal TEXT'); } catch 
 for (const col of ['pagina TEXT', 'dominio TEXT', 'divisa TEXT', 'caja_nueva INTEGER']) {
   try { db.exec(`ALTER TABLE chat_solicitud ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
 }
+/* DE QUÉ ES EL PAGO. Al cliente se le cobran dos cosas —el % del mes y el mantenimiento— y hasta
+   ahora avisaba "pagué 150" sin decir de cuál de las dos, así que había que adivinarlo mirando el
+   monto. Mismo vocabulario que del lado del proveedor: 'ganancia' | 'mantenimiento'.
+   Es OPCIONAL en toda la cadena: los avisos viejos no lo tienen y los links que ya andan no lo
+   mandan — rechazarlos sería romperle el aviso a alguien que sí pagó. */
+try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
+try { db.exec('ALTER TABLE chat_mov ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN archivo_tipo_seguro TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('CREATE INDEX IF NOT EXISTS ix_chat_cmp_cli ON chat_comprobante(cliente_id)'); } catch (e) { /* ya estaba */ }
 
@@ -304,8 +311,12 @@ function config() {
     mensualidad: cfg.getCfg(MENSUAL) || '',
     mensualidad_moneda: cfg.getCfg(MENSUAL_MON) || 'USDT',
     pago_nota: cfg.getCfg(PAGO_NOTA) || '',
+    /* El campo crudo sigue viajando igual —con una sola wallet es el id pelado de siempre— y al
+       lado va la lista ya partida, exactamente como destino() hace con los grupos de Telegram. */
     wallet_ggr: cfg.getCfg(W_GGR) || '',
     wallet_mens: cfg.getCfg(W_MENS) || '',
+    wallets_ggr: partirWallets(cfg.getCfg(W_GGR)),
+    wallets_mens: partirWallets(cfg.getCfg(W_MENS)),
     bot_propio: !!propio,
     bot_hint: propio ? '…' + propio.slice(-6) : '',
     bot_general: !propio && !!cfg.getTelegramToken(),
@@ -337,11 +348,15 @@ function setConfig(d) {
   if (d.pago_nota !== undefined) cfg.setCfg(PAGO_NOTA, String(d.pago_nota).slice(0, 400));
   for (const [k, clave] of [['wallet_ggr', W_GGR], ['wallet_mens', W_MENS]]) {
     if (d[k] === undefined) continue;
-    const v = String(d[k] || '').trim();
-    if (v && !db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(v)) {
-      return { ok: false, error: 'esa wallet no existe' };
+    /* Puede venir una sola o varias. Si UNA de la lista no existe no se guarda ninguna: media
+       lista guardada es peor que ninguna, porque el que la mandó cree que quedaron las dos. */
+    const ids = partirWallets(d[k]);
+    for (const id of ids) {
+      if (!db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(id)) {
+        return { ok: false, error: 'esa wallet no existe' };
+      }
     }
-    cfg.setCfg(clave, v);
+    cfg.setCfg(clave, juntarWallets(ids));
   }
   if (d.bot_token !== undefined) {
     const v = String(d.bot_token).trim();
@@ -651,6 +666,32 @@ function mensualidadesDe(fecha) {
 /* ── LAS WALLETS ─────────────────────────────────────────────────────────────────────────────
    Varias, no una: una TRC20 y una BEP20 para el mantenimiento, otra para lo del mes. Cada cliente
    puede tener la suya y, si no la tiene, se usa la de siempre. */
+/* Al mantenimiento se puede pagar por más de una red: hay una TRC20 y una BEP20, y el que elige es
+   el cliente, que sabe cuál usa. Los ids van en el MISMO campo separados por coma, igual que los
+   grupos de Telegram de acá al lado: una tabla aparte para esto habría sido una tabla de una sola
+   columna. Con un id solo el campo queda idéntico a como estaba, así que lo que ya está cargado se
+   sigue leyendo y escribiendo igual y no hay nada que migrar. */
+const partirWallets = (v) => [...new Set(
+  (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[\s,;]+/))
+    .map((x) => String(x).trim()).filter(Boolean))];
+/* El normalizador de escritura. Una lista vacía se guarda como '' y NUNCA como ',' ni ' ': la
+   auto-elección de guardarWallet se dispara con getCfg() falsy, y una coma residual la desarma en
+   silencio — el día que agregás la segunda wallet todos los clientes se quedan sin dirección. */
+const juntarWallets = (v) => partirWallets(v).join(', ');
+
+/* Lista blanca, no validación dura: lo que no está en la lista queda en null, que es "no lo dijo".
+   El que avisa un pago es el cliente desde una página pública; que un valor raro tumbe el aviso
+   sería perder la noticia de una transferencia que ya se hizo. */
+const CONCEPTOS = ['ganancia', 'mantenimiento'];
+const normConcepto = (v) => (CONCEPTOS.includes(String(v || '').trim().toLowerCase())
+  ? String(v).trim().toLowerCase() : null);
+
+/* 'YYYY-MM' → 'agosto'. A mano y no con Date: pasar 'YYYY-MM' por Date se corre de mes según la
+   zona horaria, y el mes equivocado en la cara del cliente es una llamada. */
+const MESES_LARGOS = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const mesEnLetras = (m) => MESES_LARGOS[Number(String(m || '').slice(5, 7))] || String(m || '');
+
 function wallets() {
   return db.prepare('SELECT * FROM chat_wallet ORDER BY ord, createdAt')
     .all().map((w) => ({ ...w, activa: w.activa !== 0 }));
@@ -679,7 +720,7 @@ function guardarWallet(d) {
      el atajo de "si hay una sola, es ésa" — y el día que agregabas la segunda, de golpe no había
      ninguna elegida y a todos los clientes les desaparecía la dirección sin ningún aviso. */
   if (!cfg.getCfg(W_GGR) && !cfg.getCfg(W_MENS) && wallets().filter((w) => w.activa).length === 1) {
-    cfg.setCfg(W_GGR, id); cfg.setCfg(W_MENS, id);
+    cfg.setCfg(W_GGR, juntarWallets([id])); cfg.setCfg(W_MENS, juntarWallets([id]));
   }
   return { ok: true, wallet: wallets().find((w) => w.id === id) };
 }
@@ -687,36 +728,54 @@ function guardarWallet(d) {
 function borrarWallet(id) {
   const w = String(id || '');
   /* No se borra la que está en uso: el cliente que la tenía elegida se quedaría sin adónde pagar y
-     nadie se enteraría hasta que preguntara. Se apaga, que deja de ofrecerse y no rompe nada. */
-  const usada = [cfg.getCfg(W_GGR), cfg.getCfg(W_MENS)].includes(w)
-    || db.prepare('SELECT COUNT(*) n FROM chat_cliente WHERE wallet_ggr=? OR wallet_mens=?').get(w, w).n > 0;
+     nadie se enteraría hasta que preguntara. Se apaga, que deja de ofrecerse y no rompe nada.
+     ⚠️ Se compara por PERTENENCIA a la lista, nunca por substring ni con LIKE '%id%': «chw_ab» está
+     adentro de «chw_ab1» y borraría la equivocada. Es el mismo error que ya está documentado más
+     arriba con los nombres de las cajas. */
+  const enUso = new Set();
+  for (const v of [cfg.getCfg(W_GGR), cfg.getCfg(W_MENS)]) partirWallets(v).forEach((x) => enUso.add(x));
+  for (const f of db.prepare('SELECT wallet_ggr, wallet_mens FROM chat_cliente').all()) {
+    partirWallets(f.wallet_ggr).forEach((x) => enUso.add(x));
+    partirWallets(f.wallet_mens).forEach((x) => enUso.add(x));
+  }
+  const usada = enUso.has(w);
   if (usada) return { ok: false, error: 'esa wallet está elegida en algún lado. Apagala en vez de borrarla, o cambiá primero quién la usa.' };
   return { ok: true, borrados: db.prepare('DELETE FROM chat_wallet WHERE id=?').run(w).changes };
 }
 
 /**
- * QUÉ WALLET LE TOCA A ESTE CLIENTE PARA ESTA COSA.
- * La suya si tiene una elegida; si no, la de siempre; si no elegiste ninguna y hay UNA sola activa,
+ * QUÉ WALLETS LE TOCAN A ESTE CLIENTE PARA ESTA COSA.
+ * Las suyas si tiene elegidas; si no, las de siempre; si no elegiste ninguna y hay UNA sola activa,
  * esa — el caso de una sola wallet es el común y pedir que además la elija sería pedir dos veces lo
  * mismo.
  *
- * ⚠️ Si la elegida está APAGADA no se reemplaza por otra: devuelve nada. Poner la que quedó
- * prendida sería cambiarle al cliente la dirección donde paga sin que nadie lo haya decidido, y
- * ésa es la clase de cambio silencioso que termina en plata mandada a otro lado. Sin wallet, la
- * hoja no muestra "cómo pagar" y la pantalla avisa.
+ * Pueden ser VARIAS a propósito: el mantenimiento se cobra por TRC20 y por BEP20, y quien elige la
+ * red es el cliente. Se le muestran todas y manda por la que use.
+ *
+ * ⚠️ Elegir NADA y elegir una APAGADA no son lo mismo. Nada baja al nivel siguiente; una elegida
+ * que está apagada se cae de la lista y no se reemplaza por otra: poner la que quedó prendida sería
+ * cambiarle al cliente la dirección donde paga sin que nadie lo haya decidido, y ésa es la clase de
+ * cambio silencioso que termina en plata mandada a otro lado. Si se apagan TODAS las elegidas no
+ * queda ninguna, la hoja no muestra "cómo pagar" y la pantalla avisa.
  */
-function walletDe(clienteId, uso) {
-  const todas = wallets();
-  const act = todas.filter((w) => w.activa);
-  const viva = (id) => (id ? (act.find((w) => w.id === id) || null) : undefined);
+function walletsDe(clienteId, uso) {
+  const act = wallets().filter((w) => w.activa);
+  const vivas = (v) => {
+    const ids = partirWallets(v);
+    if (!ids.length) return undefined;                       // no eligió nada: seguí bajando
+    return ids.map((id) => act.find((w) => w.id === id)).filter(Boolean);
+  };
   const d = clienteId ? destino(clienteId) : null;
-  const propia = d && (uso === 'mens' ? d.wallet_mens : d.wallet_ggr);
-  const elegidaCli = viva(propia);
-  if (elegidaCli !== undefined) return elegidaCli;           // eligió una: vale, prendida o nada
-  const elegidaDef = viva(cfg.getCfg(uso === 'mens' ? W_MENS : W_GGR));
-  if (elegidaDef !== undefined) return elegidaDef;
-  return act.length === 1 ? act[0] : null;
+  const propias = vivas(d && (uso === 'mens' ? d.wallet_mens : d.wallet_ggr));
+  if (propias !== undefined) return propias;                 // eligió: vale, prendidas o ninguna
+  const defs = vivas(cfg.getCfg(uso === 'mens' ? W_MENS : W_GGR));
+  if (defs !== undefined) return defs;
+  return act.length === 1 ? [act[0]] : [];
 }
+
+/* La de siempre, para lo que necesita una sola. Un array vacío es truthy: acá se traduce a null,
+   que es lo que el resto del sistema entiende por "no hay adónde pagar". */
+function walletDe(clienteId, uso) { return walletsDe(clienteId, uso)[0] || null; }
 
 /** Las elegidas que quedaron apagadas. La pantalla lo avisa: si no, no hay adónde pagar y no se ve. */
 function walletsApagadasEnUso() {
@@ -724,12 +783,12 @@ function walletsApagadasEnUso() {
   const off = new Set(todas.filter((w) => !w.activa).map((w) => w.id));
   const nombre = (id) => (todas.find((w) => w.id === id) || {}).alias || id;
   const out = [];
-  for (const [k, quien] of [[cfg.getCfg(W_GGR), 'el servicio del mes'], [cfg.getCfg(W_MENS), 'el mantenimiento']]) {
-    if (k && off.has(k)) out.push({ wallet: nombre(k), donde: quien });
+  for (const [v, quien] of [[cfg.getCfg(W_GGR), 'el servicio del mes'], [cfg.getCfg(W_MENS), 'el mantenimiento']]) {
+    for (const k of partirWallets(v)) if (off.has(k)) out.push({ wallet: nombre(k), donde: quien });
   }
   for (const f of db.prepare('SELECT * FROM chat_cliente').all()) {
-    for (const [k, quien] of [[f.wallet_ggr, 'el mes'], [f.wallet_mens, 'el mantenimiento']]) {
-      if (k && off.has(k)) out.push({ wallet: nombre(k), donde: `${quien} de un cliente` });
+    for (const [v, quien] of [[f.wallet_ggr, 'el mes'], [f.wallet_mens, 'el mantenimiento']]) {
+      for (const k of partirWallets(v)) if (off.has(k)) out.push({ wallet: nombre(k), donde: `${quien} de un cliente` });
     }
   }
   return out;
@@ -737,15 +796,14 @@ function walletsApagadasEnUso() {
 
 /** Lo que va en la hoja y en el portal: la del mes, la del mantenimiento y la aclaración. */
 function comoPagar(clienteId) {
-  const ggr = walletDe(clienteId, 'ggr');
-  const mens = walletDe(clienteId, 'mens');
-  const misma = ggr && mens && ggr.id === mens.id;
-  return {
-    nota: config().pago_nota,
-    misma: !!misma,
-    ggr: ggr ? { alias: ggr.alias, red: ggr.red, direccion: ggr.direccion } : null,
-    mens: mens ? { alias: mens.alias, red: mens.red, direccion: mens.direccion } : null,
-  };
+  const ggr = walletsDe(clienteId, 'ggr');
+  const mens = walletsDe(clienteId, 'mens');
+  const firma = (l) => l.map((w) => w.id).join('|');
+  /* "Misma" es que las dos cosas se paguen exactamente a las mismas: ahí va un bloque solo, porque
+     repetir la misma dirección dos veces invita a mirar cuál es cuál. */
+  const misma = !!ggr.length && firma(ggr) === firma(mens);
+  const proy = (l) => l.map((w) => ({ alias: w.alias, red: w.red, direccion: w.direccion }));
+  return { nota: config().pago_nota, misma, ggr: proy(ggr), mens: proy(mens) };
 }
 
 /* ── EL DESTINO DE CADA CLIENTE ──────────────────────────────────────────────────────────────
@@ -759,7 +817,8 @@ const partirGrupos = (s) => String(s || '').split(/[\s,;]+/).map((x) => x.trim()
 function destino(clienteId) {
   const f = db.prepare('SELECT * FROM chat_cliente WHERE cliente_id=?').get(String(clienteId || ''))
     || { cliente_id: String(clienteId || ''), tg_grupo: '', enviar_a: '', notas: '', createdAt: null };
-  return { ...f, grupos: partirGrupos(f.tg_grupo) };
+  return { ...f, grupos: partirGrupos(f.tg_grupo),
+    wallets_ggr: partirWallets(f.wallet_ggr), wallets_mens: partirWallets(f.wallet_mens) };
 }
 
 function setDestino(d) {
@@ -781,11 +840,15 @@ function setDestino(d) {
   const wsel = {};
   for (const k of ['wallet_ggr', 'wallet_mens']) {
     if (!vino(k)) continue;
-    const v = String(d[k] || '').trim();
-    if (v && !db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(v)) {
-      return { ok: false, error: 'esa wallet no existe' };
+    // Mismo criterio que en setConfig: si una de la lista no existe, no se guarda ninguna.
+    const ids = partirWallets(d[k]);
+    for (const id of ids) {
+      if (!db.prepare('SELECT id FROM chat_wallet WHERE id=?').get(id)) {
+        return { ok: false, error: 'esa wallet no existe' };
+      }
     }
-    wsel[k] = v || null;
+    // Lista vacía sigue guardando null, que es lo que el sistema lee como "la de siempre".
+    wsel[k] = juntarWallets(ids) || null;
   }
   /* Un chatId de Telegram es un número (los grupos son negativos) o un @nombre. Se avisa en vez de
      prohibir: puede pegarse un link y quererse arreglar después, pero mandar a un destino que no
@@ -814,7 +877,8 @@ function setDestino(d) {
 function destinos() {
   const out = {};
   for (const f of db.prepare('SELECT * FROM chat_cliente').all()) {
-    out[f.cliente_id] = { ...f, grupos: partirGrupos(f.tg_grupo) };
+    out[f.cliente_id] = { ...f, grupos: partirGrupos(f.tg_grupo),
+      wallets_ggr: partirWallets(f.wallet_ggr), wallets_mens: partirWallets(f.wallet_mens) };
   }
   return out;
 }
@@ -1044,6 +1108,9 @@ function pagarCliente(d) {
     VALUES (?,?,?,'pago',?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
     String(d.moneda || 'USDT').toUpperCase().slice(0, 8),
     String(d.fecha || '').slice(0, 10) || hoy(), String(d.nota || ''), nowISO());
+  // A qué se imputa. Los que ella carga a mano no lo dicen y quedan en null: ver saldoPorConcepto.
+  const conc = normConcepto(d.concepto);
+  if (conc) db.prepare('UPDATE chat_mov SET concepto=? WHERE id=?').run(conc, mid);
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
@@ -1088,6 +1155,120 @@ function cuentas(mes) {
       pagado: money.round(money.sum(out.map((g) => g.pagado)), 2),
       debe: money.round(money.sum(out.map((g) => g.debe)), 2),
     },
+  };
+}
+
+/**
+ * EL SALDO DE UN CLIENTE, PARTIDO EN LAS DOS COSAS QUE SE LE COBRAN.
+ *
+ * Para qué: cuando avisa un pago hay que preguntarle DE QUÉ es, y para que la pregunta se pueda
+ * contestar tiene que ver cuánto debe de cada una al lado. Hasta ahora veía un total solo y el que
+ * tenía que adivinar de dónde salía era el que recibía la transferencia.
+ *
+ * Arrastra TODOS los meses, como `cuentas(null)`: alguien puede deber tres y mirando uno solo no se
+ * entera. El `mes` que se pasa es sólo para las dos señales de abajo.
+ *
+ * ⚠️ LOS PAGOS VIEJOS NO DICEN DE QUÉ ERAN — la columna es nueva y los que ella carga a mano
+ * tampoco la llenan. Si quedaran afuera, mantenimiento + servicio no daría el total y el cliente
+ * vería tres números que no cierran, que es peor que no partirlo. Se reparten EN CASCADA: primero
+ * tapan lo que falta del mantenimiento, y lo que sobra va al servicio del mes. Así los dos números
+ * siempre suman el total, y el que sobra cae del lado que puede quedar a favor.
+ *
+ * Y las dos señales del servicio del mes, que NO son lo mismo:
+ *   · `generado` — este cliente ya tiene cobrado ese mes.
+ *   · `corrida`  — el mes se cobró para alguien. Sin esto no se puede distinguir "todavía no lo
+ *                  generaste" de "lo generaste y a este cliente le dio cero", y decirle lo primero
+ *                  cuando es lo segundo es mentirle.
+ */
+function saldoPorConcepto(clienteId, mes) {
+  const id = String(clienteId || '');
+  const m = String(mes || '').slice(0, 7);
+  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=?').all(id);
+
+  const suma = (f) => money.round(money.sum(movs.filter(f).map((x) => x.monto || '0')), 2);
+  const cobradoM = suma((x) => x.tipo === 'mensualidad');
+  const cobradoG = suma((x) => x.tipo !== 'mensualidad' && x.tipo !== 'pago');
+  const pagadoM = suma((x) => x.tipo === 'pago' && x.concepto === 'mantenimiento');
+  const pagadoG = suma((x) => x.tipo === 'pago' && x.concepto === 'ganancia');
+  const suelto = suma((x) => x.tipo === 'pago' && !x.concepto);
+
+  // La cascada. Nunca deja el mantenimiento en negativo: lo que sobra pasa entero al mes.
+  const faltaM = money.sub(cobradoM, pagadoM);
+  const aM = money.isPos(faltaM) ? (money.cmp(suelto, faltaM) > 0 ? faltaM : suelto) : '0';
+  const aG = money.sub(suelto, aM);
+
+  const parte = (cobrado, pagado) => ({
+    cobrado, pagado: money.round(pagado, 2),
+    debe: money.round(money.sub(cobrado, pagado), 2),
+  });
+  const mant = parte(cobradoM, money.add(pagadoM, aM));
+  const gan = parte(cobradoG, money.add(pagadoG, aG));
+
+  const generado = m ? !!db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(id, m) : false;
+  const corrida = m ? db.prepare("SELECT COUNT(*) n FROM chat_mov WHERE mes=? AND tipo='cobro'").get(m).n > 0 : false;
+
+  return {
+    mes: m || null,
+    mantenimiento: mant,
+    ganancia: { ...gan, generado, corrida },
+    total: {
+      cobrado: money.round(money.add(cobradoM, cobradoG), 2),
+      pagado: money.round(money.add(mant.pagado, gan.pagado), 2),
+      debe: money.round(money.add(mant.debe, gan.debe), 2),
+    },
+  };
+}
+
+/**
+ * LAS OPCIONES DEL "¿DE QUÉ ES ESTE PAGO?", YA ESCRITAS.
+ *
+ * El texto se arma ACÁ y no en cada pantalla a propósito: la hoja (src/chat-doc.js) y el portal
+ * (public/ganamos.html) son dos renderers gemelos del mismo formulario, y cada cosa que se escribe
+ * dos veces termina diciendo dos cosas distintas. Además es lo que sale para afuera, y en este
+ * sistema lo que sale para afuera lo compone el servidor con los datos de la base.
+ *
+ * Viene preseleccionado lo que MÁS DEBE: es lo que va a estar pagando nueve de cada diez veces, y
+ * un desplegable que arranca vacío es un campo más para equivocarse.
+ */
+function opcionesDeConcepto(clienteId, mes) {
+  const sc = saldoPorConcepto(clienteId, mes);
+  const plata = (x) => `${money.round(x, 2).replace('-', '')}`;
+  const fmt = (v) => Number(v || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const comoEsta = (p) => {
+    if (money.isPos(p.debe)) return `debés ${fmt(p.debe)} USDT`;
+    if (money.isNeg(p.debe)) return `tenés ${fmt(plata(p.debe))} USDT a favor`;
+    return 'estás al día';
+  };
+  /* El servicio del mes tiene un estado más que el mantenimiento: puede no existir todavía. Y "no
+     lo generaste" no es lo mismo que "lo generaste y te dio cero" — decir lo primero cuando es lo
+     segundo es mentirle a alguien que va a mirar su cuenta el mes que viene. */
+  const estadoGan = () => {
+    if (money.isPos(sc.ganancia.debe) || money.isNeg(sc.ganancia.debe)) return comoEsta(sc.ganancia);
+    if (!sc.ganancia.generado) {
+      return sc.ganancia.corrida ? 'este mes no te cobramos nada' : 'todavía no está';
+    }
+    return 'estás al día';
+  };
+  const opciones = [
+    { valor: 'mantenimiento', nombre: 'Mantenimiento', estado: comoEsta(sc.mantenimiento),
+      debe: sc.mantenimiento.debe },
+    { valor: 'ganancia', nombre: 'Servicio del mes', estado: estadoGan(), debe: sc.ganancia.debe },
+  ];
+  opciones.forEach((o) => { o.rotulo = `${o.nombre} — ${o.estado}`; });
+  // El que más debe va marcado. Si ninguno debe nada, el mantenimiento, que es el que se repite.
+  const mayor = money.cmp(sc.ganancia.debe, sc.mantenimiento.debe) > 0 ? 'ganancia' : 'mantenimiento';
+  opciones.forEach((o) => { o.sugerida = o.valor === mayor; });
+
+  return {
+    titulo: '¿De qué es este pago?',
+    opciones,
+    /* Sólo cuando el mes todavía no se generó: si no se explica, "todavía no está" se lee como un
+       error de la página y la respuesta llega por privado. */
+    aclaracion: (!sc.ganancia.generado && !sc.ganancia.corrida && sc.mes)
+      ? `Lo de ${mesEnLetras(sc.mes)} todavía no está: se calcula con el mes cerrado y te lo pasamos `
+        + 'a principio del mes que viene. Si querés dejar algo a cuenta, poné cuánto.'
+      : '',
+    saldo: sc,
   };
 }
 
@@ -1156,10 +1337,14 @@ function portalDe(clienteId) {
       nota: m.tipo === 'mensualidad' ? m.nota : '',
     })),
     cajas,
-    avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto, moneda: a.moneda, estado: a.estado })),
+    avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto,
+      moneda: a.moneda, estado: a.estado, concepto: a.concepto })),
     solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at, pagina, dominio, divisa, caja_nueva FROM chat_solicitud
       WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 10`).all(id),
     pago: comoPagar(id),
+    /* Lo que debe, partido en las dos cosas que se le cobran: es lo que hace contestable la
+       pregunta "¿de qué es este pago?". Son sus propios números, no hay nada interno acá. */
+    conceptos: opcionesDeConcepto(id, hoy().slice(0, 7)),
     // Si no tiene clave puesta, el portal ni ofrece ver los accesos: le dice que te los pida.
     pide_clave: !!(destino(id).clave_portal),
   };
@@ -1258,18 +1443,18 @@ function avisarPago(d) {
   }
   const id = 'chc_' + require('crypto').randomBytes(6).toString('hex');
   db.prepare(`INSERT INTO chat_comprobante
-    (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?)`)
+    (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at,concepto)
+    VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?,?)`)
     .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), monto,
       String(d.moneda || 'USDT').toUpperCase().slice(0, 8), String(d.referencia || '').slice(0, 200),
-      nombre, tipo, bytes, b64, nowISO());
+      nombre, tipo, bytes, b64, nowISO(), normConcepto(d.concepto));
   return { ok: true, aviso: { id, monto, archivo_bytes: bytes } };
 }
 
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
 function avisosDe(clienteId) {
   // Sin `archivo_b64`: son cientos de KB cada uno y acá sólo se listan.
-  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at
+  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at, concepto
     FROM chat_comprobante WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 20`).all(String(clienteId || ''));
 }
 
@@ -1282,7 +1467,7 @@ function avisosSinResolver(clienteId) {
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
 function avisosPendientes() {
-  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at
+  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto
     FROM chat_comprobante WHERE estado='pendiente' ORDER BY creado_at`).all();
   const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
   return filas.map((f) => {
@@ -1312,6 +1497,8 @@ function resolverAviso(id, aprobar) {
   const pg = pagarCliente({
     cliente_id: f.cliente_id, mes: f.mes, monto: f.monto, moneda: f.moneda,
     fecha: String(f.creado_at || '').slice(0, 10), nota: 'aviso del cliente' + (f.referencia ? ' · ' + f.referencia : ''),
+    // Se imputa a lo que el cliente dijo al avisar. Si dijo mal, se rechaza y lo manda de nuevo.
+    concepto: f.concepto,
   });
   if (!pg.ok) return pg;
   db.prepare("UPDATE chat_comprobante SET estado='aprobado', resuelto_at=?, mov_id=? WHERE id=?")
@@ -1431,9 +1618,10 @@ module.exports = {
   config, setConfig, list, set, quitar, gananciaDelMes, cierre, mensualidadesDe,
   destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken, deudaProveedor,
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
-  wallets, guardarWallet, borrarWallet, walletDe, comoPagar, walletsApagadasEnUso,
+  wallets, guardarWallet, borrarWallet, walletDe, walletsDe, partirWallets, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
+  saldoPorConcepto, opcionesDeConcepto,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

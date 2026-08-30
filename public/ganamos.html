@@ -270,7 +270,22 @@ function pintar() {
   var esp = (DATOS.avisos || []).filter(function (a) { return a.estado === 'pendiente'; });
   $('subSaldo').innerHTML = esp.length
     ? 'Nos avisaste ' + esp.length + ' pago' + (esp.length > 1 ? 's' : '') + '. Lo estamos revisando.'
-    : 'Se te cobró ' + num(DATOS.saldo.cobrado, 2) + ' · pagaste ' + num(DATOS.saldo.pagado, 2) + '.';
+    : deDondeSale();
+}
+
+/* De qué está hecho ese número. Un total solo obliga a preguntar, y la pregunta llega por privado:
+   son dos cobros distintos, con fechas distintas y a wallets distintas. */
+function deDondeSale() {
+  var c = DATOS.conceptos;
+  if (!c) return 'Se te cobró ' + num(DATOS.saldo.cobrado, 2) + ' · pagaste ' + num(DATOS.saldo.pagado, 2) + '.';
+  var m = Number(c.saldo.mantenimiento.debe || 0), g = Number(c.saldo.ganancia.debe || 0);
+  if (m <= 0 && g <= 0) return 'Estás al día con las dos cosas.';
+  var partes = [];
+  if (m > 0) partes.push('Mantenimiento ' + num(m, 2));
+  if (g > 0) partes.push('servicio del mes ' + num(g, 2));
+  // Si el mes todavía no se generó se dice, en vez de dejarlo afuera sin explicación.
+  else if (!c.saldo.ganancia.generado && !c.saldo.ganancia.corrida) partes.push('el servicio del mes todavía no está');
+  return partes.join(' · ') + '.';
   $('vista').innerHTML = ''; $('menu').classList.remove('oculto');
   window.scrollTo(0, 0);
 }
@@ -287,18 +302,61 @@ function unaWallet(w, rotulo, id) {
     + '</div>';
 }
 
+/* Los avisos viejos no dicen de qué eran: la columna es nueva. Sin nombre devuelve vacío. */
+function nombreConcepto(c) {
+  return c === 'mantenimiento' ? 'Mantenimiento' : (c === 'ganancia' ? 'Servicio del mes' : '');
+}
+
+/* Al cambiar de concepto cambia lo que debe, así que cambia lo que el campo sugiere. Es el mismo
+   gesto que ya hace la pantalla de ella cuando elige a qué imputar un pago al proveedor. */
+function sugerirMonto() {
+  var conc = DATOS.conceptos; if (!conc) return;
+  var sel = document.querySelector('select[name=concepto]'); var inp = $('mMonto');
+  if (!sel || !inp) return;
+  var o = conc.opciones.filter(function (x) { return x.valor === sel.value; })[0];
+  inp.placeholder = num(Math.max(0, Number((o && o.debe) || 0)), 2);
+}
+
 /* Puede haber una wallet para el servicio del mes y otra para el mantenimiento, y no la misma para
    todos los clientes. Si las dos son la misma va un bloque solo: repetir la misma dirección invita
-   a mirar cuál es cuál. */
+   a mirar cuál es cuál.
+
+   Y cada cosa puede tener VARIAS: el mantenimiento se cobra por TRC20 y por BEP20, y la red la
+   elige el cliente. Esta función es gemela de bloquePago() en src/chat-doc.js — si se toca una
+   sola, el cliente ve una cosa en el portal y otra en la hoja que le llega. */
+var _dirN = 0;
+function bloqueDe(lista, rotulo) {
+  var h = '';
+  for (var i = 0; i < lista.length; i++) {
+    /* ⚠️ El id sale de un contador. copiar() busca por getElementById: con dos ids iguales el
+       segundo botón copia la PRIMERA dirección, o sea la red equivocada, y esa plata no vuelve. */
+    _dirN += 1;
+    h += unaWallet(lista[i], i === 0 ? rotulo : '', 'dir' + _dirN);
+  }
+  return h;
+}
+
+/* Si no se dice, dos direcciones para lo mismo se leen como dos cuentas distintas. */
+function variasRedes(lista) {
+  return lista.length > 1
+    ? '<p class="tenue" style="margin:2px 0 10px">Mandá por la red que uses. Las dos llegan al mismo lugar.</p>' : '';
+}
+
 function bloquePago() {
   var p = DATOS.pago || {};
-  if (!p.ggr && !p.mens) return '';
+  // Un array vacío es truthy: acá se mira el largo, o sale "Cómo pagar" sin ninguna dirección.
+  var ggr = p.ggr || []; var mens = p.mens || [];
+  if (!ggr.length && !mens.length) return '';
   var nota = p.nota ? '<div class="notap">' + esc(p.nota) + '</div>' : '';
   var h = '<h2 style="margin-top:20px">Cómo pagar</h2>';
-  if (p.misma || !p.mens) return h + unaWallet(p.ggr || p.mens, '', 'dir1') + nota;
-  if (!p.ggr) return h + unaWallet(p.mens, 'Mantenimiento', 'dir2') + nota;
-  return h + unaWallet(p.ggr, 'Servicio del mes', 'dir1')
-    + unaWallet(p.mens, 'Mantenimiento', 'dir2') + nota;
+  _dirN = 0;
+  if (p.misma || !mens.length) {
+    var l = ggr.length ? ggr : mens;
+    return h + bloqueDe(l, '') + variasRedes(l) + nota;
+  }
+  if (!ggr.length) return h + bloqueDe(mens, 'Mantenimiento') + variasRedes(mens) + nota;
+  return h + bloqueDe(ggr, 'Servicio del mes') + variasRedes(ggr)
+    + bloqueDe(mens, 'Mantenimiento') + variasRedes(mens) + nota;
 }
 
 /* `navigator.clipboard` sólo existe en https (o localhost) y el cliente abre esto desde cualquier
@@ -370,10 +428,23 @@ function ver(cual) {
         : '')
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
   } else if (cual === 'pagar') {
+    /* Las opciones vienen ARMADAS del servidor (opcionesDeConcepto en chat-externo.store): la hoja
+       que le llega por mail dibuja este mismo formulario, y dos textos escritos por separado
+       terminan diciendo dos cosas distintas. */
+    var conc = DATOS.conceptos || null;
+    var sug = conc ? (conc.opciones.filter(function (o) { return o.sugerida; })[0] || conc.opciones[0]) : null;
     h = '<div class="hoja"><h2>Avisar que pagué</h2>'
       + '<form onsubmit="return avisar(event)">'
+      + (conc ? '<label class="campo">' + esc(conc.titulo)
+        + '<select name="concepto" onchange="sugerirMonto()">'
+        + conc.opciones.map(function (o) {
+          return '<option value="' + esc(o.valor) + '"' + (o.sugerida ? ' selected' : '') + '>'
+            + esc(o.rotulo) + '</option>';
+        }).join('') + '</select></label>' : '')
       + '<label class="campo">Cuánto pagaste'
-      + '<input name="monto" inputmode="decimal" placeholder="' + num(Math.max(0, Number(DATOS.saldo.debe || 0)), 2) + '" required></label>'
+      + '<input name="monto" id="mMonto" inputmode="decimal" placeholder="'
+      + num(Math.max(0, Number((sug ? sug.debe : DATOS.saldo.debe) || 0)), 2) + '" required></label>'
+      + (conc && conc.aclaracion ? '<p class="tenue" style="margin:-4px 0 12px;line-height:1.5">' + esc(conc.aclaracion) + '</p>' : '')
       + '<label class="campo">Referencia <span class="tenue">(opcional)</span>'
       + '<input name="referencia" placeholder="hash, alias, últimos dígitos"></label>'
       + '<label class="campo">Comprobante <span class="tenue">(opcional)</span>'
@@ -384,7 +455,10 @@ function ver(cual) {
         + DATOS.avisos.map(function (a) {
           var c = a.estado === 'aprobado' ? 'ok' : (a.estado === 'pendiente' ? 'esp' : 'no');
           var t = a.estado === 'aprobado' ? 'confirmado' : (a.estado === 'pendiente' ? 'lo estamos viendo' : 'no lo pudimos confirmar');
-          return '<tr><td>' + esc(a.fecha) + '</td><td class="r">' + num(a.monto, 2) + ' ' + esc(a.moneda)
+          /* Los avisos VIEJOS no dicen de qué eran: la columna es nueva. Queda vacía y no con un
+             guión — un guión invita a preguntar qué significa. */
+          return '<tr><td>' + esc(a.fecha) + '</td><td class="tenue">' + esc(nombreConcepto(a.concepto))
+            + '</td><td class="r">' + num(a.monto, 2) + ' ' + esc(a.moneda)
             + '</td><td class="r"><span class="chip ' + c + '">' + t + '</span></td></tr>';
         }).join('') + '</tbody></table>' : '')
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
@@ -438,6 +512,7 @@ async function avisar(e) {
   var arch = f.archivo.files[0] || null;
   b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
   var datos = { usuario: USUARIO, monto: f.monto.value, referencia: f.referencia.value };
+  if (f.concepto) datos.concepto = f.concepto.value;
   if (arch) {
     if (arch.size > 6 * 1024 * 1024) {
       m.textContent = 'La imagen es muy grande (máximo 6 MB).'; m.className = 'msg mal';

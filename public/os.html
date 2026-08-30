@@ -177,6 +177,10 @@
   button.grave { background:var(--durazno-bg); color:var(--durazno); border:1.5px solid var(--durazno); }
   button.grave:hover { background:#f6e7d6; }
   button.small { padding:5px 9px; font-size:12px; }
+    /* Marcar más de una wallet para lo mismo: el mantenimiento se cobra por dos redes. */
+    .wsel { display:flex; flex-direction:column; gap:4px; margin-top:5px }
+    .wopt { display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer }
+    .wopt input { margin:0 }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
   .row > div { flex:1; min-width:120px; }
   /* Un selector de mes o fecha no entra en 120px: el campo quedaba más angosto que su propio
@@ -4692,18 +4696,17 @@ VIEWS.chat = async () => {
         <div style="flex:0"><button onclick="chatWalletNueva()">+ Agregar</button></div>
       </div>
       <div class="row" style="align-items:flex-end;gap:14px;margin-top:12px">
-        <div style="flex:0 0 240px"><label>Para el servicio del mes, por defecto</label>
-          <select onchange="chatCfgWallet('wallet_ggr',this.value)" style="width:100%">
-            <option value="">— elegí una —</option>
-            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${cfgC.wallet_ggr===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
-          </select></div>
-        <div style="flex:0 0 240px"><label>Para el mantenimiento, por defecto</label>
-          <select onchange="chatCfgWallet('wallet_mens',this.value)" style="width:100%">
-            <option value="">— elegí una —</option>
-            ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${cfgC.wallet_mens===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
-          </select></div>
+        ${[['wallet_ggr','Para el servicio del mes, por defecto'],['wallet_mens','Para el mantenimiento, por defecto']].map(([k,rot])=>`
+        <div style="flex:0 0 240px"><label>${rot}</label>
+          <div class="wsel" data-wsel="${k}">
+            ${ws.filter(w=>w.activa).map(w=>`<label class="wopt"><input type="checkbox" value="${w.id}"
+              ${(cfgC[k==='wallet_ggr'?'wallets_ggr':'wallets_mens']||[]).includes(w.id)?'checked':''}
+              onchange="chatCfgWallets('${k}',this)"> ${esc(w.alias)} · ${esc(w.red)}</label>`).join('')
+              || '<span class="muted" style="font-size:12px">todavía no cargaste ninguna</span>'}
+          </div></div>`).join('')}
         <div class="muted" style="flex:1;min-width:200px;font-size:12px;align-self:center">
-          Es lo que se le muestra a todos, salvo a los que abajo tengan otra elegida.</div>
+          Es lo que se le muestra a todos, salvo a los que abajo tengan otra elegida.
+          <b>Podés marcar más de una</b>: el cliente ve las dos redes y manda por la que use.</div>
       </div>
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
         <div style="flex:1;min-width:260px"><label>Bot de Telegram de este servicio</label>
@@ -4850,10 +4853,12 @@ VIEWS.chat = async () => {
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               ${[['wallet_ggr','Paga el mes a'],['wallet_mens','Paga el mantenimiento a']].map(([k,rot])=>`
                 <div style="flex:0 0 200px"><label>${rot}</label>
-                  <select onchange="chatDestino('${c.id}',{${k}:this.value})" style="width:100%">
-                    <option value="">la de siempre</option>
-                    ${ws.filter(w=>w.activa).map(w=>`<option value="${w.id}"${(dest[c.id]||{})[k]===w.id?' selected':''}>${esc(w.alias)} · ${esc(w.red)}</option>`).join('')}
-                  </select></div>`).join('')}
+                  <div class="wsel" data-wsel="${c.id}|${k}">
+                    ${ws.filter(w=>w.activa).map(w=>`<label class="wopt"><input type="checkbox" value="${w.id}"
+                      ${((dest[c.id]||{})[k==='wallet_ggr'?'wallets_ggr':'wallets_mens']||[]).includes(w.id)?'checked':''}
+                      onchange="chatDestinoWallets('${c.id}','${k}',this)"> ${esc(w.alias)} · ${esc(w.red)}</label>`).join('')}
+                    <span class="muted" style="font-size:11.5px">sin marcar nada: la de siempre</span>
+                  </div></div>`).join('')}
             </div>
           </div>
         </details>`).join('')}</div>`:''}
@@ -5011,6 +5016,10 @@ VIEWS.chat = async () => {
           </div>
           <div class="subdatos">
             <div><span class="k">Avisó el</span><span class="v">${esc(String(a.creado_at).slice(0,10))}</span></div>
+            <div><span class="k">De qué es</span><span class="v">${
+              a.concepto==='mantenimiento'?'Mantenimiento'
+              :(a.concepto==='ganancia'?'Servicio del mes'
+              :'<span class="muted" style="font-weight:500">no lo dijo</span>')}</span></div>
             ${a.referencia?`<div><span class="k">Referencia</span><span class="v">${esc(a.referencia)}</span></div>`:''}
           </div>
           ${a.archivo_bytes?'':'<div class="nota-suave">Vino sin comprobante: sólo dijo el monto.</div>'}
@@ -5324,9 +5333,11 @@ async function chatWalletNueva(){
   if(r&&r.ok){ toast('Wallet agregada'); VIEWS.chat(); }
 }
 async function chatWalletActiva(id,activa){
-  const w=(_chatWs||[]).find(x=>x.id===id)||{};
-  const r=await api('/api/os/chat/wallets',{method:'POST',body:JSON.stringify({
-    id:id, alias:w.alias, red:w.red, direccion:w.direccion, activa:activa})});
+  /* Se reenvía la fila ENTERA que devolvió el servidor, no una armada a mano campo por campo: el
+     día que la wallet gane un campo, apagarla se lo pisaría con undefined sin que nadie lo note. */
+  const w=(_chatWs||[]).find(x=>x.id===id);
+  if(!w) return;
+  const r=await api('/api/os/chat/wallets',{method:'POST',body:JSON.stringify({...w, activa:activa})});
   if(r&&r.ok) VIEWS.chat();
 }
 async function chatWalletBorrar(id,alias){
@@ -5334,10 +5345,20 @@ async function chatWalletBorrar(id,alias){
   const r=await api('/api/os/chat/wallets/'+id,{method:'DELETE'});
   if(r&&r.ok){ toast('Borrada'); VIEWS.chat(); }
 }
-async function chatCfgWallet(campo,valor){
-  const b={}; b[campo]=valor;
+/* Se manda la lista ENTERA de lo que quedó marcado, no el que se tocó: el servidor pisa el campo
+   con lo que llega, así que mandar uno solo borraría el otro sin que nadie lo pida. */
+function _wselIds(inp){
+  const caja=inp.closest('.wsel');
+  return [...caja.querySelectorAll('input[type=checkbox]')].filter(x=>x.checked).map(x=>x.value);
+}
+async function chatCfgWallets(campo,inp){
+  const b={}; b[campo]=_wselIds(inp).join(', ');
   const r=await api('/api/os/chat/config',{method:'PUT',body:JSON.stringify(b)});
   if(r&&r.ok){ toast('Guardado'); VIEWS.chat(); }
+}
+async function chatDestinoWallets(cid,campo,inp){
+  const b={}; b[campo]=_wselIds(inp).join(', ');
+  return chatDestino(cid,b);
 }
 async function chatDestino(cid,campos){
   const r=await api('/api/os/chat/destino/'+cid,{method:'PUT',body:JSON.stringify(campos)});

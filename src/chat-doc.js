@@ -109,9 +109,11 @@ const CSS = `
   .campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:13px;margin-bottom:13px}
   label{display:block;font-size:12.5px;color:var(--tinta2)}
   label .opt{color:#b7a9c2}
-  input{width:100%;margin-top:5px;padding:11px 12px;font:inherit;border:1px solid var(--linea);
+  input,select{width:100%;margin-top:5px;padding:11px 12px;font:inherit;border:1px solid var(--linea);
     border-radius:11px;background:#fff;color:inherit}
-  input:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
+  input:focus-visible,select:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
+  /* La aclaración de que el mes todavía no está: ocupa las dos columnas de la grilla. */
+  .aclara{grid-column:1/-1;margin:0;font-size:13px;color:#6f6280;line-height:1.5}
   button[type=submit]{padding:13px 20px;font:inherit;font-weight:800;border:0;border-radius:11px;
     background:var(--uva2);color:#fff;cursor:pointer;width:100%}
   button:disabled{opacity:.5;cursor:default}
@@ -273,13 +275,34 @@ function unaWallet(w, rotulo, id) {
   </div>`;
 }
 
+/* Cada cosa puede tener MÁS DE UNA wallet: el mantenimiento se cobra por TRC20 y por BEP20 y la red
+   la elige el cliente. Se dibujan todas.
+
+   ⚠️ Los ids salen de un contador y no de una constante. `copiar()` busca por getElementById, y dos
+   bloques con el mismo id hacen que el segundo botón copie la PRIMERA dirección: el cliente manda
+   por la red equivocada y esa plata no vuelve. */
+function bloqueDe(lista, rotulo, ctr) {
+  return lista.map((w, i) => unaWallet(w, i === 0 ? rotulo : '', 'dir' + (ctr.n += 1))).join('');
+}
+
+/* Cuando hay varias para lo mismo hay que decir por qué: si no, se lee como dos cuentas distintas y
+   la pregunta "¿a cuál de las dos?" vuelve por privado todos los meses. */
+const variasRedes = (lista) => (lista.length > 1
+  ? '<p class="bajo">Mandá por la red que uses. Las dos llegan al mismo lugar.</p>' : '');
+
 function bloquePago(p) {
-  if (!p || (!p.ggr && !p.mens)) return '';
+  // Un array vacío es truthy: acá se mira el largo, o sale un "Cómo pagar" sin ninguna dirección.
+  const ggr = (p && p.ggr) || []; const mens = (p && p.mens) || [];
+  if (!ggr.length && !mens.length) return '';
   const nota = p.nota ? `<div class="avi">${esc(p.nota)}</div>` : '';
-  if (p.misma || !p.mens) return `<h2>Cómo pagar</h2>${unaWallet(p.ggr || p.mens, '', 'dir1')}${nota}`;
-  if (!p.ggr) return `<h2>Cómo pagar</h2>${unaWallet(p.mens, 'Mantenimiento', 'dir2')}${nota}`;
-  return `<h2>Cómo pagar</h2>${unaWallet(p.ggr, 'Servicio del mes', 'dir1')}`
-    + `${unaWallet(p.mens, 'Mantenimiento', 'dir2')}${nota}`;
+  const ctr = { n: 0 };
+  if (p.misma || !mens.length) {
+    const l = ggr.length ? ggr : mens;
+    return `<h2>Cómo pagar</h2>${bloqueDe(l, '', ctr)}${variasRedes(l)}${nota}`;
+  }
+  if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'Mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
+  return `<h2>Cómo pagar</h2>${bloqueDe(ggr, 'Servicio del mes', ctr)}${variasRedes(ggr)}`
+    + `${bloqueDe(mens, 'Mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
 }
 
 /**
@@ -302,6 +325,10 @@ function htmlCliente(doc, ctx = {}) {
   const saldo = ctx.saldo || null;
   const avisos = ctx.avisos || [];
   const pend = avisos.filter((a) => a.estado === 'pendiente');
+  /* Las opciones del "¿de qué es este pago?" vienen ARMADAS del servidor (opcionesDeConcepto en
+     chat-externo.store): el portal dibuja el mismo formulario y dos textos escritos por separado
+     terminan diciendo dos cosas distintas. */
+  const conc = ctx.conceptos || null;
 
   const debe = saldo ? Number(saldo.debe) : Number(doc.total);
   const cuerpo = cabecera(doc.cliente, mesLargo(doc.mes), ctx) + `<div class="hoja">
@@ -339,6 +366,8 @@ function htmlCliente(doc, ctx = {}) {
   <h2>¿Ya pagaste?</h2>
   <form id="f" onsubmit="return avisar(event)">
     <div class="campos">
+      ${conc ? `<label>${esc(conc.titulo)}
+        <select name="concepto">${conc.opciones.map((o) => `<option value="${esc(o.valor)}"${o.sugerida ? ' selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select></label>` : ''}
       <label>Cuánto pagaste
         <input name="monto" inputmode="decimal" placeholder="${saldo ? n(Math.max(0, Number(saldo.debe)), 2) : ''}" required></label>
       <label>Referencia <span class="opt">(opcional)</span>
@@ -346,6 +375,7 @@ function htmlCliente(doc, ctx = {}) {
       <label>Comprobante <span class="opt">(opcional)</span>
         <input type="file" name="archivo" accept="image/*"></label>
     </div>
+    ${conc && conc.aclaracion ? `<p class="aclara">${esc(conc.aclaracion)}</p>` : ''}
     <button type="submit" id="b">Avisar el pago</button>
     <p id="msg"></p>
   </form>` : ''}
@@ -365,7 +395,8 @@ function htmlCliente(doc, ctx = {}) {
   /* `navigator.clipboard` sólo existe en https (o en localhost). El cliente puede abrir esto desde
      cualquier lado, así que hay un plan B con un textarea: sin eso el botón no hace nada y no se
      entiende por qué. */
-  const jsCopiar = (ctx.pago && (ctx.pago.ggr || ctx.pago.mens)) ? `<script>
+  const hayWallet = !!(ctx.pago && (((ctx.pago.ggr || []).length + (ctx.pago.mens || []).length) > 0));
+  const jsCopiar = hayWallet ? `<script>
 function copiar(b,id){
   var t=document.getElementById(id).textContent.trim();
   function ok(){ b.textContent='Copiada'; b.className='copiar ok';
@@ -388,6 +419,7 @@ async function avisar(e){
   var arch=f.archivo.files[0]||null;
   b.disabled=true; m.textContent='Enviando…'; m.className='';
   var datos={monto:f.monto.value, referencia:f.referencia.value};
+  if(f.concepto) datos.concepto=f.concepto.value;
   if(arch){
     if(arch.size>6*1024*1024){ m.textContent='La imagen es muy grande (máximo 6 MB).'; m.className='mal'; b.disabled=false; return false; }
     datos.archivo=await new Promise(function(r){ var fr=new FileReader();

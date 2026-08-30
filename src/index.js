@@ -1333,6 +1333,10 @@ app.get('/chat/:token', (req, res) => {
     cobradoMes: esteMes ? esteMes.cobrado : null,
     // Y de qué está hecho: el % y el mantenimiento son dos cobros distintos.
     movsMes: esteMes ? esteMes.movs : [],
+    /* Para poder preguntarle DE QUÉ es el pago que avisa, con cuánto debe de cada cosa al lado.
+       Va el mes DE ESTA HOJA, que es de lo que habla. En la vista previa de ella no va: ahí no hay
+       formulario, y una hoja que se mira no tiene que traer nada que no se vea. */
+    conceptos: chatStore.opcionesDeConcepto(r.cliente_id, r.mes),
   });
   /* El mismo cinturón que la vista previa, PERO ACÁ, que es la hoja que abre el cliente: tenerlo
      sólo del lado de adentro cuidaba justo la copia que no sale. */
@@ -1369,7 +1373,8 @@ app.post('/chat/aviso', (req, res) => {
   const q = chatStore.quienEntra(b.usuario);
   if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
   const out = chatStore.avisarPago({
-    cliente_id: q.cliente_id, monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
+    cliente_id: q.cliente_id, concepto: b.concepto,
+    monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
   });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${q.cliente} avisó un pago de ${out.aviso.monto}`);
@@ -1410,8 +1415,10 @@ app.post('/chat/:token/pague', (req, res) => {
   const r = chatDoc.porToken(req.params.token);
   if (!r || r.revocado) return res.status(404).json({ ok: false, error: 'Este link ya no está disponible' });
   const b = req.body || {};
+  /* El concepto NO se valida acá: lo normaliza el store y si no viene queda en null. Validarlo
+     antes de buscar el token convertiría un link inexistente en un 400 en vez del 404 que es. */
   const out = chatStore.avisarPago({
-    cliente_id: r.cliente_id, mes: r.mes,
+    cliente_id: r.cliente_id, mes: r.mes, concepto: b.concepto,
     monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
   });
   if (!out.ok) return res.status(400).json(out);
