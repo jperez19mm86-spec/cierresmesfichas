@@ -5028,9 +5028,13 @@ VIEWS.chat = async () => {
   S.cuenta = `
     <div class="card">
       <h2>La cuenta del chat <span class="muted">(es otra cuenta)</span></h2>
-      <div class="muted" >Lo que cada cliente te debe <b>por el chat</b>.
-        No se mezcla con lo de las fichas ni entra en tu cierre del mes: esta plata no es toda tuya
-        —la mitad se la pagás al proveedor—, se cobra en otra wallet y se habla en otro grupo.</div>
+      <!-- «la mitad se la pagás al proveedor» era falso, y de los dos cobros. Del % te quedás con
+           la diferencia sobre lo que te cuesta —que no es la mitad, depende del precio de cada
+           cliente— y el MANTENIMIENTO va entero al proveedor: de ése no te queda nada. -->
+      ${ayuda('chat-cuenta',
+        'Lo que cada cliente te debe <b>por el chat</b>. No se mezcla con lo de las fichas ni entra en tu cierre del mes.',
+        'Esta plata <b>no es toda tuya</b>: del <b>%</b> te quedás con la diferencia entre lo que le cobrás al cliente y lo que te cuesta a vos, y el <b>mantenimiento va entero al proveedor</b>.'
+        + '<div style="margin-top:9px">Se cobra en otra wallet y se habla en otro grupo.</div>')}
       ${cta.clientes.length?`
       <div class="totalote" style="margin-top:14px">
         <div class="k">Te deben en total</div>
