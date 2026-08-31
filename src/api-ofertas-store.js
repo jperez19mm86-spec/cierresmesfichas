@@ -372,15 +372,21 @@ const MARGEN_MINIMO = 2;
 /* Los caros van con precio propio: son los que el mercado ya paga por encima de su bolsa. Salen de
    lo que más se repite en las ofertas de 2025. El sello suelto le gana al paquete, así que alcanza
    con nombrarlos. */
+/* Cada precio es la MEDIANA de lo que se les cobró a los clientes con base 10 en las ofertas de
+   2025, no un número elegido. Sin estas líneas, la familia Evolution caía en el precio de Live (15)
+   y se vendía entre 3,5 y 5 puntos por debajo de lo que siempre se cobró — que es el error más caro
+   posible, porque son los proveedores que más se juegan. */
 const EXCEPCIONES = [
-  { busca: 'red tiger premium', pct: 19.5 },
-  { busca: 'spribe/endorphina', pct: 18.5 },
-  { busca: 'red tiger/amigo',   pct: 17.5 },
-  { busca: 'booming',           pct: 17.5 },
-  { busca: 'evolution lobby',   pct: 23 },
-  { busca: 'pragmatic live op', pct: 25 },
+  { busca: 'red tiger premium',   pct: 19.5 },
+  { busca: 'spribe/endorphina',   pct: 18.5 },
+  { busca: 'red tiger/amigo',     pct: 17.5 },
+  { busca: 'booming',             pct: 17.5 },
+  { busca: 'pragmatic live op',   pct: 25 },   // el sello trae Live y Live Premium juntos
   { busca: 'evolution expensive', pct: 22 },
-  { busca: 'evolution live',    pct: 20 },
+  { busca: 'evolution original',  pct: 20 },   // "Evolution Live Dealers" en la hoja de oferta
+  { busca: 'evolution lobby',     pct: 18.5 }, // ⚠ el sello junta Lobby (18,3) y Lobby Premium (23)
+  { busca: 'evolution op',        pct: 18.5 },
+  { busca: 'pragmatic live ev',   pct: 18.5 },
 ];
 
 /* Cuánto vale cada bolsa a partir de la base. Si algún día cambian los nombres de los paquetes,
