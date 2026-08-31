@@ -2134,6 +2134,8 @@ function mount(app) {
       /* Lo que está cobrado y sin mandar. Va también a la pantalla y no sólo al recordatorio de
          Telegram: si el bot falla o falta el grupo, éste es el único lugar donde se ve. */
       listas: chat.listasParaMandar(),
+      // El mantenimiento caja por caja, para poder ver cuáles quedaron al día y cuáles no.
+      mantCajas: Object.fromEntries((pc.clientes || []).map((g) => [g.cliente_id, chat.mantenimientoPorCaja(g.cliente_id)])),
       avisos: chat.avisosPendientes(), solicitudes: chat.solicitudesPendientes(),
     });
   });

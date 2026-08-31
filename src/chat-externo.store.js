@@ -228,6 +228,13 @@ for (const col of ['pagina TEXT', 'dominio TEXT', 'divisa TEXT', 'caja_nueva INT
    mandan — rechazarlos sería romperle el aviso a alguien que sí pagó. */
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
+/* QUÉ CAJAS CUBRE ESTE PAGO. Uno con cuatro cajas no paga cuatro veces 150: paga una vez y elige
+   cuáles está cubriendo. Sin esto, un pago de 300 sobre cuatro mantenimientos de 150 no dice cuáles
+   dos quedaron al día — y ésa es justo la pregunta que hay que poder contestar. Va como lista de
+   nombres separados por coma, el mismo patrón que los grupos de Telegram y las wallets.
+   Vacío = "lo que haya", y se reparte en cascada. */
+try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
+try { db.exec('ALTER TABLE chat_mov ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 /* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
    problema era el grupo, el bot o el permiso.
    ⚠️ EL BACKFILL NO ES DECORATIVO. Sin él las filas viejas quedan en NULL, y NULL no matchea ni
@@ -1121,6 +1128,9 @@ function pagarCliente(d) {
   // A qué se imputa. Los que ella carga a mano no lo dicen y quedan en null: ver saldoPorConcepto.
   const conc = normConcepto(d.concepto);
   if (conc) db.prepare('UPDATE chat_mov SET concepto=? WHERE id=?').run(conc, mid);
+  // Qué cajas cubre. Sólo tiene sentido con el mantenimiento; en el % del mes no hay cajas que elegir.
+  const cjs = conc === 'mantenimiento' ? juntarWallets(d.cajas) : '';
+  if (cjs) db.prepare('UPDATE chat_mov SET cajas=? WHERE id=?').run(cjs, mid);
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
@@ -1230,6 +1240,70 @@ function saldoPorConcepto(clienteId, mes) {
 }
 
 /**
+ * EL MANTENIMIENTO, CAJA POR CAJA.
+ *
+ * Un cliente con cuatro cajas no paga cuatro veces 150: paga una vez y elige cuáles cubre. Para
+ * que eso se pueda contestar, cada mensualidad ya viene con su caja (`chat_mov.panel`) y ahora
+ * cada pago dice a cuáles va (`chat_mov.cajas`).
+ *
+ * El reparto es una cascada con dos niveles, y el orden importa:
+ *   1. Un pago que NOMBRA cajas tapa esas y nada más, en el orden en que las nombró.
+ *   2. Lo que sobre —y los pagos que no nombran ninguna, que son todos los viejos— cae sobre las
+ *      que sigan debiendo, de la más vieja a la más nueva.
+ * Así la suma por caja siempre da el total del cliente, y un pago viejo no desaparece.
+ */
+function mantenimientoPorCaja(clienteId) {
+  const id = String(clienteId || '');
+  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=? ORDER BY fecha, createdAt').all(id);
+
+  // Lo cobrado, por caja. Una caja sin nombre cae en un cajón aparte para no perderla.
+  const cajas = new Map();
+  for (const m of movs.filter((x) => x.tipo === 'mensualidad')) {
+    const k = String(m.panel || '(sin caja)');
+    const c = cajas.get(k) || { panel: k, cobrado: '0', pagado: '0', desde: m.fecha };
+    c.cobrado = money.add(c.cobrado, m.monto || '0');
+    cajas.set(k, c);
+  }
+  if (!cajas.size) return [];
+
+  const falta = (c) => money.sub(c.cobrado, c.pagado);
+  const aplicar = (c, cuanto) => {
+    const f = falta(c);
+    if (!money.isPos(f) || !money.isPos(cuanto)) return '0';
+    const usa = money.cmp(cuanto, f) > 0 ? f : cuanto;
+    c.pagado = money.add(c.pagado, usa);
+    return usa;
+  };
+
+  const pagos = movs.filter((x) => x.tipo === 'pago' && x.concepto === 'mantenimiento');
+  let sobra = '0';
+  for (const p of pagos) {
+    let resto = String(p.monto || '0');
+    for (const nom of partirWallets(p.cajas)) {          // el mismo partidor de listas
+      const c = cajas.get(nom);
+      if (c) resto = money.sub(resto, aplicar(c, resto));
+    }
+    sobra = money.add(sobra, resto);
+  }
+  /* Los pagos sin concepto tapan primero el mantenimiento —igual que en saldoPorConcepto— así que
+     lo que ahí se imputó al mantenimiento también tiene que llegar acá, o los dos números no
+     coinciden y el cliente ve dos cuentas distintas de lo mismo. */
+  const sc = saldoPorConcepto(id, null);
+  const yaImputado = money.round(money.sum(pagos.map((x) => x.monto || '0')), 2);
+  sobra = money.add(sobra, money.sub(sc.mantenimiento.pagado, yaImputado));
+
+  for (const c of cajas.values()) {
+    if (!money.isPos(sobra)) break;
+    sobra = money.sub(sobra, aplicar(c, sobra));
+  }
+  return [...cajas.values()].map((c) => ({
+    panel: c.panel, desde: c.desde,
+    cobrado: money.round(c.cobrado, 2), pagado: money.round(c.pagado, 2),
+    debe: money.round(money.sub(c.cobrado, c.pagado), 2),
+  }));
+}
+
+/**
  * LAS OPCIONES DEL "¿DE QUÉ ES ESTE PAGO?", YA ESCRITAS.
  *
  * El texto se arma ACÁ y no en cada pantalla a propósito: la hoja (src/chat-doc.js) y el portal
@@ -1269,9 +1343,17 @@ function opcionesDeConcepto(clienteId, mes) {
   const mayor = money.cmp(sc.ganancia.debe, sc.mantenimiento.debe) > 0 ? 'ganancia' : 'mantenimiento';
   opciones.forEach((o) => { o.sugerida = o.valor === mayor; });
 
+  /* Las cajas que todavía deben mantenimiento, para que pueda elegir cuáles cubre. Uno con cuatro
+     cajas paga una vez y dice cuáles: sin esto, un pago de 300 sobre cuatro de 150 no deja saber
+     cuáles dos quedaron al día. Sólo van las que deben algo. */
+  const cajasMant = mantenimientoPorCaja(clienteId).filter((c) => money.isPos(c.debe))
+    .map((c) => ({ panel: c.panel, debe: c.debe, texto: `${c.panel} — ${fmt(c.debe)} USDT` }));
+
   return {
     titulo: '¿De qué es este pago?',
     opciones,
+    cajasMant,
+    tituloCajas: cajasMant.length > 1 ? '¿De qué cajas?' : '',
     /* Sólo cuando el mes todavía no se generó: si no se explica, "todavía no está" se lee como un
        error de la página y la respuesta llega por privado. */
     aclaracion: (!sc.ganancia.generado && !sc.ganancia.corrida && sc.mes)
@@ -1500,13 +1582,19 @@ function avisarPago(d) {
     .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), monto,
       String(d.moneda || 'USDT').toUpperCase().slice(0, 8), String(d.referencia || '').slice(0, 200),
       nombre, tipo, bytes, b64, nowISO(), normConcepto(d.concepto));
+  /* Las cajas que dijo estar cubriendo. Se guardan tal como vinieron, sin comprobar que sean
+     suyas: el que lo escribe es el cliente desde una página pública y un valor raro no puede
+     tumbar el aviso de una transferencia que ya se hizo. Al aprobarlo se reparte sólo sobre las
+     que existen — ver mantenimientoPorCaja. */
+  const cjsAviso = juntarWallets(d.cajas).slice(0, 400);
+  if (cjsAviso) db.prepare('UPDATE chat_comprobante SET cajas=? WHERE id=?').run(cjsAviso, id);
   return { ok: true, aviso: { id, monto, archivo_bytes: bytes } };
 }
 
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
 function avisosDe(clienteId) {
   // Sin `archivo_b64`: son cientos de KB cada uno y acá sólo se listan.
-  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at, concepto
+  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at, concepto, cajas
     FROM chat_comprobante WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 20`).all(String(clienteId || ''));
 }
 
@@ -1519,7 +1607,7 @@ function avisosSinResolver(clienteId) {
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
 function avisosPendientes() {
-  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto,
+  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto, cajas,
     aviso_ok, aviso_error, aviso_at
     FROM chat_comprobante WHERE estado='pendiente' ORDER BY creado_at`).all();
   const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
@@ -1538,7 +1626,7 @@ function avisosPendientes() {
  */
 function avisoPorId(id) {
   const f = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes,
-    estado, creado_at, concepto, aviso_ok, aviso_error, aviso_at
+    estado, creado_at, concepto, cajas, aviso_ok, aviso_error, aviso_at
     FROM chat_comprobante WHERE id=?`).get(String(id || ''));
   if (!f) return null;
   const c = clientes.list().clientes.find((x) => x.id === f.cliente_id) || {};
@@ -1583,7 +1671,7 @@ function resolverAviso(id, aprobar) {
     cliente_id: f.cliente_id, mes: f.mes, monto: f.monto, moneda: f.moneda,
     fecha: String(f.creado_at || '').slice(0, 10), nota: 'aviso del cliente' + (f.referencia ? ' · ' + f.referencia : ''),
     // Se imputa a lo que el cliente dijo al avisar. Si dijo mal, se rechaza y lo manda de nuevo.
-    concepto: f.concepto,
+    concepto: f.concepto, cajas: f.cajas,
   });
   if (!pg.ok) return pg;
   db.prepare("UPDATE chat_comprobante SET estado='aprobado', resuelto_at=?, mov_id=? WHERE id=?")
@@ -1708,6 +1796,6 @@ module.exports = {
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
-  saldoPorConcepto, opcionesDeConcepto,
+  saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

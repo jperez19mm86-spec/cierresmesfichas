@@ -114,6 +114,11 @@ const CSS = `
   input:focus-visible,select:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
   /* La aclaración de que el mes todavía no está: ocupa las dos columnas de la grilla. */
   .aclara{grid-column:1/-1;margin:0;font-size:13px;color:#6f6280;line-height:1.5}
+  /* Elegir de qué cajas es el pago: uno con cuatro no paga cuatro veces. */
+  .cajas-mant{grid-column:1/-1}
+  .cajas-mant .rotc{font-size:13px;color:#6f6280;margin-bottom:4px}
+  .cajita{display:flex;align-items:center;gap:9px;font-size:15px;cursor:pointer;margin-top:6px}
+  .cajita input{width:auto;margin:0;flex:0 0 auto}
   button[type=submit]{padding:13px 20px;font:inherit;font-weight:800;border:0;border-radius:11px;
     background:var(--uva2);color:#fff;cursor:pointer;width:100%}
   button:disabled{opacity:.5;cursor:default}
@@ -367,7 +372,13 @@ function htmlCliente(doc, ctx = {}) {
   <form id="f" onsubmit="return avisar(event)">
     <div class="campos">
       ${conc ? `<label>${esc(conc.titulo)}
-        <select name="concepto">${conc.opciones.map((o) => `<option value="${esc(o.valor)}"${o.sugerida ? ' selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select></label>` : ''}
+        <select name="concepto" onchange="sugerir()">${conc.opciones.map((o) => `<option value="${esc(o.valor)}"${o.sugerida ? ' selected' : ''}>${esc(o.rotulo)}</option>`).join('')}</select></label>` : ''}
+      ${conc && (conc.cajasMant || []).length > 1 ? `<div id="cajasMant" class="cajas-mant"${
+        (conc.opciones.find((o) => o.sugerida) || {}).valor === 'mantenimiento' ? '' : ' style="display:none"'}>
+        <div class="rotc">${esc(conc.tituloCajas)}</div>
+        ${conc.cajasMant.map((c) => `<label class="cajita"><input type="checkbox" name="caja"
+          value="${esc(c.panel)}" data-debe="${esc(c.debe)}" onchange="sugerir()"> ${esc(c.texto)}</label>`).join('')}
+        <p class="opt" style="margin:6px 0 0">Si no marcás ninguna, lo aplicamos a las más viejas.</p></div>` : ''}
       <label>Cuánto pagaste
         <input name="monto" inputmode="decimal" placeholder="${saldo ? n(Math.max(0, Number(saldo.debe)), 2) : ''}" required></label>
       <label>Referencia <span class="opt">(opcional)</span>
@@ -413,6 +424,19 @@ function copiar(b,id){
 </script>` : '';
 
   const js = ctx.token ? `<script>
+/* Las cajas sólo tienen sentido con el mantenimiento, y lo que marca cambia el monto que sugiere:
+   es el número que va a transferir. Gemela de sugerirMonto() en el portal. */
+function sugerir(){
+  var f=document.getElementById('f'); if(!f||!f.concepto) return;
+  var esMant=f.concepto.value==='mantenimiento';
+  var caja=document.getElementById('cajasMant');
+  if(caja) caja.style.display=esMant?'':'none';
+  var marcadas=[].slice.call(document.querySelectorAll('input[name=caja]:checked'));
+  if(esMant&&marcadas.length){
+    var t=0; marcadas.forEach(function(x){ t+=Number(x.dataset.debe||0); });
+    f.monto.placeholder=t.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
+}
 async function avisar(e){
   e.preventDefault();
   var f=document.getElementById('f'), b=document.getElementById('b'), m=document.getElementById('msg');
@@ -420,6 +444,9 @@ async function avisar(e){
   b.disabled=true; m.textContent='Enviando…'; m.className='';
   var datos={monto:f.monto.value, referencia:f.referencia.value};
   if(f.concepto) datos.concepto=f.concepto.value;
+  if(datos.concepto==='mantenimiento'){
+    datos.cajas=[].slice.call(document.querySelectorAll('input[name=caja]:checked')).map(function(x){return x.value;});
+  }
   if(arch){
     if(arch.size>6*1024*1024){ m.textContent='La imagen es muy grande (máximo 6 MB).'; m.className='mal'; b.disabled=false; return false; }
     datos.archivo=await new Promise(function(r){ var fr=new FileReader();

@@ -2577,6 +2577,60 @@ async function main() {
       opCero.opciones[1].rotulo === 'Servicio del mes — este mes no te cobramos nada'
       && opCero.aclaracion === '',
       opCero.opciones[1].rotulo);
+    /* ── EL MANTENIMIENTO, CAJA POR CAJA ─────────────────────────────────────────────────────
+       Un cliente con cuatro cajas no paga cuatro veces 150: paga una vez y elige cuáles cubre. */
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+    let nMov = 0;
+    const ponerMens = (panel) => dbCh.prepare(`INSERT INTO chat_mov
+      (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,panel)
+      VALUES (?,?, '2026-08','mensualidad','150','USDT','2026-08-22','', ?, ?)`)
+      .run(`mq_${nMov += 1}`, CLI.id, `2026-08-22T00:0${nMov}:00Z`, panel);
+    const ponerPago = (monto, cajas) => dbCh.prepare(`INSERT INTO chat_mov
+      (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,concepto,cajas)
+      VALUES (?,?, '2026-08','pago',?,'USDT','2026-08-25','', ?, 'mantenimiento', ?)`)
+      .run(`mq_${nMov += 1}`, CLI.id, monto, `2026-08-25T00:0${nMov}:00Z`, cajas || null);
+    ['CajaA', 'CajaB', 'CajaC', 'CajaD'].forEach(ponerMens);
+    const porCaja1 = ch.mantenimientoPorCaja(CLI.id);
+    check('chat: el mantenimiento se ve caja por caja',
+      porCaja1.length === 4 && porCaja1.every((c) => c.debe === '150'),
+      porCaja1.map((c) => `${c.panel}:${c.debe}`).join(' '));
+    ponerPago('300', 'CajaA, CajaC');
+    const d2 = Object.fromEntries(ch.mantenimientoPorCaja(CLI.id).map((c) => [c.panel, c.debe]));
+    check('chat: pagando 300 y eligiendo dos, quedan al día ésas y sólo ésas',
+      d2.CajaA === '0' && d2.CajaC === '0' && d2.CajaB === '150' && d2.CajaD === '150',
+      JSON.stringify(d2));
+    /* Los pagos viejos no dicen de qué cajas eran: si quedaran afuera, la suma por caja no daría el
+       total y el cliente vería dos cuentas distintas de lo mismo. */
+    ponerPago('150', null);
+    const d3 = Object.fromEntries(ch.mantenimientoPorCaja(CLI.id).map((c) => [c.panel, c.debe]));
+    check('chat: un pago que no elige cajas tapa la más vieja que deba',
+      d3.CajaB === '0' && d3.CajaD === '150', JSON.stringify(d3));
+    check('chat: la suma por caja da el mismo total que el saldo del cliente',
+      ch.mantenimientoPorCaja(CLI.id).reduce((a, c) => a + Number(c.debe), 0)
+        === Math.max(0, Number(ch.saldoPorConcepto(CLI.id, '2026-08').mantenimiento.debe)));
+    ponerPago('9999', 'CajaD');
+    check('chat: pagando de más, ninguna caja queda en negativo',
+      ch.mantenimientoPorCaja(CLI.id).every((c) => Number(c.debe) >= 0));
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+    ['CajaA', 'CajaB'].forEach(ponerMens);
+    const opCajas = ch.opcionesDeConcepto(CLI.id, '2026-08');
+    check('chat: al avisar el pago se le ofrecen las cajas que debe',
+      opCajas.cajasMant.length === 2 && /CajaA — 150/.test(opCajas.cajasMant[0].texto)
+      && opCajas.tituloCajas === '¿De qué cajas?');
+    const portalCajas = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
+    check('portal: el cliente puede elegir de qué cajas es el pago',
+      /name="caja"/.test(portalCajas) && /datos\.cajas/.test(portalCajas)
+      && /Si no marcás ninguna/.test(portalCajas));
+    const hojaCajas = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }),
+      { saldo: saldoZ, token: 'tok123', avisos: [], conceptos: opCajas });
+    check('chat: y en la hoja también, con el mismo texto',
+      /name="caja"/.test(hojaCajas) && /¿De qué cajas\?/.test(hojaCajas)
+      && /datos\.cajas=/.test(hojaCajas));
+    check('chat: elegir cajas no filtra datos internos',
+      !/margen|costo|pct_costo|te cuesta|paga:/i.test(hojaCajas)
+      && !/margen|costo|pct_costo|te cuesta|sin confirmar/i.test(hojaCajas));
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+
     check('chat: el rótulo lleva el monto y viene marcado el que más debe',
       /^Mantenimiento — (debés|tenés|estás)/.test(ch.opcionesDeConcepto(CLI.id, '2026-08').opciones[0].rotulo)
       && ch.opcionesDeConcepto(CLI.id, '2026-08').opciones.filter((o) => o.sugerida).length === 1);

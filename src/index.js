@@ -1393,7 +1393,7 @@ app.post('/chat/aviso', (req, res) => {
   const q = chatStore.quienEntra(b.usuario);
   if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
   const out = chatStore.avisarPago({
-    cliente_id: q.cliente_id, concepto: b.concepto,
+    cliente_id: q.cliente_id, concepto: b.concepto, cajas: b.cajas,
     monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
   });
   if (!out.ok) return res.status(400).json(out);
@@ -1439,7 +1439,7 @@ app.post('/chat/:token/pague', (req, res) => {
   /* El concepto NO se valida acá: lo normaliza el store y si no viene queda en null. Validarlo
      antes de buscar el token convertiría un link inexistente en un 400 en vez del 404 que es. */
   const out = chatStore.avisarPago({
-    cliente_id: r.cliente_id, mes: r.mes, concepto: b.concepto,
+    cliente_id: r.cliente_id, mes: r.mes, concepto: b.concepto, cajas: b.cajas,
     monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
   });
   if (!out.ok) return res.status(400).json(out);

@@ -118,6 +118,12 @@
   .copiar{margin-top:10px;padding:11px 16px;font:inherit;font-size:14px;font-weight:700;border:0;
     border-radius:10px;background:var(--uva2);color:#fff;cursor:pointer;width:100%}
   .copiar.ok{background:var(--verde)}
+    /* Elegir de qué cajas es el pago. Un cliente con cuatro no paga cuatro veces. */
+    .cajitas { display:flex; flex-direction:column; gap:7px; margin-top:7px }
+    .cajita { display:flex; align-items:center; gap:9px; font-size:15px; font-weight:400;
+      cursor:pointer; text-transform:none; letter-spacing:0 }
+    .cajita input { width:auto; margin:0; flex:0 0 auto }
+
   label.campo{display:block;font-size:12.5px;color:var(--tinta2);margin-bottom:12px}
   label.campo input,label.campo textarea,label.campo select{
     width:100%;margin-top:5px;padding:12px 13px;font:inherit;border:1px solid var(--linea);
@@ -313,6 +319,17 @@ function sugerirMonto() {
   var conc = DATOS.conceptos; if (!conc) return;
   var sel = document.querySelector('select[name=concepto]'); var inp = $('mMonto');
   if (!sel || !inp) return;
+  var esMant = sel.value === 'mantenimiento';
+  var caja = $('cajasMant');
+  // Las cajas sólo tienen sentido con el mantenimiento: en el % del mes no hay cuáles elegir.
+  if (caja) caja.style.display = esMant ? '' : 'none';
+  var marcadas = [].slice.call(document.querySelectorAll('input[name=caja]:checked'));
+  if (esMant && marcadas.length) {
+    // Lo que suman las que marcó. Es el número que va a transferir.
+    var t = 0; marcadas.forEach(function (x) { t += Number(x.dataset.debe || 0); });
+    inp.placeholder = num(t, 2);
+    return;
+  }
   var o = conc.opciones.filter(function (x) { return x.valor === sel.value; })[0];
   inp.placeholder = num(Math.max(0, Number((o && o.debe) || 0)), 2);
 }
@@ -441,6 +458,17 @@ function ver(cual) {
           return '<option value="' + esc(o.valor) + '"' + (o.sugerida ? ' selected' : '') + '>'
             + esc(o.rotulo) + '</option>';
         }).join('') + '</select></label>' : '')
+      /* Las cajas. Uno con cuatro no paga cuatro veces: paga una y dice cuáles cubre. Sólo se
+         ofrece cuando hay más de una debiendo — con una sola, preguntar es hacer trabajar de más. */
+      + ((conc && conc.cajasMant && conc.cajasMant.length > 1)
+        ? '<div id="cajasMant" class="campo"' + (sug && sug.valor === 'mantenimiento' ? '' : ' style="display:none"') + '>'
+          + esc(conc.tituloCajas)
+          + '<div class="cajitas">' + conc.cajasMant.map(function (c) {
+            return '<label class="cajita"><input type="checkbox" name="caja" value="' + esc(c.panel)
+              + '" data-debe="' + esc(c.debe) + '" onchange="sugerirMonto()"> ' + esc(c.texto) + '</label>';
+          }).join('') + '</div>'
+          + '<p class="tenue" style="margin:6px 0 0">Si no marcás ninguna, lo aplicamos a las más viejas.</p></div>'
+        : '')
       + '<label class="campo">Cuánto pagaste'
       + '<input name="monto" id="mMonto" inputmode="decimal" placeholder="'
       + num(Math.max(0, Number((sug ? sug.debe : DATOS.saldo.debe) || 0)), 2) + '" required></label>'
@@ -513,6 +541,10 @@ async function avisar(e) {
   b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
   var datos = { usuario: USUARIO, monto: f.monto.value, referencia: f.referencia.value };
   if (f.concepto) datos.concepto = f.concepto.value;
+  if (datos.concepto === 'mantenimiento') {
+    datos.cajas = [].slice.call(document.querySelectorAll('input[name=caja]:checked'))
+      .map(function (x) { return x.value; });
+  }
   if (arch) {
     if (arch.size > 6 * 1024 * 1024) {
       m.textContent = 'La imagen es muy grande (máximo 6 MB).'; m.className = 'msg mal';
