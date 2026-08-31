@@ -500,6 +500,12 @@ function paraProveedor(pc, ctx = {}) {
       } else monedas.push({ ...m });
     }
   }
+  /* ⚠️ EL MANTENIMIENTO VA ACÁ, Y ANTES NO IBA. Esta hoja sumaba sólo el % y decía «total a pagar»
+     — le mandaba 169,40 cuando le debía 1.219,40. El mantenimiento se le paga 100% a él, así que
+     no incluirlo no era una omisión de detalle: era otro número. Y ahora que él tiene su propia
+     pantalla, las dos tienen que decir lo mismo o la primera discusión es sobre cuál miente. */
+  const porGanancia = money.round(money.sum(lineas.map((l) => l.paga)), 2);
+  const mant = ctx.mantenimiento || { debe: '0', cajas: 0 };
   return {
     mes: String(ctx.mes || pc.mes || '').slice(0, 7),
     pct: pc.costo_pct,
@@ -507,7 +513,10 @@ function paraProveedor(pc, ctx = {}) {
     lineas: lineas.map((l) => ({
       cliente: l.cliente, panel: l.panel, ganancia: l.ganancia, paga: l.paga, monedas: l.monedas,
     })),
-    total: money.round(money.sum(lineas.map((l) => l.paga)), 2),
+    porGanancia,
+    mantenimiento: mant.debe || '0',
+    cajasMant: mant.cajas || 0,
+    total: money.round(money.add(porGanancia, mant.debe || '0'), 2),
     nota: ctx.nota || '',
   };
 }
@@ -528,7 +537,12 @@ function htmlProveedor(doc, emision = null) {
     <tbody>${doc.lineas.map((l) => `<tr><td>${esc(l.cliente)}</td><td>${esc(l.panel)}</td>
       <td class="r">${celdaMonedas(l.monedas)}</td>
       <td class="r">${n(l.ganancia, 2)}</td><td class="r">${n(l.paga, 2)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="4" class="r">Total</td><td class="r">${n(doc.total, 2)}</td></tr></tfoot></table></div>
+    <tfoot><tr><td colspan="4" class="r">Por la ganancia</td><td class="r">${n(doc.porGanancia != null ? doc.porGanancia : doc.total, 2)}</td></tr></tfoot></table></div>
+
+  ${Number(doc.mantenimiento || 0) > 0 ? `<h2>Mantenimiento</h2>
+  <div class="caja"><table><tbody><tr>
+    <td>${esc(String(doc.cajasMant))} caja${doc.cajasMant === 1 ? '' : 's'} del período</td>
+    <td class="r">${n(doc.mantenimiento, 2)} USDT</td></tr></tbody></table></div>` : ''}
 
   ${doc.nota ? `<div class="avi">${esc(doc.nota)}</div>` : ''}
 

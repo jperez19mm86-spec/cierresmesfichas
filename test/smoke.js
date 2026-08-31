@@ -2642,6 +2642,25 @@ async function main() {
        Ve su liquidación y NADA MÁS. Lo que nunca puede ver es lo que ella le cobra al cliente:
        de la diferencia contra lo que él cobra sale el margen, que es el negocio entero. */
     const authSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    /* ⚠️ LA HOJA DEL PROVEEDOR SUMABA SÓLO EL %. Le decía 169,40 cuando se le debían 1.219,40: el
+       mantenimiento se le paga 100% a él y no estaba. Y ahora que tiene pantalla propia, las dos
+       tienen que decir lo mismo o la primera discusión es sobre cuál miente. */
+    const hojaProv = chDoc.paraProveedor(ch.porCliente('2026-08'),
+      { mes: '2026-08', mantenimiento: ch.deudaProveedor('2026-08').mantenimiento });
+    check('proveedor: la hoja suma el mantenimiento, no sólo el %',
+      hojaProv.mantenimiento !== undefined
+      && hojaProv.total === moneyCh.round(moneyCh.add(hojaProv.porGanancia, hojaProv.mantenimiento), 2),
+      `${hojaProv.porGanancia} + ${hojaProv.mantenimiento} = ${hojaProv.total}`);
+    check('proveedor: la hoja y lo que le debés dan el mismo número',
+      hojaProv.total === ch.deudaProveedor('2026-08').total.debe,
+      'si difieren, la hoja que le mandás contradice su pantalla');
+    const idxSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('login: la puerta del panel tiene tope de intentos',
+      /app\.post\('\/api\/login'/.test(idxSrc) && /demasiadosIntentos\(kIp\) \|\| demasiadosIntentos\(kUs\)/.test(idxSrc),
+      'con tres usuarios adentro, probar contraseñas contra la puerta principal era gratis');
+    check('login: uno que sale bien limpia la cuenta de intentos',
+      /if \(body && body\.ok\) \{ limpiarIntentos\(kIp\); limpiarIntentos\(kUs\); \}/.test(idxSrc));
+
     check('proveedor: sin las dos variables puestas NO existe el usuario',
       /HAY_PROVEEDOR = !!\(PROVEEDOR_USER && PROVEEDOR_PASSWORD\)/.test(authSrc),
       'un usuario que aparece solo porque alguien deployó es una puerta que nadie pidió');

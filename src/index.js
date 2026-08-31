@@ -111,7 +111,27 @@ app.use((e, req, res, next) => {
 });
 
 // ─────────────── LOGIN del panel (usuario + contraseña → cookie) ───────────────
-app.post('/api/login', auth.loginHandler);
+/* ⚠️ EL LOGIN DEL PANEL NO TENÍA TOPE DE INTENTOS. El de la puerta del cliente sí, desde el día
+   uno; ésta se había quedado sin. Con tres usuarios adentro —vos, el operador y ahora el
+   proveedor— probar contraseñas contra la puerta principal era gratis e ilimitado.
+   Se reusa el mismo contador que ya existe más abajo: 10 por usuario y 40 por IP en 15 minutos, con
+   los dos topes distintos por el mismo motivo que allá. Un login que sale bien limpia la cuenta. */
+app.post('/api/login', (req, res) => {
+  const ip = String(req.ip || req.headers['x-forwarded-for'] || 'x').split(',')[0].trim();
+  const usr = String((req.body || {}).user || '').slice(0, 60).toLowerCase();
+  const kIp = 'ip:panel:' + ip; const kUs = 'panel:' + usr;
+  if (demasiadosIntentos(kIp) || demasiadosIntentos(kUs)) {
+    return res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá 15 minutos.' });
+  }
+  const json = res.json.bind(res);
+  // Se mira LO QUE CONTESTÓ el handler: no hace falta duplicar acá la comprobación de la clave.
+  res.json = (body) => {
+    if (body && body.ok) { limpiarIntentos(kIp); limpiarIntentos(kUs); }
+    else { anotarIntento(kIp); anotarIntento(kUs); }
+    return json(body);
+  };
+  return auth.loginHandler(req, res);
+});
 app.post('/api/logout', auth.logoutHandler);
 app.get('/login', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'login.html')); });

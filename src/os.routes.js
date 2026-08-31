@@ -2204,7 +2204,7 @@ function mount(app) {
 
   app.get('/api/os/chat/doc/proveedor', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
-    const doc = chatDoc.paraProveedor(chat.porCliente(mes), { mes });
+    const doc = chatDoc.paraProveedor(chat.porCliente(mes), { mes, mantenimiento: chat.deudaProveedor(mes).mantenimiento });
     res.type('text/html; charset=utf-8').send(chatDoc.htmlProveedor(doc));
   });
 
