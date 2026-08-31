@@ -228,6 +228,16 @@ for (const col of ['pagina TEXT', 'dominio TEXT', 'divisa TEXT', 'caja_nueva INT
    mandan — rechazarlos sería romperle el aviso a alguien que sí pagó. */
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN concepto TEXT'); } catch (e) { /* ya estaba */ }
+/* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
+   problema era el grupo, el bot o el permiso.
+   ⚠️ EL BACKFILL NO ES DECORATIVO. Sin él las filas viejas quedan en NULL, y NULL no matchea ni
+   `=0` ni `=1`: un aviso que nunca se intentó desaparecería de las dos listas —la de los que
+   fallaron y la de los que salieron— que son justamente la red que hace visible el problema. Por
+   eso además se consulta con `IS NOT 1` y nunca con `=0`. */
+for (const col of ['aviso_ok INTEGER', 'aviso_error TEXT', 'aviso_at TEXT']) {
+  try { db.exec(`ALTER TABLE chat_comprobante ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
+}
+try { db.exec('UPDATE chat_comprobante SET aviso_ok=0 WHERE aviso_ok IS NULL'); } catch (e) { /* no pasa nada */ }
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN archivo_tipo_seguro TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('CREATE INDEX IF NOT EXISTS ix_chat_cmp_cli ON chat_comprobante(cliente_id)'); } catch (e) { /* ya estaba */ }
 
@@ -1272,6 +1282,48 @@ function opcionesDeConcepto(clienteId, mes) {
   };
 }
 
+/**
+ * LAS CUENTAS QUE ESTÁN COBRADAS Y TODAVÍA NO SE MANDARON.
+ *
+ * Lo usa el recordatorio diario. Ella cobra el mes (que CONGELA el número) y después le manda la
+ * cuenta a cada uno apretando un botón por cliente: entre una cosa y la otra puede pasar una
+ * semana, y hasta ahora nada se lo recordaba.
+ *
+ * ⚠️ NO ALCANZA CON MIRAR EL COBRO DEL MES. `cobrar()` saltea al cliente cuyo total da cero, así
+ * que uno que sólo paga mantenimiento NUNCA tiene una fila tipo='cobro' — y sin embargo le debe
+ * plata y su cuenta se le manda igual. Filtrando por 'cobro' esos clientes quedaban callados para
+ * siempre: la cuenta lista, la plata sin cobrar, y ni un aviso. Van los dos tipos.
+ *
+ * @param dias  hasta cuántos días para atrás se sigue insistiendo (default 15). Pasado eso se
+ *              entiende que no lo mandó a propósito y se deja de molestar.
+ */
+function listasParaMandar(dias = 15) {
+  const corte = new Date(Date.now() - Number(dias) * 864e5).toISOString();
+  const filas = db.prepare(`SELECT cliente_id, mes, MAX(createdAt) AS ultimo
+    FROM chat_mov WHERE tipo IN ('cobro','mensualidad') GROUP BY cliente_id, mes`).all();
+  const yaFue = new Set(db.prepare('SELECT cliente_id, mes FROM chat_envio WHERE ok=1').all()
+    .map((e) => `${e.cliente_id}|${e.mes}`));
+  const fallo = new Map(db.prepare('SELECT cliente_id, mes, error FROM chat_envio WHERE ok=0').all()
+    .map((e) => [`${e.cliente_id}|${e.mes}`, e.error]));
+  const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
+
+  const mandar = []; const sinGrupo = [];
+  for (const f of filas) {
+    if (!f.cliente_id) continue;
+    if (String(f.ultimo || '') < corte) continue;              // viejo: ya no se insiste
+    const k = `${f.cliente_id}|${f.mes}`;
+    if (yaFue.has(k)) continue;
+    const c = cli.get(f.cliente_id);
+    const fila = { cliente_id: f.cliente_id, mes: f.mes,
+      cliente: (c && (c.nombre || c.codigo)) || '(cliente borrado)',
+      fallo: fallo.get(k) || null };
+    // Sin grupo cargado no hay adónde mandarla: es otro problema y se cuenta aparte.
+    (destino(f.cliente_id).grupos.length ? mandar : sinGrupo).push(fila);
+  }
+  const ord = (a, b) => (a.mes === b.mes ? a.cliente.localeCompare(b.cliente) : (a.mes < b.mes ? -1 : 1));
+  return { mandar: mandar.sort(ord), sinGrupo: sinGrupo.sort(ord) };
+}
+
 /* ── QUIÉN ES EL QUE ENTRA AL PORTAL ─────────────────────────────────────────────────────────
    Escribe el usuario que ya conoce —el de su caja, "Fran44"— y no una cuenta nueva: una contraseña
    más para recordar es la forma más segura de que no entre nunca.
@@ -1467,13 +1519,46 @@ function avisosSinResolver(clienteId) {
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
 function avisosPendientes() {
-  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto
+  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto,
+    aviso_ok, aviso_error, aviso_at
     FROM chat_comprobante WHERE estado='pendiente' ORDER BY creado_at`).all();
   const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
   return filas.map((f) => {
     const c = cli.get(f.cliente_id) || {};
     return { ...f, cliente: c.nombre || c.codigo || '(cliente borrado)' };
   });
+}
+
+/**
+ * UN AVISO SOLO, con el nombre del cliente ya resuelto.
+ * Lo usa el aviso a la matriz: `avisarPago` devuelve nada más que {id, monto, archivo_bytes}, y con
+ * eso no se puede armar el mensaje. Se relee la fila para que el texto diga lo mismo venga por
+ * donde venga —el portal o la hoja con token— y para que lo componga el servidor con la base y no
+ * lo que quedó colgado en una variable de la ruta.
+ */
+function avisoPorId(id) {
+  const f = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes,
+    estado, creado_at, concepto, aviso_ok, aviso_error, aviso_at
+    FROM chat_comprobante WHERE id=?`).get(String(id || ''));
+  if (!f) return null;
+  const c = clientes.list().clientes.find((x) => x.id === f.cliente_id) || {};
+  return { ...f, cliente: c.nombre || c.codigo || '(cliente borrado)',
+    sinResolver: avisosSinResolver(f.cliente_id) };
+}
+
+/** Deja anotado si el aviso a la matriz salió. Se pisa: importa el último intento. */
+function marcarAvisoPago(id, r) {
+  db.prepare('UPDATE chat_comprobante SET aviso_ok=?, aviso_error=?, aviso_at=? WHERE id=?')
+    .run(r && r.ok ? 1 : 0, (r && r.error) ? String(r.error).slice(0, 300) : null, nowISO(), String(id || ''));
+  return { ok: true };
+}
+
+/* Los avisos que están esperando y de los que NO se pudo avisar. `IS NOT 1` y no `=0`: los que
+   nunca se intentaron valen igual que los que fallaron —los dos son "ella no se enteró"— y con
+   `=0` los NULL se escapaban de la lista sin que nada lo dijera. */
+function avisosSinNotificar() {
+  return db.prepare(`SELECT id, cliente_id, monto, moneda, aviso_error, aviso_at
+    FROM chat_comprobante WHERE estado='pendiente' AND (aviso_ok IS NOT 1) ORDER BY creado_at`).all();
 }
 
 /** El archivo de un aviso, para poder mirarlo antes de aprobarlo. */
@@ -1622,6 +1707,7 @@ module.exports = {
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
+  avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

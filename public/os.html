@@ -4595,7 +4595,13 @@ function renderNodos(){
 
    La ganancia NO se le pregunta al casino: sale del acumulado que el cron ya guarda todas las
    noches, cruzando conexión + nodo. */
-let _chatMes = mesDeCierre(), _chatWs = [], _chatOpc = [];
+/* El mes puede venir en la URL: el recordatorio diario manda /chat-externo?mes=2026-08.
+   Sin esto, del día 11 en adelante la pantalla abre el mes CORRIENTE sola, y apretar «Enviársela»
+   siguiendo un recordatorio de agosto le mandaba al cliente la cuenta de septiembre a mitad de
+   mes, con números chicos y sin cerrar. */
+const _mesDeLaURL = (new URLSearchParams(location.search).get('mes')||'').match(/^\d{4}-\d{2}$/)
+  ? new URLSearchParams(location.search).get('mes') : null;
+let _chatMes = _mesDeLaURL || mesDeCierre(), _chatWs = [], _chatOpc = [];
 function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
 
 /* ⚠️ LOS DATOS NO VAN ADENTRO DEL onclick, VAN EN data-*.
@@ -4880,6 +4886,18 @@ VIEWS.chat = async () => {
       ${(pc.salteados||[]).length?`<div class="nota-suave rosa">
         <b>${pc.salteados.length} caja(s) quedaron afuera de la cuenta</b>:
         ${pc.salteados.map(x=>esc(x.panel)+' <span class="muted">('+esc(x.motivo)+')</span>').join(' · ')}</div>`:''}
+      ${(()=>{ /* Lo mismo que dice el recordatorio de Telegram, acá. Si el bot falla o falta el
+                  grupo, éste es el único lugar donde se ve que quedó algo sin mandar. */
+        const li=pc.listas||{}, m=li.mandar||[], sg=li.sinGrupo||[];
+        if(!m.length && !sg.length) return '';
+        return `<div class="nota-suave durazno">
+          ${m.length?`<b>${m.length} cuenta${m.length>1?'s':''} cobrada${m.length>1?'s':''} y sin mandar.</b>
+            Están más abajo: abrí el cliente y apretá <b>Enviársela</b>.`:''}
+          ${sg.length?`<div style="margin-top:${m.length?'6px':'0'}">⚠️ ${sg.length===1
+            ? `<b>${esc(sg[0].cliente)}</b> está cobrado y no tiene grupo de Telegram cargado.`
+            : `<b>${sg.length}</b> están cobrados y no tienen grupo cargado: ${sg.map(x=>esc(x.cliente)).join(', ')}.`}
+            Se carga en <b>Cajas y clientes</b>.</div>`:''}
+        </div>`; })()}
       ${(()=>{const sp=cs.filter(g=>g.sinPrecio); return sp.length?`<div class="nota-suave">
         <b>${sp.length} sin precio confirmado</b>: ${sp.map(g=>esc(g.cliente)).join(', ')}.
         Se les cobra el <b>mínimo (${esc(pc.costo_pct)}%)</b>, que es lo que a vos te cuesta — no perdés,
@@ -5024,6 +5042,8 @@ VIEWS.chat = async () => {
               a.concepto==='mantenimiento'?'Mantenimiento'
               :(a.concepto==='ganancia'?'Servicio del mes'
               :'<span class="muted" style="font-weight:500">no lo dijo</span>')}</span></div>
+            ${a.aviso_ok!==1?`<div><span class="k">Aviso a Telegram</span><span class="v"
+              style="color:var(--durazno)">no salió${a.aviso_error?' · '+esc(a.aviso_error):''}</span></div>`:''}
             ${a.referencia?`<div><span class="k">Referencia</span><span class="v">${esc(a.referencia)}</span></div>`:''}
           </div>
           ${a.archivo_bytes?'':'<div class="nota-suave">Vino sin comprobante: sólo dijo el monto.</div>'}
@@ -5378,7 +5398,9 @@ function chatHojaProv(){ window.open('/api/os/chat/doc/proveedor?mes='+_chatMes,
 
 // SALE PARA AFUERA: le llega de verdad al cliente. Por eso se pregunta siempre.
 async function chatEnviar(cid,nombre){
-  if(!confirm('¿Mandarle a «'+nombre+'» su cuenta de '+_chatMes+'?\n\nLe llega al grupo de Telegram de este servicio.')) return;
+  /* «agosto 2026», igual que en el recordatorio de Telegram. Escribir el mismo mes de dos
+     formas distintas es lo que hace que nadie note que son meses distintos. */
+  if(!confirm('¿Mandarle a «'+nombre+'» su cuenta de '+mesNombre(_chatMes)+'?\n\nLe llega al grupo de Telegram de este servicio.')) return;
   const r=await api('/api/os/chat/enviar/'+cid,{method:'POST',body:JSON.stringify({mes:_chatMes})});
   if(r&&r.ok) toast('Enviada'); 
   VIEWS.chat();
@@ -5386,7 +5408,7 @@ async function chatEnviar(cid,nombre){
 /* Cobrar CONGELA el número de cada cliente en la cuenta del chat — que es aparte de la de las
    fichas y no entra en el cierre del mes. */
 async function chatCobrar(confirmar){
-  if(!confirmar && !confirm('¿Cobrar el chat de '+_chatMes+'?\n\nCongela el número de cada cliente en la cuenta del chat.\nNo toca la cuenta de las fichas ni tu cierre del mes.\nApretar dos veces no cobra dos veces.')) return;
+  if(!confirmar && !confirm('¿Cobrar el chat de '+mesNombre(_chatMes)+'?\n\nCongela el número de cada cliente en la cuenta del chat.\nNo toca la cuenta de las fichas ni tu cierre del mes.\nApretar dos veces no cobra dos veces.')) return;
   const r=await api('/api/os/chat/cobrar',{method:'POST',body:JSON.stringify({mes:_chatMes,confirmar:!!confirmar})});
   /* Si falta un tipo de cambio, el server no congela nada y pide confirmación: cobrar así deja el
      total corto para siempre, porque encima de un cobro no se puede volver a cobrar. */

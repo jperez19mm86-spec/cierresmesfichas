@@ -1367,6 +1367,24 @@ app.post('/chat/entrar', (req, res) => {
   res.json({ ok: true, portal: chatStore.portalDe(q.cliente_id) });
 });
 
+/* AVISARLE A ELLA QUE ALGUIEN DIJO QUE PAGÓ.
+   Va acá y no adentro del store porque el suite llama a avisarPago() quince veces en proceso y se
+   convertiría en un emisor de Telegram. Y va en UNA sola función y no copiada en las dos rutas
+   porque esas dos rutas ya divergieron solas una vez.
+
+   ⚠️ DESPUÉS DE CONTESTARLE AL CLIENTE. Del otro lado hay alguien que ya hizo la transferencia y
+   está mirando la pantalla: Telegram tarda hasta doce segundos y puede fallar. Cuando esto corre,
+   la fila ya está en disco —better-sqlite3 es síncrono— así que ninguna falla de red puede hacer
+   que se pierda el aviso de un pago que ya entró. Lo que no salga queda anotado y el cron lo
+   reintenta. */
+function avisarPagoALaMatriz(res, avisoId) {
+  res.on('finish', () => {
+    require('./chat-avisos.service').avisarPago(avisoId)
+      .then((r) => { if (!r.ok) console.warn('[ChatAvisos] no salió el aviso:', r.error); })
+      .catch((e) => console.warn('[ChatAvisos] error avisando:', e.message));
+  });
+}
+
 app.post('/chat/aviso', (req, res) => {
   const chatStore = require('./chat-externo.store');
   const b = req.body || {};
@@ -1378,6 +1396,7 @@ app.post('/chat/aviso', (req, res) => {
   });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${q.cliente} avisó un pago de ${out.aviso.monto}`);
+  avisarPagoALaMatriz(res, out.aviso.id);
   res.json(out);
 });
 
@@ -1423,6 +1442,7 @@ app.post('/chat/:token/pague', (req, res) => {
   });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${r.cliente_id} avisó un pago de ${out.aviso.monto}`);
+  avisarPagoALaMatriz(res, out.aviso.id);
   res.json(out);
 });
 

@@ -121,6 +121,9 @@ function mount(app) {
   // TBS tiene su propio cron y su propia hora: corta los días en la zona del panel (GMT+2), no en
   // la nuestra. Pedirle "ayer" según la hora argentina traería un día que allá no terminó.
   tbsDiarioSvc.startCron();
+  /* El recordatorio del chat externo: una vez por día le dice a ELLA qué cuentas quedaron cobradas
+     y sin mandar. No le manda nada a ningún cliente — eso lo sigue apretando ella. */
+  require('./chat-avisos.service').startCron();
   /* EL MANTENIMIENTO SE DEVENGA SOLO. Se paga por TENER el servicio, así que apenas arranca el
      período ya es plata que el cliente debe: esperar a que alguien apretara un botón hacía que
      entrara a su portal y viera "estás al día" debiendo un mes. Cada media hora se pone al día y
@@ -2091,6 +2094,9 @@ function mount(app) {
       // wallets distintas y se pagan en fechas distintas.
       deudaProv: chat.deudaProveedor(mes),
       envios: chat.envios(mes), cuentas: chat.cuentas(mes), arrastre: chat.cuentas(null),
+      /* Lo que está cobrado y sin mandar. Va también a la pantalla y no sólo al recordatorio de
+         Telegram: si el bot falla o falta el grupo, éste es el único lugar donde se ve. */
+      listas: chat.listasParaMandar(),
       avisos: chat.avisosPendientes(), solicitudes: chat.solicitudesPendientes(),
     });
   });

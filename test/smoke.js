@@ -7,7 +7,11 @@ const axios = require('axios');
 const ROOT = path.join(__dirname, '..');
 const BASE = 'http://localhost:4699';
 const TESTDB = path.join(ROOT, 'data', 'test-smoke.sqlite');
-const env = { ...process.env, PORT: '4699', PANEL_PASSWORD: 'admin', SESSION_SECRET: 'test', CRED_KEY: 'testkey', DB_PATH: TESTDB };
+/* CHAT_AVISOS_OFF: el suite hace POST a /chat/aviso de verdad, y sin esto cada uno saldría por
+   Telegram al grupo de la matriz. Va en el env del hijo Y en el del proceso del test, porque
+   los checks también llaman al store en proceso. */
+process.env.CHAT_AVISOS_OFF = '1';
+const env = { ...process.env, PORT: '4699', PANEL_PASSWORD: 'admin', SESSION_SECRET: 'test', CRED_KEY: 'testkey', DB_PATH: TESTDB, CHAT_AVISOS_OFF: '1' };
 
 // DB de prueba AISLADA (no toca la base del server en vivo)
 for (const f of [TESTDB, TESTDB + '-wal', TESTDB + '-shm']) { try { fs.rmSync(f, { force: true }); } catch (e) {} }
@@ -2602,6 +2606,104 @@ async function main() {
       /chatCfgWallets\(/.test(osHtmlConc) && /class="wsel"/.test(osHtmlConc)
       && osHtmlConc.includes('Para el servicio del mes, por defecto')
       && osHtmlConc.includes('Paga el mantenimiento a'));
+
+    /* ── QUE A ELLA LE AVISEN ────────────────────────────────────────────────────────────────
+       Antes, un aviso de pago quedaba esperando en Pendientes y ella se enteraba sólo si entraba
+       a mirar; y una cuenta cobrada podía quedarse sin mandar un mes sin que nada lo dijera. */
+    const avSvc = require('../src/chat-avisos.service');
+    const cfgStore = require('../src/config-store');
+    const avX = ch.avisarPago({ cliente_id: CLI.id, mes: '2026-08', monto: '7', concepto: 'ganancia', referencia: 'ref x' });
+    const avLeido = ch.avisoPorId(avX.aviso.id);
+    check('chat: el aviso se puede releer entero para armar el mensaje',
+      !!avLeido && avLeido.concepto === 'ganancia' && !!avLeido.cliente && avLeido.referencia === 'ref x',
+      'avisarPago sólo devuelve {id,monto,bytes}: el texto se arma releyendo la base');
+    const tAv = avSvc.textoAvisoPago({ ...avLeido, sinResolver: 1 });
+    check('chat: el aviso a la matriz dice quién, cuánto y de qué es',
+      /dicen que pagaron/.test(tAv) && tAv.includes(avLeido.cliente)
+      && /el servicio del mes/.test(tAv) && /agosto 2026/.test(tAv),
+      'el mes va como «agosto 2026», igual que en la pantalla');
+    check('chat: si no subió comprobante, el aviso lo dice',
+      /SIN comprobante/.test(avSvc.textoAvisoPago({ ...avLeido, archivo_bytes: 0, sinResolver: 1 })));
+    /* Un cliente apretando el botón no puede volverse una ráfaga de mensajes. */
+    check('chat: del cuarto aviso sin resolver en adelante se deja de avisar',
+      avSvc.textoAvisoPago({ ...avLeido, sinResolver: 3 }) !== null
+      && avSvc.textoAvisoPago({ ...avLeido, sinResolver: 4 }) === null);
+    /* ⚠️ Un aviso que NUNCA se intentó vale igual que uno que falló: los dos son "ella no se
+       enteró". Con `aviso_ok=0` los NULL se escapaban de la lista sin que nada lo dijera. */
+    check('chat: un aviso que nunca se intentó figura como no avisado',
+      ch.avisosSinNotificar().some((x) => x.id === avX.aviso.id));
+    ch.marcarAvisoPago(avX.aviso.id, { ok: true });
+    check('chat: y cuando sale, desaparece de esa lista',
+      !ch.avisosSinNotificar().some((x) => x.id === avX.aviso.id));
+    ch.marcarAvisoPago(avX.aviso.id, { ok: false, error: 'chat not found' });
+    check('chat: la pantalla puede ver que el aviso no salió y por qué',
+      (ch.avisosPendientes().find((x) => x.id === avX.aviso.id) || {}).aviso_error === 'chat not found',
+      'sin traer aviso_ok en el SELECT, el cartel de la pantalla era código muerto');
+
+    /* ── LO QUE TE FALTA MANDAR ──────────────────────────────────────────────────────────────
+       ⚠️ EL CASO QUE SE ESCAPABA: cobrar() saltea al que da cero, así que un cliente que sólo
+       paga mantenimiento nunca tiene fila tipo='cobro' — y sin embargo debe plata y su cuenta se
+       le manda igual. Mirando sólo 'cobro' quedaba callado para siempre. */
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare('DELETE FROM chat_envio WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
+      VALUES ('chm_solomant',?, '2026-08','mensualidad','25','USDT','2026-08-05','', ?)`)
+      .run(CLI.id, new Date().toISOString());
+    const L1 = ch.listasParaMandar();
+    check('chat: una cuenta que es SÓLO mantenimiento también entra en lo que falta mandar',
+      [...(L1.mandar || []), ...(L1.sinGrupo || [])].some((x) => x.cliente_id === CLI.id && x.mes === '2026-08'),
+      'sin esto, el que sólo paga mantenimiento no se reclama nunca');
+    ch.marcarEnviado(CLI.id, '2026-08', { ok: true });
+    check('chat: una vez mandada, deja de reclamarse',
+      ![...(ch.listasParaMandar().mandar || []), ...(ch.listasParaMandar().sinGrupo || [])]
+        .some((x) => x.cliente_id === CLI.id && x.mes === '2026-08'));
+    dbCh.prepare('DELETE FROM chat_envio WHERE cliente_id=?').run(CLI.id);
+    /* Un cobro viejo se deja de reclamar: si no lo mandó en dos semanas, fue a propósito. */
+    dbCh.prepare("UPDATE chat_mov SET createdAt=? WHERE id='chm_solomant'")
+      .run(new Date(Date.now() - 40 * 864e5).toISOString());
+    check('chat: pasadas dos semanas se deja de insistir',
+      ![...(ch.listasParaMandar().mandar || []), ...(ch.listasParaMandar().sinGrupo || [])]
+        .some((x) => x.cliente_id === CLI.id));
+    dbCh.prepare("DELETE FROM chat_mov WHERE id='chm_solomant'").run();
+
+    check('chat: si no hay nada para mandar, el recordatorio NO manda nada',
+      avSvc.textoFaltaMandar({ mandar: [], sinGrupo: [] }) === null,
+      'un mensaje diario que dice «no hay nada» se deja de leer, y el día que dice algo tampoco');
+    /* ⚠️ Y si NINGUNA tiene grupo —que es como arranca todo— igual tiene que avisar. Si dependiera
+       de que haya alguna mandable, una cuenta cobrada se quedaba un mes sin mandar en silencio. */
+    const soloSinGrupo = avSvc.textoFaltaMandar({ mandar: [], sinGrupo: [{ cliente: 'Pepe', mes: '2026-08' }] });
+    check('chat: aunque ninguna tenga grupo cargado, el recordatorio igual avisa',
+      soloSinGrupo !== null && /Pepe/.test(soloSinGrupo) && /no tiene grupo/.test(soloSinGrupo));
+    const tFalta = avSvc.textoFaltaMandar({ mandar: [{ cliente: 'Fran44', mes: '2026-08' }], sinGrupo: [] });
+    /* El congelado y el vivo se separan solos (el acumulado se sana de noche, un TC se mueve). Un
+       número en Telegram que no coincide con el de la pantalla, donde no se puede preguntar cuál
+       es el bueno, es peor que ninguno. */
+    check('chat: el recordatorio NO lleva montos, sólo a quién entrar',
+      /Fran44/.test(tFalta) && /agosto 2026/.test(tFalta) && !/USDT/.test(tFalta));
+    cfgStore.setUrlPublica('https://ejemplo.test');
+    const conLink = avSvc.textoFaltaMandar({ mandar: [{ cliente: 'Fran44', mes: '2026-08' }], sinGrupo: [] });
+    check('chat: el link del recordatorio lleva el mes, o se manda la cuenta equivocada',
+      /\/chat-externo\?mes=2026-08/.test(conLink),
+      'del día 11 en adelante la pantalla abre el mes corriente sola');
+    const osFront = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: y la pantalla respeta ese mes de la URL',
+      /_mesDeLaURL/.test(osFront) && /_chatMes = _mesDeLaURL \|\| mesDeCierre\(\)/.test(osFront));
+    check('panel: el mes se escribe igual en Telegram y en el cartel de confirmar',
+      /su cuenta de '\+mesNombre\(_chatMes\)/.test(osFront),
+      'agosto 2026 en los dos lados, no 2026-08 en uno');
+    check('panel: se ve en pantalla lo que quedó cobrado y sin mandar',
+      /cobrada\$\{m\.length>1\?'s':''\} y sin mandar/.test(osFront) && /pc\.listas/.test(osFront));
+    check('panel: y se ve si el aviso a Telegram no salió',
+      /a\.aviso_ok!==1/.test(osFront) && /Aviso a Telegram/.test(osFront));
+    /* El interruptor existe porque el suite hace POST de verdad contra /chat/aviso. */
+    check('chat: los avisos están apagados durante los tests',
+      process.env.CHAT_AVISOS_OFF === '1');
+    const rApagado = await avSvc.avisarPago(avX.aviso.id);
+    check('chat: con el interruptor puesto no se manda nada, pero queda anotado',
+      rApagado.ok === false && /apagados/.test(rApagado.error || '')
+      && ch.avisosSinNotificar().some((x) => x.id === avX.aviso.id),
+      'que esté apagado no es «no había que avisar»');
+    cfgStore.setUrlPublica('');
 
     dbCh.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI.id);
     dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
@@ -6253,7 +6355,7 @@ async function main() {
     const { spawn } = require('child_process');
     const PUERTO = 3999;
     const srv2 = spawn(process.execPath, [require('path').join(__dirname, '..', 'src', 'index.js')], {
-      env: { ...process.env, PORT: String(PUERTO), OPERADOR_USER: 'opetest', OPERADOR_PASSWORD: 'clave-de-prueba-larga',
+      env: { ...process.env, CHAT_AVISOS_OFF: '1', PORT: String(PUERTO), OPERADOR_USER: 'opetest', OPERADOR_PASSWORD: 'clave-de-prueba-larga',
         DB_FILE: require('path').join(require('os').tmpdir(), 'smoke-roles-' + process.pid + '.sqlite') },
       stdio: 'ignore',
     });
