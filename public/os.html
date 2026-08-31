@@ -6612,7 +6612,10 @@ async function ofAbrir(id){
           placeholder="ej: precios sujetos a revisión trimestral" style="width:100%"></div></div>
 
       <div class="row" style="margin-top:14px;gap:8px;align-items:flex-end;flex-wrap:wrap">
-        <div style="flex:0"><a class="btn" href="/api/os/api/ofertas/${o.id}/doc" target="_blank">📄 Ver el documento</a></div>
+        <div style="flex:0;display:flex;gap:8px;flex-wrap:wrap">
+          <a class="btn" href="/api/os/api/ofertas/${o.id}/doc" target="_blank">📄 Ver el documento</a>
+          <button class="btn" onclick="ofTelegram('${o.id}')">📨 Mandar por Telegram</button>
+        </div>
         <div style="flex:1;min-width:200px"><label>Aplicar a la cuenta</label>
           <select id="of-cli" onchange="ofVerCambios('${o.id}')" style="width:100%">
             <option value="">— elegí una cuenta —</option>
@@ -6660,6 +6663,20 @@ async function ofDesdeBase(id){
       : 'Listo. ' + (r.lineas || []).filter(l => l.sello).length + ' proveedor(es) con precio propio.';
   }
   ofAbrir(id);
+}
+
+/* Manda la oferta al MISMO grupo al que le llega la factura a ese cliente, herencia incluida.
+   Va como texto para que se lea en el teléfono sin descargar nada. Se avisa a dónde fue: si el
+   grupo es heredado del vendedor, el dueño tiene que saberlo antes de mandarla, no después. */
+async function ofTelegram(id){
+  const cid=(document.getElementById('of-cli')||{}).value||'';
+  if(!cid){ alert('Elegí a qué cuenta va antes de mandarla.'); return; }
+  if(!confirm('Se le manda la oferta por Telegram. ¿Va?')) return;
+  const r=await api('/api/os/api/ofertas/'+id+'/telegram',{method:'POST',
+    body:JSON.stringify({cliente_id:cid})});
+  if(!r||!r.ok){ alert((r&&r.error)||'No se pudo mandar'); return; }
+  alert(r.heredado ? 'Mandada — al grupo de '+(r.de||'su vendedor')+', que es el que tiene configurado.'
+                   : 'Mandada.');
 }
 
 async function ofGuardar(id){

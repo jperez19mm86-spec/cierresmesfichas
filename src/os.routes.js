@@ -2390,6 +2390,50 @@ function mount(app) {
   /* El documento. Sale de `paraMostrar`, que devuelve SÓLO nombre de paquete, proveedores y el %
      del cliente: ni el costo, ni el margen, ni los puntos de los socios, ni el nombre del sello.
      La forma más segura de no filtrar un dato interno es no tenerlo a mano. */
+  /* Mandar la oferta por Telegram, al mismo grupo al que va la factura de ese cliente.
+     Va como TEXTO, no como archivo: se lee en el teléfono sin descargar nada, que es donde el
+     cliente la va a mirar. Y con el mismo cinturón que el documento — si aparece un dato interno
+     no se manda, porque de un mensaje enviado no se vuelve. */
+  app.post('/api/os/api/ofertas/:id/telegram', wrap(async (req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const cid = String((req.body || {}).cliente_id || o.cliente_id || '').trim();
+    if (!cid) return err(res, 400, 'Elegí a qué cuenta va antes de mandarla');
+
+    const cli = clientes.get(cid) || apiStore.getCliente(cid);
+    if (!cli) return err(res, 404, 'no encontré ese cliente');
+    const dest = tgDestino.destinoDe(cli, (id) => clientes.get(id));
+    if (!dest.chatId) return err(res, 400, 'Ese cliente no tiene grupo de Telegram configurado');
+
+    const m = ofertas.paraMostrar(o);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const pct = (x) => String(x).replace(/\.0+$/, '') + '%';
+    const lineas = ['<b>Oferta comercial</b>'];
+    if (m.titulo) lineas.push(esc(m.titulo));
+    lineas.push('', '<i>Porcentaje sobre el GGR de cada proveedor.</i>', '');
+    for (const g of m.grupos || []) {
+      lineas.push(`<b>${esc(g.nombre)}</b>` + (g.unico ? ` — ${esc(pct(g.unico))}` : ''));
+      if (g.unico) {
+        lineas.push(esc(ofertas.unicos(g.items.flatMap((i) => i.proveedores)).join(' · ')));
+      } else {
+        for (const i of g.items.slice().sort((a, b) => a.corto.localeCompare(b.corto, 'es'))) {
+          lineas.push(`  ${esc(ofertas.unicos(i.proveedores).join(', '))} — ${esc(pct(i.pct))}`);
+        }
+      }
+      lineas.push('');
+    }
+    if (m.notas) lineas.push(`<i>${esc(m.notas)}</i>`, '');
+    lineas.push('<i>Latam Games</i>');
+    const texto = lineas.join('\n');
+
+    if (/costo|margen|pts_ib|pts_henry|pct_proveedor|grupo_id/i.test(texto)) {
+      return err(res, 500, 'el mensaje traía datos internos: NO se mandó. Avisá que esto pasó.');
+    }
+    const r = await telegram.sendMessage(configStore.getTelegramToken(), dest.chatId, texto);
+    if (!r.ok) return err(res, 502, r.error || 'Telegram no lo aceptó');
+    ok(res, { enviado: true, heredado: dest.heredado, de: dest.de });
+  }));
+
   app.get('/api/os/api/ofertas/:id/doc', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
     if (!o) return err(res, 404, 'no existe esa oferta');

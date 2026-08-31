@@ -46,7 +46,15 @@ const CSS = `
   .cond h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 8px}
   .cond p{margin:0 0 6px;font-size:13.5px;color:var(--ink2)}
   .pie{margin-top:34px;font-size:12px;color:var(--ink2)}
-  @media print{ .hoja{padding:0} @page{margin:16mm} }
+  /* La barra es para quien manda el documento, no para quien lo recibe: desaparece al imprimir
+     y al guardar en PDF. */
+  .barra{position:sticky;top:0;z-index:9;display:flex;gap:8px;justify-content:flex-end;
+    padding:10px 14px;background:#fff;border-bottom:1px solid #e8e4ef}
+  .barra button{font:inherit;font-size:13px;padding:7px 14px;border:1px solid #d6cfe4;
+    border-radius:7px;background:#fff;cursor:pointer;color:#3b3350}
+  .barra button:hover{background:#f6f3fb}
+  .barra button:focus-visible{outline:2px solid #7c5cd6;outline-offset:2px}
+  @media print{ .hoja{padding:0} .barra{display:none} @page{margin:16mm} }
 `;
 
 /**
@@ -76,7 +84,26 @@ function pagina(mostrar) {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Oferta comercial${mostrar.titulo ? ' · ' + esc(mostrar.titulo) : ''}</title>
-<style>${CSS}</style></head><body><div class="hoja">
+<style>${CSS}</style></head><body>
+<div class="barra">
+  <button onclick="descargar()">Descargar</button>
+  <button onclick="window.print()">Imprimir o guardar en PDF</button>
+</div>
+<script>
+/* Guarda esta misma página como archivo. Se arma con lo que ya está en pantalla, así que lo que se
+   descarga es exactamente lo que se vio — sin volver a pedirle nada al servidor. */
+function descargar(){
+  var doc = '<!doctype html>' + document.documentElement.outerHTML;
+  doc = doc.replace(/<div class="barra">[\\s\\S]*?<\\/div>/, '')
+           .replace(/<script>[\\s\\S]*?<\\/script>/, '');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([doc], { type: 'text/html;charset=utf-8' }));
+  a.download = (document.title || 'oferta').replace(/[^\\wáéíóúñ ·-]/gi, '') + '.html';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+</script>
+<div class="hoja">
   <h1>Oferta comercial</h1>
   ${mostrar.titulo ? `<p class="para">${esc(mostrar.titulo)}</p>` : ''}
   <p style="color:var(--ink2);margin:0 0 6px">Porcentaje sobre el GGR de cada proveedor.
