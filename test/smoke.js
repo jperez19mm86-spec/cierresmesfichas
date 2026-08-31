@@ -2697,6 +2697,30 @@ async function main() {
     check('paneles: sólo los SuperAgentes manejan más de una divisa',
       nivelesMulti.every((n) => n === 'SuperAgente'),
       nivelesMulti.length ? `${nivelesMulti.length} con varias, todos ${[...new Set(nivelesMulti)].join('/')}` : 'ninguno tiene varias');
+    /* ⚠️ EL CONTEO TIENE QUE CERRAR. Se le paga mantenimiento por TODAS las cajas: si la tabla
+       lista seis y el mantenimiento dice siete, el que lo lee cuenta y encuentra un número que no
+       cierra — y dejarla afuera parece un error nuestro. */
+    /* La invariante es contra las cajas QUE TIENEN EL SERVICIO, que es por las que se le paga el
+       mantenimiento. Compararlo contra las mensualidades ya devengadas seria otra cosa: pueden no
+       estar corridas todavía, y ahí el check gritaría por el motivo equivocado. */
+    const conServicio = ch.list().filter((x) => x.activo).length;
+    check('proveedor: toda caja con el servicio figura, calculada o no',
+      (provDoc.cajas || []).length + (provDoc.salteadas || []).length === conServicio,
+      `${(provDoc.cajas || []).length} calculadas + ${(provDoc.salteadas || []).length} sin calcular = ${conServicio} con el servicio`);
+    /* Una caja que no se pudo calcular NO es una que no ganó nada. Va con la marca, no con un 0. */
+    check('proveedor: una caja sin calcular se dice, no se pone en cero',
+      (provDoc.salteadas || []).every((x) => !('profit' in x) && !('paga' in x))
+      && /no se pudo calcular este mes/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));
+    /* El motivo es infraestructura de ella: «no figura con el usuario 7364108, el mes sí está
+       bajado (197 cajas de Agente)». Él necesita saber que falta, no por qué. */
+    check('proveedor: no se le manda el motivo interno de por qué falta',
+      !/motivo/.test(JSON.stringify(provDoc.salteadas || []))
+      && !/usuario \d|no está enlazado|está bajado/.test(JSON.stringify(provDoc)));
+    const hojaSalt = chDoc.paraProveedor(ch.porCliente('2026-08'),
+      { mes: '2026-08', mantenimiento: ch.deudaProveedor('2026-08').mantenimiento });
+    check('proveedor: la hoja que le mandás también las lista',
+      Array.isArray(hojaSalt.salteadas));
     check('proveedor: si una caja apareciera con dos monedas, se avisa en vez de esconder plata',
       /Alguna caja figura con más/.test(require('fs').readFileSync(
         require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));

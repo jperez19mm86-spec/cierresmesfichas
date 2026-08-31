@@ -49,6 +49,8 @@
   .chip{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700 }
   .chip.ok{ background:#e6f4ec; color:var(--ok) } .chip.no{ background:#fbe9e9; color:var(--debe) }
   .vacio{ color:var(--tenue); padding:10px 2px }
+  /* Una caja que no se pudo calcular: se lista igual, pero sin números inventados. */
+  .sc{ color:var(--tenue); font-style:italic }
   .portada{ min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:22px }
   .oculto{ display:none }
 </style>
@@ -169,7 +171,13 @@ async function cargar() {
           + '<td class="r">' + (m.usdt == null ? '—' : num(m.usdt)) + '</td>'
           + '<td class="r">' + (i ? '' : '<b>' + num(c.paga) + '</b>') + '</td></tr>').join('');
       }).join('')
+      + (d.salteadas || []).map((x) => '<tr><td><b>' + esc(x.caja) + '</b></td>'
+        + '<td class="tenue">' + esc(x.cliente) + '</td>'
+        + '<td class="r sc" colspan="4">no se pudo calcular este mes</td></tr>').join('')
       + '</tbody></table></div>'
+      + ((d.salteadas || []).length
+        ? '<p class="tenue" style="margin:10px 0 0">Esas cajas tienen el servicio y te pagamos el '
+          + 'mantenimiento igual: lo que no pudimos sacar es su ganancia. Las estamos revisando.</p>' : '')
       + ((d.cajas || []).some((c) => (c.monedas || []).length > 1)
         ? '<p class="tenue" style="margin:10px 0 0;color:var(--debe)">⚠️ Alguna caja figura con más '
           + 'de una moneda. No debería: avisanos antes de tomar estos números.</p>' : '')

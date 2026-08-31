@@ -1482,6 +1482,13 @@ function paraElProveedor(mes) {
        decimos: que descubra solo que le liquidaron de menos es peor que avisarle. */
     sinTC: pc.sinTC || [],
     cajas,
+    /* ⚠️ LAS QUE NO SE PUDIERON CALCULAR VAN IGUAL. Se le paga mantenimiento por TODAS: si la
+       tabla lista seis y el mantenimiento dice siete, el que lo lee cuenta y encuentra un número
+       que no cierra, y dejarla afuera parece un error nuestro.
+       No van en cero —una caja que no se pudo calcular no es una que no ganó nada— y el MOTIVO no
+       viaja: «no figura con el usuario 7364108» es infraestructura de ella. Él necesita saber que
+       falta, no por qué. */
+    salteadas: (pc.salteados || []).map((x) => ({ cliente: x.cliente || '—', caja: x.panel })),
     mantenimiento,
     /* Lo que se le debe y lo que se le pagó, abierto en las dos cosas. Los pagos van con dónde y
        cuándo: es literalmente lo que ella pidió que pudiera ver. */

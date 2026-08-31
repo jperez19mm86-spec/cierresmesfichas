@@ -114,6 +114,8 @@ const CSS = `
   input:focus-visible,select:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
   /* La aclaración de que el mes todavía no está: ocupa las dos columnas de la grilla. */
   .aclara{grid-column:1/-1;margin:0;font-size:13px;color:#6f6280;line-height:1.5}
+  /* Una caja que no se pudo calcular: va listada igual, pero sin números inventados. */
+  .sc{color:#9b8aa8;font-style:italic;font-size:13.5px}
   /* Elegir de qué cajas es el pago: uno con cuatro no paga cuatro veces. */
   .cajas-mant{grid-column:1/-1}
   .cajas-mant .rotc{font-size:13px;color:#6f6280;margin-bottom:4px}
@@ -506,6 +508,15 @@ function paraProveedor(pc, ctx = {}) {
      pantalla, las dos tienen que decir lo mismo o la primera discusión es sobre cuál miente. */
   const porGanancia = money.round(money.sum(lineas.map((l) => l.paga)), 2);
   const mant = ctx.mantenimiento || { debe: '0', cajas: 0 };
+  /* ⚠️ LAS CAJAS QUE NO SE PUDIERON CALCULAR VAN IGUAL, y no es un detalle: se le cobra el
+     mantenimiento por TODAS, así que si la tabla lista seis y el mantenimiento dice siete, el que
+     lo lee cuenta y encuentra un número que no cierra. Dejarla afuera parece un error nuestro.
+
+     Y NO van en cero: una caja que no se pudo calcular no es una caja que no ganó nada, y decirle
+     lo segundo cuando pasó lo primero es afirmar algo que no sabemos. Va con la marca.
+     El MOTIVO no viaja: «no figura con el usuario 7364108, el mes sí está bajado» es
+     infraestructura de ella. Él necesita saber que falta, no por qué. */
+  const salteadas = (pc.salteados || []).map((x) => ({ cliente: x.cliente || '—', panel: x.panel }));
   return {
     mes: String(ctx.mes || pc.mes || '').slice(0, 7),
     pct: pc.costo_pct,
@@ -514,6 +525,7 @@ function paraProveedor(pc, ctx = {}) {
       cliente: l.cliente, panel: l.panel, ganancia: l.ganancia, paga: l.paga, monedas: l.monedas,
     })),
     porGanancia,
+    salteadas,
     mantenimiento: mant.debe || '0',
     cajasMant: mant.cajas || 0,
     total: money.round(money.add(porGanancia, mant.debe || '0'), 2),
@@ -536,7 +548,9 @@ function htmlProveedor(doc, emision = null) {
     <th class="r">En USDT</th><th class="r">${esc(pctTxt(doc.pct))}</th></tr></thead>
     <tbody>${doc.lineas.map((l) => `<tr><td>${esc(l.cliente)}</td><td>${esc(l.panel)}</td>
       <td class="r">${celdaMonedas(l.monedas)}</td>
-      <td class="r">${n(l.ganancia, 2)}</td><td class="r">${n(l.paga, 2)}</td></tr>`).join('')}</tbody>
+      <td class="r">${n(l.ganancia, 2)}</td><td class="r">${n(l.paga, 2)}</td></tr>`).join('')}
+      ${(doc.salteadas || []).map((x) => `<tr><td>${esc(x.cliente)}</td><td>${esc(x.panel)}</td>
+        <td class="r sc" colspan="3">no se pudo calcular este mes</td></tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="4" class="r">Por la ganancia</td><td class="r">${n(doc.porGanancia != null ? doc.porGanancia : doc.total, 2)}</td></tr></tfoot></table></div>
 
   ${Number(doc.mantenimiento || 0) > 0 ? `<h2>Mantenimiento</h2>
