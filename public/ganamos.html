@@ -323,6 +323,8 @@ function sugerirMonto() {
   var caja = $('cajasMant');
   // Las cajas sólo tienen sentido con el mantenimiento: en el % del mes no hay cuáles elegir.
   if (caja) caja.style.display = esMant ? '' : 'none';
+  var acl = $('aclaraMes');
+  if (acl) acl.style.display = esMant ? 'none' : '';
   var marcadas = [].slice.call(document.querySelectorAll('input[name=caja]:checked'));
   if (esMant && marcadas.length) {
     // Lo que suman las que marcó. Es el número que va a transferir.
@@ -472,7 +474,12 @@ function ver(cual) {
       + '<label class="campo">Cuánto pagaste'
       + '<input name="monto" id="mMonto" inputmode="decimal" placeholder="'
       + num(Math.max(0, Number((sug ? sug.debe : DATOS.saldo.debe) || 0)), 2) + '" required></label>'
-      + (conc && conc.aclaracion ? '<p class="tenue" style="margin:-4px 0 12px;line-height:1.5">' + esc(conc.aclaracion) + '</p>' : '')
+      /* La aclaración es del SERVICIO DEL MES: aparece sólo con esa opción elegida. Mostrarla
+         mientras paga el mantenimiento le dice que algo "todavía no está" de lo que sí está. */
+      + (conc && conc.aclaracion
+        ? '<p class="tenue" id="aclaraMes" style="margin:-4px 0 12px;line-height:1.5'
+          + (sug && sug.valor === 'ganancia' ? '' : ';display:none') + '">' + esc(conc.aclaracion) + '</p>'
+        : '')
       + '<label class="campo">Referencia <span class="tenue">(opcional)</span>'
       + '<input name="referencia" placeholder="hash, alias, últimos dígitos"></label>'
       + '<label class="campo">Comprobante <span class="tenue">(opcional)</span>'

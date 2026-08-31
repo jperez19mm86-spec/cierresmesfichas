@@ -386,7 +386,9 @@ function htmlCliente(doc, ctx = {}) {
       <label>Comprobante <span class="opt">(opcional)</span>
         <input type="file" name="archivo" accept="image/*"></label>
     </div>
-    ${conc && conc.aclaracion ? `<p class="aclara">${esc(conc.aclaracion)}</p>` : ''}
+    ${conc && conc.aclaracion ? `<p class="aclara" id="aclaraMes"${
+      (conc.opciones.find((o) => o.sugerida) || {}).valor === 'ganancia' ? '' : ' style="display:none"'
+    }>${esc(conc.aclaracion)}</p>` : ''}
     <button type="submit" id="b">Avisar el pago</button>
     <p id="msg"></p>
   </form>` : ''}
@@ -431,6 +433,8 @@ function sugerir(){
   var esMant=f.concepto.value==='mantenimiento';
   var caja=document.getElementById('cajasMant');
   if(caja) caja.style.display=esMant?'':'none';
+  var acl=document.getElementById('aclaraMes');
+  if(acl) acl.style.display=esMant?'none':'';
   var marcadas=[].slice.call(document.querySelectorAll('input[name=caja]:checked'));
   if(esMant&&marcadas.length){
     var t=0; marcadas.forEach(function(x){ t+=Number(x.dataset.debe||0); });

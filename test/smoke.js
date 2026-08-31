@@ -2626,6 +2626,13 @@ async function main() {
     check('chat: y en la hoja también, con el mismo texto',
       /name="caja"/.test(hojaCajas) && /¿De qué cajas\?/.test(hojaCajas)
       && /datos\.cajas=/.test(hojaCajas));
+    /* La aclaración es del SERVICIO DEL MES. Con el mantenimiento elegido no puede estar a la
+       vista: le diría que algo "todavía no está" justo de lo que sí está y va a pagar. */
+    check('chat: la aclaración del mes no se muestra mientras paga el mantenimiento',
+      !/aclaraMes/.test(hojaCajas) || /id="aclaraMes" style="display:none"/.test(hojaCajas),
+      'arranca oculta porque lo sugerido es el mantenimiento');
+    check('portal: y ahí también se esconde al cambiar de concepto',
+      /acl\.style\.display = esMant \? 'none'/.test(portalCajas));
     check('chat: elegir cajas no filtra datos internos',
       !/margen|costo|pct_costo|te cuesta|paga:/i.test(hojaCajas)
       && !/margen|costo|pct_costo|te cuesta|sin confirmar/i.test(hojaCajas));
