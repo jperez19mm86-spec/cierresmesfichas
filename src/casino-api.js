@@ -110,7 +110,16 @@ function makeClient({ url, token, user, password } = {}) {
     if (!token && !useSession) return { ok: false, error: 'sin credenciales (ni api_token ni usuario/contraseña)' };
     if (useSession) { const s = await ensureSession(); if (!s.ok) return { ok: false, error: s.error }; }
     const qs = new URLSearchParams({ act: 'admin', area, response: 'js', ...query }).toString();
-    const params = new URLSearchParams(useSession ? { ...body } : { ...body, api_token: token });
+    /* 🔴 Un valor ARRAY tiene que salir como clave REPETIDA, no pegado con comas: el motor lee
+       `setting[name][]` como una ruta de dos tramos. Con el objeto plano de URLSearchParams
+       llegaba "a,b" y el ajuste se ignoraba en silencio (medido el 27-ago). De esto dependen los
+       api_token, las contraseñas y los permisos de sub-usuario. */
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(body)) {
+      if (Array.isArray(v)) for (const x of v) params.append(k, String(x));
+      else params.append(k, v == null ? '' : String(v));
+    }
+    if (!useSession) params.append('api_token', token);
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA, ...(useSession && sessionCookie ? { Cookie: sessionCookie } : {}) };
     try {
       const r = await axios.post(`${base}/index.php?${qs}`, params.toString(), { headers, timeout: Number(process.env.CASINO_TIMEOUT_MS) || 120000, validateStatus: () => true, maxRedirects: 0 });

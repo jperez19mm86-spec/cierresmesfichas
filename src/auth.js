@@ -56,6 +56,13 @@ const PUBLIC = [
   // es pública pero el dato no: sin un token de cliente válido, /api/cuenta/mio contesta 401.
   /^\/api\/cuenta(\/|$)/,
   /^\/cuenta\/?$/,
+  // MI CAJA: el panel de agentes y cajeros del casino. Es público por el mismo motivo que la
+  // cuenta del cliente — esa gente NO tiene usuario del OS: entra con su usuario y contraseña del
+  // casino, que es lo único que prueba quién es. La ruta es pública, el dato no: cada
+  // /api/caja/* exige su propia sesión y contesta 401 sin ella.
+  /^\/caja\/?$/,
+  /^\/caja-conexion\.js$/,
+  /^\/api\/caja(\/|$)/,
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.

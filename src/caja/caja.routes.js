@@ -1,0 +1,1204 @@
+/**
+ * caja.routes.js — los endpoints de MI CAJA.
+ *
+ * El navegador NO le habla al motor: las cookies del casino son de otro dominio y el api_token no
+ * puede viajar al cliente. Así que estos endpoints son el pasamanos — reciben "dame los jugadores
+ * de esta caja" y por dentro llaman al motor con las credenciales que corresponden.
+ *
+ * 🔴 Todo lo de acá está calibrado con lo MEDIDO contra producción (ver MAPEO-MOTOR.md). Las
+ *    trampas que se neutralizan en este archivo:
+ *      · los parámetros de `dashboardinfo` y `reportstable` van en la QUERY, no en el cuerpo
+ *      · `limit` sólo acepta [50,100,200,500,1000]: cualquier otro cae a 50 EN SILENCIO
+ *      · `sum` de balance es de la PÁGINA, no del período → los totales salen de `footer`
+ *      · `area=users` filtra por HOY y por activos si no se le dice lo contrario
+ *      · la lista de usuarios trae una fila de totales con id vacío, que no es una cuenta
+ *      · el motor puede contestar un HTML de error con HTTP 200
+ */
+const auth = require('./caja-auth');
+const { aplanar: aplanarAjustes } = require('./caja-token');
+
+/* Los únicos `limit` que el motor respeta. Pedir otro devuelve 50 sin avisar. */
+const LIMITES = [50, 100, 200, 500, 1000];
+const limiteValido = (n) => {
+  const q = Number(n) || 0;
+  return LIMITES.includes(q) ? q : LIMITES.reduce((a, b) => (b <= q && b > a ? b : a), 50);
+};
+
+/* El motor devuelve HTML de error con status 200. Sin esto, un JSON.parse rompe el endpoint. */
+const esJson = (r) => r && r.ok && r.data && typeof r.data === 'object';
+
+/* La fila de totales viene mezclada con las cuentas: id vacío. Nunca es un usuario. */
+const sinFilaTotal = (filas) => (filas || []).filter((x) => x && x.id !== '' && x.id != null);
+
+const hoy = () => new Date().toISOString().slice(0, 10);
+const rango = (q) => ({
+  from: `${q.desde || hoy()} 00:00:00`,
+  to: `${q.hasta || hoy()} 23:59:59`,
+});
+
+function mount(app) {
+  const ok = (res, datos) => res.json({ ok: true, ...datos });
+  const mal = (res, error, code = 400) => res.status(code).json({ ok: false, error });
+  /* Un error del motor no es un 500 nuestro: se lo cuenta como lo que es. */
+  const delMotor = (res, r) => mal(res, r.error || 'el casino no respondió como se esperaba', 502);
+  /* 🔴 `intersections` y `changes` NO responden al api_token: dan «No rights» o vienen vacías.
+     Si la sesión del motor se cayó, estas dos pantallas dejan de andar aunque el resto siga
+     funcionando con token. Hay que decirlo con esas palabras, no con un 502 pelado. */
+  const soloConSesion = (res, r) => {
+    if (r && /no rights|wrong user/i.test(String(r.error || ''))) {
+      return res.status(409).json({ ok: false, relogin: true,
+        error: 'Esta pantalla necesita tu contraseña del casino. Volvé a entrar para verla.' });
+    }
+    return delMotor(res, r);
+  };
+  const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((e) => {
+    console.error('[caja]', e && e.message);
+    mal(res, 'error interno', 500);
+  });
+
+  /* ══════ entrar y salir ══════ */
+
+  /* La credencial que aprovisiona: una sola, por encima de todos los clientes. Se arma una vez.
+     Sin ella el panel igual anda — cada cliente trabaja con su sesión, que caduca. */
+  const { makeClient } = require('../casino-api');
+  const raiz = process.env.CASINO_ROOT_TOKEN
+    ? makeClient({ url: process.env.CASINO_URL, token: process.env.CASINO_ROOT_TOKEN })
+    : null;
+  if (!raiz) console.warn('[caja] sin CASINO_ROOT_TOKEN: los clientes van a trabajar con sesión');
+
+  app.post('/api/caja/login', wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await auth.entrar({
+      url: process.env.CASINO_URL,
+      user: String(b.usuario || '').trim(),
+      password: String(b.clave || ''),
+      raiz,
+      /* 🔴 Generar invalida el token anterior del cliente. Por defecto NO se genera: si no tiene,
+         se trabaja con su sesión y se avisa. Encenderlo es una decisión, no un accidente. */
+      generar: process.env.CASINO_GENERAR_TOKEN === '1',
+    });
+    if (!r.ok) return mal(res, r.error, 401);
+    auth.ponerCookie(res, r.sesion.sid);
+    /* Con el saldo adentro: el panel ya no necesita preguntarlo por separado para arrancar. */
+    ok(res, { yo: { ...auth.publica(r.sesion), balance: r.sesion.balanceInicial } });
+  }));
+
+  app.post('/api/caja/logout', (req, res) => { auth.salir(req); auth.borrarCookie(res); ok(res, {}); });
+
+  /* 🔴 El saldo NO se guarda en la sesión: cambia con cada carga y cada retiro. Se pregunta al
+     motor cada vez —`info` es la llamada más barata que tiene— y así la cabecera nunca miente.
+     Viene como `main.balance` (número) y `main.currency` (string), medido el 27-ago. */
+  app.get('/api/caja/yo', auth.requerida, wrap(async (req, res) => {
+    const base = auth.publica(req.caja);
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('info');
+    const m = (esJson(r) && r.data.main) || null;
+    if (!m) return ok(res, { yo: { ...base, balance: null, saldoIncierto: true } });
+    ok(res, { yo: { ...base, balance: Number(m.balance) || 0, moneda: m.currency || base.moneda } });
+  }));
+
+  /* ══════ el menú lo dicta el motor, no nosotros ══════ */
+
+  app.get('/api/caja/acciones', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('buttons', {}, { id: req.query.id || req.caja.id });
+    if (!esJson(r)) return delMotor(res, r);
+    ok(res, { acciones: r.data.buttons || [] });
+  }));
+
+  /* ══════ las cuentas que cuelgan de un nodo ══════ */
+
+  app.get('/api/caja/cuentas', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja);
+    const q = req.query;
+    /* 🔴 Sin esto el motor devuelve sólo los que se movieron HOY y están activos: en una caja de
+       1.851 jugadores eso son 39. El cliente concluye que le borraron la cuenta. */
+    /* 🔴 `offset` y `search` van en la QUERY, no en el cuerpo. Medido el 27-ago: mandados en el
+       body el motor los ignora — las cuatro páginas devolvían las mismas 500 filas y la búsqueda
+       no filtraba nada. En la query, `offset=2` trae la página 2 y `search` devuelve 1 fila.
+       Es el mismo patrón de `dashboardinfo` y `reportstable`. */
+    const r = await cli.apiCall('users', {
+      /* Mismo motivo que arriba: el rango largo cuesta segundos y no cambia los saldos. */
+      ...(q.desde ? { from: `${q.desde} 00:00:00`, to: `${q.hasta || hoy()} 23:59:59` } : rangoBarato()),
+      inactive_users: 'all',
+      deleted_users: q.eliminados === '1' ? 'delete' : 'undelete',
+      limit: String(limiteValido(q.limite || 200)),
+    }, {
+      id: q.id || req.caja.id,
+      offset: String(q.pagina || 1),
+      ...(q.buscar ? { search: String(q.buscar) } : {}),
+    });
+    if (!esJson(r)) return delMotor(res, r);
+    const filas = sinFilaTotal(r.data.users);
+    ok(res, {
+      cuentas: filas,
+      /* ⚠️ Al buscar, `pageCount` NO se actualiza: sigue diciendo el total sin filtro. */
+      paginas: q.buscar ? null : (r.data.pageCount || 1),
+      rango: { desde: r.data.config && r.data.config.from, hasta: r.data.config && r.data.config.to },
+    });
+  }));
+
+  /* ══════ movimientos de fichas ══════ */
+
+  app.get('/api/caja/movimientos', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja);
+    const q = req.query;
+    const r = await cli.apiCall('balance', {
+      ...rango(q),
+      balance_type: q.tipo || 'usual:players',
+      limit: String(limiteValido(q.limite || 200)),
+      offset: String(q.pagina || 1),
+    }, { id: q.id || req.caja.id });
+    if (!esJson(r)) return delMotor(res, r);
+    const filas = r.data.operationsData || [];
+    ok(res, {
+      movimientos: filas,
+      paginas: r.data.pageCount || 1,
+      /* 🔴 `sum` es de ESTA página, no del período. Se devuelve con su nombre honesto para que
+         nadie lo muestre como total: el total del período sale de /resumen. */
+      subtotalDeEstaPagina: r.data.sum || null,
+      parcial: (r.data.pageCount || 1) > 1,
+    });
+  }));
+
+  /* ══════ el tablero ══════ */
+
+  app.get('/api/caja/resumen', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja);
+    const q = req.query;
+    /* 🔴 NUNCA se usa `type: day|week|month` a secas. Medido el 27-ago: el motor NO los calcula
+       contra hoy sino contra el `from`/`to` que quedó pegado en la sesión — pidiendo «week» un
+       jueves 27 devolvió del 20 al 25, y «month» del 28-jul al 25-ago. El rótulo del panel decía
+       otra cosa y los números eran de otros días, sin ningún aviso.
+       Con `custom_range` y fechas explícitas el motor obedece, y lo que se muestra coincide con
+       lo que dice el encabezado. */
+    const paneles = ['summary_stats', 'combined', 'active_players', 'active_halls'];
+    const r = rango(q);
+    const desde = r.from.slice(0, 10);
+    const hasta = r.to.slice(0, 10);
+    const pedido = {};
+    for (const p of paneles) {
+      pedido[p] = {
+        period: { type: 'custom_range', start_date: desde, end_date: hasta },
+        currency: req.caja.moneda || 'ARS',
+      };
+    }
+    /* 🔴 `dashboards` va en la QUERY con el cuerpo VACÍO. Mandado en el body el motor lo ignora
+       y contesta todo en cero con gráficos de las últimas 24 h — parece roto y no lo está. */
+    const resp = await cli.apiCall('dashboardinfo', {}, {
+      id: q.id || req.caja.id,
+      dashboards: JSON.stringify(pedido),
+    });
+    if (!esJson(resp)) return delMotor(res, resp);
+    ok(res, {
+      paneles: resp.data.charts || {},
+      /* Lo que se pidió, para que el panel pueda comparar con lo que muestra. */
+      rango: { desde, hasta },
+      rangoDelMotor: resp.data.config || null,
+    });
+  }));
+
+  /* ══════ estadísticas ══════ */
+
+
+  /* ══════ EL EJE DE DINERO, ARMADO POR NOSOTROS ══════
+     El motor sólo entrega el eje que tenga guardado la plantilla del cliente, y no se puede
+     cambiar por API (ver MAPEO-MOTOR.md). Pero el eje de DINERO no hace falta pedírselo: sale de
+     los movimientos, que sí podemos leer con la credencial del propio cliente.
+
+     ✅ Verificado el 28-ago contra el informe del motor leído con una credencial en eje dinero:
+        cargas 40.820 · retiros 36.716,6 · los 4 jugadores con sus cifras — IDÉNTICO, uno por uno.
+
+     El eje de apuestas NO se puede reconstruir así: `bet`/`win` sólo existen en el informe. */
+
+  async function movimientosDe(cli, nodo, from, to) {
+    const filas = [];
+    for (let pagina = 1; pagina <= 20; pagina++) {
+      const r = await cli.apiCall('balance',
+        { from, to, balance_type: 'usual:from', limit: '500', offset: String(pagina) },
+        { id: String(nodo) });
+      if (!esJson(r)) break;
+      const d = r.data.operationsData || [];
+      filas.push(...d);
+      if (d.length < 500) break;      // última página
+    }
+    return filas;
+  }
+
+  const aNumero = (v) => Number(String(v == null ? 0 : v).replace(/[^\d.-]/g, '')) || 0;
+  const dosDec = (n) => Math.round(n * 100) / 100;
+
+  async function ejeDineroArmado(cli, { nodo, fanOut, from, to, agrupar }) {
+    /* Un agente parado en su raíz necesita recorrer sus cajas: los movimientos son de cada una
+       hacia sus jugadores. Un cajero (o un agente metido en una caja) resuelve con una sola. */
+    const fuentes = fanOut.length ? fanOut : [{ id: String(nodo), login: String(nodo) }];
+    const porJugador = new Map();
+    const porCaja = new Map();
+
+    for (const f of fuentes) {
+      const movs = await movimientosDe(cli, f.id, from, to);
+      for (const m of movs) {
+        const quien = m.user || '(sin nombre)';
+        const v = aNumero(m.cash);
+        const suma = (mapa, clave, etiqueta) => {
+          const e = mapa.get(clave) || { login: etiqueta, id: clave, in: 0, out: 0, count_in: 0, count_out: 0 };
+          if (m.operation === 'in') { e.in += v; e.count_in += 1; } else { e.out += v; e.count_out += 1; }
+          mapa.set(clave, e);
+        };
+        suma(porJugador, quien, quien);
+        suma(porCaja, String(f.id), f.login || String(f.id));
+      }
+    }
+
+    /* 🔑 El RTP del eje de dinero es retiros/cargas — comprobado: 40.157,6 / 45.211 = 88,82,
+       que es exactamente lo que devuelve el motor. No es el mismo RTP que el de apuestas. */
+    const cerrar = (e) => ({
+      ...e,
+      in: dosDec(e.in), out: dosDec(e.out), profit: dosDec(e.in - e.out),
+      rtp: e.in > 0 ? dosDec((e.out / e.in) * 100) : null,
+      avg_in: e.count_in ? dosDec(e.in / e.count_in) : 0,
+      avg_out: e.count_out ? dosDec(e.out / e.count_out) : 0,
+    });
+
+    const filas = [...(agrupar === 'child_users' ? porCaja : porJugador).values()].map(cerrar);
+    const bruto = filas.reduce((a, x) => ({
+      in: a.in + x.in, out: a.out + x.out, count_in: a.count_in + x.count_in, count_out: a.count_out + x.count_out,
+    }), { in: 0, out: 0, count_in: 0, count_out: 0, login: '', id: '' });
+    return { filas, total: cerrar(bruto) };
+  }
+
+
+  app.get('/api/caja/estadisticas', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja);
+    const q = req.query;
+    const r = rango(q);
+    const nodo = String(q.id || req.caja.id);
+    const tipo = q.tipo === 'on_bets' ? 'on_bets' : 'on_money';
+    const campo = q.ordenar || 'profit';
+    const orden = q.sentido === 'asc' ? 'asc' : 'desc';
+    /* 🔴 Son DOS áreas: `reports` da la configuración y `reportstable` las filas.
+       El orden se pide con sort/order — `filter`/`filter_asc` se guardan pero NO ordenan. */
+    const tabla = await cli.apiCall('reportstable', {}, {
+      id: nodo,
+      safe_content: '1',
+      from: r.from, to: r.to, search: '',
+      sort: campo,
+      order: orden,
+      offset: '0',                                   // ⚠️ acá arranca en 0, no en 1
+      limit: String(limiteValido(q.limite || 1000)),
+      statistic_type: tipo,
+    });
+    if (!esJson(tabla)) return delMotor(res, tabla);
+
+    /* 🔴🔴 «POR APUESTAS» TAMPOCO SE PUEDE PEDIR. `statistic_type` se ignora igual que la
+       agrupación: medido el 27-ago en dos nodos, con el token raíz y con el propio, y probando el
+       parámetro en la query, en el cuerpo y con otros nombres. Siempre vuelven las columnas de
+       dinero (`in`/`out`), nunca `bet`/`win` — aunque `config.statistic_type` ya diga `on_bets`.
+       Se detecta mirando los datos, no confiando en lo que pedimos: si vienen con forma de dinero,
+       se avisa. Mostrar 0 apostado y 0 ganado sería inventar. */
+    const muestra = (tabla.data.rows || []).find((x) => x && x.id) || tabla.data.footer || {};
+    const eje = ('bet' in muestra || 'win' in muestra) ? 'apuestas' : 'dinero';
+    const ejePedido = tipo === 'on_bets' ? 'apuestas' : 'dinero';
+
+    /* 🔴🔴 «POR CAJA» NO SE PUEDE PEDIR. Medido el 27-ago barriendo `reports_group_by` y
+       `reports_base_group_by` con todos sus valores plausibles: NINGUNO cambia nada. El eje lo
+       fija QUIÉN PREGUNTA, no el parámetro —
+         · la raíz preguntando por el agente  → una fila por CAJERO
+         · el agente preguntando por sí mismo → una fila por JUGADOR
+       Como el cliente entra con su propia credencial, siempre le tocan jugadores. El rótulo decía
+       «una fila por caja» y mostraba jugadores: el número estaba bien y el significado mal.
+
+       Se arma acá: el `footer` de cada cajero ES su total del período. Verificado al centavo contra
+       lo que ve la raíz. Cuesta una llamada por cajero, y por eso esta pantalla vive detrás de un
+       botón explícito y no se abre sola. */
+    /* Se pidió dinero y el motor entregó apuestas: en vez de rendirse, se arma de los
+       movimientos. Cuesta una llamada por caja, y por eso vive detrás de un botón explícito. */
+    if (tipo === 'on_money' && eje === 'apuestas') {
+      let fanOut = [];
+      if (req.caja.rol === 'agente' && String(nodo) === String(req.caja.id)) {
+        const hijos = await cli.apiCall('users',
+          { limit: '200', inactive_users: 'all' }, { id: nodo, offset: '1' });
+        if (!esJson(hijos)) return delMotor(res, hijos);
+        fanOut = sinFilaTotal(hijos.data.users || hijos.data.rows || [])
+          .map((c) => ({ id: String(c.id), login: c.login || String(c.id) }));
+      }
+      const armado = await ejeDineroArmado(cli, { nodo, fanOut, from: r.from, to: r.to, agrupar: q.agrupar });
+      const num = (x) => Number(x) || 0;
+      armado.filas.sort((a, b) => (orden === 'asc' ? 1 : -1) * (num(b[campo]) - num(a[campo])));
+      return ok(res, { filas: armado.filas, cuantas: armado.filas.length, total: armado.total,
+        eje: 'dinero', ejePedido: 'dinero', armadoDeMovimientos: true, cajasLeidas: fanOut.length || 1 });
+    }
+
+    if (q.agrupar === 'child_users') {
+      const hijos = await cli.apiCall('users',
+        { limit: '200', inactive_users: 'all' }, { id: nodo, offset: '1' });
+      if (!esJson(hijos)) return delMotor(res, hijos);
+      const cajas = sinFilaTotal(hijos.data.users || hijos.data.rows || []);
+
+      /* De a 5 por vez: ni una ráfaga de 40 llamadas ni una fila por segundo. */
+      const filas = [];
+      for (let i = 0; i < cajas.length; i += 5) {
+        const tanda = await Promise.all(cajas.slice(i, i + 5).map(async (c) => {
+          const t = await cli.apiCall('reportstable', {}, {
+            id: String(c.id), safe_content: '1', from: r.from, to: r.to,
+            search: '', sort: 'profit', order: 'desc', offset: '0', limit: '50',
+            statistic_type: tipo,
+          });
+          const pie = esJson(t) ? t.data.footer : null;
+          return pie ? { ...pie, id: String(c.id), login: c.login || String(c.id) } : null;
+        }));
+        filas.push(...tanda.filter(Boolean));
+      }
+
+      const num = (x) => Number(x) || 0;
+      filas.sort((a, b) => (orden === 'asc' ? 1 : -1) * (num(b[campo]) - num(a[campo])));
+      return ok(res, { filas, cuantas: filas.length, total: tabla.data.footer || null,
+        eje, ejePedido, armadoPorCaja: true, cajasLeidas: filas.length, cajasTotales: cajas.length });
+    }
+
+    /* 🔑 Los siete números que se miran: cargas, retiros, ganancia, cuántas cargas, cuántos
+       retiros, y los dos promedios. El motor manda `avg_in`/`avg_out` en algunos nodos y en otros
+       no (medido: sí en 7357552, no en 7278954), así que se calculan cuando faltan en vez de
+       dejar un hueco. */
+    const conPromedios = (f) => {
+      const ci = Number(f.count_in) || 0, co = Number(f.count_out) || 0;
+      return { ...f,
+        avg_in: f.avg_in != null ? f.avg_in : (ci ? dosDec(aNumero(f.in) / ci) : 0),
+        avg_out: f.avg_out != null ? f.avg_out : (co ? dosDec(aNumero(f.out) / co) : 0) };
+    };
+    ok(res, {
+      filas: sinFilaTotal(tabla.data.rows).map(conPromedios),
+      cuantas: tabla.data.total || 0,
+      /* ⭐ El total del PERÍODO entero, no de la página. Es el número que hay que mostrar. */
+      total: tabla.data.footer ? conPromedios(tabla.data.footer) : null,
+      /* 🔴 El eje que el casino ENTREGÓ, que no siempre es el que pedimos. Ver la nota de arriba:
+         lo manda la plantilla guardada de la cuenta, y desde acá no se puede cambiar. */
+      eje, ejePedido,
+    });
+  }));
+
+  /* ══════ historial de jugadas — va con el id del JUGADOR ══════ */
+
+  app.get('/api/caja/jugadas', auth.requerida, wrap(async (req, res) => {
+    const q = req.query;
+    if (!q.jugador) return mal(res, 'falta el jugador');
+    const cli = auth.clienteDe(req.caja);
+    const r = rango(q);
+    const d = await cli.apiCall('history', {}, {
+      id: q.jugador,
+      from: r.from, to: r.to,
+      limit: String(limiteValido(q.limite || 200)),
+      offset: String(q.pagina || 1),
+    });
+    if (!esJson(d)) return delMotor(res, d);
+    ok(res, {
+      sesiones: d.data.history || [],
+      total: d.data.total || null,               // del período, calculado por el motor
+      /* Llega como objeto {imperium_bet:"ImperiumBet"}, no como lista. */
+      proveedores: Object.entries(d.data.providers || {}).map(([clave, nombre]) => ({ clave, nombre })),
+      paginas: d.data.pageCount || 1,
+    });
+  }));
+
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     MOVER FICHAS — lo único irreversible de todo el panel.
+     ══════════════════════════════════════════════════════════════════════════
+
+     🔴 EL RECHAZO DEL MOTOR ES SILENCIOSO. Medido el 26-ago: pidiendo cargar 10.000 a un jugador
+        cuya caja tenía 3.045, el motor contestó normalmente y NO MOVIÓ NADA. Sin error, sin aviso.
+        Por eso acá no alcanza con que la llamada no falle: hay que LEER EL SALDO ANTES Y DESPUÉS
+        y comparar. Si no cambió, se devuelve un error explicando por qué.
+
+     🔴 `all=true` IGNORA EL MONTO y se lleva todo. Medido: con `all=true` y `amount=2`, un jugador
+        con 1.000 quedó en 0. Por eso «todo» tiene que venir como una decisión aparte y explícita
+        del cliente, nunca deducida de que el monto coincida con el saldo.
+
+     🔑 El tope al cargar es el saldo de LA CAJA, no el de quien opera. Un agente con 45.990 no
+        pudo cargar 10.000 porque la caja tenía 3.045.
+  */
+
+  /* Operaciones ya ejecutadas, para que un doble clic no cargue dos veces. */
+  const hechas = new Map();
+  setInterval(() => {
+    const corte = Date.now() - 5 * 60 * 1000;
+    for (const [k, v] of hechas) if (v.cuando < corte) hechas.delete(k);
+  }, 60 * 1000).unref?.();
+
+  /**
+   * El saldo de UNA cuenta, en el momento.
+   * 🔴 Se busca con `search` EN LA QUERY. Recorrer las páginas no sirve: una caja tiene 1.851
+   *    jugadores y el que se busca puede estar en cualquiera. Con `search` es una sola llamada.
+   * @param {string} [login] el login, que es lo que `search` matchea; si no se sabe, se recorre.
+   */
+  /* ⚡⚡ EL RANGO DE FECHAS ES LO QUE HACE LENTO A `area=users`, no el `limit`. Medido el 31-ago
+     sobre el nodo del AGENTE, que agrega todo lo que cuelga debajo:
+
+       rango 2020→hoy, limit 500 …… 7.548 ms
+       sin rango,      limit 500 …… 7.543 ms
+       sin rango,      limit  50 …… 7.590 ms
+       rango de HOY,   limit  50 ……   279 ms   ← 27 veces más rápido
+
+     🔑 Y los SALDOS SON LOS MISMOS: `balances` es el saldo actual, no del período. Verificado
+        cuenta por cuenta con los dos rangos. Sobre una caja da igual (~245 ms las dos), así que
+        el costo se lo lleva sólo el nodo que tiene cajas debajo.
+     ⚠️ El rango NO decide qué cuentas aparecen: eso lo hace `inactive_users:'all'`, que se manda
+        igual. Con el rango de hoy siguen viniendo las cinco, incluida la que no movió nada. */
+  const rangoBarato = () => ({ from: `${hoy()} 00:00:00`, to: `${hoy()} 23:59:59` });
+
+  async function saldoDeCuenta(cli, idPadre, idCuenta, login) {
+    const comun = { ...rangoBarato(), inactive_users: 'all', limit: '500' };
+    const buscarEn = async (query) => {
+      const r = await cli.apiCall('users', comun, Object.assign({ id: String(idPadre) }, query));
+      if (!esJson(r)) return null;
+      return sinFilaTotal(r.data.users).find((u) => String(u.id) === String(idCuenta)) || null;
+    };
+    let fila = login ? await buscarEn({ search: String(login), offset: '1' }) : null;
+    /* Sin login, o si la búsqueda no lo trajo: se recorren las páginas, hasta un tope sensato. */
+    /* ⚡ Con login, la primera página ya lo trae salvo en cajas enormes: se recorre poco. Sin
+       login hay que buscarlo, y ahí sí vale la pena insistir. */
+    const tope = login ? 2 : 8;
+    for (let pag = 1; !fila && pag <= tope; pag++) fila = await buscarEn({ offset: String(pag) });
+    if (!fila) return null;
+    const b = fila.balances && Object.values(fila.balances)[0];
+    return Number(String(b == null ? 0 : b).replace(/[^\d.-]/g, '')) || 0;
+  }
+
+  app.post('/api/caja/fichas', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const cuenta = String(b.cuenta || '').trim();          // a quién
+    const padre = String(b.padre || req.caja.id).trim();   // de qué caja sale / entra
+    const operacion = b.operacion === 'out' ? 'out' : 'in';
+    const todo = b.todo === true;                          // explícito, nunca deducido
+    const monto = Number(b.monto);
+
+    if (!cuenta) return mal(res, 'falta la cuenta');
+    if (!todo && (!Number.isFinite(monto) || monto <= 0)) {
+      return mal(res, 'El monto tiene que ser un número mayor que cero');
+    }
+    /* `all=true` con un monto escrito es una contradicción: o se lleva todo, o se lleva ese monto.
+       Se rechaza en vez de elegir por el cliente. */
+    if (todo && Number.isFinite(monto) && monto > 0) {
+      return mal(res, 'Pediste «todo» y además un monto. Elegí una de las dos.');
+    }
+
+    /* Doble clic: la misma operación dentro de la misma sesión no se repite. */
+    const huella = `${req.caja.sid}|${cuenta}|${operacion}|${todo ? 'ALL' : monto}|${b.gesto || ''}`;
+    if (b.gesto && hechas.has(huella)) {
+      const previa = hechas.get(huella);
+      return res.status(409).json({ ok: false, repetida: true,
+        error: 'Esa misma operación ya se hizo hace un momento.', resultado: previa.resultado });
+    }
+
+    const cli = auth.clienteDe(req.caja);
+    console.log('[caja/fichas] %s %s cuenta=%s padre=%s monto=%s todo=%s',
+      req.caja.login, operacion, cuenta, padre, monto, todo);
+
+    /* 1 · el saldo ANTES — la única forma de saber después si se movió algo */
+    const antes = await saldoDeCuenta(cli, padre, cuenta, b.login);
+    if (antes == null) return mal(res, 'no se pudo leer el saldo de esa cuenta', 502);
+
+    /* 2 · la orden */
+    const r = await cli.apiCall('balance', {
+      balance_currency: req.caja.moneda || 'ARS',
+      amount: todo ? '0' : String(monto),
+      send: 'true',
+      all: todo ? 'true' : 'false',
+      operation: operacion,
+    }, { id: cuenta, type: 'frame', printing: 'true' });
+
+    /* 3 · el saldo DESPUÉS — acá se descubre el rechazo silencioso.
+       ⚡ Va EN PARALELO con el del pagador: son dos nodos distintos, no dependen entre sí, y cada
+          llamada al motor cuesta ~220 ms. En serie se notaba. */
+    const pagadorEsMio = String(padre) === String(req.caja.id);
+    const [despues, saldoPagador] = await Promise.all([
+      saldoDeCuenta(cli, padre, cuenta, b.login),
+      pagadorEsMio
+        ? cli.apiCall('info').then((m) => (esJson(m) && m.data.main ? Number(m.data.main.balance) || 0 : null))
+        : saldoDeCuenta(cli, req.caja.id, String(padre)),
+    ]);
+    if (despues == null) {
+      return mal(res, 'la orden se envió pero no se pudo confirmar el saldo. Revisá antes de repetir.', 502);
+    }
+
+    const movido = Math.round((despues - antes) * 100) / 100;
+    const esperado = todo ? (operacion === 'out' ? -antes : null) : (operacion === 'in' ? monto : -monto);
+
+    /* 4 · nada se movió: el motor rechazó sin decirlo */
+    console.log('[caja/fichas] antes=%s despues=%s movido=%s', antes, despues, movido);
+    if (movido === 0) {
+      const razon = operacion === 'in'
+        ? 'No alcanzan las fichas de la caja. El tope para cargar es el saldo de la caja, no el tuyo.'
+        : 'No se pudo retirar. Fijate que el jugador tenga ese saldo y que la caja permita retiro parcial.';
+      return res.status(409).json({ ok: false, sinEfecto: true, error: razon, saldo: despues, antes });
+    }
+
+    /* 5 · se movió algo distinto de lo pedido: se dice, no se disimula */
+    const resultado = {
+      antes, despues, movido,
+      operacion, todo,
+      parcial: esperado != null && Math.abs(movido - esperado) > 0.009,
+    };
+    if (b.gesto) hechas.set(huella, { cuando: Date.now(), resultado });
+
+    ok(res, {
+      ...resultado,
+      pagador: { id: String(padre), saldo: saldoPagador },
+      motor: esJson(r) ? undefined : 'el motor respondió en HTML; el saldo se verificó igual',
+    });
+  }));
+
+
+  /* ══════ ALTA Y BAJA DE CUENTAS ══════
+     Medido el 27-ago-2026 contra producción, con un alta y una baja reales sobre el hall de prueba.
+
+     🔴 LO QUE HACE ESTO DISTINTO DE TODO LO DEMÁS: el motor NO dice si funcionó.
+        · El alta contesta su blob de `config` tanto si creó como si rebotó.
+        · `area=search` no anda con api_token: devuelve 0 aunque la cuenta exista.
+        · Un login usado en OTRA caja rebota el alta y desde acá es invisible.
+        ⇒ La única prueba válida es volver a pedir la lista y buscar el login. Se hace siempre.
+
+     🔑 El tope del saldo inicial es DINÁMICO: el saldo del padre en ese instante. Se lee del
+        formulario (`balance.max`) en cada alta, nunca de una constante. */
+
+  const GRUPOS = { jugador: '5', subcajero: '8', cajero: '4', subagente: '6' };
+
+  /* 🔴 Un sub-usuario NO aparece en `area=users`: vive en `area=sub`, bajo la clave `subs`.
+     Verificar su alta contra la lista de cuentas daría siempre «no se creó». */
+  async function buscarSub(cli, padre, login) {
+    const r = await cli.apiCall('sub', {}, { id: String(padre) });
+    if (!esJson(r) || r.data.error) return null;
+    const lista = r.data.subs || r.data.sub || [];
+    return lista.find((x) => x && String(x.login) === String(login)) || null;
+  }
+
+  /* Busca un login dentro de un nodo. El parámetro `search` va en la QUERY. */
+  async function buscarLogin(cli, padre, login) {
+    const r = await cli.apiCall('users',
+      { limit: '200', inactive_users: 'all' },
+      { id: String(padre), offset: '1', search: String(login) });
+    if (!esJson(r)) return null;
+    const filas = sinFilaTotal(r.data.users || r.data.rows || []);
+    return filas.find((x) => String(x.login) === String(login)) || null;
+  }
+
+  app.post('/api/caja/crear', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const padre = String(b.padre || req.caja.id).trim();
+    const login = String(b.login || '').trim();
+    const clave = String(b.clave || '').trim();
+    const nombre = String(b.nombre || '').trim();
+    const grupo = GRUPOS[b.tipo] || GRUPOS.jugador;
+    const saldo = b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
+
+    if (!login) return mal(res, 'Falta el login');
+    if (!clave) return mal(res, 'Falta la contraseña');
+    if (!Number.isFinite(saldo) || saldo < 0) return mal(res, 'El saldo inicial no es un número válido');
+
+    const cli = auth.clienteDe(req.caja);
+    const esSub = grupo === GRUPOS.subcajero || grupo === GRUPOS.subagente;
+    const buscar = esSub ? buscarSub : buscarLogin;
+
+    /* 1 · ¿ya existe acá? Si está a la vista, se corta antes de tocar nada. No prueba que esté
+       libre —el login es único en TODO el motor y esta cuenta sólo ve lo suyo— pero ataja el caso
+       más común sin gastar un alta. */
+    const yaEsta = await buscar(cli, padre, login);
+    if (yaEsta) {
+      return res.status(409).json({ ok: false, ocupado: true,
+        error: `Ya tenés una cuenta que se llama ${login}.` });
+    }
+
+    /* 2 · el tope real de este momento, leído del formulario */
+    const form = await cli.apiCall('createuser', { group: grupo }, { id: padre });
+    const campos = (esJson(form) && (form.data.createFields || {})[grupo]) || {};
+    const tope = Number((campos.balance || {}).max ?? (campos['max-amount'] || {}).value);
+    if (saldo > 0 && Number.isFinite(tope) && saldo > tope) {
+      return mal(res, `No te alcanzan las fichas: podés darle hasta ${tope}.`);
+    }
+
+    /* 3 · el alta. La respuesta NO se cree: se verifica abajo. */
+    const cuerpo = { group: grupo, sended: 'true', login, password: clave };
+    if (saldo > 0) cuerpo.balance = String(saldo);
+    /* 🔑 El motor EXIGE `name` para los sub-usuarios y para las cajas, pero el panel no tiene
+       dónde mostrarlo. Se manda el login, que es como los nombra la gente. */
+    if (esSub || grupo === GRUPOS.cajero) cuerpo.name = nombre || login;
+    await cli.apiCall('createuser', cuerpo, { id: padre });
+
+    /* 4 · LA PRUEBA */
+    const creada = await buscar(cli, padre, login);
+    if (!creada) {
+      return res.status(409).json({ ok: false, ocupado: true,
+        error: `No se pudo crear ${login}. Ese nombre ya está usado en el sistema, aunque no lo veas `
+          + 'en tu panel: los logins son únicos y quedan reservados aunque la cuenta se elimine. '
+          + 'Probá con otro.' });
+    }
+    ok(res, { cuenta: creada, saldoPedido: saldo,
+      saldoQuedo: Number(creada.balance) || 0,
+      parcial: saldo > 0 && Math.abs((Number(creada.balance) || 0) - saldo) > 0.009 });
+  }));
+
+  app.post('/api/caja/eliminar', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const cuenta = String(b.cuenta || '').trim();
+    const padre = String(b.padre || req.caja.id).trim();
+    const login = String(b.login || '').trim();
+    if (!cuenta) return mal(res, 'falta la cuenta');
+    if (b.confirmado !== true) return mal(res, 'falta confirmar la baja');
+
+    const cli = auth.clienteDe(req.caja);
+
+    /* 🔴 `area=delete` sin cuerpo NO borra: devuelve el blob de config y la cuenta sigue viva.
+       La confirmación es `delete=true` — medido el 27-ago probando `sended` y `confirm`, que no
+       hacen nada. Es la diferencia entre creer que borraste y haber borrado. */
+    await cli.apiCall('delete', { delete: 'true' }, { id: cuenta });
+
+    /* Y otra vez: la prueba es mirar, no la respuesta. */
+    if (login) {
+      const sigue = await buscarLogin(cli, padre, login);
+      if (sigue) {
+        return res.status(409).json({ ok: false, sinEfecto: true,
+          error: 'El casino aceptó la orden pero la cuenta sigue estando. No se borró nada.' });
+      }
+    }
+    ok(res, { eliminada: cuenta, login });
+  }));
+
+  /* ══════ SUB-USUARIOS ══════
+     🔴 `area=sub` tampoco anda con api_token: devuelve «No rights», igual que `intersections` y
+     `changes` (medido el 27-ago). El patrón ya es claro: el token OPERA —jugadores, movimientos,
+     estadísticas, tablero, fichas— pero no ADMINISTRA cuentas ni audita. Esto va con sesión. */
+  app.get('/api/caja/subusuarios', auth.requerida, wrap(async (req, res) => {
+    const id = req.query.id || req.caja.id;
+    /* ✅ CORREGIDO el 28-ago: `sub` SÍ anda con api_token — devuelve `subs`. La medición vieja que
+       decía «necesita sesión» estaba hecha sobre otra cuenta y se dio por general.
+       Igual se deja la sesión como respaldo: si el token no alcanza en alguna cuenta, no se cae. */
+    let r = await auth.clienteDe(req.caja).apiCall('sub', {}, { id });
+    if (!esJson(r) || r.data.error) {
+      const conSesion = auth.clienteDe(req.caja, { auditoria: true });
+      if (conSesion !== auth.clienteDe(req.caja)) r = await conSesion.apiCall('sub', {}, { id });
+    }
+    if (!esJson(r) || r.data.error) return soloConSesion(res, esJson(r) ? { error: r.data.error } : r);
+    /* La fila que devuelve es mínima: id, login, name y si se puede borrar. Los permisos
+       (`hide_hall_balance`, `disable_statistic`) viven en la ficha de cada uno. */
+    ok(res, { subusuarios: sinFilaTotal(r.data.subs || r.data.sub || r.data.users || []) });
+  }));
+
+
+  /* ══════ QUÉ CAJAS VE UN SUB-AGENTE ══════
+     Capturado del panel real el 28-ago-2026, en `useredit` pestaña «Los usuarios editados».
+
+     ```
+     POST area=useredit&tab=editable_users&id=<subagente>
+     send=true
+     editable_users/<idCaja>=1   → habilita
+     editable_users/<idCaja>=0   → quita
+     ```
+
+     🔴 EL VALOR ES `1`, NO `on`. El formulario del panel manda `on` porque es una casilla HTML,
+        pero mandar `on` —o `true`— **BORRA el permiso** en vez de darlo. Se descubrió apagándole
+        sin querer una caja a un sub-agente real. Sólo `1` marca.
+     🔑 Es DIFERENCIAL: lo que no se manda no se toca. Mandar sólo `send=true` no borra nada.
+     ✅ Anda con api_token y el efecto es inmediato: el sub-agente pasa a ver esa caja y sus
+        jugadores en la misma llamada siguiente. */
+
+  app.post('/api/caja/permisos-subagente', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const sub = String(b.sub || '').trim();
+    const cajas = b.cajas && typeof b.cajas === 'object' ? b.cajas : null;
+    if (!sub) return mal(res, 'falta el sub-agente');
+    if (!cajas || !Object.keys(cajas).length) return mal(res, 'no dijiste qué cajas');
+
+    const cli = auth.clienteDe(req.caja);
+    const cuerpo = { send: 'true' };
+    for (const [id, dar] of Object.entries(cajas)) cuerpo[`editable_users/${id}`] = dar ? '1' : '0';
+    await cli.apiCall('useredit', cuerpo, { id: sub, tab: 'editable_users' });
+
+    /* Como siempre en este motor: la respuesta no prueba nada, se vuelve a leer. */
+    const r = await cli.apiCall('useredit', {}, { id: sub, tab: 'editable_users' });
+    if (!esJson(r)) return delMotor(res, r);
+    const estado = {};
+    for (const [id, campo] of Object.entries(r.data.fields || {})) {
+      estado[id] = { login: campo.title, ve: campo.value === true };
+    }
+    const fallaron = Object.entries(cajas)
+      .filter(([id, dar]) => estado[id] && estado[id].ve !== !!dar)
+      .map(([id]) => (estado[id] || {}).login || id);
+    if (fallaron.length) {
+      return res.status(409).json({ ok: false, sinEfecto: true, estado,
+        error: `El casino aceptó el cambio pero no quedó aplicado en: ${fallaron.join(', ')}.` });
+    }
+    ok(res, { estado });
+  }));
+
+  /* Lo que un sub-agente ve hoy, para dibujar las palancas con la verdad. */
+  app.get('/api/caja/permisos-subagente', auth.requerida, wrap(async (req, res) => {
+    if (!req.query.sub) return mal(res, 'falta el sub-agente');
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('useredit', {}, { id: String(req.query.sub), tab: 'editable_users' });
+    if (!esJson(r)) return delMotor(res, r);
+    const estado = {};
+    for (const [id, campo] of Object.entries(r.data.fields || {})) {
+      estado[id] = { login: campo.title, ve: campo.value === true };
+    }
+    ok(res, { estado });
+  }));
+
+
+  /* ══════ CONTRASEÑAS ══════
+     Medido el 28-ago contra producción (cambiada y verificada entrando con la nueva):
+
+     ```
+     POST area=usersettings&id=<cuenta>&module=authorization
+     setting[name][]=authorization_via_password
+     setting[name][]=password
+     setting[value]=<la nueva>
+     ```
+
+     🔴 `setting[name][]` va REPETIDO, un tramo por vez. Con los dos pegados por coma el motor
+        contesta bien y NO cambia nada (la misma trampa del `generate` del token).
+     🔴 Una cuenta NO puede administrarse a sí misma: `usersettings` sobre uno mismo devuelve HTML.
+        Por eso la propia se cambia con la credencial de arriba, y sólo después de comprobar la
+        actual entrando con ella — que es lo que prueba que es la persona y no una sesión robada. */
+
+  const APLICAR_CLAVE = (nueva) => ({
+    'setting[name][]': ['authorization_via_password', 'password'],
+    'setting[value]': String(nueva),
+  });
+
+  /* Reglas del dueño: para gente del panel, 8 con mayúscula y número. Para un jugador, lo que sea
+     sin espacios — se la dicta el cajero por teléfono y tiene que poder escribirla. */
+  function claveFloja(nueva, esJugador) {
+    const v = String(nueva || '');
+    if (/\s/.test(v)) return 'La contraseña no puede llevar espacios';
+    if (esJugador) return v.length ? null : 'Falta la contraseña';
+    if (v.length < 8) return 'Tiene que tener al menos 8 caracteres';
+    if (!/[A-Z]/.test(v)) return 'Le falta una mayúscula';
+    if (!/[0-9]/.test(v)) return 'Le falta un número';
+    return null;
+  }
+
+  /* La mía. Pide la actual, y la actual se comprueba entrando con ella. */
+  app.post('/api/caja/mi-clave', auth.requerida, wrap(async (req, res) => {
+    const { actual, nueva } = req.body || {};
+    if (!actual) return mal(res, 'Falta tu contraseña actual');
+    const floja = claveFloja(nueva, false);
+    if (floja) return mal(res, floja);
+    if (String(actual) === String(nueva)) return mal(res, 'La nueva tiene que ser distinta de la actual');
+    if (!raiz) {
+      return mal(res, 'Ahora mismo no se puede cambiar la contraseña desde acá. Escribile a soporte.', 503);
+    }
+
+    /* 1 · que sea quien dice ser: se entra con la actual y tiene que dar ESTA cuenta */
+    const prueba = makeClient({ url: req.caja.url, user: req.caja.login, password: String(actual) });
+    const quien = await prueba.apiCall('info');
+    const login = (esJson(quien) && ((quien.data.editUser || {}).login || (quien.data.main || {}).login)) || null;
+    if (!login || String(login) !== String(req.caja.login)) {
+      return mal(res, 'Tu contraseña actual no es ésa', 403);
+    }
+
+    /* 2 · y recién ahí se cambia, desde arriba */
+    await raiz.apiCall('usersettings', APLICAR_CLAVE(nueva), { id: req.caja.id, module: 'authorization' });
+
+    /* 3 · la prueba: entrar con la nueva */
+    const conNueva = makeClient({ url: req.caja.url, user: req.caja.login, password: String(nueva) });
+    const ok2 = await conNueva.apiCall('info');
+    if (!esJson(ok2) || ((ok2.data.editUser || {}).login !== req.caja.login)) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó el cambio pero tu contraseña sigue siendo la anterior. Probá de nuevo.' });
+    }
+    auth.salir(req);
+    auth.borrarCookie(res);
+    ok(res, { cambiada: true });
+  }));
+
+  /* La de alguien de abajo: no pide la anterior, alcanza con ser su superior. */
+  app.post('/api/caja/clave-de', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const cuenta = String(b.cuenta || '').trim();
+    if (!cuenta) return mal(res, 'falta la cuenta');
+    if (String(cuenta) === String(req.caja.id)) return mal(res, 'Para la tuya usá «Cambiar mi contraseña»');
+    const floja = claveFloja(b.nueva, b.esJugador === true);
+    if (floja) return mal(res, floja);
+
+    const cli = auth.clienteDe(req.caja);
+    await cli.apiCall('usersettings', APLICAR_CLAVE(b.nueva), { id: cuenta, module: 'authorization' });
+
+    /* Se relee: el motor guarda la contraseña en claro y la devuelve, así que la verificación
+       es directa. (Que la devuelva es su decisión, no nuestra; nosotros no la guardamos.) */
+    const r = await cli.apiCall('usersettings', {}, { id: cuenta, module: 'authorization' });
+    if (!esJson(r)) return delMotor(res, r);
+    const campos = aplanarAjustes(r.data.settings);
+    const quedo = campos['authorization_via_password/show_password'];
+    if (quedo != null && String(quedo) !== String(b.nueva)) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó el cambio pero la contraseña sigue siendo la anterior.' });
+    }
+    ok(res, { cambiada: true, login: campos['authorization_via_password/login'] || null });
+  }));
+
+
+  /* ══════ MEDIOS DE COMUNICACIÓN ══════
+     Los contactos que ven los jugadores de una caja. Medido el 28-ago creando, editando y
+     borrando uno en una caja vacía, que quedó como estaba.
+
+     ```
+     POST area=usersettings&id=<caja>&module=siteAdditional
+     add_contact = 1                              → crea uno vacío (tipo telegram por defecto)
+     contacts/contact_N/type    = telegram|whatsapp
+     contacts/contact_N/contact = <número>        → el motor REARMA el link solo
+     contacts/contact_N/title / description
+     contacts/contact_N/delete  = 1               → lo borra
+     ```
+
+     🔴 `setting[name][]` va REPETIDO, un tramo por vez — la trampa de siempre.
+     🔴 El motor NO valida el número: arma `wa.me/<lo que sea>`. En producción hay un WhatsApp
+        cargado como `+626283974'2`, y su link no lleva a ningún lado. Por eso se valida acá. */
+
+  const CANALES = { telegram: 'telegram', whatsapp: 'whatsapp' };
+
+  /* Lo que puede ir en un link sin romperlo. El apóstrofo, los espacios y las comillas quedan
+     afuera: son exactamente lo que dejó un contacto muerto en producción. */
+  const contactoValido = (v) => /^[A-Za-z0-9_.+-]{3,40}$/.test(String(v || ''));
+
+  const ajusteDeCaja = (cli, caja, nombre, valor) => cli.apiCall('usersettings',
+    { 'setting[name][]': [].concat(nombre), 'setting[value]': String(valor) },
+    { id: String(caja), module: 'siteAdditional' });
+
+  async function leerContactos(cli, caja) {
+    const r = await cli.apiCall('usersettings', {}, { id: String(caja), module: 'siteAdditional' });
+    if (!esJson(r) || r.data.error) return null;
+    const plano = aplanarAjustes(r.data.settings);
+    const lista = [];
+    for (let n = 1; n <= 30; n++) {
+      const base = `contacts/contact_${n}/`;
+      if (plano[`${base}id`] == null) continue;
+      lista.push({
+        n,                                   // el índice que entiende el motor
+        id: String(plano[`${base}id`]),
+        type: plano[`${base}type`] || '',
+        title: plano[`${base}title`] || '',
+        contact: plano[`${base}contact`] || '',
+        description: plano[`${base}description`] || '',
+        link: plano[`${base}link`] || '',
+      });
+    }
+    return lista;
+  }
+
+  app.get('/api/caja/contactos', auth.requerida, wrap(async (req, res) => {
+    const caja = String(req.query.caja || req.caja.id);
+    const lista = await leerContactos(auth.clienteDe(req.caja), caja);
+    if (lista == null) return mal(res, 'no se pudieron leer los medios de comunicación', 502);
+    ok(res, { contactos: lista });
+  }));
+
+  app.post('/api/caja/contacto', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const caja = String(b.caja || req.caja.id);
+    const tipo = CANALES[String(b.tipo || '').toLowerCase()];
+    if (!tipo) return mal(res, 'Elegí si es Telegram o WhatsApp');
+    if (!contactoValido(b.contacto)) {
+      return mal(res, 'Ese número no sirve para armar el link: sólo números, letras, «+», «.», «-» '
+        + 'y «_», sin espacios ni comillas.');
+    }
+    const cli = auth.clienteDe(req.caja);
+
+    /* Editar uno existente, o crear. Al crear, el motor lo agrega vacío y después se llena. */
+    let n = Number(b.n) || 0;
+    if (!n) {
+      const antes = (await leerContactos(cli, caja)) || [];
+      await ajusteDeCaja(cli, caja, 'add_contact', '1');
+      const despues = (await leerContactos(cli, caja)) || [];
+      const nuevo = despues.find((c) => !antes.some((x) => x.id === c.id));
+      if (!nuevo) return mal(res, 'el casino no creó el contacto', 502);
+      n = nuevo.n;
+    }
+
+    const ruta = (campo) => ['contacts', `contact_${n}`, campo];
+    await ajusteDeCaja(cli, caja, ruta('type'), tipo);
+    await ajusteDeCaja(cli, caja, ruta('contact'), String(b.contacto).trim());
+    await ajusteDeCaja(cli, caja, ruta('title'), String(b.titulo || '').trim());
+    await ajusteDeCaja(cli, caja, ruta('description'), String(b.descripcion || '').trim());
+
+    /* Se relee: el link lo arma el motor, así que es lo único que prueba que quedó bien. */
+    const lista = await leerContactos(cli, caja);
+    const quedo = (lista || []).find((c) => c.n === n);
+    if (!quedo || quedo.contact !== String(b.contacto).trim()) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó el cambio pero el contacto no quedó guardado.' });
+    }
+    ok(res, { contacto: quedo, contactos: lista });
+  }));
+
+  app.post('/api/caja/contacto-borrar', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const caja = String(b.caja || req.caja.id);
+    const n = Number(b.n) || 0;
+    if (!n) return mal(res, 'falta cuál contacto');
+    const cli = auth.clienteDe(req.caja);
+    await ajusteDeCaja(cli, caja, ['contacts', `contact_${n}`, 'delete'], '1');
+    const lista = await leerContactos(cli, caja);
+    if (lista && lista.some((c) => c.n === n)) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó la orden pero el contacto sigue estando.' });
+    }
+    ok(res, { contactos: lista || [] });
+  }));
+
+
+  /* ══════ EL ACCESO DE UN JUGADOR — lo arma EL MOTOR, no nosotros ══════
+     Regla del dueño: el dominio del billete **no se deduce nunca**. Y no hace falta: `area=buttons`
+     sobre la cuenta trae el link ya armado, con el dominio que le corresponde a esa caja.
+
+     ```
+     copy_ticket.copy_link  → "https://ganamos-lat.com?u=7357744&p=777"
+     copy_auth.copy_link    → "Login:7357744 Password:777"
+     share_auth.share_link  → "Login:… \nPassword:… \nhttps://…"
+     ```
+
+     🔴 `ticket_url` es un campo POR CAJA (`useredit`), y **puede estar vacío**: medido el 28-ago,
+        la caja 7357836 no tiene ninguno. Cuando está vacío no hay link que dar, y eso se dice —
+        antes el panel caía en una constante y mostraba un dominio que podía no ser el de esa caja. */
+
+  app.get('/api/caja/acceso', auth.requerida, wrap(async (req, res) => {
+    const cuenta = String(req.query.cuenta || '').trim();
+    if (!cuenta) return mal(res, 'falta la cuenta');
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('buttons', {}, { id: cuenta });
+    if (!esJson(r)) return delMotor(res, r);
+    const botones = r.data.buttons || [];
+    const de = (nombre) => botones.find((x) => x && x.name === nombre) || {};
+    const link = de('copy_ticket').copy_link || '';
+    ok(res, {
+      link,
+      acceso: de('copy_auth').copy_link || '',
+      compartir: de('share_auth').share_link || '',
+      /* Sin link no hay dominio configurado para esa caja: se dice, no se inventa. */
+      dominio: link ? String(link).replace(/^https?:\/\//, '').split(/[?#/]/)[0] : null,
+    });
+  }));
+
+  /* El dominio de una caja, para mostrarlo en su configuración. Sale de la ficha, no de una
+     constante nuestra: cada caja tiene el suyo y puede no tener ninguno. */
+  app.get('/api/caja/dominio', auth.requerida, wrap(async (req, res) => {
+    const caja = String(req.query.caja || req.caja.id);
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('useredit', {}, { id: caja });
+    if (!esJson(r)) return delMotor(res, r);
+    const campos = r.data.fields || {};
+    const valor = (k) => {
+      const c = campos[k];
+      return c && typeof c === 'object' && 'value' in c ? c.value : c;
+    };
+    const url = String(valor('ticket_url') || '').trim();
+    ok(res, { dominio: url ? url.replace(/^https?:\/\//, '') : null, url: url || null });
+  }));
+
+
+  /* Guardar el dominio del billete de una caja.
+     ```
+     POST area=useredit&id=<caja>   send=true & ticket_url=<url>
+     ```
+     🔑 Regla del dueño: el dominio NUNCA se deduce — y tampoco se acepta a ciegas. Antes de
+        guardarlo se verifica contra «Dominios permitidos» (`usersettings&module=domains`), que
+        lista los del sistema, los pelados incluidos (`ganamos-lat.com` está ahí). Si no figura, el
+        link no va a funcionar y es mejor decirlo ahora que después, con el jugador afuera. */
+  app.post('/api/caja/dominio', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const caja = String(b.caja || req.caja.id);
+    const crudo = String(b.url || '').trim();
+    if (!crudo) return mal(res, 'Falta el link');
+
+    const limpio = crudo.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim().toLowerCase();
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(limpio)) {
+      return mal(res, 'Eso no parece un link. Poné algo como «ganamos-lat.com».');
+    }
+
+    const cli = auth.clienteDe(req.caja);
+    const d = await cli.apiCall('usersettings', {}, { id: caja, module: 'domains' });
+    if (esJson(d) && !d.data.error) {
+      const permitidos = Object.keys(aplanarAjustes(d.data.settings))
+        .filter((k) => k.startsWith('domains/')).map((k) => k.slice(8).toLowerCase());
+      if (permitidos.length && !permitidos.includes(limpio)) {
+        return res.status(409).json({ ok: false, noPermitido: true,
+          error: `«${limpio}» no está entre los dominios habilitados, así que el link no le va a `
+            + 'funcionar a tus jugadores. Escribile a soporte para que lo habiliten.' });
+      }
+    }
+
+    await cli.apiCall('useredit', { send: 'true', ticket_url: `https://${limpio}` }, { id: caja });
+
+    const r = await cli.apiCall('useredit', {}, { id: caja });
+    if (!esJson(r)) return delMotor(res, r);
+    const campo = (r.data.fields || {}).ticket_url;
+    const quedo = String((campo && typeof campo === 'object' ? campo.value : campo) || '');
+    if (!quedo) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó el link pero no quedó guardado.' });
+    }
+    ok(res, { url: quedo, dominio: quedo.replace(/^https?:\/\//, '') });
+  }));
+
+
+  /* ══════ LOS PERMISOS DE UN SUB-CAJERO ══════
+     Viven en `useredit` de la propia cuenta, como casillas. Medido el 28-ago sobre una cuenta de
+     prueba, que quedó como estaba.
+
+     ```
+     POST area=useredit&id=<subcajero>
+     send=true
+     hide_hall_balance=1|0     ← no ve cuántas fichas tiene la caja
+     disable_statistic=1|0     ← no ve estadísticas
+     cashout_all=1|0           ← puede retirar todo el saldo de un jugador
+     ```
+
+     🔴 `1` marca, `0` borra. Igual que en los permisos de caja, mandar `on` **BORRA**.
+     🔑 Es DIFERENCIAL: lo que no se manda no se toca (verificado dejando `cashout_all` en 1
+        mientras se cambiaba otro). */
+
+  const PERMISOS_SUB = ['hide_hall_balance', 'disable_statistic', 'cashout_all'];
+
+  /* ⚠️ LEER NO PUEDE ESCRIBIR. Tentaba usar el POST con la lista vacía para leer el estado, pero
+     en este motor las casillas ausentes se interpretan como desmarcadas en varias áreas: abrir la
+     ficha le habría borrado los permisos al sub-cajero. Se lee con su propio GET. */
+  app.get('/api/caja/permisos-subcajero', auth.requerida, wrap(async (req, res) => {
+    const sub = String(req.query.sub || '').trim();
+    if (!sub) return mal(res, 'falta el sub-cajero');
+    const r = await auth.clienteDe(req.caja).apiCall('useredit', {}, { id: sub });
+    if (!esJson(r)) return delMotor(res, r);
+    const campos = r.data.fields || {};
+    const estado = {};
+    for (const k of PERMISOS_SUB) {
+      const c = campos[k];
+      estado[k] = String((c && typeof c === 'object' ? c.value : c) || '0') === '1';
+    }
+    ok(res, { estado });
+  }));
+
+  app.post('/api/caja/permisos-subcajero', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const sub = String(b.sub || '').trim();
+    const permisos = b.permisos && typeof b.permisos === 'object' ? b.permisos : null;
+    if (!sub) return mal(res, 'falta el sub-cajero');
+    if (!permisos) return mal(res, 'no dijiste qué permiso');
+
+    const cuerpo = { send: 'true' };
+    for (const [k, v] of Object.entries(permisos)) {
+      if (!PERMISOS_SUB.includes(k)) return mal(res, `«${k}» no es un permiso de sub-cajero`);
+      cuerpo[k] = v ? '1' : '0';
+    }
+    const cli = auth.clienteDe(req.caja);
+    await cli.apiCall('useredit', cuerpo, { id: sub });
+
+    /* Se relee: el motor contesta igual haya cambiado algo o no. */
+    const r = await cli.apiCall('useredit', {}, { id: sub });
+    if (!esJson(r)) return delMotor(res, r);
+    const campos = r.data.fields || {};
+    const estado = {};
+    for (const k of PERMISOS_SUB) {
+      const c = campos[k];
+      estado[k] = String((c && typeof c === 'object' ? c.value : c) || '0') === '1';
+    }
+    const fallaron = Object.entries(permisos).filter(([k, v]) => estado[k] !== !!v).map(([k]) => k);
+    if (fallaron.length) {
+      return res.status(409).json({ ok: false, sinEfecto: true, estado,
+        error: 'El casino aceptó el cambio pero el permiso quedó como estaba.' });
+    }
+    ok(res, { estado });
+  }));
+
+
+  /* ══════ BUSCAR UN JUGADOR EN TODA LA RED ══════
+     El problema real del agente: le piden fichas para un jugador y no sabe en qué caja está.
+
+     ```
+     POST area=search&response=js    search_login=<texto> & page=1
+     → users: [{ id, login, group, name, create }]
+     ```
+
+     🔴 EL PARÁMETRO ES `search_login`, NO `search`. Con `search` (o `name`, o `q`) el motor
+        contesta **«No todos los datos son introducidos»** con HTTP 200. Yo había concluido dos
+        veces que `area=search` no andaba con api_token: andaba, le faltaba el nombre correcto.
+     🔑 `create` es el ID DE LA CAJA donde vive esa cuenta. Eso es lo que resuelve la pregunta.
+     🔑 `group`: 5 jugador · 8 sub-cajero · 4 caja.
+     📌 Es por PREFIJO, pagina de a 10 y normaliza acentos (ver MAPEO-MOTOR.md). Y el alcance lo
+        limita la propia credencial: cada uno ve lo suyo. */
+
+  app.get('/api/caja/buscar-jugador', auth.requerida, wrap(async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 3) return mal(res, 'Escribí al menos 3 letras');
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('search',
+      { search_login: q, page: String(req.query.pagina || 1) }, {});
+    if (!esJson(r)) return delMotor(res, r);
+    if (r.data.error) return mal(res, String(r.data.error), 502);
+
+    const TIPO = { 5: 'jugador', 8: 'subcajero', 4: 'cajero', 6: 'subagente' };
+    const filas = (r.data.users || []).filter((u) => u && u.id).map((u) => ({
+      id: String(u.id), login: u.login, name: u.name || '',
+      tipo: TIPO[Number(u.group)] || String(u.group),
+      caja: u.create ? String(u.create) : null,
+    }));
+    ok(res, { encontrados: filas, hayMas: r.data.next_page_enable === true || r.data.next_page_enable === '1' });
+  }));
+
+
+  /* ══════ CUENTAS ELIMINADAS ══════
+     Medido el 31-ago creando, borrando y restaurando una cuenta descartable.
+
+     Listar:    `area=users` con `deleted_users` → `delete` (sólo borradas) · `undelete` (sólo
+                vivas, y es el DEFAULT) · `all` (las dos).
+     Restaurar: `POST area=delete&id=<cuenta>` con **`restore=true`** — la misma área que borra,
+                otra bandera. `area=restore` no existe.
+
+     🔑 Borrar NO devuelve las fichas: quedan congeladas dentro de la cuenta. Por eso el saldo de
+        cada eliminada se muestra, y no como un dato de color: es plata que no está viendo nadie. */
+
+  app.get('/api/caja/eliminadas', auth.requerida, wrap(async (req, res) => {
+    const caja = String(req.query.caja || req.caja.id);
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('users',
+      { ...rangoBarato(), inactive_users: 'all', deleted_users: 'delete', limit: '500' },
+      { id: caja, offset: '1' });
+    if (!esJson(r)) return delMotor(res, r);
+    const filas = sinFilaTotal(r.data.users || []).map((u) => ({
+      id: String(u.id), login: u.login, name: u.name || '', balances: u.balances,
+    }));
+    ok(res, { eliminadas: filas, caja });
+  }));
+
+  app.post('/api/caja/restaurar', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const cuenta = String(b.cuenta || '').trim();
+    const caja = String(b.caja || req.caja.id);
+    if (!cuenta) return mal(res, 'falta la cuenta');
+    const cli = auth.clienteDe(req.caja);
+    await cli.apiCall('delete', { restore: 'true' }, { id: cuenta });
+
+    /* Y se comprueba mirando la lista de vivas, como siempre. */
+    const r = await cli.apiCall('users',
+      { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '500' },
+      { id: caja, offset: '1' });
+    if (!esJson(r)) return delMotor(res, r);
+    const viva = sinFilaTotal(r.data.users || []).find((u) => String(u.id) === cuenta);
+    if (!viva) {
+      return res.status(409).json({ ok: false, sinEfecto: true,
+        error: 'El casino aceptó la orden pero la cuenta sigue eliminada.' });
+    }
+    ok(res, { cuenta: { id: String(viva.id), login: viva.login, balances: viva.balances } });
+  }));
+
+  /* ══════ SEGURIDAD — estas dos NO andan con token, van con sesión ══════ */
+
+  app.get('/api/caja/cruces-ip', auth.requerida, wrap(async (req, res) => {
+    const cli = auth.clienteDe(req.caja, { auditoria: true });
+    const r = await cli.apiCall('intersections', {
+      ...rango(req.query), limit: '1000', offset: '1',
+    }, { id: req.query.id || req.caja.id });
+    if (!esJson(r) || r.data.error) return soloConSesion(res, esJson(r) ? { error: r.data.error } : r);
+    ok(res, { cruces: r.data.intersections || {} });
+  }));
+
+}
+
+module.exports = { mount };

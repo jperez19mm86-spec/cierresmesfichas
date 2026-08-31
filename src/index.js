@@ -150,6 +150,10 @@ app.set('sistemaParaCargar', sistemaParaCargar);
 app.set('avisarComprobante', avisarComprobante);
 require('./os.routes').mount(app);
 
+/* Mi Caja: el panel simple para agentes y cajeros. Los endpoints van acá, con `/api/caja/*`;
+   la página se sirve más abajo, con el resto del frontend. */
+require('./caja/caja.routes').mount(app);
+
 // ─────────────── SISTEMAS (CRUD) ───────────────
 
 // Listar todos + cuál está activo (NUNCA devuelve contraseñas).
@@ -1310,6 +1314,11 @@ app.get('/pedir', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
 // contesta 401. Va antes del comodín /cuenta/:token de las cuentas de API, que sí llevan llave.
 app.get('/cuenta', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'cuenta.html')); });
+
+// Mi Caja. La página es pública; el DATO no: cada endpoint /api/caja/* exige la sesión propia,
+// que se abre con el usuario y la clave del casino.
+app.get('/caja', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')); });
 
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
