@@ -303,7 +303,9 @@ function sistemaParaCargar(nombreSistema) {
   const cx = casinoConexStore.paraCargar(nombreSistema);
   if (cx) {
     const conClave = casinoConexStore.get(cx.id, true) || {};
-    return { name: cx.nombre, url: cx.url, user: cx.usuario, password: conClave.password, origen: 'OS' };
+    // El id viaja para poder MIRAR saldos con el cliente del casino (`casinoConexStore.client`),
+    // que es lo que deja comprobar que el destino puede recibir antes de sacar nada del origen.
+    return { name: cx.nombre, id: cx.id, url: cx.url, user: cx.usuario, password: conClave.password, origen: 'OS' };
   }
   const s = store.list().systems.find((x) => String(x.name).toLowerCase() === String(nombreSistema).toLowerCase());
   return s ? { ...s, origen: 'Sistemas' } : null;

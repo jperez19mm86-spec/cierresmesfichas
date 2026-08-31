@@ -955,6 +955,43 @@ function mount(app) {
    * toma decide si hay que hacer las dos mitades o sólo la que falta. Un botón menos y, sobre todo,
    * un camino menos donde equivocarse y repetir un retiro.
    */
+  /* ── EL PASE ENTRE PLATAFORMAS, QUE LO ORIGINA ELLA ──────────────────────────────────────
+     Los movimientos de siempre los pide el cliente desde su pantalla. Un pase no: cruza de Casino
+     a Europa, y el cliente ni se entera de que existen dos plataformas (recibe un grupo opaco a
+     propósito). Además le mueve saldo de una cuenta de ella a la otra, así que es su decisión.
+     Crea y ejecuta en una sola ida: no hay a quién aprobarle nada, ya lo aprobó al apretar. */
+  app.post('/api/os/movimientos-panel/pase', wrap(async (req, res) => {
+    const b = req.body || {};
+    /* El cliente SALE del panel de origen, no lo manda la pantalla: si viniera de afuera, alguien
+       podría pedir un pase entre paneles de dos clientes distintos poniendo el id que quisiera.
+       `revisar()` igual comprueba que los dos sean de ese cliente; esto es el primer cerrojo. */
+    const po = paneles.get(b.origen_panel_id);
+    if (!po) return err(res, 400, 'no existe el panel de origen');
+    const cr = movPanel.crear({
+      cliente_id: po.cliente_id, origen_panel_id: b.origen_panel_id, destino_panel_id: b.destino_panel_id,
+      divisa: b.divisa, monto: b.monto, nota: b.nota || 'pase entre plataformas',
+    }, 'admin');
+    if (!cr.ok) return err(res, 400, cr.error);
+    const mal = movPanelSvc.revisar(cr.movimiento, { permitirCruce: true });
+    if (mal) { movPanel.rechazar(cr.movimiento.id, mal.interno); return err(res, 400, mal.interno); }
+    const r = await movPanelSvc.ejecutar(cr.movimiento.id, {
+      sistemaParaCargar: req.app.get('sistemaParaCargar'), por: 'admin', log: console.log });
+    return r.ok ? ok(res, r) : err(res, r.status || 502, r.error, { quedoAMedias: !!r.quedoAMedias, id: cr.movimiento.id });
+  }));
+
+  /* A qué paneles se le puede pasar el saldo de éste: los del MISMO cliente en la OTRA plataforma.
+     Se resuelve en el servidor y no en la pantalla porque esconder una opción no impide postear. */
+  app.get('/api/os/movimientos-panel/destinos/:panelId', (req, res) => {
+    const o = paneles.get(req.params.panelId);
+    if (!o) return err(res, 404, 'no existe ese panel');
+    const otros = paneles.list().filter((p) => String(p.cliente_id) === String(o.cliente_id)
+      && String(p.id) !== String(o.id)
+      && String(p.sistema || '').toLowerCase() !== String(o.sistema || '').toLowerCase()
+      && p.id_usuario);
+    ok(res, { origen: { id: o.id, nombre: o.nombre, sistema: o.sistema, divisas: o.divisas || [] },
+      destinos: otros.map((p) => ({ id: p.id, nombre: p.nombre, sistema: p.sistema, divisas: p.divisas || [] })) });
+  });
+
   app.post('/api/os/movimientos-panel/:id/ejecutar', wrap(async (req, res) => {
     const r = await movPanelSvc.ejecutar(req.params.id, {
       sistemaParaCargar: req.app.get('sistemaParaCargar'),

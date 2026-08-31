@@ -41,7 +41,7 @@ const config = require('./config-store');
  * Separarlo en dos campos hace que el día que se agregue un motivo nuevo haya que elegir a
  * propósito qué se le dice al cliente, en vez de que nazca filtrando por defecto.
  */
-function revisar(m) {
+function revisar(m, opciones = {}) {
   const no = (interno, publico) => ({ interno, publico: publico || interno });
   const cli = clientes.get(m.cliente_id);
   if (!cli) return no('el cliente ya no existe');
@@ -61,10 +61,18 @@ function revisar(m) {
   if (!o.id_usuario) return no(`el panel "${o.nombre}" no tiene el id del casino cargado`, 'ese usuario no está terminado de configurar');
   if (!d.id_usuario) return no(`el panel "${d.nombre}" no tiene el id del casino cargado`, 'ese usuario no está terminado de configurar');
 
-  // Mismo sistema: las fichas de Casino no cruzan a Europa. Son dos plataformas distintas y el
-  // retiro y la carga se harían contra dos sesiones que no se conocen.
-  if (String(o.sistema || '').toLowerCase() !== String(d.sistema || '').toLowerCase()) {
-    return no(`no se puede mover entre sistemas distintos: "${o.nombre}" es de ${o.sistema} y "${d.nombre}" de ${d.sistema}`,
+  /* ── PASAR DE UNA PLATAFORMA A LA OTRA ──────────────────────────────────────────────────
+     Casino y Europa son dos instalaciones separadas y una ficha de una no existe en la otra: no
+     hay ninguna llamada que la cruce. Lo que sí se puede es sacarla de un lado y ponerla del
+     otro, que son DOS operaciones y no un traslado.
+
+     Sólo lo origina ella. El cliente pide desde una pantalla donde ni siquiera se entera de que
+     hay dos plataformas —recibe un grupo opaco a propósito—, así que un pedido suyo que cruzara
+     sería un pedido que no entendió lo que estaba pidiendo. Y del otro lado hay una decisión que
+     es de ella: el pase le mueve saldo de una cuenta a la otra. */
+  const cruza = String(o.sistema || '').toLowerCase() !== String(d.sistema || '').toLowerCase();
+  if (cruza && !opciones.permitirCruce) {
+    return no(`"${o.nombre}" es de ${o.sistema} y "${d.nombre}" de ${d.sistema}: eso es un pase entre plataformas, y lo tenés que hacer vos desde el panel`,
       'no se pueden mover fichas entre esos dos usuarios');
   }
   // Y misma divisa habilitada en los dos. Si el destino no la tiene, la carga falla DESPUÉS del
@@ -89,7 +97,9 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
   if (m0.estado !== 'pendiente' && m0.estado !== 'a_medias') {
     return { ok: false, status: 400, error: `no se puede ejecutar: está "${m0.estado}"` };
   }
-  const mal = revisar(m0);
+  /* Lo aprueba ella desde el panel, así que el pase entre plataformas está permitido acá. El
+     bloqueo sigue en pie para el pedido público del cliente, que es donde no corresponde. */
+  const mal = revisar(m0, { permitirCruce: true });
   if (mal) return { ok: false, status: 400, error: mal.interno };
 
   const origen = paneles.get(m0.origen_panel_id);
@@ -115,8 +125,13 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
     const guardados = store.pasosDe(id);
     let pasos = plan.pasos;
     if (guardados) {
+      /* ⚠️ SE COMPARA TAMBIÉN LA PLATAFORMA. Los ids de usuario salen de una secuencia propia de
+         cada instalación y pueden coincidir: dos pasos "id 5501, in" de plataformas distintas
+         comparan iguales, y darlos por el mismo es saltearse una pata entera de la cadena. */
       const misma = guardados.length === plan.pasos.length
-        && guardados.every((p, i) => String(p.id) === String(plan.pasos[i].id) && p.op === plan.pasos[i].op);
+        && guardados.every((p, i) => String(p.id) === String(plan.pasos[i].id)
+          && p.op === plan.pasos[i].op
+          && String(p.sistema || '') === String(plan.pasos[i].sistema || ''));
       if (!misma) {
         store.soltar(id, 'el árbol del casino cambió desde el intento anterior');
         return { ok: false, status: 409, quedoAMedias: true,
@@ -126,25 +141,81 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
       pasos = guardados;
     }
 
-    const t = await casino.testConnection(sys.url, sys.user, sys.password);
-    if (!t.ok || !t.sessionCookie) {
-      store.soltar(id, 'no se pudo autenticar contra el casino');
-      return { ok: false, status: 502, error: `no se pudo entrar al panel de ${origen.sistema} — revisá usuario y contraseña de esa conexión` };
+    /* ── LAS DOS SESIONES ────────────────────────────────────────────────────────────────
+       Un pase corre contra DOS instalaciones, así que hace falta una sesión por plataforma. Se
+       entra a las dos ANTES de mover una ficha: descubrir que no se puede entrar a la segunda con
+       las fichas ya afuera del panel del cliente es exactamente el estado que hay que evitar. */
+    const sesiones = {};
+    const sistemas = plan.cruce ? [origen.sistema, destino.sistema] : [origen.sistema];
+    for (const nom of sistemas) {
+      const sy = sistemaParaCargar(nom);
+      if (!sy || !sy.password) {
+        store.soltar(id, `no hay con qué operar en ${nom}`);
+        return { ok: false, status: 400, error: `no hay con qué operar en "${nom}": marcá una conexión con "carga fichas de ${nom}" y con contraseña guardada` };
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const t = await casino.testConnection(sy.url, sy.user, sy.password);
+      if (!t.ok || !t.sessionCookie) {
+        store.soltar(id, `no se pudo autenticar contra ${nom}`);
+        return { ok: false, status: 502, error: `no se pudo entrar al panel de ${nom} — revisá usuario y contraseña de esa conexión` };
+      }
+      sesiones[nom] = { url: sy.url, cookie: t.sessionCookie };
     }
 
-    log(`[Mover] ${id}: ${m0.monto} ${m0.divisa} · ${plan.pasos.map((p) => `${p.op}(${p.login})`).join(' → ')}`);
-    const r = await cascada.ejecutar({
-      url: sys.url, sessionCookie: t.sessionCookie, monto: m0.monto, divisa: m0.divisa,
-      pasos, serie: `${origen.sistema}|${plan.superagenteId}`, log,
-      // Después de CADA paso, no al final: si el proceso se muere, lo ya movido tiene que estar
-      // escrito o el reintento lo repite.
-      onPaso: (hechos) => store.guardarPasos(id, hechos),
-    });
+    /* ¿Puede recibir el destino? Antes de sacar una sola ficha. Sólo si NO se empezó todavía:
+       retomando uno a medias, la mitad de arriba ya salió y frenar acá no arregla nada. */
+    if (plan.cruce && !pasos.some((x) => x.estado === 'ok')) {
+      const noPuede = await destinoPuedeRecibir({
+        plan, sys: sistemaParaCargar(destino.sistema), monto: m0.monto, divisa: m0.divisa, log });
+      if (noPuede) {
+        store.soltar(id, 'el destino no tenía saldo');
+        return { ok: false, status: 400, error: noPuede };
+      }
+    }
+
+    log(`[Mover] ${id}: ${m0.monto} ${m0.divisa}${plan.cruce ? ' · PASE ' + origen.sistema + '→' + destino.sistema : ''} · ${plan.pasos.map((p) => `${p.op}(${p.login})`).join(' → ')}`);
+
+    /* ── EL PASE, EN DOS TRAMOS ──────────────────────────────────────────────────────────
+       Cada mitad corre contra su plataforma. El orden —primero sacar, después poner— NO es un
+       detalle: si se pusiera primero y se cortara, el cliente se quedaría con las fichas de
+       regalo y ninguna pantalla lo diría. Sacando primero, si se corta el cliente queda corto y
+       las fichas están en el SuperAgente de origen, que es un lugar real y con saldo visible.
+       Un tramo que ya está entero en 'ok' no se vuelve a correr: por eso reintentar no repite el
+       retiro. */
+    const tramos = plan.cruce
+      ? [{ sis: origen.sistema, desde: 0, hasta: plan.pasos.findIndex((x) => x.op === 'in') },
+        { sis: destino.sistema, desde: plan.pasos.findIndex((x) => x.op === 'in'), hasta: plan.pasos.length }]
+      : [{ sis: origen.sistema, desde: 0, hasta: plan.pasos.length }];
+
+    let r = { ok: true, pasos };
+    for (const tr of tramos) {
+      const trozo = pasos.slice(tr.desde, tr.hasta);
+      if (!trozo.length || trozo.every((x) => x.estado === 'ok')) continue;   // ya está hecho
+      const se = sesiones[tr.sis];
+      // eslint-disable-next-line no-await-in-loop
+      const rt = await cascada.ejecutar({
+        url: se.url, sessionCookie: se.cookie, monto: m0.monto, divisa: m0.divisa,
+        pasos: trozo,
+        serie: `${tr.sis}|${tr.desde === 0 ? plan.superagenteId : plan.superagenteDestinoId}`, log,
+        // Después de CADA paso, no al final: si el proceso se muere, lo ya movido tiene que estar
+        // escrito o el reintento lo repite. Se guarda la lista ENTERA, con el tramo puesto en su
+        // lugar, para que al retomar se sepa qué mitad ya salió.
+        onPaso: (hechos) => {
+          hechos.forEach((h, k) => { pasos[tr.desde + k] = h; });
+          store.guardarPasos(id, pasos);
+        },
+      });
+      (rt.pasos || []).forEach((h, k) => { pasos[tr.desde + k] = h; });
+      store.guardarPasos(id, pasos);
+      if (!rt.ok) { r = { ...rt, pasos, trabadoEn: rt.trabadoEn }; break; }
+      r = { ok: true, pasos, newBalance: rt.newBalance };
+    }
+
     if (!r.ok) {
       store.soltar(id, r.error || 'la cadena se cortó');
-      const donde = r.trabadoEn ? ` Quedaron en "${r.trabadoEn.login}".` : ' No se movió nada.';
-      return { ok: false, status: 502, quedoAMedias: !!r.trabadoEn,
-        error: `El movimiento se cortó: ${r.error || 'el casino no confirmó un paso'}.${donde} `
+      const donde = dondeEstan(plan, pasos, origen, destino);
+      return { ok: false, status: 502, quedoAMedias: pasos.some((x) => x.estado === 'ok'),
+        error: `El movimiento se cortó: ${r.error || 'el casino no confirmó un paso'}. ${donde} `
           + 'Reintentar retoma desde el paso que falló — los que ya salieron no se repiten.' };
     }
 
@@ -160,6 +231,53 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
     // imposible de destrabar hasta reiniciar.
     store.quitarEnCurso(id);
   }
+}
+
+/**
+ * DÓNDE ESTÁN LAS FICHAS AHORA. Es lo único que importa cuando algo se cortó.
+ *
+ * ⚠️ ANTES ESTE TEXTO MENTÍA, y en un pase la mentira cuesta encontrar la plata. Decía «quedaron
+ * en X» nombrando el último paso que salió bien — pero un `out(X)` que salió bien mandó las fichas
+ * al PADRE de X, no las dejó en X. Un `in(X)` sí las deja ahí.
+ */
+function dondeEstan(plan, pasos, origen, destino) {
+  const ok = pasos.filter((x) => x.estado === 'ok');
+  if (!ok.length) return 'No se movió nada: siguen donde estaban.';
+  const ult = ok[ok.length - 1];
+  if (ult.op === 'in') return `Quedaron en "${ult.login}".`;
+  // Fue un retiro: subieron un escalón. En un pase, ese escalón es el SuperAgente de origen.
+  const idx = pasos.indexOf(ult);
+  const arriba = pasos.slice(0, idx).reverse().find((x) => x.op === 'out');
+  const donde = arriba ? arriba.login : (plan.apoyoOrigen ? plan.apoyoOrigen.login : null);
+  return donde
+    ? `Salieron de "${ult.login}" y quedaron en "${donde}"${plan.cruce ? ` (${origen.sistema})` : ''}. `
+      + 'Ahí las podés ver mirando su saldo.'
+    : `Salieron de "${ult.login}".`;
+}
+
+/**
+ * ¿PUEDE RECIBIR EL DESTINO? Se pregunta ANTES de sacar una sola ficha.
+ *
+ * En un pase las dos mitades son independientes: si la de abajo no puede correr, la de arriba ya
+ * dejó al cliente corto. Descubrirlo antes convierte «quedó a medias» en «no se pudo», que es un
+ * problema mucho más barato. Devuelve el motivo si NO se puede, o null si está bien.
+ *
+ * Si no se puede leer el saldo, NO se frena: el pase sigue. Un chequeo de más que se cae solo no
+ * puede convertirse en un motivo para no trabajar; lo que hace es sacar el caso conocido.
+ */
+async function destinoPuedeRecibir({ plan, sys, monto, divisa, log = () => {} }) {
+  if (!plan.cruce || !plan.apoyoDestino || !sys || !sys.id) return null;
+  try {
+    const cli = require('./casino-conexiones-store').client(sys.id);
+    if (!cli) return null;
+    const r = await cli.totalNodo({ id: plan.apoyoDestino.id, cur: divisa });
+    const saldo = r && r.ok ? Number(r.balance != null ? r.balance : r.total) : NaN;
+    if (!isFinite(saldo)) return null;
+    log(`[Mover] saldo de ${plan.apoyoDestino.login}: ${saldo} ${divisa}`);
+    if (saldo >= Number(monto)) return null;
+    return `"${plan.apoyoDestino.login}" tiene ${saldo.toLocaleString('es-AR')} ${divisa} y hacen falta `
+      + `${Number(monto).toLocaleString('es-AR')}. No se sacó nada del origen: cargale saldo y volvé a intentar.`;
+  } catch (e) { log(`[Mover] no se pudo leer el saldo del destino: ${e.message}`); return null; }
 }
 
 /**
@@ -185,4 +303,4 @@ function avisarAlGrupo({ m, origen, destino, log = () => {} }) {
   } catch (e) { log(`[Telegram] aviso de movimiento error: ${e.message}`); }
 }
 
-module.exports = { ejecutar, revisar };
+module.exports = { ejecutar, revisar, dondeEstan, destinoPuedeRecibir };

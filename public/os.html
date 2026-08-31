@@ -837,6 +837,8 @@ async function movimientosPanel(soloPendientes){
     +'Las fichas suben del panel de origen hasta el ancestro que los dos comparten y bajan hasta el destino: '
     +'no se crea ni se destruye ninguna. Si la cadena se corta, quedan en el último eslabón que sí se movió y '
     +'<b>Reintentar</b> retoma desde ahí — lo que ya salió no se repite.'
+    +'<div style="margin-top:12px"><button class="outline small" onclick="paseAbrir()">↔ Pasar de un sistema al otro</button></div>'
+    +'<div id="pase-caja"></div>'
     +'<table style="margin-top:8px"><thead><tr><th>Cliente</th><th>De → a</th><th class="right">Monto</th>'
     +'<th>Estado</th><th>Pedido</th><th></th></tr></thead><tbody>'
     +ms.map(m=>{
@@ -861,6 +863,74 @@ async function movimientosPanel(soloPendientes){
       +'</td></tr>';
     }).join('')
     +'</tbody></table></div>';
+}
+
+/* ── PASAR DE UN SISTEMA AL OTRO ────────────────────────────────────────────────────────────
+   Casino y Europa son dos casinos distintos: una ficha de uno no existe en el otro y no hay
+   ninguna llamada que la cruce. Esto NO es un traslado, son dos operaciones: se retira de un lado
+   y se carga del otro. Los textos lo dicen así en todos lados a propósito. */
+let _paseOrigen=null;
+async function paseAbrir(){
+  const c=document.getElementById('pase-caja');
+  if(c.dataset.abierto==='1'){ c.innerHTML=''; c.dataset.abierto=''; return; }
+  c.dataset.abierto='1';
+  c.innerHTML='<div class="nota-suave">Buscando los paneles…</div>';
+  const r=await api('/api/os/paneles');
+  const ps=(r.paneles||r.items||r||[]).filter(p=>p.id_usuario&&p.cliente_id);
+  ps.sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)));
+  c.innerHTML='<div class="nota-suave" style="margin-top:10px">'
+    +'<b>Esto no traslada fichas: las saca de un lado y las pone del otro.</b><br>'
+    +'Son dos casinos distintos. Se retira del panel de origen —quedan en su SuperAgente— y se carga '
+    +'en el de destino desde el SuperAgente de esa otra plataforma. '
+    +'Antes de sacar nada se comprueba que el destino tenga saldo.'
+    +'<div class="row" style="gap:10px;align-items:flex-end;margin-top:12px">'
+    +'<div style="flex:1;min-width:220px"><label>Sacar de</label>'
+    +'<select id="pase-o" onchange="paseDestinos()" style="width:100%"><option value="">— elegí el panel —</option>'
+    + ps.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nombre)+' · '+esc(p.sistema)+'</option>').join('')
+    +'</select></div>'
+    +'<div style="flex:1;min-width:220px"><label>Poner en</label>'
+    +'<select id="pase-d" style="width:100%"><option value="">— elegí primero de dónde sale —</option></select></div>'
+    +'<div style="flex:0 0 110px"><label>Divisa</label><select id="pase-div" style="width:100%"></select></div>'
+    +'<div style="flex:0 0 150px"><label>Monto</label><input id="pase-m" inputmode="decimal" '+NOFILL+' style="width:100%"></div>'
+    +'<div style="flex:0"><button class="grave" onclick="paseHacer()">Pasar</button></div>'
+    +'</div><div id="pase-msg" class="muted" style="margin-top:8px"></div></div>';
+}
+async function paseDestinos(){
+  const o=document.getElementById('pase-o').value;
+  const d=document.getElementById('pase-d'), dv=document.getElementById('pase-div');
+  if(!o){ d.innerHTML='<option value="">— elegí primero de dónde sale —</option>'; return; }
+  const r=await api('/api/os/movimientos-panel/destinos/'+o);
+  if(!r||!r.ok){ d.innerHTML='<option value="">no se pudo</option>'; return; }
+  /* Sólo los del MISMO cliente en la OTRA plataforma: el servidor decide, no la pantalla. */
+  d.innerHTML=(r.destinos||[]).length
+    ? '<option value="">— elegí el panel —</option>'+r.destinos.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nombre)+' · '+esc(p.sistema)+'</option>').join('')
+    : '<option value="">ese cliente no tiene paneles en la otra plataforma</option>';
+  const divs=(r.origen&&r.origen.divisas&&r.origen.divisas.length)?r.origen.divisas:['ARS'];
+  dv.innerHTML=divs.map(x=>'<option>'+esc(x)+'</option>').join('');
+}
+async function paseHacer(){
+  const o=document.getElementById('pase-o'), d=document.getElementById('pase-d');
+  const monto=document.getElementById('pase-m').value.trim();
+  const div=document.getElementById('pase-div').value;
+  const msg=document.getElementById('pase-msg');
+  if(!o.value||!d.value||!monto){ msg.textContent='Faltan datos.'; return; }
+  const nomO=o.options[o.selectedIndex].text, nomD=d.options[d.selectedIndex].text;
+  /* El confirm nombra las dos plataformas y dice que son dos operaciones: es lo que evita que se
+     lea como un traslado gratis. */
+  if(!confirm('PASAR DE UN SISTEMA AL OTRO\n\n'
+    +'Sacar '+monto+' '+div+' de:  '+nomO+'\n'
+    +'Poner '+monto+' '+div+' en:  '+nomD+'\n\n'
+    +'Son DOS operaciones contra dos casinos distintos, no un traslado.\n'
+    +'Si se corta en el medio, las fichas quedan en el SuperAgente del origen.\n\n¿Seguimos?')) return;
+  msg.textContent='Pasando… no cierres esta pantalla.';
+  // El cliente lo deduce el servidor del panel de origen: la pantalla no se lo manda.
+  const r=await api('/api/os/movimientos-panel/pase',{method:'POST',body:JSON.stringify({
+    origen_panel_id:o.value, destino_panel_id:d.value, divisa:div, monto:monto})});
+  if(r&&r.ok){ msg.textContent=''; toast('Pasado'); movAviso(); movimientosPanel(); return; }
+  const e=(r&&r.error)||'no se pudo';
+  msg.textContent='';
+  alert(r&&r.quedoAMedias ? ('⚠️ QUEDÓ A MEDIAS\n\n'+e) : ('No se pudo pasar:\n\n'+e));
+  movimientosPanel();
 }
 
 async function movEjecutar(id){

@@ -110,10 +110,39 @@ function pasosDeMovimiento({ origen, destino, divisa }) {
   }
 
   const co = caminoDe(origen); const cd = caminoDe(destino);
+
+  /* ── PASAR DE UNA PLATAFORMA A LA OTRA ────────────────────────────────────────────────────
+     Casino y Europa son dos instalaciones separadas —dos dominios, dos bases— y no comparten ni
+     un nodo. El prefijo común no se calcula: se sabe que es cero.
+
+     ⚠️ Y NO SE CALCULA A PROPÓSITO. Los ids de usuario salen de una secuencia propia de cada
+     instalación y pueden coincidir: dos ids iguales de plataformas distintas se leerían como "el
+     mismo nodo", el recorte se comería eslabones de las dos ramas, y la cadena sacaría de un lado
+     sin cerrar del otro sin que nada lo diga.
+
+     ⚠️ LA CADENA PARA EN EL SUPERAGENTE DE CADA LADO, y ése es el punto entero del diseño. Arriba
+     del SuperAgente no hay ninguna cuenta con saldo: las credenciales con las que el sistema se
+     conecta son de administración y no tienen billetera —está medido—. Si la cadena subiera más
+     allá, las fichas quedarían en un lugar que no se puede mirar, y si el pase se corta en el
+     medio no habría forma de encontrarlas. El SuperAgente sí es una billetera de verdad, con
+     saldo finito y visible, así que ahí descansan y ella lo comprueba mirando el número.
+
+     Es la misma regla de siempre, no una excepción: el nodo donde se apoyan las dos mitades nunca
+     es un paso, porque recibe de una rama y entrega a la otra. Adentro de un sistema ese nodo es
+     el ancestro común; cruzando son dos, uno por plataforma. */
+  const cruce = String(origen.sistema || '').toLowerCase() !== String(destino.sistema || '').toLowerCase();
   let i = 0;
-  while (i < co.length && i < cd.length && co[i].id === cd[i].id) i += 1;   // hasta dónde comparten
-  const subir = co.slice(i).reverse().map((x) => ({ ...x, op: 'out' }));
-  const bajar = cd.slice(i).map((x) => ({ ...x, op: 'in' }));
+  if (cruce) {
+    i = 1;                                   // el SuperAgente de cada lado: apoyo, no paso
+  } else {
+    while (i < co.length && i < cd.length && co[i].id === cd[i].id) i += 1;  // hasta dónde comparten
+  }
+  /* Cada paso lleva SU plataforma: la mitad de arriba corre contra una sesión y la de abajo contra
+     otra, y sin la etiqueta no hay forma de saber cuál es cuál al retomar uno a medias. En un
+     movimiento común las dos son la misma y nada cambia. */
+  const tag = (x, sis) => ({ ...x, sistema: sis || null });
+  const subir = co.slice(i).reverse().map((x) => ({ ...tag(x, cruce ? origen.sistema : null), op: 'out' }));
+  const bajar = cd.slice(i).map((x) => ({ ...tag(x, cruce ? destino.sistema : null), op: 'in' }));
   const pasos = [...subir, ...bajar];
   if (pasos.length) pasos[pasos.length - 1].destino = true;
 
@@ -126,9 +155,15 @@ function pasosDeMovimiento({ origen, destino, divisa }) {
 
   return {
     pasos, bloqueo, sinLaDivisa, divisa: div,
-    pivote: i > 0 ? co[i - 1] : null,     // el ancestro común; null = los dos cuelgan de la casa
+    cruce,
+    // Dónde descansan las fichas entre las dos mitades, uno por lado. Es lo que hay que mirar si
+    // el pase queda a medias, y lo que hay que comprobar que tenga saldo ANTES de sacar nada.
+    apoyoOrigen: cruce ? co[0] : null,
+    apoyoDestino: cruce ? cd[0] : null,
+    pivote: i > 0 && !cruce ? co[i - 1] : null,   // el ancestro común, cuando es uno solo
     // Serie: se toma la raíz del camino del origen para no pisarse con una carga del mismo árbol.
     superagenteId: String(co[0].id),
+    superagenteDestinoId: String(cd[0].id),
   };
 }
 

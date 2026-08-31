@@ -6002,12 +6002,62 @@ async function main() {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
     check('mover: el permiso mover_balance se comprueba al ejecutar', /cli\.mover_balance/.test(src));
     check('mover: se comprueba que los dos paneles sean del cliente', /no es de ese cliente/.test(src));
-    check('mover: no se cruzan sistemas', /entre sistemas distintos/.test(src));
+    /* Cruzar de plataforma SE PUEDE, pero lo origina ella. El cliente pide desde una pantalla
+       donde ni se entera de que hay dos plataformas: un pedido suyo que cruzara sería un pedido
+       que no entendió lo que estaba pidiendo. */
+    check('mover: el cliente no puede pedir un pase entre plataformas',
+      /permitirCruce/.test(src) && /pase entre plataformas/.test(src));
+    check('mover: y ella sí, aprobándolo desde el panel',
+      /revisar\(m0, \{ permitirCruce: true \}\)/.test(src));
     // ── LO QUE MÁS IMPORTA: UN MOVIMIENTO NO PUEDE USAR LA CASCADA DE CARGA ──
     // Esa cascada FUNDE fichas desde el SuperAgente, que tiene saldo ilimitado. Usarla para mover
     // regala fichas cuando los dos paneles están emparentados, y cuadra en todas las pantallas.
     check('mover: NO se usa la cascada de carga', !/pasosDe\(\{/.test(src) && /pasosDeMovimiento/.test(src));
-    check('mover: los pasos se guardan después de cada uno', /onPaso: \(hechos\) => store\.guardarPasos/.test(src));
+    check('mover: los pasos se guardan después de cada uno',
+      /onPaso:/.test(src) && /store\.guardarPasos\(id, pasos\)/.test(src));
+    /* El orden NO es un detalle: si se cargara primero y se cortara, el cliente se quedaría con
+       las fichas de regalo y ninguna pantalla lo diría. */
+    check('mover: en un pase se saca primero y se pone después',
+      /op === 'in'/.test(src) && src.indexOf('sis: origen.sistema') < src.indexOf('sis: destino.sistema'));
+    check('mover: antes de sacar nada se comprueba que el destino pueda recibir',
+      /destinoPuedeRecibir/.test(src) && /No se sacó nada del origen/.test(src));
+    check('mover: el texto de dónde quedaron las fichas ya no nombra el nodo equivocado',
+      /function dondeEstan/.test(src) && /al PADRE de X/.test(src),
+      'un out(X) que salió bien NO deja las fichas en X');
+    /* La cadena de un pase: dos pasos, y el SuperAgente de cada lado es el APOYO, no un paso. */
+    const casc = require('../src/carga-cascada.service');
+    const mkPan = (nom, sis, uid, saId, saNom) => ({ id: 'p_' + nom, nombre: nom, sistema: sis,
+      arbol_at: 'x', id_usuario: uid, usuario: nom, nivel_usuario: 'Distribuidor', divisas: ['ARS'],
+      escala: [{ id: saId, login: saNom, nivel: 'SuperAgente', divisas: ['ARS'] }] });
+    const planPase = casc.pasosDeMovimiento({
+      origen: mkPan('OrigCas', 'Casino', '111', '900', 'SA-Casino'),
+      destino: mkPan('DestEur', 'Europa', '222', '901', 'SA-Europa'), divisa: 'ARS' });
+    check('pase: la cadena entre plataformas son DOS pasos, uno por lado',
+      planPase.cruce === true && !planPase.bloqueo && planPase.pasos.length === 2
+      && planPase.pasos[0].op === 'out' && planPase.pasos[0].login === 'OrigCas'
+      && planPase.pasos[1].op === 'in' && planPase.pasos[1].login === 'DestEur',
+      planPase.pasos.map((x) => `${x.op}(${x.login})`).join(' → '));
+    /* ⚠️ Arriba del SuperAgente no hay ninguna cuenta con saldo — las credenciales con las que el
+       sistema se conecta son de administración y no tienen billetera. Si la cadena subiera más
+       allá, las fichas quedarían donde no se pueden mirar. */
+    check('pase: el SuperAgente de cada lado es donde descansan, no un paso',
+      !planPase.pasos.some((x) => /^SA-/.test(x.login))
+      && planPase.apoyoOrigen.login === 'SA-Casino' && planPase.apoyoDestino.login === 'SA-Europa');
+    check('pase: cada paso sabe contra qué plataforma corre',
+      planPase.pasos[0].sistema === 'Casino' && planPase.pasos[1].sistema === 'Europa',
+      'sin la etiqueta no hay forma de saber qué mitad ya salió al retomar');
+    /* Un movimiento del MISMO sistema tiene que salir igual que siempre. */
+    const planMismo = casc.pasosDeMovimiento({
+      origen: mkPan('A', 'Casino', '111', '900', 'SA-Casino'),
+      destino: mkPan('B', 'Casino', '222', '900', 'SA-Casino'), divisa: 'ARS' });
+    check('pase: un movimiento del mismo sistema no cambió en nada',
+      planMismo.cruce === false && planMismo.pasos.length === 2
+      && planMismo.pivote && planMismo.pivote.login === 'SA-Casino'
+      && planMismo.pasos.every((x) => x.sistema === null),
+      'el ancestro común sigue sin ser un paso');
+    check('mover: al retomar se compara también la plataforma de cada paso',
+      /String\(p\.sistema \|\| ''\) === String\(plan\.pasos\[i\]\.sistema \|\| ''\)/.test(src),
+      'dos ids iguales de plataformas distintas comparan iguales y saltearían media cadena');
 
     // La ruta del cliente sólo CREA. Ejecutar vive en /api/os/*, que pide sesión.
     const auth = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
