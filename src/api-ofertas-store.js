@@ -459,7 +459,12 @@ function armarDesdeBase(base) {
  *    costo, y deja Básico y Live como están. Y devuelve el detalle de qué movería ANTES de mover,
  *    porque esto cambia lo que ve el cliente en el documento.
  */
-const TECHO_BASICO_PLUS = 5;   // hasta acá es "barato": lo mismo que se cobraba a base+2
+/* 🔑 EL CORTE SALE DE LO QUE SE COBRABA, y está entre 3 y 4 — no en un número redondo:
+     Aviator (1,5) se vendió a 12 · Spribe SR (3) a 12   → base+2, son Básico +
+     Altente (4) se vendió a 14   · Tom Horn (5) a 14    → base+4, ésos son Premium
+   Con el techo en 5 se bajaban Altente y Tom Horn dos puntos por debajo de lo que siempre
+   costaron, que es regalar sin que nadie lo pida. */
+const TECHO_BASICO_PLUS = 3;
 
 function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
   const paquetes = listPaquetes();
