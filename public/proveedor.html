@@ -36,6 +36,9 @@
     color:var(--tenue); font-weight:700; padding:0 8px 7px; border-bottom:1px solid var(--linea) }
   td{ padding:9px 8px; border-bottom:1px solid var(--linea); font-size:14.5px }
   tr:last-child td{ border-bottom:0 }
+  /* Una caja que movió dos monedas: el segundo renglón es continuación del primero, no otra caja. */
+  tr.sigue td{ border-top:0; padding-top:0 }
+  tr.sigue + tr:not(.sigue) td{ border-top:1px solid var(--linea) }
   .r{ text-align:right }
   .tenue{ color:var(--tenue); font-size:13px }
   .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; word-break:break-all }
@@ -121,18 +124,45 @@ async function cargar() {
     + tile('Mantenimiento', mt, (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') : ''))
     + '</div></div>';
 
-  /* Las cajas: el profit de cada una y lo que te toca por ella. Es lo primero que se mira. */
+  /* El total del mes por moneda: es contra esto que compara el panel del casino. */
+  if ((d.monedas || []).length) {
+    h += '<div class="card"><h2>Ganancia de ' + esc(mesLindo(d.mes)) + '</h2>'
+      + '<div class="desplaza"><table><thead><tr><th>Moneda</th><th class="r">Ganancia</th>'
+      + '<th class="r">Tipo de cambio</th><th class="r">En USDT</th></tr></thead><tbody>'
+      + d.monedas.map((m) => '<tr><td><b>' + esc(m.moneda) + '</b></td>'
+        + '<td class="r">' + num(m.profit) + '</td>'
+        + '<td class="r tenue">' + (m.tc ? num(m.tc, 4) : '—') + '</td>'
+        + '<td class="r"><b>' + (m.usdt == null ? '—' : num(m.usdt)) + '</b></td></tr>').join('')
+      + '</tbody></table></div>'
+      + ((d.sinTC || []).length
+        ? '<p class="tenue" style="margin:10px 0 0">⚠️ Falta el tipo de cambio de <b>'
+          + d.sinTC.map(esc).join(', ') + '</b> este mes: lo ganado en esa moneda todavía no está '
+          + 'sumado en el total.</p>'
+        : '')
+      + '</div>';
+  }
+
+  /* Las cajas, con la ganancia en su moneda, el TC y el USDT. Sin el tipo de cambio no puede
+     rehacer la cuenta con una calculadora, que es lo primero que va a querer hacer contra su
+     propio panel. Una caja que movió dos monedas lleva un renglón por cada una. */
   h += '<div class="card"><h2>Las cajas de ' + esc(mesLindo(d.mes)) + '</h2>';
   h += (d.cajas || []).length
     ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
-      + '<th class="r">Profit</th><th class="r">Te toca</th></tr></thead><tbody>'
-      + d.cajas.map((c) => '<tr><td><b>' + esc(c.caja) + '</b>'
-        + (c.monedas && c.monedas.length > 1
-          ? '<div class="tenue">' + c.monedas.map((m) => esc(m.moneda)).join(' · ') + '</div>' : '')
-        + '</td><td class="tenue">' + esc(c.cliente) + '</td>'
-        + '<td class="r">' + num(c.profit) + '</td>'
-        + '<td class="r"><b>' + num(c.paga) + '</b></td></tr>').join('')
+      + '<th class="r">Ganancia</th><th class="r">Tipo de cambio</th>'
+      + '<th class="r">En USDT</th><th class="r">Te toca</th></tr></thead><tbody>'
+      + d.cajas.map((c) => {
+        const ms = (c.monedas && c.monedas.length) ? c.monedas : [{ moneda: '—', profit: 0, tc: null, usdt: c.profit }];
+        return ms.map((m, i) => '<tr' + (i ? ' class="sigue"' : '') + '>'
+          + '<td>' + (i ? '' : '<b>' + esc(c.caja) + '</b>') + '</td>'
+          + '<td class="tenue">' + (i ? '' : esc(c.cliente)) + '</td>'
+          + '<td class="r"><span class="tenue">' + esc(m.moneda) + '</span> ' + num(m.profit) + '</td>'
+          + '<td class="r tenue">' + (m.tc ? num(m.tc, 4) : '—') + '</td>'
+          + '<td class="r">' + (m.usdt == null ? '—' : num(m.usdt)) + '</td>'
+          + '<td class="r">' + (i ? '' : '<b>' + num(c.paga) + '</b>') + '</td></tr>').join('');
+      }).join('')
       + '</tbody></table></div>'
+      + '<p class="tenue" style="margin:10px 0 0">La ganancia sale del reporte diario de cada caja. '
+      + 'El tipo de cambio es el del mes, el mismo para todas.</p>'
     : '<div class="vacio">Todavía no hay cajas con movimiento este mes.</div>';
   h += '</div>';
 

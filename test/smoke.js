@@ -2682,6 +2682,20 @@ async function main() {
     check('proveedor: ve el profit de cada caja y lo que le toca por ella',
       Array.isArray(provDoc.cajas)
       && provDoc.cajas.every((c) => c.profit !== undefined && c.paga !== undefined && !('cobra' in c)));
+    /* Sin el tipo de cambio no puede rehacer la cuenta con una calculadora contra su propio panel,
+       que es lo primero que va a querer hacer. Con el USDT solo, tiene que creernos. */
+    check('proveedor: cada caja lleva la ganancia en su moneda, el TC y el USDT',
+      (provDoc.cajas || []).every((c) => Array.isArray(c.monedas)
+        && c.monedas.every((m) => 'moneda' in m && 'tc' in m && 'usdt' in m)));
+    check('proveedor: y el total del mes por moneda, para comparar de un vistazo',
+      Array.isArray(provDoc.monedas)
+      && provDoc.monedas.every((m) => 'moneda' in m && 'profit' in m && 'tc' in m && 'usdt' in m));
+    /* Si falta un TC, lo ganado en esa moneda vale cero y el total le queda CORTO: que lo descubra
+       solo es peor que avisarle. */
+    check('proveedor: si falta un tipo de cambio, se le avisa',
+      Array.isArray(provDoc.sinTC)
+      && /Falta el tipo de cambio de/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));
     check('proveedor: ve el mantenimiento caja por caja',
       Array.isArray(provDoc.mantenimiento));
     check('proveedor: y los pagos con dónde y cuándo',

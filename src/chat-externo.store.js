@@ -1459,10 +1459,28 @@ function paraElProveedor(mes) {
     monto: x.monto,
   })).sort((a, b) => a.caja.localeCompare(b.caja));
 
+  /* El total del mes por moneda. Es contra lo que él va a comparar el panel del casino: mirar
+     seis renglones y sumarlos a mano es donde aparece la discusión que no existía. */
+  const monedas = [];
+  for (const c of cajas) {
+    for (const x of c.monedas) {
+      const y = monedas.find((z) => z.moneda === x.moneda);
+      if (y) {
+        y.profit = money.add(y.profit, x.profit);
+        y.usdt = (y.usdt == null || x.usdt == null) ? null : money.add(y.usdt, x.usdt);
+      } else monedas.push({ ...x });
+    }
+  }
+  monedas.sort((a2, b2) => Number(b2.usdt || 0) - Number(a2.usdt || 0));
+
   const dp = deudaProveedor(m);
   return {
     mes: m,
     pct: pc.costo_pct,                 // SU porcentaje, que él ya conoce
+    monedas,
+    /* Si falta un tipo de cambio, lo ganado en esa moneda vale cero y el total queda CORTO. Se lo
+       decimos: que descubra solo que le liquidaron de menos es peor que avisarle. */
+    sinTC: pc.sinTC || [],
     cajas,
     mantenimiento,
     /* Lo que se le debe y lo que se le pagó, abierto en las dos cosas. Los pagos van con dónde y
