@@ -144,7 +144,16 @@ async function cargar() {
 
   /* Las cajas, con la ganancia en su moneda, el TC y el USDT. Sin el tipo de cambio no puede
      rehacer la cuenta con una calculadora, que es lo primero que va a querer hacer contra su
-     propio panel. Una caja que movió dos monedas lleva un renglón por cada una. */
+     propio panel.
+
+     ⚠️ UNA CAJA TIENE UNA SOLA MONEDA, y por eso va en UN renglón. No es una simplificación
+     cómoda: por el nivel que son, un Agente o un Distribuidor maneja una sola divisa —medido
+     sobre los 73 que hay, ninguno tiene más de una— y sólo los SuperAgentes manejan varias, que
+     no son cajas de nadie. Las 7 cajas del chat son todas Agente.
+
+     El renglón de más queda igual para el caso que no debería pasar: si una caja apareciera con
+     dos monedas, mostrar sólo la primera sería esconder plata. Se muestran las dos Y se avisa,
+     porque significa que algo está mal cargado. */
   h += '<div class="card"><h2>Las cajas de ' + esc(mesLindo(d.mes)) + '</h2>';
   h += (d.cajas || []).length
     ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
@@ -161,6 +170,9 @@ async function cargar() {
           + '<td class="r">' + (i ? '' : '<b>' + num(c.paga) + '</b>') + '</td></tr>').join('');
       }).join('')
       + '</tbody></table></div>'
+      + ((d.cajas || []).some((c) => (c.monedas || []).length > 1)
+        ? '<p class="tenue" style="margin:10px 0 0;color:var(--debe)">⚠️ Alguna caja figura con más '
+          + 'de una moneda. No debería: avisanos antes de tomar estos números.</p>' : '')
       + '<p class="tenue" style="margin:10px 0 0">La ganancia sale del reporte diario de cada caja. '
       + 'El tipo de cambio es el del mes, el mismo para todas.</p>'
     : '<div class="vacio">Todavía no hay cajas con movimiento este mes.</div>';

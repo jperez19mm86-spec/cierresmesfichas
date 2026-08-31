@@ -2687,6 +2687,19 @@ async function main() {
     check('proveedor: cada caja lleva la ganancia en su moneda, el TC y el USDT',
       (provDoc.cajas || []).every((c) => Array.isArray(c.monedas)
         && c.monedas.every((m) => 'moneda' in m && 'tc' in m && 'usdt' in m)));
+    /* ⚠️ UNA CAJA TIENE UNA SOLA MONEDA. Por el nivel que son —Agente o Distribuidor— manejan una
+       sola divisa; sólo los SuperAgentes manejan varias, y ésos no son cajas de nadie. Este check
+       lo deja escrito contra los datos, para que el día que aparezca una con dos se sepa que es un
+       dato mal cargado y no una funcionalidad. */
+    const nivelesMulti = panSt.list()
+      .filter((p) => (p.divisas || []).length > 1)
+      .map((p) => p.nivel_usuario || '(sin nivel)');
+    check('paneles: sólo los SuperAgentes manejan más de una divisa',
+      nivelesMulti.every((n) => n === 'SuperAgente'),
+      nivelesMulti.length ? `${nivelesMulti.length} con varias, todos ${[...new Set(nivelesMulti)].join('/')}` : 'ninguno tiene varias');
+    check('proveedor: si una caja apareciera con dos monedas, se avisa en vez de esconder plata',
+      /Alguna caja figura con más/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));
     check('proveedor: y el total del mes por moneda, para comparar de un vistazo',
       Array.isArray(provDoc.monedas)
       && provDoc.monedas.every((m) => 'moneda' in m && 'profit' in m && 'tc' in m && 'usdt' in m));
