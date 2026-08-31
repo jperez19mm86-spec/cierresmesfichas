@@ -411,10 +411,13 @@
   }
 
   /* ─── MOVER FICHAS ENTRE USUARIOS PROPIOS ──────────────────────────────────────────────────
-     Cuatro pasos: de dónde, a dónde, en qué moneda y cuánto. El destino se ofrece filtrado — sólo
-     los usuarios de la misma plataforma que el origen — porque un movimiento entre plataformas
-     distintas no existe: son dos casinos. El cliente no ve nombres de plataformas, sólo que
-     algunos usuarios no aparecen como destino. */
+     Cuatro pasos: de dónde, a dónde, en qué moneda y cuánto. Se ofrecen TODOS sus usuarios como
+     destino, sin filtrar: el pedido queda esperando aprobación y del resto se encarga el panel.
+
+     Antes algunos usuarios no aparecían como destino y no había forma de entender por qué.
+
+     ⚠️ ESTE ARCHIVO LO RECIBE EL CLIENTE: no se nombra acá nada interno, ni siquiera en un
+     comentario — se lee en el código fuente. Hay un test que lo comprueba. */
   function movReset() {
     _movOrigen = null; _movDestino = null; _movDivisa = null;
     document.getElementById('movMonto').value = '';
@@ -430,7 +433,7 @@
     if (el) el.classList.add('sel');
     ['cardMovDivisa','cardMovMonto','btnMover'].forEach(i => show(i, false));
 
-    const destinos = _paneles.filter(p => p.id !== id && p.grupo === _movOrigen.grupo);
+    const destinos = _paneles.filter(p => p.id !== id);
     document.getElementById('movDestinoGrid').innerHTML = destinos
       .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickDestino(\'' + p.id + '\',this)">' + esc(p.nombre) + '</div>').join('');
     document.getElementById('movSinDestino').textContent = destinos.length ? ''

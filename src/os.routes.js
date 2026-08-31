@@ -942,6 +942,8 @@ function mount(app) {
         origen: (pan[m.origen_panel_id] || {}).nombre || '(panel borrado)',
         destino: (pan[m.destino_panel_id] || {}).nombre || '(panel borrado)',
         sistema: (pan[m.origen_panel_id] || {}).sistema || '',
+        // La del destino va aparte: si difiere de la de origen es un PASE, y la pantalla lo marca.
+        sistemaDestino: (pan[m.destino_panel_id] || {}).sistema || '',
         // Por qué NO se va a poder ejecutar, dicho antes de apretar. Sólo para los que esperan algo.
         problema: (m.estado === 'pendiente' || m.estado === 'a_medias')
           ? ((movPanelSvc.revisar(m) || {}).interno || null) : null,
@@ -1003,7 +1005,7 @@ function mount(app) {
       divisa: b.divisa, monto: b.monto, nota: b.nota || 'pase entre plataformas',
     }, 'admin');
     if (!cr.ok) return err(res, 400, cr.error);
-    const mal = movPanelSvc.revisar(cr.movimiento, { permitirCruce: true });
+    const mal = movPanelSvc.revisar(cr.movimiento);
     if (mal) { movPanel.rechazar(cr.movimiento.id, mal.interno); return err(res, 400, mal.interno); }
     const r = await movPanelSvc.ejecutar(cr.movimiento.id, {
       sistemaParaCargar: req.app.get('sistemaParaCargar'), por: 'admin', log: console.log });

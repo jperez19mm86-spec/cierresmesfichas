@@ -6238,13 +6238,21 @@ async function main() {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'movimientos-panel.service.js'), 'utf8');
     check('mover: el permiso mover_balance se comprueba al ejecutar', /cli\.mover_balance/.test(src));
     check('mover: se comprueba que los dos paneles sean del cliente', /no es de ese cliente/.test(src));
-    /* Cruzar de plataforma SE PUEDE, pero lo origina ella. El cliente pide desde una pantalla
-       donde ni se entera de que hay dos plataformas: un pedido suyo que cruzara sería un pedido
-       que no entendió lo que estaba pidiendo. */
-    check('mover: el cliente no puede pedir un pase entre plataformas',
-      /permitirCruce/.test(src) && /pase entre plataformas/.test(src));
-    check('mover: y ella sí, aprobándolo desde el panel',
-      /revisar\(m0, \{ permitirCruce: true \}\)/.test(src));
+    /* Cruzar de plataforma SE PUEDE y lo puede PEDIR el cliente: ella lo aprueba, igual que
+       cualquier otro movimiento. Antes se rechazaba en `revisar()` y sólo lo originaba ella con el
+       botón del pase; el cliente se quedaba sin la mitad de sus usuarios como destino y sin saber
+       por qué. Lo que NO cambió: él sigue sin ver nombres de plataformas. */
+    check('mover: cruzar de plataforma ya no se rechaza',
+      !/permitirCruce/.test(src) && !/pase entre plataformas, y lo tenés que hacer vos/.test(src));
+    check('mover: y el cruce lo ejecuta la misma revisión, sin excepciones',
+      /const mal = revisar\(m0\);/.test(src));
+    {
+      const cli = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+      check('mover: la pantalla del cliente ofrece TODOS sus usuarios como destino',
+        /_paneles\.filter\(p => p\.id !== id\)/.test(cli) && !/p\.grupo === _movOrigen\.grupo/.test(cli));
+      const pan = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      check('mover: y la de ella marca cuáles son pases', /↔ PASE/.test(pan) && /sistemaDestino/.test(pan));
+    }
     // ── LO QUE MÁS IMPORTA: UN MOVIMIENTO NO PUEDE USAR LA CASCADA DE CARGA ──
     // Esa cascada FUNDE fichas desde el SuperAgente, que tiene saldo ilimitado. Usarla para mover
     // regala fichas cuando los dos paneles están emparentados, y cuadra en todas las pantallas.

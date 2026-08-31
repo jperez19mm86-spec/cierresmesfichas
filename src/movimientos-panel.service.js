@@ -41,7 +41,7 @@ const config = require('./config-store');
  * Separarlo en dos campos hace que el día que se agregue un motivo nuevo haya que elegir a
  * propósito qué se le dice al cliente, en vez de que nazca filtrando por defecto.
  */
-function revisar(m, opciones = {}) {
+function revisar(m) {
   const no = (interno, publico) => ({ interno, publico: publico || interno });
   const cli = clientes.get(m.cliente_id);
   if (!cli) return no('el cliente ya no existe');
@@ -64,17 +64,17 @@ function revisar(m, opciones = {}) {
   /* ── PASAR DE UNA PLATAFORMA A LA OTRA ──────────────────────────────────────────────────
      Casino y Europa son dos instalaciones separadas y una ficha de una no existe en la otra: no
      hay ninguna llamada que la cruce. Lo que sí se puede es sacarla de un lado y ponerla del
-     otro, que son DOS operaciones y no un traslado.
+     otro, que son DOS operaciones y no un traslado. `ejecutar()` ya lo hace así (plan.cruce): dos
+     sesiones, se comprueba que el destino pueda recibir ANTES de sacar nada, y los dos tramos por
+     separado.
 
-     Sólo lo origina ella. El cliente pide desde una pantalla donde ni siquiera se entera de que
-     hay dos plataformas —recibe un grupo opaco a propósito—, así que un pedido suyo que cruzara
-     sería un pedido que no entendió lo que estaba pidiendo. Y del otro lado hay una decisión que
-     es de ella: el pase le mueve saldo de una cuenta a la otra. */
-  const cruza = String(o.sistema || '').toLowerCase() !== String(d.sistema || '').toLowerCase();
-  if (cruza && !opciones.permitirCruce) {
-    return no(`"${o.nombre}" es de ${o.sistema} y "${d.nombre}" de ${d.sistema}: eso es un pase entre plataformas, y lo tenés que hacer vos desde el panel`,
-      'no se pueden mover fichas entre esos dos usuarios');
-  }
+     ANTES ESTO SE RECHAZABA cuando lo pedía el cliente, y sólo lo originaba ella con el botón del
+     panel. Ya no: el cliente PIDE y ella APRUEBA, que es el mismo camino que el resto de los
+     movimientos. La decisión sigue siendo de ella —el pase le mueve saldo de una cuenta suya a la
+     otra— pero ahora la toma aprobando en vez de teniendo que armar el pedido a mano.
+
+     El cliente sigue sin enterarse de que hay dos plataformas: elige dos usuarios suyos y ya. Es
+     la pantalla de ella la que marca el cruce, porque es la única que tiene que verlo. */
   // Y misma divisa habilitada en los dos. Si el destino no la tiene, la carga falla DESPUÉS del
   // retiro — o sea con las fichas ya afuera. Barato comprobarlo antes.
   const tiene = (p) => !Array.isArray(p.divisas) || !p.divisas.length || p.divisas.includes(m.divisa);
@@ -99,7 +99,7 @@ async function ejecutar(id, { sistemaParaCargar, por = 'admin', log = () => {} }
   }
   /* Lo aprueba ella desde el panel, así que el pase entre plataformas está permitido acá. El
      bloqueo sigue en pie para el pedido público del cliente, que es donde no corresponde. */
-  const mal = revisar(m0, { permitirCruce: true });
+  const mal = revisar(m0);
   if (mal) return { ok: false, status: 400, error: mal.interno };
 
   const origen = paneles.get(m0.origen_panel_id);

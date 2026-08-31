@@ -822,6 +822,14 @@ async function movAviso(){
    Se filtra por los estados que REQUIEREN ALGO: el que espera, el que quedó a medias (ahí las
    fichas están a mitad de camino) y el que se trabó ejecutando. 'hecho' y 'rechazado' no piden
    nada, y en un buzón sólo tapan. */
+/* Qué plataformas toca el movimiento. Si son dos es un PASE: no traslada fichas, las saca de un
+   lado y las pone del otro. Se marca fuerte porque cambia lo que estás aprobando. */
+function plataformas(m){
+  const o=m.sistema||'', d=m.sistemaDestino||o;
+  if(!o) return '';
+  if(o.toLowerCase()===String(d).toLowerCase()) return ' <span style="opacity:.6">('+esc(o)+')</span>';
+  return ' <b style="color:var(--acc)">↔ PASE '+esc(o)+' → '+esc(d)+'</b>';
+}
 async function movimientosPanel(soloPendientes){
   if(soloPendientes===undefined) soloPendientes = (_tab==='pendientes');
   const caja=document.getElementById('mov-caja'); if(!caja) return;
@@ -845,7 +853,7 @@ async function movimientosPanel(soloPendientes){
       const aMedias=m.estado==='a_medias';
       return '<tr'+(aMedias?' style="background:var(--bg3)"':'')+'>'
       +'<td><b>'+esc(m.cliente)+'</b></td>'
-      +'<td class="muted">'+esc(m.origen)+' → '+esc(m.destino)+(m.sistema?' <span style="opacity:.6">('+esc(m.sistema)+')</span>':'')+'</td>'
+      +'<td class="muted">'+esc(m.origen)+' → '+esc(m.destino)+plataformas(m)+'</td>'
       +'<td class="right"><b>'+money(m.monto)+'</b> <span class="muted">'+esc(m.divisa)+'</span></td>'
       +'<td'+(aMedias?' style="color:var(--red);font-weight:700"':'')+'>'+esc(ETQ[m.estado]||m.estado)
         +(m.problema?'<div class="muted" style="color:var(--red)">'+esc(m.problema)+'</div>':'')
