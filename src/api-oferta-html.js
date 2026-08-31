@@ -54,7 +54,33 @@ const CSS = `
     border-radius:7px;background:#fff;cursor:pointer;color:#3b3350}
   .barra button:hover{background:#f6f3fb}
   .barra button:focus-visible{outline:2px solid #7c5cd6;outline-offset:2px}
-  @media print{ .hoja{padding:0} .barra{display:none} @page{margin:16mm} }
+  /* ── IMPRESO ES OTRO MEDIO ────────────────────────────────────────────────────────────────
+     En pantalla se desplaza; en papel se paga por pliego. Con el interlineado de pantalla y los
+     grupos sin poder partirse, 83 proveedores salían en CUATRO hojas — y una quedaba casi vacía,
+     porque el grupo de Premium son 21 filas y si no entraba saltaba entero.
+     Acá se aprieta el aire y se deja que los grupos se corten, pero NUNCA justo debajo de su
+     título: un encabezado solo al pie de una hoja es peor que una hoja de más. */
+  @media print{
+    .hoja{padding:0}
+    .barra{display:none}
+    @page{margin:13mm}
+    body{font-size:12px;line-height:1.4}
+    h1{font-size:19px;margin-bottom:2px}
+    .para{font-size:13.5px;margin-bottom:12px}
+    .grupo{margin-top:13px;padding-top:7px;break-inside:auto}
+    .gcab{break-after:avoid}
+    .gnom{font-size:13px}
+    .gpct{font-size:17px}
+    .gnota{font-size:11px}
+    .provs{gap:4px;margin-top:6px}
+    .prov{font-size:10.5px;padding:1.5px 8px;border-radius:12px}
+    table{margin-top:5px}
+    td{padding:3px 0;font-size:11px}
+    tr{break-inside:avoid}
+    .cond{margin-top:16px;padding-top:9px}
+    .cond p{font-size:11px;margin-bottom:3px}
+    .pie{margin-top:14px;font-size:10px}
+  }
 `;
 
 /**
