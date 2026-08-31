@@ -2704,6 +2704,26 @@ async function main() {
        mantenimiento. Compararlo contra las mensualidades ya devengadas seria otra cosa: pueden no
        estar corridas todavía, y ahí el check gritaría por el motivo equivocado. */
     const conServicio = ch.list().filter((x) => x.activo).length;
+    /* ⚠️ EL MES PROVISORIO. El mantenimiento se devenga y queda firme; el % se recalcula EN VIVO
+       hasta que ella aprieta «Cobrar el mes» —el acumulado se sana todas las noches y un TC nuevo
+       lo mueve—. Mostrarlo como definitivo es dejar que le saque una captura a una cifra que
+       mañana es otra, y esa conversación no se arregla después. */
+    dbCh.prepare("DELETE FROM chat_mov WHERE mes='2026-08' AND tipo='cobro'").run();
+    check('proveedor: mientras el mes no se cobró, se dice que es un estimado',
+      ch.paraElProveedor('2026-08').cerrado === false);
+    const cobrado = ch.cobrar('2026-08', { confirmar: true });
+    const trasCobrar = ch.paraElProveedor('2026-08');
+    check('proveedor: y cuando se cobra, pasa a cerrado con su fecha',
+      cobrado.ok && trasCobrar.cerrado === true && /^\d{4}-\d{2}-\d{2}$/.test(trasCobrar.cerradoAt || ''),
+      `cerrado el ${trasCobrar.cerradoAt}`);
+    ch.descobrar('2026-08');
+    check('proveedor: y si se deshace el cobro, vuelve a decir estimado',
+      ch.paraElProveedor('2026-08').cerrado === false,
+      'no puede quedarse diciendo cerrado sobre un número que volvió a moverse');
+    check('proveedor: la pantalla lo dice arriba de todo, antes que los números',
+      /Todavía no cerró el mes/.test(require('fs').readFileSync(
+        require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));
+
     check('proveedor: toda caja con el servicio figura, calculada o no',
       (provDoc.cajas || []).length + (provDoc.salteadas || []).length === conServicio,
       `${(provDoc.cajas || []).length} calculadas + ${(provDoc.salteadas || []).length} sin calcular = ${conServicio} con el servicio`);

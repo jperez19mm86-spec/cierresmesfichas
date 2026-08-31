@@ -48,6 +48,12 @@
   button{ cursor:pointer }
   .chip{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700 }
   .chip.ok{ background:#e6f4ec; color:var(--ok) } .chip.no{ background:#fbe9e9; color:var(--debe) }
+  .chip.prov{ background:#fdf0dd; color:#8a5a12 }
+  /* El estado del mes: lo primero que se lee, porque cambia qué significan los números de abajo. */
+  .estado{ border-radius:11px; padding:10px 13px; font-size:14px; line-height:1.5; margin-bottom:13px }
+  .estado.prov{ background:#fdf0dd; color:#6b4610 }
+  .estado.listo{ background:#e6f4ec; color:#14532d }
+  .t.prov{ border-style:dashed }
   .vacio{ color:var(--tenue); padding:10px 2px }
   /* Una caja que no se pudo calcular: se lista igual, pero sin números inventados. */
   .sc{ color:var(--tenue); font-style:italic }
@@ -118,12 +124,22 @@ async function cargar() {
   const g = de.ganancia || {}, mt = de.mantenimiento || {}, tt = de.total || {};
   const falta = Number(tt.falta || 0);
 
-  let h = '<div class="card">'
+  /* ⚠️ EL ESTADO DEL MES VA PRIMERO Y GRANDE. El mantenimiento queda firme desde que arranca cada
+     caja, pero el % se recalcula en vivo hasta que ella cierra el mes: el acumulado se sana todas
+     las noches y un tipo de cambio nuevo lo mueve. Sin decirlo, él le saca una captura a una cifra
+     que mañana es otra, y esa conversación no se arregla después. */
+  h = '<div class="card">'
+    + '<div class="estado ' + (d.cerrado ? 'listo' : 'prov') + '">'
+    + (d.cerrado
+      ? '✅ <b>Mes cerrado</b>' + (d.cerradoAt ? ' el ' + esc(d.cerradoAt) : '') + '. Estos números son los definitivos.'
+      : '⏳ <b>Todavía no cerró el mes.</b> El mantenimiento ya está firme, pero lo de la ganancia '
+        + 'es un estimado y se va a mover hasta que cerremos.')
+    + '</div>'
     + '<div class="tot"><span class="tenue">' + (falta > 0 ? 'Te queda por cobrar' : 'Está todo pagado') + '</span>'
     + '<b class="num ' + (falta > 0 ? 'debe' : 'ok') + '">' + num(Math.abs(falta)) + ' USDT</b></div>'
     + '<div class="tiles">'
-    + tile('Por la ganancia', g, (d.pct != null ? d.pct + '% sobre el profit' : ''))
-    + tile('Mantenimiento', mt, (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') : ''))
+    + tile('Por la ganancia', g, (d.pct != null ? d.pct + '% sobre el profit' : ''), !d.cerrado)
+    + tile('Mantenimiento', mt, (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') : ''), false)
     + '</div></div>';
 
   /* El total del mes por moneda: es contra esto que compara el panel del casino. */
@@ -160,7 +176,7 @@ async function cargar() {
   h += (d.cajas || []).length
     ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
       + '<th class="r">Ganancia</th><th class="r">Tipo de cambio</th>'
-      + '<th class="r">En USDT</th><th class="r">Te toca</th></tr></thead><tbody>'
+      + '<th class="r">En USDT</th><th class="r">Te toca' + (d.cerrado ? '' : '<div class="tenue" style="font-weight:400;text-transform:none;letter-spacing:0">estimado</div>') + '</th></tr></thead><tbody>'
       + d.cajas.map((c) => {
         const ms = (c.monedas && c.monedas.length) ? c.monedas : [{ moneda: '—', profit: 0, tc: null, usdt: c.profit }];
         return ms.map((m, i) => '<tr' + (i ? ' class="sigue"' : '') + '>'
@@ -224,14 +240,20 @@ async function cargar() {
   $('cuerpo').innerHTML = h;
 }
 
-function tile(rot, x, pie) {
+/* `provisorio` cambia lo que dice el pie: un número que todavía se mueve no puede decir «falta
+   tanto», porque ese tanto no es el que se va a pagar. */
+function tile(rot, x, pie, provisorio) {
   const f = Number((x || {}).falta || 0);
-  return '<div class="t"><div class="k">' + esc(rot) + '</div>'
+  const pagado = Number((x || {}).pagado || 0);
+  let estado;
+  if (provisorio) estado = pagado > 0
+    ? '<span class="chip prov">estimado</span> · ya cobraste ' + num(pagado)
+    : '<span class="chip prov">estimado</span> · todavía no se cobró';
+  else if (f > 0) estado = 'pagado ' + num(pagado) + ' · <b>falta ' + num(f) + '</b>';
+  else estado = '<span class="chip ok">pagado</span>';
+  return '<div class="t' + (provisorio ? ' prov' : '') + '"><div class="k">' + esc(rot) + '</div>'
     + '<div class="v">' + num((x || {}).debe) + '</div>'
-    + '<div class="p">' + (f > 0
-      ? 'pagado ' + num((x || {}).pagado) + ' · <b>falta ' + num(f) + '</b>'
-      : '<span class="chip ok">pagado</span>')
-    + (pie ? ' · ' + esc(pie) : '') + '</div></div>';
+    + '<div class="p">' + estado + (pie ? ' · ' + esc(pie) : '') + '</div></div>';
 }
 
 arrancar();

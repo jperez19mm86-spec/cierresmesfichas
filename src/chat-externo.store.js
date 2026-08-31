@@ -1474,8 +1474,20 @@ function paraElProveedor(mes) {
   monedas.sort((a2, b2) => Number(b2.usdt || 0) - Number(a2.usdt || 0));
 
   const dp = deudaProveedor(m);
+  /* ⚠️ ¿EL MES ESTÁ CERRADO O TODAVÍA SE MUEVE?
+     El mantenimiento se devenga y queda firme desde el día que arranca cada caja. El % NO: hasta
+     que ella aprieta «Cobrar el mes», el número se recalcula en vivo —el acumulado se sana todas
+     las noches y un tipo de cambio nuevo lo mueve— así que mostrarlo como definitivo es dejar que
+     alguien le saque una captura a una cifra que mañana es otra.
+     La señal es la fila tipo='cobro': existe = se congeló. */
+  const cobros = db.prepare("SELECT MIN(createdAt) AS cuando, COUNT(*) n FROM chat_mov WHERE mes=? AND tipo='cobro'").get(m);
+  const cerrado = !!(cobros && cobros.n > 0);
+
   return {
     mes: m,
+    /* Provisorio no es un adorno: cambia lo que el número significa. */
+    cerrado,
+    cerradoAt: cerrado ? String(cobros.cuando || '').slice(0, 10) : null,
     pct: pc.costo_pct,                 // SU porcentaje, que él ya conoce
     monedas,
     /* Si falta un tipo de cambio, lo ganado en esa moneda vale cero y el total queda CORTO. Se lo
