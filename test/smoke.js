@@ -2881,10 +2881,16 @@ async function main() {
     dbCh.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
       VALUES ('chm_solomant',?, '2026-08','mensualidad','25','USDT','2026-08-05','', ?)`)
       .run(CLI.id, new Date().toISOString());
+    /* Con el mes ya corrido: el que sólo paga mantenimiento no tiene fila de cobro —cobrar saltea
+       al que da cero— y aun así su cuenta está lista para mandar. */
+    dbCh.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
+      VALUES ('mq_corrido','c_otro_cualquiera','2026-08','cobro','1','USDT','2026-08-28','', ?)`)
+      .run(new Date().toISOString());
     const L1 = ch.listasParaMandar();
     check('chat: una cuenta que es SÓLO mantenimiento también entra en lo que falta mandar',
       [...(L1.mandar || []), ...(L1.sinGrupo || [])].some((x) => x.cliente_id === CLI.id && x.mes === '2026-08'),
       'sin esto, el que sólo paga mantenimiento no se reclama nunca');
+    dbCh.prepare("DELETE FROM chat_mov WHERE id='mq_corrido'").run();
     ch.marcarEnviado(CLI.id, '2026-08', { ok: true });
     check('chat: una vez mandada, deja de reclamarse',
       ![...(ch.listasParaMandar().mandar || []), ...(ch.listasParaMandar().sinGrupo || [])]
@@ -2897,6 +2903,34 @@ async function main() {
       ![...(ch.listasParaMandar().mandar || []), ...(ch.listasParaMandar().sinGrupo || [])]
         .some((x) => x.cliente_id === CLI.id));
     dbCh.prepare("DELETE FROM chat_mov WHERE id='chm_solomant'").run();
+
+    /* ⚠️ TENER MENSUALIDADES NO ES TENER EL MES COBRADO. El mantenimiento se devenga solo; el % lo
+       congela ella. Mandar la cuenta antes le manda al cliente el % calculado EN VIVO, que no es el
+       que se le va a cobrar — su cuenta todavía sólo tiene el mantenimiento. Decirle «mandá» cuando
+       lo que falta es «cobrá» la manda a hacer el segundo paso sin el primero. */
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
+    dbCh.prepare('DELETE FROM chat_envio WHERE cliente_id=?').run(CLI.id);
+    ponerMens('CajaSola');
+    const antesDeCobrar = ch.listasParaMandar();
+    check('chat: con mensualidades pero sin cobrar, va a «falta cobrar», no a «falta mandar»',
+      (antesDeCobrar.faltaCobrar || []).some((x) => x.cliente_id === CLI.id)
+      && !(antesDeCobrar.mandar || []).some((x) => x.cliente_id === CLI.id)
+      && !(antesDeCobrar.sinGrupo || []).some((x) => x.cliente_id === CLI.id));
+    const txtCobrar = avSvc.textoFaltaMandar(antesDeCobrar);
+    check('chat: y el recordatorio dice COBRAR, no mandar',
+      /te falta cobrar el mes/.test(txtCobrar) && !/te falta mandar/.test(txtCobrar)
+      && /el número se sigue moviendo/.test(txtCobrar));
+    dbCh.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
+      VALUES ('mq_cobro',?, '2026-08','cobro','40','USDT','2026-08-28','', ?)`)
+      .run(CLI.id, new Date().toISOString());
+    const trasCobro = ch.listasParaMandar();
+    check('chat: una vez cobrado, recién ahí pasa a «falta mandar»',
+      !(trasCobro.faltaCobrar || []).some((x) => x.cliente_id === CLI.id)
+      && [...(trasCobro.mandar || []), ...(trasCobro.sinGrupo || [])].some((x) => x.cliente_id === CLI.id));
+    const uiCobrar = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: y el cartel de la pantalla dice lo mismo',
+      /todavía no está cobrado/.test(uiCobrar) && /cobralo y después se las mandás/.test(uiCobrar));
+    dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
 
     check('chat: si no hay nada para mandar, el recordatorio NO manda nada',
       avSvc.textoFaltaMandar({ mandar: [], sinGrupo: [] }) === null,

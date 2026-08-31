@@ -1396,7 +1396,20 @@ function listasParaMandar(dias = 15) {
     .map((e) => [`${e.cliente_id}|${e.mes}`, e.error]));
   const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
 
-  const mandar = []; const sinGrupo = [];
+  /* ⚠️ TENER MENSUALIDADES NO ES TENER EL MES COBRADO. El mantenimiento se devenga solo; el % del
+     mes lo congela ella apretando «Cobrar el mes». Mandar la cuenta antes de eso le manda al
+     cliente un número que no es el que se le va a cobrar: la hoja lleva el % calculado en vivo y
+     su cuenta sólo tiene el mantenimiento. Son dos pasos y este de acá es el PRIMERO — decirle
+     «mandá» cuando lo que falta es «cobrá» la manda a hacer lo segundo sin lo primero. */
+  /* ⚠️ LA SEÑAL ES POR MES, NO POR CLIENTE. `cobrar(mes)` es una acción de todo el mes, y saltea al
+     cliente cuyo total da cero — el que sólo paga mantenimiento NUNCA va a tener una fila de cobro.
+     Preguntando por cliente, ése quedaba trabado para siempre en «falta cobrar», y ella no podía
+     destrabarlo cobrando porque cobrar lo saltea. Corrido el mes, el que no tiene cobro es el que
+     dio cero, y su cuenta está tan lista como la de los demás. */
+  const mesesCobrados = new Set(db.prepare("SELECT DISTINCT mes FROM chat_mov WHERE tipo='cobro'")
+    .all().map((x) => String(x.mes)));
+
+  const mandar = []; const sinGrupo = []; const faltaCobrar = [];
   for (const f of filas) {
     if (!f.cliente_id) continue;
     if (String(f.ultimo || '') < corte) continue;              // viejo: ya no se insiste
@@ -1406,11 +1419,12 @@ function listasParaMandar(dias = 15) {
     const fila = { cliente_id: f.cliente_id, mes: f.mes,
       cliente: (c && (c.nombre || c.codigo)) || '(cliente borrado)',
       fallo: fallo.get(k) || null };
+    if (!mesesCobrados.has(String(f.mes))) { faltaCobrar.push(fila); continue; }  // primero se cobra
     // Sin grupo cargado no hay adónde mandarla: es otro problema y se cuenta aparte.
     (destino(f.cliente_id).grupos.length ? mandar : sinGrupo).push(fila);
   }
   const ord = (a, b) => (a.mes === b.mes ? a.cliente.localeCompare(b.cliente) : (a.mes < b.mes ? -1 : 1));
-  return { mandar: mandar.sort(ord), sinGrupo: sinGrupo.sort(ord) };
+  return { mandar: mandar.sort(ord), sinGrupo: sinGrupo.sort(ord), faltaCobrar: faltaCobrar.sort(ord) };
 }
 
 /* ── EL ACCESO DEL PROVEEDOR ─────────────────────────────────────────────────────────────────

@@ -126,7 +126,28 @@ async function avisarPago(id) {
 function textoFaltaMandar(listas) {
   const mandar = (listas && listas.mandar) || [];
   const sinGrupo = (listas && listas.sinGrupo) || [];
-  if (!mandar.length && !sinGrupo.length) return null;      // silencio: es lo correcto
+  const faltaCobrar = (listas && listas.faltaCobrar) || [];
+  if (!mandar.length && !sinGrupo.length && !faltaCobrar.length) return null;   // silencio
+
+  /* ⚠️ SI LO QUE FALTA ES COBRAR, NO SE DICE «MANDÁ». Son dos pasos y éste es el primero: mandar
+     la cuenta antes de cobrar el mes le manda al cliente un número calculado en vivo, que no es el
+     que se le va a cobrar. Decirle «mandá» acá la manda a hacer el segundo paso sin el primero. */
+  if (faltaCobrar.length && !mandar.length) {
+    const meses = [...new Set(faltaCobrar.map((x) => mesLindo(x.mes)))];
+    const L2 = ['💬 <b>Chat Externo · te falta cobrar el mes</b>', ''];
+    L2.push(meses.length === 1
+      ? `<b>${esc(meses[0])}</b> todavía no está cobrado.`
+      : `Todavía no cobraste: <b>${meses.map(esc).join(', ')}</b>.`);
+    L2.push('');
+    L2.push(`Son <b>${faltaCobrar.length}</b> cuenta${faltaCobrar.length === 1 ? '' : 's'}: `
+      + faltaCobrar.slice(0, 10).map((x) => esc(x.cliente)).join(', ')
+      + (faltaCobrar.length > 10 ? `, y ${faltaCobrar.length - 10} más` : '') + '.');
+    L2.push('');
+    L2.push('Hasta que lo cobres, el número se sigue moviendo. Después de cobrar se las mandás.');
+    const m0 = (faltaCobrar[0] || {}).mes || '';
+    if (_base()) L2.push(`${_base()}/chat-externo${m0 ? `?mes=${m0}` : ''}`);
+    return L2.join('\n');
+  }
 
   const L = ['💬 <b>Chat Externo · te falta mandar</b>', ''];
   if (mandar.length) {
@@ -167,7 +188,8 @@ async function recordarLoQueFalta() {
   const txt = textoFaltaMandar(listas);
   if (txt === null) return { ok: true, nadaQueMandar: true };
   const r = await _mandar(txt);
-  return { ...r, cuentas: (listas.mandar || []).length, sinGrupo: (listas.sinGrupo || []).length };
+  return { ...r, cuentas: (listas.mandar || []).length, sinGrupo: (listas.sinGrupo || []).length,
+    faltaCobrar: (listas.faltaCobrar || []).length };
 }
 
 /**

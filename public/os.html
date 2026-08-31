@@ -4986,8 +4986,14 @@ VIEWS.chat = async () => {
         ${pc.salteados.map(x=>esc(x.panel)+' <span class="muted">('+esc(x.motivo)+')</span>').join(' · ')}</div>`:''}
       ${(()=>{ /* Lo mismo que dice el recordatorio de Telegram, acá. Si el bot falla o falta el
                   grupo, éste es el único lugar donde se ve que quedó algo sin mandar. */
-        const li=pc.listas||{}, m=li.mandar||[], sg=li.sinGrupo||[];
-        if(!m.length && !sg.length) return '';
+        const li=pc.listas||{}, m=li.mandar||[], sg=li.sinGrupo||[], fc=li.faltaCobrar||[];
+        if(!m.length && !sg.length && !fc.length) return '';
+        /* Cobrar va ANTES que mandar: la hoja lleva el % calculado en vivo y la cuenta del cliente
+           todavía no lo tiene. Mandarla antes es mandarle un número que no es el que se le cobra. */
+        if(fc.length && !m.length) return `<div class="nota-suave durazno">
+          <b>${esc(mesNombre(_chatMes))} todavía no está cobrado.</b>
+          Son ${fc.length} cuenta${fc.length>1?'s':''}: ${fc.map(x=>esc(x.cliente)).join(', ')}.
+          Hasta que lo cobres el número se sigue moviendo — cobralo y después se las mandás.</div>`;
         return `<div class="nota-suave durazno">
           ${m.length?`<b>${m.length} cuenta${m.length>1?'s':''} cobrada${m.length>1?'s':''} y sin mandar.</b>
             Están más abajo: abrí el cliente y apretá <b>Enviársela</b>.`:''}
