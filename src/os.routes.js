@@ -2367,6 +2367,18 @@ function mount(app) {
     ok(res, r);
   });
 
+  /* Recomponer los paquetes por lo que cuesta cada proveedor. Sin `aplicar` sólo dice qué
+     movería: esto cambia lo que el cliente ve agrupado en el documento, así que se mira antes. */
+  app.post('/api/os/api/paquetes/recomponer', wrap((req, res) => {
+    const b = req.body || {};
+    const r = ofertas.recomponerPorCosto({
+      aplicar: b.aplicar === true,
+      excluir: Array.isArray(b.excluir) ? b.excluir : [],
+    });
+    if (r.error) return err(res, 400, r.error);
+    ok(res, r);
+  }));
+
   app.get('/api/os/api/ofertas', (_req, res) => ok(res, { ofertas: ofertas.listOfertas() }));
   app.get('/api/os/api/ofertas/:id', (req, res) => {
     const o = ofertas.getOferta(req.params.id);

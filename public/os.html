@@ -6596,6 +6596,10 @@ async function ofAbrir(id){
         <button class="btn" onclick="ofDesdeBase('${o.id}')">Armar</button>
         <div id="ofBaseAviso" class="muted" style="font-size:11.5px;flex-basis:100%"></div>
       </div>
+      <div class="row" style="margin:0 0 8px;justify-content:flex-end">
+        <button class="btn ghost" style="font-size:12px;padding:5px 11px"
+          onclick="paqRecomponer()">⚖ Revisar quién va en cada paquete</button>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${_ofPaquetes.map(p=>`<div class="card" style="flex:1;min-width:190px;margin:0;background:var(--bg3)">
           <label>${esc(p.nombre)}</label>
@@ -6677,6 +6681,23 @@ async function ofTelegram(id){
   if(!r||!r.ok){ alert((r&&r.error)||'No se pudo mandar'); return; }
   alert(r.heredado ? 'Mandada — al grupo de '+(r.de||'su vendedor')+', que es el que tiene configurado.'
                    : 'Mandada.');
+}
+
+/* Revisa si algún proveedor está en la bolsa equivocada para lo que cuesta. Muestra qué movería
+   y recién mueve si el dueño dice que sí: esto cambia cómo se ve agrupado el documento del
+   cliente, no sólo un número. */
+async function paqRecomponer(){
+  const prev=await api('/api/os/api/paquetes/recomponer',{method:'POST',body:JSON.stringify({})});
+  if(!prev||!prev.ok){ alert((prev&&prev.error)||'No se pudo revisar'); return; }
+  const m=prev.movimientos||[];
+  if(!m.length){ alert('Está todo en su lugar: ningún proveedor desentona con lo que cuesta.'); return; }
+  const texto=m.map(x=>'· '+x.corto+' (cuesta '+x.costo+'%)  '+x.de+' → '+x.a+'\n     '+x.porque).join('\n');
+  if(!confirm('Se moverían '+m.length+' proveedor(es):\n\n'+texto
+    +'\n\nEsto cambia cómo se agrupa el documento del cliente. Las ofertas ya aplicadas no se tocan.\n¿Los muevo?')) return;
+  const r=await api('/api/os/api/paquetes/recomponer',{method:'POST',body:JSON.stringify({aplicar:true})});
+  if(!r||!r.ok){ alert((r&&r.error)||'No se pudo aplicar'); return; }
+  alert('Listo. Básico + quedó con '+r.bplus+' y Premium con '+r.premium+'.');
+  location.reload();
 }
 
 async function ofGuardar(id){

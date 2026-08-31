@@ -437,8 +437,80 @@ function armarDesdeBase(base) {
   return { lineas, avisos, base: b };
 }
 
+/**
+ * ── RECOMPONER LOS PAQUETES POR LO QUE CUESTAN ───────────────────────────────────────────────
+ *
+ * Los paquetes son bolsas de proveedores, y si adentro de una hay costos muy distintos el precio
+ * único regala unos y aprieta otros. Pasaba en Básico +: convivían Amusnet (2%) con Betsoft (15%),
+ * los dos vendidos a 12 — uno dejaba 10 puntos y el otro perdía 3.
+ *
+ * 🔑 EL CRITERIO SALE DE LO QUE YA SE COBRABA, no de una idea nueva. En las 13 ofertas de 2025 los
+ *    externos baratos se vendieron sistemáticamente entre base+1 y base+4, casi siempre base+2:
+ *    Aviator a 11–13 para clientes con base 10, Spribe a 11–13, Yggdrasil a 11–14. Eso es
+ *    exactamente el Básico +. Los que cuestan más nunca estuvieron en esa bolsa.
+ *
+ * ⚠️ NO TOCA nada que no haga falta: sólo mueve proveedores entre Básico + y Premium según su
+ *    costo, y deja Básico y Live como están. Y devuelve el detalle de qué movería ANTES de mover,
+ *    porque esto cambia lo que ve el cliente en el documento.
+ */
+const TECHO_BASICO_PLUS = 5;   // hasta acá es "barato": lo mismo que se cobraba a base+2
+
+function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
+  const paquetes = listPaquetes();
+  const bplus = paquetes.find((p) => K(p.nombre).startsWith('básico +') || K(p.nombre).startsWith('basico +'));
+  const premium = paquetes.find((p) => K(p.nombre) === 'premium');
+  if (!bplus || !premium) return { error: 'no encontré los paquetes Básico + y Premium' };
+
+  const aNum = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
+  const sellos = apiStore.listSellos();
+  const fuera = new Set(excluir.map(K));
+  const esExterno = (s) => s.tipo !== 'postpago';
+
+  const enBasico = new Set(paquetes.filter((p) => K(p.nombre) === 'básico' || K(p.nombre) === 'basico')
+    .flatMap((p) => p.sellos));
+  const enLive = new Set(paquetes.filter((p) => K(p.nombre) === 'live').flatMap((p) => p.sellos));
+
+  const nuevoBplus = [], nuevoPremium = [], movimientos = [];
+  for (const s of sellos) {
+    if (enBasico.has(s.nombre) || enLive.has(s.nombre)) continue;   // ésos no se tocan
+    if (!esExterno(s)) continue;
+    const costo = aNum(s.costo);
+    const estaba = bplus.sellos.includes(s.nombre) ? 'Básico +'
+      : premium.sellos.includes(s.nombre) ? 'Premium' : null;
+
+    /* Un proveedor dado de baja no se cotiza: si entra al paquete, aparece en el documento y el
+       cliente lo pide. Se reconoce por el nombre, que es como lo marca TBS. */
+    if (/dado de baja|de baja|discontinuad/i.test(s.nombre) || /dado de baja/i.test(s.corto)) {
+      if (bplus.sellos.includes(s.nombre) || premium.sellos.includes(s.nombre)) {
+        movimientos.push({ corto: s.corto, costo: aNum(s.costo),
+          de: bplus.sellos.includes(s.nombre) ? 'Básico +' : 'Premium', a: 'sin paquete',
+          porque: 'está dado de baja: no se cotiza' });
+      }
+      continue;
+    }
+    if (fuera.has(K(s.nombre)) || fuera.has(K(s.corto))) {
+      if (estaba) movimientos.push({ corto: s.corto, costo, de: estaba, a: 'sin paquete',
+        porque: 'lo dejaste afuera hasta confirmar su costo' });
+      continue;                       // sin paquete: no se cotiza solo, y eso es a propósito
+    }
+    const destino = costo <= TECHO_BASICO_PLUS ? 'Básico +' : 'Premium';
+    (destino === 'Básico +' ? nuevoBplus : nuevoPremium).push(s.nombre);
+    if (estaba !== destino) {
+      movimientos.push({ corto: s.corto, costo, de: estaba || 'sin paquete', a: destino,
+        porque: costo <= TECHO_BASICO_PLUS
+          ? `cuesta ${costo}%, que es lo que siempre se vendió a base+2`
+          : `cuesta ${costo}%: a base+2 dejaba ${(12 - costo).toFixed(1)} puntos` });
+    }
+  }
+
+  if (!aplicar) return { movimientos, bplus: nuevoBplus.length, premium: nuevoPremium.length };
+  savePaquete({ ...bplus, sellos: nuevoBplus });
+  savePaquete({ ...premium, sellos: nuevoPremium });
+  return { aplicado: true, movimientos, bplus: nuevoBplus.length, premium: nuevoPremium.length };
+}
+
 module.exports = {
-  armarDesdeBase, MARGEN_MINIMO,
+  armarDesdeBase, MARGEN_MINIMO, recomponerPorCosto, TECHO_BASICO_PLUS,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
   listOfertas, getOferta, saveOferta, removeOferta,
   resolver, diff, aplicar, paraMostrar,
