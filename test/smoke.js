@@ -2661,6 +2661,42 @@ async function main() {
     check('login: uno que sale bien limpia la cuenta de intentos',
       /if \(body && body\.ok\) \{ limpiarIntentos\(kIp\); limpiarIntentos\(kUs\); \}/.test(idxSrc));
 
+    /* ── EL ACCESO DEL PROVEEDOR, PUESTO POR ELLA ────────────────────────────────────────────
+       Vivía en una variable del servidor y cambiarlo obligaba a salir del sistema. Lo que es
+       incómodo no se hace nunca, y una contraseña que no se cambia nunca es el problema. */
+    // Se limpia primero: el check no puede depender de lo que dejó otra corrida.
+    ch.setProveedorAcceso({ usuario: '', clave: '' });
+    check('proveedor: sin nada cargado, no puede entrar',
+      ch.proveedorAcceso().activo === false
+      && ch.proveedorEntra('ganamos', 'loquesea') === false
+      && ch.proveedorEntra('', '') === false);
+    const gen = ch.setProveedorAcceso({ usuario: 'provtest', generar: true });
+    check('proveedor: se le puede generar una clave desde el panel',
+      gen.ok && typeof gen.generada === 'string' && gen.generada.length === 10
+      && ch.proveedorAcceso().activo === true);
+    check('proveedor: entra con la suya y con ninguna otra',
+      ch.proveedorEntra('provtest', gen.generada) === true
+      && ch.proveedorEntra('provtest', 'OTRACLAVE1') === false
+      && ch.proveedorEntra('otro', gen.generada) === false);
+    /* ⚠️ LA CLAVE NO SE GUARDA: se guarda scrypt(clave, sal). Ni ella la puede leer. */
+    check('proveedor: la contraseña no se puede volver a leer de ningún lado',
+      !JSON.stringify(ch.proveedorAcceso()).includes(gen.generada));
+    const authProv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('proveedor: lo que ella cargó le gana a la variable del servidor',
+      /proveedorDeLaBase\(user, password\)\) rol = 'proveedor'/.test(authProv)
+      && /HAY_PROVEEDOR && !hayProveedorCargado\(\)/.test(authProv),
+      'al revés, una variable olvidada le ganaría a la contraseña que ella acaba de cambiar');
+    /* Cambiarla tiene que sacarlo de donde esté abierto: si no, «se la cambié» no es verdad hasta
+       que el token venza, y eso son hasta siete días. */
+    check('proveedor: cambiarle la clave corta sus sesiones abiertas',
+      /rol === 'proveedor'/.test(authProv) && /proveedorCorte\(\)/.test(authProv)
+      && !!ch.proveedorCorte());
+    const uiProv = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: el acceso del proveedor se pone desde la pantalla del chat',
+      /El acceso del proveedor/.test(uiProv) && /provGenerar\(\)/.test(uiProv)
+      && /Anotala ahora, no se puede volver a ver/.test(uiProv));
+    ch.setProveedorAcceso({ usuario: '', clave: '' });
+
     check('proveedor: sin las dos variables puestas NO existe el usuario',
       /HAY_PROVEEDOR = !!\(PROVEEDOR_USER && PROVEEDOR_PASSWORD\)/.test(authSrc),
       'un usuario que aparece solo porque alguien deployó es una puerta que nadie pidió');
@@ -3341,8 +3377,12 @@ async function main() {
     // El espacio de adentro pide login; /chat (sin guión) es el portal público del cliente.
     const rutasCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     const authCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    /* Se mira la LISTA DE RUTAS PÚBLICAS, no el archivo entero: auth.js ahora hace un require de
+       chat-externo.store para leer el acceso del proveedor, y buscar el texto suelto hacía saltar
+       el check por el motivo equivocado. */
+    const publicasCh = (authCh.match(/const PUBLIC = \[([\s\S]*?)\];/) || [])[1] || '';
     check('chat: el espacio de adentro pide login; el portal del cliente no',
-      /app\.get\('\/chat-externo'/.test(rutasCh) && !/chat-externo/.test(authCh));
+      /app\.get\('\/chat-externo'/.test(rutasCh) && !/chat-externo/.test(publicasCh));
     // La tabla muestra las dos columnas y el margen: ver sólo el total escondería el caso caro.
     /* Cada número en su renglón, con su nombre: ver sólo el total escondería el caso caro. */
     check('chat: la pantalla muestra lo que cobrás, lo que pagás y lo tuyo por separado',

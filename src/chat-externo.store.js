@@ -1413,6 +1413,61 @@ function listasParaMandar(dias = 15) {
   return { mandar: mandar.sort(ord), sinGrupo: sinGrupo.sort(ord) };
 }
 
+/* ── EL ACCESO DEL PROVEEDOR ─────────────────────────────────────────────────────────────────
+   Usuario y contraseña, puestos por ella DESDE SU PANTALLA. Vivían en una variable del servidor y
+   eso significaba salir del sistema para cambiarlos: la primera vez que quiso ponerlos, la
+   pregunta fue "dónde". Si cambiar una contraseña es incómodo, no se cambia nunca.
+
+   ⚠️ LA CONTRASEÑA NO SE GUARDA. Se guarda scrypt(clave, sal), con el mismo módulo que ya usan las
+   cuentas de cliente. Ni ella la puede leer: si el proveedor la pierde, se le genera otra. Guardar
+   una contraseña recuperable es guardar una contraseña que alguien puede leer. */
+const acceso = require('./cliente-acceso');
+const PROV_USER = 'chatProvUsuario';
+const PROV_HASH = 'chatProvClave';
+const PROV_CORTE = 'chatProvCorte';
+
+function proveedorAcceso() {
+  const u = String(cfg.getCfg(PROV_USER) || '').trim();
+  return { usuario: u, tieneClave: !!cfg.getCfg(PROV_HASH), activo: !!(u && cfg.getCfg(PROV_HASH)) };
+}
+
+/** Deja el usuario y/o la clave. Devuelve la clave SÓLO cuando se genera, y una sola vez. */
+function setProveedorAcceso({ usuario, clave, generar } = {}) {
+  if (usuario !== undefined) {
+    const u = String(usuario || '').trim().slice(0, 60);
+    if (u && u.length < 3) return { ok: false, error: 'el usuario tiene que tener al menos 3 caracteres' };
+    cfg.setCfg(PROV_USER, u);
+  }
+  let generada = null;
+  if (generar) { generada = acceso.generarClave(10); }
+  const c = generada || (clave === undefined ? null : String(clave));
+  if (c !== null) {
+    if (!c) { cfg.setCfg(PROV_HASH, ''); return { ok: true, ...proveedorAcceso() }; }  // vacío = sin acceso
+    /* Diez es el largo de las que genera el sistema; menos que eso a mano es una clave que se
+       adivina, y ésta abre toda la liquidación del chat. */
+    if (c.length < 8) return { ok: false, error: 'la contraseña tiene que tener al menos 8 caracteres' };
+    cfg.setCfg(PROV_HASH, acceso.hashear(c));
+    // Cambiar la clave corta las sesiones abiertas: si no, "se la cambié" no es verdad hasta que venza.
+    cfg.setCfg(PROV_CORTE, nowISO());
+  }
+  return { ok: true, ...proveedorAcceso(), generada };
+}
+
+/** ¿Entra? Devuelve true sólo si el usuario y la clave son los guardados. */
+function proveedorEntra(usuario, clave) {
+  const u = String(cfg.getCfg(PROV_USER) || '').trim();
+  const h = String(cfg.getCfg(PROV_HASH) || '');
+  if (!u || !h) return false;
+  // El usuario también en tiempo constante: el tiempo de fallar delata si acertó el usuario.
+  const a = Buffer.from(String(usuario || ''));
+  const b = Buffer.from(u);
+  if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) return false;
+  return acceso.verificar(clave, h);
+}
+
+/** Desde cuándo no valen las sesiones viejas del proveedor. */
+function proveedorCorte() { return String(cfg.getCfg(PROV_CORTE) || ''); }
+
 /**
  * LO QUE VE EL PROVEEDOR DE UN MES. Su liquidación y nada más.
  *
@@ -1917,5 +1972,6 @@ module.exports = {
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja,
   paraElProveedor, mesesDelProveedor,
+  proveedorAcceso, setProveedorAcceso, proveedorEntra, proveedorCorte,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

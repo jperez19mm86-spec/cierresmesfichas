@@ -4671,7 +4671,7 @@ function renderNodos(){
    mes, con números chicos y sin cerrar. */
 const _mesDeLaURL = (new URLSearchParams(location.search).get('mes')||'').match(/^\d{4}-\d{2}$/)
   ? new URLSearchParams(location.search).get('mes') : null;
-let _chatMes = _mesDeLaURL || mesDeCierre(), _chatWs = [], _chatOpc = [];
+let _chatMes = _mesDeLaURL || mesDeCierre(), _chatWs = [], _chatOpc = [], _chatPA = {};
 function chatIrA(m){ _chatMes = m; VIEWS.chat(); }
 
 /* ⚠️ LOS DATOS NO VAN ADENTRO DEL onclick, VAN EN data-*.
@@ -4690,9 +4690,10 @@ VIEWS.chat = async () => {
      que la pantalla decía "elegí un panel" y el desplegable no tenía ninguno: no había forma de
      empezar a usarla. Ninguna pantalla puede depender de que hayas visitado otra primero. */
   if(!_paneles.length){ const dp=await api('/api/os/paneles'); _paneles=dp.paneles||[]; }
-  const [lp, pc, me]=await Promise.all([
+  const [lp, pc, me, pa]=await Promise.all([
     api('/api/os/chat/paneles'), api('/api/os/chat/por-cliente?mes='+_chatMes),
-    api('/api/os/chat/mensualidades')]);
+    api('/api/os/chat/mensualidades'), api('/api/os/chat/proveedor-acceso')]);
+  _chatPA = pa || {};
   const cfgC=lp.config||{}, ps=lp.paneles||[];
   const T=pc.totales||{}, cs=pc.clientes||[], env=pc.envios||{};
   const cta=pc.cuentas||{clientes:[],totales:{cobrado:'0',pagado:'0',debe:'0'}};
@@ -4788,6 +4789,25 @@ VIEWS.chat = async () => {
           Es lo que se le muestra a todos, salvo a los que abajo tengan otra elegida.
           <b>Podés marcar más de una</b>: el cliente ve las dos redes y manda por la que use.</div>
       </div>
+      ${(()=>{ /* El acceso del proveedor. Va acá, en la pantalla del chat, porque es de este
+                  servicio: el proveedor del chat, no el de las fichas. */
+        const pa=_chatPA||{};
+        return `<div class="row" style="align-items:flex-end;gap:10px;margin-top:16px;
+            padding-top:14px;border-top:1px solid var(--border)">
+          <div style="flex:0 0 100%;margin-bottom:2px"><b style="font-size:14px">El acceso del proveedor</b>
+            <div class="muted" style="font-size:12.5px">Con esto entra a ver su liquidación en <b>/proveedor</b>.
+              Ve su % y el mantenimiento de cada caja; nunca lo que le cobrás vos a un cliente.</div></div>
+          <div style="flex:0 0 190px"><label>Usuario</label>
+            <input id="prov-u" name="prov-u" ${NOFILL} value="${esc(pa.usuario||'')}" placeholder="ganamos" style="width:100%"></div>
+          <div style="flex:0 0 230px"><label>Contraseña</label>
+            <input id="prov-c" type="password" name="prov-c" ${NOFILL_SECRETO}
+              placeholder="${pa.tieneClave?'ya hay una — escribí otra para cambiarla':'ponele una, o generala'}" style="width:100%"></div>
+          <div style="flex:0"><button onclick="provGuardar()">Guardar</button></div>
+          <div style="flex:0"><button class="outline" onclick="provGenerar()">Generar una</button></div>
+          <div class="muted" style="flex:1;min-width:190px;font-size:12px;align-self:center">
+            ${pa.activo?'<span class="señal verde">puede entrar</span>':'<span class="señal durazno">todavía no puede entrar</span>'}
+            · La contraseña no se guarda: si la pierde, generás otra.${pa.tieneClave?' Cambiarla lo saca de donde esté abierto.':''}</div>
+        </div>`; })()}
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
         <div style="flex:1;min-width:260px"><label>Bot de Telegram de este servicio</label>
           <input id="chat-bot" type="password" name="bot-chat" ${NOFILL_SECRETO} placeholder="${cfgC.bot_propio?'ya hay uno cargado — pegá otro para cambiarlo':'123456789:AAF…  (te lo da @BotFather)'}"
@@ -5444,6 +5464,25 @@ async function chatWalletBorrar(id,alias){
 function _wselIds(inp){
   const caja=inp.closest('.wsel');
   return [...caja.querySelectorAll('input[type=checkbox]')].filter(x=>x.checked).map(x=>x.value);
+}
+/* ⚠️ La contraseña se manda UNA vez y no vuelve: el servidor guarda scrypt(clave) y ni ella la
+   puede leer. Si el proveedor la pierde, se genera otra — la que tenía no se recupera. */
+async function provGuardar(){
+  const u=document.getElementById('prov-u').value.trim();
+  const c=document.getElementById('prov-c').value;
+  const b={usuario:u}; if(c) b.clave=c;
+  const r=await api('/api/os/chat/proveedor-acceso',{method:'PUT',body:JSON.stringify(b)});
+  if(r&&r.ok){ toast(c?'Guardado — si estaba adentro, lo sacó':'Guardado'); VIEWS.chat(); }
+}
+async function provGenerar(){
+  const u=document.getElementById('prov-u').value.trim();
+  if(!u){ toast('Ponele primero un usuario'); return; }
+  const r=await api('/api/os/chat/proveedor-acceso',{method:'PUT',body:JSON.stringify({usuario:u,generar:true})});
+  if(!r||!r.ok) return;
+  // Se muestra UNA sola vez: no hay ninguna pantalla donde volver a verla.
+  alert('Anotala ahora, no se puede volver a ver:\n\n   usuario:      '+u
+    +'\n   contraseña:   '+r.generada+'\n\nEntra en /proveedor con eso.');
+  VIEWS.chat();
 }
 async function chatCfgWallets(campo,inp){
   const b={}; b[campo]=_wselIds(inp).join(', ');

@@ -966,6 +966,14 @@ function mount(app) {
     const t = JSON.stringify(o);
     return !/"cobra"|"pct_cliente"|"pct"\s*:\s*"?\d+"?\s*,\s*"cobra"|margen|sinPrecio|precio sin confirmar/i.test(t);
   };
+  /* El acceso del proveedor, desde SU pantalla. Antes vivía en una variable del servidor: cambiar
+     una contraseña obligaba a salir del sistema, y lo que es incómodo no se hace nunca. */
+  app.get('/api/os/chat/proveedor-acceso', (_req, res) => ok(res, chat.proveedorAcceso()));
+  app.put('/api/os/chat/proveedor-acceso', wrap((req, res) => {
+    const r = chat.setProveedorAcceso(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
   app.get('/api/os/proveedor/meses', (_req, res) => ok(res, { meses: chat.mesesDelProveedor() }));
   app.get('/api/os/proveedor/mes', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();

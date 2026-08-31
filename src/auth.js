@@ -228,7 +228,16 @@ function verifyToken(token) {
   if (!m) return false;
   const issued = Number(m[2]);
   if (!issued || (Date.now() - issued) > MAX_AGE_MS) return false;
-  return { rol: m[1] || 'admin' };
+  const rol = m[1] || 'admin';
+  /* ⚠️ CAMBIARLE LA CLAVE AL PROVEEDOR CORTA SUS SESIONES ABIERTAS. Sin esto, «se la cambié» no es
+     verdad hasta que el token venza —hasta siete días— y el que estaba adentro sigue adentro. */
+  if (rol === 'proveedor') {
+    try {
+      const corte = Date.parse(require('./chat-externo.store').proveedorCorte() || '');
+      if (corte && issued < corte) return false;
+    } catch (e) { /* si la base no está, no se corta nada */ }
+  }
+  return { rol };
 }
 
 function parseCookies(req) {
@@ -321,12 +330,26 @@ function required(req, res, next) {
 }
 
 /** POST /api/login  { user, password } */
+/* Se pide adentro y no arriba: auth.js lo carga index.js antes que la base, y un require en el
+   encabezado ata el arranque a un orden que hoy no existe. */
+function _chat() { try { return require('./chat-externo.store'); } catch (e) { return null; } }
+function hayProveedorCargado() { const c = _chat(); return !!(c && c.proveedorAcceso().activo); }
+function proveedorDeLaBase(user, password) {
+  const c = _chat();
+  try { return !!(c && c.proveedorEntra(user, password)); } catch (e) { return false; }
+}
+
 function loginHandler(req, res) {
   const { user, password } = req.body || {};
   let rol = null;
   if (safeEqual(user || '', PANEL_USER) && safeEqual(password || '', PANEL_PASSWORD)) rol = 'admin';
   else if (HAY_OPERADOR && safeEqual(user || '', OPERADOR_USER) && safeEqual(password || '', OPERADOR_PASSWORD)) rol = 'operador';
-  else if (HAY_PROVEEDOR && safeEqual(user || '', PROVEEDOR_USER) && safeEqual(password || '', PROVEEDOR_PASSWORD)) rol = 'proveedor';
+  /* El proveedor entra con lo que ELLA cargó desde su pantalla. La variable de entorno queda como
+     respaldo para el caso de que no haya nada cargado todavía: si estuviera al revés, una variable
+     olvidada en el servidor le ganaría a la contraseña que ella acaba de cambiar. */
+  else if (proveedorDeLaBase(user, password)) rol = 'proveedor';
+  else if (HAY_PROVEEDOR && !hayProveedorCargado()
+    && safeEqual(user || '', PROVEEDOR_USER) && safeEqual(password || '', PROVEEDOR_PASSWORD)) rol = 'proveedor';
   if (!rol) {
     return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
   }
