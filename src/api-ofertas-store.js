@@ -344,7 +344,101 @@ function sembrarPaquetes() {
   return { ok: true, creados: n };
 }
 
+/**
+ * ── ARMAR UNA OFERTA CON UN SOLO NÚMERO ──────────────────────────────────────────────────────
+ *
+ * La tarifa salió de comparar las 13 ofertas que se armaron a mano durante 2025 (sin ALMIR, que
+ * nunca arrancó y era una excepción para ganar la cuenta). Comparadas entre sí no son 13
+ * negociaciones: son UNA lista y un escalón de base por cliente.
+ *
+ *     Básico    = la base          ← lo único que se negocia
+ *     Básico +  = base + 2
+ *     Premium   = 15
+ *     Live      = 15
+ *
+ * 🔑 EL MERCADO NEGOCIA LA BASE, NO LOS EXTERNOS. Medido: NACHO paga 7 puntos menos en Básico y el
+ *    precio de lista COMPLETO en Premium y Live; YASH paga 2 más en Básico y lo mismo que todos en
+ *    los externos. Por eso la base es la palanca: bajarla de 12 a 6 son seis puntos de regalo que
+ *    cuestan 1,63 de margen, porque sólo mueve 10 de los 52 sellos.
+ *
+ * 🔴 Y EL PISO CORRE SIEMPRE: ningún sello por debajo de su costo + MARGEN_MINIMO. Sin esto se
+ *    vende a pérdida sin que nadie se entere — pasaba con Betsoft OP, que cuesta 15 y estaba en
+ *    Básico + a 12. El piso lo levanta solo, y también cuando el proveedor suba su costo.
+ *
+ * Lo que sale de acá es un BORRADOR: se edita, se guarda, y recién al aplicarlo escribe la matriz.
+ */
+const MARGEN_MINIMO = 2;
+
+/* Los caros van con precio propio: son los que el mercado ya paga por encima de su bolsa. Salen de
+   lo que más se repite en las ofertas de 2025. El sello suelto le gana al paquete, así que alcanza
+   con nombrarlos. */
+const EXCEPCIONES = [
+  { busca: 'red tiger premium', pct: 19.5 },
+  { busca: 'spribe/endorphina', pct: 18.5 },
+  { busca: 'red tiger/amigo',   pct: 17.5 },
+  { busca: 'booming',           pct: 17.5 },
+  { busca: 'evolution lobby',   pct: 23 },
+  { busca: 'pragmatic live op', pct: 25 },
+  { busca: 'evolution expensive', pct: 22 },
+  { busca: 'evolution live',    pct: 20 },
+];
+
+/* Cuánto vale cada bolsa a partir de la base. Si algún día cambian los nombres de los paquetes,
+   lo que no matchee cae en `PRECIO_LISTA` y queda a 15, que es la mediana de Premium y Live. */
+const PRECIO_LISTA = 15;
+function precioDePaquete(nombre, base) {
+  const k = K(nombre);
+  if (k === 'básico' || k === 'basico') return base;
+  if (k.startsWith('básico +') || k.startsWith('basico +')) return base + 2;
+  return PRECIO_LISTA;
+}
+
+/**
+ * @param {number} base  el único número que se negocia
+ * @returns {{lineas:Array, avisos:Array}} las líneas listas para guardar, y qué tuvo que corregir
+ */
+function armarDesdeBase(base) {
+  const b = Number(base);
+  if (!Number.isFinite(b) || b <= 0) return { error: 'La base tiene que ser un número mayor que cero' };
+
+  const paquetes = listPaquetes();
+  const sellos = apiStore.listSellos();
+  /* El costo viene como texto y puede traer coma decimal: se normaliza acá una sola vez. */
+  const aNum = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
+  const costoDe = new Map(sellos.map((s) => [s.nombre, aNum(s.costo)]));
+  const paqDe = new Map();
+  paquetes.forEach((p) => (p.sellos || []).forEach((s) => paqDe.set(s, p)));
+
+  const lineas = paquetes.map((p) => ({ paquete_id: p.id, pct: precioDePaquete(p.nombre, b) }));
+  const avisos = [];
+
+  /* 1 · los caros, por nombre */
+  for (const e of EXCEPCIONES) {
+    const s = sellos.find((x) => K(x.nombre).includes(e.busca) || K(x.corto).includes(e.busca));
+    if (!s) continue;
+    if (lineas.some((l) => l.sello === s.nombre)) continue;
+    lineas.push({ sello: s.nombre, pct: e.pct });
+  }
+
+  /* 2 · el piso, que manda sobre todo lo anterior */
+  for (const s of sellos) {
+    const costo = costoDe.get(s.nombre) || 0;
+    const minimo = costo + MARGEN_MINIMO;
+    const suelta = lineas.find((l) => l.sello === s.nombre);
+    const p = paqDe.get(s.nombre);
+    const actual = suelta ? suelta.pct : (p ? precioDePaquete(p.nombre, b) : null);
+    if (actual == null || actual >= minimo) continue;
+    if (suelta) suelta.pct = minimo;
+    else lineas.push({ sello: s.nombre, pct: minimo });
+    avisos.push({ sello: s.nombre, corto: s.corto, costo, era: actual, queda: minimo,
+      porque: `cuesta ${costo}% y a ${actual}% te dejaba ${(actual - costo).toFixed(1)} puntos` });
+  }
+
+  return { lineas, avisos, base: b };
+}
+
 module.exports = {
+  armarDesdeBase, MARGEN_MINIMO,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
   listOfertas, getOferta, saveOferta, removeOferta,
   resolver, diff, aplicar, paraMostrar,

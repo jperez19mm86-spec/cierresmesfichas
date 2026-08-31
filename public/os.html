@@ -6582,6 +6582,20 @@ async function ofAbrir(id){
       <h2>Oferta para ${esc(o.titulo)}</h2>
       <div class="muted" style="margin-bottom:12px">Poné el % de cada paquete. El que dejes vacío
         no entra en la oferta.</div>
+
+      <!-- Armar todo con un número. La tarifa salió de comparar las 13 ofertas de 2025: lo único
+           que se negocia es la base; Premium y Live van a lista. Ver api-ofertas-store.js. -->
+      <div class="card" style="margin:0 0 12px;background:var(--bg3);display:flex;gap:10px;
+           align-items:center;flex-wrap:wrap">
+        <div>
+          <label style="margin:0">Armar con una base</label>
+          <div class="muted" style="font-size:11px">Básico = la base · Básico + = base+2 · Premium y Live = 15</div>
+        </div>
+        <input id="ofBase" value="10" style="width:70px;font-size:16px;text-align:center"
+          onkeydown="if(event.key==='Enter') ofDesdeBase('${o.id}')">
+        <button class="btn" onclick="ofDesdeBase('${o.id}')">Armar</button>
+        <div id="ofBaseAviso" class="muted" style="font-size:11.5px;flex-basis:100%"></div>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${_ofPaquetes.map(p=>`<div class="card" style="flex:1;min-width:190px;margin:0;background:var(--bg3)">
           <label>${esc(p.nombre)}</label>
@@ -6618,11 +6632,46 @@ async function ofAbrir(id){
   if(o.cliente_id) ofVerCambios(o.id);
 }
 
+/* Trae la oferta armada desde la base y la escribe en los campos. No guarda: el dueño la mira,
+   la retoca si quiere, y guarda él. Los avisos dicen qué levantó el piso y por qué — eso no es
+   un detalle: es plata que se estaba vendiendo por debajo del costo. */
+async function ofDesdeBase(id){
+  const base = (document.getElementById('ofBase')||{}).value;
+  const av = document.getElementById('ofBaseAviso');
+  if (av) av.textContent = 'Armando…';
+  const r = await api('/api/os/api/oferta-desde-base?base=' + encodeURIComponent(base));
+  if (!r || r.ok === false) { if (av) av.textContent = (r && r.error) || 'No se pudo armar'; return; }
+
+  /* Se guarda la oferta ENTERA de una —paquetes y proveedores sueltos— y después se redibuja.
+     Pasar por `ofGuardar` no serviría: esa función arma las líneas desde los campos de la
+     pantalla, y los proveedores sueltos no tienen campo propio. */
+  const actual = (await api('/api/os/api/ofertas/' + id)).oferta;
+  const g = await api('/api/os/api/ofertas', { method: 'POST', body: JSON.stringify({
+    id, titulo: actual.titulo,
+    notas: (document.getElementById('of-notas') || {}).value || '',
+    lineas: r.lineas }) });
+  if (!g || !g.ok) { if (av) av.textContent = 'Se armó, pero no se pudo guardar'; return; }
+
+  if (av) {
+    const n = (r.avisos || []).length;
+    av.innerHTML = n
+      ? '<b>Ojo:</b> ' + r.avisos.map(a => esc(a.corto) + ' — ' + esc(a.porque) + ', queda en ' + a.queda).join(' · ')
+        + '<br><span class="muted">Son los que se vendían por debajo del costo. El piso los levantó solo.</span>'
+      : 'Listo. ' + (r.lineas || []).filter(l => l.sello).length + ' proveedor(es) con precio propio.';
+  }
+  ofAbrir(id);
+}
+
 async function ofGuardar(id){
+  const actual=(await api('/api/os/api/ofertas/'+id)).oferta;
+  /* 🔴 Las líneas por PROVEEDOR se conservan. Los campos de la pantalla son sólo los paquetes: si
+     se rearmaran las líneas desde cero, cada vez que alguien tocara un % se perderían los precios
+     sueltos —los caros y los que levantó el piso— sin que nadie lo viera. */
+  const sueltas=(actual.lineas||[]).filter(l=>l.sello&&l.pct!=null);
   const lineas=_ofPaquetes.map(p=>({paquete_id:p.id, pct:(document.getElementById('ofp-'+p.id)||{}).value||''}))
-    .filter(l=>String(l.pct).trim()!=='');
+    .filter(l=>String(l.pct).trim()!=='').concat(sueltas);
   const r=await api('/api/os/api/ofertas',{method:'POST',
-    body:JSON.stringify({id, titulo:(await api('/api/os/api/ofertas/'+id)).oferta.titulo,
+    body:JSON.stringify({id, titulo:actual.titulo,
       notas:(document.getElementById('of-notas')||{}).value||'', lineas})});
   if(r&&r.ok) ofAbrir(id);
 }

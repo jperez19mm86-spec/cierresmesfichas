@@ -2359,6 +2359,14 @@ function mount(app) {
   }));
   app.delete('/api/os/api/paquetes/:id', wrap((req, res) => ok(res, ofertas.removePaquete(req.params.id))));
 
+  /* Armar una oferta con un solo número: la base. Devuelve las líneas listas para editar y
+     guardar — no escribe nada. Ver el porqué de la tarifa en api-ofertas-store.js. */
+  app.get('/api/os/api/oferta-desde-base', (req, res) => {
+    const r = ofertas.armarDesdeBase(req.query.base);
+    if (r.error) return res.status(400).json({ ok: false, error: r.error });
+    ok(res, r);
+  });
+
   app.get('/api/os/api/ofertas', (_req, res) => ok(res, { ofertas: ofertas.listOfertas() }));
   app.get('/api/os/api/ofertas/:id', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
