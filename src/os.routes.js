@@ -955,6 +955,29 @@ function mount(app) {
    * toma decide si hay que hacer las dos mitades o sólo la que falta. Un botón menos y, sobre todo,
    * un camino menos donde equivocarse y repetir un retiro.
    */
+  /* ── LO QUE VE EL PROVEEDOR ──────────────────────────────────────────────────────────────
+     Estas dos rutas son las ÚNICAS que su usuario puede tocar (ver PROVEEDOR_PUEDE en auth.js) y
+     son las dos de sólo lectura. Él mira; lo que se cobra y se paga lo registra ella.
+
+     ⚠️ El cinturón de abajo es el mismo que ya cuida las hojas del cliente: si por lo que sea se
+     colara un campo del negocio de ella, la ruta devuelve 500 en vez de mandarlo. Que un guard se
+     dispare es una molestia; que el margen viaje, no tiene vuelta atrás. */
+  const _sinMargen = (o) => {
+    const t = JSON.stringify(o);
+    return !/"cobra"|"pct_cliente"|"pct"\s*:\s*"?\d+"?\s*,\s*"cobra"|margen|sinPrecio|precio sin confirmar/i.test(t);
+  };
+  app.get('/api/os/proveedor/meses', (_req, res) => ok(res, { meses: chat.mesesDelProveedor() }));
+  app.get('/api/os/proveedor/mes', (req, res) => {
+    const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const d = chat.paraElProveedor(mes);
+    if (!_sinMargen(d)) {
+      console.error('[Proveedor] se frenó una respuesta que llevaba datos internos');
+      return err(res, 500, 'no pudimos armar la liquidación. Escribinos.');
+    }
+    ok(res, d);
+  });
+
   /* ── EL PASE ENTRE PLATAFORMAS, QUE LO ORIGINA ELLA ──────────────────────────────────────
      Los movimientos de siempre los pide el cliente desde su pantalla. Un pase no: cruza de Casino
      a Europa, y el cliente ni se entera de que existen dos plataformas (recibe un grupo opaco a

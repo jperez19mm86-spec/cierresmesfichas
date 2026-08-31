@@ -205,6 +205,13 @@ try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya
    caja van a wallets distintas y en fechas distintas, así que cada pago tiene que decir de cuál de
    las dos es: si no, un saldo a medias no dice qué falta. */
 try { db.exec("ALTER TABLE chat_pago_proveedor ADD COLUMN concepto TEXT"); } catch (e) { /* ya estaba */ }
+/* DÓNDE Y CON QUÉ se le pagó. Hasta ahora un pago era un monto y una fecha, y "¿dónde me lo
+   mandaste?" se contestaba buscando en el chat. `destino` es la wallet del proveedor tal como él la
+   dio (la red va adentro: es lo que él escribió) y `hash` el comprobante de la red. Los dos
+   opcionales: los pagos viejos no los tienen y no se inventan. */
+for (const col of ['destino TEXT', 'red TEXT', 'hash TEXT']) {
+  try { db.exec(`ALTER TABLE chat_pago_proveedor ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
+}
 /* LA CONTRASEÑA DEL PANEL DE CADA CAJA, y la clave con la que el cliente puede verla.
    Hay clientes con muchas cuentas y no se acuerdan cuál va con cuál; tenerlas acá les resuelve el
    problema. Pero al portal se entra escribiendo el NOMBRE DE UNA CAJA, sin contraseña: dejarlas a
@@ -1406,6 +1413,78 @@ function listasParaMandar(dias = 15) {
   return { mandar: mandar.sort(ord), sinGrupo: sinGrupo.sort(ord) };
 }
 
+/**
+ * LO QUE VE EL PROVEEDOR DE UN MES. Su liquidación y nada más.
+ *
+ * ⚠️ ESTA FUNCIÓN ES UNA LISTA BLANCA, NO UN FILTRO. Se arma un objeto NUEVO campo por campo en vez
+ * de copiar lo que devuelve `porCliente` y borrarle cosas: así una columna nueva del negocio nace
+ * afuera de acá en vez de adentro, que es la diferencia entre olvidarse de sacar algo y tener que
+ * acordarse de ponerlo.
+ *
+ * LO QUE NO PUEDE VER, y por qué:
+ *  · `cobra` / `pct_cliente` — lo que ELLA le cobra al cliente. De la diferencia contra lo que él
+ *    cobra sale el margen, que es el negocio entero.
+ *  · `sinPrecio`, las notas de un cobro, y cualquier cosa de la cuenta del cliente con ella.
+ *  · A qué plataforma pertenece cada caja (Casino/Europa): es control interno.
+ * LO QUE SÍ, y por qué no molesta:
+ *  · el profit de cada caja y lo que él cobra por ella: los dos números son suyos, ya los conoce.
+ *  · el nombre del cliente: ya venía en la hoja que se le manda, y no revela ningún precio.
+ */
+function paraElProveedor(mes) {
+  const m = String(mes || '').slice(0, 7);
+  const pc = porCliente(m);
+  const cajas = [];
+  for (const g of pc.clientes || []) {
+    for (const p of g.paneles || []) {
+      cajas.push({
+        cliente: g.cliente, caja: p.panel,
+        profit: p.profit_usdt,      // la ganancia de la caja, en USDT
+        cobra: undefined,           // ← NUNCA. Queda escrito para que se vea que es a propósito.
+        paga: p.paga,               // lo que ÉL cobra por esa caja
+        monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
+          .map((d) => ({ moneda: d.moneda, profit: String(d.profit), tc: d.tc || null, usdt: d.usdt })),
+      });
+    }
+  }
+  cajas.forEach((c) => delete c.cobra);
+  cajas.sort((a, b) => money.cmp(b.paga, a.paga));
+
+  /* El mantenimiento, caja por caja: es la pregunta que él hace todos los meses. Sale de las
+     mensualidades de ESE mes, no del arrastre — le está preguntando por su liquidación. */
+  const mens = db.prepare("SELECT panel, cliente_id, monto FROM chat_mov WHERE mes=? AND tipo='mensualidad'").all(m);
+  const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
+  const mantenimiento = mens.map((x) => ({
+    caja: String(x.panel || '(sin caja)'),
+    cliente: ((cli.get(x.cliente_id) || {}).nombre) || '—',
+    monto: x.monto,
+  })).sort((a, b) => a.caja.localeCompare(b.caja));
+
+  const dp = deudaProveedor(m);
+  return {
+    mes: m,
+    pct: pc.costo_pct,                 // SU porcentaje, que él ya conoce
+    cajas,
+    mantenimiento,
+    /* Lo que se le debe y lo que se le pagó, abierto en las dos cosas. Los pagos van con dónde y
+       cuándo: es literalmente lo que ella pidió que pudiera ver. */
+    deuda: dp,
+    pagos: pagos(m).map((x) => ({
+      fecha: x.fecha, monto: x.monto, moneda: x.moneda,
+      concepto: x.concepto || 'ganancia',
+      destino: x.destino || '', red: x.red || '', hash: x.hash || '',
+      nota: x.nota || '',
+    })),
+  };
+}
+
+/** Los meses que tienen algo, del más nuevo al más viejo. Para que pueda mirar hacia atrás. */
+function mesesDelProveedor() {
+  const a = db.prepare("SELECT DISTINCT mes FROM chat_mov WHERE tipo IN ('cobro','mensualidad')").all();
+  const b = db.prepare('SELECT DISTINCT mes FROM chat_pago_proveedor').all();
+  return [...new Set([...a, ...b].map((x) => String(x.mes || '').slice(0, 7)).filter((x) => /^\d{4}-\d{2}$/.test(x)))]
+    .sort().reverse();
+}
+
 /* ── QUIÉN ES EL QUE ENTRA AL PORTAL ─────────────────────────────────────────────────────────
    Escribe el usuario que ya conoce —el de su caja, "Fran44"— y no una cuenta nueva: una contraseña
    más para recordar es la forma más segura de que no entre nunca.
@@ -1776,9 +1855,12 @@ function pagar(d) {
   const id = 'chp_' + require('crypto').randomBytes(6).toString('hex');
   // Sin concepto se asume el %, que es lo único que existía antes de que se separaran.
   const concepto = d.concepto === 'mantenimiento' ? 'mantenimiento' : 'ganancia';
-  db.prepare(`INSERT INTO chat_pago_proveedor (id,mes,monto,moneda,fecha,nota,concepto,createdAt)
-    VALUES (?,?,?,?,?,?,?,?)`).run(id, m, money.round(monto, 2),
-    String(d.moneda || 'USDT').toUpperCase().slice(0, 8), fecha, String(d.nota || ''), concepto, nowISO());
+  db.prepare(`INSERT INTO chat_pago_proveedor (id,mes,monto,moneda,fecha,nota,concepto,createdAt,destino,red,hash)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, m, money.round(monto, 2),
+    String(d.moneda || 'USDT').toUpperCase().slice(0, 8), fecha, String(d.nota || ''), concepto, nowISO(),
+    String(d.destino || '').trim().slice(0, 200) || null,
+    String(d.red || '').trim().toUpperCase().slice(0, 24) || null,
+    String(d.hash || '').trim().slice(0, 200) || null);
   return { ok: true, pago: db.prepare('SELECT * FROM chat_pago_proveedor WHERE id=?').get(id) };
 }
 
@@ -1797,5 +1879,6 @@ module.exports = {
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja,
+  paraElProveedor, mesesDelProveedor,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
 };

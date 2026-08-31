@@ -1,0 +1,188 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chat Externo — Liquidación</title>
+<link rel="icon" href="/logo.png">
+<style>
+  /* La misma cara que el portal del cliente, a propósito: es el mismo producto visto del otro
+     lado del mostrador, y no hay motivo para que parezca otra cosa. */
+  :root{ --uva:#3b1a4d; --uva2:#5b2a72; --uva3:#8b5fa8; --bg:#f7f4fa; --linea:#e6dcec;
+    --texto:#2b1f33; --tenue:#7a6b86; --ok:#1f7a4d; --debe:#a33; --card:#fff }
+  *{ box-sizing:border-box }
+  body{ margin:0; background:var(--bg); color:var(--texto); font:15px/1.5 -apple-system,
+    BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif }
+  .cab{ background:var(--uva); color:#fff; padding:18px 16px calc(18px + env(safe-area-inset-bottom,0)) }
+  .cab .adentro{ max-width:900px; margin:0 auto; display:flex; align-items:center;
+    justify-content:space-between; gap:12px; flex-wrap:wrap }
+  .cab .chico{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; opacity:.7 }
+  .cab h1{ margin:2px 0 0; font-size:23px; font-weight:800 }
+  .cab a{ color:#fff; opacity:.85; font-size:14px }
+  .wrap{ max-width:900px; margin:0 auto; padding:16px 16px 60px }
+  .card{ background:var(--card); border:1px solid var(--linea); border-radius:16px;
+    padding:16px; margin-bottom:14px }
+  h2{ font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--tenue);
+    margin:0 0 10px; font-weight:700 }
+  .tot{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap }
+  .tot .num{ font-size:31px; font-weight:800; font-variant-numeric:tabular-nums }
+  .num.debe{ color:var(--debe) } .num.ok{ color:var(--ok) }
+  .sub{ color:var(--tenue); font-size:14px; margin:6px 0 0 }
+  .tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));
+    gap:10px; margin-top:12px }
+  .t{ border:1px solid var(--linea); border-radius:12px; padding:11px 13px; background:var(--bg) }
+  .t .k{ font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--tenue) }
+  .t .v{ font-size:20px; font-weight:750; font-variant-numeric:tabular-nums; margin-top:2px }
+  .t .p{ font-size:12.5px; color:var(--tenue); margin-top:2px }
+  table{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums }
+  th{ text-align:left; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--tenue); font-weight:700; padding:0 8px 7px; border-bottom:1px solid var(--linea) }
+  td{ padding:9px 8px; border-bottom:1px solid var(--linea); font-size:14.5px }
+  tr:last-child td{ border-bottom:0 }
+  .r{ text-align:right }
+  .tenue{ color:var(--tenue); font-size:13px }
+  .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; word-break:break-all }
+  .desplaza{ overflow-x:auto }
+  select,button{ font:inherit; border-radius:10px; border:1px solid var(--linea);
+    padding:8px 12px; background:#fff; color:inherit }
+  button{ cursor:pointer }
+  .chip{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700 }
+  .chip.ok{ background:#e6f4ec; color:var(--ok) } .chip.no{ background:#fbe9e9; color:var(--debe) }
+  .vacio{ color:var(--tenue); padding:10px 2px }
+  .portada{ min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:22px }
+  .oculto{ display:none }
+</style>
+
+<div id="portada" class="portada">
+  <div class="card" style="max-width:380px;width:100%;text-align:center">
+    <div class="tenue" style="letter-spacing:.14em;text-transform:uppercase;font-size:12px">Chat Externo</div>
+    <h1 style="margin:6px 0 4px;font-size:26px">Liquidación</h1>
+    <p class="tenue" style="margin:0 0 16px">Entrá con el usuario que te dimos.</p>
+    <a href="/login" style="display:inline-block;background:var(--uva2);color:#fff;text-decoration:none;
+      padding:12px 22px;border-radius:11px;font-weight:800">Entrar</a>
+  </div>
+</div>
+
+<div id="app" class="oculto">
+  <div class="cab"><div class="adentro">
+    <div><div class="chico">Chat Externo</div><h1 id="titulo">Liquidación</h1></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <select id="mes" onchange="cargar()"></select>
+      <a href="#" onclick="salir();return false">Salir</a>
+    </div>
+  </div></div>
+  <div class="wrap" id="cuerpo"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const num = (n, d) => Number(n || 0).toLocaleString('es-AR',
+  { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d });
+const MESES = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto',
+  'septiembre','octubre','noviembre','diciembre'];
+/* 'YYYY-MM' → 'agosto 2026', a mano. Pasar 'YYYY-MM' por Date se corre de mes según la zona, y un
+   mes equivocado en una liquidación es una discusión. */
+const mesLindo = (m) => { const p = String(m||'').split('-');
+  return (MESES[Number(p[1])] || m) + ' ' + (p[0] || ''); };
+
+async function api(u) {
+  const r = await fetch(u, { headers: { 'Accept': 'application/json' } });
+  if (r.status === 401 || r.status === 403) { $('portada').classList.remove('oculto'); $('app').classList.add('oculto'); return null; }
+  try { return await r.json(); } catch (e) { return null; }
+}
+async function salir() { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; }
+
+async function arrancar() {
+  const r = await api('/api/os/proveedor/meses');
+  if (!r || !r.ok) return;
+  $('portada').classList.add('oculto'); $('app').classList.remove('oculto');
+  const ms = r.meses || [];
+  $('mes').innerHTML = ms.length
+    ? ms.map((m) => '<option value="' + esc(m) + '">' + esc(mesLindo(m)) + '</option>').join('')
+    : '<option value="">sin datos</option>';
+  cargar();
+}
+
+async function cargar() {
+  const mes = $('mes').value;
+  $('cuerpo').innerHTML = '<div class="card vacio">Cargando…</div>';
+  const d = await api('/api/os/proveedor/mes?mes=' + encodeURIComponent(mes));
+  if (!d || !d.ok) { $('cuerpo').innerHTML = '<div class="card vacio">No pudimos traer ese mes.</div>'; return; }
+  $('titulo').textContent = 'Liquidación · ' + mesLindo(d.mes);
+
+  const de = d.deuda || {};
+  const g = de.ganancia || {}, mt = de.mantenimiento || {}, tt = de.total || {};
+  const falta = Number(tt.falta || 0);
+
+  let h = '<div class="card">'
+    + '<div class="tot"><span class="tenue">' + (falta > 0 ? 'Te queda por cobrar' : 'Está todo pagado') + '</span>'
+    + '<b class="num ' + (falta > 0 ? 'debe' : 'ok') + '">' + num(Math.abs(falta)) + ' USDT</b></div>'
+    + '<div class="tiles">'
+    + tile('Por la ganancia', g, (d.pct != null ? d.pct + '% sobre el profit' : ''))
+    + tile('Mantenimiento', mt, (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') : ''))
+    + '</div></div>';
+
+  /* Las cajas: el profit de cada una y lo que te toca por ella. Es lo primero que se mira. */
+  h += '<div class="card"><h2>Las cajas de ' + esc(mesLindo(d.mes)) + '</h2>';
+  h += (d.cajas || []).length
+    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
+      + '<th class="r">Profit</th><th class="r">Te toca</th></tr></thead><tbody>'
+      + d.cajas.map((c) => '<tr><td><b>' + esc(c.caja) + '</b>'
+        + (c.monedas && c.monedas.length > 1
+          ? '<div class="tenue">' + c.monedas.map((m) => esc(m.moneda)).join(' · ') + '</div>' : '')
+        + '</td><td class="tenue">' + esc(c.cliente) + '</td>'
+        + '<td class="r">' + num(c.profit) + '</td>'
+        + '<td class="r"><b>' + num(c.paga) + '</b></td></tr>').join('')
+      + '</tbody></table></div>'
+    : '<div class="vacio">Todavía no hay cajas con movimiento este mes.</div>';
+  h += '</div>';
+
+  /* El mantenimiento, caja por caja. Es la pregunta de todos los meses. */
+  h += '<div class="card"><h2>Mantenimiento</h2>';
+  h += (d.mantenimiento || []).length
+    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
+      + '<th class="r">Monto</th></tr></thead><tbody>'
+      + d.mantenimiento.map((m) => '<tr><td><b>' + esc(m.caja) + '</b></td>'
+        + '<td class="tenue">' + esc(m.cliente) + '</td>'
+        + '<td class="r">' + num(m.monto) + '</td></tr>').join('')
+      + '</tbody></table></div>'
+      /* ⚠️ Se dice explícitamente que el estado es del MES, no de cada caja: los pagos se
+         registran por mes y por concepto, no atados a una caja. Poner un tilde por caja sería
+         inventar una precisión que el dato no tiene. */
+      + '<p class="tenue" style="margin:10px 0 0">El estado de pago es del total del mes, '
+      + 'no de cada caja por separado.</p>'
+    : '<div class="vacio">Sin mantenimientos este mes.</div>';
+  h += '</div>';
+
+  /* Los pagos: cuándo, cuánto, de qué, y a dónde. */
+  h += '<div class="card"><h2>Lo que ya te pagó</h2>';
+  h += (d.pagos || []).length
+    ? '<div class="desplaza"><table><thead><tr><th>Fecha</th><th>De qué</th>'
+      + '<th class="r">Monto</th><th>A dónde</th></tr></thead><tbody>'
+      + d.pagos.map((p) => '<tr><td>' + esc(p.fecha) + '</td>'
+        + '<td>' + (p.concepto === 'mantenimiento' ? 'Mantenimiento' : 'Por la ganancia') + '</td>'
+        + '<td class="r"><b>' + num(p.monto) + '</b> <span class="tenue">' + esc(p.moneda) + '</span></td>'
+        + '<td>' + (p.destino
+          ? '<div class="mono">' + esc(p.destino) + '</div>'
+            + (p.red ? '<div class="tenue">' + esc(p.red) + '</div>' : '')
+            + (p.hash ? '<div class="mono tenue">' + esc(p.hash) + '</div>' : '')
+          : '<span class="tenue">' + (p.nota ? esc(p.nota) : 'no quedó anotado') + '</span>')
+        + '</td></tr>').join('')
+      + '</tbody></table></div>'
+    : '<div class="vacio">Todavía no hay pagos registrados de este mes.</div>';
+  h += '</div>';
+
+  $('cuerpo').innerHTML = h;
+}
+
+function tile(rot, x, pie) {
+  const f = Number((x || {}).falta || 0);
+  return '<div class="t"><div class="k">' + esc(rot) + '</div>'
+    + '<div class="v">' + num((x || {}).debe) + '</div>'
+    + '<div class="p">' + (f > 0
+      ? 'pagado ' + num((x || {}).pagado) + ' · <b>falta ' + num(f) + '</b>'
+      : '<span class="chip ok">pagado</span>')
+    + (pie ? ' · ' + esc(pie) : '') + '</div></div>';
+}
+
+arrancar();
+</script>

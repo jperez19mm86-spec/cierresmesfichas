@@ -2638,6 +2638,51 @@ async function main() {
       && !/margen|costo|pct_costo|te cuesta|sin confirmar/i.test(hojaCajas));
     dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
 
+    /* ── EL PANEL DEL PROVEEDOR ──────────────────────────────────────────────────────────────
+       Ve su liquidación y NADA MÁS. Lo que nunca puede ver es lo que ella le cobra al cliente:
+       de la diferencia contra lo que él cobra sale el margen, que es el negocio entero. */
+    const authSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    check('proveedor: sin las dos variables puestas NO existe el usuario',
+      /HAY_PROVEEDOR = !!\(PROVEEDOR_USER && PROVEEDOR_PASSWORD\)/.test(authSrc),
+      'un usuario que aparece solo porque alguien deployó es una puerta que nadie pidió');
+    check('proveedor: la contraseña se compara en tiempo constante, como las otras',
+      /safeEqual\(user \|\| '', PROVEEDOR_USER\) && safeEqual\(password \|\| '', PROVEEDOR_PASSWORD\)/.test(authSrc));
+    check('proveedor: su lista de permisos es de sólo lectura',
+      /PROVEEDOR_PUEDE = \[/.test(authSrc)
+      && !/\{ m: 'POST', re: \/\^\\\/api\\\/os\\\/proveedor/.test(authSrc),
+      'él mira; lo que se cobra y se paga lo registra ella');
+    const provDoc = ch.paraElProveedor('2026-08');
+    const provTxt = JSON.stringify(provDoc);
+    /* EL CHECK QUE MÁS IMPORTA DE TODO ESTE BLOQUE. */
+    check('proveedor: NO se le filtra lo que ella le cobra al cliente',
+      !/"cobra"/.test(provTxt) && !/"pct_cliente"/.test(provTxt)
+      && !/margen|sinPrecio|precio sin confirmar/i.test(provTxt),
+      'de la diferencia contra lo que él cobra sale el margen');
+    check('proveedor: tampoco se le dice de qué plataforma es cada caja',
+      !/"sistema"/.test(provTxt) && !/Casino|Europa/.test(provTxt));
+    check('proveedor: ve el profit de cada caja y lo que le toca por ella',
+      Array.isArray(provDoc.cajas)
+      && provDoc.cajas.every((c) => c.profit !== undefined && c.paga !== undefined && !('cobra' in c)));
+    check('proveedor: ve el mantenimiento caja por caja',
+      Array.isArray(provDoc.mantenimiento));
+    check('proveedor: y los pagos con dónde y cuándo',
+      Array.isArray(provDoc.pagos)
+      && provDoc.pagos.every((x) => 'fecha' in x && 'destino' in x && 'concepto' in x));
+    check('proveedor: puede mirar meses anteriores',
+      Array.isArray(ch.mesesDelProveedor()));
+    const rutasSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('proveedor: la ruta tiene un cinturón que frena una respuesta con datos internos',
+      /_sinMargen/.test(rutasSrc) && /se frenó una respuesta que llevaba datos internos/.test(rutasSrc));
+    const provHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8');
+    /* ⚠️ Los pagos se registran por MES y por concepto, no atados a una caja. Poner un tilde por
+       caja sería inventar una precisión que el dato no tiene. */
+    check('proveedor: la pantalla dice que el estado de pago es del mes, no de cada caja',
+      /El estado de pago es del total del mes/.test(provHtml));
+    /* Se buscan los NOMBRES DE CAMPO, no la palabra: "Te queda por cobrar" es texto legítimo y
+       matchear la palabra suelta hace que el check grite por el motivo equivocado. */
+    check('proveedor: la pantalla no lee ningún campo del negocio de ella',
+      !/\.cobra\b|\['cobra'\]|"cobra"|pct_cliente|\bmargen\b/i.test(provHtml));
+
     check('chat: el rótulo lleva el monto y viene marcado el que más debe',
       /^Mantenimiento — (debés|tenés|estás)/.test(ch.opcionesDeConcepto(CLI.id, '2026-08').opciones[0].rotulo)
       && ch.opcionesDeConcepto(CLI.id, '2026-08').opciones.filter((o) => o.sugerida).length === 1);

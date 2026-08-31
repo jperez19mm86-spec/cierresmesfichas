@@ -21,6 +21,17 @@ const PANEL_USER = process.env.PANEL_USER || 'admin';
 const OPERADOR_USER = process.env.OPERADOR_USER || '';
 const OPERADOR_PASSWORD = process.env.OPERADOR_PASSWORD || '';
 const HAY_OPERADOR = !!(OPERADOR_USER && OPERADOR_PASSWORD);
+/* ── EL TERCER USUARIO: EL PROVEEDOR DEL CHAT ─────────────────────────────────────────────────
+   El que le vende el servicio de chat. Entra por la misma puerta que los demás y ve UNA pantalla:
+   la suya. Mismo criterio que el operador —sólo existe si las DOS variables están puestas— por el
+   mismo motivo: un usuario que aparece solo porque alguien deployó es una puerta que nadie pidió.
+
+   Va como rol y no como una clave suelta a propósito. Su pantalla muestra TODO el negocio del chat
+   de una sola vez —todas las cajas, de todos los clientes— y eso es otra categoría que el portal
+   del cliente, que muestra lo de uno solo. Una llave única para eso, si se filtra, no se nota. */
+const PROVEEDOR_USER = process.env.PROVEEDOR_USER || '';
+const PROVEEDOR_PASSWORD = process.env.PROVEEDOR_PASSWORD || '';
+const HAY_PROVEEDOR = !!(PROVEEDOR_USER && PROVEEDOR_PASSWORD);
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || 'admin';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-insecure-secret-cambiar-en-prod';
 const USING_DEFAULT_PASSWORD = !process.env.PANEL_PASSWORD;
@@ -104,6 +115,24 @@ const OPERADOR_PUEDE = [
   { m: 'POST', re: /^\/api\/logout\/?$/ },
   { m: 'GET', re: /^\/api\/quien\/?$/ },
 ];
+
+/* ── LO QUE PUEDE EL PROVEEDOR ─────────────────────────────────────────────────────────────
+   Su pantalla y sus datos, y NADA MÁS. La lista es cortísima a propósito: todo lo que no esté acá
+   le contesta 403, así que una ruta nueva del panel nace cerrada para él en vez de abierta.
+   ⚠️ NO tiene ninguna ruta que escriba. Él mira; lo que se cobra y se paga lo registra ella. */
+const PROVEEDOR_PUEDE = [
+  { m: 'GET', re: /^\/api\/os\/proveedor(\/|$)/ },
+  { m: 'POST', re: /^\/api\/logout\/?$/ },
+  { m: 'GET', re: /^\/api\/quien\/?$/ },
+];
+const PROVEEDOR_PAGINAS = [/^\/proveedor\/?$/, /^\/[\w.-]+\.(css|js|png|ico|json|svg|webmanifest)$/];
+
+function puedeProveedor(req) {
+  const p = req.path;
+  if (PROVEEDOR_PUEDE.some((r) => r.m === req.method && r.re.test(p))) return true;
+  if (req.method === 'GET' && PROVEEDOR_PAGINAS.some((re) => re.test(p))) return true;
+  return false;
+}
 
 /** Los archivos de la app (no APIs). El operador entra al operativo y a nada más. */
 const OPERADOR_PAGINAS = [/^\/$/, /^\/index\.html$/, /^\/[\w.-]+\.(css|js|png|ico|json|svg|webmanifest)$/];
@@ -261,6 +290,17 @@ function required(req, res, next) {
   if (req.method === 'OPTIONS') return next();
   if (PUBLIC.some((re) => re.test(req.path))) return next();
   const rol = rolDe(req);
+  if (rol === 'proveedor') {
+    if (puedeProveedor(req)) return next();
+    // Mismo criterio que con el operador: se dice qué pasó. Tiene una sesión válida, esconderlo no
+    // agrega seguridad y sí hace que un permiso mal puesto parezca un bug.
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ ok: false,
+        error: 'Tu usuario ve la liquidación del chat únicamente. Si necesitás otra cosa, escribinos.' });
+    }
+    if (req.method === 'GET' && req.path === '/') return res.redirect('/proveedor');
+    return res.status(403).type('html').send(paginaSinPermiso());
+  }
   if (rol === 'operador') {
     if (puedeOperador(req)) return next();
     // Se dice qué pasó, no "no existe": esconderlo no agrega seguridad —el operador tiene una
@@ -286,6 +326,7 @@ function loginHandler(req, res) {
   let rol = null;
   if (safeEqual(user || '', PANEL_USER) && safeEqual(password || '', PANEL_PASSWORD)) rol = 'admin';
   else if (HAY_OPERADOR && safeEqual(user || '', OPERADOR_USER) && safeEqual(password || '', OPERADOR_PASSWORD)) rol = 'operador';
+  else if (HAY_PROVEEDOR && safeEqual(user || '', PROVEEDOR_USER) && safeEqual(password || '', PROVEEDOR_PASSWORD)) rol = 'proveedor';
   if (!rol) {
     return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos' });
   }
@@ -310,6 +351,6 @@ function logoutHandler(req, res) {
   res.json({ ok: true });
 }
 
-module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador,
+module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador, puedeProveedor,
   firmarCliente, clienteDeToken, CLIENTE_RENOVAR_MS,
   USING_DEFAULT_PASSWORD, PANEL_USER, HAY_OPERADOR };

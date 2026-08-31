@@ -1352,6 +1352,14 @@ app.get('/chat/:token', (req, res) => {
    Entra con el usuario que YA CONOCE —el de su caja— y ve lo del chat y nada más: acá no hay
    fichas, ni pedidos, ni la cuenta del otro negocio. Tiene su propia cara porque es otro producto.
    Ver `quienEntra` en chat-externo.store para por qué se entra sin contraseña. */
+/* LA PANTALLA DEL PROVEEDOR. Va detrás del login como todo el panel —no es pública— pero es lo
+   ÚNICO que su usuario puede abrir: el gate de auth.js lo redirige acá si intenta entrar a otra
+   cosa. Ver PROVEEDOR_PUEDE. */
+app.get('/proveedor', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, private');
+  res.sendFile(require('path').join(__dirname, '..', 'public', 'proveedor.html'));
+});
+
 app.get('/chat', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, private');
   res.sendFile(require('path').join(__dirname, '..', 'public', 'ganamos.html'));
