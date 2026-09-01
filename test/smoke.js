@@ -2539,7 +2539,9 @@ async function main() {
       && /Red <b>TRC20<\/b>/.test(htmlDos) && /Red <b>BEP20<\/b>/.test(htmlDos));
     /* ⚠️ copiar() busca por getElementById: dos bloques con el mismo id hacen que el segundo botón
        copie la PRIMERA dirección. El cliente manda por la red equivocada y esa plata no vuelve. */
-    const idsDir = htmlDos.match(/id="dir\d+"/g) || [];
+    /* Con espacio adelante: `data-id="dir1"` contiene `id="dir1"` y sin eso cada dirección se
+       contaba dos veces, así que el check daba 6 ids y 3 distintos y fallaba por su propia regex. */
+    const idsDir = htmlDos.match(/\sid="dir\d+"/g) || [];
     check('chat: cada dirección tiene su propio id, o el botón copia la equivocada',
       idsDir.length >= 2 && new Set(idsDir).size === idsDir.length
       && (htmlDos.match(/class="copiar"/g) || []).length === idsDir.length,
@@ -2764,7 +2766,7 @@ async function main() {
     check('chat: la hoja le dice cuánto debe HOY, no sólo lo del mes',
       // El saldo vivo arriba, y lo de ESTE mes abajo — desglosado si hay movimientos, y si no,
       // en un solo renglón. Lo que no puede faltar es la mitad de abajo.
-      hojaViva.includes('Tenés que pagar')
+      hojaViva.includes('Pendiente de pago')
       && (/De este mes/.test(hojaViva) || /Total del mes/.test(hojaViva)),
       `saldo ${saldoZ.debe} · mes ${gZ.cobra}`);
     check('chat: con el link puede avisar que pagó desde la misma hoja',
@@ -3047,13 +3049,38 @@ async function main() {
     check('cuenta del cliente: y el servidor lo manda, sacándolo del pedido',
       /usuario = p\.cajaUsuario \|\| null/.test(idxCta));
 
-    check('proveedor: su portada usa el perrito y el morado del portal del cliente',
-      /id="perro"/.test(provPag) && /radial-gradient/.test(provPag)
-      && /GANAMOS CHAT/.test(provPag));
+    check('proveedor: su portada es la misma que la del portal del cliente',
+      /id="perro"/.test(provPag) && /CHAT<span class="x">INTERNO<\/span>/.test(provPag)
+      && /href="\/piel\.css"/.test(provPag),
+      'es el mismo producto visto del otro lado del mostrador');
+    /* ── LAS TRES PANTALLAS DEL CHAT COMPARTEN LA CARA ───────────────────────────────────────
+       Antes cada una tenía su propio bloque de estilos, copiado a mano de la anterior y ya
+       corrido: tres copias divergentes del mismo diseño. */
+    const pielTxt = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'piel.css'), 'utf8');
+    const portalTxt = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
+    check('chat: las tres pantallas enlazan la misma piel, y ninguna lleva estilos propios',
+      [provPag, portalTxt].every((x) => /href="\/piel\.css"/.test(x) && !/<style>/.test(x))
+      && /href="\/piel\.css"/.test(chDoc.htmlCliente({ mes: '2026-08', cliente: 'x', monedas: [], paneles: [] }, {})));
+    /* ⚠️ ABSOLUTO, NO RELATIVO. La hoja del mes vive en /chat/<token>: uno relativo pide
+       /chat/piel.css, que no es ruta pública, y llega el login en vez del estilo. */
+    check('chat: la piel se enlaza absoluta, o la hoja del mes llega sin estilo',
+      !/href="piel\.css"/.test(provPag) && !/href="piel\.css"/.test(portalTxt));
+    /* Y tiene que poder pedirla alguien SIN sesión: el cliente, el que abre la hoja del mes, y el
+       proveedor antes de ingresar. */
+    check('chat: la piel es pública, o las tres llegan sin estilo',
+      /\/\^\\\/piel\\\.css\$\//.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8')));
+    /* ⚠️ LAS GUARDAS ESCANEAN EL HTML ENTERO. Mientras el estilo viajaba adentro, una palabra en un
+       comentario del CSS devolvía un 500 y el cliente se quedaba sin su hoja. Sacarlo afuera reduce
+       esa superficie, pero la piel igual no puede tener esas palabras: el día que alguien la vuelva
+       a pegar adentro, esto avisa antes. */
+    check('chat: la piel no lleva ninguna palabra de las que frenan las guardas',
+      !/margen|costo|pct_costo|te cuesta|sin confirmar|\.paga:/i.test(pielTxt),
+      'un comentario distraído en el CSS tumbaba la hoja del cliente con un 500');
     /* ⚠️ #portada es un id y le gana por especificidad a .oculto: sin `!important` la portada se
        quedaba encima de la liquidación después de entrar. */
     check('proveedor: y la portada se esconde de verdad al entrar',
-      /\.oculto\{ display:none !important \}/.test(provPag));
+      /\.oculto\{ display:none !important \}/.test(pielTxt));
 
     check('proveedor: sin nada cargado, no puede entrar',
       ch.proveedorAcceso().activo === false

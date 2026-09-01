@@ -41,121 +41,21 @@ const mesLargo = (m) => {
    cuenta, otra wallet, otro grupo— y el papel que recibe el cliente tiene que decirlo desde la
    primera línea. Los mismos colores que ganamos.html a propósito: si la hoja saliera con la paleta
    del otro negocio, parecería de otra empresa. */
-const CSS = `
-  :root{
-    --uva:#3b1152; --uva2:#5a1d7d; --uva3:#7b2ea6;
-    --lila:#eadff5; --lila2:#f7f1fb;
-    --tinta:#241033; --tinta2:#6b5a78; --linea:#e4d7ee;
-    --verde:#2e7d5b; --rojo:#c0392b;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--lila2);color:var(--tinta);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    -webkit-font-smoothing:antialiased}
-  .cab{background:var(--uva);color:#fff;padding:22px 20px 30px}
-  .cab .adentro{max-width:820px;margin:0 auto;display:flex;align-items:center;gap:13px}
-  .cab svg{width:38px;height:38px;flex:0 0 auto}
-  .cab .marca{font-size:11px;opacity:.72;letter-spacing:.13em;text-transform:uppercase}
-  .cab h1{font-size:20px;margin:1px 0 0;font-weight:800;letter-spacing:-.01em}
-  .cab .sub{font-size:13.5px;opacity:.75;margin-top:1px}
-  .hoja{max-width:820px;margin:0 auto;padding:0 20px 44px}
-  .tot{margin-top:-16px;background:#fff;border:1px solid var(--linea);border-radius:16px;
-    padding:18px 20px;box-shadow:0 8px 24px -18px rgba(59,17,82,.55);
-    display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap}
-  .tot span{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--tinta2)}
-  .tot b{font-size:30px;font-weight:800;letter-spacing:-.02em}
-  .tot b.debe{color:var(--rojo)} .tot b.ok{color:var(--verde)}
-  .bajo{font-size:13px;color:var(--tinta2);margin:7px 2px 0}
-  h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta2);
-    margin:26px 0 8px;font-weight:700}
-  .caja{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:6px 16px}
-  table{width:100%;border-collapse:collapse}
-  th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--tinta2);
-    border-bottom:1px solid var(--lila);padding:9px 6px;font-weight:700;letter-spacing:.03em}
-  td{padding:10px 6px;border-bottom:1px solid var(--lila);vertical-align:top}
-  tr:last-child td{border-bottom:none}
-  .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-  .tc{color:var(--tinta2);font-size:12px}
-  .mon{margin-bottom:5px} .mon:last-child{margin-bottom:0}
-  /* El link de la caja, debajo de su nombre: sin protocolo, que no aporta y ocupa. */
-  .tot-fila td{border-top:2px solid var(--linea);padding-top:11px}
-  .lnk{margin-top:3px;font-size:12.5px;word-break:break-all}
-  .lnk a{color:var(--tinta2);text-decoration:none;border-bottom:1px solid currentColor}
-  .lnk a:hover{color:var(--acento)}
-  /* Volver: una barra fina arriba de todo, fuera de la hoja. */
-  .volver{padding:12px 20px 0}
-  .volver a,.volver button{display:inline-flex;align-items:center;gap:7px;background:none;border:none;
-    color:#fff;opacity:.82;font:inherit;font-size:14.5px;cursor:pointer;text-decoration:none;padding:0}
-  .volver a:hover,.volver button:hover{opacity:1}
-  tfoot td{font-weight:700;border-top:2px solid var(--lila);border-bottom:none}
-  .sub-tot{margin-top:14px;background:#fff;border:1px solid var(--linea);border-radius:13px;
-    padding:13px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap}
-  .sub-tot span{font-size:13.5px;color:var(--tinta2)}
-  .sub-tot b{font-size:18px}
-  .avi{margin-top:14px;padding:11px 14px;border-left:3px solid var(--uva3);background:#fff;
-    border-radius:0 11px 11px 0;font-size:13.5px;color:var(--tinta2)}
-  /* 🔴 UN RECUADRO POR CONCEPTO, con sus redes ADENTRO. Antes cada dirección era una tarjeta
-     suelta y sólo la primera llevaba título: con el mantenimiento cobrándose por dos redes, la
-     tercera quedaba sin rótulo y en pantalla se veían TRES cobros. Son dos. */
-  .concepto{border:1px solid var(--linea);border-radius:16px;padding:13px 14px;background:var(--lila2)}
-  .concepto + .concepto{margin-top:12px}
-  .concepto > .rot{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
-    font-weight:800;margin-bottom:8px}
-  .mismared{margin:-3px 0 9px;font-size:12.5px;color:var(--tinta2)}
-  .paga{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:15px 16px;font-size:14.5px}
-  .concepto .paga + .paga{margin-top:9px}
-  .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
-    font-weight:700;margin-bottom:6px}
-  .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:8px}
-  .paga + .paga{margin-top:10px}
-  .paga .dir{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-    font-size:14px;background:var(--lila2);border:1px solid var(--linea);border-radius:10px;padding:12px 13px}
-  .paga .notap{margin-top:9px;font-size:13px;color:var(--tinta2)}
-  .copiar{margin-top:11px;padding:12px 16px;font:inherit;font-size:14px;font-weight:700;border:0;
-    border-radius:11px;background:var(--uva2);color:#fff;cursor:pointer;width:100%}
-  .copiar.ok{background:var(--verde)}
-  form{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:16px}
-  .campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:13px;margin-bottom:13px}
-  label{display:block;font-size:12.5px;color:var(--tinta2)}
-  label .opt{color:#b7a9c2}
-  input,select{width:100%;margin-top:5px;padding:11px 12px;font:inherit;border:1px solid var(--linea);
-    border-radius:11px;background:#fff;color:inherit}
-  input:focus-visible,select:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
-  /* La aclaración de que el mes todavía no está: ocupa las dos columnas de la grilla. */
-  .aclara{grid-column:1/-1;margin:0;font-size:13px;color:#6f6280;line-height:1.5}
-  /* Una caja que no se pudo calcular: va listada igual, pero sin números inventados. */
-  .sc{color:#9b8aa8;font-style:italic;font-size:13.5px}
-  /* Elegir de qué cajas es el pago: uno con cuatro no paga cuatro veces. */
-  .cajas-mant{grid-column:1/-1}
-  .cajas-mant .rotc{font-size:13px;color:#6f6280;margin-bottom:4px}
-  .cajita{display:flex;align-items:center;gap:9px;font-size:15px;cursor:pointer;margin-top:6px}
-  .cajita input{width:auto;margin:0;flex:0 0 auto}
-  button[type=submit]{padding:13px 20px;font:inherit;font-weight:800;border:0;border-radius:11px;
-    background:var(--uva2);color:#fff;cursor:pointer;width:100%}
-  button:disabled{opacity:.5;cursor:default}
-  #msg{margin:11px 0 0;font-size:14px}
-  #msg.bien{color:var(--verde)} #msg.mal{color:var(--rojo)}
-  .pie{margin-top:30px;font-size:11.5px;color:var(--tinta2);border-top:1px solid var(--lila);padding-top:12px}
-  @media print{
-    body{background:#fff}
-    .cab{background:#fff;color:var(--tinta);padding:0 0 12px;border-bottom:2px solid var(--linea)}
-    .cab svg path,.cab svg circle{stroke:var(--uva);fill:none}
-    .cab svg circle,.cab svg path[fill]{fill:var(--uva)}
-    .hoja{padding:0} .tot{margin-top:14px;box-shadow:none}
-    form,button,.copiar{display:none}
-    .tot,.paga{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  }
-`;
+/* La cara sale de /piel.css, que comparten las tres pantallas del chat. Absoluto y no relativo:
+   esta hoja vive en /chat/<token>, así que uno relativo pediría /chat/piel.css y llegaría el login.
+   Antes el estilo viajaba adentro del HTML, y las guardas que revisan que no se escape un dato
+   interno lo escaneaban también: una palabra en un comentario del CSS devolvía un 500. */
+const CSS_LINK = '<link rel="stylesheet" href="/piel.css">';
 
 /* El perrito, el mismo del portal. Dibujado y no un emoji: un emoji cambia de cara según el
    aparato, y esto es la marca. */
-const PERRO = `<svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
-  <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-  <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-  <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
-    stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
-  <circle cx="39" cy="45" r="4.5" fill="#fff"/><circle cx="61" cy="45" r="4.5" fill="#fff"/>
-  <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/></svg>`;
+/* El globo de chat. Antes era un perrito dibujado a mano; el producto pasó a llamarse CHAT
+   INTERNO y un perro ya no dice de qué se trata. */
+const MARCA_IC = `<svg viewBox="0 0 100 100" aria-hidden="true">
+  <path d="M23 17h54c7.2 0 13 5.8 13 13v31c0 7.2-5.8 13-13 13H49.5L30 92V74h-7c-7.2 0-13-5.8-13-13V30c0-7.2 5.8-13 13-13z" fill="#fff" opacity=".92"/>
+  <circle cx="34" cy="45" r="6" fill="#6b2a92"/><circle cx="50" cy="45" r="6" fill="#8e3fb0"/>
+  <circle cx="66" cy="45" r="6" fill="#b25fd0"/>
+</svg>`;
 
 /* ── CÓMO SE VUELVE, SEGÚN QUIÉN ESTÉ MIRANDO ────────────────────────────────────────────────
    La hoja se abre en una pestaña nueva, así que la flecha del navegador queda apagada: no hay a
@@ -196,10 +96,14 @@ function desgloseMes(ctx, doc) {
      veces lo mismo. El período sale de la fecha del movimiento, no del texto de la nota: la nota
      es un rótulo y podría cambiar, la fecha es el dato. */
   for (const m of mant) {
-    /* Se pide adentro y no arriba: el período lo calcula el store —es el mismo que escribe el
-       renglón— y traerlo acá arriba ataría este archivo, que sólo dibuja, al que tiene la lógica. */
-    const per = require('./chat-externo.store').periodoDesde(m.fecha);
-    filas.push([`Mantenimiento${m.panel ? ' · ' + esc(m.panel) : ''}`
+    /* Se pide adentro y no arriba: el período y el nombre los resuelve el store —es el mismo que
+       escribe el renglón— y traerlos acá ataría este archivo, que sólo dibuja, al que tiene la
+       lógica. La caja va por su LINK, igual que en el resto: el nombre interno se lo pusimos
+       nosotros y el cliente nunca lo usó. */
+    const st = require('./chat-externo.store');
+    const per = st.periodoDesde(m.fecha);
+    const caja = st.comoLaLlamaElCliente(m.panel);
+    filas.push([`Mantenimiento${caja ? ' · ' + esc(caja) : ''}`
       + (per ? ` <span class="tenue">${esc(per.texto)}</span>` : ''), n(m.monto, 2)]);
   }
   /* Sin movimientos no hay de qué hacer un desglose, pero el total del mes tiene que salir igual:
@@ -218,15 +122,16 @@ function desgloseMes(ctx, doc) {
     de arriba son un adelanto de cuánto va a ser.</p>` : ''}`;
 }
 
-const cabecera = (titulo, sub, ctx) => `<div class="cab"><div class="adentro">${volver(ctx)}</div>
-  <div class="adentro">${PERRO}
-  <div><div class="marca">Ganamos × Latam</div><h1>${esc(titulo)}</h1>
-  <div class="sub">${esc(sub)}</div></div></div></div>`;
+/* UNA sola fila: ícono, nombre, y el «volver» empujado al final. Antes eran dos `.adentro`
+   apilados y en un teléfono el botón quedaba de un lado y el título del otro. */
+const cabecera = (titulo, sub, ctx) => `<div class="cab"><div class="adentro">${MARCA_IC}
+  <div><div class="marca">Chat Interno</div><h1>${esc(titulo)}</h1>
+  <div class="sub">${esc(sub)}</div></div>${volver(ctx)}</div></div>`;
 
 const marco = (titulo, cuerpo) => `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#3b1152">
-<title>${esc(titulo)}</title><style>${CSS}</style></head><body>${cuerpo}</body></html>`;
+<title>${esc(titulo)}</title>${CSS_LINK}</head><body>${cuerpo}</body></html>`;
 
 /* La ganancia de una caja EN SU MONEDA, con el tipo de cambio abajo. El número convertido solo no
    se puede comprobar: el que la recibe ve pesos en su panel, no USDT. */
@@ -294,12 +199,18 @@ function paraCliente(g, ctx = {}) {
 /* CÓMO PAGAR. Puede haber una wallet para el servicio del mes y otra para el mantenimiento —y no
    la misma para todos los clientes—, así que se dibuja lo que le toca a ÉSTE. Si las dos son la
    misma va un bloque solo: repetir la misma dirección dos veces invita a mirar cuál es cuál. */
-function unaWallet(w, rotulo, id) {
+function unaWallet(w, rotulo, id, concepto) {
+  /* ⚠️ EL BOTÓN PREGUNTA ANTES DE COPIAR, y la pregunta dice DE QUÉ es la wallet y QUÉ RED es.
+     Las dos direcciones que se pueden confundir son las dos BEP20 —una del % y otra del
+     mantenimiento—, así que la etiqueta de la red sola no distingue nada: lo que distingue es el
+     concepto. Un toque más, y a cambio es imposible copiar la equivocada sin haberlo leído. */
   return `<div class="paga">
     ${rotulo ? `<div class="rot">${esc(rotulo)}</div>` : ''}
     <div class="red">Red <b>${esc(w.red)}</b>${w.alias && w.alias !== w.red ? ` · ${esc(w.alias)}` : ''}</div>
     <div class="dir" id="${id}">${esc(w.direccion)}</div>
-    <button type="button" class="copiar" onclick="copiar(this,'${id}')">Copiar la dirección</button>
+    <button type="button" class="copiar" data-id="${id}" data-c="${esc(concepto || '')}"
+      data-red="${esc(w.red)}" data-paso="0" onclick="copiar(this)">Copiar la dirección</button>
+    <div class="tras"></div>
   </div>`;
 }
 
@@ -309,7 +220,7 @@ function unaWallet(w, rotulo, id) {
    ⚠️ Los ids salen de un contador y no de una constante. `copiar()` busca por getElementById, y dos
    bloques con el mismo id hacen que el segundo botón copie la PRIMERA dirección: el cliente manda
    por la red equivocada y esa plata no vuelve. */
-function bloqueDe(lista, rotulo, ctr) {
+function bloqueDe(lista, rotulo, ctr, concepto) {
   let h = '<div class="concepto">';
   if (rotulo) h += `<div class="rot">${esc(rotulo)}</div>`;
   /* La aclaración de las dos redes va ADENTRO del recuadro, que es donde significa algo: afuera se
@@ -318,7 +229,7 @@ function bloqueDe(lista, rotulo, ctr) {
     h += '<p class="mismared">Se cobra una sola vez. Elegí la red que uses: '
       + 'las dos llegan al mismo lugar.</p>';
   }
-  for (const w of lista) h += unaWallet(w, '', 'dir' + (ctr.n += 1));
+  for (const w of lista) h += unaWallet(w, '', 'dir' + (ctr.n += 1), concepto);
   return h + '</div>';
 }
 
@@ -332,8 +243,9 @@ const variasRedes = () => '';
    Rotular los dos bloques no alcanza: se leen como "dos formas de pagar lo mismo" y el cliente
    manda todo junto a la primera dirección que ve. Esa plata entra, pero entra en la cuenta
    equivocada, y el mes queda medio pago de un lado y de más del otro. */
-const SON_DOS = '<p class="bajo"><b>Son dos cuentas distintas.</b> El % sobre las ganancias '
-  + 'se deposita en una, y el mantenimiento en la otra. Fijate cuál antes de mandar.</p>';
+const SON_DOS = '<div class="ojo"><span class="sig">\u26A0\uFE0F</span><div>'
+  + '<b>Son dos cuentas distintas.</b> El % sobre las ganancias se deposita en una, y el '
+  + 'mantenimiento en la otra. Fijate cuál antes de mandar.</div></div>';
 
 function bloquePago(p) {
   // Un array vacío es truthy: acá se mira el largo, o sale un "Cómo pagar" sin ninguna dirección.
@@ -343,12 +255,12 @@ function bloquePago(p) {
   const ctr = { n: 0 };
   if (p.misma || !mens.length) {
     const l = ggr.length ? ggr : mens;
-    return `<h2>Cómo pagar</h2>${bloqueDe(l, '', ctr)}${variasRedes(l)}${nota}`;
+    return `<h2>Cómo pagar</h2>${bloqueDe(l, '', ctr, 'pago')}${variasRedes(l)}${nota}`;
   }
-  if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'El mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
+  if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'El mantenimiento', ctr, 'mantenimiento')}${variasRedes(mens)}${nota}`;
   return `<h2>Cómo pagar</h2>${SON_DOS}`
-    + `${bloqueDe(ggr, 'El % sobre las ganancias', ctr)}${variasRedes(ggr)}`
-    + `${bloqueDe(mens, 'El mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
+    + `${bloqueDe(ggr, 'El % sobre las ganancias', ctr, '% sobre las ganancias')}${variasRedes(ggr)}`
+    + `${bloqueDe(mens, 'El mantenimiento', ctr, 'mantenimiento')}${variasRedes(mens)}${nota}`;
 }
 
 /**
@@ -396,7 +308,7 @@ function htmlCliente(doc, ctx = {}) {
   const cuerpo = cabecera(doc.cliente, mesLargo(doc.mes), ctx) + `<div class="hoja">
   <div class="tot">
     <span>${saldo
-      ? (debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día'))
+      ? (debe > 0 ? 'Pendiente de pago' : (debe < 0 ? 'Tenés a favor' : 'Estás al día'))
       : 'Total a pagar'}</span>
     <b class="${debe > 0 ? 'debe' : 'ok'}">${n(Math.abs(debe), 2)} USDT</b>
   </div>
@@ -409,14 +321,15 @@ function htmlCliente(doc, ctx = {}) {
   ${doc.sinTC ? '<div class="avi">Alguna moneda todavía no tiene tipo de cambio del mes: esa parte no está incluida en el total.</div>' : ''}
 
   ${(doc.paneles || []).length ? `<h2>Por caja</h2>
-  <div class="caja"><table><thead><tr><th>Caja</th><th>Período</th><th class="r">Ganancia</th>
-    <th class="r">En USDT</th><th class="r">%</th><th class="r">A pagar</th></tr></thead>
-    <tbody>${doc.paneles.map((p) => `<tr><td>${esc(p.panel)}${
-      p.link ? `<div class="lnk"><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link.replace(/^https?:\/\//, ''))}</a></div>` : ''}</td>
-      <td>${tramoTxt(p.tramo)}</td>
-      <td class="r">${celdaMonedas(p.monedas)}</td>
-      <td class="r">${n(p.ganancia, 2)}</td><td class="r">${esc(pctTxt(p.pct))}</td>
-      <td class="r">${n(p.cobra, 2)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  ${doc.paneles.map((p) => `<div class="dcaja">
+    <div class="dtit"><b>${esc(p.link ? p.link.replace(/^https?:\/\//, '') : p.panel)}</b>
+      <span>${n(p.cobra, 2)} USDT</span></div>
+    <table><tbody>
+      <tr><td>Período</td><td class="r">${tramoTxt(p.tramo)}</td></tr>
+      <tr><td>Ganó</td><td class="r">${celdaMonedas(p.monedas)}</td></tr>
+      <tr><td>En USDT</td><td class="r">${n(p.ganancia, 2)}</td></tr>
+      <tr><td>Tu ${esc(pctTxt(p.pct))}</td><td class="r"><b>${n(p.cobra, 2)} USDT</b></td></tr>
+    </tbody></table></div>`).join('')}` : ''}
 
   ${desgloseMes(ctx, doc)}
 
@@ -468,18 +381,36 @@ function htmlCliente(doc, ctx = {}) {
      entiende por qué. */
   const hayWallet = !!(ctx.pago && (((ctx.pago.ggr || []).length + (ctx.pago.mens || []).length) > 0));
   const jsCopiar = hayWallet ? `<script>
-function copiar(b,id){
-  var t=document.getElementById(id).textContent.trim();
-  function ok(){ b.textContent='Copiada'; b.className='copiar ok';
-    setTimeout(function(){ b.textContent='Copiar la dirección'; b.className='copiar'; },1800); }
-  if(navigator.clipboard&&window.isSecureContext){ navigator.clipboard.writeText(t).then(ok,plan_b); }
-  else plan_b();
+function copiar(b){
+  var tras=b.parentNode.querySelector('.tras');
+  var t=document.getElementById(b.dataset.id).textContent.trim();
+  if(b.dataset.paso==='0'){
+    b.dataset.paso='1'; b.className='copiar dudar';
+    b.innerHTML='Esta wallet es para el <u>'+b.dataset.c+'</u><br>y la red es <u>'+b.dataset.red
+      +'</u>. \u00bfSeguro?<small>Toc\u00e1 de nuevo para copiarla</small>';
+    tras.className='tras no';
+    tras.textContent='Si mand\u00e1s a la cuenta o a la red equivocada, esa plata no vuelve.';
+    clearTimeout(b._t);
+    b._t=setTimeout(function(){ b.dataset.paso='0'; b.className='copiar';
+      b.textContent='Copiar la direcci\u00f3n'; tras.textContent=''; },7000);
+    return;
+  }
+  clearTimeout(b._t);
+  function fin(ok){
+    b.dataset.paso='0'; b.className='copiar'+(ok?' ok':'');
+    b.textContent=ok?'Copiada':'Copiala a mano';
+    tras.className='tras';
+    tras.innerHTML=ok?'\u2713 Es la del <b>'+b.dataset.c+'</b> \u00b7 red '+b.dataset.red:'';
+    setTimeout(function(){ b.className='copiar'; b.textContent='Copiar la direcci\u00f3n'; },2800);
+  }
   function plan_b(){
     var a=document.createElement('textarea'); a.value=t; a.style.position='fixed'; a.style.opacity='0';
     document.body.appendChild(a); a.select();
-    try{ document.execCommand('copy'); ok(); }catch(e){ b.textContent='Copiala a mano'; }
+    try{ document.execCommand('copy'); fin(true); }catch(e){ fin(false); }
     document.body.removeChild(a);
   }
+  if(navigator.clipboard&&window.isSecureContext){ navigator.clipboard.writeText(t).then(function(){fin(true);},plan_b); }
+  else plan_b();
 }
 </script>` : '';
 
@@ -673,7 +604,7 @@ function linksDe(clienteId) {
 
 /** La página cuando el link no sirve. Sin detalles: del otro lado puede haber cualquiera. */
 function paginaError(msg) {
-  return marco('Ganamos × Latam', cabecera('Ganamos × Latam', msg)
+  return marco('Chat Interno', cabecera('Chat Interno', msg)
     + '<div class="hoja"><p class="bajo">Si creés que es un error, escribinos.</p></div>');
 }
 

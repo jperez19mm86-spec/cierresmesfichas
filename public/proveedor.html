@@ -1,111 +1,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>GANAMOS CHAT — Liquidación</title>
+<title>Chat Interno — Liquidación</title>
 <!-- Sin el logo del panel: es el que ella subió para SU pantalla, y acá entra alguien de afuera.
      El portal del cliente tampoco lo lleva, por lo mismo. -->
-<style>
-  /* La misma cara que el portal del cliente, a propósito: es el mismo producto visto del otro
-     lado del mostrador, y no hay motivo para que parezca otra cosa. */
-  :root{ --uva:#3b1a4d; --uva2:#5b2a72; --uva3:#8b5fa8; --bg:#f7f4fa; --linea:#e6dcec;
-    --texto:#2b1f33; --tenue:#7a6b86; --ok:#1f7a4d; --debe:#a33; --card:#fff }
-  *{ box-sizing:border-box }
-  body{ margin:0; background:var(--bg); color:var(--texto); font:15px/1.5 -apple-system,
-    BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif }
-  .cab{ background:var(--uva); color:#fff; padding:18px 16px calc(18px + env(safe-area-inset-bottom,0)) }
-  .cab .adentro{ max-width:900px; margin:0 auto; display:flex; align-items:center;
-    justify-content:space-between; gap:12px; flex-wrap:wrap }
-  .cab .chico{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; opacity:.7 }
-  .cab h1{ margin:2px 0 0; font-size:23px; font-weight:800 }
-  .cab a{ color:#fff; opacity:.85; font-size:14px }
-  .wrap{ max-width:900px; margin:0 auto; padding:16px 16px 60px }
-  .card{ background:var(--card); border:1px solid var(--linea); border-radius:16px;
-    padding:16px; margin-bottom:14px }
-  h2{ font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--tenue);
-    margin:0 0 10px; font-weight:700 }
-  .tot{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap }
-  .tot .num{ font-size:31px; font-weight:800; font-variant-numeric:tabular-nums }
-  .num.debe{ color:var(--debe) } .num.ok{ color:var(--ok) }
-  .sub{ color:var(--tenue); font-size:14px; margin:6px 0 0 }
-  .tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));
-    gap:10px; margin-top:12px }
-  .t{ border:1px solid var(--linea); border-radius:12px; padding:11px 13px; background:var(--bg) }
-  .t .k{ font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--tenue) }
-  .t .v{ font-size:20px; font-weight:750; font-variant-numeric:tabular-nums; margin-top:2px }
-  .t .p{ font-size:12.5px; color:var(--tenue); margin-top:2px }
-  table{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums }
-  th{ text-align:left; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
-    color:var(--tenue); font-weight:700; padding:0 8px 7px; border-bottom:1px solid var(--linea) }
-  td{ padding:9px 8px; border-bottom:1px solid var(--linea); font-size:14.5px }
-  tr:last-child td{ border-bottom:0 }
-  /* Una caja que movió dos monedas: el segundo renglón es continuación del primero, no otra caja. */
-  tr.sigue td{ border-top:0; padding-top:0 }
-  tr.sigue + tr:not(.sigue) td{ border-top:1px solid var(--linea) }
-  .r{ text-align:right }
-  .tenue{ color:var(--tenue); font-size:13px }
-  .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; word-break:break-all }
-  .desplaza{ overflow-x:auto }
-  select,button{ font:inherit; border-radius:10px; border:1px solid var(--linea);
-    padding:8px 12px; background:#fff; color:inherit }
-  button{ cursor:pointer }
-  .chip{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:700 }
-  .chip.ok{ background:#e6f4ec; color:var(--ok) } .chip.no{ background:#fbe9e9; color:var(--debe) }
-  .chip.prov{ background:#fdf0dd; color:#8a5a12 }
-  /* El estado del mes: lo primero que se lee, porque cambia qué significan los números de abajo. */
-  .estado{ border-radius:11px; padding:10px 13px; font-size:14px; line-height:1.5; margin-bottom:13px }
-  .estado.prov{ background:#fdf0dd; color:#6b4610 }
-  .estado.listo{ background:#e6f4ec; color:#14532d }
-  .t.prov{ border-style:dashed }
-  .vacio{ color:var(--tenue); padding:10px 2px }
-  /* Una caja que no se pudo calcular: se lista igual, pero sin números inventados. */
-  .sc{ color:var(--tenue); font-style:italic }
-  /* ── LA PORTADA: la misma que el portal del cliente ── */
-  #portada{
-    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
-    align-items:center; padding:32px 22px calc(32px + env(safe-area-inset-bottom,0));
-    background:radial-gradient(120% 90% at 50% 0%, var(--uva3) 0%, var(--uva2) 42%, var(--uva) 100%);
-    color:#fff; text-align:center; gap:6px;
-  }
-  #perro{ width:104px; height:104px; margin-bottom:4px }
-  #portada h1{ font-size:29px; line-height:1.1; margin:0; letter-spacing:-.015em; font-weight:800 }
-  #portada h1 .x{ font-weight:400; opacity:.72; margin:0 3px }
-  #portada .bajada{ margin:2px 0 26px; opacity:.78; font-size:15px }
-  .cajaEntrar{ width:100%; max-width:340px; display:flex; flex-direction:column; gap:10px }
-  #portada label{ font-size:12.5px; letter-spacing:.11em; text-transform:uppercase; opacity:.75;
-    text-align:left }
-  #portada input{
-    width:100%; padding:15px 16px; font:inherit; font-size:17px; border:0; border-radius:13px;
-    background:rgba(255,255,255,.13); color:#fff; text-align:center;
-    outline:2px solid rgba(255,255,255,.18);
-  }
-  #portada input:focus{ outline:2px solid #fff }
-  .btnEntrar{
-    padding:15px 18px; font:inherit; font-size:16px; font-weight:800; border:0; border-radius:13px;
-    background:#fff; color:var(--uva); cursor:pointer;
-  }
-  .btnEntrar:disabled{ opacity:.55; cursor:default }
-  #err{ min-height:20px; font-size:14px; color:#ffd7d7 }
-  #portada .pie{ margin-top:24px; font-size:12px; opacity:.55; max-width:300px }
-  /* ⚠️ `!important` porque #portada es un id y gana por especificidad: sin esto la portada se
-     quedaba encima de la liquidación después de entrar. El portal del cliente lo resuelve igual. */
-  .oculto{ display:none !important }
-</style>
+<link rel="stylesheet" href="/piel.css">
 
 <div id="portada">
   <!-- El mismo perrito y el mismo morado que el portal del cliente: es el mismo producto visto
        del otro lado del mostrador. Dibujado a mano y no un emoji, para que sea igual en todos los
        teléfonos. -->
-  <svg id="perro" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-    <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-    <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-    <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
-          stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
-    <circle cx="39" cy="45" r="4" fill="#fff"/>
-    <circle cx="61" cy="45" r="4" fill="#fff"/>
-    <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
-    <path d="M50 66v5" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-    <path d="M43 74c4 3 10 3 14 0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <svg id="perro" viewBox="0 0 100 100" aria-hidden="true">
+    <!-- El mismo globo que el portal del cliente: es el mismo producto visto del otro lado del
+         mostrador, y no hay motivo para que parezca otra cosa. -->
+    <defs>
+      <linearGradient id="gb" x1="18%" y1="6%" x2="82%" y2="96%">
+        <stop offset="0%" stop-color="#ffffff"/><stop offset="52%" stop-color="#f0d9ff"/>
+        <stop offset="100%" stop-color="#c79ae8"/>
+      </linearGradient>
+    </defs>
+    <path d="M23 17h54c7.2 0 13 5.8 13 13v31c0 7.2-5.8 13-13 13H49.5L30 92V74h-7c-7.2 0-13-5.8-13-13V30c0-7.2 5.8-13 13-13z" fill="url(#gb)"/>
+    <circle cx="34" cy="45" r="6" fill="#6b2a92"/><circle cx="50" cy="45" r="6" fill="#8e3fb0"/>
+    <circle cx="66" cy="45" r="6" fill="#b25fd0"/>
   </svg>
-  <h1>GANAMOS CHAT</h1>
+  <h1>CHAT<span class="x">INTERNO</span></h1>
   <p class="bajada">Tu liquidación.</p>
 
   <form class="cajaEntrar" onsubmit="return entrar(event)">
@@ -123,7 +40,7 @@
 
 <div id="app" class="oculto">
   <div class="cab"><div class="adentro">
-    <div><div class="chico">GANAMOS CHAT</div><h1 id="titulo">Liquidación</h1></div>
+    <div><div class="chico">Chat Interno</div><h1 id="titulo">Liquidación</h1></div>
     <div style="display:flex;gap:10px;align-items:center">
       <select id="mes" onchange="cargar()"></select>
       <a href="#" onclick="salir();return false">Salir</a>

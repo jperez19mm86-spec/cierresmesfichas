@@ -87,6 +87,14 @@ const PUBLIC = [
   /^\/chat\/[A-Za-z0-9_-]+(\/pague)?\/?$/,
   /^\/ganamos\.html$/,
   /^\/logo\.png$/,
+  /* LA PIEL DEL CHAT. Las tres pantallas del chat la comparten con <link>, y las tres las abre
+     gente SIN sesión: el cliente en /chat, la hoja del mes en /chat/<token>, y el proveedor en
+     /proveedor antes de ingresar. Sin esta línea, el pedido del CSS cae en el redirect al login y
+     las tres llegan sin estilo.
+     ⚠️ El href tiene que ser ABSOLUTO (/piel.css). La hoja del mes vive en /chat/<token>, así que
+     uno relativo pide /chat/piel.css, que no matchea la regla del token —el punto no está en su
+     clase de caracteres— y termina en el login. */
+  /^\/piel\.css$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.
   /^\/sw\.js$/,

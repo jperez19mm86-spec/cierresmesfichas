@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#3b1152">
-<title>GANAMOS CHAT</title>
+<meta name="theme-color" content="#170a22">
+<title>Chat Interno</title>
 <!--
   ganamos.html — EL PORTAL DEL CLIENTE DEL CHAT.
 
@@ -14,179 +14,34 @@
   Es la puerta del CHAT y nada más: acá no se ven fichas, ni pedidos, ni la cuenta corriente del
   otro negocio. Por eso tiene su propia cara y su propio nombre.
 -->
-<style>
-  :root{
-    --uva:#3b1152; --uva2:#5a1d7d; --uva3:#7b2ea6;
-    --lila:#eadff5; --lila2:#f7f1fb;
-    --tinta:#241033; --tinta2:#6b5a78;
-    --linea:#e4d7ee; --blanco:#fff;
-    --verde:#2e7d5b; --rojo:#c0392b; --oro:#c98a2e;
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;padding:0}
-  body{
-    background:var(--uva); color:var(--tinta);
-    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    -webkit-font-smoothing:antialiased;
-    min-height:100dvh;
-  }
-  .oculto{display:none !important}
-
-  /* ── LA PORTADA: morada al abrir ── */
-  #portada{
-    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
-    align-items:center; padding:32px 22px calc(32px + env(safe-area-inset-bottom));
-    background:radial-gradient(120% 90% at 50% 0%, var(--uva3) 0%, var(--uva2) 42%, var(--uva) 100%);
-    color:#fff; text-align:center; gap:6px;
-  }
-  #perro{width:104px;height:104px;margin-bottom:4px}
-  #portada h1{font-size:29px;line-height:1.1;margin:0;letter-spacing:-.015em;font-weight:800}
-  #portada h1 .x{font-weight:400;opacity:.72;margin:0 3px}
-  #portada .bajada{margin:2px 0 26px;opacity:.78;font-size:15px}
-  .caja{width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
-  #portada label{font-size:12.5px;letter-spacing:.11em;text-transform:uppercase;opacity:.75;text-align:left}
-  #portada input{
-    width:100%;padding:15px 16px;font:inherit;font-size:17px;border:0;border-radius:13px;
-    background:rgba(255,255,255,.13);color:#fff;text-align:center;
-    outline:2px solid rgba(255,255,255,.18);
-  }
-  #portada input::placeholder{color:rgba(255,255,255,.45)}
-  #portada input:focus{outline:2px solid #fff}
-  .btn{
-    padding:15px 18px;font:inherit;font-size:16px;font-weight:800;border:0;border-radius:13px;
-    background:#fff;color:var(--uva);cursor:pointer;
-  }
-  .btn:disabled{opacity:.55;cursor:default}
-  .btn.suave{background:rgba(255,255,255,.14);color:#fff}
-  #err{min-height:20px;font-size:14px;color:#ffd7d7}
-  #portada .pie{margin-top:24px;font-size:12px;opacity:.55;max-width:300px}
-
-  /* ── ADENTRO ── */
-  #panel{background:var(--lila2);min-height:100dvh;padding-bottom:calc(40px + env(safe-area-inset-bottom))}
-  .cab{
-    background:var(--uva);color:#fff;padding:20px 20px 26px;
-    display:flex;align-items:center;gap:12px;
-  }
-  .cab svg{width:34px;height:34px;flex:0 0 auto}
-  .cab .quien{font-weight:800;font-size:18px;line-height:1.15}
-  .cab .marca{font-size:11.5px;opacity:.7;letter-spacing:.1em;text-transform:uppercase}
-  .cab .salir{margin-left:auto;background:none;border:0;color:rgba(255,255,255,.7);
-    font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;padding:6px}
-  .env{max-width:560px;margin:0 auto;padding:0 16px}
-  .saldo{
-    margin-top:-14px;background:#fff;border-radius:16px;padding:18px 20px;
-    box-shadow:0 8px 24px -16px rgba(59,17,82,.5);border:1px solid var(--linea);
-  }
-  .saldo .rot{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--tinta2)}
-  .saldo .num{font-size:34px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
-  .saldo .num.debe{color:var(--rojo)} .saldo .num.ok{color:var(--verde)}
-  .saldo .sub{font-size:13.5px;color:var(--tinta2);margin-top:4px}
-
-  .menu{display:flex;flex-direction:column;gap:10px;margin-top:16px}
-  .op{
-    display:flex;align-items:center;gap:13px;width:100%;text-align:left;
-    background:#fff;border:1px solid var(--linea);border-radius:14px;padding:15px 16px;
-    font:inherit;cursor:pointer;color:inherit;
-  }
-  .op:hover{border-color:var(--uva3)}
-  .op .ico{font-size:21px;width:26px;text-align:center;flex:0 0 auto}
-  .op .tit{font-weight:700}
-  .op .des{font-size:13px;color:var(--tinta2)}
-  .op .fl{margin-left:auto;color:var(--tinta2)}
-
-  .hoja{background:#fff;border:1px solid var(--linea);border-radius:16px;padding:18px 18px 20px;margin-top:16px}
-  .hoja h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta2);margin:0 0 12px;font-weight:700}
-  .volver{background:none;border:0;color:var(--uva2);font:inherit;font-size:14px;cursor:pointer;
-    padding:10px 0;text-decoration:underline}
-  table{width:100%;border-collapse:collapse}
-  td{padding:9px 0;border-bottom:1px solid var(--lila);font-size:14.5px;vertical-align:top}
-  tr:last-child td{border-bottom:0}
-  .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-  .tenue{color:var(--tinta2);font-size:12.5px}
-  .chip{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:700}
-  .chip.esp{background:#fdf3e0;color:var(--oro)}
-  .chip.ok{background:#e7f4ed;color:var(--verde)}
-  .chip.no{background:#fbeceb;color:var(--rojo)}
-  /* 🔴 EL RECUADRO DEL CONCEPTO. `bloqueDe` lo emite desde hace rato pero NUNCA tuvo CSS: el
-     agrupamiento existía en el HTML y no se veía, así que en pantalla seguían siendo tres tarjetas
-     sueltas — o sea, tres cobros. Son dos. */
-  .desglose{margin-top:4px}
-  .dcaja{border:1px solid var(--linea);border-radius:14px;padding:11px 13px;background:#fff}
-  .dcaja + .dcaja{margin-top:10px}
-  .dtit{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;
-    padding-bottom:7px;margin-bottom:4px;border-bottom:1px solid var(--linea)}
-  .dtit b{font-size:14.5px;word-break:break-all}
-  .dtit span{font-weight:800;font-variant-numeric:tabular-nums}
-  .dtab{width:100%;border-collapse:collapse}
-  .dtab td{padding:6px 0;border-bottom:1px solid var(--linea);font-size:13.5px;vertical-align:top}
-  .dtab tr:last-child td{border-bottom:0}
-  .dtab .r{text-align:right;font-variant-numeric:tabular-nums}
-  .concepto{border:1px solid var(--linea);border-radius:15px;padding:12px 13px;background:#fff}
-  .concepto + .concepto{margin-top:12px}
-  .concepto > .rot{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
-    font-weight:800;margin-bottom:8px}
-  .mismared{margin:-2px 0 9px;font-size:12.5px;color:var(--tinta2)}
-  .concepto .paga + .paga{margin-top:9px}
-  .paga{background:var(--lila2);border:1px solid var(--linea);border-radius:12px;padding:13px 15px;font-size:14.5px}
-  .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
-    font-weight:700;margin-bottom:6px}
-  .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:7px}
-  .paga + .paga{margin-top:11px}
-  .paga .dir{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-    font-size:14px;background:#fff;border:1px solid var(--linea);border-radius:9px;padding:11px 12px}
-  .paga .notap{margin-top:9px;font-size:13px;color:var(--tinta2)}
-  .copiar{margin-top:10px;padding:11px 16px;font:inherit;font-size:14px;font-weight:700;border:0;
-    border-radius:10px;background:var(--uva2);color:#fff;cursor:pointer;width:100%}
-  .copiar.ok{background:var(--verde)}
-    /* Elegir de qué cajas es el pago. Un cliente con cuatro no paga cuatro veces. */
-    .cajitas { display:flex; flex-direction:column; gap:7px; margin-top:7px }
-    .cajita { display:flex; align-items:center; gap:9px; font-size:15px; font-weight:400;
-      cursor:pointer; text-transform:none; letter-spacing:0 }
-    .cajita input { width:auto; margin:0; flex:0 0 auto }
-
-  label.campo{display:block;font-size:12.5px;color:var(--tinta2);margin-bottom:12px}
-  label.campo input,label.campo textarea,label.campo select{
-    width:100%;margin-top:5px;padding:12px 13px;font:inherit;border:1px solid var(--linea);
-    border-radius:11px;background:#fff;color:inherit;
-  }
-  label.campo textarea{min-height:74px;resize:vertical}
-  label.campo input:focus-visible,label.campo textarea:focus-visible{outline:2px solid var(--uva3);outline-offset:1px}
-  .btn.uva{background:var(--uva2);color:#fff;width:100%}
-  .msg{margin:10px 0 0;font-size:14px}
-  .msg.bien{color:var(--verde)} .msg.mal{color:var(--rojo)}
-  .vacio{color:var(--tinta2);font-size:14.5px}
-  .caja-b{border:1px solid var(--linea);border-radius:12px;padding:13px 14px;margin-bottom:10px}
-  .caja-b:last-of-type{margin-bottom:0}
-  .caja-n{font-size:15.5px}
-  .links{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
-  .lk{display:inline-block;padding:8px 13px;border-radius:20px;background:var(--lila2);
-    border:1px solid var(--linea);color:var(--uva2);text-decoration:none;font-size:13.5px;font-weight:700}
-  .lk:hover{border-color:var(--uva3)}
-  .pie2{text-align:center;font-size:12px;color:var(--tinta2);margin:26px 0 0}
-  @media (prefers-reduced-motion:no-preference){
-    .op,.btn{transition:border-color .15s ease, opacity .15s ease}
-  }
-</style>
+<link rel="stylesheet" href="/piel.css">
 </head>
 <body>
 
 <!-- ─────────── LA PORTADA ─────────── -->
 <div id="portada">
-  <svg id="perro" viewBox="0 0 100 100" fill="none" aria-hidden="true">
-    <!-- perrito: orejas caídas, hocico y collar. Dibujado a mano para que sea el mismo en todos
-         los teléfonos: un emoji cambia de cara según el aparato. -->
-    <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-    <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-    <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
-          stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
-    <circle cx="39" cy="45" r="4" fill="#fff"/>
-    <circle cx="61" cy="45" r="4" fill="#fff"/>
-    <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
-    <path d="M50 66v5" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-    <path d="M43 74c4 3 10 3 14 0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <svg id="perro" viewBox="0 0 100 100" aria-hidden="true">
+    <!-- El globo de chat. Antes acá había un perrito dibujado a mano; el nombre del producto pasó a
+         ser CHAT INTERNO y un perro ya no dice de qué se trata. Va relleno con degradé y no de
+         línea, para que pegue con las tarjetas en vez de parecer un ícono pegado encima. -->
+    <defs>
+      <linearGradient id="gb" x1="18%" y1="6%" x2="82%" y2="96%">
+        <stop offset="0%" stop-color="#ffffff"/><stop offset="52%" stop-color="#f0d9ff"/>
+        <stop offset="100%" stop-color="#c79ae8"/>
+      </linearGradient>
+      <linearGradient id="gs" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity=".55"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="M23 17h54c7.2 0 13 5.8 13 13v31c0 7.2-5.8 13-13 13H49.5L30 92V74h-7c-7.2 0-13-5.8-13-13V30c0-7.2 5.8-13 13-13z" fill="url(#gb)"/>
+    <path d="M23 17h54c7.2 0 13 5.8 13 13v9H10v-9c0-7.2 5.8-13 13-13z" fill="url(#gs)"/>
+    <circle cx="34" cy="45" r="6" fill="#6b2a92"/>
+    <circle cx="50" cy="45" r="6" fill="#8e3fb0"/>
+    <circle cx="66" cy="45" r="6" fill="#b25fd0"/>
   </svg>
-  <h1>GANAMOS CHAT</h1>
-  <p class="bajada">Tu chat, tu cuenta.</p>
+  <h1>CHAT<span class="x">INTERNO</span></h1>
+  <p class="bajada">Gestioná tu chat.</p>
 
   <form class="caja" onsubmit="return entrar(event)">
     <label for="u">Tu usuario</label>
@@ -202,16 +57,13 @@
 <!-- ─────────── ADENTRO ─────────── -->
 <div id="panel" class="oculto">
   <div class="cab">
-    <svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
-      <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-      <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-      <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
-            stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
-      <circle cx="39" cy="45" r="4.5" fill="#fff"/><circle cx="61" cy="45" r="4.5" fill="#fff"/>
-      <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <path d="M23 17h54c7.2 0 13 5.8 13 13v31c0 7.2-5.8 13-13 13H49.5L30 92V74h-7c-7.2 0-13-5.8-13-13V30c0-7.2 5.8-13 13-13z" fill="#fff" opacity=".92"/>
+      <circle cx="34" cy="45" r="6" fill="#6b2a92"/><circle cx="50" cy="45" r="6" fill="#8e3fb0"/>
+      <circle cx="66" cy="45" r="6" fill="#b25fd0"/>
     </svg>
     <div>
-      <div class="marca">GANAMOS CHAT</div>
+      <div class="marca">Chat Interno</div>
       <div class="quien" id="quien"></div>
     </div>
     <button class="salir" onclick="salir()">Salir</button>
@@ -219,26 +71,26 @@
 
   <div class="env">
     <div class="saldo">
-      <div class="rot" id="rotSaldo">Tenés que pagar</div>
+      <div class="rot" id="rotSaldo">Pendiente de pago</div>
       <div class="num" id="numSaldo">—</div>
       <div class="sub" id="subSaldo"></div>
     </div>
 
     <div class="menu" id="menu">
       <button class="op" onclick="ver('pendiente')">
-        <span class="ico">💳</span>
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.8h13v18.4l-2.6-1.7-2.2 1.7-2.2-1.7-2.2 1.7-2.2-1.7-1.6 1.1z"/><path d="M9 8h6M9 12h6"/></svg></span>
         <span><span class="tit">Ver mi monto pendiente</span><br><span class="des">el detalle de lo que se te cobró y lo que pagaste</span></span>
         <span class="fl">›</span></button>
       <button class="op" onclick="ver('cajas')">
-        <span class="ico">🎰</span>
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.4 8.2 5 3.6h14l1.6 4.6"/><path d="M3.4 8.2h17.2v2a2.6 2.6 0 0 1-5.2 0 2.6 2.6 0 0 1-5.2 0 2.6 2.6 0 0 1-5.2 0z"/><path d="M4.8 13.4V20h14.4v-6.6"/></svg></span>
         <span><span class="tit">Ver mis cajas</span><br><span class="des">tus links y tus accesos</span></span>
         <span class="fl">›</span></button>
       <button class="op" onclick="ver('pagar')">
-        <span class="ico">✅</span>
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16.4 9.3 10.8 15l-3.2-3.2"/></svg></span>
         <span><span class="tit">Avisar que pagué</span><br><span class="des">subí el comprobante</span></span>
         <span class="fl">›</span></button>
       <button class="op" onclick="ver('nuevo')">
-        <span class="ico">➕</span>
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.4a8.5 8.5 0 1 1-4.3-7.4"/><path d="M3.5 20.5 5 16.6"/><path d="M18.5 3v6M15.5 6h6"/></svg></span>
         <span><span class="tit">Pedir un chat nuevo</span><br><span class="des">para otra caja tuya</span></span>
         <span class="fl">›</span></button>
     </div>
@@ -290,7 +142,7 @@ function pintar() {
   $('panel').classList.remove('oculto');
   $('quien').textContent = DATOS.cliente;
   var debe = Number(DATOS.saldo.debe || 0);
-  $('rotSaldo').textContent = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+  $('rotSaldo').textContent = debe > 0 ? 'Pendiente de pago' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
   $('numSaldo').textContent = num(Math.abs(debe), 2) + ' USDT';
   $('numSaldo').className = 'num ' + (debe > 0 ? 'debe' : 'ok');
   var esp = (DATOS.avisos || []).filter(function (a) { return a.estado === 'pendiente'; });
@@ -318,13 +170,18 @@ function deDondeSale() {
 
 /* La RED va aparte de la dirección: mandar USDT por la red equivocada es perder la plata, y el que
    copia una línea entera se lleva la red adentro de la dirección. */
-function unaWallet(w, rotulo, id) {
+function unaWallet(w, rotulo, id, concepto) {
+  /* ⚠️ EL BOTÓN PREGUNTA ANTES DE COPIAR, y la pregunta dice DE QUÉ es la wallet y QUÉ RED es.
+     Las dos que se pueden confundir son las dos BEP20 —una del % y otra del mantenimiento—, así
+     que la etiqueta de la red sola no distingue nada: lo que distingue es el concepto. */
   return '<div class="paga">'
     + (rotulo ? '<div class="rot">' + esc(rotulo) + '</div>' : '')
     + '<div class="red">Red <b>' + esc(w.red) + '</b>'
     + (w.alias && w.alias !== w.red ? ' · ' + esc(w.alias) : '') + '</div>'
     + '<div class="dir" id="' + id + '">' + esc(w.direccion) + '</div>'
-    + '<button type="button" class="copiar" onclick="copiar(this,\'' + id + '\')">Copiar la dirección</button>'
+    + '<button type="button" class="copiar" data-id="' + id + '" data-c="' + esc(concepto || '')
+    + '" data-red="' + esc(w.red) + '" data-paso="0" onclick="copiar(this)">Copiar la dirección</button>'
+    + '<div class="tras"></div>'
     + '</div>';
 }
 
@@ -369,7 +226,7 @@ var _dirN = 0;
    rótulo y en pantalla se veían TRES tarjetas iguales — o sea tres cobros. Son dos.
    Ahora cada concepto es un recuadro con su título arriba y sus redes adentro, y la aclaración de
    que las dos llegan al mismo lugar va DENTRO del recuadro, que es donde significa algo. */
-function bloqueDe(lista, rotulo) {
+function bloqueDe(lista, rotulo, concepto) {
   var h = '<div class="concepto">';
   if (rotulo) h += '<div class="rot">' + esc(rotulo) + '</div>';
   if (lista.length > 1) {
@@ -380,7 +237,7 @@ function bloqueDe(lista, rotulo) {
     /* ⚠️ El id sale de un contador. copiar() busca por getElementById: con dos ids iguales el
        segundo botón copia la PRIMERA dirección, o sea la red equivocada, y esa plata no vuelve. */
     _dirN += 1;
-    h += unaWallet(lista[i], '', 'dir' + _dirN);
+    h += unaWallet(lista[i], '', 'dir' + _dirN, concepto);
   }
   return h + '</div>';
 }
@@ -409,35 +266,53 @@ function bloquePago() {
   _dirN = 0;
   if (p.misma || !mens.length) {
     var l = ggr.length ? ggr : mens;
-    return h + bloqueDe(l, '') + variasRedes(l) + nota;
+    return h + bloqueDe(l, '', 'pago') + variasRedes(l) + nota;
   }
-  if (!ggr.length) return h + bloqueDe(mens, 'El mantenimiento') + variasRedes(mens) + nota;
+  if (!ggr.length) return h + bloqueDe(mens, 'El mantenimiento', 'mantenimiento') + variasRedes(mens) + nota;
   /* Rotular los dos bloques no alcanza: se leen como "dos formas de pagar lo mismo" y el cliente
      manda todo junto a la primera dirección que ve. Esa plata entra, pero en la cuenta equivocada,
      y el mes queda medio pago de un lado y de más del otro. Se dice con todas las letras. */
-  return h + '<p class="tenue" style="margin:2px 0 10px"><b>Son dos cuentas distintas.</b> '
-    + 'El % sobre las ganancias se deposita en una, y el mantenimiento en la otra. '
-    + 'Fijate cuál antes de mandar.</p>'
-    + bloqueDe(ggr, 'El % sobre las ganancias') + variasRedes(ggr)
-    + bloqueDe(mens, 'El mantenimiento') + variasRedes(mens) + nota;
+  return h + '<div class="ojo"><span class="sig">\u26A0\uFE0F</span><div>'
+    + '<b>Son dos cuentas distintas.</b> El % sobre las ganancias se deposita en una, y el '
+    + 'mantenimiento en la otra. Fijate cuál antes de mandar.</div></div>'
+    + bloqueDe(ggr, 'El % sobre las ganancias', '% sobre las ganancias') + variasRedes(ggr)
+    + bloqueDe(mens, 'El mantenimiento', 'mantenimiento') + variasRedes(mens) + nota;
 }
 
 /* `navigator.clipboard` sólo existe en https (o localhost) y el cliente abre esto desde cualquier
    lado: sin el plan B el botón no hace nada y no se entiende por qué. */
-function copiar(b, id) {
-  var t = document.getElementById(id).textContent.trim();
-  function ok() {
-    b.textContent = 'Copiada'; b.className = 'copiar ok';
-    setTimeout(function () { b.textContent = 'Copiar la dirección'; b.className = 'copiar'; }, 1800);
+function copiar(b) {
+  var tras = b.parentNode.querySelector('.tras');
+  var t = document.getElementById(b.dataset.id).textContent.trim();
+  if (b.dataset.paso === '0') {
+    b.dataset.paso = '1'; b.className = 'copiar dudar';
+    b.innerHTML = 'Esta wallet es para el <u>' + esc(b.dataset.c) + '</u><br>y la red es <u>'
+      + esc(b.dataset.red) + '</u>. \u00bfSeguro?<small>Tocá de nuevo para copiarla</small>';
+    tras.className = 'tras no';
+    tras.textContent = 'Si mandás a la cuenta o a la red equivocada, esa plata no vuelve.';
+    clearTimeout(b._t);
+    b._t = setTimeout(function () {
+      b.dataset.paso = '0'; b.className = 'copiar';
+      b.textContent = 'Copiar la dirección'; tras.textContent = '';
+    }, 7000);
+    return;
+  }
+  clearTimeout(b._t);
+  function fin(ok) {
+    b.dataset.paso = '0'; b.className = 'copiar' + (ok ? ' ok' : '');
+    b.textContent = ok ? 'Copiada' : 'Copiala a mano';
+    tras.className = 'tras';
+    tras.innerHTML = ok ? '\u2713 Es la del <b>' + esc(b.dataset.c) + '</b> · red ' + esc(b.dataset.red) : '';
+    setTimeout(function () { b.className = 'copiar'; b.textContent = 'Copiar la dirección'; }, 2800);
   }
   function planB() {
     var a = document.createElement('textarea');
     a.value = t; a.style.position = 'fixed'; a.style.opacity = '0';
     document.body.appendChild(a); a.select();
-    try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = 'Copiala a mano'; }
+    try { document.execCommand('copy'); fin(true); } catch (e) { fin(false); }
     document.body.removeChild(a);
   }
-  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(ok, planB);
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(function () { fin(true); }, planB);
   else planB();
 }
 
@@ -517,7 +392,11 @@ function ver(cual) {
         var nom = m.tipo === 'pago' ? 'Pago tuyo'
           /* Con el mes: en octubre, tres renglones que dicen todos «% sobre las ganancias» no
              dejan saber cuál es de agosto y cuál de septiembre. */
-          : (m.tipo === 'mensualidad' ? (m.nota || 'Mantenimiento')
+          : (m.tipo === 'mensualidad'
+            /* La caja por su LINK, que es como la reconoce: el nombre interno se lo pusimos
+               nosotros. Lo arma el servidor; la nota cruda queda de respaldo. */
+            ? (m.caja ? 'Mantenimiento · ' + esc(m.caja) + (m.periodo ? ' · ' + esc(m.periodo) : '')
+              : (m.nota || 'Mantenimiento'))
             : '% sobre las ganancias' + (mesEnLetras(m.mes) ? ' de ' + mesEnLetras(m.mes) : ''));
         var extra = m.tipo === 'mensualidad' ? '' : (m.nota ? ' · ' + esc(m.nota) : '');
         return '<tr><td>' + esc(m.fecha) + '<div class="tenue">' + esc(nom) + extra + '</div></td>'

@@ -1770,12 +1770,22 @@ function portalDe(clienteId) {
     /* La nota de un cobro es INTERNA ("precio sin confirmar (se cobró el mínimo)"): decirle al
        cliente que su precio está sin decidir es abrirle una negociación que nadie pidió. La de la
        mensualidad sí es para él —lleva la caja y el período— y va tal cual. */
-    movs: (todo ? todo.movs : []).slice(-30).map((m) => ({
-      // El MES del renglón, no sólo la fecha en que se cobró: el % de agosto se cobra el 28 de
-      // agosto pero también podría cobrarse el 3 de septiembre, y ahí la fecha engaña.
-      fecha: m.fecha, mes: m.mes, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
-      nota: m.tipo === 'mensualidad' ? m.nota : '',
-    })),
+    movs: (todo ? todo.movs : []).slice(-30).map((m) => {
+      /* LA CAJA SE NOMBRA POR SU LINK, igual que en la cuenta del mes y en el mensaje de Telegram.
+         La nota guardada dice el nombre interno —«Mantenimiento F01Zeus»—, que se lo pusimos
+         nosotros y el cliente nunca usó. Se rearma acá y no se toca lo guardado: así los
+         movimientos viejos también salen bien. */
+      const caja = m.tipo === 'mensualidad' ? _comoLaLlamaElCliente(m.panel) : '';
+      const per = m.tipo === 'mensualidad' ? periodoDesde(m.fecha) : null;
+      return {
+        // El MES del renglón, no sólo la fecha en que se cobró: el % de agosto se cobra el 28 de
+        // agosto pero también podría cobrarse el 3 de septiembre, y ahí la fecha engaña.
+        fecha: m.fecha, mes: m.mes, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
+        caja, periodo: per ? per.texto : '',
+        // La nota cruda queda de respaldo: si la caja ya no está, el renglón dice algo igual.
+        nota: m.tipo === 'mensualidad' ? m.nota : '',
+      };
+    }),
     cajas,
     avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto,
       moneda: a.moneda, estado: a.estado, concepto: a.concepto })),
@@ -1810,6 +1820,19 @@ function portalDe(clienteId) {
  * El número puede no coincidir exactamente con lo cobrado: lo cobrado quedó congelado y esto se
  * recalcula. Por eso `cerrado` viaja, y el total que manda es el de la cuenta, no éste.
  */
+/* Cómo la llama el cliente: su link, sin el https://. Si no tiene link cargado, el nombre — los
+   links NO se deducen nunca, así que acá tampoco se inventa uno. */
+function _comoLaLlamaElCliente(panel) {
+  const nom = String(panel || '').trim();
+  if (!nom) return '';
+  try {
+    const c = list().find((p) => String(p.panel || '').trim() === nom);
+    const u = String((c && c.link_jugadores) || '').trim()
+      .replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+    return u || nom;
+  } catch (e) { return nom; }
+}
+
 function desgloseParaElPortal(clienteId) {
   try {
     const ult = db.prepare('SELECT MAX(mes) m FROM chat_mov WHERE cliente_id=?').get(String(clienteId || ''));
@@ -2158,6 +2181,7 @@ module.exports = {
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
+  comoLaLlamaElCliente: _comoLaLlamaElCliente,
   proveedorGrupo,
   paraElProveedor, mesesDelProveedor,
   proveedorAcceso, setProveedorAcceso, proveedorEntra, proveedorCorte,

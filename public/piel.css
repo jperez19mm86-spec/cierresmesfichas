@@ -1,0 +1,274 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   piel.css — LA CARA DEL CHAT. Una sola, para las tres pantallas que ve alguien de afuera:
+     · /chat            el portal del cliente, con la pantalla donde pone su código
+     · /chat/<token>    la hoja del mes que se le manda
+     · /proveedor       la liquidación del que provee el servicio
+
+   Antes cada una tenía su propio bloque de estilos, copiado a mano de la anterior y ya corrido:
+   tres copias divergentes del mismo diseño. Acá viven una vez.
+
+   ⚠️ NO ESCRIBAS EN ESTE ARCHIVO LAS PALABRAS QUE FRENAN LAS GUARDAS. El servidor revisa el HTML
+   ENTERO de la hoja del cliente —y hasta hace poco el estilo viajaba adentro— buscando datos que
+   no pueden salir. Un comentario distraído con una de esas palabras devolvía un 500 y el cliente
+   se quedaba sin su hoja. Tampoco un pseudo-selector sobre .paga, por lo mismo.
+
+   ⚠️ SE ENLAZA SIEMPRE COMO /piel.css, ABSOLUTO. La hoja del mes vive en /chat/<token>: uno
+   relativo pide /chat/piel.css, que no es una ruta pública, y llega el login en vez del estilo.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+:root{
+  --fondo:#170a22; --fondo2:#1e0d2c;          /* el lienzo */
+  --card1:#9450c4; --card2:#6b2a92;           /* el degradé de las tarjetas */
+  --card-b:rgba(255,255,255,.13);
+  --plano:#2a1339;
+  --magenta:#e81fc4; --magenta2:#ff44d6;
+  --verde:#3ddc97; --coral:#ff6b7a; --oro:#f0b429;
+  --txt:#fff; --txt2:rgba(255,255,255,.62); --txt3:rgba(255,255,255,.40);
+  --linea:rgba(255,255,255,.12); --linea2:rgba(255,255,255,.20);
+  --r:20px; --r2:14px;
+}
+*{ box-sizing:border-box }
+html,body{ margin:0; padding:0 }
+body{
+  background:var(--fondo); color:var(--txt); min-height:100dvh;
+  /* La del sistema: cero pedidos a un servidor de fuentes desde el teléfono del cliente, y en un
+     iPhone o un Android moderno ya es una geométrica redondeada. */
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.oculto{ display:none !important }
+
+/* ── LA PANTALLA DEL CÓDIGO ─────────────────────────────────────────────────────────────────── */
+#portada{
+  min-height:100dvh; display:flex; flex-direction:column; justify-content:center; align-items:center;
+  padding:28px 20px calc(28px + env(safe-area-inset-bottom,0)); text-align:center;
+}
+#perro{ width:88px; height:88px; margin-bottom:2px;
+  filter:drop-shadow(0 6px 16px rgba(0,0,0,.40)) }
+#portada h1{
+  margin:0; font-size:31px; font-weight:800; letter-spacing:.01em; line-height:1.02;
+}
+/* El nombre va en dos renglones: CHAT grande y el resto espaciado abajo. */
+#portada h1 .x{ display:block; font-size:.5em; letter-spacing:.34em; font-weight:700;
+  color:rgba(255,255,255,.80); margin-top:7px; padding-left:.34em; opacity:1 }
+#portada .bajada{ margin:8px 0 24px; color:rgba(255,255,255,.72); font-size:14.5px }
+/* La tarjeta: el degradé morado, que es lo que se ve primero de todo. */
+#portada form, .cajaEntrar{
+  width:100%; max-width:390px; display:flex; flex-direction:column; gap:11px;
+  border-radius:26px; padding:26px 24px 24px;
+  background:linear-gradient(168deg,var(--card1) 0%,var(--card2) 78%);
+  border:1px solid var(--card-b); box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+#portada label{ text-align:left; font-size:12px; letter-spacing:.13em; text-transform:uppercase;
+  font-weight:700; color:rgba(255,255,255,.82) }
+#portada input{
+  width:100%; padding:15px 17px; font:inherit; font-size:17px; color:#fff; text-align:center;
+  border:1px solid rgba(255,255,255,.28); border-radius:15px; background:rgba(255,255,255,.10);
+  outline:none;
+}
+#portada input::placeholder{ color:rgba(255,255,255,.42) }
+#portada input:focus{ border-color:#fff; background:rgba(255,255,255,.16) }
+#portada .btn, .btnEntrar{
+  padding:15px 18px; font:inherit; font-size:16px; font-weight:800; border:0; border-radius:15px;
+  background:#fff; color:#5c1f7e; cursor:pointer;
+}
+#portada .btn:disabled, .btnEntrar:disabled{ opacity:.55; cursor:default }
+#portada #err, #err{ min-height:20px; margin:0; font-size:14px; color:#ffd0e4 }
+#portada .pie{ margin-top:22px; font-size:12.5px; color:rgba(255,255,255,.55);
+  max-width:330px; line-height:1.5 }
+
+/* ── LA CABECERA ────────────────────────────────────────────────────────────────────────────── */
+.cab{ position:sticky; top:0; z-index:5; background:rgba(23,10,34,.93);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--linea); padding:13px 16px;
+  display:flex; align-items:center; gap:12px }
+.cab .adentro{ max-width:640px; margin:0 auto; width:100%;
+  display:flex; align-items:center; gap:12px }
+/* El ícono de la cabecera, chico. Va por descendencia y no por hijo directo: en la hoja del mes
+   cuelga de `.adentro`, y con `>` se quedaba sin regla y ocupaba media pantalla. */
+.cab svg{ width:30px; height:30px; flex:0 0 auto }
+.cab .marca, .cab .chico{ font-size:11px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--txt3); font-weight:700 }
+.cab .quien, .cab h1, #titulo{ margin:1px 0 0; font-size:19px; font-weight:800; color:#fff }
+.cab .salir, .cab a{ margin-left:auto; padding:9px 16px; font:inherit; font-size:13.5px;
+  font-weight:700; color:#fff; background:var(--plano); border:1px solid var(--linea);
+  border-radius:11px; cursor:pointer; text-decoration:none; flex:0 0 auto }
+
+/* ── EL LIENZO ──────────────────────────────────────────────────────────────────────────────── */
+.env, .wrap, .hoja{ max-width:640px; margin:0 auto; padding:16px 16px 60px }
+h2{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--txt3);
+  margin:22px 0 10px; font-weight:700 }
+/* `.volver` es el ENVOLTORIO y adentro va el <a> o el <button>: la caja la dibuja el de adentro,
+   o quedaba un borde adentro de otro. En la cabecera se empuja al final. */
+.volver{ margin-left:auto; flex:0 0 auto }
+.volver a, .volver button{ display:inline-block; padding:9px 16px; font:inherit; font-size:13.5px;
+  font-weight:700; color:#fff; background:var(--plano); border:1px solid var(--linea);
+  border-radius:11px; cursor:pointer; text-decoration:none }
+
+/* ── LAS TARJETAS ───────────────────────────────────────────────────────────────────────────── */
+/* Todas el mismo morado: la jerarquía la dan el tamaño y el peso de la letra, no un morado flojo. */
+.saldo, .tot, .card, .caja, .op, .concepto, .dcaja, .t, .caja-b{
+  border-radius:var(--r); padding:16px 18px; border:1px solid var(--card-b);
+  background:linear-gradient(158deg,var(--card1) 0%,var(--card2) 100%);
+  box-shadow:0 10px 26px rgba(0,0,0,.28);
+}
+.card + .card, .caja + .caja, .op + .op, .concepto + .concepto, .dcaja + .dcaja,
+.caja-b + .caja-b, .tot + .card{ margin-top:12px }
+
+.saldo .rot, .tot span:first-child, .card > .rot{ font-size:11.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:rgba(255,255,255,.68); font-weight:700; display:block }
+.saldo .num, .tot .num, .tot b{ font-size:35px; font-weight:800; line-height:1.15; margin-top:4px;
+  display:block; font-variant-numeric:tabular-nums }
+.saldo .num.debe, .tot b.debe{ color:#fff }
+.saldo .num.ok, .tot b.ok{ color:var(--verde) }
+.saldo .sub, .bajo, .sub{ margin-top:8px; font-size:13.5px; color:rgba(255,255,255,.75) }
+
+/* las tarjetitas de dato del proveedor */
+.tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));
+  gap:11px; margin-top:12px }
+.t .k{ font-size:11px; letter-spacing:.11em; text-transform:uppercase;
+  color:rgba(255,255,255,.68); font-weight:700 }
+.t .v{ font-size:21px; font-weight:800; margin-top:3px; font-variant-numeric:tabular-nums }
+.t .p{ font-size:12.5px; color:rgba(255,255,255,.70); margin-top:2px }
+.t.prov{ border-style:dashed }
+
+/* ── EL MENÚ ────────────────────────────────────────────────────────────────────────────────── */
+.menu{ display:flex; flex-direction:column; gap:12px; margin-top:14px }
+.op{ display:flex; align-items:center; gap:15px; width:100%; text-align:left; cursor:pointer;
+  font:inherit; color:inherit }
+.op .ico{ flex:0 0 auto; width:34px; height:34px; display:flex; align-items:center;
+  justify-content:center }
+.op .ico svg{ width:32px; height:32px }
+.op .tit{ display:block; font-size:19px; font-weight:800; line-height:1.25 }
+.op .des{ display:block; font-size:14px; color:rgba(255,255,255,.72); margin-top:1px }
+.op .fl{ margin-left:auto; font-size:20px; color:rgba(255,255,255,.65) }
+
+/* ── TABLAS ─────────────────────────────────────────────────────────────────────────────────── */
+table{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums }
+td,th{ padding:10px 0; border-bottom:1px solid var(--linea2); font-size:14px; vertical-align:top;
+  text-align:left }
+th{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.62);
+  font-weight:700 }
+tr:last-child td{ border-bottom:0 }
+tr.sigue td{ border-top:0; padding-top:0 }
+.r{ text-align:right }
+.tenue{ color:rgba(255,255,255,.75); font-size:13px }
+.tenue2{ color:rgba(255,255,255,.58); font-size:12.5px }
+.mono, .mon{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px;
+  word-break:break-all }
+.tc{ color:rgba(255,255,255,.62); font-size:12.5px }
+.desplaza{ overflow-x:auto }
+.sc{ color:rgba(255,255,255,.58); font-style:italic }
+.vacio{ color:var(--txt3); padding:12px 2px }
+.lnk, .lnk a, .links a, .lk{ color:rgba(255,255,255,.80); font-size:12.5px; word-break:break-all }
+.tot-fila td, .sub-tot{ font-weight:800 }
+.sub-tot{ display:flex; justify-content:space-between; gap:10px; padding:11px 0 0;
+  border-top:1px solid var(--linea2); margin-top:4px }
+
+/* ── EL DESGLOSE POR CAJA ───────────────────────────────────────────────────────────────────── */
+.dtit{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding-bottom:9px; margin-bottom:2px; border-bottom:1px solid rgba(255,255,255,.22) }
+.dtit b{ font-size:14.5px; word-break:break-all }
+.dtit span{ font-weight:800; color:#b8ffdf }
+.caja-n{ font-size:15px; font-weight:700; margin-bottom:6px }
+
+/* ── CÓMO PAGAR ─────────────────────────────────────────────────────────────────────────────── */
+/* El aviso de las dos cuentas. Antes era un renglón gris entre renglones grises: la frase más
+   importante de la pantalla se leía como una nota al pie. */
+.ojo, .avi, .notap, .aclara{ display:flex; gap:12px; align-items:flex-start; border-radius:var(--r2);
+  background:rgba(240,180,41,.13); border:1px solid rgba(240,180,41,.42);
+  border-left:4px solid var(--oro); padding:13px 15px; margin:12px 0; font-size:14px;
+  color:rgba(255,255,255,.90) }
+.ojo .sig{ font-size:19px; flex:0 0 auto; line-height:1.25 }
+.ojo b, .avi b{ color:#ffd98a }
+
+.concepto > .rot{ font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; color:#fff;
+  font-weight:800; margin-bottom:9px }
+.mismared{ margin:-3px 0 10px; font-size:12.5px; color:rgba(255,255,255,.75) }
+.paga{ border-radius:var(--r2); padding:13px 14px; background:rgba(255,255,255,.13);
+  border:1px solid var(--linea2) }
+.concepto .paga + .paga{ margin-top:10px }
+.paga .rot{ font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:#fff;
+  font-weight:800; margin-bottom:7px }
+.paga .red{ font-size:13px; color:rgba(255,255,255,.78); margin-bottom:8px }
+.paga .red b{ color:#fff }
+.paga .dir, .dir{ word-break:break-all; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:13.5px; background:rgba(0,0,0,.28); border:1px solid rgba(255,255,255,.18);
+  border-radius:11px; padding:12px 13px; line-height:1.45; color:#fff }
+/* Adentro de una tarjeta morada un botón morado desaparece: éste va blanco, igual que el
+   «Entrar» de la primera pantalla. */
+.copiar{ width:100%; margin-top:11px; padding:13px 16px; font:inherit; font-size:14.5px;
+  font-weight:800; border:0; border-radius:12px; cursor:pointer; background:#fff; color:#5c1f7e }
+.copiar.ok{ background:var(--verde); color:#06301f }
+/* La validación: dice DE QUÉ es la wallet y QUÉ RED es, las dos cosas. Mismo amarillo que el aviso
+   de arriba, no un bloque mostaza: son la misma advertencia dicha dos veces. */
+.copiar.dudar{ background:rgba(36,20,4,.78); color:#ffd98a; line-height:1.45; padding:14px;
+  border:1.5px solid rgba(240,180,41,.62); box-shadow:0 0 0 3px rgba(240,180,41,.10) }
+.copiar.dudar u{ text-decoration:none; border-bottom:2px solid rgba(240,180,41,.65);
+  font-weight:900; color:#ffe6b0 }
+.copiar.dudar small{ color:rgba(255,217,138,.80) }
+.copiar small{ display:block; font-weight:700; font-size:12.5px; opacity:.85; margin-top:6px }
+.tras{ margin-top:9px; font-size:13px; color:var(--verde); font-weight:700 }
+.tras.no{ color:rgba(255,255,255,.70); font-weight:400 }
+
+/* ── FORMULARIOS ────────────────────────────────────────────────────────────────────────────── */
+label.campo, .campos label{ display:block; font-size:12.5px; color:rgba(255,255,255,.72);
+  margin-bottom:12px }
+.campo input, .campo textarea, .campo select, .campos input, .campos textarea, .campos select{
+  width:100%; margin-top:5px; padding:12px 13px; font:inherit; color:#fff;
+  border:1px solid var(--linea2); border-radius:11px; background:rgba(0,0,0,.24) }
+.campo select option, .campos select option{ color:#111 }
+.cajitas{ display:flex; flex-direction:column; gap:8px; margin-top:7px }
+.cajita{ display:flex; align-items:center; gap:9px; font-size:15px; font-weight:400;
+  cursor:pointer; text-transform:none; letter-spacing:0 }
+.cajita input{ width:auto; margin:0; flex:0 0 auto }
+.rotc{ font-size:12.5px; color:rgba(255,255,255,.72); margin-bottom:5px }
+.btn, .opt{ padding:13px 18px; font:inherit; font-size:15px; font-weight:800; border:0;
+  border-radius:12px; background:#fff; color:#5c1f7e; cursor:pointer }
+.msg{ margin-top:11px; font-size:14px; color:rgba(255,255,255,.85) }
+
+/* ── PASTILLAS Y ESTADOS ────────────────────────────────────────────────────────────────────── */
+.chip{ display:inline-block; padding:3px 11px; border-radius:999px; font-size:12px; font-weight:800 }
+.chip.ok, .chip.listo{ background:rgba(61,220,151,.18); color:#8dffc9 }
+.chip.no, .chip.debe{ background:rgba(255,107,122,.18); color:#ffc0c6 }
+.chip.prov{ background:rgba(240,180,41,.18); color:#ffd98a }
+.estado{ border-radius:var(--r2); padding:12px 15px; font-size:14px; line-height:1.5;
+  margin-bottom:13px; border:1px solid var(--linea2); background:rgba(255,255,255,.07) }
+.estado.prov{ background:rgba(240,180,41,.13); border-color:rgba(240,180,41,.42); color:#ffe1a8 }
+.estado.listo{ background:rgba(61,220,151,.13); border-color:rgba(61,220,151,.38); color:#b8ffdf }
+select,button{ font:inherit }
+.pie2, .pie{ color:var(--txt3); font-size:12.5px; margin-top:18px; line-height:1.5 }
+.uva{ color:var(--magenta2) }
+
+/* ── EN LA COMPUTADORA ──────────────────────────────────────────────────────────────────────────
+   Todo esto está pensado para un teléfono. En una pantalla ancha los mismos tamaños se ven
+   inflados: la columna tiene tope, pero la letra y los espacios no. Acá se ajustan, sin tocar la
+   estructura. */
+@media (min-width:700px){
+  body{ font-size:15.5px }
+  .env, .wrap, .hoja, .cab .adentro{ max-width:560px }
+  #portada h1{ font-size:27px }
+  #perro{ width:74px; height:74px }
+  .saldo .num, .tot .num, .tot b{ font-size:31px }
+  .op{ padding:14px 16px; gap:13px }
+  .op .ico, .op .ico svg{ width:29px; height:29px }
+  .op .tit{ font-size:17px }
+  .op .des{ font-size:13.5px }
+  .saldo, .tot, .card, .caja, .concepto, .dcaja, .caja-b{ padding:15px 16px }
+  .copiar{ padding:12px 15px }
+}
+
+/* ── IMPRIMIR ───────────────────────────────────────────────────────────────────────────────────
+   La hoja del cliente se imprime y se manda en PDF. En papel el fondo oscuro no sirve: se da
+   vuelta a negro sobre blanco, y lo que sólo sirve en pantalla no se dibuja. */
+@media print{
+  body{ background:#fff; color:#111 }
+  .cab{ position:static; background:#fff; color:#111; border-bottom:1px solid #ddd }
+  .cab .marca, .cab .chico, .cab .quien, .tenue, .tenue2, .tc, .sc{ color:#444 }
+  .cab .salir, .cab a, .copiar, .btn, .btnEntrar, .op .fl, form, .volver{ display:none !important }
+  .saldo, .tot, .card, .caja, .op, .concepto, .dcaja, .t, .caja-b, .paga, .paga .dir, .dir{
+    background:#fff !important; color:#111; border:1px solid #ccc; box-shadow:none }
+  .saldo .rot, .concepto > .rot, .paga .rot, .t .k, h2, td, th, .dtit b, .dtit span,
+  .paga .red, .paga .red b, .mismared, .saldo .num, .tot b{ color:#111 }
+  .ojo, .avi{ background:#fff; border:1px solid #999; color:#111 }
+  .ojo b, .avi b{ color:#111 }
+}
