@@ -45,7 +45,7 @@ const mesLargo = (m) => {
    esta hoja vive en /chat/<token>, así que uno relativo pediría /chat/piel.css y llegaría el login.
    Antes el estilo viajaba adentro del HTML, y las guardas que revisan que no se escape un dato
    interno lo escaneaban también: una palabra en un comentario del CSS devolvía un 500. */
-const CSS_LINK = '<link rel="stylesheet" href="/piel.css?v=65f2df81">';
+const CSS_LINK = '<link rel="stylesheet" href="/piel.css?v=3bdc6286">';
 
 /* El perrito, el mismo del portal. Dibujado y no un emoji: un emoji cambia de cara según el
    aparato, y esto es la marca. */

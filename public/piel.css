@@ -151,8 +151,14 @@ button.volver, a.volver{ margin:22px 0 0 }
 
 /* ── TABLAS ─────────────────────────────────────────────────────────────────────────────────── */
 table{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums }
-td,th{ padding:10px 0; border-bottom:1px solid var(--linea2); font-size:14px; vertical-align:top;
-  text-align:left }
+/* ⚠️ CON PADDING HORIZONTAL EN CERO LAS COLUMNAS SE TOCAN. En la pantalla del proveedor, que tiene
+   seis, el tipo de cambio y el USDT salían pegados: «1.584,52716.880,50». Es un número que no
+   existe, y no hay forma de que el que mira se dé cuenta de dónde termina uno y empieza el otro. */
+td,th{ padding:10px 12px 10px 0; border-bottom:1px solid var(--linea2); font-size:14px;
+  vertical-align:top; text-align:left }
+td:last-child, th:last-child{ padding-right:0 }
+/* Los números no se parten: un importe cortado al medio se lee como dos. */
+td.r, th.r{ white-space:nowrap }
 th{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.62);
   font-weight:700 }
 tr:last-child td{ border-bottom:0 }
@@ -262,7 +268,12 @@ label.campo, .campos label{ display:block; font-size:12.5px; color:rgba(255,255,
   margin-bottom:13px; border:1px solid var(--linea2); background:rgba(255,255,255,.07) }
 .estado.prov{ background:rgba(240,180,41,.13); border-color:rgba(240,180,41,.42); color:#ffe1a8 }
 .estado.listo{ background:rgba(61,220,151,.13); border-color:rgba(61,220,151,.38); color:#b8ffdf }
+/* El select venía con la cara del navegador: blanco, cuadrado, en el medio de una cabecera
+   oscura. Es el que elige el mes en la pantalla del proveedor. */
 select,button{ font:inherit }
+.cab select{ padding:9px 14px; font-size:13.5px; font-weight:700; color:#fff;
+  background:var(--plano); border:1px solid var(--linea); border-radius:11px; cursor:pointer }
+.cab select option{ color:#111 }
 .pie2, .pie{ color:var(--txt3); font-size:12.5px; margin-top:18px; line-height:1.5 }
 /* `.uva` marca la acción principal. En la piel vieja quería decir «morado»; acá el botón ya es
    blanco, así que sólo tiene que NO pintarle la letra de otro color: con el magenta encima del
@@ -276,7 +287,10 @@ select,button{ font:inherit }
    estructura. */
 @media (min-width:700px){
   body{ font-size:15.5px }
-  .env, .wrap, .hoja, .cab .adentro{ max-width:560px }
+  .env, .hoja{ max-width:560px }
+  /* La del proveedor es una pantalla de TABLAS, con seis columnas: encerrarla en la misma columna
+     angosta que el portal la deja apretada y con todo partido en dos renglones. Usa el ancho. */
+  .wrap, .cab .adentro{ max-width:940px }
   #portada h1{ font-size:27px }
   #perro{ width:74px; height:74px }
   .saldo .num, .tot .num, .tot b{ font-size:31px }
@@ -286,6 +300,9 @@ select,button{ font:inherit }
   .op .des{ font-size:13.5px }
   .saldo, .tot, .card, .caja, .concepto, .dcaja, .caja-b{ padding:15px 16px }
   .copiar{ padding:12px 15px }
+  /* Con lugar, la tabla respira: más aire entre columnas y el rótulo en una sola línea. */
+  td,th{ padding:11px 18px 11px 0 }
+  th{ white-space:nowrap }
 }
 
 /* ── IMPRIMIR ───────────────────────────────────────────────────────────────────────────────────
