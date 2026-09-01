@@ -972,7 +972,7 @@ function mount(app) {
      una contraseña obligaba a salir del sistema, y lo que es incómodo no se hace nunca. */
   app.get('/api/os/chat/proveedor-acceso', (_req, res) => ok(res, chat.proveedorAcceso()));
   app.put('/api/os/chat/proveedor-acceso', wrap((req, res) => {
-    const r = chat.setProveedorAcceso(req.body || {});
+    const r = chat.setProveedorAcceso(req.body || {});   // usuario, clave, generar y grupo
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
 
@@ -2350,7 +2350,23 @@ function mount(app) {
      Antes un mes pagado y uno impago se veían idénticos. */
   app.post('/api/os/chat/pagos', wrap((req, res) => {
     const r = chat.pagar(req.body || {});
-    r.ok ? ok(res, r) : err(res, 400, r.error);
+    if (!r.ok) return err(res, 400, r.error);
+    /* Y se le avisa al proveedor, DESPUÉS de contestar. El pago ya quedó registrado: que Telegram
+       tarde o falle no puede hacer que la pantalla diga que no se guardó. Si no sale, se ve en el
+       aviso de abajo y se puede volver a mandar. */
+    res.on('finish', () => {
+      require('./chat-avisos.service').avisarPagoAlProveedor(r.pago)
+        .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó al proveedor:', x.error); })
+        .catch((e) => console.warn('[Chat] error avisando al proveedor:', e.message));
+    });
+    ok(res, r);
+  }));
+  /* Reenviar el aviso de un pago que no salió. No registra nada: sólo vuelve a mandar. */
+  app.post('/api/os/chat/pagos/:id/avisar', wrap(async (req, res) => {
+    const pago = (chat.pagos(null) || []).find((x) => String(x.id) === String(req.params.id));
+    if (!pago) return err(res, 404, 'no existe ese pago');
+    const x = await require('./chat-avisos.service').avisarPagoAlProveedor(pago);
+    x.ok ? ok(res, x) : err(res, 502, x.error);
   }));
   app.delete('/api/os/chat/pagos/:id', wrap((req, res) => ok(res, chat.borrarPago(req.params.id))));
 

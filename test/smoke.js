@@ -2768,6 +2768,32 @@ async function main() {
     check('acumulado: y si el chat no está, la captura sigue igual',
       /catch \(e\) \{ return new Set\(\); \}/.test(acumSrc),
       'el acumulado no puede dejar de capturar porque falle otra cosa');
+    /* ── EL AVISO DE PAGO AL PROVEEDOR ───────────────────────────────────────────────────────
+       Va a SU grupo, que es otro que el de la matriz. Es el único mensaje de chat-avisos que sale
+       para afuera, y por eso el destino se pide explícito en vez de reusar el de adentro. */
+    check('proveedor: se le puede cargar su grupo de Telegram',
+      ch.setProveedorAcceso({ grupo: '-100999888' }).ok
+      && ch.proveedorGrupo() === '-100999888');
+    check('proveedor: un grupo que no tiene forma de grupo no se guarda',
+      ch.setProveedorAcceso({ grupo: 'https://t.me/loquesea' }).ok === false
+      && ch.proveedorGrupo() === '-100999888',
+      'mandar a un destino que no existe falla en silencio del lado de Telegram');
+    const txtPP = avSvc.textoPagoAlProveedor({ monto: '1050', moneda: 'USDT',
+      concepto: 'mantenimiento', mes: '2026-08', fecha: '2026-09-02',
+      destino: 'TFgz…', red: 'TRC20', hash: 'a1b2' });
+    check('proveedor: el aviso dice de qué es el pago y adónde fue',
+      /el <b>mantenimiento<\/b> de <b>agosto 2026/.test(txtPP)
+      && /TFgz…/.test(txtPP) && /TRC20/.test(txtPP) && /a1b2/.test(txtPP),
+      '«te pagué 1.050» sin decir de qué ni adónde obliga a preguntar las dos cosas');
+    check('proveedor: sin grupo cargado no se manda, y se dice por qué',
+      (() => { ch.setProveedorAcceso({ grupo: '' }); return true; })());
+    const rutasPP = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('proveedor: el aviso sale DESPUÉS de registrar el pago',
+      /res\.on\('finish'[\s\S]{0,200}avisarPagoAlProveedor/.test(rutasPP),
+      'que Telegram falle no puede hacer que la pantalla diga que no se guardó');
+    check('proveedor: y se puede reenviar el que no salió',
+      /pagos\/:id\/avisar/.test(rutasPP));
+
     check('panel: el cierre avisa en pantalla cuáles no tienen sala',
       /caja\(s\) sin sala cargada/.test(uiSala) && /Sobre la sala se cobra todo/.test(uiSala));
 

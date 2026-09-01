@@ -114,6 +114,51 @@ async function avisarPago(id) {
   }
 }
 
+/* ── AL PROVEEDOR: LE AVISAMOS CUANDO SE LE PAGA ─────────────────────────────────────────── */
+
+/**
+ * ⚠️ ESTE ES EL ÚNICO MENSAJE DE ESTE ARCHIVO QUE SALE PARA AFUERA, y va a un grupo distinto: el
+ * del proveedor, no el de la matriz. Por eso el destino se pide explícito y no se reusa `_mandar`,
+ * que apunta a la matriz — un descuido ahí le mandaría a él lo que es para adentro.
+ *
+ * Lleva el CONCEPTO y el DESTINO. «Te pagué 1.050» sin decir de qué es ni adónde fue obliga a
+ * preguntar las dos cosas, que es la conversación que este aviso existe para evitar.
+ */
+function textoPagoAlProveedor(pago) {
+  if (!pago) return null;
+  const conc = pago.concepto === 'mantenimiento' ? 'el <b>mantenimiento</b>' : 'la <b>ganancia</b>';
+  const L = ['💸 <b>Te pagamos</b>', ''];
+  L.push(`Monto: <b>${esc(pago.monto)} ${esc(pago.moneda || 'USDT')}</b>`);
+  L.push(`Es por: ${conc} de <b>${esc(mesLindo(pago.mes))}</b>`);
+  L.push(`Fecha: ${esc(pago.fecha)}`);
+  if (pago.destino) {
+    L.push(`A: <code>${esc(pago.destino)}</code>${pago.red ? ` · ${esc(pago.red)}` : ''}`);
+  }
+  if (pago.hash) L.push(`Hash: <code>${esc(pago.hash)}</code>`);
+  if (pago.nota_prov) { L.push(''); L.push(esc(pago.nota_prov)); }
+  const b = _base();
+  if (b) { L.push(''); L.push(`Tu liquidación: ${b}/proveedor`); }
+  return L.join('\n');
+}
+
+/** Manda ese aviso al grupo DEL PROVEEDOR. Nunca tira: lo llama una ruta que ya registró el pago. */
+async function avisarPagoAlProveedor(pago) {
+  try {
+    if (APAGADO()) return { ok: false, error: 'avisos apagados (CHAT_AVISOS_OFF)' };
+    const grupo = chat.proveedorGrupo();
+    if (!grupo) return { ok: false, error: 'el proveedor no tiene grupo de Telegram cargado' };
+    /* El bot DEL CHAT, no el general: este grupo es de este servicio y es el bot que ella agrega
+       ahí. `botToken()` cae al general si no hay uno propio, que es el comportamiento correcto
+       mientras no lo haya. */
+    const tok = chat.botToken();
+    if (!tok) return { ok: false, error: 'falta el token del bot' };
+    const txt = textoPagoAlProveedor(pago);
+    if (!txt) return { ok: false, error: 'no hay qué mandar' };
+    const r = await telegram.sendMessage(tok, grupo, txt);
+    return r && r.ok ? { ok: true } : { ok: false, error: (r && r.error) || 'Telegram no dijo por qué' };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
 /* ── (B) LO QUE TE FALTA MANDAR ──────────────────────────────────────────────────────────── */
 
 /**
@@ -253,6 +298,7 @@ function startCron() {
 
 module.exports = {
   avisarPago, textoAvisoPago,
+  avisarPagoAlProveedor, textoPagoAlProveedor,
   recordarLoQueFalta, textoFaltaMandar,
   reintentarAvisos, startCron, mesLindo,
 };

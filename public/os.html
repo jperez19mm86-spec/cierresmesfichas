@@ -4812,8 +4812,13 @@ VIEWS.chat = async () => {
               placeholder="${pa.tieneClave?'ya hay una — escribí otra para cambiarla':'ponele una, o generala'}" style="width:100%"></div>
           <div style="flex:0"><button onclick="provGuardar()">Guardar</button></div>
           <div style="flex:0"><button class="outline" onclick="provGenerar()">Generar una</button></div>
+          <div style="flex:0 0 190px"><label>Su grupo de Telegram</label>
+            <input id="prov-g" name="prov-g" ${NOFILL} value="${esc(pa.grupo||'')}" placeholder="-100…"
+              title="Ahí le llega el aviso de cada pago que le registres, con el concepto y adónde fue"
+              style="width:100%"></div>
           <div class="muted" style="flex:1;min-width:190px;font-size:12px;align-self:center">
             ${pa.activo?'<span class="señal verde">puede entrar</span>':'<span class="señal durazno">todavía no puede entrar</span>'}
+            ${pa.grupo?'<span class="señal verde">le avisamos los pagos</span>':'<span class="señal durazno">sin grupo: no se entera de los pagos</span>'}
             · La contraseña no se guarda: si la pierde, generás otra.${pa.tieneClave?' Cambiarla lo saca de donde esté abierto.':''}</div>
         </div>`; })()}
       <div class="row" style="align-items:flex-end;gap:10px;margin-top:12px">
@@ -5513,7 +5518,8 @@ function _wselIds(inp){
 async function provGuardar(){
   const u=document.getElementById('prov-u').value.trim();
   const c=document.getElementById('prov-c').value;
-  const b={usuario:u}; if(c) b.clave=c;
+  const b={usuario:u, grupo:(document.getElementById('prov-g')||{}).value||''};
+  if(c) b.clave=c;
   const r=await api('/api/os/chat/proveedor-acceso',{method:'PUT',body:JSON.stringify(b)});
   if(r&&r.ok){ toast(c?'Guardado — si estaba adentro, lo sacó':'Guardado'); VIEWS.chat(); }
 }

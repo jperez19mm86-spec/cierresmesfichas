@@ -1499,22 +1499,39 @@ function listasParaMandar(dias = 15) {
    cuentas de cliente. Ni ella la puede leer: si el proveedor la pierde, se le genera otra. Guardar
    una contraseña recuperable es guardar una contraseña que alguien puede leer. */
 const acceso = require('./cliente-acceso');
+const PROV_GRUPO = 'chatProvGrupo';
 const PROV_USER = 'chatProvUsuario';
 const PROV_HASH = 'chatProvClave';
 const PROV_CORTE = 'chatProvCorte';
 
 function proveedorAcceso() {
   const u = String(cfg.getCfg(PROV_USER) || '').trim();
-  return { usuario: u, tieneClave: !!cfg.getCfg(PROV_HASH), activo: !!(u && cfg.getCfg(PROV_HASH)) };
+  return { usuario: u, tieneClave: !!cfg.getCfg(PROV_HASH), activo: !!(u && cfg.getCfg(PROV_HASH)),
+    grupo: String(cfg.getCfg(PROV_GRUPO) || '').trim() };
 }
 
+/** El grupo de Telegram del proveedor. Es OTRO que el de la matriz: acá lee él, no ella. */
+function proveedorGrupo() { return String(cfg.getCfg(PROV_GRUPO) || '').trim(); }
+
 /** Deja el usuario y/o la clave. Devuelve la clave SÓLO cuando se genera, y una sola vez. */
-function setProveedorAcceso({ usuario, clave, generar } = {}) {
+function setProveedorAcceso({ usuario, clave, generar, grupo } = {}) {
+  if (grupo !== undefined) {
+    /* Un chatId de Telegram es un número (los grupos son negativos) o un @nombre. Se avisa en vez
+       de prohibir, igual que con los grupos de los clientes: puede pegarse un link y quererse
+       arreglar después, pero mandar a un destino que no existe falla en silencio del lado de
+       Telegram y el aviso no llega. */
+    const g = String(grupo || '').trim().slice(0, 40);
+    if (g && !/^-?\d+$/.test(g) && !/^@\w{3,}$/.test(g)) {
+      return { ok: false, error: `"${g}" no parece un grupo de Telegram. Es un número (los grupos son negativos) o un @nombre.` };
+    }
+    cfg.setCfg(PROV_GRUPO, g);
+  }
   if (usuario !== undefined) {
     const u = String(usuario || '').trim().slice(0, 60);
     if (u && u.length < 3) return { ok: false, error: 'el usuario tiene que tener al menos 3 caracteres' };
     cfg.setCfg(PROV_USER, u);
   }
+  if (usuario !== undefined || clave !== undefined || generar) { /* nada extra */ }
   let generada = null;
   if (generar) { generada = acceso.generarClave(10); }
   const c = generada || (clave === undefined ? null : String(clave));
@@ -2048,6 +2065,7 @@ module.exports = {
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
+  proveedorGrupo,
   paraElProveedor, mesesDelProveedor,
   proveedorAcceso, setProveedorAcceso, proveedorEntra, proveedorCorte,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,
