@@ -1357,8 +1357,20 @@ app.get('/chat/:token', (req, res) => {
   /* El DETALLE del mes queda congelado —es lo que se le mandó— pero el SALDO se calcula al abrir:
      es lo que tiene que pagar hoy, y puede arrastrar meses. Dos cosas distintas en la misma hoja. */
   try { chatStore.devengarMensualidades(); } catch (e) { /* que no tumbe la hoja */ }
-  const todo = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
-  const esteMes = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
+  const todoAll = chatStore.cuentas(null).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
+  const esteMesAll = chatStore.cuentas(r.mes).clientes.find((x) => x.cliente_id === r.cliente_id) || null;
+  /* ⚠️ SI LA HOJA ES DE UNA CUENTA, TODO LO DE ESTA PÁGINA ES DE ESA CUENTA. El saldo, el total
+     del mes y el desglose venían del cliente entero: la hoja de guaraníes decía «debés 906,34»
+     arriba y 742,10 abajo, y el que la lee no sabe cuál de los dos es el suyo.
+     La divisa sale del propio link: quedó guardada en su clave cuando se creó. */
+  const dvH = String(r.divisa || '').toUpperCase();
+  const filtrar = (o) => (!o || !dvH) ? o
+    : (() => {
+      const d = (o.porDivisa || []).find((x) => x.divisa === dvH);
+      return d ? { ...d, movs: (o.movs || []).filter((m) => String(m.divisa || '').toUpperCase() === dvH) } : null;
+    })();
+  const todo = filtrar(todoAll);
+  const esteMes = filtrar(esteMesAll);
   const html = chatDoc.htmlCliente(r.doc, {
     token: req.params.token,
     pago: chatStore.comoPagar(r.cliente_id),
@@ -1372,7 +1384,7 @@ app.get('/chat/:token', (req, res) => {
     /* Para poder preguntarle DE QUÉ es el pago que avisa, con cuánto debe de cada cosa al lado.
        Va el mes DE ESTA HOJA, que es de lo que habla. En la vista previa de ella no va: ahí no hay
        formulario, y una hoja que se mira no tiene que traer nada que no se vea. */
-    conceptos: chatStore.opcionesDeConcepto(r.cliente_id, r.mes),
+    conceptos: chatStore.opcionesDeConcepto(r.cliente_id, r.mes, dvH || null),
   });
   /* El mismo cinturón que la vista previa, PERO ACÁ, que es la hoja que abre el cliente: tenerlo
      sólo del lado de adentro cuidaba justo la copia que no sale. */

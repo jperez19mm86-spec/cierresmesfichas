@@ -2209,6 +2209,26 @@ function mount(app) {
     };
     return { ...chatDoc.paraCliente(gd, { mes: pc.mes }), divisa: dv };
   }
+  /* ── LA HOJA DE UNA CUENTA TIENE QUE CERRAR CONSIGO MISMA ────────────────────────────────────
+     Filtrar la tabla de arriba no alcanza: el saldo, el total del mes y el desglose de "qué se te
+     cobró" venían del cliente ENTERO. La hoja de guaraníes decía «debés 906,34» arriba y 742,10
+     abajo, y el que la lee no tiene forma de saber cuál de los dos es el suyo.
+     Sin divisa devuelven lo de siempre: el cliente de una sola moneda no pasa por acá. */
+  function _saldoDe(todo, dv) {
+    if (!todo) return null;
+    if (!dv) return todo;
+    const d = (todo.porDivisa || []).find((x) => x.divisa === dv);
+    return d ? { ...d, movs: (todo.movs || []).filter((m) => String(m.divisa || '').toUpperCase() === dv) } : null;
+  }
+  function _cobradoDe(esteMes, dv) {
+    if (!esteMes) return null;
+    if (!dv) return esteMes.cobrado;
+    const d = (esteMes.porDivisa || []).find((x) => x.divisa === dv);
+    return d ? d.cobrado : '0';
+  }
+  const _movsDe = (esteMes, dv) => (esteMes ? esteMes.movs : [])
+    .filter((m) => !dv || String(m.divisa || '').toUpperCase() === dv);
+
   function _sinDatosInternos(html) {
     return !/margen|costo|pct_costo|te cuesta|paga:/i.test(html);
   }
@@ -2219,14 +2239,18 @@ function mount(app) {
     if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
     // La vista previa muestra lo MISMO que va a ver el cliente, salvo el formulario: mirar una
     // versión distinta de la que se manda no sirve para revisarla.
+    const dvP = String(req.query.divisa || '').toUpperCase();
     const todo = chat.cuentas(null).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
     const esteMes = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId) || null;
     const html = chatDoc.htmlCliente(doc, {
-      pago: chat.comoPagar(req.params.clienteId), saldo: todo,
-      cobradoMes: esteMes ? esteMes.cobrado : null,
+      pago: chat.comoPagar(req.params.clienteId),
+      // El saldo de ESA cuenta, no el del cliente entero: la hoja de guaraníes tiene que cerrar
+      // con lo que dice arriba, y el total del cliente incluye la otra.
+      saldo: _saldoDe(todo, dvP),
+      cobradoMes: _cobradoDe(esteMes, dvP),
       // Los movimientos del mes, para poder decir DE QUÉ está hecho ese total: el % y el
       // mantenimiento son dos cobros distintos y meterlos en un solo número los confunde.
-      movsMes: esteMes ? esteMes.movs : [] });
+      movsMes: _movsDe(esteMes, dvP) });
     if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
     res.type('text/html; charset=utf-8').send(html);
   });

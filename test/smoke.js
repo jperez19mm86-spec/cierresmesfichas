@@ -2851,6 +2851,20 @@ async function main() {
           // y `sinTC` se recalcula: es del cliente entero y pondría el cartel en la cuenta que no lo tiene
           && /sinTC: paneles\.some/.test(rt);
       })());
+    /* ⚠️ FILTRAR LA TABLA DE ARRIBA NO ALCANZA. El saldo, el total del mes y el desglose de «qué
+       se te cobró» venían del cliente ENTERO: la hoja de guaraníes decía «debés 906,34» arriba y
+       742,10 abajo, y el que la lee no tiene forma de saber cuál de los dos es el suyo. */
+    check('divisa: la hoja de una cuenta cierra consigo misma, no con el total del cliente',
+      (() => {
+        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const ix = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+        return /saldo: _saldoDe\(todo, dvP\)/.test(rt) && /cobradoMes: _cobradoDe\(esteMes, dvP\)/.test(rt)
+          && /movsMes: _movsDe\(esteMes, dvP\)/.test(rt)
+          // y la hoja que abre el cliente saca la divisa del propio link, que la lleva en su clave
+          && /const dvH = String\(r\.divisa \|\| ''\)/.test(ix)
+          && /opcionesDeConcepto\(r\.cliente_id, r\.mes, dvH \|\| null\)/.test(ix);
+      })());
+
     check('divisa: el mensaje dice de cuál cuenta es desde el título',
       /tus cajas en PYG/.test(chDoc.textoTelegram('2026-08',
         [{ tipo: 'cobro', monto: '1', fecha: '2026-08-31' }], 'https://x/chat', [], null, 'PYG'))
