@@ -1212,6 +1212,14 @@ async function main() {
     const ped = pedidosStore.create({ codigo: 'ZZ-CARGA-TEST', clienteNombre: 'Prueba carga',
       divisa: MONEDA, monto: 1000000 });
     pedidosStore.setEstado(ped.id, 'cargado');
+    /* ⚠️ LA FECHA SE FIJA EN LA BASE, no sólo en el objeto que se le pasa a porCarga.
+       `setEstado` guarda `resueltoAt` con la hora de AHORA, en UTC. La revisión lee el pedido DEL
+       STORE y filtra por `resueltoAt.slice(0,7)`, así que la última noche de cada mes —cuando en
+       Argentina todavía es 31 pero en UTC ya es el 1— el pedido quedaba guardado en el mes
+       siguiente y la revisión de 2026-08 no lo encontraba. El suite pasaba todos los días del año
+       menos ése, que es la peor clase de test: el que falla el día que nadie lo está mirando. */
+    baseCarga.prepare("UPDATE pedidos SET data=json_set(data,'$.resueltoAt',?) WHERE id=?")
+      .run(mesPrueba + '-15T12:00:00.000Z', ped.id);
     // La fecha manda para que caiga en el mes que se revisa.
     const conFecha = pedidosStore.list({ estado: 'cargado' }).find((p) => p.id === ped.id);
 
@@ -1266,8 +1274,17 @@ async function main() {
     require('../src/db').db.prepare("DELETE FROM historial_config WHERE entidad_id=?").run(cli0.id);
     clientesStore.removeCliente(cli0.id);
 
-    // 4 · se carga el TC de esa moneda y la deuda entra
+    /* 4 · se carga el TC de esa moneda y la deuda entra.
+       ⚠️ EL TC VA TAMBIÉN EN EL MES DE HOY, no sólo en el de la carga. `porCarga` resuelve la
+       cotización con `tcDelDia(new Date())` —el TC de HOY, no el del día de la carga— así que la
+       última noche de agosto, cuando en UTC ya es septiembre, buscaba en un mes donde el test no
+       había puesto nada. Poniéndolo en los dos, el suite pasa cualquier día del año. */
+    const MESES_TC = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
+      'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const hoyUTC = new Date().toISOString().slice(0, 7).split('-');
+    const mesDeHoy = `${MESES_TC[Number(hoyUTC[1])]}_${hoyUTC[0]}`;
     cierreSt.setTC(MONEDA, 'Agosto_2026', '4000', true);
+    if (mesDeHoy !== 'Agosto_2026') cierreSt.setTC(MONEDA, mesDeHoy, '4000', true);
     const conTC = await deudaCarga.porCarga({ ...conFecha, resueltoAt: mesPrueba + '-15T12:00:00.000Z' });
     check('carga con TC: ahora sí genera la deuda',
       conTC.ok === true && !!conTC.movimiento, conTC.ok ? 'movimiento creado' : conTC.motivo);
@@ -2666,6 +2683,26 @@ async function main() {
        incómodo no se hace nunca, y una contraseña que no se cambia nunca es el problema. */
     // Se limpia primero: el check no puede depender de lo que dejó otra corrida.
     ch.setProveedorAcceso({ usuario: '', clave: '' });
+    /* ⚠️ ENTRA POR SU PROPIA PUERTA. Antes /proveedor caía en /login —la pantalla de ella, con su
+       logo y sus pestañas detrás—, que es mandar a alguien de afuera a la puerta de adentro. Cada
+       producto entra por la suya: el cliente por /chat, él por /proveedor. */
+    const authSrcProv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
+    const publicasProv = (authSrcProv.match(/const PUBLIC = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('proveedor: su pantalla abre sin sesión, para poder mostrar su propio ingreso',
+      /\/proveedor/.test(publicasProv));
+    const provPag = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8');
+    check('proveedor: y ese ingreso está en su pantalla, no manda al login de ella',
+      /name="usuario"/.test(provPag) && /name="clave"/.test(provPag)
+      && /\/api\/login/.test(provPag) && !/href="\/login"/.test(provPag));
+    check('proveedor: al salir vuelve a su pantalla, no a la de ella',
+      /location\.href = '\/proveedor'/.test(provPag));
+    /* Pública la PÁGINA, no el dato: el cascarón no tiene un solo número. */
+    check('proveedor: pero su pantalla no trae ningún dato pegado',
+      !/USDT/.test(provPag.split('<script>')[0]),
+      'todo sale de /api/os/proveedor/*, que sigue pidiendo su rol');
+    check('proveedor: no lleva el logo del panel de ella',
+      !/logo\.png/.test(provPag), 'el portal del cliente tampoco lo lleva');
+
     check('proveedor: sin nada cargado, no puede entrar',
       ch.proveedorAcceso().activo === false
       && ch.proveedorEntra('ganamos', 'loquesea') === false

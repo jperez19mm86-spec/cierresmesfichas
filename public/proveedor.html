@@ -1,7 +1,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chat Externo — Liquidación</title>
-<link rel="icon" href="/logo.png">
+<!-- Sin el logo del panel: es el que ella subió para SU pantalla, y acá entra alguien de afuera.
+     El portal del cliente tampoco lo lleva, por lo mismo. -->
 <style>
   /* La misma cara que el portal del cliente, a propósito: es el mismo producto visto del otro
      lado del mostrador, y no hay motivo para que parezca otra cosa. */
@@ -57,17 +58,35 @@
   .vacio{ color:var(--tenue); padding:10px 2px }
   /* Una caja que no se pudo calcular: se lista igual, pero sin números inventados. */
   .sc{ color:var(--tenue); font-style:italic }
+  /* El ingreso, con la cara de este producto y no la del panel de adentro. */
+  .campo{ display:block; font-size:12.5px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--tenue); font-weight:700; margin-bottom:12px }
+  .campo input{ display:block; width:100%; margin-top:5px; padding:12px 13px; font:inherit;
+    text-transform:none; letter-spacing:0; font-weight:400; color:var(--texto);
+    border:1px solid var(--linea); border-radius:11px; background:#fff }
+  .campo input:focus-visible{ outline:2px solid var(--uva3); outline-offset:1px }
+  .btn{ width:100%; padding:13px; font-weight:800; border:0; border-radius:11px;
+    background:var(--uva2); color:#fff; cursor:pointer }
+  .btn:disabled{ opacity:.55; cursor:default }
+  .msg{ margin:11px 0 0; font-size:14px; text-align:center }
+  .msg.mal{ color:var(--debe) }
   .portada{ min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:22px }
   .oculto{ display:none }
 </style>
 
 <div id="portada" class="portada">
-  <div class="card" style="max-width:380px;width:100%;text-align:center">
-    <div class="tenue" style="letter-spacing:.14em;text-transform:uppercase;font-size:12px">Chat Externo</div>
-    <h1 style="margin:6px 0 4px;font-size:26px">Liquidación</h1>
-    <p class="tenue" style="margin:0 0 16px">Entrá con el usuario que te dimos.</p>
-    <a href="/login" style="display:inline-block;background:var(--uva2);color:#fff;text-decoration:none;
-      padding:12px 22px;border-radius:11px;font-weight:800">Entrar</a>
+  <div class="card" style="max-width:360px;width:100%">
+    <div class="tenue" style="letter-spacing:.14em;text-transform:uppercase;font-size:12px;text-align:center">Chat Externo</div>
+    <h1 style="margin:6px 0 4px;font-size:26px;text-align:center">Liquidación</h1>
+    <p class="tenue" style="margin:0 0 18px;text-align:center">Entrá con el usuario que te dimos.</p>
+    <form onsubmit="return entrar(event)">
+      <label class="campo">Usuario
+        <input name="usuario" autocomplete="username" autocapitalize="off" autocorrect="off" required></label>
+      <label class="campo">Contraseña
+        <input name="clave" type="password" autocomplete="current-password" required></label>
+      <button class="btn" type="submit" id="bEntrar">Entrar</button>
+      <p class="msg" id="mEntrar" role="status"></p>
+    </form>
   </div>
 </div>
 
@@ -100,7 +119,31 @@ async function api(u) {
   if (r.status === 401 || r.status === 403) { $('portada').classList.remove('oculto'); $('app').classList.add('oculto'); return null; }
   try { return await r.json(); } catch (e) { return null; }
 }
-async function salir() { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; }
+/* Se sale a ESTA pantalla, no a /login: mandarlo a la puerta de adentro le muestra el logo y las
+   pestañas de ella, que no son suyos. */
+async function salir() { await fetch('/api/logout', { method: 'POST' }); location.href = '/proveedor'; }
+
+/* Entra ACÁ, sin pasar por la pantalla de ella. Es el mismo /api/login —una sola puerta, un solo
+   tope de intentos— pero la cara y el vuelvo son de este producto. */
+async function entrar(e) {
+  e.preventDefault();
+  const f = e.target, b = $('bEntrar'), m = $('mEntrar');
+  b.disabled = true; m.textContent = 'Entrando…'; m.className = 'msg';
+  try {
+    const r = await fetch('/api/login', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: f.usuario.value.trim(), password: f.clave.value }) });
+    const j = await r.json().catch(() => ({}));
+    if (j && j.ok) { m.textContent = ''; f.reset(); return arrancar(), false; }
+    // El 429 es el tope de intentos: decirle "usuario o contraseña" ahí lo manda a probar de nuevo.
+    m.textContent = r.status === 429
+      ? 'Demasiados intentos. Esperá 15 minutos.'
+      : 'Usuario o contraseña incorrectos.';
+    m.className = 'msg mal';
+  } catch (err) { m.textContent = 'No pudimos conectar. Probá de nuevo.'; m.className = 'msg mal'; }
+  b.disabled = false;
+  return false;
+}
 
 async function arrancar() {
   const r = await api('/api/os/proveedor/meses');

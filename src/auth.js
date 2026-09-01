@@ -78,6 +78,12 @@ const PUBLIC = [
      Sin esto el link cae en el login, y el cliente no tiene usuario. */
   /^\/chat\/?$/,
   /^\/chat\/(entrar|aviso|nuevo|accesos)\/?$/,
+  /* LA PANTALLA DEL PROVEEDOR. Pública la PÁGINA, no el dato: es el cascarón vacío con su propio
+     formulario de ingreso, y todo lo que muestra sale de /api/os/proveedor/*, que sigue pidiendo
+     su rol. Antes caía en /login —la pantalla de ella, con su logo y sus pestañas detrás— que es
+     mandar a alguien de afuera a la puerta de adentro. Cada producto entra por su propia puerta:
+     el cliente por /chat, él por acá. */
+  /^\/proveedor\/?$/,
   /^\/chat\/[A-Za-z0-9_-]+(\/pague)?\/?$/,
   /^\/ganamos\.html$/,
   /^\/logo\.png$/,
