@@ -2334,7 +2334,12 @@ function mount(app) {
     const c = chat.config();
     const fecha = String(b.fecha || '').slice(0, 10) || fechaTZ();
     const per = chat.periodoDesde(fecha);
-    const texto = `<b>Chat Externo</b> · mantenimiento de <b>${b.panel || 'tu caja'}</b>\n`
+    /* La caja se nombra por su LINK, igual que en la cuenta del mes. Si un mensaje dice
+       «ganamoscpy.com» y el otro «AgenteFortuna», el cliente cree que son dos cajas distintas —y
+       ese nombre interno se lo pusimos nosotros, él nunca lo usó. Sin link cargado, el nombre. */
+    const cajaAv = chat.list().find((p) => p.cliente_id === cid && p.panel === String(b.panel || ''));
+    const comoSeLlama = chatDoc.soloDominio(cajaAv && cajaAv.link_jugadores) || b.panel || 'tu caja';
+    const texto = `<b>Chat Externo</b> · mantenimiento de <b>${comoSeLlama}</b>\n`
       + (per ? `Período <b>${per.texto}</b>\n` : '')
       + `A pagar: <b>${c.mensualidad} ${c.mensualidad_moneda}</b>.\n`
       + `Podés ver tu cuenta y cómo pagar acá:\n${_urlPublica(req)}/chat`;

@@ -2562,6 +2562,14 @@ async function main() {
       { tipo: 'mensualidad', monto: '150', panel: 'AgenteFortuna', fecha: '2026-08-22' },
       { tipo: 'mensualidad', monto: '150', panel: 'GAF-parA', fecha: '2026-08-22' },
     ], 'https://x/chat', cajasTg);
+    /* Y el aviso de mantenimiento por caja tiene que nombrarla IGUAL. Un mensaje que dice
+       «ganamoscpy.com» y otro que dice «AgenteFortuna» se leen como dos cajas distintas. */
+    check('chat: el aviso de mantenimiento nombra la caja igual que la cuenta del mes',
+      /soloDominio\(cajaAv && cajaAv\.link_jugadores\) \|\| b\.panel/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8')));
+    check('chat: soloDominio saca el esquema, el www y la barra',
+      chDoc.soloDominio('https://www.Ganamos-PY.com/') === 'Ganamos-PY.com'
+      && chDoc.soloDominio('') === '' && chDoc.soloDominio(null) === '');
     check('chat: el mensaje nombra la caja por su link, no por el nombre interno',
       /· ganamoscpy\.com — 22 ago/.test(tgLink) && !/AgenteFortuna/.test(tgLink),
       'un cliente con cuatro cajas reconoce cuál es por el link');

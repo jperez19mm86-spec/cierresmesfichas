@@ -701,6 +701,6 @@ function textoTelegram(mes, movs, url, cajas) {
 }
 
 module.exports = {
-  paraCliente, htmlCliente, paraProveedor, htmlProveedor, mesLargo, textoTelegram,
+  paraCliente, htmlCliente, paraProveedor, htmlProveedor, mesLargo, textoTelegram, soloDominio,
   crearLink, porToken, linksDe, paginaError,
 };
