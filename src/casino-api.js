@@ -507,7 +507,11 @@ function makeClient({ url, token, user, password } = {}) {
       ['in', 'out', 'profit', 'rtp'].forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to);
       b.append('save_template_name', '');
-    }, { nodoId, from, to, sort, debug });
+      /* ⚠️ SIN PLANTILLA. El casino guarda una («Borrador») que define el agrupado y PISA lo que se
+         le manda: pidiendo Efectivo sin agrupar devolvía 986 filas por proveedor y el número de
+         «En apuestas». Es lo que la dueña describe como «se mantienen los filtros y no los podés
+         cambiar», y el motor no avisa: contesta con datos, sólo que de otro reporte. */
+    }, { nodoId, from, to, sort, debug, sinPlantilla: true });
     if (!r.ok) return r;
     /* Sin agrupar tiene que venir UNA fila. Si vinieran varias se suman igual —el casino a veces
        repite la fila del total— pero se dice cuántas, porque «una» es lo esperado y más de una
