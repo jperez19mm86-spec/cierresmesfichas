@@ -2752,6 +2752,15 @@ async function main() {
     const uiSala = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('panel: hay dónde poner la sala de cada chat',
       /data-campo="sala_id"/.test(uiSala) && /¿De qué sala se lee la ganancia\?/.test(uiSala));
+    /* ⚠️ SOBRE LA SALA SE COBRA TODO. Una caja sin ella se mide por su propio nodo, y ahí casi
+       nunca está la ganancia: en agosto «GAF-parA» daba 11.003.651 PYG y su sala 96.122.809. No se
+       bloquea el cierre —quizás está bien— pero no puede pasar callado. */
+    check('chat: una caja sin sala queda marcada',
+      ch.list().every((x) => x.faltaSala === !x.sala_id));
+    check('chat: y el cierre las nombra en vez de dejarlas pasar',
+      Array.isArray(ch.cierre('2026-08').sinSala));
+    check('panel: el cierre avisa en pantalla cuáles no tienen sala',
+      /caja\(s\) sin sala cargada/.test(uiSala) && /Sobre la sala se cobra todo/.test(uiSala));
 
     /* ── LA CUENTA DEL CLIENTE ───────────────────────────────────────────────────────────────
        ⚠️ LAS ANULACIONES SE FILTRABAN DE LA LISTA. Cuando una carga se anula queda el cargo Y su

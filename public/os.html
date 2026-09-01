@@ -4898,10 +4898,15 @@ VIEWS.chat = async () => {
                 <div class="muted" style="padding:8px 0" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</div></div>
             </div>
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
-              <div style="flex:0 0 100%;margin-bottom:-4px"><b style="font-size:13px">¿De qué sala se lee la ganancia?</b>
-                <div class="muted" style="font-size:12.5px">Por defecto se lee de esta misma caja
-                  (<b>${esc(p.id_usuario||'—')}</b>). Si la ganancia está un escalón más abajo —el nodo
-                  donde cuelgan los jugadores— poné acá <b>su id del casino</b> y se mide ése.</div></div>
+              <div style="flex:0 0 100%;margin-bottom:-4px">
+                <b style="font-size:13px">¿De qué sala se lee la ganancia?</b>
+                ${p.faltaSala?'<span class="señal rosa" style="margin-left:8px">falta</span>':''}
+                <div class="muted" style="font-size:12.5px">${p.faltaSala
+                  ? '<b style="color:var(--rosa)">Sobre esta sala se cobra todo.</b> Mientras esté vacío se '
+                    + 'mide la caja misma (<b>'+esc(p.id_usuario||'—')+'</b>), y casi nunca es ahí donde está la '
+                    + 'ganancia: suele estar un escalón más abajo, en el nodo donde cuelgan los jugadores.'
+                  : 'Se mide <b>'+esc(p.sala_login||p.sala_id)+'</b>. Sobre eso se le cobra al cliente y se le '
+                    + 'paga al proveedor.'}</div></div>
               <div style="flex:0 0 150px"><label>Id de la sala</label>
                 <input value="${esc(p.sala_id||'')}" placeholder="${esc(p.id_usuario||'—')}"
                   data-caja="${p.panel_id}" data-campo="sala_id" ${NOFILL} oninput="chatTocar('${p.panel_id}')"
@@ -5001,6 +5006,10 @@ VIEWS.chat = async () => {
     <div class="card">
       <h2>Cierre del mes <span class="muted">(${esc(_chatMes)})</span></h2>
       ${bannerMes(_chatMes,'chatIrA')}
+      ${(pc.sinSala||[]).length?`<div class="nota-suave durazno">
+        <b>${pc.sinSala.length} caja(s) sin sala cargada</b>: ${pc.sinSala.map(x=>esc(x.panel)).join(', ')}.
+        Se están midiendo por su propio nodo, y ahí casi nunca está la ganancia — suele estar un
+        escalón más abajo. <b>Sobre la sala se cobra todo</b>: cargala en Cajas y clientes antes de cobrar el mes.</div>`:''}
       ${(pc.salteados||[]).length?`<div class="nota-suave rosa">
         <b>${pc.salteados.length} caja(s) quedaron afuera de la cuenta</b>:
         ${pc.salteados.map(x=>esc(x.panel)+' <span class="muted">('+esc(x.motivo)+')</span>').join(' · ')}</div>`:''}

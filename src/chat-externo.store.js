@@ -418,6 +418,10 @@ function list() {
       usuario_admin: f.usuario_admin || '', clave_admin: f.clave_admin || '',
       conexion_id: p.conexion_id || null,
       sala_id: f.sala_id || '', sala_login: f.sala_login || '',
+      /* ⚠️ SIN SALA, TODO LO QUE SE COBRA SALE DEL NODO EQUIVOCADO. Se factura sobre la sala, no
+         sobre la caja: medido en agosto, «GAF-parA» daba 11.003.651 PYG y su sala 96.122.809. La
+         marca viaja para que la pantalla lo grite en vez de dejarlo pasar. */
+      faltaSala: !f.sala_id,
       /* El nodo que se MIDE. Una sola fuente: si estuviera resuelto en cada lugar que lo usa, el
          día que se agregue uno nuevo va a quedar mirando el nodo del panel sin que nadie lo note. */
       nodo: String(f.sala_id || p.id_usuario || ''),
@@ -589,8 +593,14 @@ function cierre(mes) {
      el servicio contratado. Descartarlo en silencio dejaba una factura de menos que nadie iba a
      buscar, porque en pantalla no faltaba nada. */
   const salteados = [];
+  /* Las que no tienen sala puesta. NO se saltean —se cobran igual, midiendo la caja— pero se
+     nombran: sobre la sala se factura todo, y una caja sin ella casi seguro está midiendo un nodo
+     que no es el que produce. Es un aviso, no un bloqueo: bloquear el cierre por esto dejaría el
+     mes sin cobrar por algo que quizás está bien. */
+  const sinSala = [];
   for (const p of list()) {
     if (!p.activo) { salteados.push({ panel: p.panel, cliente: p.cliente, motivo: 'está pausado' }); continue; }
+    if (p.faltaSala) sinSala.push({ panel: p.panel, cliente: p.cliente, nodo: p.nodo });
     if (!p.conexion_id || !p.nodo) {
       salteados.push({ panel: p.panel, cliente: p.cliente, motivo: 'el panel no está enlazado al casino' });
       continue;
@@ -684,7 +694,7 @@ function cierre(mes) {
     sinTC: [...sinTC],
     sinPrecio: filas.filter((f) => f.sinPrecio).map((f) => f.panel),
     pierden: filas.filter((f) => f.pierde).map((f) => f.panel),
-    salteados,
+    salteados, sinSala,
   };
 }
 
@@ -1005,6 +1015,7 @@ function porCliente(mes) {
     mes: ci.mes, costo_pct: ci.costo_pct,
     mensualidad: ci.mensualidad, mensualidad_moneda: ci.mensualidad_moneda,
     clientes: cs, totales: ci.totales, sinTC: ci.sinTC, salteados: ci.salteados,
+    sinSala: ci.sinSala || [],
   };
 }
 
