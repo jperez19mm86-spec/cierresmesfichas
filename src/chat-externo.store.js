@@ -240,6 +240,14 @@ try { db.exec('ALTER TABLE chat_mov ADD COLUMN concepto TEXT'); } catch (e) { /*
    dos quedaron al día — y ésa es justo la pregunta que hay que poder contestar. Va como lista de
    nombres separados por coma, el mismo patrón que los grupos de Telegram y las wallets.
    Vacío = "lo que haya", y se reparte en cascada. */
+/* LA SALA QUE MIDE ESTE CHAT. Por defecto es el nodo del panel, pero no siempre coinciden: el
+   chat se contrata para una caja y la ganancia puede estar UN NIVEL MÁS ABAJO, en el nodo donde
+   cuelgan los jugadores. Medido: «GAF-parA» reportaba 11.003.651 PYG en agosto mientras
+   «fortunareal1py», que cuelga de ella y tiene los 1.000 jugadores, reportaba 64.723.344 — seis
+   veces más. Sin poder decirlo, el chat factura sobre el nodo equivocado y no hay forma de notarlo.
+   Vacío = el nodo del panel, como siempre. */
+try { db.exec('ALTER TABLE chat_panel ADD COLUMN sala_id TEXT'); } catch (e) { /* ya estaba */ }
+try { db.exec('ALTER TABLE chat_panel ADD COLUMN sala_login TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 /* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
@@ -409,6 +417,10 @@ function list() {
       link_jugadores: f.link_jugadores || '', link_panel: f.link_panel || '',
       usuario_admin: f.usuario_admin || '', clave_admin: f.clave_admin || '',
       conexion_id: p.conexion_id || null,
+      sala_id: f.sala_id || '', sala_login: f.sala_login || '',
+      /* El nodo que se MIDE. Una sola fuente: si estuviera resuelto en cada lugar que lo usa, el
+         día que se agregue uno nuevo va a quedar mirando el nodo del panel sin que nadie lo note. */
+      nodo: String(f.sala_id || p.id_usuario || ''),
       cliente_id: p.cliente_id || null, cliente: c.nombre || c.codigo || '—',
     };
   }).sort((a, b) => String(a.cliente).localeCompare(String(b.cliente), 'es')
@@ -488,18 +500,23 @@ function set(d) {
   }
   const q = (k) => (Object.prototype.hasOwnProperty.call(links, k) ? links[k] : ((prev && prev[k]) || null));
   db.prepare(`INSERT INTO chat_panel
-      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin,clave_admin)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin,clave_admin,sala_id,sala_login)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(panel_id) DO UPDATE SET pct_cliente=excluded.pct_cliente, dia_cobro=excluded.dia_cobro,
       activo=excluded.activo, desde=excluded.desde, notas=excluded.notas,
       link_jugadores=excluded.link_jugadores, link_panel=excluded.link_panel,
-      usuario_admin=excluded.usuario_admin, clave_admin=excluded.clave_admin`)
+      usuario_admin=excluded.usuario_admin, clave_admin=excluded.clave_admin,
+      sala_id=excluded.sala_id, sala_login=excluded.sala_login`)
     .run(id, pct || null, dia,
       vino('activo') ? (d.activo === false ? 0 : 1) : (prev ? prev.activo : 1),
       String(d.desde || (prev && prev.desde) || '').slice(0, 10) || null,
       vino('notas') ? String(d.notas || '') : String((prev && prev.notas) || ''),
       (prev && prev.createdAt) || nowISO(),
-      q('link_jugadores'), q('link_panel'), q('usuario_admin'), q('clave_admin'));
+      q('link_jugadores'), q('link_panel'), q('usuario_admin'), q('clave_admin'),
+      /* El id del casino se guarda como lo escribió ella, sin adivinar: acá se pega un número de
+         la pantalla del casino y no hay forma de deducirlo del nombre. Vacío vuelve al nodo del panel. */
+      (vino('sala_id') ? String(d.sala_id || '').trim().slice(0, 32) : String((prev && prev.sala_id) || '')) || null,
+      (vino('sala_login') ? String(d.sala_login || '').trim().slice(0, 80) : String((prev && prev.sala_login) || '')) || null);
   return { ok: true, panel: list().find((x) => x.panel_id === id) };
 }
 function quitar(panelId) {
@@ -548,7 +565,7 @@ function cierre(mes) {
   const salteados = [];
   for (const p of list()) {
     if (!p.activo) { salteados.push({ panel: p.panel, cliente: p.cliente, motivo: 'está pausado' }); continue; }
-    if (!p.conexion_id || !p.id_usuario) {
+    if (!p.conexion_id || !p.nodo) {
       salteados.push({ panel: p.panel, cliente: p.cliente, motivo: 'el panel no está enlazado al casino' });
       continue;
     }
@@ -556,7 +573,13 @@ function cierre(mes) {
     const monedas = [];
     for (const [k, v] of g) {
       const [cx, grp, nodo, mon] = k.split('|');
-      if (cx === p.conexion_id && grp === p.grp && String(nodo) === String(p.id_usuario)) {
+      /* ⚠️ SE COMPARA CONTRA `p.nodo`, que es la sala si ella la puso y el panel si no.
+         Y cuando hay sala propia NO se filtra por nivel: la sala suele estar un escalón más abajo
+         que el panel, así que exigir el mismo grupo la haría desaparecer justo en el caso para el
+         que se agregó el campo. */
+      const mismoNodo = String(nodo) === String(p.nodo);
+      const mismoNivel = p.sala_id ? true : (grp === p.grp);
+      if (cx === p.conexion_id && mismoNivel && mismoNodo) {
         monedas.push({ moneda: mon, profit: v });
       }
     }
@@ -575,9 +598,9 @@ function cierre(mes) {
         if (cx === p.conexion_id && grp === p.grp) hay += 1;
       }
       salteados.push({
-        panel: p.panel, cliente: p.cliente, usuario: p.id_usuario, nivel: p.nivel,
+        panel: p.panel, cliente: p.cliente, usuario: p.nodo, nivel: p.nivel,
         motivo: hay
-          ? `no figura con el usuario ${p.id_usuario}: el mes SÍ está bajado (${hay} cajas de ${p.nivel || 'ese nivel'}), pero ésta no aparece. Revisá el número de usuario.`
+          ? `no figura con el usuario ${p.nodo}${p.sala_id ? ' (la sala que le pusiste)' : ''}: el mes SÍ está bajado (${hay} cajas de ${p.nivel || 'ese nivel'}), pero ésta no aparece. Revisá el número.`
           : `todavía no se bajó el nivel ${p.nivel || '—'} de esa conexión en ${m}. Capturá el mes.`,
         capturar: !hay,
       });

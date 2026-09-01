@@ -2703,6 +2703,32 @@ async function main() {
     check('proveedor: no lleva el logo del panel de ella',
       !/logo\.png/.test(provPag), 'el portal del cliente tampoco lo lleva');
     /* La misma cara que el portal del cliente: es el mismo producto visto del otro lado. */
+    /* ── LA SALA QUE MIDE CADA CHAT ──────────────────────────────────────────────────────────
+       El chat se contrata para una caja, pero la ganancia puede estar UN NIVEL MÁS ABAJO: medido en
+       producción, «GAF-parA» reportaba 11.003.651 PYG en agosto mientras «fortunareal1py», que
+       cuelga de ella y tiene los 1.000 jugadores, reportaba 64.723.344 — seis veces más. */
+    const salaPan = ch.list()[0];
+    if (salaPan) {
+      check('chat: sin sala propia, se mide el nodo del panel',
+        String(salaPan.nodo) === String(salaPan.id_usuario || ''),
+        `nodo=${salaPan.nodo} · panel=${salaPan.id_usuario}`);
+      ch.set({ panel_id: salaPan.panel_id, sala_id: '6775802', sala_login: 'fortunareal1py' });
+      const conSala = ch.list().find((x) => x.panel_id === salaPan.panel_id);
+      check('chat: con sala propia, se mide ésa',
+        conSala.nodo === '6775802' && conSala.sala_login === 'fortunareal1py');
+      /* La sala suele estar un escalón más abajo que el panel: si se siguiera filtrando por el
+         nivel del panel, desaparecería justo en el caso para el que existe el campo. */
+      const rutasSala = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
+      check('chat: y con sala propia no se filtra por el nivel del panel',
+        /const mismoNivel = p\.sala_id \? true : \(grp === p\.grp\)/.test(rutasSala));
+      ch.set({ panel_id: salaPan.panel_id, sala_id: '', sala_login: '' });
+      check('chat: vaciarla vuelve al nodo del panel',
+        String(ch.list().find((x) => x.panel_id === salaPan.panel_id).nodo) === String(salaPan.id_usuario || ''));
+    }
+    const uiSala = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: hay dónde poner la sala de cada chat',
+      /data-campo="sala_id"/.test(uiSala) && /¿De qué sala se lee la ganancia\?/.test(uiSala));
+
     /* ── LA CUENTA DEL CLIENTE ───────────────────────────────────────────────────────────────
        ⚠️ LAS ANULACIONES SE FILTRABAN DE LA LISTA. Cuando una carga se anula queda el cargo Y su
        contra-asiento; escondiendo el segundo, el cliente veía que se le cobró algo que ya no tiene
@@ -7268,8 +7294,11 @@ async function main() {
        mensaje sale con los números en <code>, que Telegram muestra en ancho fijo para que los dos
        meses queden alineados. Mostrar la vista previa en otra letra sería mostrar una cosa y
        mandar otra, que es justo lo que hace que después nadie confíe en el botón. */
+    /* El octavo es el ID DE LA SALA del chat: un número que ella copia de la pantalla del casino y
+       después compara contra ella dígito por dígito. Es el caso canónico de esta regla, no una
+       excepción: poner el id equivocado hace que esa caja facture sobre otro nodo. */
     check('panel: la letra de máquina queda sólo donde se copia carácter por carácter',
-      mono <= 7, `${mono} lugares`);
+      mono <= 8, `${mono} lugares`);
     check('panel: la contraseña generada SÍ la conserva',
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',

@@ -4898,6 +4898,26 @@ VIEWS.chat = async () => {
                 <div class="muted" style="padding:8px 0" title="La ganancia se lee en el nivel de esta caja, no en el de arriba">${esc(p.nivel||'—')}</div></div>
             </div>
             <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
+              <div style="flex:0 0 100%;margin-bottom:-4px"><b style="font-size:13px">¿De qué sala se lee la ganancia?</b>
+                <div class="muted" style="font-size:12.5px">Por defecto se lee de esta misma caja
+                  (<b>${esc(p.id_usuario||'—')}</b>). Si la ganancia está un escalón más abajo —el nodo
+                  donde cuelgan los jugadores— poné acá <b>su id del casino</b> y se mide ése.</div></div>
+              <div style="flex:0 0 150px"><label>Id de la sala</label>
+                <input value="${esc(p.sala_id||'')}" placeholder="${esc(p.id_usuario||'—')}"
+                  data-caja="${p.panel_id}" data-campo="sala_id" ${NOFILL} oninput="chatTocar('${p.panel_id}')"
+                  title="El número que ves en el casino. Vacío = esta misma caja."
+                  style="width:100%;text-align:center;font-family:monospace"></div>
+              <div style="flex:1;min-width:170px"><label>Cómo se llama <span class="muted">(sólo para vos)</span></label>
+                <input value="${esc(p.sala_login||'')}" placeholder="fortunareal1py"
+                  data-caja="${p.panel_id}" data-campo="sala_login" ${NOFILL} oninput="chatTocar('${p.panel_id}')"
+                  style="width:100%"></div>
+              <div class="muted" style="flex:1;min-width:180px;font-size:12px;align-self:center">
+                ${p.sala_id
+                  ? '<span class="señal verde">mide '+esc(p.sala_login||p.sala_id)+'</span>'
+                  : 'mide esta caja'}
+                · Si el número no existe en el casino, el mes de esa caja queda sin calcular y te lo avisa.</div>
+            </div>
+            <div class="row" style="gap:10px;align-items:flex-end;margin-top:10px">
               <div style="flex:1;min-width:200px"><label>Link para los jugadores</label>
                 <input value="${esc(p.link_jugadores||'')}" placeholder="pegá el link, no lo deduzcas"
                   data-caja="${p.panel_id}" data-campo="link_jugadores" oninput="chatTocar('${p.panel_id}')" style="width:100%"></div>
