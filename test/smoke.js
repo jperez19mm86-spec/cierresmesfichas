@@ -2759,6 +2759,15 @@ async function main() {
       ch.list().every((x) => x.faltaSala === !x.sala_id));
     check('chat: y el cierre las nombra en vez de dejarlas pasar',
       Array.isArray(ch.cierre('2026-08').sinSala));
+    /* ⚠️ LA CAPTURA SE QUEDABA SÓLO CON LOS TRES NIVELES CONOCIDOS y las salas están un escalón
+       más abajo, así que venían en la respuesta del casino y se tiraban: el chat medía la caja de
+       arriba o no encontraba nada. Se guardan aparte, con grupo 'chat', sin una llamada de más. */
+    const acumSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'acumulado.service.js'), 'utf8');
+    check('acumulado: la captura diaria también guarda las salas del chat',
+      /_salasDelChat/.test(acumSrc) && /store\.upsertDia\(conexion_id, dia, 'chat', cur, pmS\[cur\]\)/.test(acumSrc));
+    check('acumulado: y si el chat no está, la captura sigue igual',
+      /catch \(e\) \{ return new Set\(\); \}/.test(acumSrc),
+      'el acumulado no puede dejar de capturar porque falle otra cosa');
     check('panel: el cierre avisa en pantalla cuáles no tienen sala',
       /caja\(s\) sin sala cargada/.test(uiSala) && /Sobre la sala se cobra todo/.test(uiSala));
 

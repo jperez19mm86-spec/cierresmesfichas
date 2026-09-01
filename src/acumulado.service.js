@@ -13,6 +13,17 @@ const NIVEL_DE_GROUP = { superagent: 'SuperAgente', distributor: 'Distribuidor',
  * Pivot: usamos nodos() (area=users, VIVO) en vez de reporte()→reportstable (motor roto del casino). */
 /** Arma las filas del acumulado POR MONEDA: { moneda: [{id,login,in,out,profit}] } desde nodos(multiMoneda).
  *  Cada nodo trae `montos` (in/out/profit por cada moneda con actividad). */
+/* Los nodos que alguna caja del chat tiene puestos como sala, para esta conexión.
+   Se pide adentro y con try: el acumulado no puede dejar de capturar porque el chat no esté. */
+function _salasDelChat(conexion_id) {
+  try {
+    const chat = require('./chat-externo.store');
+    return new Set(chat.list()
+      .filter((p) => p.activo && p.sala_id && String(p.conexion_id) === String(conexion_id))
+      .map((p) => String(p.sala_id)));
+  } catch (e) { return new Set(); }
+}
+
 function _filasPorMonedaDesdeNodos(nodos, group) {
   const nivel = NIVEL_DE_GROUP[group] || 'SuperAgente';
   const porMoneda = {};
@@ -34,6 +45,26 @@ async function captureDia(conexion_id, dia, group = 'superagent') {
   if (!r.ok) return r;
   const pm = _filasPorMonedaDesdeNodos(r.nodos, group);
   for (const cur of Object.keys(pm)) store.upsertDia(conexion_id, dia, group, cur, pm[cur]);
+  /* Y las SALAS del chat externo, aparte. El filtro de arriba se queda sólo con los tres niveles
+     conocidos (SuperAgente / Distribuidor / Agente) y las salas están UN ESCALÓN MÁS ABAJO: el
+     nodo donde cuelgan los jugadores, que es sobre el que se factura el chat. Venían en la misma
+     respuesta y se tiraban, así que el chat medía la caja de arriba —«GAF-parA» daba 11.003.651
+     PYG en agosto y su sala 96.122.809— o directamente no encontraba nada.
+     Se guardan con grupo 'chat' para no mezclarse con los niveles, y el cierre del chat las busca
+     por nodo sin mirar el nivel. No cuesta una llamada más: son las mismas filas ya traídas. */
+  const salas = _salasDelChat(conexion_id);
+  if (salas.size) {
+    const pmS = {};
+    for (const n of r.nodos) {
+      if (!salas.has(String(n.id))) continue;
+      const montos = n.montos || {};
+      for (const cur of Object.keys(montos)) {
+        const m = montos[cur];
+        (pmS[cur] = pmS[cur] || []).push({ id: n.id, login: n.login, in: m.in, out: m.out, profit: m.profit });
+      }
+    }
+    for (const cur of Object.keys(pmS)) store.upsertDia(conexion_id, dia, 'chat', cur, pmS[cur]);
+  }
   return { ok: true, dia, filas: (pm.ARS || []).length, monedas: Object.keys(pm) };
 }
 
