@@ -150,21 +150,29 @@ function confirmarBase(cliente, mes, base_pct) {
  *   · Facturación lo pedía SIN fecha → usaba el de HOY (facturar junio en agosto aplicaba agosto)
  *   · Perfil y Reparto usaban el vigente al día 15 del mes
  *   · Proveedores externos usaba el confirmado a mano, en una tabla aparte
- * Es el número por el que se multiplica todo lo que se cobra, así que ahora hay una sola regla:
- *   1) el CONFIRMADO para ese mes (gana siempre: es una decisión explícita del dueño)
- *   2) el vigente en el historial al CIERRE de ese mes
- *   3) si el panel tiene precio propio, ese pisa al del cliente
+ * Es el número por el que se multiplica todo lo que se cobra, así que ahora hay una sola regla,
+ * de lo MÁS específico a lo más general:
+ *   1) el PRECIO PROPIO DEL PANEL, si ese panel tiene uno
+ *   2) el CONFIRMADO para ese mes (una decisión explícita del dueño sobre el cliente)
+ *   3) el vigente en el historial al CIERRE de ese mes
  * Devuelve también de DÓNDE salió, para poder mostrarlo y que nadie tenga que adivinar.
+ *
+ * ⚠️ EL PANEL VA ANTES QUE EL CONFIRMADO, Y EL ORDEN IMPORTA (decidido con la dueña, 1-sep-2026).
+ * `externos_base_mes` guarda UN solo % por cliente y por mes: confirmar la base de Lucía en 11
+ * pisaba el 15 de su panel `GALat-21Lu` y el precio propio no se aplicaba nunca —sin avisar—,
+ * justo en los meses ya cerrados, que son los que se facturan. Cuando se confirma la base de un
+ * mes se está confirmando el número GENERAL del cliente, no el de un panel que tiene precio
+ * aparte. Los demás paneles del cliente siguen tomando el confirmado, como siempre.
  */
 function baseDelMes(cliente, mes, panel = null) {
   const m = String(mes || '').slice(0, 7);
-  const g = baseGuardada(cliente.nombre, m);
-  if (g && g.base_pct != null && g.base_pct !== '') return { valor: String(g.base_pct), fuente: 'confirmado', mes: m };
   const { to } = rango(m);                       // el vigente al cierre del mes, no el de hoy
   if (panel && panel.usa_config_cliente === false) {
     const ov = historial.getVigente('panel', panel.id, 'precio_base_pct', to);
     if (ov != null && ov !== '') return { valor: String(ov), fuente: 'precio propio del panel', mes: m };
   }
+  const g = baseGuardada(cliente.nombre, m);
+  if (g && g.base_pct != null && g.base_pct !== '') return { valor: String(g.base_pct), fuente: 'confirmado', mes: m };
   const v = historial.getVigente('cliente', cliente.id, 'precio_base_pct', to);
   return v != null && v !== ''
     ? { valor: String(v), fuente: 'vigente en el mes', mes: m }

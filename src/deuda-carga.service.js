@@ -42,6 +42,7 @@ const historial = require('./historial');
 const tcStore = require('./tc-store');
 const tcDivisas = require('./tc-divisas.service');
 const tcUnico = require('./tc-unico.service');
+const paneles = require('./paneles-store');
 
 /**
  * El TC de una DIVISA en un DÍA.
@@ -84,8 +85,31 @@ function tcDelDia(fecha, divisa = 'ARS') {
   return (t && t.valor && money.isPos(String(t.valor))) ? String(t.valor) : null;
 }
 
-/** El % base vigente de un cliente. Es lo que convierte una carga en deuda. */
-function baseDe(cli) {
+/**
+ * El panel al que se cargó, deducido del pedido. Un pedido no guarda `panel_id`, pero sí `sistema`
+ * y `userId`, que es la MISMA identidad con la que se reconoce un panel en todo el sistema
+ * (`sistema|id_usuario`). Comparar sólo por nodo daría por bueno un panel de Europa porque existe
+ * uno con ese id en Casino.
+ */
+function panelDelPedido(pedido) {
+  if (!pedido || !pedido.userId) return null;
+  return paneles.list().find((p) => p.sistema === pedido.sistema
+    && String(p.id_usuario) === String(pedido.userId)) || null;
+}
+
+/**
+ * El % base que convierte una carga en deuda.
+ *
+ * 🔑 UN PANEL PUEDE COMPRAR LAS FICHAS A OTRO PRECIO QUE EL RESTO DEL CLIENTE. Lucía trabaja al 11
+ * y uno de sus paneles compra al 15: sin esto, esa carga se facturaba al 11 y se cobraba de menos
+ * sin que nada lo avisara (verificado en producción, 1-sep-2026). El precio propio del panel es
+ * MÁS específico que el del cliente, así que le gana.
+ */
+function baseDe(cli, panel = null) {
+  if (panel && panel.usa_config_cliente === false) {
+    const ov = historial.getVigente('panel', panel.id, 'precio_base_pct');
+    if (ov != null && ov !== '') return String(ov);
+  }
   const h = historial.getVigente('cliente', cli.id, 'precio_base_pct');
   const v = h != null && h !== '' ? h : cli.precio_base_pct;
   return v != null && v !== '' ? String(v) : null;
@@ -107,7 +131,11 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
   if (!cli) return { ok: false, motivo: `el código ${pedido.codigo} no es de ningún cliente` };
   const ya = movs.list({ cliente_id: cli.id, tipo: 'carga' }).find((m) => m.pedido_id === pedido.id);
   if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
-  const base = baseDe(cli);
+  const panel = panelDelPedido(pedido);
+  const base = baseDe(cli, panel);
+  const dePanel = !!(panel && panel.usa_config_cliente === false
+    && historial.getVigente('panel', panel.id, 'precio_base_pct') != null
+    && historial.getVigente('panel', panel.id, 'precio_base_pct') !== '');
   if (base == null) return { ok: false, motivo: `${cli.nombre || cli.codigo} no tiene % base cargado` };
   if (!money.isPos(String(base))) return { ok: false, motivo: 'base en cero: no genera deuda' };
 
@@ -168,6 +196,9 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
 
   const mv = movs.create({
     cliente_id: cli.id, tipo: 'carga', pedido_id: pedido.id,
+    // La columna existía y quedaba SIEMPRE vacía: sin ella no se podía saber a qué panel fue una
+    // carga sin volver a cruzar contra el pedido, y ninguna pantalla lo hacía.
+    panel_id: panel ? panel.id : null,
     monto_ars: divisa === 'ARS' ? deuda : null,
     monto_usdt: enUsdt,
     tc_momento: tc,
@@ -176,6 +207,7 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
     divisa,
     fecha: pedido.resueltoAt || pedido.createdAt || undefined,
     notas: `Fichas · ${base}% de ${money.fmt(monto, 0)} ${divisa}`
+      + (dePanel ? ` · precio propio de ${panel.nombre}` : '')
       + (tc ? ` · TC ${tc}` : '') + (aviso ? ` · ${aviso}` : ''),
   });
   return { ok: true, movimiento: mv, tc, tcModo, aviso, deuda, divisa, base, cuentaEn };
@@ -259,7 +291,10 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
     const tc = tcDelDia(f, p.divisa);
     if (simular) {
       const cli = clientes.getByCodigo(p.codigo);
-      const base = cli ? baseDe(cli) : null;
+      // Con el panel, igual que la corrida de verdad. Sin esto la simulación mostraba el % del
+      // cliente y después se aplicaba el del panel: el número que se mira para decidir no era el
+      // que iba a quedar.
+      const base = cli ? baseDe(cli, panelDelPedido(p)) : null;
       if (!cli || base == null || !money.isPos(String(base))) { out.saltados.push({ pedido: p.id, motivo: 'sin cliente o sin base' }); continue; }
       const deuda = money.round(money.pct(String(p.monto || '0'), base), 2);
       const div = String(p.divisa || 'ARS').toUpperCase();
