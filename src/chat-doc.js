@@ -182,8 +182,16 @@ function desgloseMes(ctx, doc) {
     filas.push([`${doc.pctUnico ? esc(pctTxt(doc.pct)) + ' de la ganancia' : 'Por la ganancia'}`,
       n(pct.reduce((a, m) => a + Number(m.monto || 0), 0), 2)]);
   }
+  /* CON LAS FECHAS QUE CUBRE. Un renglón que dice «Mantenimiento · AgenteFortuna — 150» no dice
+     por qué tramo se está cobrando, y a la segunda caja el cliente pregunta si no le cobraron dos
+     veces lo mismo. El período sale de la fecha del movimiento, no del texto de la nota: la nota
+     es un rótulo y podría cambiar, la fecha es el dato. */
   for (const m of mant) {
-    filas.push([`Mantenimiento${m.panel ? ' · ' + esc(m.panel) : ''}`, n(m.monto, 2)]);
+    /* Se pide adentro y no arriba: el período lo calcula el store —es el mismo que escribe el
+       renglón— y traerlo acá arriba ataría este archivo, que sólo dibuja, al que tiene la lógica. */
+    const per = require('./chat-externo.store').periodoDesde(m.fecha);
+    filas.push([`Mantenimiento${m.panel ? ' · ' + esc(m.panel) : ''}`
+      + (per ? ` <span class="tenue">${esc(per.texto)}</span>` : ''), n(m.monto, 2)]);
   }
   /* Sin movimientos no hay de qué hacer un desglose, pero el total del mes tiene que salir igual:
      es la mitad de la respuesta —lo de este mes contra lo que debe en total— y sin él la hoja
@@ -297,6 +305,13 @@ function bloqueDe(lista, rotulo, ctr) {
 const variasRedes = (lista) => (lista.length > 1
   ? '<p class="bajo">Mandá por la red que uses. Las dos llegan al mismo lugar.</p>' : '');
 
+/* Y cuando el % y el mantenimiento van a cuentas DISTINTAS hay que decirlo con todas las letras.
+   Rotular los dos bloques no alcanza: se leen como "dos formas de pagar lo mismo" y el cliente
+   manda todo junto a la primera dirección que ve. Esa plata entra, pero entra en la cuenta
+   equivocada, y el mes queda medio pago de un lado y de más del otro. */
+const SON_DOS = '<p class="bajo"><b>Son dos cuentas distintas.</b> El % sobre las ganancias '
+  + 'se deposita en una, y el mantenimiento en la otra. Fijate cuál antes de mandar.</p>';
+
 function bloquePago(p) {
   // Un array vacío es truthy: acá se mira el largo, o sale un "Cómo pagar" sin ninguna dirección.
   const ggr = (p && p.ggr) || []; const mens = (p && p.mens) || [];
@@ -308,8 +323,9 @@ function bloquePago(p) {
     return `<h2>Cómo pagar</h2>${bloqueDe(l, '', ctr)}${variasRedes(l)}${nota}`;
   }
   if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'Mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
-  return `<h2>Cómo pagar</h2>${bloqueDe(ggr, 'Servicio del mes', ctr)}${variasRedes(ggr)}`
-    + `${bloqueDe(mens, 'Mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
+  return `<h2>Cómo pagar</h2>${SON_DOS}`
+    + `${bloqueDe(ggr, 'El % sobre las ganancias', ctr)}${variasRedes(ggr)}`
+    + `${bloqueDe(mens, 'El mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
 }
 
 /**

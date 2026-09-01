@@ -2462,12 +2462,13 @@ async function main() {
       && /function copiar/.test(htmlPago));
     // Dos wallets distintas → dos bloques rotulados; la misma para las dos → uno solo.
     check('chat: si el mes y el mantenimiento van a wallets distintas, se muestran las dos',
-      /Servicio del mes/.test(htmlPago) && /Mantenimiento/.test(htmlPago)
+      /El % sobre las ganancias/.test(htmlPago) && /El mantenimiento/.test(htmlPago)
       && htmlPago.includes('0xwallet456'));
     ch.setConfig({ wallet_mens: wA.id });
     const htmlUna = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
     check('chat: si es la misma wallet para las dos cosas, va un bloque solo',
-      (htmlUna.match(/class="paga"/g) || []).length === 1 && !/Servicio del mes/.test(htmlUna));
+      (htmlUna.match(/class="paga"/g) || []).length === 1
+      && !/El % sobre las ganancias/.test(htmlUna) && !/Son dos cuentas distintas/.test(htmlUna));
     ch.setConfig({ wallet_mens: wB.id });
     // El plan B importa: fuera de https `navigator.clipboard` no existe y el botón no haría nada.
     check('chat: copiar funciona aunque no haya https',
@@ -2501,6 +2502,46 @@ async function main() {
       idsDir.length >= 2 && new Set(idsDir).size === idsDir.length
       && (htmlDos.match(/class="copiar"/g) || []).length === idsDir.length,
       `${idsDir.length} direcciones, ${new Set(idsDir).size} ids distintos`);
+    /* ── EL % Y EL MANTENIMIENTO VAN A CUENTAS DISTINTAS ─────────────────────────────────────
+       Rotular los dos bloques no alcanza: se leen como dos formas de pagar lo mismo y el cliente
+       manda todo junto a la primera dirección que ve. Esa plata entra en la cuenta equivocada y el
+       mes queda medio pago de un lado y de más del otro. */
+    check('chat: si el % y el mantenimiento van a wallets distintas, la hoja lo dice',
+      /Son dos cuentas distintas/.test(htmlDos)
+      && /El % sobre las ganancias/.test(htmlDos) && /El mantenimiento/.test(htmlDos),
+      'dos direcciones sin decir que son de cosas distintas se leen como dos redes de la misma');
+    check('chat: y cuando las dos cosas van a la MISMA no lo dice',
+      (() => {
+        const antes = ch.config().wallets_mens.join(',');
+        ch.setConfig({ wallet_ggr: antes, wallet_mens: antes });
+        const h = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
+        ch.setConfig({ wallet_ggr: wA.id, wallet_mens: antes });
+        return !/Son dos cuentas distintas/.test(h);
+      })(),
+      'avisar de una división que no existe es tan confuso como no avisar de la que sí');
+    /* Un renglón «Mantenimiento · AgenteFortuna — 150» no dice por qué tramo se cobra, y a la
+       segunda caja el cliente pregunta si no le cobraron dos veces lo mismo. */
+    check('chat: cada mantenimiento de la hoja dice qué período cubre',
+      (() => {
+        const h = chDoc.htmlCliente({ mes: '2026-08', cliente: 'X', pct: '4', pctUnico: true,
+          lineas: [], salteadas: [], total: '150', porGanancia: '0', mantenimiento: '150', cajasMant: 1 },
+        { saldo: { cobrado: '150', pagado: '0', debe: '150' }, cobradoMes: '150',
+          movsMes: [{ tipo: 'mensualidad', monto: '150', panel: 'AgenteFortuna', fecha: '2026-08-22' }] });
+        return /Mantenimiento · AgenteFortuna/.test(h) && /22 ago – 21 sep/.test(h);
+      })());
+    /* El cartel del botón decía el total de la cuenta, y ese botón cobra SÓLO el %. En agosto daba
+       «Cobrado: 3 cliente(s) por 1.050,00 USDT» al lado de un aviso que decía que el mes no estaba
+       cobrado: los 1.050 eran siete mantenimientos de 150, ni un peso del %. */
+    check('panel: el cartel del cobro no llama «cobrado» al mantenimiento',
+      (() => {
+        const h = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        const i = h.indexOf('chatCobrar()');
+        const trozo = h.slice(i, i + 1800);
+        return /El % de este mes <b>todavía no está cobrado/.test(trozo)
+          && /El mantenimiento/.test(trozo) && !/Cobrado: <b>/.test(trozo);
+      })(),
+      'sumar dos conceptos bajo el rótulo del que no era');
+
     check('chat: cuando hay dos redes para lo mismo, se dice por qué',
       /Mandá por la red que uses/.test(htmlDos),
       'sin esto se leen como dos cuentas distintas y la pregunta vuelve por privado');
@@ -2778,7 +2819,8 @@ async function main() {
       ch.setProveedorAcceso({ grupo: 'https://t.me/loquesea' }).ok === false
       && ch.proveedorGrupo() === '-100999888',
       'mandar a un destino que no existe falla en silencio del lado de Telegram');
-    const txtPP = avSvc.textoPagoAlProveedor({ monto: '1050', moneda: 'USDT',
+    const avPP = require('../src/chat-avisos.service');   // `avSvc` se declara más abajo: TDZ
+    const txtPP = avPP.textoPagoAlProveedor({ monto: '1050', moneda: 'USDT',
       concepto: 'mantenimiento', mes: '2026-08', fecha: '2026-09-02',
       destino: 'TFgz…', red: 'TRC20', hash: 'a1b2' });
     check('proveedor: el aviso dice de qué es el pago y adónde fue',

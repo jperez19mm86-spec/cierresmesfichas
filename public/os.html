@@ -5115,10 +5115,25 @@ VIEWS.chat = async () => {
       <div class="row" style="align-items:center;gap:12px;margin-top:16px">
         <button class="grave" onclick="chatCobrar()">Cobrar el mes</button>
         <div class="muted" style="font-size:12.5px;flex:1;min-width:260px">
-          ${cta.clientes.length?`Cobrado: <b>${cta.clientes.filter(g=>Number(g.cobrado)>0).length}</b> cliente(s) por
-             <b>${money(cta.totales.cobrado,2)} USDT</b>. Si a alguno le faltaba un precio o el tipo
-             de cambio, deshacé <b>ese</b> en la cuenta de abajo, arreglalo y volvé a cobrar.`
-            :'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.'}</div>
+          ${(()=>{
+            if(!cta.clientes.length) return 'Congela el número de cada cliente y lo pasa a <b>la cuenta del chat</b>, que es aparte de la de las fichas. Apretar dos veces no cobra dos veces.';
+            /* ⚠️ ESTE CARTEL DECÍA EL TOTAL DE LA CUENTA, y este botón cobra SÓLO el %. En agosto
+               eso daba «Cobrado: 3 cliente(s) por 1.050,00 USDT» al lado de un aviso que decía que
+               el mes no estaba cobrado — y los 1.050 eran siete mantenimientos de 150, ni un peso
+               del %. Dos conceptos distintos sumados bajo el rótulo del que no era. Se abre. */
+            const movs=cta.clientes.flatMap(g=>g.movs||[]);
+            const suma=(f)=>movs.filter(f).reduce((a,m)=>a+Number(m.monto||0),0);
+            const mant=suma(m=>m.tipo==='mensualidad');
+            const pct =suma(m=>m.tipo!=='mensualidad'&&m.tipo!=='pago');
+            const nPct=cta.clientes.filter(g=>(g.movs||[]).some(m=>m.tipo!=='mensualidad'&&m.tipo!=='pago')).length;
+            const colita=mant>0?` El mantenimiento —<b>${money(String(mant),2)} USDT</b>— corre aparte:
+               se devenga solo el día de alta de cada caja y este botón no lo toca.`:'';
+            return pct>0
+              ? `El % ya está cobrado: <b>${nPct}</b> cliente(s), <b>${money(String(pct),2)} USDT</b>.
+                 Si a alguno le faltaba un precio o el tipo de cambio, deshacé <b>ese</b> en la cuenta
+                 de abajo, arreglalo y volvé a cobrar.${colita}`
+              : `El % de este mes <b>todavía no está cobrado</b>.${colita}`;
+          })()}</div>
       </div>`
       :'<div class="empty">Ninguna caja tiene el servicio todavía. Agregá una en 🏷 Cajas y clientes.</div>'}
     </div>`;

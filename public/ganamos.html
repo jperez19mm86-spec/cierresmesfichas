@@ -373,9 +373,15 @@ function bloquePago() {
     var l = ggr.length ? ggr : mens;
     return h + bloqueDe(l, '') + variasRedes(l) + nota;
   }
-  if (!ggr.length) return h + bloqueDe(mens, 'Mantenimiento') + variasRedes(mens) + nota;
-  return h + bloqueDe(ggr, 'Servicio del mes') + variasRedes(ggr)
-    + bloqueDe(mens, 'Mantenimiento') + variasRedes(mens) + nota;
+  if (!ggr.length) return h + bloqueDe(mens, 'El mantenimiento') + variasRedes(mens) + nota;
+  /* Rotular los dos bloques no alcanza: se leen como "dos formas de pagar lo mismo" y el cliente
+     manda todo junto a la primera dirección que ve. Esa plata entra, pero en la cuenta equivocada,
+     y el mes queda medio pago de un lado y de más del otro. Se dice con todas las letras. */
+  return h + '<p class="tenue" style="margin:2px 0 10px"><b>Son dos cuentas distintas.</b> '
+    + 'El % sobre las ganancias se deposita en una, y el mantenimiento en la otra. '
+    + 'Fijate cuál antes de mandar.</p>'
+    + bloqueDe(ggr, 'El % sobre las ganancias') + variasRedes(ggr)
+    + bloqueDe(mens, 'El mantenimiento') + variasRedes(mens) + nota;
 }
 
 /* `navigator.clipboard` sólo existe en https (o localhost) y el cliente abre esto desde cualquier
