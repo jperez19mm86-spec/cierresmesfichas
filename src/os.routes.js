@@ -2854,6 +2854,25 @@ function mount(app) {
   // ?view=general|superagent  ?currencies=ARS,USD,BRL  ?from=&to=  ?template=
   // Reporte de proveedores DE UN NODO puntual (típicamente un DISTRIBUIDOR, que el agrupamiento
   // por 'distributor' no desglosa). ?nodo=<id de usuario del casino>
+  /* LA GANANCIA DE UN NODO, tal cual la muestra el casino en Estadísticas → Efectivo → Datos
+     generales. Es la pantalla que ella abre para discutir con el proveedor, así que es el número
+     que tiene que dar el sistema. Una sola consulta por el mes entero: no hay que sumar días ni
+     depender de que la captura nocturna los tenga todos. */
+  app.get('/api/os/casino/conexiones/:id/ganancia-nodo', wrap(async (req, res) => {
+    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    if (!req.query.nodo) return err(res, 400, 'falta ?nodo=<id de usuario del casino>');
+    const curs = String(req.query.currencies || req.query.cur || 'ARS').split(',')
+      .map((x) => x.trim().toUpperCase()).filter(Boolean);
+    const monedas = {};
+    for (const cur of curs) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await cli.gananciaDeNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur });
+      monedas[cur] = r.ok ? { ok: true, in: r.in, out: r.out, profit: r.profit, rtp: r.rtp, filas: r.filas }
+        : { ok: false, error: r.error };
+    }
+    ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
+  }));
+
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores-nodo', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     if (!req.query.nodo) return err(res, 400, 'falta ?nodo=<id de usuario del casino>');

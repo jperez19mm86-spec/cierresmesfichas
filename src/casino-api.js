@@ -482,6 +482,41 @@ function makeClient({ url, token, user, password } = {}) {
   }
 
   /**
+   * LA GANANCIA DE UN NODO EN UN PERÍODO, tal cual la muestra el casino.
+   *
+   * Replica EXACTAMENTE la pantalla de Estadísticas con «Efectivo» + «Datos generales»: es la que
+   * la dueña abre para discutir con el proveedor, así que es el número que tiene que dar el
+   * sistema. Comprobado contra su pantalla: nodo 6775802, agosto 2026, PYG → 64.832.343,10.
+   *
+   * ⚠️ `on_money` Y NO `on_bets`. Son las dos opciones del primer desplegable —«Efectivo» y «En
+   * apuestas»— y para el mismo nodo y mes daban 64,8 millones contra 74,9: diez millones de
+   * diferencia. Lo que se factura es lo que entró y salió de caja, no lo que se apostó.
+   *
+   * ⚠️ Y sin agrupar (`reports_base_group_by` y `reports_group_by` vacíos). Agrupando por usuario
+   * el motor devuelve una fila por cada hijo y hay que sumarlas; sin agrupar devuelve UNA fila con
+   * el total del nodo, que es lo que se quiere y lo que no se puede sumar mal.
+   */
+  async function gananciaDeNodo({ nodoId, from = '', to = '', currency = 'ARS' } = {}) {
+    if (!nodoId) return { ok: false, error: 'falta nodoId' };
+    const r = await _runReport((b) => {
+      b.append('statistic_type', 'on_money'); b.append('conversion_type', 'current_currency');
+      b.append('reports_base_group_by', ''); b.append('reports_group_by', '');
+      ['in', 'out', 'profit', 'rtp'].forEach((f) => b.append('reports_group_fields[]', f));
+      b.append('currency', currency); b.append('from', from); b.append('to', to);
+      b.append('save_template_name', '');
+    }, { nodoId, from, to, sort: 'in' });
+    if (!r.ok) return r;
+    /* Sin agrupar tiene que venir UNA fila. Si vinieran varias se suman igual —el casino a veces
+       repite la fila del total— pero se dice cuántas, porque «una» es lo esperado y más de una
+       merece una mirada antes de facturar sobre eso. */
+    const filas = (r.raw || []).filter((x) => x && (x.profit != null || x.in != null));
+    const num = (k) => filas.reduce((a2, x) => a2 + (numC(x[k]) || 0), 0);
+    return { ok: true, nodoId: String(nodoId), from, to, currency,
+      filas: filas.length, in: num('in'), out: num('out'), profit: num('profit'),
+      rtp: filas.length === 1 ? numC(filas[0].rtp) : null };
+  }
+
+  /**
    * REPORTE DE PROVEEDORES: profit por (superagente × proveedor/sistema × juego). Usa statistic_type=on_bets
    * + reports_group_by=provider_label. Filas crudas del casino: {id,login,provider,label,vendor,profit}
    *   - id/login = superagente, provider = sistema/agregador (ej "Games System"), label = marca (ej "AMATIC"),
@@ -791,7 +826,7 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
+  return { apiCall, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, gananciaDeNodo, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES_ACTIVAS, CURRENCIES_BASE };
