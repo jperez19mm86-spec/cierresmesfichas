@@ -471,7 +471,10 @@ function paraProveedor(pc, ctx = {}) {
   for (const g of pc.clientes || []) {
     for (const p of g.paneles || []) {
       lineas.push({
-        cliente: g.cliente, panel: p.panel,
+        /* SIN EL NOMBRE DEL CLIENTE. Él cobra por caja y cobra lo mismo por todas: de quién es
+           cada una no cambia un número de su liquidación. Pero saber que estas tres son del mismo
+           le dice el tamaño de cada cuenta y quién pesa más, que es la cartera de ella. */
+        panel: p.panel,
         ganancia: p.profit_usdt, paga: p.paga,
         monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
           .map((d) => ({ moneda: d.moneda, profit: String(d.profit), tc: d.tc || null, usdt: d.usdt })),
@@ -503,13 +506,13 @@ function paraProveedor(pc, ctx = {}) {
      lo segundo cuando pasó lo primero es afirmar algo que no sabemos. Va con la marca.
      El MOTIVO no viaja: «no figura con el usuario 7364108, el mes sí está bajado» es
      infraestructura de ella. Él necesita saber que falta, no por qué. */
-  const salteadas = (pc.salteados || []).map((x) => ({ cliente: x.cliente || '—', panel: x.panel }));
+  const salteadas = (pc.salteados || []).map((x) => ({ panel: x.panel }));
   return {
     mes: String(ctx.mes || pc.mes || '').slice(0, 7),
     pct: pc.costo_pct,
     monedas,
     lineas: lineas.map((l) => ({
-      cliente: l.cliente, panel: l.panel, ganancia: l.ganancia, paga: l.paga, monedas: l.monedas,
+      panel: l.panel, ganancia: l.ganancia, paga: l.paga, monedas: l.monedas,
     })),
     porGanancia,
     salteadas,
@@ -531,14 +534,14 @@ function htmlProveedor(doc, emision = null) {
     <tbody>${filasMoneda(doc.monedas)}</tbody></table></div>
 
   <h2>Por caja</h2>
-  <div class="caja"><table><thead><tr><th>Cuenta</th><th>Caja</th><th class="r">Ganancia</th>
+  <div class="caja"><table><thead><tr><th>Caja</th><th class="r">Ganancia</th>
     <th class="r">En USDT</th><th class="r">${esc(pctTxt(doc.pct))}</th></tr></thead>
-    <tbody>${doc.lineas.map((l) => `<tr><td>${esc(l.cliente)}</td><td>${esc(l.panel)}</td>
+    <tbody>${doc.lineas.map((l) => `<tr><td>${esc(l.panel)}</td>
       <td class="r">${celdaMonedas(l.monedas)}</td>
       <td class="r">${n(l.ganancia, 2)}</td><td class="r">${n(l.paga, 2)}</td></tr>`).join('')}
-      ${(doc.salteadas || []).map((x) => `<tr><td>${esc(x.cliente)}</td><td>${esc(x.panel)}</td>
+      ${(doc.salteadas || []).map((x) => `<tr><td>${esc(x.panel)}</td>
         <td class="r sc" colspan="3">no se pudo calcular este mes</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="4" class="r">Por la ganancia</td><td class="r">${n(doc.porGanancia != null ? doc.porGanancia : doc.total, 2)}</td></tr></tfoot></table></div>
+    <tfoot><tr><td colspan="3" class="r">Por la ganancia</td><td class="r">${n(doc.porGanancia != null ? doc.porGanancia : doc.total, 2)}</td></tr></tfoot></table></div>
 
   ${Number(doc.mantenimiento || 0) > 0 ? `<h2>Mantenimiento</h2>
   <div class="caja"><table><tbody><tr>

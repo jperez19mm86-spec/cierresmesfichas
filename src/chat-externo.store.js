@@ -1618,9 +1618,14 @@ function proveedorCorte() { return String(cfg.getCfg(PROV_CORTE) || ''); }
  *    cobra sale el margen, que es el negocio entero.
  *  · `sinPrecio`, las notas de un cobro, y cualquier cosa de la cuenta del cliente con ella.
  *  · A qué plataforma pertenece cada caja (Casino/Europa): es control interno.
+ *  · EL NOMBRE DEL CLIENTE. Él cobra por caja y cobra lo mismo por todas: de quién es cada una no
+ *    cambia un solo número de su liquidación. Pero saber que estas tres son del mismo y aquella
+ *    otra no le dice el tamaño de cada cuenta y quién es el que más pesa — y eso es la cartera de
+ *    ella. Decisión de ella, textual: «ellos solo reciben la plata y ya».
+ *    ⚠️ NO ALCANZA CON SACAR LA COLUMNA DE LA PANTALLA: viajaba en el JSON, y cualquiera que abra
+ *    las herramientas del navegador lo lee igual. Se saca de acá, que es de donde sale el dato.
  * LO QUE SÍ, y por qué no molesta:
  *  · el profit de cada caja y lo que él cobra por ella: los dos números son suyos, ya los conoce.
- *  · el nombre del cliente: ya venía en la hoja que se le manda, y no revela ningún precio.
  */
 function paraElProveedor(mes) {
   const m = String(mes || '').slice(0, 7);
@@ -1629,7 +1634,7 @@ function paraElProveedor(mes) {
   for (const g of pc.clientes || []) {
     for (const p of g.paneles || []) {
       cajas.push({
-        cliente: g.cliente, caja: p.panel,
+        caja: p.panel,
         profit: p.profit_usdt,      // la ganancia de la caja, en USDT
         /* QUÉ TRAMO SE CONTÓ. Él cobra sobre esa ganancia: sin las fechas no puede comprobar el
            número contra nada, igual que el cliente. Y el primer mes cada caja arrancó un día
@@ -1643,15 +1648,16 @@ function paraElProveedor(mes) {
     }
   }
   cajas.forEach((c) => delete c.cobra);
+  /* Por lo que él cobra, de mayor a menor. Ordenar por cualquier cosa que venga del cliente
+     —el nombre, el id— volvería a agrupar sus cajas en la pantalla y contaría lo mismo que se
+     acaba de sacar. */
   cajas.sort((a, b) => money.cmp(b.paga, a.paga));
 
   /* El mantenimiento, caja por caja: es la pregunta que él hace todos los meses. Sale de las
      mensualidades de ESE mes, no del arrastre — le está preguntando por su liquidación. */
-  const mens = db.prepare("SELECT panel, cliente_id, monto FROM chat_mov WHERE mes=? AND tipo='mensualidad'").all(m);
-  const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
+  const mens = db.prepare("SELECT panel, monto FROM chat_mov WHERE mes=? AND tipo='mensualidad'").all(m);
   const mantenimiento = mens.map((x) => ({
     caja: String(x.panel || '(sin caja)'),
-    cliente: ((cli.get(x.cliente_id) || {}).nombre) || '—',
     monto: x.monto,
   })).sort((a, b) => a.caja.localeCompare(b.caja));
 
@@ -1696,7 +1702,7 @@ function paraElProveedor(mes) {
        No van en cero —una caja que no se pudo calcular no es una que no ganó nada— y el MOTIVO no
        viaja: «no figura con el usuario 7364108» es infraestructura de ella. Él necesita saber que
        falta, no por qué. */
-    salteadas: (pc.salteados || []).map((x) => ({ cliente: x.cliente || '—', caja: x.panel })),
+    salteadas: (pc.salteados || []).map((x) => ({ caja: x.panel })),
     mantenimiento,
     /* Lo que se le debe y lo que se le pagó, abierto en las dos cosas. Los pagos van con dónde y
        cuándo: es literalmente lo que ella pidió que pudiera ver. */

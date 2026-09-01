@@ -2664,6 +2664,35 @@ async function main() {
           && /tramoTxt\(c\.tramo\)/.test(leer('public/proveedor.html'))       // la del proveedor
           && /tramoTxt\(p\.tramo\)/.test(leer('src/chat-doc.js'));            // la hoja del cliente
       })());
+    /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
+       Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
+       liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de
+       cada cuenta y quién es el que más pesa, que es la cartera de ella.
+       ⚠️ SE COMPRUEBA SOBRE EL JSON, no sobre la pantalla: sacar la columna y dejar el dato en la
+       respuesta no esconde nada — se lee abriendo las herramientas del navegador. */
+    check('proveedor: no se entera de quién es cada caja',
+      (() => {
+        const d = ch.paraElProveedor('2026-08');
+        const nombres = cliSt3.list().clientes.map((c) => c.nombre).filter(Boolean);
+        const txt = JSON.stringify(d);
+        return !/"cliente"/.test(txt) && !nombres.some((n) => n && txt.includes(`"${n}"`));
+      })(),
+      'de quién es cada caja no cambia un número de su liquidación, y le dibuja la cartera de ella');
+    /* Y la HOJA del proveedor —la otra, la que ella genera y le manda— tampoco. Son dos documentos
+       distintos del mismo dato: arreglar uno solo deja la fuga abierta por el otro. */
+    check('proveedor: su hoja tampoco lleva de quién es cada caja',
+      (() => {
+        const pcH = ch.porCliente('2026-08');
+        const dH = chDoc.paraProveedor(pcH, { mes: '2026-08' });
+        const nombres = cliSt3.list().clientes.map((c) => c.nombre).filter(Boolean);
+        const txt = JSON.stringify(dH) + chDoc.htmlProveedor(dH);
+        return !/"cliente"/.test(JSON.stringify(dH))
+          && !nombres.some((nn) => nn && txt.includes(nn));
+      })());
+    check('proveedor: y su pantalla tampoco lo pide',
+      !/\bc\.cliente\b|\bm\.cliente\b|\bx\.cliente\b|<th>Cliente<\/th>/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8')));
+
     check('chat: y al proveedor le llega el tramo de cada caja',
       (() => {
         const d = ch.paraElProveedor('2026-08');

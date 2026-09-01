@@ -176,14 +176,13 @@ async function cargar() {
      porque significa que algo está mal cargado. */
   h += '<div class="card"><h2>Las cajas de ' + esc(mesLindo(d.mes)) + '</h2>';
   h += (d.cajas || []).length
-    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th><th>Período</th>'
+    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Período</th>'
       + '<th class="r">Ganancia</th><th class="r">Tipo de cambio</th>'
       + '<th class="r">En USDT</th><th class="r">Te toca' + (d.cerrado ? '' : '<div class="tenue" style="font-weight:400;text-transform:none;letter-spacing:0">estimado</div>') + '</th></tr></thead><tbody>'
       + d.cajas.map((c) => {
         const ms = (c.monedas && c.monedas.length) ? c.monedas : [{ moneda: '—', profit: 0, tc: null, usdt: c.profit }];
         return ms.map((m, i) => '<tr' + (i ? ' class="sigue"' : '') + '>'
           + '<td>' + (i ? '' : '<b>' + esc(c.caja) + '</b>') + '</td>'
-          + '<td class="tenue">' + (i ? '' : esc(c.cliente)) + '</td>'
           + '<td class="tenue">' + (i ? '' : tramoTxt(c.tramo)) + '</td>'
           + '<td class="r"><span class="tenue">' + esc(m.moneda) + '</span> ' + num(m.profit) + '</td>'
           + '<td class="r tenue">' + (m.tc ? num(m.tc, 4) : '—') + '</td>'
@@ -191,8 +190,7 @@ async function cargar() {
           + '<td class="r">' + (i ? '' : '<b>' + num(c.paga) + '</b>') + '</td></tr>').join('');
       }).join('')
       + (d.salteadas || []).map((x) => '<tr><td><b>' + esc(x.caja) + '</b></td>'
-        + '<td class="tenue">' + esc(x.cliente) + '</td>'
-        + '<td class="r sc" colspan="4">no se pudo calcular este mes</td></tr>').join('')
+        + '<td class="r sc" colspan="5">no se pudo calcular este mes</td></tr>').join('')
       + '</tbody></table></div>'
       + ((d.salteadas || []).length
         ? '<p class="tenue" style="margin:10px 0 0">Esas cajas tienen el servicio y te pagamos el '
@@ -208,10 +206,9 @@ async function cargar() {
   /* El mantenimiento, caja por caja. Es la pregunta de todos los meses. */
   h += '<div class="card"><h2>Mantenimiento</h2>';
   h += (d.mantenimiento || []).length
-    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
+    ? '<div class="desplaza"><table><thead><tr><th>Caja</th>'
       + '<th class="r">Monto</th></tr></thead><tbody>'
       + d.mantenimiento.map((m) => '<tr><td><b>' + esc(m.caja) + '</b></td>'
-        + '<td class="tenue">' + esc(m.cliente) + '</td>'
         + '<td class="r">' + num(m.monto) + '</td></tr>').join('')
       + '</tbody></table></div>'
       /* ⚠️ Se dice explícitamente que el estado es del MES, no de cada caja: los pagos se
