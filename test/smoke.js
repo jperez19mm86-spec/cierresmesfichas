@@ -2244,6 +2244,43 @@ async function main() {
     check('chat: la contraseña del panel NO está en lo que el portal le manda al cliente',
       !JSON.stringify(ch.portalDe(CLI.id)).includes('ZZsecreta777'),
       'sólo viaja el usuario, que solo no abre nada');
+    /* ── EL DESGLOSE DEL PORTAL ──────────────────────────────────────────────────────────────
+       El portal mostraba un total en USDT y nada más: ni la moneda, ni el TC, ni el tramo. Un
+       número sin manera de comprobarlo. Y desde que el mensaje de Telegram manda al portal, es la
+       única pantalla que el cliente abre. */
+    /* Se busca un mes que REALMENTE tenga cajas calculadas y se le arma un movimiento ahí: el
+       desglose sale del último mes CON MOVIMIENTOS, y si se elige un mes sin datos del casino el
+       check pasaría sin comprobar nada. */
+    const desgZ = (() => {
+      for (const mm of ['2026-08', '2026-07', '2026-09']) {
+        const g = (ch.porCliente(mm).clientes || []).find((x) => x.cliente_id === CLI.id);
+        if (!g || !(g.paneles || []).length) continue;
+        const r = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: g.paneles[0].panel, fecha: `${mm}-28` });
+        if (!r.ok) continue;
+        const d = ch.portalDe(CLI.id).desglose;
+        // Y SE DESHACE. Los checks de más abajo cuentan movimientos: dejar éste puesto los rompe.
+        ch.borrarMov(r.mov.id);
+        if (d) return d;
+      }
+      return null;
+    })();
+    check('chat: el portal muestra en qué moneda ganó, con qué TC y qué tramo se contó',
+      !!desgZ && (desgZ.cajas || []).length > 0
+      && ['monedas', 'tramo', 'ganancia_usdt', 'cobra', 'pct', 'link']
+        .every((k) => k in desgZ.cajas[0]),
+      desgZ ? `${(desgZ.cajas || []).length} cajas en ${desgZ.mes}` : 'sin desglose');
+    /* ⚠️ LISTA BLANCA, NO FILTRO. `porCliente` trae lo que ella le paga al proveedor y lo que le
+       queda; el portal se abre SIN CONTRASEÑA. Un `{...p}` distraído lo publicaría. */
+    check('chat: el desglose del portal no lleva lo que ella paga ni lo que le queda',
+      (() => {
+        const txt = JSON.stringify(desgZ || {});
+        return !!desgZ && !/"paga"|"margen"|"pct_costo"|"pierde"|"sinPrecio"|"pctMinimo"/.test(txt);
+      })(),
+      'el margen del negocio en una página pública');
+    check('chat: el portal dice si el mes todavía no está cerrado',
+      !!desgZ && typeof desgZ.cerrado === 'boolean',
+      'sin eso el cliente le saca captura a una cifra que mañana es otra');
+
     check('chat: sin clave cargada, los accesos no se muestran ni pidiéndolos',
       ch.accesosDe(CLI.id, '').ok === false && ch.accesosDe(CLI.id, 'loquesea').ok === false);
     check('chat: una clave demasiado corta no se puede poner',
@@ -2466,6 +2503,11 @@ async function main() {
       && htmlPago.includes('0xwallet456'));
     ch.setConfig({ wallet_mens: wA.id });
     const htmlUna = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
+    /* «Servicio del mes» no dice qué es, y no dice DE QUÉ MES: en octubre, tres renglones iguales
+       no dejan saber cuál se está pagando. */
+    check('chat: el concepto se llama por lo que es, y con su mes',
+      /^% sobre las ganancias de agosto — /.test(
+        ch.opcionesDeConcepto('c_que_no_existe', '2026-08').opciones[1].rotulo));
     check('chat: si es la misma wallet para las dos cosas, va un bloque solo',
       (htmlUna.match(/class="paga"/g) || []).length === 1
       && !/El % sobre las ganancias/.test(htmlUna) && !/Son dos cuentas distintas/.test(htmlUna));
@@ -2593,6 +2635,31 @@ async function main() {
     check('chat: soloDominio saca el esquema, el www y la barra',
       chDoc.soloDominio('https://www.Ganamos-PY.com/') === 'Ganamos-PY.com'
       && chDoc.soloDominio('') === '' && chDoc.soloDominio(null) === '');
+    /* ── QUÉ TRAMO DEL MES SE LE CONTÓ ───────────────────────────────────────────────────────
+       El primer mes cada caja arrancó una fecha distinta, así que su % no cubre el mes entero.
+       «6.880,50 × 4%» sin las dos puntas es un número que el cliente no puede comprobar. */
+    check('chat: el cálculo devuelve desde y hasta qué día se contó, no sólo cuántos',
+      (() => {
+        const pc = ch.porCliente('2026-08');
+        const con = (pc.clientes || []).flatMap((g) => g.paneles || []).filter((p) => p.tramo);
+        if (!con.length) return true;                    // sin datos en el mes de prueba: no aplica
+        return con.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.tramo.desde)
+          && /^\d{4}-\d{2}-\d{2}$/.test(p.tramo.hasta) && p.tramo.desde <= p.tramo.hasta);
+      })());
+    check('chat: y las puntas salen de los días CON dato, no del calendario',
+      (() => {
+        const m = new Map([['2026-08-05', 10], ['2026-08-09', 20], ['2026-08-02', 5]]);
+        const r = ch.sumarDesde(m, '2026-08-04');
+        return r.desde === '2026-08-05' && r.hasta === '2026-08-09'
+          && r.dias === 2 && r.afuera === 1 && r.profit === 30;
+      })(),
+      'un día sin movimiento no está: decir que se contó igual sería inventarlo');
+    check('chat: sin ningún día adentro, no hay tramo en vez de un tramo falso',
+      (() => {
+        const r = ch.sumarDesde(new Map([['2026-08-02', 5]]), '2026-08-10');
+        return r.desde === null && r.hasta === null && r.dias === 0 && r.afuera === 1;
+      })());
+
     check('chat: el mensaje nombra la caja por su link, no por el nombre interno',
       /· ganamoscpy\.com — 22 ago/.test(tgLink) && !/AgenteFortuna/.test(tgLink),
       'un cliente con cuatro cajas reconoce cuál es por el link');
@@ -2647,9 +2714,27 @@ async function main() {
       })(),
       'sin https://, sin www y sin barra final: nadie escribe eso a mano igual dos veces');
 
+    /* ── EL «CÓMO PAGAR» ES UN RECUADRO POR CONCEPTO, NO UNO POR WALLET ──────────────────────
+       Con el mantenimiento cobrándose por dos redes, tres tarjetas sueltas se leen como TRES
+       cobros. Son dos: el % y el mantenimiento. La aclaración de las redes va ADENTRO del recuadro
+       del mantenimiento, que es de lo único que habla. */
     check('chat: cuando hay dos redes para lo mismo, se dice por qué',
-      /Mandá por la red que uses/.test(htmlDos),
+      /Se cobra una sola vez\. Elegí la red que uses/.test(htmlDos),
       'sin esto se leen como dos cuentas distintas y la pregunta vuelve por privado');
+    check('chat: son dos recuadros —el % y el mantenimiento—, no uno por dirección',
+      (htmlDos.match(/class="concepto"/g) || []).length === 2
+      && (htmlDos.match(/class="paga"/g) || []).length === 3,
+      '3 direcciones adentro de 2 recuadros');
+    check('chat: cada recuadro lleva su título, también el que tiene dos redes',
+      /<div class="rot">El % sobre las ganancias<\/div>/.test(htmlDos)
+      && /<div class="rot">El mantenimiento<\/div>/.test(htmlDos),
+      'antes el rótulo iba sólo en la primera tarjeta y la tercera quedaba huérfana');
+    check('chat: y el recuadro de una sola red no dice nada de elegir red',
+      (() => {
+        const trozo = htmlDos.slice(htmlDos.indexOf('El % sobre las ganancias'),
+          htmlDos.indexOf('El mantenimiento'));
+        return !/Elegí la red/.test(trozo);
+      })());
     check('chat: la segunda de la lista tampoco se puede borrar',
       ch.borrarWallet(wB.id).ok === false);
     /* El chequeo de "en uso" no puede ser por substring: «chw_ab» está adentro de «chw_ab1». */
@@ -2756,12 +2841,12 @@ async function main() {
        cuando es lo segundo es mentirle a alguien que va a mirar su cuenta el mes que viene. */
     const opSin = ch.opcionesDeConcepto('c_que_no_existe', '2026-11');
     check('chat: si el mes todavía no se cobró se dice, no sale un cero',
-      opSin.opciones[1].rotulo === 'Servicio del mes — todavía no está'
+      opSin.opciones[1].rotulo === '% sobre las ganancias de noviembre — todavía no está'
       && /se calcula con el mes cerrado/.test(opSin.aclaracion),
       opSin.opciones[1].rotulo);
     const opCero = ch.opcionesDeConcepto('c_que_no_existe', '2026-08');
     check('chat: cuando el mes ya se cobró deja de decir que no está',
-      opCero.opciones[1].rotulo === 'Servicio del mes — este mes no te cobramos nada'
+      opCero.opciones[1].rotulo === '% sobre las ganancias de agosto — este mes no te cobramos nada'
       && opCero.aclaracion === '',
       opCero.opciones[1].rotulo);
     /* ── EL MANTENIMIENTO, CAJA POR CAJA ─────────────────────────────────────────────────────

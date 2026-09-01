@@ -107,6 +107,26 @@
   .chip.esp{background:#fdf3e0;color:var(--oro)}
   .chip.ok{background:#e7f4ed;color:var(--verde)}
   .chip.no{background:#fbeceb;color:var(--rojo)}
+  /* 🔴 EL RECUADRO DEL CONCEPTO. `bloqueDe` lo emite desde hace rato pero NUNCA tuvo CSS: el
+     agrupamiento existía en el HTML y no se veía, así que en pantalla seguían siendo tres tarjetas
+     sueltas — o sea, tres cobros. Son dos. */
+  .desglose{margin-top:4px}
+  .dcaja{border:1px solid var(--linea);border-radius:14px;padding:11px 13px;background:#fff}
+  .dcaja + .dcaja{margin-top:10px}
+  .dtit{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;
+    padding-bottom:7px;margin-bottom:4px;border-bottom:1px solid var(--linea)}
+  .dtit b{font-size:14.5px;word-break:break-all}
+  .dtit span{font-weight:800;font-variant-numeric:tabular-nums}
+  .dtab{width:100%;border-collapse:collapse}
+  .dtab td{padding:6px 0;border-bottom:1px solid var(--linea);font-size:13.5px;vertical-align:top}
+  .dtab tr:last-child td{border-bottom:0}
+  .dtab .r{text-align:right;font-variant-numeric:tabular-nums}
+  .concepto{border:1px solid var(--linea);border-radius:15px;padding:12px 13px;background:#fff}
+  .concepto + .concepto{margin-top:12px}
+  .concepto > .rot{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
+    font-weight:800;margin-bottom:8px}
+  .mismared{margin:-2px 0 9px;font-size:12.5px;color:var(--tinta2)}
+  .concepto .paga + .paga{margin-top:9px}
   .paga{background:var(--lila2);border:1px solid var(--linea);border-radius:12px;padding:13px 15px;font-size:14.5px}
   .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
     font-weight:700;margin-bottom:6px}
@@ -288,9 +308,9 @@ function deDondeSale() {
   if (m <= 0 && g <= 0) return 'Estás al día con las dos cosas.';
   var partes = [];
   if (m > 0) partes.push('Mantenimiento ' + num(m, 2));
-  if (g > 0) partes.push('servicio del mes ' + num(g, 2));
+  if (g > 0) partes.push('% sobre las ganancias ' + num(g, 2));
   // Si el mes todavía no se generó se dice, en vez de dejarlo afuera sin explicación.
-  else if (!c.saldo.ganancia.generado && !c.saldo.ganancia.corrida) partes.push('el servicio del mes todavía no está');
+  else if (!c.saldo.ganancia.generado && !c.saldo.ganancia.corrida) partes.push('el % sobre las ganancias todavía no está');
   return partes.join(' · ') + '.';
   $('vista').innerHTML = ''; $('menu').classList.remove('oculto');
   window.scrollTo(0, 0);
@@ -310,7 +330,7 @@ function unaWallet(w, rotulo, id) {
 
 /* Los avisos viejos no dicen de qué eran: la columna es nueva. Sin nombre devuelve vacío. */
 function nombreConcepto(c) {
-  return c === 'mantenimiento' ? 'Mantenimiento' : (c === 'ganancia' ? 'Servicio del mes' : '');
+  return c === 'mantenimiento' ? 'Mantenimiento' : (c === 'ganancia' ? '% sobre las ganancias' : '');
 }
 
 /* Al cambiar de concepto cambia lo que debe, así que cambia lo que el campo sugiere. Es el mismo
@@ -344,21 +364,39 @@ function sugerirMonto() {
    elige el cliente. Esta función es gemela de bloquePago() en src/chat-doc.js — si se toca una
    sola, el cliente ve una cosa en el portal y otra en la hoja que le llega. */
 var _dirN = 0;
+/* 🔴 EL GRUPO VA ENVUELTO EN UNA SOLA CAJA. Antes cada dirección era una tarjeta suelta y sólo la
+   primera llevaba título: con el mantenimiento cobrándose por dos redes, la segunda quedaba sin
+   rótulo y en pantalla se veían TRES tarjetas iguales — o sea tres cobros. Son dos.
+   Ahora cada concepto es un recuadro con su título arriba y sus redes adentro, y la aclaración de
+   que las dos llegan al mismo lugar va DENTRO del recuadro, que es donde significa algo. */
 function bloqueDe(lista, rotulo) {
-  var h = '';
+  var h = '<div class="concepto">';
+  if (rotulo) h += '<div class="rot">' + esc(rotulo) + '</div>';
+  if (lista.length > 1) {
+    h += '<p class="tenue mismared">Se cobra una sola vez. Elegí la red que uses: '
+      + 'las dos llegan al mismo lugar.</p>';
+  }
   for (var i = 0; i < lista.length; i++) {
     /* ⚠️ El id sale de un contador. copiar() busca por getElementById: con dos ids iguales el
        segundo botón copia la PRIMERA dirección, o sea la red equivocada, y esa plata no vuelve. */
     _dirN += 1;
-    h += unaWallet(lista[i], i === 0 ? rotulo : '', 'dir' + _dirN);
+    h += unaWallet(lista[i], '', 'dir' + _dirN);
   }
-  return h;
+  return h + '</div>';
 }
 
 /* Si no se dice, dos direcciones para lo mismo se leen como dos cuentas distintas. */
-function variasRedes(lista) {
-  return lista.length > 1
-    ? '<p class="tenue" style="margin:2px 0 10px">Mandá por la red que uses. Las dos llegan al mismo lugar.</p>' : '';
+/* La aclaración ahora vive DENTRO del recuadro del concepto (ver bloqueDe). Se deja la función
+   devolviendo vacío para no tocar las cuatro llamadas. */
+function variasRedes() { return ''; }
+
+/* 'YYYY-MM' → 'agosto'. A mano y no con Date: pasar 'YYYY-MM' por Date se corre de mes según la
+   zona horaria, y el renglón terminaría diciendo julio. */
+var MESES_L = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+  'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function mesEnLetras(m) {
+  var n = Number(String(m || '').slice(5, 7));
+  return MESES_L[n] || '';
 }
 
 function bloquePago() {
@@ -403,6 +441,68 @@ function copiar(b, id) {
   else planB();
 }
 
+/* ── DE DÓNDE SALE EL NÚMERO ─────────────────────────────────────────────────────────────────
+   El portal mostraba un total en USDT y nada más: ni en qué moneda ganó, ni con qué tipo de cambio
+   se convirtió, ni qué tramo del mes se le contó. Un número sin manera de comprobarlo. Desde que
+   el mensaje de Telegram manda acá, ésta es la única pantalla que el cliente abre. */
+var DIA_L = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function diaMes(iso) {
+  var p = String(iso || '').split('-');
+  return p.length === 3 ? Number(p[2]) + ' ' + (DIA_L[Number(p[1])] || '') : '';
+}
+/* «17 ago – 31 ago · 15 días cobrados». Los días van porque el tramo no siempre es corrido: si una
+   caja no reportó un día, ese día no se contó, y «del 17 al 31» solo da a entender que fueron 15
+   seguidos cuando pudieron ser 13. */
+function tramoTxt(t) {
+  if (!t || !t.desde) return '<span class="tenue">sin datos</span>';
+  var cab = t.desde === t.hasta ? diaMes(t.desde) : diaMes(t.desde) + ' – ' + diaMes(t.hasta);
+  return esc(cab) + '<div class="tenue">' + t.dias + ' día' + (t.dias === 1 ? '' : 's')
+    + ' cobrado' + (t.dias === 1 ? '' : 's')
+    + (t.diasAfuera ? ' · ' + t.diasAfuera + ' antes de contratar' : '') + '</div>';
+}
+/* La ganancia en SU moneda, con el tipo de cambio debajo. Es contra esto que compara su panel: el
+   USDT ya es el resultado de una cuenta que no puede rehacer sin el TC. */
+function celdaMonedas(ms) {
+  if (!ms || !ms.length) return '<span class="tenue">—</span>';
+  return ms.map(function (x) {
+    var esDolar = x.moneda === 'USD' || x.moneda === 'USDT';
+    var abajo = esDolar ? '' : (x.usdt == null
+      ? '<div class="tenue">sin tipo de cambio</div>'
+      : '<div class="tenue">÷ ' + num(x.tc, 2) + '</div>');
+    return num(x.profit, 0) + ' <span class="tenue">' + esc(x.moneda) + '</span>' + abajo;
+  }).join('');
+}
+function bloqueDesglose() {
+  var d = DATOS.desglose;
+  if (!d || !(d.cajas || []).length) return '';
+  var h = '<h2 style="margin-top:20px">Tu ganancia de ' + esc(mesEnLetras(d.mes) || d.mes) + '</h2>';
+  /* Mientras el mes no esté cobrado el número se mueve solo: decirlo evita la captura de pantalla
+     de una cifra que mañana es otra. */
+  if (!d.cerrado) {
+    h += '<p class="tenue" style="margin:2px 0 10px">Todavía no está cerrado: hasta que cierre el '
+      + 'mes, estos números se siguen moviendo.</p>';
+  }
+  h += '<div class="desglose">';
+  for (var i = 0; i < d.cajas.length; i++) {
+    var c = d.cajas[i];
+    h += '<div class="dcaja">'
+      + '<div class="dtit"><b>' + esc(c.link ? c.link.replace(/^https?:\/\//, '') : c.caja) + '</b>'
+      + '<span>' + num(c.cobra, 2) + ' USDT</span></div>'
+      + '<table class="dtab"><tbody>'
+      + '<tr><td>Período</td><td class="r">' + tramoTxt(c.tramo) + '</td></tr>'
+      + '<tr><td>Ganó</td><td class="r">' + celdaMonedas(c.monedas) + '</td></tr>'
+      + '<tr><td>En USDT</td><td class="r">' + num(c.ganancia_usdt, 2) + '</td></tr>'
+      + '<tr><td>Tu ' + esc(c.pct) + '%</td><td class="r"><b>' + num(c.cobra, 2) + ' USDT</b></td></tr>'
+      + '</tbody></table></div>';
+  }
+  h += '</div>';
+  if (d.sinTC) {
+    h += '<p class="tenue" style="margin-top:8px">Alguna moneda todavía no tiene tipo de cambio del '
+      + 'mes: esa parte no está incluida.</p>';
+  }
+  return h;
+}
+
 function volver() { $('vista').innerHTML = ''; $('menu').classList.remove('oculto'); window.scrollTo(0, 0); }
 
 function ver(cual) {
@@ -415,13 +515,17 @@ function ver(cual) {
         /* La mensualidad ya trae la caja y el período adentro de la nota ("Mantenimiento Ariel-A1 ·
            15 ago – 14 sep"): repetir "Mensualidad" adelante no agrega nada. */
         var nom = m.tipo === 'pago' ? 'Pago tuyo'
-          : (m.tipo === 'mensualidad' ? (m.nota || 'Mantenimiento') : 'Servicio del mes');
+          /* Con el mes: en octubre, tres renglones que dicen todos «% sobre las ganancias» no
+             dejan saber cuál es de agosto y cuál de septiembre. */
+          : (m.tipo === 'mensualidad' ? (m.nota || 'Mantenimiento')
+            : '% sobre las ganancias' + (mesEnLetras(m.mes) ? ' de ' + mesEnLetras(m.mes) : ''));
         var extra = m.tipo === 'mensualidad' ? '' : (m.nota ? ' · ' + esc(m.nota) : '');
         return '<tr><td>' + esc(m.fecha) + '<div class="tenue">' + esc(nom) + extra + '</div></td>'
           + '<td class="r">' + (m.tipo === 'pago' ? '− ' : '') + num(m.monto, 2)
           + ' <span class="tenue">' + esc(m.moneda) + '</span></td></tr>';
       }).join('') + '</tbody></table>'
         : '<p class="vacio">Todavía no hay movimientos.</p>')
+      + bloqueDesglose()
       + bloquePago()
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
   } else if (cual === 'cajas') {

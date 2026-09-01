@@ -94,7 +94,16 @@ const CSS = `
   .sub-tot b{font-size:18px}
   .avi{margin-top:14px;padding:11px 14px;border-left:3px solid var(--uva3);background:#fff;
     border-radius:0 11px 11px 0;font-size:13.5px;color:var(--tinta2)}
+  /* 🔴 UN RECUADRO POR CONCEPTO, con sus redes ADENTRO. Antes cada dirección era una tarjeta
+     suelta y sólo la primera llevaba título: con el mantenimiento cobrándose por dos redes, la
+     tercera quedaba sin rótulo y en pantalla se veían TRES cobros. Son dos. */
+  .concepto{border:1px solid var(--linea);border-radius:16px;padding:13px 14px;background:var(--lila2)}
+  .concepto + .concepto{margin-top:12px}
+  .concepto > .rot{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
+    font-weight:800;margin-bottom:8px}
+  .mismared{margin:-3px 0 9px;font-size:12.5px;color:var(--tinta2)}
   .paga{background:#fff;border:1px solid var(--linea);border-radius:14px;padding:15px 16px;font-size:14.5px}
+  .concepto .paga + .paga{margin-top:9px}
   .paga .rot{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--uva2);
     font-weight:700;margin-bottom:6px}
   .paga .red{font-size:13px;color:var(--tinta2);margin-bottom:8px}
@@ -269,6 +278,10 @@ function paraCliente(g, ctx = {}) {
       // El link de jugadores: un cliente con varias cajas reconoce cuál es por el link, no por
       // el nombre interno del panel.
       link: p.link_jugadores || '',
+      /* QUÉ TRAMO DEL MES SE LE CONTÓ. El primer mes cada caja arrancó una fecha distinta, así que
+         su % no cubre el mes entero: sin las dos puntas, «6.880,50 × 4%» es un número que el
+         cliente no puede comprobar contra su panel. */
+      tramo: p.tramo || null,
       monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
         .map((d) => ({ moneda: d.moneda, profit: String(d.profit), tc: d.tc || null, usdt: d.usdt })),
     })),
@@ -297,13 +310,23 @@ function unaWallet(w, rotulo, id) {
    bloques con el mismo id hacen que el segundo botón copie la PRIMERA dirección: el cliente manda
    por la red equivocada y esa plata no vuelve. */
 function bloqueDe(lista, rotulo, ctr) {
-  return lista.map((w, i) => unaWallet(w, i === 0 ? rotulo : '', 'dir' + (ctr.n += 1))).join('');
+  let h = '<div class="concepto">';
+  if (rotulo) h += `<div class="rot">${esc(rotulo)}</div>`;
+  /* La aclaración de las dos redes va ADENTRO del recuadro, que es donde significa algo: afuera se
+     lee como si hablara de las dos cuentas, que sí son distintas. */
+  if (lista.length > 1) {
+    h += '<p class="mismared">Se cobra una sola vez. Elegí la red que uses: '
+      + 'las dos llegan al mismo lugar.</p>';
+  }
+  for (const w of lista) h += unaWallet(w, '', 'dir' + (ctr.n += 1));
+  return h + '</div>';
 }
 
 /* Cuando hay varias para lo mismo hay que decir por qué: si no, se lee como dos cuentas distintas y
    la pregunta "¿a cuál de las dos?" vuelve por privado todos los meses. */
-const variasRedes = (lista) => (lista.length > 1
-  ? '<p class="bajo">Mandá por la red que uses. Las dos llegan al mismo lugar.</p>' : '');
+/* La aclaración vive DENTRO del recuadro del concepto (ver bloqueDe). Se deja devolviendo vacío
+   para no tocar las cuatro llamadas. */
+const variasRedes = () => '';
 
 /* Y cuando el % y el mantenimiento van a cuentas DISTINTAS hay que decirlo con todas las letras.
    Rotular los dos bloques no alcanza: se leen como "dos formas de pagar lo mismo" y el cliente
@@ -322,7 +345,7 @@ function bloquePago(p) {
     const l = ggr.length ? ggr : mens;
     return `<h2>Cómo pagar</h2>${bloqueDe(l, '', ctr)}${variasRedes(l)}${nota}`;
   }
-  if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'Mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
+  if (!ggr.length) return `<h2>Cómo pagar</h2>${bloqueDe(mens, 'El mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
   return `<h2>Cómo pagar</h2>${SON_DOS}`
     + `${bloqueDe(ggr, 'El % sobre las ganancias', ctr)}${variasRedes(ggr)}`
     + `${bloqueDe(mens, 'El mantenimiento', ctr)}${variasRedes(mens)}${nota}`;
@@ -342,9 +365,25 @@ function bloquePago(p) {
  *   Con `token` la hoja además deja avisar un pago: sin eso el cliente lee cuánto debe y no tiene
  *   dónde decir que pagó.
  */
+/* «Del 17 al 31 de agosto · 15 días». Los días van porque el tramo no siempre es corrido: si una
+   caja no reportó un día, ese día no se contó, y «del 17 al 31» sin el número da a entender que
+   fueron 15 seguidos cuando pudieron ser 13.
+   Sin tramo se dice que no, en vez de dejar la celda vacía: una celda vacía se lee como un error de
+   la página y la pregunta llega igual. */
+const DIA_MES = (iso) => {
+  const [, m, d] = String(iso || '').split('-');
+  return `${Number(d)} ${['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(m)] || ''}`;
+};
+function tramoTxt(t) {
+  if (!t || !t.desde) return '<span class="tenue">sin datos</span>';
+  const uno = t.desde === t.hasta;
+  return `${esc(uno ? DIA_MES(t.desde) : `${DIA_MES(t.desde)} – ${DIA_MES(t.hasta)}`)}`
+    + `<div class="tenue">${t.dias} día${t.dias === 1 ? '' : 's'} cobrado${t.dias === 1 ? '' : 's'}${
+      t.diasAfuera ? ` · ${t.diasAfuera} antes de contratar` : ''}</div>`;
+}
+
 function htmlCliente(doc, ctx = {}) {
   const emision = ctx.emision || null;
-  const varios = (doc.paneles || []).length > 1;
   const saldo = ctx.saldo || null;
   const avisos = ctx.avisos || [];
   const pend = avisos.filter((a) => a.estado === 'pendiente');
@@ -369,11 +408,12 @@ function htmlCliente(doc, ctx = {}) {
     <tbody>${filasMoneda(doc.monedas)}</tbody></table></div>
   ${doc.sinTC ? '<div class="avi">Alguna moneda todavía no tiene tipo de cambio del mes: esa parte no está incluida en el total.</div>' : ''}
 
-  ${varios ? `<h2>Por caja</h2>
-  <div class="caja"><table><thead><tr><th>Caja</th><th class="r">Ganancia</th>
+  ${(doc.paneles || []).length ? `<h2>Por caja</h2>
+  <div class="caja"><table><thead><tr><th>Caja</th><th>Período</th><th class="r">Ganancia</th>
     <th class="r">En USDT</th><th class="r">%</th><th class="r">A pagar</th></tr></thead>
     <tbody>${doc.paneles.map((p) => `<tr><td>${esc(p.panel)}${
       p.link ? `<div class="lnk"><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link.replace(/^https?:\/\//, ''))}</a></div>` : ''}</td>
+      <td>${tramoTxt(p.tramo)}</td>
       <td class="r">${celdaMonedas(p.monedas)}</td>
       <td class="r">${n(p.ganancia, 2)}</td><td class="r">${esc(pctTxt(p.pct))}</td>
       <td class="r">${n(p.cobra, 2)}</td></tr>`).join('')}</tbody></table></div>` : ''}

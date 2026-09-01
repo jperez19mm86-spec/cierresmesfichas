@@ -563,11 +563,18 @@ function gananciaDelMes(mes) {
  */
 function sumarDesde(porDia, desde) {
   let profit = 0; let dias = 0; let afuera = 0;
+  /* Y QUÉ TRAMO SE CONTÓ, no sólo cuántos días. «15 días» no le dice al cliente cuáles: el primer
+     mes cada caja arrancó en una fecha distinta, así que su % no cubre el mes entero y sin las dos
+     puntas no hay forma de comprobar el número. Salen de los días con dato, no del calendario: un
+     día sin movimiento no está en `porDia` y decir que se contó igual sería inventarlo. */
+  let primero = null; let ultimo = null;
   for (const [dia, v] of porDia) {
     if (desde && dia < desde) { afuera += 1; continue; }
     profit += v; dias += 1;
+    if (primero === null || dia < primero) primero = dia;
+    if (ultimo === null || dia > ultimo) ultimo = dia;
   }
-  return { profit, dias, afuera };
+  return { profit, dias, afuera, desde: primero, hasta: ultimo };
 }
 
 
@@ -619,7 +626,8 @@ function cierre(mes) {
         /* Sólo los días desde que tiene el servicio. `desde` es el mismo campo con el que se
            devenga el mantenimiento: si empieza a pagar el 22, el % arranca el 22. */
         const sd = sumarDesde(v, String(p.desde || '').slice(0, 10));
-        monedas.push({ moneda: mon, profit: sd.profit, dias: sd.dias, diasAfuera: sd.afuera });
+        monedas.push({ moneda: mon, profit: sd.profit, dias: sd.dias, diasAfuera: sd.afuera,
+          desde: sd.desde, hasta: sd.hasta });
       }
     }
     /* Una caja sin NINGUNA fila en su nivel no es una caja sin ganancias: es una caja que no está
@@ -645,6 +653,15 @@ function cierre(mes) {
       });
       continue;
     }
+    /* El tramo de la CAJA es la unión del de sus monedas: una caja puede reportar en dos y no
+       necesariamente los mismos días. Es lo que se le muestra al cliente como «del X al Y». */
+    const conDato = monedas.filter((x) => x.desde);
+    const tramo = conDato.length ? {
+      desde: conDato.map((x) => x.desde).sort()[0],
+      hasta: conDato.map((x) => x.hasta).sort().slice(-1)[0],
+      dias: Math.max(...conDato.map((x) => x.dias)),
+      diasAfuera: Math.max(...conDato.map((x) => x.diasAfuera)),
+    } : null;
     let profitUsdt = '0'; const detalle = [];
     for (const x of monedas) {
       if (x.profit <= 0) { detalle.push({ ...x, usdt: '0', motivo: 'sin ganancia' }); continue; }
@@ -676,6 +693,8 @@ function cierre(mes) {
       link_jugadores: p.link_jugadores || '',
       sistema: p.sistema, pct_cliente: pctCli, pct_costo: c.costo_pct,
       profit_usdt: profitUsdt, cobra, paga, margen,
+      // Desde cuándo tiene el servicio, y qué tramo del mes se le contó.
+      contrato_desde: String(p.desde || '').slice(0, 10) || null, tramo,
       /* Cobrarle menos de lo que cuesta se puede querer (una promoción) pero no por accidente.
          Un panel SIN precio también da margen negativo, pero ése ya tiene su propio aviso: contarlo
          acá lo haría aparecer en las dos listas y las dos dirían lo mismo. Este aviso es para el
@@ -1406,7 +1425,11 @@ function opcionesDeConcepto(clienteId, mes) {
   const opciones = [
     { valor: 'mantenimiento', nombre: 'Mantenimiento', estado: comoEsta(sc.mantenimiento),
       debe: sc.mantenimiento.debe },
-    { valor: 'ganancia', nombre: 'Servicio del mes', estado: estadoGan(), debe: sc.ganancia.debe },
+    /* «Servicio del mes» no dice qué es. Es el % sobre lo que ganó, y ES DE UN MES CONCRETO: sin
+       el mes, en octubre el rótulo dice lo mismo para agosto que para septiembre y no hay forma de
+       saber cuál está pagando. */
+    { valor: 'ganancia', nombre: `% sobre las ganancias${sc.mes ? ' de ' + mesEnLetras(sc.mes) : ''}`,
+      estado: estadoGan(), debe: sc.ganancia.debe },
   ];
   opciones.forEach((o) => { o.rotulo = `${o.nombre} — ${o.estado}`; });
   // El que más debe va marcado. Si ninguno debe nada, el mantenimiento, que es el que se repite.
@@ -1748,7 +1771,9 @@ function portalDe(clienteId) {
        cliente que su precio está sin decidir es abrirle una negociación que nadie pidió. La de la
        mensualidad sí es para él —lleva la caja y el período— y va tal cual. */
     movs: (todo ? todo.movs : []).slice(-30).map((m) => ({
-      fecha: m.fecha, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
+      // El MES del renglón, no sólo la fecha en que se cobró: el % de agosto se cobra el 28 de
+      // agosto pero también podría cobrarse el 3 de septiembre, y ahí la fecha engaña.
+      fecha: m.fecha, mes: m.mes, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
       nota: m.tipo === 'mensualidad' ? m.nota : '',
     })),
     cajas,
@@ -1762,7 +1787,59 @@ function portalDe(clienteId) {
     conceptos: opcionesDeConcepto(id, hoy().slice(0, 7)),
     // Si no tiene clave puesta, el portal ni ofrece ver los accesos: le dice que te los pida.
     pide_clave: !!(destino(id).clave_portal),
+    /* EL DESGLOSE DEL ÚLTIMO MES QUE SE LE COBRÓ. Hasta acá el portal mostraba un total en USDT y
+       nada más: ni en qué moneda ganó, ni con qué tipo de cambio se convirtió, ni qué tramo del mes
+       se le contó. Un número sin manera de comprobarlo. La hoja con token sí lo tenía; el portal
+       era la mitad pobre de los dos, y desde que el mensaje de Telegram manda acá, era la única
+       que el cliente iba a abrir. */
+    desglose: desgloseParaElPortal(id),
   };
+}
+
+/**
+ * EL DESGLOSE QUE VE EL CLIENTE EN SU PORTAL.
+ *
+ * Se muestra el ÚLTIMO MES QUE TIENE MOVIMIENTOS, que es el que se le acaba de mandar. Si mirara
+ * siempre el mes en curso, el 2 de septiembre el cliente entraría a ver de qué es el mensaje que
+ * recibió de agosto y encontraría septiembre en cero.
+ *
+ * ⚠️ LISTA BLANCA, NO FILTRO. Se nombra campo por campo lo que puede salir. `porCliente` trae
+ * `paga`, `margen` y `pct_costo` —lo que ella le paga al proveedor y lo que le queda—, y un
+ * `{...p}` distraído los publicaría en una página que se abre sin contraseña.
+ *
+ * El número puede no coincidir exactamente con lo cobrado: lo cobrado quedó congelado y esto se
+ * recalcula. Por eso `cerrado` viaja, y el total que manda es el de la cuenta, no éste.
+ */
+function desgloseParaElPortal(clienteId) {
+  try {
+    const ult = db.prepare('SELECT MAX(mes) m FROM chat_mov WHERE cliente_id=?').get(String(clienteId || ''));
+    const mes = (ult && ult.m) || '';
+    if (!/^\d{4}-\d{2}$/.test(mes)) return null;
+    const g = (porCliente(mes).clientes || []).find((x) => x.cliente_id === String(clienteId));
+    if (!g) return null;
+    const cobros = db.prepare("SELECT COUNT(*) n FROM chat_mov WHERE mes=? AND tipo='cobro'").get(mes);
+    return {
+      mes,
+      cerrado: !!(cobros && cobros.n > 0),
+      monedas: (g.monedas || []).map((m) => ({ moneda: m.moneda, profit: m.profit, tc: m.tc, usdt: m.usdt })),
+      cajas: (g.paneles || []).map((p) => ({
+        caja: p.panel,
+        link: p.link_jugadores || '',
+        pct: p.pct_cliente,
+        tramo: p.tramo || null,
+        ganancia_usdt: p.profit_usdt,
+        cobra: p.cobra,
+        monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
+          .map((d) => ({ moneda: d.moneda, profit: String(d.profit), tc: d.tc || null, usdt: d.usdt })),
+      })),
+      sinTC: !!g.sinTC,
+    };
+  } catch (e) {
+    /* Que falle el desglose no puede dejar al cliente sin su portal: lo importante de esa pantalla
+       es cuánto debe y adónde pagar, y eso no depende de esto. */
+    console.warn('[Chat] no se pudo armar el desglose del portal:', e.message);
+    return null;
+  }
 }
 
 /**
