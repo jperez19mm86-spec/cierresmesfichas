@@ -2238,7 +2238,8 @@ function mount(app) {
        Las cajas van para poder nombrarlas por su link, que es como las reconoce el cliente. */
     const esteMesTg = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId);
     const cajasTg = chat.list().filter((p) => p.cliente_id === req.params.clienteId);
-    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], portal, cajasTg);
+    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], portal, cajasTg,
+      chat.comoPagar(req.params.clienteId));
     /* A TODOS los grupos: a veces el encargado tiene que enterarse y no está en el mismo grupo que
        el cliente. Se manda de a uno y se guarda el resultado de cada uno — si falla el segundo, no
        puede quedar como que salió todo bien. */

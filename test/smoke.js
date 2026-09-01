@@ -2564,6 +2564,29 @@ async function main() {
     ], 'https://x/chat', cajasTg);
     /* Y el aviso de mantenimiento por caja tiene que nombrarla IGUAL. Un mensaje que dice
        «ganamoscpy.com» y otro que dice «AgenteFortuna» se leen como dos cajas distintas. */
+    /* ⚠️ EL AVISO DE LAS DOS WALLETS VA EN EL MENSAJE, no sólo en la hoja: el que lo lee y recién
+       al día siguiente abre el link ya se olvidó, y con un número solo en la cabeza manda todo
+       junto a la primera dirección que ve. */
+    const movsDos = [{ tipo: 'mensualidad', monto: '150', panel: 'A', fecha: '2026-08-22' },
+      { tipo: 'cobro', monto: '306.34', fecha: '2026-08-28' }];
+    const cajasDos = [{ panel: 'A', link_jugadores: 'https://ganamoscpy.com' }];
+    const tgDos = chDoc.textoTelegram('2026-08', movsDos, 'https://x/chat', cajasDos,
+      { misma: false, ggr: [{ red: 'BEP20' }], mens: [{ red: 'TRC20' }] });
+    check('chat: el mensaje avisa que el mantenimiento y el % van a wallets distintas',
+      /wallets distintas<\/b>/.test(tgDos) && /Tu cuenta ya está lista/.test(tgDos));
+    check('chat: con una sola wallet para las dos cosas, no lo avisa',
+      !/wallets distintas/.test(chDoc.textoTelegram('2026-08', movsDos, 'https://x/chat', cajasDos,
+        { misma: true, ggr: [{ red: 'TRC20' }], mens: [{ red: 'TRC20' }] })),
+      'avisar de una división que no existe confunde igual');
+    check('chat: si este mes va una sola de las dos cosas, tampoco lo avisa',
+      !/wallets distintas/.test(chDoc.textoTelegram('2026-08',
+        [movsDos[0]], 'https://x/chat', cajasDos,
+        { misma: false, ggr: [{ red: 'BEP20' }], mens: [{ red: 'TRC20' }] })),
+      'el % no está en este mensaje: la división no aplica todavía');
+    check('chat: y sin saber las wallets, el mensaje sale igual sin el aviso',
+      !/wallets distintas/.test(chDoc.textoTelegram('2026-08', movsDos, 'https://x/chat', cajasDos)),
+      'que falte un dato no puede dejar al cliente sin su cuenta');
+
     check('chat: el aviso de mantenimiento nombra la caja igual que la cuenta del mes',
       /soloDominio\(cajaAv && cajaAv\.link_jugadores\) \|\| b\.panel/.test(
         require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8')));
@@ -2585,7 +2608,7 @@ async function main() {
       'un token suelto en un grupo de Telegram muestra un mes viejo si se abre en diciembre');
     const rutaEnv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('chat: la ruta que manda le pasa el portal y las cajas, no el token',
-      /textoTelegram\(mes, \(esteMesTg && esteMesTg\.movs\) \|\| \[\], portal, cajasTg\)/.test(rutaEnv));
+      /textoTelegram\(mes, \(esteMesTg && esteMesTg\.movs\) \|\| \[\], portal, cajasTg,\s*\n\s*chat\.comoPagar\(/.test(rutaEnv));
 
     check('chat: el mensaje de Telegram dice el mantenimiento con sus fechas',
       /Mantenimiento<\/b> · 300,00 USDT/.test(tgSin)

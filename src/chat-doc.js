@@ -670,8 +670,12 @@ function nombreParaElCliente(mov, cajas) {
   return soloDominio(c && c.link_jugadores) || nom || 'caja';
 }
 
-function textoTelegram(mes, movs, url, cajas) {
+function textoTelegram(mes, movs, url, cajas, pago) {
   const L = [`<b>Chat Externo</b> · ${esc(mesLargo(mes))}`, ''];
+  /* El renglón que hace que esto se lea como un mensaje y no como una planilla. El mes no se
+     repite: está en el título, dos renglones más arriba. */
+  L.push('Tu cuenta ya está lista.');
+  L.push('');
   const cobros = (movs || []).filter((m) => m.tipo !== 'pago');
   const mant = cobros.filter((m) => m.tipo === 'mensualidad');
   const pct = cobros.filter((m) => m.tipo !== 'mensualidad');
@@ -689,6 +693,17 @@ function textoTelegram(mes, movs, url, cajas) {
   L.push(pct.length
     ? `<b>% sobre la ganancia</b> · ${n(pct.reduce((a, m) => a + Number(m.monto || 0), 0), 2)} USDT`
     : '<b>% sobre la ganancia</b> · todavía no se cobró (se cobra a mes cerrado)');
+  /* ⚠️ EL AVISO DE LAS DOS WALLETS VA EN EL MENSAJE, no sólo en la hoja. El que lee el Telegram y
+     recién al día siguiente abre el link ya se olvidó; y con un solo número en la cabeza manda
+     todo junto a la primera dirección que ve. Esa plata entra en la cuenta equivocada y el mes
+     queda medio pago de un lado y de más del otro.
+     Sale SÓLO cuando las dos cosas van a wallets distintas Y las dos están en este mensaje:
+     avisar de una división que no existe, o de una que este mes no aplica, confunde igual. */
+  const dosWallets = !!(pago && !pago.misma && (pago.ggr || []).length && (pago.mens || []).length);
+  if (dosWallets && mant.length && pct.length) {
+    L.push('');
+    L.push('⚠️ El mantenimiento y el % van a <b>wallets distintas</b>. Fijate cuál es cuál antes de mandar.');
+  }
   L.push('');
   L.push('Todo el detalle y adónde pagar:');
   L.push(url);
