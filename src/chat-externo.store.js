@@ -307,6 +307,10 @@ try { db.exec('ALTER TABLE chat_mov ADD COLUMN concepto TEXT'); } catch (e) { /*
 try { db.exec('ALTER TABLE chat_panel ADD COLUMN sala_id TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_panel ADD COLUMN sala_login TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
+/* DE CUÁL DE SUS CUENTAS ES ESTE PAGO. Un cliente con cajas en dos monedas tiene dos cuentas; un
+   aviso que no dice de cuál es, al aprobarse le tapa deuda a la equivocada y las dos quedan mal.
+   Vacío = tiene una sola, que es el caso de casi todos. */
+try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN divisa TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 /* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
    problema era el grupo, el bot o el permiso.
@@ -1985,13 +1989,30 @@ function portalDe(clienteId) {
     }),
     cajas,
     avisos: avisosDe(id).map((a) => ({ fecha: String(a.creado_at).slice(0, 10), monto: a.monto,
-      moneda: a.moneda, estado: a.estado, concepto: a.concepto })),
+      moneda: a.moneda, estado: a.estado, concepto: a.concepto, divisa: a.divisa || '' })),
     solicitudes: db.prepare(`SELECT caja, nota, estado, creado_at, pagina, dominio, divisa, caja_nueva FROM chat_solicitud
       WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 10`).all(id),
     pago: comoPagar(id),
     /* Lo que debe, partido en las dos cosas que se le cobran: es lo que hace contestable la
        pregunta "¿de qué es este pago?". Son sus propios números, no hay nada interno acá. */
     conceptos: opcionesDeConcepto(id, hoy().slice(0, 7)),
+    /* ── Y SUS CUENTAS, UNA POR DIVISA ────────────────────────────────────────────────────────
+       Un cliente con cajas en dos monedas tiene dos cuentas: a veces son dos negocios con socios
+       distintos. Cada una trae su saldo Y sus opciones de "¿de qué es este pago?", porque el
+       mantenimiento que debe de un lado no es el que debe del otro.
+
+       El de una sola moneda trae UNA, y la pantalla no dibuja ninguna separación: no hay dos
+       caminos que mantener, hay uno que a veces tiene dos renglones. */
+    cuentasPorDivisa: (todo && todo.variasDivisas ? (todo.porDivisa || []).filter((d) => d.divisa) : [])
+      .map((d) => ({
+        divisa: d.divisa,
+        saldo: { cobrado: d.cobrado, pagado: d.pagado, debe: d.debe },
+        conceptos: opcionesDeConcepto(id, hoy().slice(0, 7), d.divisa),
+        // Las cajas de ESA cuenta, por su link: es como el cliente las reconoce.
+        cajas: list().filter((p) => p.cliente_id === id && p.activo
+          && String(p.divisa || '').toUpperCase() === d.divisa)
+          .map((p) => _comoLaLlamaElCliente(p.panel)).filter(Boolean),
+      })),
     // Si no tiene clave puesta, el portal ni ofrece ver los accesos: le dice que te los pida.
     pide_clave: !!(destino(id).clave_portal),
     /* EL DESGLOSE DEL ÚLTIMO MES QUE SE LE COBRÓ. Hasta acá el portal mostraba un total en USDT y
@@ -2155,11 +2176,12 @@ function avisarPago(d) {
   }
   const id = 'chc_' + require('crypto').randomBytes(6).toString('hex');
   db.prepare(`INSERT INTO chat_comprobante
-    (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at,concepto)
-    VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?,?)`)
+    (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at,concepto,divisa)
+    VALUES (?,?,?,?,?,?,?,?,?,?,'pendiente',?,?,?)`)
     .run(id, cid, String(d.mes || '').slice(0, 7) || hoy().slice(0, 7), monto,
       String(d.moneda || 'USDT').toUpperCase().slice(0, 8), String(d.referencia || '').slice(0, 200),
-      nombre, tipo, bytes, b64, nowISO(), normConcepto(d.concepto));
+      nombre, tipo, bytes, b64, nowISO(), normConcepto(d.concepto),
+      String(d.divisa || '').trim().toUpperCase().slice(0, 8));
   /* Las cajas que dijo estar cubriendo. Se guardan tal como vinieron, sin comprobar que sean
      suyas: el que lo escribe es el cliente desde una página pública y un valor raro no puede
      tumbar el aviso de una transferencia que ya se hizo. Al aprobarlo se reparte sólo sobre las
@@ -2172,7 +2194,7 @@ function avisarPago(d) {
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
 function avisosDe(clienteId) {
   // Sin `archivo_b64`: son cientos de KB cada uno y acá sólo se listan.
-  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at, concepto, cajas
+  return db.prepare(`SELECT id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, resuelto_at, concepto, cajas, divisa
     FROM chat_comprobante WHERE cliente_id=? ORDER BY creado_at DESC LIMIT 20`).all(String(clienteId || ''));
 }
 
@@ -2185,7 +2207,7 @@ function avisosSinResolver(clienteId) {
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
 function avisosPendientes() {
-  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto, cajas,
+  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto, cajas, divisa,
     aviso_ok, aviso_error, aviso_at
     FROM chat_comprobante WHERE estado='pendiente' ORDER BY creado_at`).all();
   const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
@@ -2204,7 +2226,7 @@ function avisosPendientes() {
  */
 function avisoPorId(id) {
   const f = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes,
-    estado, creado_at, concepto, cajas, aviso_ok, aviso_error, aviso_at
+    estado, creado_at, concepto, cajas, divisa, aviso_ok, aviso_error, aviso_at
     FROM chat_comprobante WHERE id=?`).get(String(id || ''));
   if (!f) return null;
   const c = clientes.list().clientes.find((x) => x.id === f.cliente_id) || {};
@@ -2250,6 +2272,8 @@ function resolverAviso(id, aprobar) {
     fecha: String(f.creado_at || '').slice(0, 10), nota: 'aviso del cliente' + (f.referencia ? ' · ' + f.referencia : ''),
     // Se imputa a lo que el cliente dijo al avisar. Si dijo mal, se rechaza y lo manda de nuevo.
     concepto: f.concepto, cajas: f.cajas,
+    // Y a la cuenta que dijo: con dos, imputarlo a la otra deja las dos mal.
+    divisa: f.divisa || '',
   });
   if (!pg.ok) return pg;
   db.prepare("UPDATE chat_comprobante SET estado='aprobado', resuelto_at=?, mov_id=? WHERE id=?")

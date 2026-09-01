@@ -1436,6 +1436,8 @@ app.post('/chat/aviso', (req, res) => {
   if (!q) return res.status(404).json({ ok: false, error: 'No encontramos ese usuario' });
   const out = chatStore.avisarPago({
     cliente_id: q.cliente_id, concepto: b.concepto, cajas: b.cajas,
+    // De cuál de sus cuentas: con dos, un aviso sin esto le tapa deuda a la equivocada.
+    divisa: b.divisa,
     monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
   });
   if (!out.ok) return res.status(400).json(out);

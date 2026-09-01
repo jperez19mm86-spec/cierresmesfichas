@@ -2733,6 +2733,27 @@ async function main() {
       })(),
       'un pago del negocio en guaraníes no puede taparle deuda al de pesos');
 
+    /* El aviso de pago tiene que decir de CUÁL cuenta es. Aprobarlo contra la equivocada deja las
+       dos mal: le tapa deuda a una y le deja de más en la otra. */
+    check('divisa: el aviso de pago viaja con la cuenta, y se imputa a esa',
+      (() => {
+        const fuente = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
+        const idx = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+        return /ADD COLUMN divisa/.test(fuente)          // la columna del aviso
+          && /divisa: f\.divisa \|\| ''/.test(fuente)     // resolverAviso se la pasa al pago
+          && /divisa: b\.divisa/.test(idx);              // la ruta pública la deja pasar
+      })());
+    check('divisa: y el portal pregunta de cuál cuenta es antes de mandarlo',
+      (() => {
+        const g = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
+        return /hayDosCuentas\(\)/.test(g) && /datos\.divisa = f\.divisa\.value/.test(g)
+          && /name="divisa"/.test(g);
+      })(),
+      'con dos cuentas, un pago que no dice de cuál es le tapa deuda a la equivocada');
+
     /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
        Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
        liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de

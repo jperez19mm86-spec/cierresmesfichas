@@ -82,6 +82,9 @@ function textoAvisoPago(a) {
     + `Cliente: <b>${esc(a.cliente)}</b>\n`
     + `Monto: <b>${esc(a.monto)} ${esc(a.moneda)}</b>\n`
     + `Es de: ${DE_QUE[a.concepto] || '<i>no lo dijo</i>'}\n`
+    /* De cuál de sus cuentas. Con dos, aprobarlo contra la equivocada deja las dos mal, y desde
+       el aviso es donde se ve antes de tocar nada. */
+    + (a.divisa ? `Cuenta: <b>sus cajas en ${esc(a.divisa)}</b>\n` : '')
     + `Mes: ${esc(mesLindo(a.mes))}\n`
     + `Referencia: ${a.referencia ? `<code>${esc(a.referencia)}</code>` : '<i>no puso</i>'}\n`
     + (a.archivo_bytes ? '📎 Adjuntó comprobante' : '⚠️ SIN comprobante')

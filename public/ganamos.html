@@ -192,8 +192,29 @@ function nombreConcepto(c) {
 
 /* Al cambiar de concepto cambia lo que debe, así que cambia lo que el campo sugiere. Es el mismo
    gesto que ya hace la pantalla de ella cuando elige a qué imputar un pago al proveedor. */
+/* ── LA CUENTA ELEGIDA ───────────────────────────────────────────────────────────────────────
+   Un cliente con cajas en dos monedas tiene DOS cuentas: a veces son dos negocios con socios
+   distintos. Todo lo del formulario —qué debe de cada concepto, qué cajas están impagas, cuánto
+   sugerir— es de UNA de las dos, y por eso primero hay que saber de cuál.
+   Con una sola cuenta esto devuelve la de siempre y no se dibuja ninguna elección: no hay dos
+   caminos que mantener, hay uno que a veces tiene dos renglones. */
+var _divSel = null;
+function cuentasDiv() { return DATOS.cuentasPorDivisa || []; }
+function hayDosCuentas() { return cuentasDiv().length > 1; }
+function cuentaActiva() {
+  var cs = cuentasDiv();
+  if (!cs.length) return null;
+  for (var i = 0; i < cs.length; i++) if (cs[i].divisa === _divSel) return cs[i];
+  return cs[0];
+}
+function conceptosActivos() {
+  var c = cuentaActiva();
+  return (c && c.conceptos) || DATOS.conceptos || null;
+}
+function elegirCuenta(v) { _divSel = v; ver('pagar'); }
+
 function sugerirMonto() {
-  var conc = DATOS.conceptos; if (!conc) return;
+  var conc = conceptosActivos(); if (!conc) return;
   var sel = document.querySelector('select[name=concepto]'); var inp = $('mMonto');
   if (!sel || !inp) return;
   var esMant = sel.value === 'mantenimiento';
@@ -211,6 +232,25 @@ function sugerirMonto() {
   }
   var o = conc.opciones.filter(function (x) { return x.valor === sel.value; })[0];
   inp.placeholder = num(Math.max(0, Number((o && o.debe) || 0)), 2);
+}
+
+/* Las dos cuentas, cada una con su saldo. Se dibuja SÓLO cuando hay dos: con una, una "separación"
+   de un solo renglón es una pregunta que nadie hizo. */
+function bloqueCuentas() {
+  if (!hayDosCuentas()) return '';
+  return '<h2 style="margin-top:20px">Tus dos cuentas</h2>'
+    + '<p class="tenue" style="margin:-4px 0 10px">Tus cajas en cada moneda se llevan por separado. '
+    + 'Cada una tiene su propio saldo y se paga aparte.</p>'
+    + cuentasDiv().map(function (c) {
+      return '<div class="dcaja"><div class="dtit"><b>Tus cajas en ' + esc(c.divisa) + '</b>'
+        + '<span>' + num(c.saldo.debe, 2) + ' USDT</span></div>'
+        + '<table><tbody>'
+        + '<tr><td>Mantenimiento</td><td class="r">' + num(c.conceptos.saldo.mantenimiento.debe, 2) + '</td></tr>'
+        + '<tr><td>% sobre las ganancias</td><td class="r">' + num(c.conceptos.saldo.ganancia.debe, 2) + '</td></tr>'
+        + (c.cajas && c.cajas.length
+          ? '<tr><td>Cajas</td><td class="r tenue">' + c.cajas.map(esc).join('<br>') + '</td></tr>' : '')
+        + '</tbody></table></div>';
+    }).join('');
 }
 
 /* Puede haber una wallet para el servicio del mes y otra para el mantenimiento, y no la misma para
@@ -404,6 +444,7 @@ function ver(cual) {
           + ' <span class="tenue">' + esc(m.moneda) + '</span></td></tr>';
       }).join('') + '</tbody></table>'
         : '<p class="vacio">Todavía no hay movimientos.</p>')
+      + bloqueCuentas()
       + bloqueDesglose()
       + bloquePago()
       + '<button class="volver" onclick="volver()">‹ Volver</button></div>';
@@ -454,10 +495,22 @@ function ver(cual) {
     /* Las opciones vienen ARMADAS del servidor (opcionesDeConcepto en chat-externo.store): la hoja
        que le llega por mail dibuja este mismo formulario, y dos textos escritos por separado
        terminan diciendo dos cosas distintas. */
-    var conc = DATOS.conceptos || null;
+    var conc = conceptosActivos();
     var sug = conc ? (conc.opciones.filter(function (o) { return o.sugerida; })[0] || conc.opciones[0]) : null;
+    var act = cuentaActiva();
     h = '<div class="hoja"><h2>Avisar que pagué</h2>'
       + '<form onsubmit="return avisar(event)">'
+      /* ⚠️ PRIMERO DE QUÉ CUENTA. Con dos cuentas, un pago que no dice de cuál es le tapa deuda a
+         la equivocada, y el saldo de las dos queda mal. Cambiar acá redibuja todo lo de abajo:
+         los conceptos, las cajas impagas y el monto sugerido son de ESA cuenta. */
+      + (hayDosCuentas()
+        ? '<label class="campo">¿De cuál de tus cuentas?'
+          + '<select name="divisa" onchange="elegirCuenta(this.value)">'
+          + cuentasDiv().map(function (c) {
+            return '<option value="' + esc(c.divisa) + '"' + (act && act.divisa === c.divisa ? ' selected' : '') + '>'
+              + 'Tus cajas en ' + esc(c.divisa) + ' — debés ' + num(c.saldo.debe, 2) + ' USDT</option>';
+          }).join('') + '</select></label>'
+        : '')
       + (conc ? '<label class="campo">' + esc(conc.titulo)
         + '<select name="concepto" onchange="sugerirMonto()">'
         + conc.opciones.map(function (o) {
@@ -551,6 +604,8 @@ async function avisar(e) {
   var arch = f.archivo.files[0] || null;
   b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
   var datos = { usuario: USUARIO, monto: f.monto.value, referencia: f.referencia.value };
+  // De cuál de sus cuentas. Sin esto, con dos cuentas el pago le tapa deuda a la equivocada.
+  if (f.divisa) datos.divisa = f.divisa.value;
   if (f.concepto) datos.concepto = f.concepto.value;
   if (datos.concepto === 'mantenimiento') {
     datos.cajas = [].slice.call(document.querySelectorAll('input[name=caja]:checked'))
