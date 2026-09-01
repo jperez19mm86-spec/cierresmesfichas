@@ -651,7 +651,26 @@ function paginaError(msg) {
  * costó una hoja mal leída. Acá sólo se nombra lo que quedó registrado.
  */
 const TOPE_CAJAS = 8;
-function textoTelegram(mes, movs, url) {
+
+/* CÓMO SE NOMBRA UNA CAJA CUANDO SE LE HABLA AL CLIENTE.
+   Adentro se llama «AgenteFortuna» o «GAF-parA». El cliente no usa esos nombres: los pusimos
+   nosotros. Lo que él reconoce es el link donde juega su gente —ganamoscpy.com—, y con cuatro cajas
+   es lo ÚNICO que le dice cuál es cuál. La hoja HTML ya lo hace así desde hace rato; el mensaje era
+   el último lugar donde seguía saliendo el nombre interno.
+
+   Se muestra sin el https:// porque así es como el cliente lo escribe y lo lee.
+   Si la caja no tiene link cargado se cae al nombre: los links NO se deducen nunca —no hay relación
+   entre la caja y el dominio que le toca— así que acá tampoco se inventa uno. */
+const soloDominio = (u) => String(u || '').trim()
+  .replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+
+function nombreParaElCliente(mov, cajas) {
+  const nom = String(mov.panel || '').trim();
+  const c = (cajas || []).find((p) => String(p.panel || '').trim() === nom);
+  return soloDominio(c && c.link_jugadores) || nom || 'caja';
+}
+
+function textoTelegram(mes, movs, url, cajas) {
   const L = [`<b>Chat Externo</b> · ${esc(mesLargo(mes))}`, ''];
   const cobros = (movs || []).filter((m) => m.tipo !== 'pago');
   const mant = cobros.filter((m) => m.tipo === 'mensualidad');
@@ -660,7 +679,7 @@ function textoTelegram(mes, movs, url) {
     L.push(`<b>Mantenimiento</b> · ${n(mant.reduce((a, m) => a + Number(m.monto || 0), 0), 2)} USDT`);
     for (const m of mant.slice(0, TOPE_CAJAS)) {
       const per = require('./chat-externo.store').periodoDesde(m.fecha);
-      L.push(`· ${esc(m.panel || 'caja')}${per ? ` — ${esc(per.texto)}` : ''}`);
+      L.push(`· ${esc(nombreParaElCliente(m, cajas))}${per ? ` — ${esc(per.texto)}` : ''}`);
     }
     /* Si se recortan, se DICE cuántas quedaron afuera. Un listado que termina sin avisar se lee
        como el listado completo, y el que suma a mano no llega al total. */
@@ -673,6 +692,11 @@ function textoTelegram(mes, movs, url) {
   L.push('');
   L.push('Todo el detalle y adónde pagar:');
   L.push(url);
+  /* Va al PORTAL, no a un link con token. El portal se abre escribiendo el usuario que ya usa
+     —el de su caja, o su código— y muestra el saldo al día, sus cajas con sus links, y adónde
+     pagar. Un link con token es una llave suelta en un grupo de Telegram y muestra un mes
+     congelado; el portal es una puerta con su nombre y siempre está al día. */
+  L.push('Ingresá con tu usuario de siempre.');
   return L.join('\n');
 }
 

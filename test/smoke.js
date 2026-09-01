@@ -2550,6 +2550,35 @@ async function main() {
       { tipo: 'mensualidad', monto: '150', panel: 'AgenteFortuna', fecha: '2026-08-22' },
       { tipo: 'mensualidad', monto: '150', panel: 'GAF-parA', fecha: '2026-08-05' },
     ], 'https://x/chat/tok');
+    /* ── LA CAJA SE NOMBRA POR SU LINK ───────────────────────────────────────────────────────
+       Adentro se llama «AgenteFortuna»; el cliente no usa ese nombre, lo pusimos nosotros. Con
+       cuatro cajas, el link es lo único que le dice cuál es cuál. */
+    const cajasTg = [
+      { panel: 'AgenteFortuna', link_jugadores: 'https://ganamoscpy.com' },
+      { panel: 'GAF-parA', link_jugadores: 'https://www.ganamospylat.com/' },
+      { panel: 'SinLink', link_jugadores: '' },
+    ];
+    const tgLink = chDoc.textoTelegram('2026-08', [
+      { tipo: 'mensualidad', monto: '150', panel: 'AgenteFortuna', fecha: '2026-08-22' },
+      { tipo: 'mensualidad', monto: '150', panel: 'GAF-parA', fecha: '2026-08-22' },
+    ], 'https://x/chat', cajasTg);
+    check('chat: el mensaje nombra la caja por su link, no por el nombre interno',
+      /· ganamoscpy\.com — 22 ago/.test(tgLink) && !/AgenteFortuna/.test(tgLink),
+      'un cliente con cuatro cajas reconoce cuál es por el link');
+    check('chat: el link va sin https:// ni www ni barra final',
+      /· ganamospylat\.com — /.test(tgLink) && !/www\./.test(tgLink) && !/https:\/\/ganamos/.test(tgLink),
+      'así es como el cliente lo escribe y lo lee');
+    check('chat: una caja sin link cargado cae al nombre, no a un link inventado',
+      /· SinLink — /.test(chDoc.textoTelegram('2026-08',
+        [{ tipo: 'mensualidad', monto: '150', panel: 'SinLink', fecha: '2026-08-03' }], 'https://x/chat', cajasTg)),
+      'los links no se deducen nunca: no hay relación entre la caja y el dominio que le toca');
+    check('chat: y el mensaje manda al portal, con el usuario de siempre',
+      /Todo el detalle y adónde pagar:\nhttps:\/\/x\/chat\nIngresá con tu usuario de siempre\./.test(tgLink),
+      'un token suelto en un grupo de Telegram muestra un mes viejo si se abre en diciembre');
+    const rutaEnv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    check('chat: la ruta que manda le pasa el portal y las cajas, no el token',
+      /textoTelegram\(mes, \(esteMesTg && esteMesTg\.movs\) \|\| \[\], portal, cajasTg\)/.test(rutaEnv));
+
     check('chat: el mensaje de Telegram dice el mantenimiento con sus fechas',
       /Mantenimiento<\/b> · 300,00 USDT/.test(tgSin)
       && /AgenteFortuna — 22 ago – 21 sep/.test(tgSin)
@@ -2571,6 +2600,21 @@ async function main() {
       /y 4 caja\(s\) más/.test(chDoc.textoTelegram('2026-08',
         Array.from({ length: 12 }, (_, i) => ({ tipo: 'mensualidad', monto: '10', panel: 'C' + i, fecha: '2026-08-05' })),
         'https://x/chat/tok')));
+
+    /* ⚠️ EL MENSAJE Y LA PUERTA TIENEN QUE ESTAR DE ACUERDO. Desde que el mensaje nombra las cajas
+       por su link, ese link es lo único que el cliente tiene delante cuando llega al portal: si la
+       puerta no lo acepta, le mostramos un nombre que después rechaza. */
+    check('chat: al portal se entra con el link de la caja, que es lo que dice el mensaje',
+      (() => {
+        const pan = ch.list().find((p) => p.cliente_id === CLI.id);
+        if (!pan) return false;
+        ch.set({ panel_id: pan.panel_id, link_jugadores: 'https://mi-caja-de-prueba.com' });
+        const ok1 = (ch.quienEntra('mi-caja-de-prueba.com') || {}).cliente_id === CLI.id;
+        const ok2 = (ch.quienEntra('https://www.MI-CAJA-DE-PRUEBA.com/') || {}).cliente_id === CLI.id;
+        const ok3 = ch.quienEntra('otra-que-no-existe.com') === null;
+        return ok1 && ok2 && ok3;
+      })(),
+      'sin https://, sin www y sin barra final: nadie escribe eso a mano igual dos veces');
 
     check('chat: cuando hay dos redes para lo mismo, se dice por qué',
       /Mandá por la red que uses/.test(htmlDos),

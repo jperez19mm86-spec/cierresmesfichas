@@ -2227,12 +2227,18 @@ function mount(app) {
     if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
     const d = chat.destino(req.params.clienteId);
     if (!d.grupos.length) return err(res, 400, 'ese cliente todavía no tiene grupo de Telegram para este servicio');
+    /* El link con token se sigue generando —ella lo copia con el botón «Link» cuando lo necesita, y
+       es la foto congelada del mes—, pero al grupo NO va: lo que se manda es el portal. Un token en
+       un grupo de Telegram es una llave suelta, y muestra un mes viejo si se abre en diciembre. */
     const l = chatDoc.crearLink(doc, req.params.clienteId);
     const url = _urlPublica(req) + '/chat/' + l.token;
+    const portal = _urlPublica(req) + '/chat';
     /* Con el resumen adelante: qué es el mantenimiento, por qué período, y si el % ya se cobró.
-       Sale de los movimientos del mes, que es lo REGISTRADO — no de la proyección del documento. */
+       Sale de los movimientos del mes, que es lo REGISTRADO — no de la proyección del documento.
+       Las cajas van para poder nombrarlas por su link, que es como las reconoce el cliente. */
     const esteMesTg = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId);
-    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], url);
+    const cajasTg = chat.list().filter((p) => p.cliente_id === req.params.clienteId);
+    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], portal, cajasTg);
     /* A TODOS los grupos: a veces el encargado tiene que enterarse y no está en el mismo grupo que
        el cliente. Se manda de a uno y se guarda el resultado de cada uno — si falla el segundo, no
        puede quedar como que salió todo bien. */
@@ -2249,7 +2255,7 @@ function mount(app) {
       : { ok: true };
     // Queda anotado que se mandó: sin esto, "¿se la mandaste?" no tiene respuesta.
     chat.marcarEnviado(req.params.clienteId, mes, r);
-    r.ok ? ok(res, { url, token: l.token, enviado: idas.length, idas })
+    r.ok ? ok(res, { url, portal, token: l.token, enviado: idas.length, idas })
       : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`,
         { url, token: l.token, idas });
   }));

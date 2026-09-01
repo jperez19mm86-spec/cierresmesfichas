@@ -1700,6 +1700,22 @@ function quienEntra(usuario) {
     return full && (full.alias || []).some((a) => String(a).trim().toLowerCase() === k);
   });
   if (conAlias && conAlias.cliente_id) return { cliente_id: conAlias.cliente_id, cliente: conAlias.cliente, por: 'caja' };
+  /* ── Y POR EL LINK DE LA CAJA ────────────────────────────────────────────────────────────────
+     Desde que el mensaje de Telegram nombra las cajas por su link —«ganamoscpy.com — 22 ago…»,
+     que es como el cliente las reconoce—, ese link es lo único que tiene delante cuando llega acá.
+     Si la puerta no lo acepta, el mensaje le muestra un nombre que la puerta rechaza.
+     Se compara sin el https:// ni el www ni la barra final: nadie escribe eso a mano igual dos
+     veces. Entran los dos links, el de los jugadores y el del panel. */
+  const dom = (u) => String(u || '').trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  const kDom = dom(k);
+  if (kDom) {
+    const porLink = conChat.filter((p) => [p.link_jugadores, p.link_panel].some((u) => u && dom(u) === kDom));
+    // La misma regla que arriba: si el link estuviera en dos clientes, no entra ninguno.
+    if (porLink.length && new Set(porLink.map((p) => p.cliente_id)).size === 1 && porLink[0].cliente_id) {
+      return { cliente_id: porLink[0].cliente_id, cliente: porLink[0].cliente, por: 'caja' };
+    }
+  }
   const c = clientes.list().clientes.find((x) => String(x.codigo || '').trim().toLowerCase() === k
     || String(x.nombre || '').trim().toLowerCase() === k);
   if (c && conChat.some((p) => p.cliente_id === c.id)) {
