@@ -2542,6 +2542,36 @@ async function main() {
       })(),
       'sumar dos conceptos bajo el rótulo del que no era');
 
+    /* ── EL MENSAJE DE TELEGRAM ──────────────────────────────────────────────────────────────
+       Era un link pelado. Sin el resumen hay que abrir la hoja para saber si eso es el
+       mantenimiento, el % o las dos cosas — y el mantenimiento se cobra por PERÍODO, así que sin
+       las fechas el renglón no se explica solo. */
+    const tgSin = chDoc.textoTelegram('2026-08', [
+      { tipo: 'mensualidad', monto: '150', panel: 'AgenteFortuna', fecha: '2026-08-22' },
+      { tipo: 'mensualidad', monto: '150', panel: 'GAF-parA', fecha: '2026-08-05' },
+    ], 'https://x/chat/tok');
+    check('chat: el mensaje de Telegram dice el mantenimiento con sus fechas',
+      /Mantenimiento<\/b> · 300,00 USDT/.test(tgSin)
+      && /AgenteFortuna — 22 ago – 21 sep/.test(tgSin)
+      && /GAF-parA — 5 ago – 4 sep/.test(tgSin)
+      && tgSin.includes('https://x/chat/tok'));
+    check('chat: y si el % no se cobró todavía, lo dice en vez de anunciar la proyección',
+      /todavía no se cobró/.test(tgSin) && !/306/.test(tgSin),
+      'el documento trae la proyección del %; anunciarla como cobrada es la hoja mal leída de nuevo');
+    check('chat: con el % ya cobrado, el mensaje pone el monto',
+      /% sobre la ganancia<\/b> · 306,34 USDT/.test(chDoc.textoTelegram('2026-08',
+        [{ tipo: 'cobro', monto: '306.34', fecha: '2026-08-31' }], 'https://x/chat/tok')));
+    check('chat: un pago del cliente no entra en el resumen que se le manda',
+      !/999/.test(chDoc.textoTelegram('2026-08',
+        [{ tipo: 'pago', monto: '999', fecha: '2026-08-31' }], 'https://x/chat/tok')),
+      'lo que ya pagó no es algo que se le esté cobrando');
+    /* Un listado recortado que termina sin avisar se lee como el listado completo, y el que suma a
+       mano no llega al total. */
+    check('chat: si son muchas cajas, se dice cuántas quedaron afuera del resumen',
+      /y 4 caja\(s\) más/.test(chDoc.textoTelegram('2026-08',
+        Array.from({ length: 12 }, (_, i) => ({ tipo: 'mensualidad', monto: '10', panel: 'C' + i, fecha: '2026-08-05' })),
+        'https://x/chat/tok')));
+
     check('chat: cuando hay dos redes para lo mismo, se dice por qué',
       /Mandá por la red que uses/.test(htmlDos),
       'sin esto se leen como dos cuentas distintas y la pregunta vuelve por privado');

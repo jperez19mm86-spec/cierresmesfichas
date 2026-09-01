@@ -2229,8 +2229,10 @@ function mount(app) {
     if (!d.grupos.length) return err(res, 400, 'ese cliente todavía no tiene grupo de Telegram para este servicio');
     const l = chatDoc.crearLink(doc, req.params.clienteId);
     const url = _urlPublica(req) + '/chat/' + l.token;
-    const texto = `<b>Chat Externo</b> · ${chatDoc.mesLargo(mes)}\n`
-      + `Ganancia del mes y lo que corresponde abonar:\n${url}`;
+    /* Con el resumen adelante: qué es el mantenimiento, por qué período, y si el % ya se cobró.
+       Sale de los movimientos del mes, que es lo REGISTRADO — no de la proyección del documento. */
+    const esteMesTg = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId);
+    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], url);
     /* A TODOS los grupos: a veces el encargado tiene que enterarse y no está en el mismo grupo que
        el cliente. Se manda de a uno y se guarda el resultado de cada uno — si falla el segundo, no
        puede quedar como que salió todo bien. */

@@ -637,7 +637,46 @@ function paginaError(msg) {
     + '<div class="hoja"><p class="bajo">Si creés que es un error, escribinos.</p></div>');
 }
 
+/* ── EL MENSAJE DE TELEGRAM ──────────────────────────────────────────────────────────────────
+ * Hasta acá era un link pelado: «Ganancia del mes y lo que corresponde abonar: <url>». Funciona,
+ * pero obliga a abrir la hoja para saber si eso es el mantenimiento, el %, o las dos cosas — y el
+ * mantenimiento se cobra por PERÍODO, no por mes calendario, así que sin las fechas el renglón no
+ * se explica solo.
+ *
+ * El resumen va en el mensaje y el detalle sigue en la hoja. Los montos ya estaban del otro lado
+ * del link, en el mismo grupo: esto no muestra nada nuevo, lo muestra antes.
+ *
+ * ⚠️ Sale de los MOVIMIENTOS, no del documento. El documento tiene la proyección del % —lo que va
+ * a ser cuando cierre el mes— y anunciar eso como si estuviera cobrado es la confusión que ya nos
+ * costó una hoja mal leída. Acá sólo se nombra lo que quedó registrado.
+ */
+const TOPE_CAJAS = 8;
+function textoTelegram(mes, movs, url) {
+  const L = [`<b>Chat Externo</b> · ${esc(mesLargo(mes))}`, ''];
+  const cobros = (movs || []).filter((m) => m.tipo !== 'pago');
+  const mant = cobros.filter((m) => m.tipo === 'mensualidad');
+  const pct = cobros.filter((m) => m.tipo !== 'mensualidad');
+  if (mant.length) {
+    L.push(`<b>Mantenimiento</b> · ${n(mant.reduce((a, m) => a + Number(m.monto || 0), 0), 2)} USDT`);
+    for (const m of mant.slice(0, TOPE_CAJAS)) {
+      const per = require('./chat-externo.store').periodoDesde(m.fecha);
+      L.push(`· ${esc(m.panel || 'caja')}${per ? ` — ${esc(per.texto)}` : ''}`);
+    }
+    /* Si se recortan, se DICE cuántas quedaron afuera. Un listado que termina sin avisar se lee
+       como el listado completo, y el que suma a mano no llega al total. */
+    if (mant.length > TOPE_CAJAS) L.push(`· y ${mant.length - TOPE_CAJAS} caja(s) más`);
+    L.push('');
+  }
+  L.push(pct.length
+    ? `<b>% sobre la ganancia</b> · ${n(pct.reduce((a, m) => a + Number(m.monto || 0), 0), 2)} USDT`
+    : '<b>% sobre la ganancia</b> · todavía no se cobró (se cobra a mes cerrado)');
+  L.push('');
+  L.push('Todo el detalle y adónde pagar:');
+  L.push(url);
+  return L.join('\n');
+}
+
 module.exports = {
-  paraCliente, htmlCliente, paraProveedor, htmlProveedor, mesLargo,
+  paraCliente, htmlCliente, paraProveedor, htmlProveedor, mesLargo, textoTelegram,
   crearLink, porToken, linksDe, paginaError,
 };
