@@ -3064,7 +3064,7 @@ async function main() {
 
     check('proveedor: su portada es la misma que la del portal del cliente',
       /id="perro"/.test(provPag) && /CHAT<span class="x">INTERNO<\/span>/.test(provPag)
-      && /href="\/piel\.css"/.test(provPag),
+      && /href="\/piel\.css\?v=/.test(provPag),
       'es el mismo producto visto del otro lado del mostrador');
     /* ── LAS TRES PANTALLAS DEL CHAT COMPARTEN LA CARA ───────────────────────────────────────
        Antes cada una tenía su propio bloque de estilos, copiado a mano de la anterior y ya
@@ -3072,12 +3072,26 @@ async function main() {
     const pielTxt = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'piel.css'), 'utf8');
     const portalTxt = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
     check('chat: las tres pantallas enlazan la misma piel, y ninguna lleva estilos propios',
-      [provPag, portalTxt].every((x) => /href="\/piel\.css"/.test(x) && !/<style>/.test(x))
-      && /href="\/piel\.css"/.test(chDoc.htmlCliente({ mes: '2026-08', cliente: 'x', monedas: [], paneles: [] }, {})));
+      [provPag, portalTxt].every((x) => /href="\/piel\.css\?v=/.test(x) && !/<style>/.test(x))
+      && /href="\/piel\.css\?v=/.test(chDoc.htmlCliente({ mes: '2026-08', cliente: 'x', monedas: [], paneles: [] }, {})));
     /* ⚠️ ABSOLUTO, NO RELATIVO. La hoja del mes vive en /chat/<token>: uno relativo pide
        /chat/piel.css, que no es ruta pública, y llega el login en vez del estilo. */
     check('chat: la piel se enlaza absoluta, o la hoja del mes llega sin estilo',
-      !/href="piel\.css"/.test(provPag) && !/href="piel\.css"/.test(portalTxt));
+      !/href="piel\.css/.test(provPag) && !/href="piel\.css/.test(portalTxt));
+    /* ── EL SELLO DE LA PIEL ─────────────────────────────────────────────────────────────────
+       Lo estático se sirve con `max-age=3600`, así que después de cambiar la piel el navegador
+       del cliente sigue mostrando la de hace una hora — y eso NO se nota desde acá: se nota
+       cuando el cliente abre la pantalla y la ve a medio pintar. Nos pasó: los links de las cajas
+       y el botón de volver salieron sin estilo con el CSS nuevo ya desplegado.
+       El sello sale del contenido de piel.css, así que si alguien la toca y no vuelve a sellar,
+       esto falla acá en vez de fallar en el teléfono de un cliente. */
+    const sp = require('../src/sellar-piel');
+    const vEsperado = sp.sello();
+    const puestos = sp.sellosPuestos();
+    check('chat: la piel está sellada con su propio contenido en las tres pantallas',
+      sp.ARCHIVOS.every((f) => (puestos[f] || []).length > 0
+        && puestos[f].every((v) => v === vEsperado)),
+      `esperado v=${vEsperado} · puestos ${JSON.stringify(puestos)} — corré: node src/sellar-piel.js`);
     /* Y tiene que poder pedirla alguien SIN sesión: el cliente, el que abre la hoja del mes, y el
        proveedor antes de ingresar. */
     check('chat: la piel es pública, o las tres llegan sin estilo',
