@@ -99,8 +99,6 @@ db.exec(`
   );
   /* Cobrar dos veces el mismo mes no puede pasar por apretar dos veces: lo impide la base, no una
      comparación en el código. Los pagos no llevan índice porque puede haber varios. */
-  CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_cobro
-    ON chat_mov (cliente_id, mes) WHERE tipo='cobro';
   CREATE INDEX IF NOT EXISTS ix_chat_mov_mes ON chat_mov(mes);
   CREATE INDEX IF NOT EXISTS ix_chat_mov_cli ON chat_mov(cliente_id);
 
@@ -193,6 +191,45 @@ db.exec(`
 for (const col of ['link_jugadores TEXT', 'link_panel TEXT', 'usuario_admin TEXT']) {
   try { db.exec(`ALTER TABLE chat_panel ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
 }
+/* ── LO QUE YA ESTABA, PUESTO EN SU CUENTA ───────────────────────────────────────────────────
+   Corre una vez, al arrancar. Las mensualidades viejas saben de qué caja son (`panel`), así que
+   se les puede poner la divisa de esa caja. Los cobros del % viejos NO: un cobro era el total de
+   todas las monedas juntas y no hay forma de partirlo desde acá — se deshacen y se vuelven a
+   emitir desde la pantalla, que es donde está el cálculo.
+   Idempotente: sólo toca las filas que todavía no tienen divisa. */
+function _ponerDivisaALoViejo() {
+  try {
+    const faltan = db.prepare("SELECT COUNT(*) n FROM chat_mov WHERE tipo='mensualidad' AND (divisa IS NULL OR divisa='') AND panel IS NOT NULL").get().n;
+    if (!faltan) return;
+    const cajas = new Map();
+    for (const p of list()) cajas.set(`${p.cliente_id}|${p.panel}`, String(p.divisa || '').toUpperCase());
+    const upd = db.prepare('UPDATE chat_mov SET divisa=? WHERE id=?');
+    const filas = db.prepare("SELECT id, cliente_id, panel FROM chat_mov WHERE tipo='mensualidad' AND (divisa IS NULL OR divisa='') AND panel IS NOT NULL").all();
+    let n = 0;
+    db.transaction(() => {
+      for (const f of filas) {
+        const dv = cajas.get(`${f.cliente_id}|${f.panel}`) || '';
+        if (!dv) continue;
+        upd.run(dv, f.id); n += 1;
+      }
+    })();
+    if (n) console.log(`[Chat] ${n} mensualidad(es) quedaron asignadas a su cuenta por divisa`);
+  } catch (e) { console.warn('[Chat] no se pudo asignar la divisa a lo viejo:', e.message); }
+}
+
+/* ── LA DIVISA DE LA CAJA ────────────────────────────────────────────────────────────────────
+   Se GUARDA, no se deduce. Hasta acá la moneda de una caja era un hecho de los datos: salía del
+   reporte del casino mes a mes. Sirve para mostrar, pero no para facturar, por dos motivos:
+
+   · El mantenimiento vence el día de alta de la caja, que puede caer ANTES de que ese mes tenga
+     un solo día de datos. En ese momento no hay de dónde deducir nada, y esos 150 USDT tienen que
+     entrar a una de las dos cuentas igual.
+   · Una caja puede reportar en dos monedas el mismo mes —el cálculo lo contempla— y ahí el
+     mantenimiento no se puede partir: repartirlo sería inventar una proporción.
+
+   Se completa sola con lo que dicen los datos y se puede corregir a mano, que es lo honesto:
+   asignarle una divisa a los 150 es una convención, no un dato. */
+try { db.exec('ALTER TABLE chat_panel ADD COLUMN divisa TEXT'); } catch (e) { /* ya estaba */ }
 // A qué wallet paga ESTE cliente cada cosa. Vacío = la de siempre.
 for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
   try { db.exec(`ALTER TABLE chat_cliente ADD COLUMN ${col}`); } catch (e) { /* ya estaba */ }
@@ -201,6 +238,27 @@ for (const col of ['wallet_ggr TEXT', 'wallet_mens TEXT']) {
    "Ariel-A1" está adentro de "Ariel-A10": una caja quedaba marcada como cobrada por el nombre de
    otra. El dato se guarda, no se adivina. */
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN panel TEXT'); } catch (e) { /* ya estaba */ }
+/* ── DE QUÉ CUENTA ES ESTE MOVIMIENTO ────────────────────────────────────────────────────────
+   Un cliente puede tener cajas en dos monedas, y a veces son dos negocios distintos con socios
+   distintos: los quiere separados, y a veces va a pagar cada uno en su moneda.
+
+   ⚠️ NO ES `moneda`. `moneda` es la unidad en que está EXPRESADO el monto —siempre USDT, la
+   cuenta del chat se lleva así— y `divisa` es DE QUÉ CUENTA es ese monto: la de sus cajas en PYG
+   o la de las de ARS. Dos cosas distintas que se llaman parecido, por eso el nombre distinto.
+
+   Vacío ('') = movimiento de antes de la división, o de un cliente de una sola moneda. Se guarda
+   '' y no NULL a propósito: en SQLite dos NULL son distintos entre sí, así que un índice único
+   con NULL no impide nada. */
+try { db.exec("ALTER TABLE chat_mov ADD COLUMN divisa TEXT NOT NULL DEFAULT ''"); } catch (e) { /* ya estaba */ }
+/* El índice único pasa a llevar la divisa: son DOS cobros por mes cuando el cliente tiene cajas en
+   dos monedas, y uno solo cuando tiene en una. Va acá abajo y no arriba con los otros porque usa
+   la columna que se acaba de agregar. Se tira el viejo primero: si quedara, seguiría prohibiendo
+   el segundo cobro del mes y la división no entraría en la base. */
+try { db.exec('DROP INDEX IF EXISTS ux_chat_cobro'); } catch (e) { /* no estaba */ }
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_cobro_div
+    ON chat_mov (cliente_id, mes, divisa) WHERE tipo='cobro'`);
+} catch (e) { console.warn('[Chat] no se pudo crear el índice del cobro por divisa:', e.message); }
 /* AL PROVEEDOR SE LE PAGAN DOS COSAS, Y NO JUNTAS. El % de la ganancia y el mantenimiento de cada
    caja van a wallets distintas y en fechas distintas, así que cada pago tiene que decir de cuál de
    las dos es: si no, un saldo a medias no dice qué falta. */
@@ -403,6 +461,20 @@ function setConfig(d) {
 }
 
 /** Los paneles que tienen el servicio, con su cliente y su precio. */
+/* QUÉ MONEDA REPORTA ESA CAJA, según los datos. Es la sugerencia, no el dato de facturación: el
+   que factura es `chat_panel.divisa`, que se guarda. Mira los últimos meses y se queda con la
+   moneda que más días trajo — si una caja cambió de moneda, el mes viejo no manda sobre el nuevo.
+   Devuelve null si no hay datos: sin datos no se inventa una divisa. */
+function _divisaSegunLosDatos(nodo, conexionId) {
+  if (!nodo || !conexionId) return null;
+  try {
+    const r = db.prepare(`SELECT moneda, COUNT(*) n FROM reporte_diario
+      WHERE conexion_id=? AND sa_id=? AND fecha >= date('now','-4 months')
+      GROUP BY moneda ORDER BY n DESC LIMIT 1`).get(String(conexionId), String(nodo));
+    return (r && r.moneda) || null;
+  } catch (e) { return null; }
+}
+
 function list() {
   const filas = db.prepare('SELECT * FROM chat_panel').all();
   const pan = new Map(paneles.list().map((p) => [p.id, p]));
@@ -426,6 +498,11 @@ function list() {
          día que se agregue uno nuevo va a quedar mirando el nodo del panel sin que nadie lo note. */
       nodo: String(f.sala_id || p.id_usuario || ''),
       cliente_id: p.cliente_id || null, cliente: c.nombre || c.codigo || '—',
+      /* DE QUÉ CUENTA ES ESTA CAJA. La guardada manda; si está vacía se usa la de los datos, y se
+         avisa que es sugerida para que se pueda confirmar en vez de quedar adivinada para siempre. */
+      divisa: String(f.divisa || '').toUpperCase()
+        || _divisaSegunLosDatos(String(f.sala_id || p.id_usuario || ''), p.conexion_id) || '',
+      divisaPuesta: !!f.divisa,
     };
   }).sort((a, b) => String(a.cliente).localeCompare(String(b.cliente), 'es')
     || String(a.panel).localeCompare(String(b.panel), 'es'));
@@ -504,13 +581,13 @@ function set(d) {
   }
   const q = (k) => (Object.prototype.hasOwnProperty.call(links, k) ? links[k] : ((prev && prev[k]) || null));
   db.prepare(`INSERT INTO chat_panel
-      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin,clave_admin,sala_id,sala_login)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      (panel_id,pct_cliente,dia_cobro,activo,desde,notas,createdAt,link_jugadores,link_panel,usuario_admin,clave_admin,sala_id,sala_login,divisa)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(panel_id) DO UPDATE SET pct_cliente=excluded.pct_cliente, dia_cobro=excluded.dia_cobro,
       activo=excluded.activo, desde=excluded.desde, notas=excluded.notas,
       link_jugadores=excluded.link_jugadores, link_panel=excluded.link_panel,
       usuario_admin=excluded.usuario_admin, clave_admin=excluded.clave_admin,
-      sala_id=excluded.sala_id, sala_login=excluded.sala_login`)
+      sala_id=excluded.sala_id, sala_login=excluded.sala_login, divisa=excluded.divisa`)
     .run(id, pct || null, dia,
       vino('activo') ? (d.activo === false ? 0 : 1) : (prev ? prev.activo : 1),
       String(d.desde || (prev && prev.desde) || '').slice(0, 10) || null,
@@ -520,7 +597,10 @@ function set(d) {
       /* El id del casino se guarda como lo escribió ella, sin adivinar: acá se pega un número de
          la pantalla del casino y no hay forma de deducirlo del nombre. Vacío vuelve al nodo del panel. */
       (vino('sala_id') ? String(d.sala_id || '').trim().slice(0, 32) : String((prev && prev.sala_id) || '')) || null,
-      (vino('sala_login') ? String(d.sala_login || '').trim().slice(0, 80) : String((prev && prev.sala_login) || '')) || null);
+      (vino('sala_login') ? String(d.sala_login || '').trim().slice(0, 80) : String((prev && prev.sala_login) || '')) || null,
+      /* Vacío = la que digan los datos. Confirmarla la fija: es una convención —a qué cuenta van
+         los 150 del mantenimiento— y una convención se decide, no se deduce todos los meses. */
+      (vino('divisa') ? String(d.divisa || '').trim().toUpperCase().slice(0, 8) : String((prev && prev.divisa) || '')) || null);
   return { ok: true, panel: list().find((x) => x.panel_id === id) };
 }
 function quitar(panelId) {
@@ -695,6 +775,8 @@ function cierre(mes) {
       profit_usdt: profitUsdt, cobra, paga, margen,
       // Desde cuándo tiene el servicio, y qué tramo del mes se le contó.
       contrato_desde: String(p.desde || '').slice(0, 10) || null, tramo,
+      // De qué cuenta es esta caja: la guardada, o la que digan sus datos. Ver _divisaDelPanel.
+      divisa: String(p.divisa || '').toUpperCase(),
       /* Cobrarle menos de lo que cuesta se puede querer (una promoción) pero no por accidente.
          Un panel SIN precio también da margen negativo, pero ése ya tiene su propio aviso: contarlo
          acá lo haría aparecer en las dos listas y las dos dirían lo mismo. Este aviso es para el
@@ -1042,6 +1124,19 @@ function porCliente(mes) {
    Aparte de la cuenta de las fichas, a propósito: ver el comentario de la tabla `chat_mov`.
    Cobrar un mes CONGELA el número. Después de eso el cliente puede pagar y el saldo se mueve, pero
    lo cobrado no cambia aunque cambie un tipo de cambio — es lo que le mandaste. */
+/* DE QUÉ CUENTA ES ESTE PANEL. La guardada manda; si no hay, la que dicen sus datos de este mes;
+   y si el mes trajo dos monedas, se toma la de más ganancia — el mantenimiento no se puede partir
+   y repartirlo sería inventar una proporción. Sin nada, cadena vacía: el cliente de una sola
+   moneda sigue teniendo UNA cuenta, como siempre. */
+function _divisaDelPanel(p) {
+  const puesta = String((p && p.divisa) || '').trim().toUpperCase();
+  if (puesta) return puesta;
+  const det = ((p && p.detalle) || []).filter((x) => Number(x.profit) > 0);
+  if (!det.length) return '';
+  const mayor = det.slice().sort((a2, b2) => Number(b2.profit || 0) - Number(a2.profit || 0))[0];
+  return String((mayor && mayor.moneda) || '').toUpperCase();
+}
+
 function cobrar(mes, opciones = {}) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
@@ -1060,25 +1155,45 @@ function cobrar(mes, opciones = {}) {
     };
   }
   const creados = []; const yaEstaban = []; const enCero = []; const sinCliente = [];
-  const ins = db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
-    VALUES (?,?,?,'cobro',?,'USDT',?,?,?)`);
+  const ins = db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+    VALUES (?,?,?,'cobro',?,'USDT',?,?,?,?)`);
+  /* LA FECHA ES EL ÚLTIMO DÍA DEL MES COBRADO, no el día que apretaste el botón ni un 28 inventado.
+     El % se calcula con el mes cerrado, así que el 28 decía que se cobró tres días antes de que se
+     pudiera calcular. El cierre de agosto es el 31 de agosto. */
+  const largoM = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+  const fechaCierre = `${m}-${largoM}`;
   const tx = db.transaction(() => {
     for (const g of pc.clientes || []) {
       /* Una caja sin cliente asignado no se le puede cobrar a nadie — pero al proveedor SÍ se le
          paga por ella. Saltearla en silencio era regalar ese mes. Se nombra. */
       if (!g.cliente_id) { sinCliente.push(g.cliente || '(sin cliente)'); continue; }
       if (!money.isPos(g.cobra)) { enCero.push(g.cliente); continue; }
-      const ya = db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(g.cliente_id, m);
-      if (ya) { yaEstaban.push(g.cliente); continue; }
-      const id = 'chm_' + require('crypto').randomBytes(6).toString('hex');
-      /* LA FECHA ES EL ÚLTIMO DÍA DEL MES COBRADO, no el día que apretaste el botón ni un 28
-         inventado. El % se calcula con el mes cerrado, así que el 28 decía que se cobró tres días
-         antes de que se pudiera calcular — y a quien mira su cuenta eso no le cierra. El cierre de
-         agosto es el 31 de agosto. */
-      const largoM = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
-      ins.run(id, g.cliente_id, m, g.cobra, `${m}-${largoM}`,
-        g.sinPrecio ? 'precio sin confirmar (se cobró el mínimo)' : '', nowISO());
-      creados.push({ cliente: g.cliente, cliente_id: g.cliente_id, monto: g.cobra });
+      /* ── UN COBRO POR DIVISA, NO UNO POR CLIENTE ────────────────────────────────────────────
+         Un cliente puede tener cajas en dos monedas, y a veces son dos negocios con socios
+         distintos: los quiere separados, y a veces va a pagar cada uno en su moneda.
+
+         ⚠️ EL TOTAL SE SUMA PANEL POR PANEL, no se recalcula como el % de la ganancia junta.
+         `cobra` se redondea en cada panel, así que las cajas PYG de Ariel dan 292,10 sumando y
+         292,09 haciendo el 4% de 7.302,35. Un centavo, y la cuenta del cliente deja de cerrar
+         contra el detalle que tiene delante. */
+      const porDiv = new Map();
+      for (const p of g.paneles || []) {
+        const dv = _divisaDelPanel(p);
+        if (!porDiv.has(dv)) porDiv.set(dv, { monto: '0', sinPrecio: false });
+        const x = porDiv.get(dv);
+        x.monto = money.add(x.monto, p.cobra || '0');
+        x.sinPrecio = x.sinPrecio || !!p.sinPrecio;
+      }
+      for (const [dv, x] of porDiv) {
+        if (!money.isPos(x.monto)) continue;
+        const ya = db.prepare(`SELECT id FROM chat_mov
+          WHERE cliente_id=? AND mes=? AND tipo='cobro' AND divisa=?`).get(g.cliente_id, m, dv);
+        if (ya) { yaEstaban.push(`${g.cliente}${dv ? ' (' + dv + ')' : ''}`); continue; }
+        const id = 'chm_' + require('crypto').randomBytes(6).toString('hex');
+        ins.run(id, g.cliente_id, m, x.monto, fechaCierre,
+          x.sinPrecio ? 'precio sin confirmar (se cobró el mínimo)' : '', nowISO(), dv);
+        creados.push({ cliente: g.cliente, cliente_id: g.cliente_id, monto: x.monto, divisa: dv });
+      }
     }
   });
   try { tx(); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
@@ -1103,13 +1218,21 @@ function cobrar(mes, opciones = {}) {
  *
  * NO borra los pagos: ésos pasaron de verdad y no los deshace nadie.
  */
-function descobrar(mes, clienteId = null) {
+function descobrar(mes, clienteId = null, divisa = null) {
   const m = String(mes || '').slice(0, 7);
   const cid = clienteId ? String(clienteId) : null;
-  const r = cid
-    ? db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro' AND cliente_id=?").run(m, cid)
-    : db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro'").run(m);
-  return { ok: true, mes: m, cliente_id: cid, borrados: r.changes };
+  /* Con divisa se deshace SÓLO esa cuenta: un cliente con cajas en dos monedas tiene dos cobros
+     del mismo mes, y arreglar el de pesos no puede borrarle el de guaraníes. */
+  const dv = divisa == null ? null : String(divisa).toUpperCase();
+  let r;
+  if (cid && dv != null) {
+    r = db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro' AND cliente_id=? AND divisa=?").run(m, cid, dv);
+  } else if (cid) {
+    r = db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro' AND cliente_id=?").run(m, cid);
+  } else {
+    r = db.prepare("DELETE FROM chat_mov WHERE mes=? AND tipo='cobro'").run(m);
+  }
+  return { ok: true, mes: m, cliente_id: cid, divisa: dv, borrados: r.changes };
 }
 
 /**
@@ -1148,10 +1271,15 @@ function cobrarMensualidad(d) {
   const nota = String(d.nota || '').trim()
     || `Mantenimiento${d.panel ? ' ' + d.panel : ''}${per ? ' · ' + per.texto : ''}`;
   const mid = 'chm_' + require('crypto').randomBytes(6).toString('hex');
-  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,panel)
-    VALUES (?,?,?,'mensualidad',?,?,?,?,?,?)`).run(mid, id, fecha.slice(0, 7),
+  /* De qué cuenta son estos 150. Sale de la caja: es lo único que los ata a una moneda, porque el
+     mantenimiento en sí se cobra en USDT vaya donde vaya. Sin caja identificable queda sin cuenta,
+     que es lo mismo que un cliente de una sola moneda. */
+  const divMens = String((list().find((x) => x.cliente_id === id
+    && x.panel === String(d.panel || '')) || {}).divisa || '').toUpperCase();
+  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,panel,divisa)
+    VALUES (?,?,?,'mensualidad',?,?,?,?,?,?,?)`).run(mid, id, fecha.slice(0, 7),
     money.round(monto, 2), c.mensualidad_moneda || 'USDT', fecha, nota, nowISO(),
-    String(d.panel || '') || null);
+    String(d.panel || '') || null, divMens);
   return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
 }
 
@@ -1214,10 +1342,14 @@ function pagarCliente(d) {
     return { ok: false, error: 'el monto tiene que ser un número mayor que cero. Usá punto para los decimales: 246.93' };
   }
   const mid = 'chm_' + require('crypto').randomBytes(6).toString('hex');
-  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt)
-    VALUES (?,?,?,'pago',?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
+  /* CONTRA QUÉ CUENTA. Un cliente con cajas en dos monedas tiene dos cuentas, y un pago tiene que
+     decir de cuál es: sin eso, la plata del negocio en guaraníes le tapa deuda al de pesos. Vacío
+     = el cliente tiene una sola, que es el caso de casi todos. */
+  const divPago = String(d.divisa || '').trim().toUpperCase().slice(0, 8);
+  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+    VALUES (?,?,?,'pago',?,?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
     String(d.moneda || 'USDT').toUpperCase().slice(0, 8),
-    String(d.fecha || '').slice(0, 10) || hoy(), String(d.nota || ''), nowISO());
+    String(d.fecha || '').slice(0, 10) || hoy(), String(d.nota || ''), nowISO(), divPago);
   // A qué se imputa. Los que ella carga a mano no lo dicen y quedan en null: ver saldoPorConcepto.
   const conc = normConcepto(d.concepto);
   if (conc) db.prepare('UPDATE chat_mov SET concepto=? WHERE id=?').run(conc, mid);
@@ -1249,7 +1381,7 @@ function cuentas(mes) {
       const c = cli.get(f.cliente_id) || {};
       por.set(f.cliente_id, {
         cliente_id: f.cliente_id, cliente: c.nombre || c.codigo || '(cliente borrado)',
-        cobrado: '0', pagado: '0', debe: '0', movs: [],
+        cobrado: '0', pagado: '0', debe: '0', movs: [], porDivisa: [],
       });
     }
     const g = por.get(f.cliente_id);
@@ -1257,9 +1389,30 @@ function cuentas(mes) {
     // La mensualidad suma del mismo lado que el cobro: las dos son plata que te deben.
     if (f.tipo === 'pago') g.pagado = money.add(g.pagado, f.monto || '0');
     else g.cobrado = money.add(g.cobrado, f.monto || '0');
+    /* ── Y LA MISMA CUENTA, PARTIDA POR DIVISA ────────────────────────────────────────────────
+       Se AGREGA adentro en vez de cambiarle la forma a `cuentas`. El total del cliente sigue
+       siendo el total —lo lee la pantalla de ella, el portal, la hoja y media docena de checks— y
+       el que quiera las dos cuentas las tiene acá al lado. Un cliente de una sola moneda trae un
+       solo renglón, así que no hay dos caminos que mantener. */
+    const dv = String(f.divisa || '').toUpperCase();
+    let d = g.porDivisa.find((x) => x.divisa === dv);
+    if (!d) { d = { divisa: dv, cobrado: '0', pagado: '0', debe: '0' }; g.porDivisa.push(d); }
+    if (f.tipo === 'pago') d.pagado = money.add(d.pagado, f.monto || '0');
+    else d.cobrado = money.add(d.cobrado, f.monto || '0');
   }
   const out = [...por.values()];
-  out.forEach((g) => { g.debe = money.round(money.sub(g.cobrado, g.pagado), 2); });
+  out.forEach((g) => {
+    g.debe = money.round(money.sub(g.cobrado, g.pagado), 2);
+    g.porDivisa.forEach((d) => {
+      d.cobrado = money.round(d.cobrado, 2); d.pagado = money.round(d.pagado, 2);
+      d.debe = money.round(money.sub(d.cobrado, d.pagado), 2);
+    });
+    g.porDivisa.sort((a, b) => money.cmp(b.debe, a.debe));
+    /* La señal de que este cliente TIENE dos cuentas. Una sola divisa —o ninguna, que es lo de
+       antes de la división— no es «dos cuentas»: es la de siempre, y la pantalla no tiene que
+       dibujar una separación que no existe. */
+    g.variasDivisas = g.porDivisa.filter((d) => d.divisa).length > 1;
+  });
   out.sort((a, b) => money.cmp(b.debe, a.debe));
   return {
     mes: m || null, clientes: out,
@@ -1293,10 +1446,15 @@ function cuentas(mes) {
  *                  generaste" de "lo generaste y a este cliente le dio cero", y decirle lo primero
  *                  cuando es lo segundo es mentirle.
  */
-function saldoPorConcepto(clienteId, mes) {
+function saldoPorConcepto(clienteId, mes, divisa = null) {
   const id = String(clienteId || '');
   const m = String(mes || '').slice(0, 7);
-  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=?').all(id);
+  /* Con divisa, la cuenta de ESA moneda y nada más: los dos negocios del cliente son dos, a veces
+     con socios distintos, y la cascada de un pago sin concepto no puede saltar de uno al otro.
+     Sin divisa, todo junto — que es lo que ve la pantalla de ella y el total del portal. */
+  const dv = divisa == null ? null : String(divisa).toUpperCase();
+  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=?').all(id)
+    .filter((x) => dv == null || String(x.divisa || '').toUpperCase() === dv);
 
   const suma = (f) => money.round(money.sum(movs.filter(f).map((x) => x.monto || '0')), 2);
   const cobradoM = suma((x) => x.tipo === 'mensualidad');
@@ -1317,11 +1475,13 @@ function saldoPorConcepto(clienteId, mes) {
   const mant = parte(cobradoM, money.add(pagadoM, aM));
   const gan = parte(cobradoG, money.add(pagadoG, aG));
 
-  const generado = m ? !!db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(id, m) : false;
+  const generado = m ? !!(dv == null
+    ? db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(id, m)
+    : db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro' AND divisa=?").get(id, m, dv)) : false;
   const corrida = m ? db.prepare("SELECT COUNT(*) n FROM chat_mov WHERE mes=? AND tipo='cobro'").get(m).n > 0 : false;
 
   return {
-    mes: m || null,
+    mes: m || null, divisa: dv,
     mantenimiento: mant,
     ganancia: { ...gan, generado, corrida },
     total: {
@@ -1345,9 +1505,13 @@ function saldoPorConcepto(clienteId, mes) {
  *      que sigan debiendo, de la más vieja a la más nueva.
  * Así la suma por caja siempre da el total del cliente, y un pago viejo no desaparece.
  */
-function mantenimientoPorCaja(clienteId) {
+function mantenimientoPorCaja(clienteId, divisa = null) {
   const id = String(clienteId || '');
-  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=? ORDER BY fecha, createdAt').all(id);
+  /* Con divisa, sólo las cajas de esa cuenta. La cascada del sobrante recorre las cajas de a una:
+     sin este filtro, un pago del negocio en guaraníes taparía una caja del de pesos. */
+  const dv = divisa == null ? null : String(divisa).toUpperCase();
+  const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=? ORDER BY fecha, createdAt').all(id)
+    .filter((x) => dv == null || String(x.divisa || '').toUpperCase() === dv);
 
   // Lo cobrado, por caja. Una caja sin nombre cae en un cajón aparte para no perderla.
   const cajas = new Map();
@@ -1411,17 +1575,19 @@ function mantenimientoPorCaja(clienteId) {
    sino contra el concepto, así que no se puede decir cuál quedó pago y cuál no. Lo que sí se puede
    decir con certeza es de cuántos meses viene: si hay uno solo, se nombra; si hay varios, se avisa
    que son varios en vez de elegir uno y equivocarse. */
-function _deQueMes(clienteId) {
-  const ms = db.prepare(`SELECT DISTINCT mes FROM chat_mov
-    WHERE cliente_id=? AND tipo='cobro' ORDER BY mes`).all(String(clienteId || ''))
+function _deQueMes(clienteId, divisa = null) {
+  const dv = divisa == null ? null : String(divisa).toUpperCase();
+  const ms = (dv == null
+    ? db.prepare("SELECT DISTINCT mes FROM chat_mov WHERE cliente_id=? AND tipo='cobro' ORDER BY mes").all(String(clienteId || ''))
+    : db.prepare("SELECT DISTINCT mes FROM chat_mov WHERE cliente_id=? AND tipo='cobro' AND divisa=? ORDER BY mes").all(String(clienteId || ''), dv))
     .map((r) => r.mes).filter(Boolean);
   if (!ms.length) return '';
   if (ms.length === 1) return ` de ${mesEnLetras(ms[0])}`;
   return ' (de varios meses)';
 }
 
-function opcionesDeConcepto(clienteId, mes) {
-  const sc = saldoPorConcepto(clienteId, mes);
+function opcionesDeConcepto(clienteId, mes, divisa = null) {
+  const sc = saldoPorConcepto(clienteId, mes, divisa);
   const plata = (x) => `${money.round(x, 2).replace('-', '')}`;
   const fmt = (v) => Number(v || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const comoEsta = (p) => {
@@ -1448,7 +1614,7 @@ function opcionesDeConcepto(clienteId, mes) {
        «% sobre las ganancias de septiembre — debés 357,07» cuando esos 357,07 son de agosto, de un
        mes que encima todavía no está calculado. Se nombra el mes del que viene la deuda, y si
        viene de varios no se nombra ninguno: se dice que son varios. */
-    { valor: 'ganancia', nombre: `% sobre las ganancias${_deQueMes(clienteId)}`,
+    { valor: 'ganancia', nombre: `% sobre las ganancias${_deQueMes(clienteId, divisa)}`,
       estado: estadoGan(), debe: sc.ganancia.debe },
   ];
   opciones.forEach((o) => { o.rotulo = `${o.nombre} — ${o.estado}`; });
@@ -1459,7 +1625,7 @@ function opcionesDeConcepto(clienteId, mes) {
   /* Las cajas que todavía deben mantenimiento, para que pueda elegir cuáles cubre. Uno con cuatro
      cajas paga una vez y dice cuáles: sin esto, un pago de 300 sobre cuatro de 150 no deja saber
      cuáles dos quedaron al día. Sólo van las que deben algo. */
-  const cajasMant = mantenimientoPorCaja(clienteId).filter((c) => money.isPos(c.debe))
+  const cajasMant = mantenimientoPorCaja(clienteId, divisa).filter((c) => money.isPos(c.debe))
     .map((c) => ({ panel: c.panel, debe: c.debe, texto: `${c.panel} — ${fmt(c.debe)} USDT` }));
 
   return {
@@ -1474,6 +1640,7 @@ function opcionesDeConcepto(clienteId, mes) {
         + 'a principio del mes que viene. Si querés dejar algo a cuenta, poné cuánto.'
       : '',
     saldo: sc,
+    divisa: divisa == null ? null : String(divisa).toUpperCase(),
   };
 }
 
@@ -2201,6 +2368,9 @@ function borrarPago(id) {
   return { ok: true, borrados: r.changes };
 }
 
+/* Se corre al final del módulo, cuando `list()` ya existe y las columnas nuevas ya están. */
+_ponerDivisaALoViejo();
+
 module.exports = {
   config, setConfig, list, set, quitar, gananciaDelMes, cierre, mensualidadesDe,
   destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken, deudaProveedor,
@@ -2211,7 +2381,7 @@ module.exports = {
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
-  comoLaLlamaElCliente: _comoLaLlamaElCliente,
+  comoLaLlamaElCliente: _comoLaLlamaElCliente, divisaDelPanel: _divisaDelPanel,
   proveedorGrupo,
   paraElProveedor, mesesDelProveedor,
   proveedorAcceso, setProveedorAcceso, proveedorEntra, proveedorCorte,

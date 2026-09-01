@@ -2519,7 +2519,7 @@ async function main() {
       (() => {
         const fuente = require('fs').readFileSync(
           require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
-        return !/`\$\{m\}-28`/.test(fuente) && /getUTCDate\(\);\s*\n\s*ins\.run/.test(fuente);
+        return !/`\$\{m\}-28`/.test(fuente) && /const fechaCierre = `\$\{m\}-\$\{largoM\}`/.test(fuente);
       })());
     check('chat: si es la misma wallet para las dos cosas, va un bloque solo',
       (htmlUna.match(/class="paga"/g) || []).length === 1
@@ -2664,6 +2664,75 @@ async function main() {
           && /tramoTxt\(c\.tramo\)/.test(leer('public/proveedor.html'))       // la del proveedor
           && /tramoTxt\(p\.tramo\)/.test(leer('src/chat-doc.js'));            // la hoja del cliente
       })());
+    /* ══ DOS CUENTAS, UNA POR DIVISA ═════════════════════════════════════════════════════════
+       Un cliente puede tener cajas en dos monedas, y a veces son dos negocios con socios distintos.
+       Decisión de ella: se separan de verdad —dos deudas, dos pagos— no dos papeles de una misma
+       cuenta. El obstáculo duro era el índice único (cliente, mes) del cobro: con eso, el segundo
+       cobro del mes NO ENTRABA EN LA BASE. */
+    const CLID = ch.divisaDelPanel;
+    check('divisa: la que está guardada en la caja manda sobre la que digan los datos',
+      CLID({ divisa: 'PYG', detalle: [{ moneda: 'ARS', profit: 999 }] }) === 'PYG',
+      'asignarle una divisa a los 150 del mantenimiento es una convención, y una convención se decide');
+    check('divisa: sin guardar, la de los datos',
+      CLID({ detalle: [{ moneda: 'ARS', profit: 10 }] }) === 'ARS');
+    check('divisa: si la caja reportó en dos, la de más ganancia',
+      CLID({ detalle: [{ moneda: 'ARS', profit: 10 }, { moneda: 'PYG', profit: 500 }] }) === 'PYG',
+      'el mantenimiento no se puede partir: repartirlo sería inventar una proporción');
+    check('divisa: sin datos y sin guardar, ninguna —no se inventa—',
+      CLID({}) === '' && CLID({ detalle: [] }) === '');
+
+    /* ⚠️ EL ÍNDICE ÚNICO. Si quedara el viejo —(cliente, mes)— el segundo cobro del mes se
+       rechazaría y la división no existiría, sin ningún error visible arriba. */
+    check('divisa: la base acepta dos cobros del mismo mes si son de cuentas distintas',
+      (() => {
+        const dbx = require('../src/db').db;
+        const cid = 'c_div_prueba';
+        dbx.prepare("DELETE FROM chat_mov WHERE cliente_id=?").run(cid);
+        const meter = (dv) => dbx.prepare(`INSERT INTO chat_mov
+          (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+          VALUES (?,?,'2026-08','cobro','10','USDT','2026-08-31','',?,?)`)
+          .run('chm_d' + dv, cid, '2026-09-01T00:00:00.000Z', dv);
+        meter('PYG'); meter('ARS');
+        const n = dbx.prepare("SELECT COUNT(*) n FROM chat_mov WHERE cliente_id=? AND tipo='cobro'").get(cid).n;
+        let repite = false;
+        try { meter('PYG'); } catch (e) { repite = true; }   // el mismo dos veces SÍ se rechaza
+        dbx.prepare("DELETE FROM chat_mov WHERE cliente_id=?").run(cid);
+        return n === 2 && repite;
+      })(),
+      'y sigue prohibiendo cobrar dos veces la MISMA cuenta del mismo mes');
+
+    check('divisa: la cuenta trae las dos por separado, y el total sigue siendo el total',
+      (() => {
+        const dbx = require('../src/db').db;
+        const cid = CLI.id;
+        const antes = dbx.prepare('SELECT * FROM chat_mov WHERE cliente_id=?').all(cid);
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        const meter = (dv, monto, tipo) => dbx.prepare(`INSERT INTO chat_mov
+          (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+          VALUES (?,?,'2026-08',?,?,'USDT','2026-08-31','','2026-09-01T00:00:00.000Z',?)`)
+          .run('chm_x' + dv + tipo + monto, cid, tipo, monto, dv);
+        meter('PYG', '742.10', 'cobro'); meter('ARS', '164.24', 'cobro');
+        const g = ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === cid);
+        const pyg = g.porDivisa.find((d) => d.divisa === 'PYG');
+        const ars = g.porDivisa.find((d) => d.divisa === 'ARS');
+        // un pago de la cuenta PYG no puede tapar deuda de la ARS
+        meter('PYG', '742.10', 'pago');
+        const sPyg = ch.saldoPorConcepto(cid, '2026-08', 'PYG');
+        const sArs = ch.saldoPorConcepto(cid, '2026-08', 'ARS');
+        const ok = g.debe === '906.34' && g.variasDivisas === true
+          && pyg && pyg.debe === '742.1' && ars && ars.debe === '164.24'
+          && sPyg.total.debe === '0' && sArs.total.debe === '164.24';
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        for (const f of antes) {
+          dbx.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,panel,concepto,cajas,divisa)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+            .run(f.id, f.cliente_id, f.mes, f.tipo, f.monto, f.moneda, f.fecha, f.nota,
+              f.createdAt, f.panel, f.concepto, f.cajas, f.divisa || '');
+        }
+        return ok;
+      })(),
+      'un pago del negocio en guaraníes no puede taparle deuda al de pesos');
+
     /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
        Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
        liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de
