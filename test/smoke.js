@@ -2653,6 +2653,23 @@ async function main() {
     /* ── QUÉ TRAMO DEL MES SE LE CONTÓ ───────────────────────────────────────────────────────
        El primer mes cada caja arrancó una fecha distinta, así que su % no cubre el mes entero.
        «6.880,50 × 4%» sin las dos puntas es un número que el cliente no puede comprobar. */
+    /* ── EL PERÍODO SE MUESTRA EN LAS TRES PANTALLAS ─────────────────────────────────────────
+       Es el dato con el que cualquiera de los tres comprueba la ganancia contra el panel del
+       casino. Estaba sólo del lado del cliente: ella y el proveedor veían el número pelado. */
+    check('chat: el período por caja se ve en las tres pantallas, no sólo en la del cliente',
+      (() => {
+        const leer = (f) => require('fs').readFileSync(
+          require('path').join(__dirname, '..', f), 'utf8');
+        return /chatTramo\(p\.tramo\)/.test(leer('public/os.html'))          // la de ella
+          && /tramoTxt\(c\.tramo\)/.test(leer('public/proveedor.html'))       // la del proveedor
+          && /tramoTxt\(p\.tramo\)/.test(leer('src/chat-doc.js'));            // la hoja del cliente
+      })());
+    check('chat: y al proveedor le llega el tramo de cada caja',
+      (() => {
+        const d = ch.paraElProveedor('2026-08');
+        return (d.cajas || []).every((c) => 'tramo' in c);
+      })());
+
     check('chat: el cálculo devuelve desde y hasta qué día se contó, no sólo cuántos',
       (() => {
         const pc = ch.porCliente('2026-08');

@@ -5089,6 +5089,7 @@ VIEWS.chat = async () => {
                 ${g.paneles.map(p=>`<div class="subcaja">
                   <div class="cn">${esc(p.panel)}<small>${esc(p.nivel||'')}</small></div>
                   <div class="subdatos">
+                    <div><span class="k">Período</span><span class="v">${chatTramo(p.tramo)}</span></div>
                     <div><span class="k">Ganó</span><span class="v">${chatMonedas((p.detalle||[]).filter(x=>Number(x.profit)>0))}</span></div>
                     <div><span class="k">En USDT</span><span class="v">${money(p.profit_usdt,2)}</span></div>
                     <div><span class="k">Le cobrás</span><span class="v">${esc(p.pct_cliente)}%${
@@ -5420,6 +5421,21 @@ function chatOpciones(lista){
 
 /* Las monedas de un cliente, sumadas entre sus paneles. Mismo criterio que la fila del panel: el
    monto en su moneda arriba y el tipo de cambio usado abajo. */
+/* QUÉ TRAMO DEL MES SE LE CONTÓ A ESA CAJA. Sin las fechas, la ganancia de la que sale el % es un
+   número que no se puede comprobar contra el panel del casino — ni vos ni el cliente. Y el primer
+   mes cada caja arrancó un día distinto, así que ninguna cubre el mes entero.
+   Los días van aparte porque el tramo no siempre es corrido: un día sin movimiento no se contó, y
+   «del 17 al 31» solo da a entender que fueron 15 seguidos cuando pudieron ser 13. */
+const CH_DIA=['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const chatDiaMes=(iso)=>{const p=String(iso||'').split('-');
+  return p.length===3? Number(p[2])+' '+(CH_DIA[Number(p[1])]||'') : '';};
+function chatTramo(t){
+  if(!t||!t.desde) return '<span class="muted">sin datos</span>';
+  const cab = t.desde===t.hasta ? chatDiaMes(t.desde) : chatDiaMes(t.desde)+' – '+chatDiaMes(t.hasta);
+  return esc(cab)+'<small class="muted"> · '+t.dias+' día'+(t.dias===1?'':'s')
+    + (t.diasAfuera? ' · '+t.diasAfuera+' antes de contratar':'') + '</small>';
+}
+
 function chatMonedas(ms){
   const d=(ms||[]).filter(x=>Number(x.profit)>0);
   if(!d.length) return '<span class="muted">—</span>';

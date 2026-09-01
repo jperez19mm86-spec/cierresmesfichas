@@ -59,6 +59,18 @@ const MESES = ['','enero','febrero','marzo','abril','mayo','junio','julio','agos
   'septiembre','octubre','noviembre','diciembre'];
 /* 'YYYY-MM' → 'agosto 2026', a mano. Pasar 'YYYY-MM' por Date se corre de mes según la zona, y un
    mes equivocado en una liquidación es una discusión. */
+/* «17 ago – 31 ago · 15 días». Sin las fechas, la ganancia sobre la que cobra es un número que no
+   se puede comprobar contra nada. Los días van aparte porque el tramo no siempre es corrido: un día
+   sin movimiento no se contó, y «del 17 al 31» solo da a entender que fueron 15 seguidos. */
+const DIA_L = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const diaMes = (iso) => { const p = String(iso || '').split('-');
+  return p.length === 3 ? Number(p[2]) + ' ' + (DIA_L[Number(p[1])] || '') : ''; };
+function tramoTxt(t) {
+  if (!t || !t.desde) return '—';
+  const cab = t.desde === t.hasta ? diaMes(t.desde) : diaMes(t.desde) + ' – ' + diaMes(t.hasta);
+  return esc(cab) + '<div class="tenue">' + t.dias + ' día' + (t.dias === 1 ? '' : 's') + '</div>';
+}
+
 const mesLindo = (m) => { const p = String(m||'').split('-');
   return (MESES[Number(p[1])] || m) + ' ' + (p[0] || ''); };
 
@@ -164,7 +176,7 @@ async function cargar() {
      porque significa que algo está mal cargado. */
   h += '<div class="card"><h2>Las cajas de ' + esc(mesLindo(d.mes)) + '</h2>';
   h += (d.cajas || []).length
-    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th>'
+    ? '<div class="desplaza"><table><thead><tr><th>Caja</th><th>Cliente</th><th>Período</th>'
       + '<th class="r">Ganancia</th><th class="r">Tipo de cambio</th>'
       + '<th class="r">En USDT</th><th class="r">Te toca' + (d.cerrado ? '' : '<div class="tenue" style="font-weight:400;text-transform:none;letter-spacing:0">estimado</div>') + '</th></tr></thead><tbody>'
       + d.cajas.map((c) => {
@@ -172,6 +184,7 @@ async function cargar() {
         return ms.map((m, i) => '<tr' + (i ? ' class="sigue"' : '') + '>'
           + '<td>' + (i ? '' : '<b>' + esc(c.caja) + '</b>') + '</td>'
           + '<td class="tenue">' + (i ? '' : esc(c.cliente)) + '</td>'
+          + '<td class="tenue">' + (i ? '' : tramoTxt(c.tramo)) + '</td>'
           + '<td class="r"><span class="tenue">' + esc(m.moneda) + '</span> ' + num(m.profit) + '</td>'
           + '<td class="r tenue">' + (m.tc ? num(m.tc, 4) : '—') + '</td>'
           + '<td class="r">' + (m.usdt == null ? '—' : num(m.usdt)) + '</td>'

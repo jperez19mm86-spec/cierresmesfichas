@@ -1631,6 +1631,10 @@ function paraElProveedor(mes) {
       cajas.push({
         cliente: g.cliente, caja: p.panel,
         profit: p.profit_usdt,      // la ganancia de la caja, en USDT
+        /* QUÉ TRAMO SE CONTÓ. Él cobra sobre esa ganancia: sin las fechas no puede comprobar el
+           número contra nada, igual que el cliente. Y el primer mes cada caja arrancó un día
+           distinto, así que ninguna cubre el mes entero. */
+        tramo: p.tramo || null,
         cobra: undefined,           // ← NUNCA. Queda escrito para que se vea que es a propósito.
         paga: p.paga,               // lo que ÉL cobra por esa caja
         monedas: (p.detalle || []).filter((d) => Number(d.profit) > 0)
