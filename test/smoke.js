@@ -3704,10 +3704,16 @@ async function main() {
         'HTTP ' + rAcc.status);
 
       const rPortada = await axios.get(BASE + '/chat', { validateStatus: () => true });
-      check('portal: la portada abre sin login y se llama GANAMOS x Latam',
-        rPortada.status === 200 && /GANAMOS/.test(String(rPortada.data))
+      check('portal: la portada abre sin login y se llama Chat Interno',
+        rPortada.status === 200 && /CHAT<span class="x">INTERNO<\/span>/.test(String(rPortada.data))
         && /Tu usuario/.test(String(rPortada.data)),
         'HTTP ' + rPortada.status);
+      /* La piel se pide aparte y sin sesión: si volviera a quedar fuera de PUBLIC, la pantalla
+         llega sin estilo y nadie se entera hasta que la abre un cliente. */
+      const rPiel = await axios.get(BASE + '/piel.css', { validateStatus: () => true });
+      check('portal: y la piel se sirve sin sesión, o llega sin estilo',
+        rPiel.status === 200 && /^\/\*/.test(String(rPiel.data)),
+        'HTTP ' + rPiel.status);
 
       const rNo = await axios.post(BASE + '/chat/entrar', { usuario: 'nadie-asi' }, { validateStatus: () => true });
       check('portal: un usuario que no existe no entra',
