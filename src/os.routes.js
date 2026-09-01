@@ -2184,11 +2184,30 @@ function mount(app) {
      La del cliente sale de `paraCliente`, que NO arrastra el costo ni el margen; la del proveedor
      sale de `paraProveedor`, que no arrastra lo que le cobrás a cada cliente. El chequeo de abajo
      es cinturón y tiradores: esto se le muestra a alguien de afuera y no hay vuelta atrás. */
-  function _hojaCliente(mes, clienteId) {
+  /* Con `divisa`, la hoja de UNA de sus cuentas. Un cliente con cajas en dos monedas recibe dos:
+     a veces son dos negocios con socios distintos.
+
+     ⚠️ EL TOTAL SE VUELVE A SUMAR CAJA POR CAJA, no se recalcula como el % de la ganancia junta.
+     `cobra` se redondea en cada caja, así que las de Ariel en PYG dan 292,10 sumando y 292,09
+     haciendo el 4% de 7.302,35 — un centavo, y la hoja deja de cerrar contra su propio detalle.
+     Y `sinTC` se recalcula sobre lo filtrado: el aviso de «falta un tipo de cambio» es de todo el
+     cliente, y arrastrarlo entero pondría el cartel en la hoja de la cuenta que no lo tiene. */
+  function _hojaCliente(mes, clienteId, divisa) {
     const pc = chat.porCliente(mes);
     const g = (pc.clientes || []).find((x) => String(x.cliente_id) === String(clienteId));
     if (!g) return null;
-    return chatDoc.paraCliente(g, { mes: pc.mes });
+    const dv = String(divisa || '').toUpperCase();
+    if (!dv) return chatDoc.paraCliente(g, { mes: pc.mes });
+    const paneles = (g.paneles || []).filter((p) => chat.divisaDelPanel(p) === dv);
+    if (!paneles.length) return null;
+    const gd = {
+      ...g,
+      paneles,
+      monedas: (g.monedas || []).filter((m) => String(m.moneda || '').toUpperCase() === dv),
+      cobra: paneles.reduce((a, p) => require('./lib/money').add(a, p.cobra || '0'), '0'),
+      sinTC: paneles.some((p) => (p.detalle || []).some((x) => Number(x.profit) > 0 && x.usdt == null)),
+    };
+    return { ...chatDoc.paraCliente(gd, { mes: pc.mes }), divisa: dv };
   }
   function _sinDatosInternos(html) {
     return !/margen|costo|pct_costo|te cuesta|paga:/i.test(html);
@@ -2196,7 +2215,7 @@ function mount(app) {
 
   app.get('/api/os/chat/doc/cliente/:clienteId', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
-    const doc = _hojaCliente(mes, req.params.clienteId);
+    const doc = _hojaCliente(mes, req.params.clienteId, req.query.divisa);
     if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
     // La vista previa muestra lo MISMO que va a ver el cliente, salvo el formulario: mirar una
     // versión distinta de la que se manda no sirve para revisarla.
@@ -2223,7 +2242,10 @@ function mount(app) {
      cliente abre es lo mismo que viste vos, aunque después cambie un tipo de cambio. */
   app.post('/api/os/chat/enviar/:clienteId', wrap(async (req, res) => {
     const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
-    const doc = _hojaCliente(mes, req.params.clienteId);
+    /* Una cuenta a la vez. Un cliente con cajas en dos monedas recibe dos mensajes, cada uno con
+       lo suyo: son dos negocios, y a veces con socios distintos. */
+    const dv = String((req.body || {}).divisa || '').toUpperCase();
+    const doc = _hojaCliente(mes, req.params.clienteId, dv);
     if (!doc) return err(res, 404, 'ese cliente no tiene nada en el chat externo ese mes');
     const d = chat.destino(req.params.clienteId);
     if (!d.grupos.length) return err(res, 400, 'ese cliente todavía no tiene grupo de Telegram para este servicio');
@@ -2237,9 +2259,13 @@ function mount(app) {
        Sale de los movimientos del mes, que es lo REGISTRADO — no de la proyección del documento.
        Las cajas van para poder nombrarlas por su link, que es como las reconoce el cliente. */
     const esteMesTg = chat.cuentas(mes).clientes.find((x) => x.cliente_id === req.params.clienteId);
-    const cajasTg = chat.list().filter((p) => p.cliente_id === req.params.clienteId);
-    const texto = chatDoc.textoTelegram(mes, (esteMesTg && esteMesTg.movs) || [], portal, cajasTg,
-      chat.comoPagar(req.params.clienteId));
+    // Los movimientos de ESA cuenta: el mensaje tiene que decir lo mismo que la hoja que acompaña.
+    const movsTg = ((esteMesTg && esteMesTg.movs) || [])
+      .filter((m) => !dv || String(m.divisa || '').toUpperCase() === dv);
+    const cajasTg = chat.list().filter((p) => p.cliente_id === req.params.clienteId
+      && (!dv || String(p.divisa || '').toUpperCase() === dv));
+    const texto = chatDoc.textoTelegram(mes, movsTg, portal, cajasTg,
+      chat.comoPagar(req.params.clienteId), dv);
     /* A TODOS los grupos: a veces el encargado tiene que enterarse y no está en el mismo grupo que
        el cliente. Se manda de a uno y se guarda el resultado de cada uno — si falla el segundo, no
        puede quedar como que salió todo bien. */
@@ -2255,8 +2281,8 @@ function mount(app) {
       ? { ok: false, error: fallaron.map((x) => `${x.grupo}: ${x.error}`).join(' · ') }
       : { ok: true };
     // Queda anotado que se mandó: sin esto, "¿se la mandaste?" no tiene respuesta.
-    chat.marcarEnviado(req.params.clienteId, mes, r);
-    r.ok ? ok(res, { url, portal, token: l.token, enviado: idas.length, idas })
+    chat.marcarEnviado(req.params.clienteId, mes, r, dv);
+    r.ok ? ok(res, { url, portal, token: l.token, divisa: dv, enviado: idas.length, idas })
       : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`,
         { url, token: l.token, idas });
   }));

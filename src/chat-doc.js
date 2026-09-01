@@ -569,8 +569,17 @@ function htmlProveedor(doc, emision = null) {
 const crypto = require('crypto');
 const { db } = require('./db');
 
+/* ⚠️ LA CLAVE LLEVA LA DIVISA, o el segundo documento del mes PISA al primero.
+   Un cliente con cajas en dos monedas recibe dos hojas del mismo mes. Con la clave vieja
+   —(cliente, mes)— la segunda encontraba la fila viva y le sobreescribía el JSON: el link de
+   guaraníes que ya le mandaste, al abrirlo, mostraba el de pesos. Sin error y sin aviso, que es el
+   peor modo de fallar de toda la cadena.
+   El prefijo queda de largo variable, así que el cliente se recupera cortando por ':' y no por
+   posición: `slice(5)` se rompía en cuanto el prefijo creciera. */
+const _claveLink = (clienteId, divisa) => `chat:${String(clienteId)}${divisa ? ':' + String(divisa).toUpperCase() : ''}`;
+
 function crearLink(doc, clienteId) {
-  const cid = 'chat:' + String(clienteId);
+  const cid = _claveLink(clienteId, doc.divisa);
   const mes = String(doc.mes);
   const at = new Date().toISOString();
   const ya = db.prepare('SELECT token FROM factura_link WHERE cliente_id=? AND mes=? AND revocado=0').get(cid, mes);
@@ -593,7 +602,8 @@ function porToken(token) {
   db.prepare('UPDATE factura_link SET accesos=accesos+1, ultimo_acceso=? WHERE token=?').run(new Date().toISOString(), r.token);
   try {
     return {
-      doc: JSON.parse(r.datos), cliente_id: String(r.cliente_id).slice(5), mes: r.mes,
+      doc: JSON.parse(r.datos), cliente_id: String(r.cliente_id).split(':')[1] || '', mes: r.mes,
+      divisa: String(r.cliente_id).split(':')[2] || '',
       creado_at: r.creado_at, actualizado_at: r.actualizado_at, accesos: r.accesos + 1,
     };
   }
@@ -601,8 +611,14 @@ function porToken(token) {
 }
 
 function linksDe(clienteId) {
-  return db.prepare(`SELECT token, mes, creado_at, actualizado_at, accesos, ultimo_acceso, revocado
-    FROM factura_link WHERE cliente_id=? ORDER BY mes DESC`).all('chat:' + String(clienteId));
+  /* Con LIKE porque la clave ahora puede llevar la divisa detrás: `chat:<id>` y `chat:<id>:PYG`
+     son links del mismo cliente, y buscando exacto se perdían los partidos. El `:` del final del
+     patrón evita que `chat:c_1` traiga los de `chat:c_10`. */
+  const base = 'chat:' + String(clienteId);
+  return db.prepare(`SELECT token, mes, cliente_id, creado_at, actualizado_at, accesos, ultimo_acceso, revocado
+    FROM factura_link WHERE cliente_id=? OR cliente_id LIKE ? ORDER BY mes DESC`)
+    .all(base, base + ':%')
+    .map((r) => ({ ...r, divisa: String(r.cliente_id).split(':')[2] || '' }));
 }
 
 /** La página cuando el link no sirve. Sin detalles: del otro lado puede haber cualquiera. */
@@ -644,8 +660,11 @@ function nombreParaElCliente(mov, cajas) {
   return soloDominio(c && c.link_jugadores) || nom || 'caja';
 }
 
-function textoTelegram(mes, movs, url, cajas, pago) {
-  const L = [`<b>Chat Externo</b> · ${esc(mesLargo(mes))}`, ''];
+function textoTelegram(mes, movs, url, cajas, pago, divisa) {
+  /* Con dos cuentas, el mensaje tiene que decir de cuál es desde el título: si no, los dos se leen
+     igual y el cliente cree que el segundo es el primero repetido. */
+  const dv = String(divisa || '').toUpperCase();
+  const L = [`<b>Chat Externo</b> · ${esc(mesLargo(mes))}${dv ? ` · tus cajas en ${esc(dv)}` : ''}`, ''];
   /* El renglón que hace que esto se lea como un mensaje y no como una planilla. El mes no se
      repite: está en el título, dos renglones más arriba. */
   L.push('Tu cuenta ya está lista.');

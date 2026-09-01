@@ -181,6 +181,14 @@ db.exec(`
     PRIMARY KEY (cliente_id, mes)
   );
 `);
+/* ⚠️ UNA FILA POR CUENTA, no por cliente. Un cliente con cajas en dos monedas recibe dos cuentas
+   del mismo mes. Con la clave vieja —(cliente, mes)— el segundo envío PISABA al primero, y eso
+   mentía en las dos direcciones: si el de guaraníes salía y el de pesos fallaba, la fila quedaba
+   en error y parecía que no había salido nada; al revés, el error del primero desaparecía.
+   La columna se agrega y la PK vieja se deja: SQLite no deja cambiarla sin rehacer la tabla, y un
+   índice único sobre las tres columnas hace el mismo trabajo. La PK vieja se afloja poniendo la
+   divisa adentro del `cliente_id` guardado — ver `_claveEnvio`. */
+try { db.exec("ALTER TABLE chat_envio ADD COLUMN divisa TEXT NOT NULL DEFAULT ''"); } catch (e) { /* ya estaba */ }
 
 /* LOS DOS LINKS DE CADA CAJA.
    Cada caja nueva viene con un link para los jugadores y otro para el panel del administrador. Son
@@ -1665,8 +1673,11 @@ function opcionesDeConcepto(clienteId, mes, divisa = null) {
  */
 function listasParaMandar(dias = 15) {
   const corte = new Date(Date.now() - Number(dias) * 864e5).toISOString();
-  const filas = db.prepare(`SELECT cliente_id, mes, MAX(createdAt) AS ultimo
-    FROM chat_mov WHERE tipo IN ('cobro','mensualidad') GROUP BY cliente_id, mes`).all();
+  /* ⚠️ AGRUPADO TAMBIÉN POR DIVISA. Un cliente con cajas en dos monedas tiene dos cuentas del
+     mismo mes: agrupando sólo por (cliente, mes), mandar UNA daba las dos por mandadas y el
+     recordatorio dejaba de insistir por la que faltaba. */
+  const filas = db.prepare(`SELECT cliente_id, mes, divisa, MAX(createdAt) AS ultimo
+    FROM chat_mov WHERE tipo IN ('cobro','mensualidad') GROUP BY cliente_id, mes, divisa`).all();
   const yaFue = new Set(db.prepare('SELECT cliente_id, mes FROM chat_envio WHERE ok=1').all()
     .map((e) => `${e.cliente_id}|${e.mes}`));
   const fallo = new Map(db.prepare('SELECT cliente_id, mes, error FROM chat_envio WHERE ok=0').all()
@@ -1690,10 +1701,11 @@ function listasParaMandar(dias = 15) {
   for (const f of filas) {
     if (!f.cliente_id) continue;
     if (String(f.ultimo || '') < corte) continue;              // viejo: ya no se insiste
-    const k = `${f.cliente_id}|${f.mes}`;
+    // La misma clave con la que se guardó el envío: sin la divisa, un envío tapa al otro.
+    const k = `${_claveEnvio(f.cliente_id, f.divisa)}|${f.mes}`;
     if (yaFue.has(k)) continue;
     const c = cli.get(f.cliente_id);
-    const fila = { cliente_id: f.cliente_id, mes: f.mes,
+    const fila = { cliente_id: f.cliente_id, mes: f.mes, divisa: f.divisa || '',
       cliente: (c && (c.nombre || c.codigo)) || '(cliente borrado)',
       fallo: fallo.get(k) || null };
     if (!mesesCobrados.has(String(f.mes))) { faltaCobrar.push(fila); continue; }  // primero se cobra
@@ -2285,11 +2297,17 @@ function resolverAviso(id, aprobar) {
    Un mes pagado y uno impago se veían igual: el sistema calculaba lo que correspondía y no
    guardaba en ningún lado si el pago se hizo. */
 /** Deja anotado el resultado del envío. Se pisa: lo que importa es el último intento. */
-function marcarEnviado(clienteId, mes, r) {
-  db.prepare(`INSERT INTO chat_envio (cliente_id,mes,ok,error,at) VALUES (?,?,?,?,?)
+/* La clave guardada lleva la divisa pegada al cliente. Es lo que deja tener DOS filas del mismo
+   mes sin rehacer la tabla —SQLite no permite cambiar una PRIMARY KEY— y sigue impidiendo dos de
+   la misma cuenta, que es lo que la clave vieja protegía bien. */
+const _claveEnvio = (clienteId, divisa) => `${String(clienteId)}${divisa ? '|' + String(divisa).toUpperCase() : ''}`;
+
+function marcarEnviado(clienteId, mes, r, divisa = '') {
+  db.prepare(`INSERT INTO chat_envio (cliente_id,mes,ok,error,at,divisa) VALUES (?,?,?,?,?,?)
     ON CONFLICT(cliente_id,mes) DO UPDATE SET ok=excluded.ok, error=excluded.error, at=excluded.at`)
-    .run(String(clienteId), String(mes).slice(0, 7), r && r.ok ? 1 : 0,
-      r && r.ok ? null : String((r && r.error) || 'error desconocido'), nowISO());
+    .run(_claveEnvio(clienteId, divisa), String(mes).slice(0, 7), r && r.ok ? 1 : 0,
+      r && r.ok ? null : String((r && r.error) || 'error desconocido'), nowISO(),
+      String(divisa || '').toUpperCase());
   return { ok: true };
 }
 
@@ -2315,11 +2333,14 @@ function avisosMensDe(fecha) {
 }
 
 /** Lo enviado de un mes, por cliente. */
+/* Cómo salió cada envío. La clave del objeto es la misma que se guardó: `<cliente>` cuando el
+   cliente tiene una sola cuenta y `<cliente>|PYG` cuando tiene dos, así la pantalla puede decir
+   «la de guaraníes salió, la de pesos no» en vez de una sola respuesta para las dos. */
 function envios(mes) {
   const m = String(mes || '').slice(0, 7);
   const out = {};
   for (const f of db.prepare('SELECT * FROM chat_envio WHERE mes=?').all(m)) {
-    out[f.cliente_id] = { ok: !!f.ok, error: f.error, at: f.at };
+    out[f.cliente_id] = { ok: !!f.ok, error: f.error, at: f.at, divisa: f.divisa || '' };
   }
   return out;
 }
@@ -2404,6 +2425,7 @@ module.exports = {
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
+  claveEnvio: _claveEnvio,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
   comoLaLlamaElCliente: _comoLaLlamaElCliente, divisaDelPanel: _divisaDelPanel,
   proveedorGrupo,

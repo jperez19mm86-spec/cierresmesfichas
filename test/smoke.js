@@ -2826,7 +2826,49 @@ async function main() {
       'un token suelto en un grupo de Telegram muestra un mes viejo si se abre en diciembre');
     const rutaEnv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('chat: la ruta que manda le pasa el portal y las cajas, no el token',
-      /textoTelegram\(mes, \(esteMesTg && esteMesTg\.movs\) \|\| \[\], portal, cajasTg,\s*\n\s*chat\.comoPagar\(/.test(rutaEnv));
+      /textoTelegram\(mes, movsTg, portal, cajasTg,\s*\n\s*chat\.comoPagar\([^)]*\), dv\)/.test(rutaEnv));
+    /* ── LOS TRES CHOQUES DE MANDAR DOS DEL MISMO MES ────────────────────────────────────────
+       Los tres fallaban EN SILENCIO, que es lo peor que le puede pasar a una cadena así. */
+    check('divisa: el link no se pisa —la clave lleva la divisa—',
+      (() => {
+        const cd = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-doc.js'), 'utf8');
+        return /_claveLink = \(clienteId, divisa\)/.test(cd)
+          && /crearLink\(doc, clienteId\) \{\s*\n\s*const cid = _claveLink\(clienteId, doc\.divisa\)/.test(cd)
+          // y el cliente se recupera cortando por ':', no por posición: el prefijo cambió de largo
+          && !/String\(r\.cliente_id\)\.slice\(5\)/.test(cd);
+      })(),
+      'el link de guaraníes que ya mandaste abría el de pesos, sin error y sin aviso');
+    check('divisa: el registro de «enviada» tampoco —una fila por cuenta—',
+      ch.claveEnvio('c_1', 'PYG') === 'c_1|PYG' && ch.claveEnvio('c_1', '') === 'c_1',
+      'si el de guaraníes salía y el de pesos fallaba, quedaba como que no salió nada');
+    check('divisa: la hoja se puede pedir de UNA cuenta, y suma caja por caja',
+      (() => {
+        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        return /_hojaCliente\(mes, clienteId, divisa\)/.test(rt)
+          // ⚠️ re-suma `cobra` panel por panel: recalcular el % de la ganancia junta da un centavo
+          // distinto por el redondeo de cada caja, y la hoja deja de cerrar contra su detalle.
+          && /paneles\.reduce\(\(a, p\) => require\('\.\/lib\/money'\)\.add\(a, p\.cobra/.test(rt)
+          // y `sinTC` se recalcula: es del cliente entero y pondría el cartel en la cuenta que no lo tiene
+          && /sinTC: paneles\.some/.test(rt);
+      })());
+    check('divisa: el mensaje dice de cuál cuenta es desde el título',
+      /tus cajas en PYG/.test(chDoc.textoTelegram('2026-08',
+        [{ tipo: 'cobro', monto: '1', fecha: '2026-08-31' }], 'https://x/chat', [], null, 'PYG'))
+      && !/tus cajas en/.test(chDoc.textoTelegram('2026-08',
+        [{ tipo: 'cobro', monto: '1', fecha: '2026-08-31' }], 'https://x/chat', [], null, '')),
+      'los dos mensajes se leían igual y el segundo parecía el primero repetido');
+    check('divisa: tu pantalla tiene una fila de botones por cuenta',
+      (() => {
+        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        return /chatEnviar\(this\.dataset\.id,this\.dataset\.nom,this\.dataset\.div\)/.test(o)
+          && /env\[dv\? g\.cliente_id\+'\|'\+dv : g\.cliente_id\]/.test(o);
+      })(),
+      'un solo botón mandaba una y dejaba la otra sin mandar, sin que se notara');
+
+    check('divisa: y el recordatorio insiste por cada cuenta',
+      /GROUP BY cliente_id, mes, divisa/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8')),
+      'mandar una daba las dos por mandadas');
 
     check('chat: el mensaje de Telegram dice el mantenimiento con sus fechas',
       /Mantenimiento<\/b> · 300,00 USDT/.test(tgSin)

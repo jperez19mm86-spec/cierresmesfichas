@@ -5099,17 +5099,37 @@ VIEWS.chat = async () => {
                 </div>`).join('')}
               </div>
             </details>
-            <div class="acciones">
-              <button class="outline small" onclick="chatHoja('${g.cliente_id}')"
-                title="Ver la hoja tal cual la ve el cliente">Ver la hoja</button>
-              <button class="grave small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
-                onclick="chatEnviar(this.dataset.id,this.dataset.nom)"
-                ${(g.grupos||[]).length?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram en Cajas y clientes"'}
-                >Enviársela${(g.grupos||[]).length>1?' ('+g.grupos.length+')':''}</button>
-              ${e?`<span style="font-size:12px">${e.ok
-                ?'<span style="color:var(--green)">✓ enviada '+esc(String(e.at).slice(0,10))+'</span>'
-                :'<span style="color:var(--rosa)">✕ no salió</span> <span class="muted">'+esc(String(e.error||'').slice(0,40))+'</span>'}</span>`:''}
-            </div>
+            ${(()=>{
+              /* ── UNA FILA DE BOTONES POR CUENTA ──────────────────────────────────────────────
+                 Un cliente con cajas en dos monedas tiene DOS cuentas y recibe DOS mensajes: son
+                 dos negocios, a veces con socios distintos. Un solo botón «Enviársela» mandaba una
+                 y dejaba la otra sin mandar, sin que se notara.
+                 El de una sola moneda ve un botón, como siempre: no hay dos pantallas que
+                 mantener, hay una que a veces tiene dos renglones. */
+              const divs=[...new Set((g.paneles||[]).map(p=>String(p.divisa||'').toUpperCase()).filter(Boolean))];
+              const dos=divs.length>1;
+              const filas = dos ? divs : [''];
+              const puede=(g.grupos||[]).length;
+              return filas.map(dv=>{
+                // El envío se guarda por cuenta: la clave lleva la divisa pegada al cliente.
+                const ee = env[dv? g.cliente_id+'|'+dv : g.cliente_id]||null;
+                const sub = dv? (g.paneles||[]).filter(p=>String(p.divisa||'').toUpperCase()===dv) : (g.paneles||[]);
+                const tot = sub.reduce((a,p)=>a+Number(p.cobra||0),0);
+                return `<div class="acciones">
+                  ${dv?`<span class="señal" style="background:var(--bg3)">${esc(dv)} · ${money(String(tot),2)}</span>`:''}
+                  <button class="outline small" onclick="chatHoja('${g.cliente_id}'${dv?",'"+esc(dv)+"'":''})"
+                    title="Ver la hoja tal cual la ve el cliente">Ver la hoja</button>
+                  <button class="grave small" data-id="${esc(g.cliente_id)}" data-nom="${esc(g.cliente)}"
+                    data-div="${esc(dv)}"
+                    onclick="chatEnviar(this.dataset.id,this.dataset.nom,this.dataset.div)"
+                    ${puede?'':'disabled style="opacity:.4;cursor:not-allowed" title="Cargale el grupo de Telegram en Cajas y clientes"'}
+                    >Enviársela${dv?' ('+esc(dv)+')':((g.grupos||[]).length>1?' ('+g.grupos.length+')':'')}</button>
+                  ${ee?`<span style="font-size:12px">${ee.ok
+                    ?'<span style="color:var(--green)">✓ enviada '+esc(String(ee.at).slice(0,10))+'</span>'
+                    :'<span style="color:var(--rosa)">✕ no salió</span> <span class="muted">'+esc(String(ee.error||'').slice(0,40))+'</span>'}</span>`:''}
+                </div>`;
+              }).join('');
+            })()}
           </div>
         </details>`;}).join('')}
 
@@ -5582,16 +5602,23 @@ async function chatDestino(cid,campos){
 }
 // La hoja tal cual la ve el cliente. Se abre antes de mandarla: mirarla es más rápido que
 // desmentir un número que ya salió.
-function chatHoja(cid){ window.open('/api/os/chat/doc/cliente/'+cid+'?mes='+_chatMes,'_blank'); }
+function chatHoja(cid,divisa){ window.open('/api/os/chat/doc/cliente/'+cid+'?mes='+_chatMes
+  +(divisa?'&divisa='+encodeURIComponent(divisa):''),'_blank'); }
 function chatHojaProv(){ window.open('/api/os/chat/doc/proveedor?mes='+_chatMes,'_blank'); }
 
 // SALE PARA AFUERA: le llega de verdad al cliente. Por eso se pregunta siempre.
-async function chatEnviar(cid,nombre){
+async function chatEnviar(cid,nombre,divisa){
   /* «agosto 2026», igual que en el recordatorio de Telegram. Escribir el mismo mes de dos
      formas distintas es lo que hace que nadie note que son meses distintos. */
-  if(!confirm('¿Mandarle a «'+nombre+'» su cuenta de '+mesNombre(_chatMes)+'?\n\nLe llega al grupo de Telegram de este servicio.')) return;
-  const r=await api('/api/os/chat/enviar/'+cid,{method:'POST',body:JSON.stringify({mes:_chatMes})});
-  if(r&&r.ok) toast('Enviada'); 
+  /* Con divisa se manda UNA de sus cuentas. Un cliente con cajas en dos monedas recibe dos
+     mensajes: son dos negocios, a veces con socios distintos, y decirlo en el aviso evita
+     mandar el que no era creyendo que se mandaron los dos. */
+  const qu = divisa ? 'su cuenta de sus cajas en '+divisa+', de '+mesNombre(_chatMes)
+                    : 'su cuenta de '+mesNombre(_chatMes);
+  if(!confirm('¿Mandarle a «'+nombre+'» '+qu+'?\n\nLe llega al grupo de Telegram de este servicio.')) return;
+  const r=await api('/api/os/chat/enviar/'+cid,{method:'POST',
+    body:JSON.stringify({mes:_chatMes, divisa:divisa||''})});
+  if(r&&r.ok) toast('Enviada'+(divisa?' ('+divisa+')':''));
   VIEWS.chat();
 }
 /* Cobrar CONGELA el número de cada cliente en la cuenta del chat — que es aparte de la de las
