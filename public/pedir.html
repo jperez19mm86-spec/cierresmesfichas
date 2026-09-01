@@ -288,7 +288,8 @@
     const mon = c.moneda || 'USDT';
     const debe = Number(c.total || 0);
     const titulo = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
-    const nombre = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedores' };
+    const nombre = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedores',
+      correccion: 'Carga anulada' };
 
     let h = '<div class="q">' + titulo + '</div>'
       + '<div style="font-size:32px;font-weight:800;margin:2px 0">' + money(Math.abs(debe), 2) + ' ' + esc(mon) + '</div>'
@@ -315,7 +316,11 @@
           + '<span>' + money(x.monto, 0) + ' ' + esc(x.divisa || '') + '</span></div>').join('');
     }
 
-    const movs = (d.movimientos || []).filter(m => m.tipo !== 'correccion');
+    /* ⚠️ LAS ANULACIONES SE MOSTRABAN NUNCA, y eso hacía que la lista no cerrara con el total.
+       Cuando una carga se anula queda el cargo Y su contra-asiento; escondiendo el segundo, el
+       cliente ve que se le cobró algo que ya no tiene y ningún renglón que lo dé de baja. El
+       número grande estaba bien, la lista parecía estar mal, y la pregunta llegaba igual. */
+    const movs = (d.movimientos || []);
     if (movs.length) {
       h += '<div class="q" style="margin-top:16px">Movimientos</div>'
         + movs.map(m => {
@@ -334,6 +339,13 @@
               + (m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : '')
               + (m.tc ? ' · TC ' + money(m.tc, 2) : '');
           }
+          // Una anulación explica de qué carga sale, sin el id interno del movimiento.
+          if (m.tipo === 'correccion' && m.cargado) {
+            detalle = 'da de baja la carga de ' + money(m.cargado, 0) + ' ' + esc(m.divisa || '');
+          }
+          /* A QUÉ USUARIO SE CARGARON. Con varias cajas, «¿esto a quién fue?» es la primera
+             pregunta, y el dato ya estaba guardado. */
+          if (m.usuario) detalle += (detalle ? ' · ' : '') + 'a ' + esc(m.usuario);
           return '<div style="padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
             + '<div style="display:flex;justify-content:space-between;gap:10px">'
             +   '<span class="small">' + esc(concepto) + '</span>'

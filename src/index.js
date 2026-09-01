@@ -987,12 +987,17 @@ app.get('/api/cuenta/mio', (req, res) => {
   const movimientos = movsStore.list({ cliente_id: cli.id })
     .slice(0, 40)
     .map((m) => {
-      let cargado = null;
-      if (m.pedido_id) { try { const p = pedidos.get(m.pedido_id); if (p) cargado = p.monto; } catch (e) {} }
+      let cargado = null; let usuario = null;
+      /* ADÓNDE FUERON LAS FICHAS. El cliente ve «750,36 USDT» y no sabe a cuál de sus usuarios se
+         cargó: con tres o cuatro cajas, la pregunta «¿esto a quién fue?» llega siempre. El dato ya
+         estaba guardado en el pedido y no se le mostraba. */
+      if (m.pedido_id) {
+        try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; } } catch (e) {}
+      }
       return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
         monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
         divisa: m.divisa, notas: m.notas,
-        base_pct: m.base_pct_aplicado || null, cargado };
+        base_pct: m.base_pct_aplicado || null, cargado, usuario };
     });
   const cargas = pedidos.list({ codigo: cli.codigo, estado: 'cargado' })
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)

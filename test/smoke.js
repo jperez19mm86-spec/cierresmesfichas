@@ -2703,6 +2703,24 @@ async function main() {
     check('proveedor: no lleva el logo del panel de ella',
       !/logo\.png/.test(provPag), 'el portal del cliente tampoco lo lleva');
     /* La misma cara que el portal del cliente: es el mismo producto visto del otro lado. */
+    /* ── LA CUENTA DEL CLIENTE ───────────────────────────────────────────────────────────────
+       ⚠️ LAS ANULACIONES SE FILTRABAN DE LA LISTA. Cuando una carga se anula queda el cargo Y su
+       contra-asiento; escondiendo el segundo, el cliente veía que se le cobró algo que ya no tiene
+       y ningún renglón que lo diera de baja. El total estaba bien y la lista parecía estar mal. */
+    const pedirPag = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    check('cuenta del cliente: la anulación de una carga SE VE en la lista',
+      !/filter\(m => m\.tipo !== 'correccion'\)/.test(pedirPag)
+      && /correccion: 'Carga anulada'/.test(pedirPag),
+      'si no, la lista no cierra con el total y la pregunta llega igual');
+    check('cuenta del cliente: y dice de qué carga sale, sin el id interno',
+      /da de baja la carga de/.test(pedirPag) && !/da de baja \+ m\.notas/.test(pedirPag));
+    /* Con varias cajas, «¿esto a quién fue?» es la primera pregunta. El dato ya estaba guardado. */
+    check('cuenta del cliente: cada carga dice a qué usuario fue',
+      /'a ' \+ esc\(m\.usuario\)/.test(pedirPag));
+    const idxCta = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('cuenta del cliente: y el servidor lo manda, sacándolo del pedido',
+      /usuario = p\.cajaUsuario \|\| null/.test(idxCta));
+
     check('proveedor: su portada usa el perrito y el morado del portal del cliente',
       /id="perro"/.test(provPag) && /radial-gradient/.test(provPag)
       && /GANAMOS CHAT/.test(provPag));
