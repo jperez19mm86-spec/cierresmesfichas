@@ -72,7 +72,10 @@ body{
   background:#fff; color:#5c1f7e; cursor:pointer;
 }
 #portada .btn:disabled, .btnEntrar:disabled{ opacity:.55; cursor:default }
+/* Vacío no ocupa: con `min-height` fijo dejaba un hueco abajo del botón que se leía como un
+   renglón faltante. Cuando hay error sí reserva su lugar, para que el botón no salte. */
 #portada #err, #err{ min-height:20px; margin:0; font-size:14px; color:#ffd0e4 }
+#err:empty{ min-height:0; display:none }
 #portada .pie{ margin-top:22px; font-size:12.5px; color:rgba(255,255,255,.55);
   max-width:330px; line-height:1.5 }
 
