@@ -2705,7 +2705,7 @@ async function main() {
     /* La misma cara que el portal del cliente: es el mismo producto visto del otro lado. */
     check('proveedor: su portada usa el perrito y el morado del portal del cliente',
       /id="perro"/.test(provPag) && /radial-gradient/.test(provPag)
-      && /GANAMOS <span class="x">×<\/span> Latam/.test(provPag));
+      && /GANAMOS CHAT/.test(provPag));
     /* ⚠️ #portada es un id y le gana por especificidad a .oculto: sin `!important` la portada se
        quedaba encima de la liquidación después de entrar. */
     check('proveedor: y la portada se esconde de verdad al entrar',
