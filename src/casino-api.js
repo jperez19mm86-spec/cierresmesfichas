@@ -496,15 +496,18 @@ function makeClient({ url, token, user, password } = {}) {
    * el motor devuelve una fila por cada hijo y hay que sumarlas; sin agrupar devuelve UNA fila con
    * el total del nodo, que es lo que se quiere y lo que no se puede sumar mal.
    */
-  async function gananciaDeNodo({ nodoId, from = '', to = '', currency = 'ARS' } = {}) {
+  async function gananciaDeNodo({ nodoId, from = '', to = '', currency = 'ARS',
+    base = 'users', sort = 'in', debug = false } = {}) {
     if (!nodoId) return { ok: false, error: 'falta nodoId' };
     const r = await _runReport((b) => {
       b.append('statistic_type', 'on_money'); b.append('conversion_type', 'current_currency');
-      b.append('reports_base_group_by', ''); b.append('reports_group_by', '');
+      // `base` y `sort` quedan configurables: el motor contesta la MISMA página de error para
+      // cualquier parámetro que no le guste, así que la única forma de encontrar el bueno es probar.
+      b.append('reports_base_group_by', base); b.append('reports_group_by', '');
       ['in', 'out', 'profit', 'rtp'].forEach((f) => b.append('reports_group_fields[]', f));
       b.append('currency', currency); b.append('from', from); b.append('to', to);
       b.append('save_template_name', '');
-    }, { nodoId, from, to, sort: 'in' });
+    }, { nodoId, from, to, sort, debug });
     if (!r.ok) return r;
     /* Sin agrupar tiene que venir UNA fila. Si vinieran varias se suman igual —el casino a veces
        repite la fila del total— pero se dice cuántas, porque «una» es lo esperado y más de una

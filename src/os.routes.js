@@ -2866,9 +2866,11 @@ function mount(app) {
     const monedas = {};
     for (const cur of curs) {
       // eslint-disable-next-line no-await-in-loop
-      const r = await cli.gananciaDeNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur });
-      monedas[cur] = r.ok ? { ok: true, in: r.in, out: r.out, profit: r.profit, rtp: r.rtp, filas: r.filas }
-        : { ok: false, error: r.error };
+      const r = await cli.gananciaDeNodo({ nodoId: req.query.nodo, from: req.query.from, to: req.query.to, currency: cur,
+        base: req.query.base === undefined ? 'users' : String(req.query.base),
+        sort: req.query.sort || 'in', debug: req.query.debug === '1' });
+      monedas[cur] = r.ok ? { ok: true, in: r.in, out: r.out, profit: r.profit, rtp: r.rtp, filas: r.filas, debug: r.debug }
+        : { ok: false, error: r.error, debug: r.debug };
     }
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
