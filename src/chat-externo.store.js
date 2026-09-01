@@ -530,14 +530,40 @@ function quitar(panelId) {
  * casino. El cruce es conexión + nodo, que es como el acumulado identifica cada panel.
  */
 function gananciaDelMes(mes) {
-  const filas = db.prepare(`SELECT conexion_id, grp, sa_id, moneda, SUM(CAST(profit AS REAL)) profit
-    FROM reporte_diario WHERE substr(fecha,1,7)=? GROUP BY conexion_id, grp, sa_id, moneda`)
+  /* ⚠️ DÍA POR DÍA, NO EL TOTAL DEL MES. Una caja que contrató el chat el 22 no tiene por qué
+     pagar el % de lo que trabajó del 1 al 21: eso lo ganó sin el servicio. Sumando el mes entero
+     —que es lo que se hacía— se le cobraban tres semanas de más en su primer mes, y el número
+     salía redondo y sin ninguna señal de que estuviera mal.
+     Del segundo mes en adelante no cambia nada: `desde` queda antes del 1 y entran todos los días. */
+  const filas = db.prepare(`SELECT conexion_id, grp, sa_id, moneda, fecha, CAST(profit AS REAL) profit
+    FROM reporte_diario WHERE substr(fecha,1,7)=?`)
     .all(String(mes || '').slice(0, 7));
   const m = new Map();
   // La clave lleva el NIVEL: el mismo id de nodo existe como superagente y como agente, con
   // números distintos, y mezclarlos sumaría la caja dos veces.
-  for (const f of filas) m.set(`${f.conexion_id}|${f.grp}|${f.sa_id}|${f.moneda || 'ARS'}`, f.profit);
+  for (const f of filas) {
+    const k = `${f.conexion_id}|${f.grp}|${f.sa_id}|${f.moneda || 'ARS'}`;
+    if (!m.has(k)) m.set(k, new Map());
+    const dia = String(f.fecha || '').slice(0, 10);
+    m.get(k).set(dia, (m.get(k).get(dia) || 0) + (Number(f.profit) || 0));
+  }
   return m;
+}
+
+/**
+ * Suma los días de una caja DESDE que tiene el servicio.
+ *
+ * `desde` vacío = todos los días del mes, que es el caso normal a partir del segundo mes.
+ * Devuelve también cuántos días entraron y cuántos quedaron afuera: sin eso, un mes recortado y un
+ * mes completo se ven idénticos en pantalla y nadie puede comprobar por qué el número es ése.
+ */
+function sumarDesde(porDia, desde) {
+  let profit = 0; let dias = 0; let afuera = 0;
+  for (const [dia, v] of porDia) {
+    if (desde && dia < desde) { afuera += 1; continue; }
+    profit += v; dias += 1;
+  }
+  return { profit, dias, afuera };
 }
 
 
@@ -580,7 +606,10 @@ function cierre(mes) {
       const mismoNodo = String(nodo) === String(p.nodo);
       const mismoNivel = p.sala_id ? true : (grp === p.grp);
       if (cx === p.conexion_id && mismoNivel && mismoNodo) {
-        monedas.push({ moneda: mon, profit: v });
+        /* Sólo los días desde que tiene el servicio. `desde` es el mismo campo con el que se
+           devenga el mantenimiento: si empieza a pagar el 22, el % arranca el 22. */
+        const sd = sumarDesde(v, String(p.desde || '').slice(0, 10));
+        monedas.push({ moneda: mon, profit: sd.profit, dias: sd.dias, diasAfuera: sd.afuera });
       }
     }
     /* Una caja sin NINGUNA fila en su nivel no es una caja sin ganancias: es una caja que no está
@@ -2007,7 +2036,7 @@ module.exports = {
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
-  saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja,
+  saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
   paraElProveedor, mesesDelProveedor,
   proveedorAcceso, setProveedorAcceso, proveedorEntra, proveedorCorte,
   quienEntra, portalDe, pedirChat, solicitudesPendientes, resolverSolicitud, accesosDe,

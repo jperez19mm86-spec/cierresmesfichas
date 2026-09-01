@@ -1899,9 +1899,16 @@ async function main() {
     ['2026-08-01', '2026-08-02'].forEach((f, i) => insDia.run('zzrd' + i, 'cx_zz', f, '9990001',
       'ZZ-Panel-Chat', '1000', '900', '100000', 'ARS', new Date().toISOString()));
 
+    /* Ahora viene DÍA POR DÍA en vez de sumado: una caja que contrató el chat el 22 no paga el %
+       de lo que trabajó del 1 al 21. Sin `desde`, la suma es la misma de siempre. */
+    const porDiaZZ = ch.gananciaDelMes('2026-08').get('cx_zz|superagent|9990001|ARS');
     check('chat: la ganancia sale del acumulado ya guardado, no de una consulta nueva',
-      ch.gananciaDelMes('2026-08').get('cx_zz|superagent|9990001|ARS') === 200000,
+      ch.sumarDesde(porDiaZZ, '').profit === 200000,
       '200.000 ARS entre los dos días');
+    check('chat: y viene día por día, para poder cortar por la fecha en que contrató',
+      porDiaZZ.size === 2 && ch.sumarDesde(porDiaZZ, '2026-08-02').profit === 100000
+      && ch.sumarDesde(porDiaZZ, '2026-08-02').afuera === 1,
+      'desde el 02 entra un solo día');
 
     /* Sin tipo de cambio del mes no hay USDT y toda la cuenta da cero — que es el comportamiento
        correcto y está probado más abajo, pero acá hace falta uno para ejercitar la aritmética. */
@@ -2121,18 +2128,35 @@ async function main() {
       nivel_usuario: 'SuperAgente', id_usuario: '9990002', conexion_id: 'cx_zz', divisas: ['ARS'] });
     ['2026-08-01', '2026-08-02'].forEach((f, i) => insDia.run('zzrdb' + i, 'cx_zz', f, '9990002',
       'ZZ-Panel-Chat-2', '1000', '900', '50000', 'ARS', new Date().toISOString()));
+    /* ⚠️ DÍAS DESPUÉS DEL ALTA para la primera caja, que arriba quedó con `desde` el 20 de agosto.
+       Sin esto el fixture le da SÓLO días anteriores a su alta y la caja no cobra nada — que es el
+       comportamiento correcto, pero deja al resto de los checks midiendo un cliente en cero. Con
+       estos dos días la caja cobra sus 200.000 y los del 1 y el 2 siguen quedando afuera, que es
+       justo lo que hay que poder ver. */
+    ['2026-08-21', '2026-08-22'].forEach((f, i) => insDia.run('zzrdc' + i, 'cx_zz', f, '9990001',
+      'ZZ-Panel-Chat', '1000', '900', '100000', 'ARS', new Date().toISOString()));
     ch.set({ panel_id: PAN2.id, pct_cliente: '4' });
     const pcZ = ch.porCliente('2026-08');
     const gZ = (pcZ.clientes || []).find((x) => x.cliente_id === CLI.id);
     check('chat: los paneles de un cliente se juntan en UNA cuenta',
       !!gZ && gZ.paneles.length === 2 && moneyCh.cmp(gZ.cobra, '0') > 0,
       gZ ? `${gZ.paneles.length} paneles · cobra ${gZ.cobra}` : 'no agrupó');
-    // 200.000 + 100.000 en la misma moneda van en UN renglón, no dos: es lo que el cliente compara
-    // contra su propio panel.
+    /* La misma moneda va en UN renglón, no dos: es lo que el cliente compara contra su panel.
+       ⚠️ Y son 100.000, no 300.000: `ZZ-Panel-Chat` tiene `desde` el 20 de agosto y sus dos días
+       son el 1 y el 2, así que NO se le cobra —trabajó esos días sin el chat—. El otro panel no
+       tiene fecha de alta y entra entero. Es la regla del primer mes: nadie paga el % de lo que
+       ganó antes de contratar el servicio. */
     check('chat: la ganancia en la misma moneda se suma en un solo renglón',
       !!gZ && gZ.monedas.length === 1 && gZ.monedas[0].moneda === 'ARS'
       && Number(gZ.monedas[0].profit) === 300000,
       gZ ? gZ.monedas.map((m) => m.moneda + '=' + m.profit).join(',') : '');
+    /* La caja tiene CUATRO días cargados —1, 2, 21 y 22— y `desde` el 20. Entran los dos últimos:
+       nadie paga el % de lo que ganó antes de contratar el servicio. */
+    const zzPan = (gZ.paneles || []).find((x) => x.panel === 'ZZ-Panel-Chat');
+    check('chat: no se le cobra el % de lo que ganó ANTES de contratar el chat',
+      !!zzPan && Number((zzPan.detalle || [])[0].profit) === 200000
+      && (zzPan.detalle || [])[0].dias === 2 && (zzPan.detalle || [])[0].diasAfuera === 2,
+      zzPan ? `entraron ${(zzPan.detalle || [])[0].dias} días, quedaron afuera ${(zzPan.detalle || [])[0].diasAfuera}` : '');
 
     /* ── VARIOS CHATS POR CLIENTE, CADA UNO COLGADO DE UN AGENTE ─────────────────────────────
        Fran tiene dos chats y Ariel cuatro. Cada uno se cobra sobre lo que ganó SU agente, así que
