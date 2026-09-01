@@ -58,36 +58,67 @@
   .vacio{ color:var(--tenue); padding:10px 2px }
   /* Una caja que no se pudo calcular: se lista igual, pero sin números inventados. */
   .sc{ color:var(--tenue); font-style:italic }
-  /* El ingreso, con la cara de este producto y no la del panel de adentro. */
-  .campo{ display:block; font-size:12.5px; letter-spacing:.1em; text-transform:uppercase;
-    color:var(--tenue); font-weight:700; margin-bottom:12px }
-  .campo input{ display:block; width:100%; margin-top:5px; padding:12px 13px; font:inherit;
-    text-transform:none; letter-spacing:0; font-weight:400; color:var(--texto);
-    border:1px solid var(--linea); border-radius:11px; background:#fff }
-  .campo input:focus-visible{ outline:2px solid var(--uva3); outline-offset:1px }
-  .btn{ width:100%; padding:13px; font-weight:800; border:0; border-radius:11px;
-    background:var(--uva2); color:#fff; cursor:pointer }
-  .btn:disabled{ opacity:.55; cursor:default }
-  .msg{ margin:11px 0 0; font-size:14px; text-align:center }
-  .msg.mal{ color:var(--debe) }
-  .portada{ min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:22px }
-  .oculto{ display:none }
+  /* ── LA PORTADA: la misma que el portal del cliente ── */
+  #portada{
+    min-height:100dvh; display:flex; flex-direction:column; justify-content:center;
+    align-items:center; padding:32px 22px calc(32px + env(safe-area-inset-bottom,0));
+    background:radial-gradient(120% 90% at 50% 0%, var(--uva3) 0%, var(--uva2) 42%, var(--uva) 100%);
+    color:#fff; text-align:center; gap:6px;
+  }
+  #perro{ width:104px; height:104px; margin-bottom:4px }
+  #portada h1{ font-size:29px; line-height:1.1; margin:0; letter-spacing:-.015em; font-weight:800 }
+  #portada h1 .x{ font-weight:400; opacity:.72; margin:0 3px }
+  #portada .bajada{ margin:2px 0 26px; opacity:.78; font-size:15px }
+  .cajaEntrar{ width:100%; max-width:340px; display:flex; flex-direction:column; gap:10px }
+  #portada label{ font-size:12.5px; letter-spacing:.11em; text-transform:uppercase; opacity:.75;
+    text-align:left }
+  #portada input{
+    width:100%; padding:15px 16px; font:inherit; font-size:17px; border:0; border-radius:13px;
+    background:rgba(255,255,255,.13); color:#fff; text-align:center;
+    outline:2px solid rgba(255,255,255,.18);
+  }
+  #portada input:focus{ outline:2px solid #fff }
+  .btnEntrar{
+    padding:15px 18px; font:inherit; font-size:16px; font-weight:800; border:0; border-radius:13px;
+    background:#fff; color:var(--uva); cursor:pointer;
+  }
+  .btnEntrar:disabled{ opacity:.55; cursor:default }
+  #err{ min-height:20px; font-size:14px; color:#ffd7d7 }
+  #portada .pie{ margin-top:24px; font-size:12px; opacity:.55; max-width:300px }
+  /* ⚠️ `!important` porque #portada es un id y gana por especificidad: sin esto la portada se
+     quedaba encima de la liquidación después de entrar. El portal del cliente lo resuelve igual. */
+  .oculto{ display:none !important }
 </style>
 
-<div id="portada" class="portada">
-  <div class="card" style="max-width:360px;width:100%">
-    <div class="tenue" style="letter-spacing:.14em;text-transform:uppercase;font-size:12px;text-align:center">Chat Externo</div>
-    <h1 style="margin:6px 0 4px;font-size:26px;text-align:center">Liquidación</h1>
-    <p class="tenue" style="margin:0 0 18px;text-align:center">Entrá con el usuario que te dimos.</p>
-    <form onsubmit="return entrar(event)">
-      <label class="campo">Usuario
-        <input name="usuario" autocomplete="username" autocapitalize="off" autocorrect="off" required></label>
-      <label class="campo">Contraseña
-        <input name="clave" type="password" autocomplete="current-password" required></label>
-      <button class="btn" type="submit" id="bEntrar">Entrar</button>
-      <p class="msg" id="mEntrar" role="status"></p>
-    </form>
-  </div>
+<div id="portada">
+  <!-- El mismo perrito y el mismo morado que el portal del cliente: es el mismo producto visto
+       del otro lado del mostrador. Dibujado a mano y no un emoji, para que sea igual en todos los
+       teléfonos. -->
+  <svg id="perro" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <path d="M22 30c-6 2-9 12-8 24 1 10 4 15 9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M78 30c6 2 9 12 8 24-1 10-4 15-9 16" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M50 20c-15 0-27 10-27 26 0 17 12 32 27 32s27-15 27-32c0-16-12-26-27-26z"
+          stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+    <circle cx="39" cy="45" r="4" fill="#fff"/>
+    <circle cx="61" cy="45" r="4" fill="#fff"/>
+    <path d="M50 56c-4 0-7 2-7 5s3 5 7 5 7-2 7-5-3-5-7-5z" fill="#fff"/>
+    <path d="M50 66v5" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <path d="M43 74c4 3 10 3 14 0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  </svg>
+  <h1>GANAMOS <span class="x">×</span> Latam</h1>
+  <p class="bajada">Tu liquidación.</p>
+
+  <form class="cajaEntrar" onsubmit="return entrar(event)">
+    <label for="u">Tu usuario</label>
+    <input id="u" name="usuario" autocomplete="username" autocapitalize="off" autocorrect="off"
+           spellcheck="false" required>
+    <label for="c">Tu contraseña</label>
+    <input id="c" name="clave" type="password" autocomplete="current-password" required>
+    <button class="btnEntrar" id="bEntrar" type="submit">Entrar</button>
+    <p id="err" role="status"></p>
+  </form>
+
+  <p class="pie">Es el usuario que te dimos. Si no te reconoce, escribinos y lo vemos.</p>
 </div>
 
 <div id="app" class="oculto">
@@ -127,8 +158,8 @@ async function salir() { await fetch('/api/logout', { method: 'POST' }); locatio
    tope de intentos— pero la cara y el vuelvo son de este producto. */
 async function entrar(e) {
   e.preventDefault();
-  const f = e.target, b = $('bEntrar'), m = $('mEntrar');
-  b.disabled = true; m.textContent = 'Entrando…'; m.className = 'msg';
+  const f = e.target, b = $('bEntrar'), m = $('err');
+  b.disabled = true; m.textContent = 'Entrando…';
   try {
     const r = await fetch('/api/login', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -139,8 +170,7 @@ async function entrar(e) {
     m.textContent = r.status === 429
       ? 'Demasiados intentos. Esperá 15 minutos.'
       : 'Usuario o contraseña incorrectos.';
-    m.className = 'msg mal';
-  } catch (err) { m.textContent = 'No pudimos conectar. Probá de nuevo.'; m.className = 'msg mal'; }
+  } catch (err) { m.textContent = 'No pudimos conectar. Probá de nuevo.'; }
   b.disabled = false;
   return false;
 }
