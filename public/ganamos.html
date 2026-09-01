@@ -410,14 +410,29 @@ function ver(cual) {
   } else if (cual === 'cajas') {
     h = '<div class="hoja"><h2>Tus cajas con el chat</h2>'
       + ((DATOS.cajas || []).length ? DATOS.cajas.map(function (c) {
+        /* ⚠️ LOS LINKS TIENEN QUE PARECER LINKS. Antes eran dos anclas pegadas una al lado de la
+           otra con un emoji adelante y sin separación: se leían como una sola frase suelta y no
+           como dos direcciones a las que se puede ir. Ahora cada una es una fila propia que MUESTRA
+           EL DOMINIO —que es el dato, y además es como el cliente reconoce la caja— con el rótulo
+           arriba diciendo para qué es, y la flechita de que sale afuera. */
+        function fila(u, quees) {
+          if (!u) return '';
+          var dom = String(u).replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+          return '<a class="lk" href="' + esc(u) + '" target="_blank" rel="noopener">'
+            + '<span class="lk-q">' + esc(quees) + '</span>'
+            + '<span class="lk-u">' + esc(dom) + '</span>'
+            + '<span class="lk-f" aria-hidden="true">↗</span></a>';
+        }
         return '<div class="caja-b">'
-          + '<div class="caja-n"><b>' + esc(c.caja) + '</b>'
+          /* La caja se nombra por su link, igual que en todos lados: el nombre interno se lo
+             pusimos nosotros y el cliente nunca lo usó. */
+          + '<div class="caja-n"><b>' + esc(String(c.link_jugadores || c.caja).replace(/^https?:\/\//i, '').replace(/\/+$/, '')) + '</b>'
           + (c.dia_cobro ? '<span class="tenue"> · mensualidad el ' + esc(c.dia_cobro) + '</span>' : '') + '</div>'
           + (c.usuario_admin ? '<div class="tenue">usuario del panel: <b>' + esc(c.usuario_admin) + '</b></div>' : '')
           + (c.tiene_clave ? '<div class="tenue" id="acc-' + esc(c.caja) + '"></div>' : '')
           + (c.link_jugadores || c.link_panel ? '<div class="links">'
-            + (c.link_jugadores ? '<a class="lk" href="' + esc(c.link_jugadores) + '" target="_blank" rel="noopener">🎲 Para jugadores</a>' : '')
-            + (c.link_panel ? '<a class="lk" href="' + esc(c.link_panel) + '" target="_blank" rel="noopener">🛠 Panel</a>' : '')
+            + fila(c.link_jugadores, 'Donde juegan los tuyos')
+            + fila(c.link_panel, 'Tu panel del chat')
             + '</div>' : '<div class="tenue">Todavía no cargamos los links de esta caja.</div>')
           + '</div>';
       }).join('')

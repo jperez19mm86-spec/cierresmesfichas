@@ -100,12 +100,16 @@ body{
 .env, .wrap, .hoja{ max-width:640px; margin:0 auto; padding:16px 16px 60px }
 h2{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--txt3);
   margin:22px 0 10px; font-weight:700 }
-/* `.volver` es el ENVOLTORIO y adentro va el <a> o el <button>: la caja la dibuja el de adentro,
-   o quedaba un borde adentro de otro. En la cabecera se empuja al final. */
+/* `.volver` aparece de las dos formas: como ENVOLTORIO de un <a> en la hoja del mes, y como el
+   <button> mismo en el portal. Se estilan las dos, o la segunda quedaba con el botón gris del
+   navegador en el medio de una pantalla oscura. */
 .volver{ margin-left:auto; flex:0 0 auto }
-.volver a, .volver button{ display:inline-block; padding:9px 16px; font:inherit; font-size:13.5px;
-  font-weight:700; color:#fff; background:var(--plano); border:1px solid var(--linea);
-  border-radius:11px; cursor:pointer; text-decoration:none }
+.volver a, .volver button, button.volver, a.volver{
+  display:inline-block; padding:9px 16px; font:inherit; font-size:13.5px; font-weight:700;
+  color:#fff; background:var(--plano); border:1px solid var(--linea); border-radius:11px;
+  cursor:pointer; text-decoration:none }
+/* El del portal no va en una cabecera: cierra una pantalla y va abajo, sin empujarse al costado. */
+button.volver, a.volver{ margin:22px 0 0 }
 
 /* ── LAS TARJETAS ───────────────────────────────────────────────────────────────────────────── */
 /* Todas el mismo morado: la jerarquía la dan el tamaño y el peso de la letra, no un morado flojo. */
@@ -162,7 +166,23 @@ tr.sigue td{ border-top:0; padding-top:0 }
 .desplaza{ overflow-x:auto }
 .sc{ color:rgba(255,255,255,.58); font-style:italic }
 .vacio{ color:var(--txt3); padding:12px 2px }
-.lnk, .lnk a, .links a, .lk{ color:rgba(255,255,255,.80); font-size:12.5px; word-break:break-all }
+.lnk, .lnk a{ color:rgba(255,255,255,.80); font-size:12.5px; word-break:break-all }
+/* ── LOS LINKS DE UNA CAJA ──────────────────────────────────────────────────────────────────────
+   Cada uno es una fila entera con su dominio a la vista: dos anclas pegadas con un emoji adelante
+   se leían como una frase suelta, no como dos direcciones a las que se puede ir. */
+.links{ display:flex; flex-direction:column; gap:8px; margin-top:11px }
+.lk{ display:flex; align-items:center; gap:10px; text-decoration:none; color:#fff;
+  padding:10px 13px; border-radius:12px; background:rgba(0,0,0,.24);
+  border:1px solid rgba(255,255,255,.20) }
+.lk .lk-q{ flex:0 0 auto; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  font-weight:800; color:rgba(255,255,255,.72) }
+.lk .lk-u{ flex:1 1 auto; text-align:right; font-size:13.5px; font-weight:700; word-break:break-all;
+  text-decoration:underline; text-underline-offset:3px }
+.lk .lk-f{ flex:0 0 auto; font-size:15px; color:rgba(255,255,255,.65) }
+@media (max-width:430px){
+  .lk{ flex-wrap:wrap; gap:2px 10px }
+  .lk .lk-u{ flex:1 0 100%; text-align:left }
+}
 .tot-fila td, .sub-tot{ font-weight:800 }
 .sub-tot{ display:flex; justify-content:space-between; gap:10px; padding:11px 0 0;
   border-top:1px solid var(--linea2); margin-top:4px }
@@ -240,6 +260,10 @@ label.campo, .campos label{ display:block; font-size:12.5px; color:rgba(255,255,
 .estado.listo{ background:rgba(61,220,151,.13); border-color:rgba(61,220,151,.38); color:#b8ffdf }
 select,button{ font:inherit }
 .pie2, .pie{ color:var(--txt3); font-size:12.5px; margin-top:18px; line-height:1.5 }
+/* `.uva` marca la acción principal. En la piel vieja quería decir «morado»; acá el botón ya es
+   blanco, así que sólo tiene que NO pintarle la letra de otro color: con el magenta encima del
+   blanco, «Enviar» quedaba rosa chillón y se leía como un aviso, no como el botón de mandar. */
+.btn.uva, button.uva{ color:#5c1f7e }
 .uva{ color:var(--magenta2) }
 
 /* ── EN LA COMPUTADORA ──────────────────────────────────────────────────────────────────────────

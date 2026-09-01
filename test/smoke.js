@@ -2503,11 +2503,24 @@ async function main() {
       && htmlPago.includes('0xwallet456'));
     ch.setConfig({ wallet_mens: wA.id });
     const htmlUna = chDoc.htmlCliente(chDoc.paraCliente(gZ, { mes: '2026-08' }), { pago: ch.comoPagar(CLI.id) });
-    /* «Servicio del mes» no dice qué es, y no dice DE QUÉ MES: en octubre, tres renglones iguales
-       no dejan saber cuál se está pagando. */
-    check('chat: el concepto se llama por lo que es, y con su mes',
-      /^% sobre las ganancias de agosto — /.test(
-        ch.opcionesDeConcepto('c_que_no_existe', '2026-08').opciones[1].rotulo));
+    /* ── EL MES DEL RÓTULO ES EL DE LA DEUDA, NO EL DE HOY ───────────────────────────────────
+       «Servicio del mes» no dice qué es, y sin el mes tres renglones iguales no dejan saber cuál
+       se está pagando. Pero el mes NO puede salir del que se está mirando: la deuda arrastra de
+       todos los meses. Poniendo el de hoy, el 2 de septiembre el rótulo decía «% sobre las
+       ganancias de septiembre — debés 357,07» y esos 357,07 eran de agosto, de un mes que encima
+       todavía no estaba calculado. */
+    check('chat: sin ningún cobro, el rótulo no inventa un mes',
+      /^% sobre las ganancias — /.test(
+        ch.opcionesDeConcepto('c_que_no_existe', '2026-08').opciones[1].rotulo),
+      'el mes sale de la deuda, no del que se está mirando');
+    /* Y la fecha del cobro es el CIERRE del mes, no un día fijo: el % se calcula con el mes
+       cerrado, así que un 28 decía que se cobró tres días antes de poder calcularse. */
+    check('chat: el cobro del mes se fecha el último día de ese mes, no un 28 fijo',
+      (() => {
+        const fuente = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
+        return !/`\$\{m\}-28`/.test(fuente) && /getUTCDate\(\);\s*\n\s*ins\.run/.test(fuente);
+      })());
     check('chat: si es la misma wallet para las dos cosas, va un bloque solo',
       (htmlUna.match(/class="paga"/g) || []).length === 1
       && !/El % sobre las ganancias/.test(htmlUna) && !/Son dos cuentas distintas/.test(htmlUna));
@@ -2843,12 +2856,12 @@ async function main() {
        cuando es lo segundo es mentirle a alguien que va a mirar su cuenta el mes que viene. */
     const opSin = ch.opcionesDeConcepto('c_que_no_existe', '2026-11');
     check('chat: si el mes todavía no se cobró se dice, no sale un cero',
-      opSin.opciones[1].rotulo === '% sobre las ganancias de noviembre — todavía no está'
+      opSin.opciones[1].rotulo === '% sobre las ganancias — todavía no está'
       && /se calcula con el mes cerrado/.test(opSin.aclaracion),
       opSin.opciones[1].rotulo);
     const opCero = ch.opcionesDeConcepto('c_que_no_existe', '2026-08');
     check('chat: cuando el mes ya se cobró deja de decir que no está',
-      opCero.opciones[1].rotulo === '% sobre las ganancias de agosto — este mes no te cobramos nada'
+      opCero.opciones[1].rotulo === '% sobre las ganancias — este mes no te cobramos nada'
       && opCero.aclaracion === '',
       opCero.opciones[1].rotulo);
     /* ── EL MANTENIMIENTO, CAJA POR CAJA ─────────────────────────────────────────────────────

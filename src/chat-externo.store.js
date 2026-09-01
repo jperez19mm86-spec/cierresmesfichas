@@ -1071,8 +1071,12 @@ function cobrar(mes, opciones = {}) {
       const ya = db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(g.cliente_id, m);
       if (ya) { yaEstaban.push(g.cliente); continue; }
       const id = 'chm_' + require('crypto').randomBytes(6).toString('hex');
-      // La fecha cae DENTRO del mes cobrado, no el día que apretaste el botón.
-      ins.run(id, g.cliente_id, m, g.cobra, `${m}-28`,
+      /* LA FECHA ES EL ÚLTIMO DÍA DEL MES COBRADO, no el día que apretaste el botón ni un 28
+         inventado. El % se calcula con el mes cerrado, así que el 28 decía que se cobró tres días
+         antes de que se pudiera calcular — y a quien mira su cuenta eso no le cierra. El cierre de
+         agosto es el 31 de agosto. */
+      const largoM = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+      ins.run(id, g.cliente_id, m, g.cobra, `${m}-${largoM}`,
         g.sinPrecio ? 'precio sin confirmar (se cobró el mínimo)' : '', nowISO());
       creados.push({ cliente: g.cliente, cliente_id: g.cliente_id, monto: g.cobra });
     }
@@ -1403,6 +1407,19 @@ function mantenimientoPorCaja(clienteId) {
  * Viene preseleccionado lo que MÁS DEBE: es lo que va a estar pagando nueve de cada diez veces, y
  * un desplegable que arranca vacío es un campo más para equivocarse.
  */
+/* DE QUÉ MES ES LA DEUDA DEL %. Los cobros del % son uno por mes; los pagos no van contra un mes
+   sino contra el concepto, así que no se puede decir cuál quedó pago y cuál no. Lo que sí se puede
+   decir con certeza es de cuántos meses viene: si hay uno solo, se nombra; si hay varios, se avisa
+   que son varios en vez de elegir uno y equivocarse. */
+function _deQueMes(clienteId) {
+  const ms = db.prepare(`SELECT DISTINCT mes FROM chat_mov
+    WHERE cliente_id=? AND tipo='cobro' ORDER BY mes`).all(String(clienteId || ''))
+    .map((r) => r.mes).filter(Boolean);
+  if (!ms.length) return '';
+  if (ms.length === 1) return ` de ${mesEnLetras(ms[0])}`;
+  return ' (de varios meses)';
+}
+
 function opcionesDeConcepto(clienteId, mes) {
   const sc = saldoPorConcepto(clienteId, mes);
   const plata = (x) => `${money.round(x, 2).replace('-', '')}`;
@@ -1425,10 +1442,13 @@ function opcionesDeConcepto(clienteId, mes) {
   const opciones = [
     { valor: 'mantenimiento', nombre: 'Mantenimiento', estado: comoEsta(sc.mantenimiento),
       debe: sc.mantenimiento.debe },
-    /* «Servicio del mes» no dice qué es. Es el % sobre lo que ganó, y ES DE UN MES CONCRETO: sin
-       el mes, en octubre el rótulo dice lo mismo para agosto que para septiembre y no hay forma de
-       saber cuál está pagando. */
-    { valor: 'ganancia', nombre: `% sobre las ganancias${sc.mes ? ' de ' + mesEnLetras(sc.mes) : ''}`,
+    /* «Servicio del mes» no dice qué es: es el % sobre lo que ganó, y es DE UN MES CONCRETO.
+       ⚠️ PERO EL MES NO ES EL DE HOY. `sc.debe` es lo que arrastra de TODOS los meses, y `sc.mes`
+       es sólo el mes que se está mirando: poniendo ése, el 2 de septiembre el rótulo decía
+       «% sobre las ganancias de septiembre — debés 357,07» cuando esos 357,07 son de agosto, de un
+       mes que encima todavía no está calculado. Se nombra el mes del que viene la deuda, y si
+       viene de varios no se nombra ninguno: se dice que son varios. */
+    { valor: 'ganancia', nombre: `% sobre las ganancias${_deQueMes(clienteId)}`,
       estado: estadoGan(), debe: sc.ganancia.debe },
   ];
   opciones.forEach((o) => { o.rotulo = `${o.nombre} — ${o.estado}`; });
