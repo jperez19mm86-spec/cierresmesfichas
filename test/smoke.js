@@ -3590,8 +3590,12 @@ async function main() {
        ENTERO al proveedor —a otra wallet y en otras fechas—. Con los datos de agosto la pantalla
        decía 169,44 cuando lo real eran 1.219,44: faltaban los 1.050 de las siete mensualidades. */
     {
-      // El bloque de arriba borró las mensualidades: se crea una para tener qué medir.
-      const mm = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat' });
+      /* El bloque de arriba borró las mensualidades: se crea una para tener qué medir.
+         ⚠️ CON FECHA EXPLÍCITA. Sin ella, `cobrarMensualidad` usa HOY, y este check mide agosto:
+         el 1 de septiembre a las 00:01 la mensualidad caía en septiembre y el check fallaba solo,
+         sin que nadie hubiera tocado nada. Es la tercera vez en este archivo que un test se apoya
+         en "ahora" y se rompe al cambiar el mes. */
+      const mm = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2026-08-15' });
       const dpv = ch.deudaProveedor('2026-08');
       check('chat: lo que le debés al proveedor incluye el mantenimiento',
         mm.ok
