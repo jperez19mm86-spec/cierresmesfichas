@@ -2410,6 +2410,22 @@ function pagado(mes) {
    El mantenimiento que le debés es el que YA le cobraste al cliente ese mes: lo que entró por ese
    concepto sale por el mismo. No se recalcula sobre las cajas activas, porque una caja que arrancó
    a mitad de mes no debe un mes entero — y eso ya lo resolvió el devengo al cobrarlo. */
+/**
+ * LO QUE LE DEBÉS AL PROVEEDOR — Y LO QUE NO.
+ *
+ * ⚠️ SON DOS PLATAS QUE VIAJAN POR CAMINOS DISTINTOS, y confundirlas hacía pagar dos veces:
+ *
+ *  · EL MANTENIMIENTO NO PASA POR VOS. Las wallets del mantenimiento son DE ÉL: el cliente le
+ *    transfiere directo. Vos lo facturás y lo confirmás, pero esa plata nunca la recibís, así que
+ *    NO ES UNA DEUDA TUYA. Antes se sumaba a lo que le debías —1.050 de agosto— y quedaba
+ *    esperando que vos le mandaras algo que él ya había cobrado.
+ *    Acá va como informativo: cuánto es, cuánto le pagaron ya los clientes, y cuánto falta que
+ *    le paguen. Lo que falta lo cobra él, no vos.
+ *
+ *  · EL % SÍ. Ese entra a TU wallet y después le mandás la parte suya. Es la única deuda.
+ *
+ * Por eso `total` es sólo la ganancia: es lo que tenés que transferir.
+ */
 function deudaProveedor(mes) {
   const m = String(mes || '').slice(0, 7);
   const c = cierre(m);
@@ -2420,15 +2436,32 @@ function deudaProveedor(mes) {
   const pagadoDe = (k) => money.round(money.sum(
     ps.filter((p) => (p.concepto || 'ganancia') === k).map((p) => p.monto || '0')), 2);
   const pagG = pagadoDe('ganancia');
+  /* Lo que los CLIENTES ya le pagaron directo del mantenimiento de este mes. Sale de los pagos de
+     ellos, no de los tuyos: la plata fue de su bolsillo a la wallet de él sin escala. */
+  const pagCli = money.round(money.sum(
+    db.prepare(`SELECT monto FROM chat_mov
+      WHERE mes=? AND tipo='pago' AND concepto='mantenimiento'`).all(m).map((x) => x.monto || '0')), 2);
+  /* Y si además vos le pagaste mantenimiento alguna vez —no debería, pero se pudo haber cargado—
+     cuenta igual: la plata le llegó. */
   const pagM = pagadoDe('mantenimiento');
+  const cubierto = money.round(money.add(pagCli, pagM), 2);
   return {
     mes: m,
     ganancia: { debe: porGanancia, pagado: pagG, falta: money.round(money.sub(porGanancia, pagG), 2) },
-    mantenimiento: { debe: mantenimiento, pagado: pagM, falta: money.round(money.sub(mantenimiento, pagM), 2), cajas: mant.length },
+    /* `debe: '0'` a propósito y no el monto: NO se lo debés vos. `factura` es cuánto es el
+       mantenimiento del mes, para que se vea de qué se está hablando. */
+    mantenimiento: {
+      debe: '0', factura: mantenimiento, cajas: mant.length,
+      leLlegoDelCliente: cubierto,
+      faltaQueLePaguen: money.round(money.sub(mantenimiento, cubierto), 2),
+      directo: true,
+      pagado: cubierto,
+      falta: money.round(money.sub(mantenimiento, cubierto), 2),
+    },
     total: {
-      debe: money.round(money.add(porGanancia, mantenimiento), 2),
-      pagado: money.round(money.add(pagG, pagM), 2),
-      falta: money.round(money.sub(money.add(porGanancia, mantenimiento), money.add(pagG, pagM)), 2),
+      debe: porGanancia,
+      pagado: pagG,
+      falta: money.round(money.sub(porGanancia, pagG), 2),
     },
   };
 }

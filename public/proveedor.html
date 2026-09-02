@@ -137,11 +137,16 @@ async function cargar() {
       : '⏳ <b>Todavía no cerró el mes.</b> El mantenimiento ya está firme, pero lo de la ganancia '
         + 'es un estimado y se va a mover hasta que cerremos.')
     + '</div>'
-    + '<div class="tot"><span class="tenue">' + (falta > 0 ? 'Te queda por cobrar' : 'Está todo pagado') + '</span>'
+    /* ⚠️ ARRIBA VA SÓLO LO QUE ELLA LE TIENE QUE TRANSFERIR. El mantenimiento lo cobra ÉL directo
+       del cliente —las wallets son suyas— así que no es plata que ella le deba: mezclarlo en el
+       total le decía que ella le debía algo que él ya tenía cobrado. Va abajo, con su propio
+       rótulo, para que vea cuánto le falta cobrarle a los clientes. */
+    + '<div class="tot"><span class="tenue">' + (falta > 0 ? 'Te tiene que transferir' : 'Te transfirió todo') + '</span>'
     + '<b class="num ' + (falta > 0 ? 'debe' : 'ok') + '">' + num(Math.abs(falta)) + ' USDT</b></div>'
     + '<div class="tiles">'
-    + tile('Por la ganancia', g, (d.pct != null ? d.pct + '% sobre el profit' : ''), !d.cerrado)
-    + tile('Mantenimiento', mt, (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') : ''), false)
+    + tile('Te transfiere', g, (d.pct != null ? d.pct + '% sobre el profit' : ''), !d.cerrado)
+    + tile('Cobrás vos, directo', mt,
+      (mt.cajas != null ? mt.cajas + ' caja' + (mt.cajas === 1 ? '' : 's') + ' · el mantenimiento va a tus wallets' : ''), false)
     + '</div></div>';
 
   /* El total del mes por moneda: es contra esto que compara el panel del casino. */
