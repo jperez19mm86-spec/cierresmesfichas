@@ -436,11 +436,13 @@ app.post('/api/clientes/import', (req, res) => {
 app.get('/api/config', (_req, res) => {
   const tok = config.getTelegramToken();
   res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
-    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica() });
+    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica(),
+    // Su grupo interno, aparte del de la matriz: eran dos cosas en la misma clave.
+    grupoInterno: config.getGrupoInterno() });
 });
 
 app.put('/api/config', (req, res) => {
-  const { telegramBotToken, apiGrupoMatriz, urlPublica } = req.body || {};
+  const { telegramBotToken, apiGrupoMatriz, urlPublica, grupoInterno } = req.body || {};
   if (urlPublica !== undefined) {
     const r = config.setUrlPublica(urlPublica);
     if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
@@ -449,9 +451,12 @@ app.put('/api/config', (req, res) => {
   // El grupo matriz de las cuentas de API: uno solo para todas. Va acá y no en cada cliente porque
   // si viviera copiado en las 16 cuentas, cambiarlo obligaría a acordarse de tocar las 16.
   if (apiGrupoMatriz !== undefined) config.setApiGrupoMatriz(apiGrupoMatriz);
+  if (grupoInterno !== undefined) config.setGrupoInterno(grupoInterno);
   const tok = config.getTelegramToken();
   res.json({ ok: true, telegramConfigured: !!tok, telegramTokenHint: tok ? ('…' + tok.slice(-6)) : '',
-    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica() });
+    apiGrupoMatriz: config.getApiGrupoMatriz(), urlPublica: config.getUrlPublica(),
+    // Su grupo interno, aparte del de la matriz: eran dos cosas en la misma clave.
+    grupoInterno: config.getGrupoInterno() });
 });
 
 // Configurar el grupo de Telegram de un cliente (aviso automático al cargar).

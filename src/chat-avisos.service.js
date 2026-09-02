@@ -1,7 +1,7 @@
 /**
  * chat-avisos.service.js — LO QUE EL CHAT EXTERNO LE AVISA A ELLA.
  *
- * Dos cosas, las dos hacia ADENTRO (al grupo de la matriz). Acá no se le escribe nunca a un
+ * Dos cosas, las dos hacia ADENTRO (a SU grupo interno, no al de la matriz). Acá no se le escribe nunca a un
  * cliente: este archivo no toca `chat.destino()` ni `chat.botToken()`, y esa ausencia es a
  * propósito — es lo que hace imposible que un aviso interno termine en el grupo de un cliente.
  *
@@ -41,7 +41,12 @@ const mesLindo = (m) => {
   return `${MES_LARGO[Number(x)] || m} ${a || ''}`.trim();
 };
 
-function _matriz() { return { tok: cfg.getTelegramToken(), grupo: cfg.getApiGrupoMatriz() }; }
+/* ⚠️ VA A SU GRUPO INTERNO, NO AL DE LA MATRIZ. Lo de acá es su operación puertas adentro: que un
+   cliente avisó un pago ANTES de que ella lo apruebe, a quién le falta cobrar, la lista diaria de
+   pendientes. El grupo de la matriz es donde va la copia de las cuentas de TBS, y tenerlos en la
+   misma clave le mezclaba las dos cosas en el mismo lugar.
+   Sin grupo interno cargado cae al de la matriz, que es exactamente lo que hacía antes. */
+function _matriz() { return { tok: cfg.getTelegramToken(), grupo: cfg.getGrupoInterno() }; }
 /* El dominio no se deduce nunca: si no está cargado, el mensaje va sin link en vez de con uno
    inventado. */
 const _base = () => cfg.getUrlPublica();
@@ -50,7 +55,7 @@ async function _mandar(texto) {
   if (APAGADO()) return { ok: false, error: 'avisos apagados (CHAT_AVISOS_OFF)' };
   const { tok, grupo } = _matriz();
   if (!tok) return { ok: false, error: 'falta el token del bot (⚙ Config → Telegram)' };
-  if (!grupo) return { ok: false, error: 'falta el grupo de la matriz (⚙ Config → Telegram)' };
+  if (!grupo) return { ok: false, error: 'falta tu grupo interno (⚙ Config → Telegram)' };
   try {
     const r = await telegram.sendMessage(tok, grupo, texto);
     return r && r.ok ? { ok: true } : { ok: false, error: (r && r.error) || 'Telegram no dijo por qué' };

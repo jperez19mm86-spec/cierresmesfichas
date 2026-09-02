@@ -4368,10 +4368,17 @@ CFG.telegram = async () => {
           así que el mismo link podía salir de dos formas distintas.</div>
       </div>
       <div class="row" style="margin-top:12px;align-items:flex-end">
-        <div style="flex:0 0 260px"><label>Grupo matriz de las cuentas de API</label>
-          <input id="tg-matriz" value="${esc(cfg.apiGrupoMatriz||'')}" placeholder="-4721694040"
+        <div style="flex:0 0 240px"><label>Grupo matriz de las cuentas de API</label>
+          <input id="tg-matriz" value="${esc(cfg.apiGrupoMatriz||'')}" placeholder="-100…"
             style="font-variant-numeric:tabular-nums"></div>
         <div style="flex:0"><button onclick="tgGuardarMatriz()">Guardar</button></div>
+        <!-- ⚠️ SON DOS COSAS Y ESTABAN EN LA MISMA CLAVE. Al grupo de TBS le entraban también los
+             avisos internos del chat —que un cliente avisó un pago antes de aprobarlo, a quién le
+             falta cobrar, la lista diaria de pendientes—, que es su operación puertas adentro. -->
+        <div style="flex:0 0 240px"><label>Tu grupo interno</label>
+          <input id="tg-interno" value="${esc(cfg.grupoInterno||'')}" placeholder="-100…"
+            style="font-variant-numeric:tabular-nums"></div>
+        <div style="flex:0"><button onclick="tgGuardarInterno()">Guardar</button></div>
         <div class="muted" style="flex:1;align-self:center">Toda cuenta de TBS que se manda va <b>siempre</b> acá —
           es tu copia de lo que se emitió. Mandarla además al grupo del cliente es un botón aparte.</div>
       </div>
@@ -4518,6 +4525,13 @@ async function tgGuardarMatriz(){
   const v=val('tg-matriz');
   const r=await api('/api/config',{method:'PUT',body:JSON.stringify({apiGrupoMatriz:v})});
   toast(r.ok?('Grupo matriz: '+(r.apiGrupoMatriz||'(vacío)')):'No se pudo guardar');
+}
+/* Tu grupo, el que es sólo tuyo: ahí van los avisos del chat externo. Vacío cae al de la matriz,
+   que es lo que hacía antes de separarlos. */
+async function tgGuardarInterno(){
+  const v=(document.getElementById('tg-interno')||{}).value||'';
+  const r=await api('/api/config',{method:'PUT',body:JSON.stringify({grupoInterno:v})});
+  toast(r.ok?('Tu grupo: '+(r.grupoInterno||'(vacío — cae al de la matriz)')):'No se pudo guardar');
 }
 async function tgGuardarToken(){
   const v=val('tg-token'); if(!v) return toast('Pegá el token');
