@@ -2364,8 +2364,11 @@ function mount(app) {
   /* ── LOS AVISOS DE PAGO DEL CLIENTE ─────────────────────────────────────────────────────────
      Suben la captura desde su hoja. No mueven el saldo hasta que se aprueban acá. */
   app.get('/api/os/chat/avisos', (_req, res) => ok(res, { avisos: chat.avisosPendientes() }));
+  // Cuáles trae — hasta tres. La pantalla los ofrece todos en vez de suponer que hay uno.
+  app.get('/api/os/chat/avisos/:id/archivos', (req, res) =>
+    ok(res, { archivos: chat.archivosDeAviso(req.params.id) }));
   app.get('/api/os/chat/avisos/:id/archivo', (req, res) => {
-    const a = chat.archivoDeAviso(req.params.id);
+    const a = chat.archivoDeAviso(req.params.id, req.query.n || 0);
     if (!a || !a.archivo_b64) return err(res, 404, 'ese aviso no trae comprobante');
     /* Se sirve con el tipo que se guardó —ya filtrado a imágenes— y además con estas dos, que son
        las que impiden que un archivo subido desde afuera se ejecute como página adentro de tu
@@ -2383,8 +2386,35 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.post('/api/os/chat/avisos/:id/resolver', wrap((req, res) => {
-    const r = chat.resolverAviso(req.params.id, (req.body || {}).aprobar === true);
-    r.ok ? ok(res, r) : err(res, 400, r.error);
+    const aprobar = (req.body || {}).aprobar === true;
+    /* El aviso se lee ANTES de resolverlo: al aprobarlo cambia de estado, y después ya no se sabe
+       de qué cajas era ni qué monto tenía sin volver a armarlo. */
+    const av = chat.avisoPorId(req.params.id);
+    const r = chat.resolverAviso(req.params.id, aprobar);
+    if (!r.ok) return err(res, 400, r.error);
+    /* ⚠️ SI ERA DEL MANTENIMIENTO, SE LE REENVÍA AL PROVEEDOR CON EL COMPROBANTE. Esa plata le
+       entró a él directo —las wallets del mantenimiento son suyas— y sin esto le llega una
+       transferencia sin saber de qué caja ni de qué período es.
+       Sale DESPUÉS de contestar: que Telegram falle no puede hacer que la pantalla diga que el
+       aviso no se aprobó, cuando el saldo ya se movió. */
+    if (aprobar && av && av.concepto === 'mantenimiento') {
+      const nombres = String(av.cajas || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const cajas = nombres.map((n) => {
+        const p = chat.list().find((x) => x.cliente_id === av.cliente_id && x.panel === n) || {};
+        const mv = (chat.cuentas(null).clientes.find((x) => x.cliente_id === av.cliente_id) || { movs: [] })
+          .movs.filter((m) => m.tipo === 'mensualidad' && m.panel === n).slice(-1)[0];
+        const per = mv ? chat.periodoDesde(mv.fecha) : null;
+        return { caja: chat.comoLaLlamaElCliente(n) || n, periodo: per ? per.texto : '' };
+      });
+      const archivos = chat.archivosDeAviso(av.id)
+        .map((x) => chat.archivoDeAviso(av.id, x.ord)).filter(Boolean);
+      res.on('finish', () => {
+        require('./chat-avisos.service').avisarMantenimientoCobrado(av, cajas, archivos)
+          .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó el mantenimiento al proveedor:', x.error); })
+          .catch((e) => console.warn('[Chat] error avisando el mantenimiento:', e.message));
+      });
+    }
+    ok(res, r);
   }));
   // La mensualidad se cobra el día de cada panel, así que tiene su propio botón y su propia fecha.
   app.post('/api/os/chat/mensualidad', wrap((req, res) => {

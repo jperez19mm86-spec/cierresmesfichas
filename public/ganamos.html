@@ -542,8 +542,15 @@ function ver(cual) {
         : '')
       + '<label class="campo">Referencia <span class="tenue">(opcional)</span>'
       + '<input name="referencia" placeholder="hash, alias, últimos dígitos"></label>'
-      + '<label class="campo">Comprobante <span class="tenue">(opcional)</span>'
-      + '<input type="file" name="archivo" accept="image/*"></label>'
+      /* HASTA TRES. Con varias cajas se paga en dos o tres transferencias, y hasta acá sólo
+         entraba una captura: la otra se mandaba por privado y se perdía. Se dice cuántas entran y
+         qué hacer si son más, en vez de dejar que lo descubra cuando el formulario le rechace la
+         cuarta. */
+      + '<label class="campo">Comprobante <span class="tenue">(opcional, hasta 3)</span>'
+      + '<input type="file" name="archivo" accept="image/*" multiple></label>'
+      + '<p class="tenue" style="margin:-6px 0 12px;line-height:1.5">Si pagaste en varias '
+      + 'transferencias podés subir hasta 3 comprobantes. Si fueron más, poné el <b>monto exacto '
+      + 'de cada una</b> en la referencia y lo cruzamos.</p>'
       + '<button class="btn uva" type="submit" id="bAviso">Enviar</button>'
       + '<p class="msg" id="mAviso" role="status"></p></form>'
       + ((DATOS.avisos || []).length ? '<h2 style="margin-top:20px">Tus avisos</h2><table><tbody>'
@@ -604,7 +611,7 @@ async function refrescar() {
 async function avisar(e) {
   e.preventDefault();
   var f = e.target, b = $('bAviso'), m = $('mAviso');
-  var arch = f.archivo.files[0] || null;
+  var archs = [].slice.call(f.archivo.files || []).slice(0, 3);
   b.disabled = true; m.textContent = 'Enviando…'; m.className = 'msg';
   var datos = { usuario: USUARIO, monto: f.monto.value, referencia: f.referencia.value };
   // De cuál de sus cuentas. Sin esto, con dos cuentas el pago le tapa deuda a la equivocada.
@@ -614,16 +621,29 @@ async function avisar(e) {
     datos.cajas = [].slice.call(document.querySelectorAll('input[name=caja]:checked'))
       .map(function (x) { return x.value; });
   }
-  if (arch) {
-    if (arch.size > 6 * 1024 * 1024) {
-      m.textContent = 'La imagen es muy grande (máximo 6 MB).'; m.className = 'msg mal';
-      b.disabled = false; return false;
+  if ((f.archivo.files || []).length > 3) {
+    m.textContent = 'Podés subir hasta 3 comprobantes. Si fueron más transferencias, poné el monto '
+      + 'exacto de cada una en la referencia.'; m.className = 'msg mal';
+    b.disabled = false; return false;
+  }
+  if (archs.length) {
+    for (var i = 0; i < archs.length; i++) {
+      if (archs[i].size > 6 * 1024 * 1024) {
+        m.textContent = 'Una de las imágenes es muy grande (máximo 6 MB cada una).'; m.className = 'msg mal';
+        b.disabled = false; return false;
+      }
     }
-    datos.archivo = await new Promise(function (res) {
-      var fr = new FileReader();
-      fr.onload = function () { res({ nombre: arch.name, tipo: arch.type, base64: String(fr.result) }); };
-      fr.readAsDataURL(arch);
-    });
+    datos.archivos = [];
+    for (var j = 0; j < archs.length; j++) {
+      /* De a uno y esperando: leer los tres en paralelo en un teléfono viejo se come la memoria
+         justo cuando el cliente está tratando de avisar una transferencia que ya hizo. */
+      // eslint-disable-next-line no-await-in-loop
+      datos.archivos.push(await new Promise(function (res) {
+        var fr = new FileReader(); var a2 = archs[j];
+        fr.onload = function () { res({ nombre: a2.name, tipo: a2.type, base64: String(fr.result) }); };
+        fr.readAsDataURL(a2);
+      }));
+    }
   }
   var r = await pedir('/chat/aviso', datos);
   if (r.ok) {

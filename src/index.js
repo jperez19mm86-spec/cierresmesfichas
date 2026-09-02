@@ -1483,7 +1483,9 @@ app.post('/chat/aviso', (req, res) => {
     cliente_id: q.cliente_id, concepto: b.concepto, cajas: b.cajas,
     // De cuál de sus cuentas: con dos, un aviso sin esto le tapa deuda a la equivocada.
     divisa: b.divisa,
-    monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
+    monto: b.monto, referencia: b.referencia,
+    // Uno o varios: `archivo` es la forma vieja y sigue andando; `archivos` es la nueva.
+    archivo: b.archivo || null, archivos: b.archivos || null,
   });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${q.cliente} avisó un pago de ${out.aviso.monto}`);
@@ -1529,7 +1531,10 @@ app.post('/chat/:token/pague', (req, res) => {
      antes de buscar el token convertiría un link inexistente en un 400 en vez del 404 que es. */
   const out = chatStore.avisarPago({
     cliente_id: r.cliente_id, mes: r.mes, concepto: b.concepto, cajas: b.cajas,
-    monto: b.monto, referencia: b.referencia, archivo: b.archivo || null,
+    // La hoja con token también: es el mismo formulario del otro lado del link.
+    divisa: b.divisa,
+    monto: b.monto, referencia: b.referencia,
+    archivo: b.archivo || null, archivos: b.archivos || null,
   });
   if (!out.ok) return res.status(400).json(out);
   console.log(`[Chat] ${r.cliente_id} avisó un pago de ${out.aviso.monto}`);
