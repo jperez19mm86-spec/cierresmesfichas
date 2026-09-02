@@ -2838,6 +2838,17 @@ async function main() {
     /* Los avisos de prueba se borran apenas se miden. Dejarlos pendientes desplaza a los que otros
        checks están mirando, y encima el tope de 10 sin resolver empieza a rechazar los que siguen:
        un check que ensucia el estado hace fallar a otro que no tiene nada que ver. */
+    /* ⚠️ SE LIMPIA TODO LO DEL CLIENTE DE PRUEBA ANTES DE EMPEZAR, no sólo lo que crea cada check.
+       La base del suite sobrevive entre corridas: con la limpieza sólo al final, lo que quedó de
+       una corrida vieja se suma, y al llegar a 10 sin resolver `avisarPago` empieza a rechazar
+       —el tope existe para que nadie llene la base desde el portal público—. El bloque se hace
+       idempotente: arranca siempre de cero pase lo que pase antes. */
+    const CLI_CMP = 'c_comprobantes_prueba';
+    (() => {
+      const dbx = require('../src/db').db;
+      dbx.prepare('DELETE FROM chat_comprobante_archivo WHERE comprobante_id IN (SELECT id FROM chat_comprobante WHERE cliente_id=?)').run(CLI_CMP);
+      dbx.prepare('DELETE FROM chat_comprobante WHERE cliente_id=?').run(CLI_CMP);
+    })();
     const _limpiarAviso = (id) => {
       // El cliente de prueba es propio: así estos checks no le mueven los contadores a CLI.
       
@@ -2899,7 +2910,7 @@ async function main() {
     check('comprobantes: entran hasta 3, y el cuarto no',
       (() => {
         const img = { nombre: 'c.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' };
-        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '10', archivos: [img, img, img, img] });
+        const r = ch.avisarPago({ cliente_id: CLI_CMP, monto: '10', archivos: [img, img, img, img] });
         if (!r.ok) return false;
         const n = ch.archivosDeAviso(r.aviso.id).length;
         return n === 3 && r.aviso.archivos === 3;
@@ -2908,14 +2919,15 @@ async function main() {
     check('comprobantes: cada uno se puede mirar por separado',
       (() => {
         const img = { nombre: 'a.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' };
-        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '11', archivos: [img, img] });
+        const r = ch.avisarPago({ cliente_id: CLI_CMP, monto: '11', archivos: [img, img] });
+        if (!r.ok) return false;
         const uno = ch.archivoDeAviso(r.aviso.id, 0);
         const dos = ch.archivoDeAviso(r.aviso.id, 1);
         return !!(uno && uno.archivo_b64) && !!(dos && dos.archivo_b64);
       })());
     check('comprobantes: el de siempre —uno solo— sigue andando igual',
       (() => {
-        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '12',
+        const r = ch.avisarPago({ cliente_id: CLI_CMP, monto: '12',
           archivo: { nombre: 'v.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' } });
         return r.ok && ch.archivosDeAviso(r.aviso.id).length === 1;
       })());
