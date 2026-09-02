@@ -700,6 +700,8 @@ VIEWS.clientes = async () => {
     api('/api/os/clientes'), api('/api/os/paneles'), api('/api/os/casino/conexiones'),
     api('/api/os/paneles/divisas?meses=6'),
   ]);
+  // el cartel de cada panel avisa cuáles de sus divisas no se consultan
+  api('/api/os/config/divisas-ignoradas').then(x=>{ window._divIgnoradas = (x&&x.divisas)||[]; });
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
   window._divDiag = {}; ((dv&&dv.paneles)||[]).forEach(x=>{ window._divDiag[x.panel_id]=x; });
   setTimeout(solAviso, 0); setTimeout(movAviso, 0);   // no bloquean el pintado
@@ -1093,6 +1095,35 @@ async function setDivisas(id, v){
   if(r.ok){ _paneles=(await api('/api/os/paneles')).paneles||_paneles; renderClientes&&0; }
   VIEWS.clientes();
 }
+/* ── BUSCAR DIVISAS NUEVAS EN UN SOLO PANEL ──────────────────────────────────────────────────
+ * El cruce completo son 207 pedidos al casino y ~6 minutos: sirve para una limpieza, no para el
+ * día a día. Pero las divisas nuevas aparecen de a una y en un cliente concreto — el que avisa que
+ * arranca en otra moneda. Esto le pregunta al casino por ESE nodo solo: un pedido, dos segundos.
+ *
+ * No aplica nada solo. Muestra qué cambió y deja el botón para aceptarlo, porque "el casino manda"
+ * vale para agregar pero también para borrar, y una lectura fallida que devolviera poco dejaría al
+ * panel sin divisas. Por eso divisasDeNodo nunca devuelve lista vacía: o trae divisas o trae error.
+ */
+async function buscarDivisas(panelId, nombre){
+  toast('Preguntándole al casino por ' + nombre + '…');
+  const r = await api('/api/os/paneles/divisas/casino', {method:'POST', body:JSON.stringify({panel_id:panelId, aplicar:false})});
+  const f = ((r&&r.paneles)||[])[0];
+  if(!f) return toast('no se pudo consultar ese panel', true);
+  if(f.error) return toast(f.error, true);
+  const hab=(f.habilitadas||[]), guar=(f.guardadas||[]);
+  const nuevas=hab.filter(d=>!guar.includes(d)), yaNo=guar.filter(d=>!hab.includes(d));
+  if(!nuevas.length && !yaNo.length) return toast(nombre+': sin cambios, el casino tiene las mismas '+hab.length+' divisas');
+  const txt = nombre+'\n\n'
+    + (nuevas.length?('NUEVAS en el casino: '+nuevas.join(', ')+'\n'):'')
+    + (yaNo.length?('YA NO están en el casino: '+yaNo.join(', ')+'\n'):'')
+    + '\nGuardadas ahora: '+(guar.join(', ')||'ninguna')
+    + '\nQuedaría: '+hab.join(', ')
+    + '\n\n¿Dejar exactamente las del casino?';
+  if(!confirm(txt)) return;
+  await setDivisas(panelId, hab.join(','));
+  toast(nombre+': ahora tiene '+hab.length+' divisas');
+}
+
 /* Lee del casino, panel por panel, qué divisas tiene HABILITADAS y lo cruza con lo guardado.
    Va de a tandas: es un pedido HTTP por panel y son 200 — de una sola vez se come los 5 minutos
    que aguanta el proxy y se corta sin decir dónde quedó. Cada tanda deja el avance en pantalla. */
@@ -1146,15 +1177,23 @@ function bloquePaneles(c){
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${nivelPanel(p)}</td>
        <td>${(()=>{ const g=(window._divDiag||{})[p.id]||{};
-          // "sobran" sólo si el panel MOVIÓ algo: sin datos no se puede afirmar que no las use.
-          const sobran=(g.usadas&&g.usadas.length)?(g.sobran||[]):[];
+          // SOBRAN = las que tenemos guardadas y EL CASINO NO TIENE HABILITADAS. Antes esto se
+          // cruzaba contra las fichas pedidas y el botón dejaba sólo las movidas: eso borró divisas
+          // buenas de clientes que pasaron un mes sin pedir. Lo movido no dice nada de lo habilitado.
+          const sobran=g.sobran||[];
+          const ign=(window._divIgnoradas||[]).filter(d=>(p.divisas||[]).map(x=>String(x).toUpperCase()).includes(d));
           return `<input value="${esc((p.divisas||[]).join(','))}" placeholder="ARS"
             style="width:190px"
             title="Las monedas que este panel puede mover. Vinieron del casino cuando se linkeó: son las que la cuenta tiene HABILITADAS, no las que usa. Separá con comas. Cada una de más es una consulta de más en la Foto del mes y una alerta de 'moneda sin tipo de cambio'."
             onchange="setDivisas('${p.id}', this.value)">`
           + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
-               title="En 6 meses este panel movió sólo ${esc(g.usadas.join(', '))}. Tocá para dejar esas."
-               onclick="setDivisas('${p.id}','${esc(g.usadas.join(','))}')">sobran ${sobran.length} → dejar ${esc(g.usadas.join(','))}</span></div>`:'');
+               title="El casino no tiene habilitadas ${esc(sobran.join(', '))} en este nodo, así que preguntar por ellas siempre trae cero. Tocá para dejar exactamente las del casino."
+               onclick="setDivisas('${p.id}','${esc((g.habilitadas||[]).join(','))}')">sobran ${sobran.length} → poner las del casino</span></div>`:'')
+          + ` <button class="small outline" style="padding:1px 5px;font-size:10.5px"
+               title="Le pregunta al casino qué divisas tiene habilitadas ESTE panel ahora. Es un solo pedido: se puede tocar cuando un cliente avisa que arranca en otra moneda, sin correr el cruce completo."
+               onclick="buscarDivisas('${p.id}','${esc(p.nombre)}')">buscar nuevas</button>`
+          + (ign.length?`<div style="margin-top:2px"><span class="badge muted"
+               title="Están habilitadas en el casino pero la Foto del mes no las pregunta: figuran en «divisas que no se consultan». Se saca de ahí y vuelven solas.">no se consulta: ${esc(ign.join(', '))}</span></div>`:'');
         })()}</td>
        <td><input type="checkbox" ${p.en_foto===false?'':'checked'}
             title="Si entra en la Foto del mes. Un distribuidor que no necesitás sacar todos los meses se puede destildar: el reporte igual funciona, preguntando en vivo."
@@ -1824,11 +1863,48 @@ const AVISO_FOTO_EN_CURSO =
   + 'Factura de externos la lee y cobra de menos, sin avisar. Sacala a principio del mes que viene, '
   + 'o rehacela cuando el mes haya cerrado.</div>';
 
+/* ── DIVISAS QUE NO SE CONSULTAN ────────────────────────────────────────────────────────────
+ * Va en la Foto y no en Config porque es acá donde se paga el precio: cada divisa de más es una
+ * consulta más por vuelta y por conexión. `ALL` está prendida en dos superagentes sin que nadie la
+ * haya querido, y el casino la acepta igual — no hay forma de deducirlo, hay que decirselo. */
+function tarjetaDivisasIgnoradas(){
+  const l = window._divIgnoradas||[];
+  return '<div class="card" style="background:var(--bg3);margin-top:10px">'
+    + '<label>Divisas que no se consultan nunca</label>'
+    + '<div class="muted" style="font-size:12px;margin:2px 0 7px">'
+    +   'Aunque el casino las tenga habilitadas. Es para las que se prenden por error: preguntarlas '
+    +   'trae siempre cero y cuesta una consulta por conexion y por vuelta. '
+    +   '<b>No borra nada</b> &mdash; cada panel conserva su lista; si sacas una de aca vuelve sola el mes que viene.</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center">'
+    +   (l.length ? l.map(d=>'<span class="pill" style="background:var(--bg2)">'+esc(d)
+          + ' <a href="#" onclick="divIgnQuitar(&quot;'+esc(d)+'&quot;);return false" title="Volver a consultarla" style="text-decoration:none">&#10005;</a></span>').join('')
+              : '<span class="muted">ninguna: se consultan todas las habilitadas</span>')
+    +   '<input id="divIgnNueva" placeholder="ALL" maxlength="6" style="width:80px;text-transform:uppercase"'
+    +     ' onkeydown="if(event.key===&quot;Enter&quot;)divIgnSumar()">'
+    +   '<button class="small" onclick="divIgnSumar()">agregar</button>'
+    + '</div></div>';
+}
+async function divIgnGuardar(lista){
+  const r = await api('/api/os/config/divisas-ignoradas', {method:'PUT', body:JSON.stringify({divisas:lista})});
+  if(!r || r.ok===false) return toast((r&&r.error)||'no se pudo guardar', true);
+  window._divIgnoradas = r.divisas||[];
+  toast('listo: la Foto no va a preguntar '+((r.divisas||[]).join(', ')||'ninguna'));
+  VIEWS.foto();
+}
+function divIgnSumar(){
+  const el = document.getElementById('divIgnNueva');
+  const d = String(el.value||'').trim().toUpperCase();
+  if(!/^[A-Z]{2,6}$/.test(d)) return toast('poné el código de la moneda, como ALL o CLPP', true);
+  divIgnGuardar([...(window._divIgnoradas||[]), d]);
+}
+function divIgnQuitar(d){ divIgnGuardar((window._divIgnoradas||[]).filter(x=>x!==d)); }
+
 VIEWS.foto = async () => {
   document.getElementById('main').innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const r = await api('/api/os/estadisticas/estado?mes='+encodeURIComponent(_fotoMes));
   const ms = (await api('/api/os/estadisticas/meses')).meses||[];
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
+  window._divIgnoradas = ((await api('/api/os/config/divisas-ignoradas')).divisas)||[];
   const d = r.detalle||[];
   const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores', nodo:'Datos generales'};
   const errs = d.filter(x=>x.estado==='error');
@@ -1871,6 +1947,7 @@ VIEWS.foto = async () => {
 
     + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
     + '</div>'
+    + tarjetaDivisasIgnoradas()
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
     // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
     + '<div class="nota" style="margin-top:10px"><span class="tit">Las tres vueltas</span>'

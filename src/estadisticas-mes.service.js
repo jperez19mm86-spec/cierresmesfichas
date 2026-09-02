@@ -38,6 +38,7 @@ const nowISO = () => new Date().toISOString();
 const paneles = require('./paneles-store');
 const ganCache = require('./ganancias-cache');
 const casinoConex = require('./casino-conexiones-store');
+const cfg = require('./config-store');
 
 const K = (s) => String(s || '').trim();
 
@@ -126,15 +127,25 @@ function nivelDeModo(valor) {
  * la lista de lo que se está dejando afuera, para que la pantalla lo diga en vez de callarlo.
  * Conviene correr una 'todas' cada tanto, y siempre que un cliente avise que arranca en otra moneda.
  */
-function divisasDePanel(p, alcance, usadasPorPanel) {
-  const habilitadas = (p.divisas || []).length ? p.divisas.map((d) => String(d).toUpperCase()) : ['ARS'];
-  if (alcance !== 'movidas') return { pedir: habilitadas, fuera: [] };
+function divisasDePanel(p, alcance, usadasPorPanel, ignoradas) {
+  // La lista de ignoradas se filtra ANTES que todo lo demás y vale para cualquier alcance, incluido
+  // 'todas': 'todas' quiere decir "todas las que existen para el negocio", no "todas las que alguien
+  // dejó prendidas por error". Va como argumento y no leyendo la config acá adentro porque esta
+  // función se llama una vez por panel y la config es una consulta a la base.
+  const negras = ignoradas || cfg.getDivisasIgnoradas();
+  const todas = (p.divisas || []).map((d) => String(d).toUpperCase());
+  const limpias = todas.filter((d) => !negras.includes(d));
+  const ignoro = todas.filter((d) => negras.includes(d));
+  // Si ignorar deja al panel sin nada, se cae a ARS igual que un panel sin divisas: preguntar cero
+  // divisas es no capturarlo, y eso lo volvería invisible en la Foto sin decirlo en ningún lado.
+  const habilitadas = limpias.length ? limpias : ['ARS'];
+  if (alcance !== 'movidas') return { pedir: habilitadas, fuera: [], ignoradas: ignoro };
   const movidas = (usadasPorPanel[p.id] || []).map((d) => String(d).toUpperCase());
-  if (!movidas.length) return { pedir: habilitadas, fuera: [] };
+  if (!movidas.length) return { pedir: habilitadas, fuera: [], ignoradas: ignoro };
   // sólo las que además siguen habilitadas: si el casino le sacó una, no tiene sentido pedirla
   const pedir = habilitadas.filter((d) => movidas.includes(d));
-  if (!pedir.length) return { pedir: habilitadas, fuera: [] };
-  return { pedir, fuera: habilitadas.filter((d) => !movidas.includes(d)) };
+  if (!pedir.length) return { pedir: habilitadas, fuera: [], ignoradas: ignoro };
+  return { pedir, fuera: habilitadas.filter((d) => !movidas.includes(d)), ignoradas: ignoro };
 }
 
 /**
@@ -165,12 +176,17 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
   const out = [];
   const dejadasAfuera = [];
   const usadasPorPanel = {};
+  // una sola lectura para los 200 paneles
+  const ignoradas = cfg.getDivisasIgnoradas();
+  const seIgnoro = new Set();
   if (alcance === 'movidas') {
     paneles.divisasUsadas(6).forEach((x) => { usadasPorPanel[x.panel_id] = x.usadas || []; });
   }
   for (const cx of cxs) {
     for (const p of paneles.list().filter((x) => x.conexion_id === cx.id && x.id_usuario && x.en_foto !== false)) {
-      const { pedir, fuera } = divisasDePanel(p, alcance, usadasPorPanel);
+      const r = divisasDePanel(p, alcance, usadasPorPanel, ignoradas);
+      const { pedir, fuera } = r;
+      (r.ignoradas || []).forEach((d) => seIgnoro.add(d));
       if (fuera.length) dejadasAfuera.push({ panel: p.nombre, divisas: fuera });
       for (const d of pedir) {
         if (divisa && String(d).toUpperCase() !== String(divisa).toUpperCase()) continue;
@@ -191,6 +207,10 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
   }
   // El plan viaja como array desde siempre; lo que quedó afuera se cuelga como propiedad para no
   // romper a quien lo recorra con un for. `plan.fuera` existe sólo cuando hay algo que avisar.
+  // Las ignoradas se cuelgan aparte de `fuera`: `fuera` es "no la pregunté porque no la movió y
+  // capaz debería", que es una duda; esto es "no la pregunto nunca porque no existe", que es una
+  // decisión tomada. Mezclarlas haría que la pantalla avise todos los meses de algo ya resuelto.
+  if (seIgnoro.size) Object.defineProperty(out, 'ignoradas', { value: [...seIgnoro].sort(), enumerable: false });
   if (dejadasAfuera.length) {
     Object.defineProperty(out, 'fuera', { value: dejadasAfuera, enumerable: false });
     Object.defineProperty(out, 'fueraTotal', { value: dejadasAfuera.reduce((a, x) => a + x.divisas.length, 0), enumerable: false });
@@ -218,11 +238,18 @@ function planGlobal(mes, { conexionId = null } = {}) {
   // la pantalla con las tres vueltas en 0/0 y un botón Sacar que no traía nada. Ver listDeReportes.
   const cxs = casinoConex.listDeReportes().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
+  // Este es el plan que de verdad cuenta las consultas de la Foto: la UNIÓN de las divisas de
+  // todos los paneles de la conexión, por las tres vueltas. Una sola moneda prendida por error en
+  // un solo panel le suma tres consultas a TODA la conexión — por eso las ignoradas se filtran acá.
+  const ignoradas = cfg.getDivisasIgnoradas();
   cxs.forEach((cx) => {
     const divs = new Set();
     paneles.list().filter((p) => p.conexion_id === cx.id && p.id_usuario && p.en_foto !== false)
       .forEach((p) => ((p.divisas || []).length ? p.divisas : ['ARS'])
-        .forEach((d) => divs.add(String(d).toUpperCase())));
+        .forEach((d) => { const u = String(d).toUpperCase(); if (!ignoradas.includes(u)) divs.add(u); }));
+    // Si la conexión entera queda sin divisas, ARS: cero consultas sería declararla completa sin
+    // haber preguntado nada, que es peor que preguntar de más.
+    if (!divs.size) divs.add('ARS');
     // Los TRES niveles, no dos. 'nodo' es la vista general: sin contarla, el mes daba "completa"
     // faltando justamente la que dice cuánto le debemos al proveedor.
     [...divs].sort().forEach((divisa) => VUELTAS.forEach((nivel) => {

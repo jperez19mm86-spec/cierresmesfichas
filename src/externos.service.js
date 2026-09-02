@@ -265,7 +265,11 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     const cliCx = clientePorCx.get(cx.id);
     if (!cliCx) { avisos.push(`${panel.nombre}: la conexión "${cx.nombre}" no responde`); noResponde++; continue; }
     // Un SuperAgente puede tener varias divisas; de un Distribuidor/Agente para abajo hay UNA sola.
-    const divisas = (panel.divisas || []).length ? panel.divisas : ['ARS'];
+    // Las que la dueña marcó como "no se consultan nunca" tampoco se piden en vivo: si no valen
+    // para la Foto tampoco valen acá, y este camino es el lento (una consulta de hasta 16s c/u).
+    const igns = require('./config-store').getDivisasIgnoradas();
+    const sinIgn = (panel.divisas || []).filter((d) => !igns.includes(String(d).toUpperCase()));
+    const divisas = sinIgn.length ? sinIgn : ['ARS'];
     for (const divisa of divisas) trabajos.push({ panel, cxId: cx.id, cliCx, divisa });
   }
 
