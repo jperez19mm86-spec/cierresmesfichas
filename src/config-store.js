@@ -32,6 +32,24 @@ function setApiGrupoMatriz(v) {
   return { apiGrupoMatriz: x };
 }
 
+/* ── TU GRUPO, EL QUE ES SÓLO TUYO ───────────────────────────────────────────────────────────
+ * Distinto del de la matriz. Eran DOS COSAS GUARDADAS EN LA MISMA CLAVE: «el grupo donde va la
+ * copia de las cuentas de TBS» y «el grupo interno de ella», y por eso al de TBS le entraban
+ * también los avisos del chat — que un cliente avisó un pago, a quién le falta cobrar, la lista
+ * diaria de pendientes.
+ *
+ * Vacío cae al de la matriz, que es lo que hacía antes: así el día que alguien despliegue esto sin
+ * cargar el grupo nuevo, los avisos siguen llegando a algún lado en vez de perderse.
+ */
+function getGrupoInterno() {
+  return String(getCfg('grupoInterno') || '').trim() || getApiGrupoMatriz();
+}
+function setGrupoInterno(v) {
+  const x = String(v == null ? '' : v).trim();
+  setCfg('grupoInterno', x);
+  return { grupoInterno: x };
+}
+
 function getTelegramToken() { return String(getCfg('telegramBotToken') || '').trim(); }
 
 /* EL DOMINIO DE LOS LINKS QUE VE EL CLIENTE.
@@ -57,4 +75,5 @@ function setTelegramToken(token) {
 }
 
 module.exports = {
+  getGrupoInterno, setGrupoInterno,
   getUrlPublica, setUrlPublica, getTelegramToken, setTelegramToken, getApiGrupoMatriz, setApiGrupoMatriz, getCfg, setCfg, FILE };

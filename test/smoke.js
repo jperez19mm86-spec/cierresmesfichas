@@ -2846,6 +2846,33 @@ async function main() {
       try { dbx.prepare('DELETE FROM chat_comprobante_archivo WHERE comprobante_id=?').run(id); } catch (e) { /* ya está */ }
     };
 
+    /* ── TU GRUPO INTERNO NO ES EL DE TBS ────────────────────────────────────────────────────
+       Eran dos cosas guardadas en la misma clave: «el grupo donde va la copia de las cuentas de
+       TBS» y «el grupo interno de ella». Por eso al de TBS le entraban también los avisos del chat
+       —que un cliente avisó un pago ANTES de que ella lo apruebe, a quién le falta cobrar, la lista
+       diaria de pendientes—, que es su operación puertas adentro. */
+    check('grupos: los avisos del chat van a SU grupo, no al de la matriz',
+      /cfg\.getGrupoInterno\(\)/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-avisos.service.js'), 'utf8')));
+    check('grupos: sin grupo propio cargado, cae al de la matriz —no se pierde—',
+      (() => {
+        const cfgX = require('../src/config-store');   // `cfgStore` se declara más abajo: TDZ
+        const antes = cfgX.getGrupoInterno();
+        cfgX.setGrupoInterno('');
+        const cae = cfgX.getGrupoInterno() === cfgX.getApiGrupoMatriz();
+        cfgX.setGrupoInterno('-999internos');
+        const propio = cfgX.getGrupoInterno() === '-999internos'
+          && cfgX.getApiGrupoMatriz() !== '-999internos';   // y no le pisa el de TBS
+        cfgX.setGrupoInterno(antes === cfgX.getApiGrupoMatriz() ? '' : antes);
+        return cae && propio;
+      })(),
+      'el día que se despliegue sin cargarlo, los avisos siguen llegando a algún lado');
+    check('grupos: y hay dónde cargarlo, con su propio botón',
+      (() => {
+        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        return /id="tg-interno"/.test(o) && /tgGuardarInterno/.test(o);
+      })());
+
     /* ── HASTA TRES COMPROBANTES ─────────────────────────────────────────────────────────────
        Un cliente con cuatro cajas paga el mantenimiento en dos o tres transferencias, y hasta acá
        sólo entraba una captura: la otra se mandaba por privado y se perdía. */
