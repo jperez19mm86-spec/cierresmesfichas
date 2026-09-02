@@ -2170,6 +2170,9 @@ function mount(app) {
       // El mantenimiento caja por caja, para poder ver cuáles quedaron al día y cuáles no.
       mantCajas: Object.fromEntries((pc.clientes || []).map((g) => [g.cliente_id, chat.mantenimientoPorCaja(g.cliente_id)])),
       avisos: chat.avisosPendientes(), solicitudes: chat.solicitudesPendientes(),
+      // Y los últimos resueltos: sin esto, apenas aprobabas uno desaparecía y no había desde dónde
+      // reenviarle el comprobante al proveedor.
+      avisosResueltos: chat.avisosResueltos(12),
     });
   });
 
@@ -2363,7 +2366,32 @@ function mount(app) {
 
   /* ── LOS AVISOS DE PAGO DEL CLIENTE ─────────────────────────────────────────────────────────
      Suben la captura desde su hoja. No mueven el saldo hasta que se aprueban acá. */
-  app.get('/api/os/chat/avisos', (_req, res) => ok(res, { avisos: chat.avisosPendientes() }));
+  app.get('/api/os/chat/avisos', (_req, res) => ok(res, {
+    avisos: chat.avisosPendientes(),
+    // Y los últimos resueltos: apenas aprobabas uno desaparecía y no había desde dónde reenviarlo.
+    resueltos: chat.avisosResueltos(12),
+  }));
+  /* REENVIARLE AL PROVEEDOR el comprobante de un mantenimiento YA APROBADO. No mueve ni un peso:
+     sólo vuelve a mandar el mensaje. Es lo que hay que usar cuando el aviso no salió —o cuando se
+     aprobó antes de que este mensaje existiera— en vez de anular el pago, que sí mueve el saldo. */
+  app.post('/api/os/chat/avisos/:id/avisar-proveedor', wrap(async (req, res) => {
+    const av = chat.avisoPorId(req.params.id);
+    if (!av) return err(res, 404, 'no existe ese aviso');
+    if (av.concepto !== 'mantenimiento') {
+      return err(res, 400, 'ese aviso no es del mantenimiento: el % se lo pagás vos y se avisa al registrarlo');
+    }
+    const nombres = String(av.cajas || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const cajas = nombres.map((n) => {
+      const mv = (chat.cuentas(null).clientes.find((x) => x.cliente_id === av.cliente_id) || { movs: [] })
+        .movs.filter((m) => m.tipo === 'mensualidad' && m.panel === n).slice(-1)[0];
+      const per = mv ? chat.periodoDesde(mv.fecha) : null;
+      return { caja: chat.comoLaLlamaElCliente(n) || n, periodo: per ? per.texto : '' };
+    });
+    const archivos = chat.archivosDeAviso(av.id)
+      .map((x) => chat.archivoDeAviso(av.id, x.ord)).filter(Boolean);
+    const r = await require('./chat-avisos.service').avisarMantenimientoCobrado(av, cajas, archivos);
+    r.ok ? ok(res, { ...r, cajas: cajas.length, archivos: archivos.length }) : err(res, 502, r.error);
+  }));
   // Cuáles trae — hasta tres. La pantalla los ofrece todos en vez de suponer que hay uno.
   app.get('/api/os/chat/avisos/:id/archivos', (req, res) =>
     ok(res, { archivos: chat.archivosDeAviso(req.params.id) }));
