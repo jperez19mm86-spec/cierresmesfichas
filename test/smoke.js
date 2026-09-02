@@ -2835,6 +2835,73 @@ async function main() {
         require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8')),
       'su cuenta cierra en cero: tiene que poder ver por qué');
 
+    /* Los avisos de prueba se borran apenas se miden. Dejarlos pendientes desplaza a los que otros
+       checks están mirando, y encima el tope de 10 sin resolver empieza a rechazar los que siguen:
+       un check que ensucia el estado hace fallar a otro que no tiene nada que ver. */
+    const _limpiarAviso = (id) => {
+      // El cliente de prueba es propio: así estos checks no le mueven los contadores a CLI.
+      
+      const dbx = require('../src/db').db;
+      try { dbx.prepare('DELETE FROM chat_comprobante WHERE id=?').run(id); } catch (e) { /* ya está */ }
+      try { dbx.prepare('DELETE FROM chat_comprobante_archivo WHERE comprobante_id=?').run(id); } catch (e) { /* ya está */ }
+    };
+
+    /* ── HASTA TRES COMPROBANTES ─────────────────────────────────────────────────────────────
+       Un cliente con cuatro cajas paga el mantenimiento en dos o tres transferencias, y hasta acá
+       sólo entraba una captura: la otra se mandaba por privado y se perdía. */
+    check('comprobantes: entran hasta 3, y el cuarto no',
+      (() => {
+        const img = { nombre: 'c.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' };
+        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '10', archivos: [img, img, img, img] });
+        if (!r.ok) return false;
+        const n = ch.archivosDeAviso(r.aviso.id).length;
+        return n === 3 && r.aviso.archivos === 3;
+      })(),
+      'el cuarto se recorta en vez de rechazar el aviso de una transferencia que ya se hizo');
+    check('comprobantes: cada uno se puede mirar por separado',
+      (() => {
+        const img = { nombre: 'a.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' };
+        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '11', archivos: [img, img] });
+        const uno = ch.archivoDeAviso(r.aviso.id, 0);
+        const dos = ch.archivoDeAviso(r.aviso.id, 1);
+        return !!(uno && uno.archivo_b64) && !!(dos && dos.archivo_b64);
+      })());
+    check('comprobantes: el de siempre —uno solo— sigue andando igual',
+      (() => {
+        const r = ch.avisarPago({ cliente_id: 'c_comprobantes_prueba', monto: '12',
+          archivo: { nombre: 'v.png', tipo: 'image/png', base64: 'iVBORw0KGgo=' } });
+        return r.ok && ch.archivosDeAviso(r.aviso.id).length === 1;
+      })());
+    check('comprobantes: y el formulario dice que entran 3 y qué hacer si son más',
+      (() => {
+        const g = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'ganamos.html'), 'utf8');
+        const cd = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-doc.js'), 'utf8');
+        return /hasta 3 comprobantes/.test(g) && /monto exacto/.test(g)
+          && /hasta 3 comprobantes/.test(cd) && /multiple/.test(cd) && /multiple/.test(g);
+      })(),
+      'que lo descubra cuando el formulario le rechace la cuarta es peor que decírselo antes');
+
+    /* ── AL PROVEEDOR LE LLEGA EL COMPROBANTE DEL MANTENIMIENTO ──────────────────────────────
+       Esa plata le entra a él directo —las wallets del mantenimiento son suyas— y sin esto le
+       llega una transferencia sin saber de qué caja ni de qué período es. */
+    check('mantenimiento: el aviso al proveedor dice la caja y el período',
+      (() => {
+        const t = require('../src/chat-avisos.service').textoMantenimientoCobrado(
+          { monto: '300', moneda: 'USDT', mes: '2026-08', referencia: 'a1b2' },
+          [{ caja: 'ganamoschat.com', periodo: '17 ago – 16 sep' }]);
+        return /ganamoschat\.com/.test(t) && /17 ago – 16 sep/.test(t)
+          && /300 USDT/.test(t) && /agosto 2026/.test(t);
+      })());
+    check('mantenimiento: se le reenvía al aprobar, y DESPUÉS de contestar',
+      (() => {
+        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        return /av\.concepto === 'mantenimiento'/.test(rt)
+          && /res\.on\('finish'[\s\S]{0,220}avisarMantenimientoCobrado/.test(rt)
+          // y el aviso se lee ANTES de resolverlo: al aprobarlo cambia de estado
+          && /const av = chat\.avisoPorId\(req\.params\.id\);\s*\n\s*const r = chat\.resolverAviso/.test(rt);
+      })(),
+      'que Telegram falle no puede decir que el aviso no se aprobó cuando el saldo ya se movió');
+
     /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
        Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
        liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de

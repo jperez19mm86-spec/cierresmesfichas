@@ -355,7 +355,10 @@ function htmlCliente(doc, ctx = {}) {
       <label>Referencia <span class="opt">(opcional)</span>
         <input name="referencia" placeholder="hash, alias, últimos dígitos"></label>
       <label>Comprobante <span class="opt">(opcional)</span>
-        <input type="file" name="archivo" accept="image/*"></label>
+        <input type="file" name="archivo" accept="image/*" multiple></label>
+      <p class="bajo" style="margin:-6px 0 12px">Si pagaste en varias transferencias podés subir
+        hasta 3 comprobantes. Si fueron más, poné el <b>monto exacto de cada una</b> en la
+        referencia y lo cruzamos.</p>
     </div>
     ${conc && conc.aclaracion ? `<p class="aclara" id="aclaraMes"${
       (conc.opciones.find((o) => o.sugerida) || {}).valor === 'ganancia' ? '' : ' style="display:none"'
@@ -433,18 +436,30 @@ function sugerir(){
 async function avisar(e){
   e.preventDefault();
   var f=document.getElementById('f'), b=document.getElementById('b'), m=document.getElementById('msg');
-  var arch=f.archivo.files[0]||null;
+  var archs=[].slice.call(f.archivo.files||[]).slice(0,3);
   b.disabled=true; m.textContent='Enviando…'; m.className='';
   var datos={monto:f.monto.value, referencia:f.referencia.value};
   if(f.concepto) datos.concepto=f.concepto.value;
   if(datos.concepto==='mantenimiento'){
     datos.cajas=[].slice.call(document.querySelectorAll('input[name=caja]:checked')).map(function(x){return x.value;});
   }
-  if(arch){
-    if(arch.size>6*1024*1024){ m.textContent='La imagen es muy grande (máximo 6 MB).'; m.className='mal'; b.disabled=false; return false; }
-    datos.archivo=await new Promise(function(r){ var fr=new FileReader();
-      fr.onload=function(){ r({nombre:arch.name, tipo:arch.type, base64:String(fr.result)}); };
-      fr.readAsDataURL(arch); });
+  if((f.archivo.files||[]).length>3){
+    m.textContent='Podés subir hasta 3 comprobantes. Si fueron más transferencias, poné el monto exacto de cada una en la referencia.';
+    m.className='mal'; b.disabled=false; return false;
+  }
+  if(archs.length){
+    for(var i=0;i<archs.length;i++){
+      if(archs[i].size>6*1024*1024){ m.textContent='Una de las imágenes es muy grande (máximo 6 MB cada una).'; m.className='mal'; b.disabled=false; return false; }
+    }
+    datos.archivos=[];
+    for(var j=0;j<archs.length;j++){
+      /* De a uno y esperando: leer los tres en paralelo en un teléfono viejo se come la memoria
+         justo cuando el cliente trata de avisar una transferencia que ya hizo. */
+      // eslint-disable-next-line no-await-in-loop
+      datos.archivos.push(await new Promise(function(r){ var fr=new FileReader(); var a2=archs[j];
+        fr.onload=function(){ r({nombre:a2.name, tipo:a2.type, base64:String(fr.result)}); };
+        fr.readAsDataURL(a2); }));
+    }
   }
   try{
     var res=await fetch(location.pathname+'/pague',{method:'POST',

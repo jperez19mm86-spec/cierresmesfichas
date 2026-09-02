@@ -326,6 +326,22 @@ try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN divisa TEXT'); } catch (e
    Así que la diferencia es UNA FILA MÁS, tipo 'ajuste', con el motivo escrito. La cuenta queda en
    cero y el porqué queda auditable. */
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN motivo TEXT'); } catch (e) { /* ya estaba */ }
+/* ── HASTA TRES COMPROBANTES POR AVISO ───────────────────────────────────────────────────────
+   Un cliente con cuatro cajas paga el mantenimiento de dos en dos transferencias, y hasta acá
+   sólo podía subir una captura: la otra la mandaba por privado y se perdía.
+   Van en su propia tabla y no en tres juegos de columnas: tres columnas repetidas se convierten
+   en cuatro el día que alguien haga tres transferencias y media. Las columnas viejas del
+   comprobante se siguen llenando con el PRIMERO —sin el base64— para que todo lo que ya pregunta
+   «¿adjuntó algo?» siga andando sin tocarse. */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chat_comprobante_archivo (
+    id TEXT PRIMARY KEY,
+    comprobante_id TEXT NOT NULL,
+    ord INTEGER NOT NULL,
+    nombre TEXT, tipo TEXT, bytes INTEGER, b64 TEXT
+  );
+  CREATE INDEX IF NOT EXISTS ix_chat_cmp_arch ON chat_comprobante_archivo(comprobante_id, ord);
+`);
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 /* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
    problema era el grupo, el bot o el permiso.
@@ -2229,6 +2245,9 @@ function resolverSolicitud(id, listo) {
 /* ── LOS AVISOS DE PAGO DEL CLIENTE ──────────────────────────────────────────────────────────
    Sube la captura desde su hoja y queda esperando. No mueve el saldo hasta que se aprueba. */
 const MAX_ADJUNTO = 6 * 1024 * 1024;   // una captura pesa mucho menos; más que esto es otra cosa
+/* Hasta tres. Con cuatro cajas puede pagar en dos o tres transferencias; más que eso conviene que
+   ponga el monto exacto en cada una y lo diga en la referencia. */
+const MAX_ARCHIVOS = 3;
 
 function avisarPago(d) {
   const cid = String(d.cliente_id || '').trim();
@@ -2249,20 +2268,31 @@ function avisarPago(d) {
   if (avisosSinResolver(cid) >= 10) {
     return { ok: false, error: 'Ya tenés varios avisos esperando. Escribinos y los revisamos.' };
   }
-  const a = d.archivo || null;
-  let bytes = 0; let b64 = null; let nombre = null; let tipo = null;
-  if (a && a.base64) {
-    b64 = String(a.base64).replace(/^data:[^;]+;base64,/, '');
-    bytes = Math.floor((b64.length * 3) / 4);
-    if (bytes > MAX_ADJUNTO) return { ok: false, error: 'la imagen es muy grande (máximo 6 MB)' };
-    nombre = String(a.nombre || 'comprobante').slice(0, 120);
+  /* Uno o varios: `archivo` es la forma vieja y sigue andando; `archivos` es la nueva. */
+  const lista = (Array.isArray(d.archivos) ? d.archivos : (d.archivo ? [d.archivo] : []))
+    .filter((x) => x && x.base64).slice(0, MAX_ARCHIVOS);
+  const limpios = [];
+  for (const a of lista) {
+    const bb = String(a.base64).replace(/^data:[^;]+;base64,/, '');
+    const n2 = Math.floor((bb.length * 3) / 4);
+    if (n2 > MAX_ADJUNTO) return { ok: false, error: 'una de las imágenes es muy grande (máximo 6 MB cada una)' };
     /* ⚠️ EL TIPO NO LO ELIGE EL CLIENTE. Lo manda él en el JSON, y si pone "text/html" el archivo
        vuelve a salir con ese tipo cuando vos lo abrís desde el panel: sería HTML de otro corriendo
        adentro de tu sesión. Sólo se aceptan tipos de imagen conocidos, y cualquier otra cosa se
        guarda como binario. */
     const t = String(a.tipo || '').toLowerCase().slice(0, 60);
-    tipo = /^image\/(jpeg|jpg|png|gif|webp|heic|heif)$/.test(t) ? t : 'application/octet-stream';
+    limpios.push({
+      b64: bb, bytes: n2, nombre: String(a.nombre || 'comprobante').slice(0, 120),
+      tipo: /^image\/(jpeg|jpg|png|gif|webp|heic|heif)$/.test(t) ? t : 'application/octet-stream',
+    });
   }
+  /* Las columnas viejas llevan el PRIMERO, y `bytes` el total de los tres: es lo que mira todo lo
+     que ya pregunta «¿adjuntó algo?» y cuánto pesa. El base64 va sólo en la tabla nueva, para no
+     guardar el primero dos veces. */
+  const bytes = limpios.reduce((x, y) => x + y.bytes, 0);
+  const b64 = null;
+  const nombre = limpios.length ? limpios[0].nombre : null;
+  const tipo = limpios.length ? limpios[0].tipo : null;
   const id = 'chc_' + require('crypto').randomBytes(6).toString('hex');
   db.prepare(`INSERT INTO chat_comprobante
     (id,cliente_id,mes,monto,moneda,referencia,archivo_nombre,archivo_tipo,archivo_bytes,archivo_b64,estado,creado_at,concepto,divisa)
@@ -2277,7 +2307,10 @@ function avisarPago(d) {
      que existen — ver mantenimientoPorCaja. */
   const cjsAviso = juntarWallets(d.cajas).slice(0, 400);
   if (cjsAviso) db.prepare('UPDATE chat_comprobante SET cajas=? WHERE id=?').run(cjsAviso, id);
-  return { ok: true, aviso: { id, monto, archivo_bytes: bytes } };
+  const insA = db.prepare(`INSERT INTO chat_comprobante_archivo (id,comprobante_id,ord,nombre,tipo,bytes,b64)
+    VALUES (?,?,?,?,?,?,?)`);
+  limpios.forEach((x, i) => insA.run(`${id}_${i}`, id, i, x.nombre, x.tipo, x.bytes, x.b64));
+  return { ok: true, aviso: { id, monto, archivo_bytes: bytes, archivos: limpios.length } };
 }
 
 /** Los avisos de un cliente (para que vea en su hoja que el suyo llegó y no lo mande otra vez). */
@@ -2338,10 +2371,27 @@ function avisosSinNotificar() {
     FROM chat_comprobante WHERE estado='pendiente' AND (aviso_ok IS NOT 1) ORDER BY creado_at`).all();
 }
 
-/** El archivo de un aviso, para poder mirarlo antes de aprobarlo. */
-function archivoDeAviso(id) {
+/** Cuántos comprobantes tiene un aviso, para poder ofrecerlos todos. */
+function archivosDeAviso(id) {
+  const cid = String(id || '');
+  const nuevos = db.prepare(`SELECT ord, nombre, tipo, bytes FROM chat_comprobante_archivo
+    WHERE comprobante_id=? ORDER BY ord`).all(cid);
+  if (nuevos.length) return nuevos;
+  // Los avisos de antes de la tabla: su único archivo vive en las columnas del comprobante.
+  const v = db.prepare('SELECT archivo_nombre nombre, archivo_tipo tipo, archivo_bytes bytes FROM chat_comprobante WHERE id=? AND archivo_bytes>0').get(cid);
+  return v ? [{ ord: 0, ...v }] : [];
+}
+
+/** UN archivo de un aviso, para poder mirarlo antes de aprobarlo. `ord` elige cuál. */
+function archivoDeAviso(id, ord = 0) {
+  const cid = String(id || '');
+  const n = Number(ord) || 0;
+  const nuevo = db.prepare(`SELECT nombre archivo_nombre, tipo archivo_tipo, b64 archivo_b64
+    FROM chat_comprobante_archivo WHERE comprobante_id=? AND ord=?`).get(cid, n);
+  if (nuevo) return nuevo;
+  // Compatibilidad con los avisos viejos, que guardaban el único archivo en el comprobante.
   return db.prepare('SELECT archivo_nombre, archivo_tipo, archivo_b64 FROM chat_comprobante WHERE id=?')
-    .get(String(id || ''));
+    .get(cid);
 }
 
 /**
@@ -2607,6 +2657,7 @@ module.exports = {
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
+  archivosDeAviso, MAX_ARCHIVOS,
   claveEnvio: _claveEnvio,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
   comoLaLlamaElCliente: _comoLaLlamaElCliente, divisaDelPanel: _divisaDelPanel,

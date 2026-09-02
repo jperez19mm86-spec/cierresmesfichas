@@ -144,6 +144,69 @@ function textoPagoAlProveedor(pago) {
   return L.join('\n');
 }
 
+/* ── EL MANTENIMIENTO LO COBRA ÉL, ASÍ QUE TIENE QUE ENTERARSE ───────────────────────────────
+ * Las wallets del mantenimiento son suyas: el cliente le transfiere directo y a él le entra plata
+ * sin saber de qué caja ni de qué período es. Cuando ella aprueba el aviso, se lo reenvía con el
+ * comprobante y con las dos cosas que necesita para imputarlo: QUÉ CAJA y QUÉ PERÍODO.
+ *
+ * ⚠️ Va con el bot y el grupo DEL PROVEEDOR, igual que el aviso de pago. No se reusa `_mandar`,
+ * que apunta a la matriz: un descuido ahí le mandaría a él lo que es de adentro.
+ */
+function textoMantenimientoCobrado(a, cajas) {
+  if (!a) return null;
+  const L = ['💰 <b>Te pagaron el mantenimiento</b>', ''];
+  if (cajas && cajas.length) {
+    for (const c of cajas) {
+      L.push(`· <b>${esc(c.caja)}</b>${c.periodo ? ` — ${esc(c.periodo)}` : ''}`);
+    }
+    L.push('');
+  }
+  L.push(`Monto: <b>${esc(a.monto)} ${esc(a.moneda || 'USDT')}</b>`);
+  L.push(`Mes: ${esc(mesLindo(a.mes))}`);
+  if (a.referencia) L.push(`Referencia: <code>${esc(a.referencia)}</code>`);
+  L.push('');
+  L.push('Te lo transfirió el cliente directo a tu wallet. Va el comprobante.');
+  return L.join('\n');
+}
+
+/** Le reenvía el comprobante del mantenimiento. Nunca tira: lo llama una ruta que ya aprobó. */
+async function avisarMantenimientoCobrado(aviso, cajas, archivos) {
+  try {
+    if (APAGADO()) return { ok: false, error: 'avisos apagados (CHAT_AVISOS_OFF)' };
+    const grupo = chat.proveedorGrupo();
+    if (!grupo) return { ok: false, error: 'el proveedor no tiene grupo de Telegram cargado' };
+    const tok = chat.botToken();
+    if (!tok) return { ok: false, error: 'falta el token del bot' };
+    const texto = textoMantenimientoCobrado(aviso, cajas);
+    /* Con comprobante va como foto y con el texto de pie; sin comprobante, el texto solo. Lo
+       segundo pasa: el cliente puede avisar sin subir nada. */
+    const arch = (archivos || [])[0];
+    let r;
+    if (arch && arch.archivo_b64) {
+      r = await telegram.sendArchivo(tok, grupo, {
+        archivo: Buffer.from(arch.archivo_b64, 'base64'),
+        nombre: arch.archivo_nombre || 'comprobante',
+        mime: arch.archivo_tipo || 'application/octet-stream',
+        caption: texto,
+      });
+      // Los que sobran van detrás, sin repetir el texto: son la misma transferencia partida.
+      for (const x of (archivos || []).slice(1)) {
+        if (!x || !x.archivo_b64) continue;
+        // eslint-disable-next-line no-await-in-loop
+        await telegram.sendArchivo(tok, grupo, {
+          archivo: Buffer.from(x.archivo_b64, 'base64'),
+          nombre: x.archivo_nombre || 'comprobante',
+          mime: x.archivo_tipo || 'application/octet-stream',
+          caption: '',
+        });
+      }
+    } else {
+      r = await telegram.sendMessage(tok, grupo, texto);
+    }
+    return r && r.ok ? { ok: true } : { ok: false, error: (r && r.error) || 'Telegram no dijo por qué' };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
 /** Manda ese aviso al grupo DEL PROVEEDOR. Nunca tira: lo llama una ruta que ya registró el pago. */
 async function avisarPagoAlProveedor(pago) {
   try {
@@ -300,6 +363,7 @@ function startCron() {
 }
 
 module.exports = {
+  textoMantenimientoCobrado, avisarMantenimientoCobrado,
   avisarPago, textoAvisoPago,
   avisarPagoAlProveedor, textoPagoAlProveedor,
   recordarLoQueFalta, textoFaltaMandar,
