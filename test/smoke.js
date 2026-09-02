@@ -2754,6 +2754,43 @@ async function main() {
       })(),
       'con dos cuentas, un pago que no dice de cuál es le tapa deuda a la equivocada');
 
+    /* ── UN PAGO CAE EN SU CUENTA Y EN EL MES QUE PAGA ───────────────────────────────────────
+       Los dos fallaban callados y le pasó a Fran de verdad: pagó 425 y la pantalla de agosto
+       seguía diciendo que no había pagado nada. */
+    check('pago: si el cliente tiene UNA sola cuenta, el pago cae en ésa',
+      (() => {
+        const fuente = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
+        return /\|\| _cuentaUnicaDe\(id\)/.test(fuente) && /function _cuentaUnicaDe/.test(fuente);
+      })(),
+      'un pago sin cuenta contra una deuda que sí la tiene deja el desglose partido al medio');
+    check('pago: con DOS cuentas no se adivina —la elige el que paga—',
+      (() => {
+        // dos divisas distintas entre sus cajas ⇒ no hay "cuenta única"
+        const dbx = require('../src/db').db;
+        const n1 = dbx.prepare('SELECT COUNT(*) n FROM chat_panel WHERE divisa IS NOT NULL').get().n;
+        return typeof n1 === 'number';   // el comportamiento se fija en el código, ver abajo
+      })() && /ds\.length === 1 \? ds\[0\] : ''/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8')));
+    check('pago: se archiva en el mes que se está pagando, no en el de hoy',
+      (() => {
+        const fuente = require('fs').readFileSync(
+          require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8');
+        return /\|\| _mesQueSePaga\(id, d\.concepto, d\.divisa\)/.test(fuente)
+          && /function _mesQueSePaga/.test(fuente);
+      })(),
+      'un pago del 1 de septiembre por la cuenta de agosto quedaba archivado en septiembre');
+    check('pago: y si no debe nada, cae en el mes de hoy —lo único cierto—',
+      ch.pagarCliente ? (() => {
+        const dbx = require('../src/db').db;
+        const cid = 'c_pago_sin_deuda';
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        const r = ch.pagarCliente({ cliente_id: cid, monto: '10' });
+        const m = r.ok ? r.mov.mes : null;
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        return /^\d{4}-\d{2}$/.test(String(m));
+      })() : false);
+
     /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
        Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
        liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de

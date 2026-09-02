@@ -1344,10 +1344,51 @@ function devengarMensualidades(hasta) {
 }
 
 /** Registra lo que te pagó un cliente por el chat. Otra wallet, otra cuenta. */
+/* La única cuenta de un cliente, cuando tiene una sola. Vacío si tiene dos —ahí se elige, no se
+   adivina, y el portal se lo pregunta— o si no tiene ninguna caja con divisa. */
+function _cuentaUnicaDe(clienteId) {
+  try {
+    const ds = [...new Set(list().filter((p) => p.cliente_id === String(clienteId) && p.activo)
+      .map((p) => String(p.divisa || '').toUpperCase()).filter(Boolean))];
+    return ds.length === 1 ? ds[0] : '';
+  } catch (e) { return ''; }
+}
+
+/* EL MES MÁS VIEJO QUE TODAVÍA DEBE ALGO de ese concepto. Es contra lo que la cascada va a imputar
+   el pago, así que archivarlo ahí es decir la verdad. Sin deuda —un pago a cuenta— cae en el mes de
+   hoy, que es lo único cierto. */
+function _mesQueSePaga(clienteId, concepto, divisa) {
+  try {
+    const dv = String(divisa || '').toUpperCase();
+    const conc = normConcepto(concepto);
+    const tipos = conc === 'mantenimiento' ? ['mensualidad'] : (conc === 'ganancia' ? ['cobro'] : ['mensualidad', 'cobro']);
+    const movs = db.prepare('SELECT * FROM chat_mov WHERE cliente_id=?').all(String(clienteId || ''))
+      .filter((x) => !dv || String(x.divisa || '').toUpperCase() === dv);
+    const cobrado = {}; let pagado = '0';
+    for (const x of movs) {
+      if (x.tipo === 'pago') {
+        if (!conc || !x.concepto || x.concepto === conc) pagado = money.add(pagado, x.monto || '0');
+      } else if (tipos.includes(x.tipo)) {
+        cobrado[x.mes] = money.add(cobrado[x.mes] || '0', x.monto || '0');
+      }
+    }
+    let resto = pagado;
+    for (const mes of Object.keys(cobrado).sort()) {
+      if (money.cmp(resto, cobrado[mes]) >= 0) { resto = money.sub(resto, cobrado[mes]); continue; }
+      return mes;                                    // acá se corta: es el mes que todavía debe
+    }
+  } catch (e) { /* sin datos: cae al de hoy */ }
+  return hoy().slice(0, 7);
+}
+
 function pagarCliente(d) {
   const id = String(d.cliente_id || '').trim();
   if (!id) return { ok: false, error: 'falta el cliente' };
-  const m = String(d.mes || '').slice(0, 7);
+  /* ⚠️ EL MES DEL PAGO ES EL MES QUE SE ESTÁ PAGANDO, no el día que se apretó. Un pago del 1 de
+     septiembre por la cuenta de agosto quedaba archivado en septiembre, y la pantalla de agosto lo
+     mostraba en cero: la plata estaba y la deuda global bajaba, pero el mes que ella miraba decía
+     que no había pagado nada. Si vino uno explícito, manda ése. */
+  const m = String(d.mes || '').slice(0, 7) || _mesQueSePaga(id, d.concepto, d.divisa);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
   const monto = String(d.monto == null ? '' : d.monto).trim();
   if (!money.esNumero(monto) || !money.isPos(monto)) {
@@ -1357,7 +1398,11 @@ function pagarCliente(d) {
   /* CONTRA QUÉ CUENTA. Un cliente con cajas en dos monedas tiene dos cuentas, y un pago tiene que
      decir de cuál es: sin eso, la plata del negocio en guaraníes le tapa deuda al de pesos. Vacío
      = el cliente tiene una sola, que es el caso de casi todos. */
-  const divPago = String(d.divisa || '').trim().toUpperCase().slice(0, 8);
+  /* ⚠️ Y SI NO DICE DE CUÁL CUENTA ES Y TIENE UNA SOLA, SE LE PONE ESA. Un pago sin cuenta contra
+     una deuda que sí la tiene deja la cuenta partida al medio: el total daba bien, pero el desglose
+     mostraba la deuda entera de un lado y la plata en un renglón «sin cuenta» del otro. Le pasó a
+     Fran — pagó 425 y su cuenta de pesos seguía diciendo que debía 657,07. */
+  const divPago = String(d.divisa || '').trim().toUpperCase().slice(0, 8) || _cuentaUnicaDe(id);
   db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
     VALUES (?,?,?,'pago',?,?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
     String(d.moneda || 'USDT').toUpperCase().slice(0, 8),
