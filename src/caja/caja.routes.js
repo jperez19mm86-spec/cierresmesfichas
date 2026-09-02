@@ -652,9 +652,17 @@ function mount(app) {
     /* 4 · nada se movió: el motor rechazó sin decirlo */
     console.log('[caja/fichas] antes=%s despues=%s movido=%s', antes, despues, movido);
     if (movido === 0) {
+      /* 🔴 EL MENSAJE TIENE QUE DECIR LO QUE PASÓ. Antes, cualquier retiro que no moviera nada
+         contestaba lo mismo —«fijate que el jugador tenga ese saldo»— incluso cuando el retiro era
+         SOBRE UNA CAJA y el jugador no tenía nada que ver. Y encima el caso más común es conocido:
+         «retirar todo» no funciona sobre una caja, el casino lo acepta y no mueve nada (medido el
+         1-sep-2026). Decirlo ahorra el llamado telefónico. */
       const razon = operacion === 'in'
         ? 'No alcanzan las fichas de la caja. El tope para cargar es el saldo de la caja, no el tuyo.'
-        : 'No se pudo retirar. Fijate que el jugador tenga ese saldo y que la caja permita retiro parcial.';
+        : (todo
+          ? 'El casino no movió nada. Si estabas retirando de una CAJA, «todo» no le funciona: '
+            + 'escribí el monto a mano. Si era de un jugador, fijate que tenga ese saldo.'
+          : 'No se pudo retirar. Fijate que tenga ese saldo y que la caja permita retiro parcial.');
       return res.status(409).json({ ok: false, sinEfecto: true, error: razon, saldo: despues, antes });
     }
 

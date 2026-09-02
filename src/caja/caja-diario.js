@@ -24,9 +24,14 @@ const TOPE = 500;
 const anotados = [];
 let numero = 0;
 
+/* 🔴 EL NÚMERO SE DA AL ENTRAR, NO AL SALIR. Se manda de vuelta en una cabecera para que la
+   pantalla lo pueda mostrar cuando algo falla: así el operador dice «me salió E-347» y acá se ve
+   quién fue, qué apretó, con qué monto y qué contestó el casino — sin que tenga que describir
+   nada. Si se numerara al terminar, la respuesta ya habría salido sin el número. */
+const siguienteCaso = () => { numero += 1; return numero; };
+
 function anotar(fila) {
-  numero += 1;
-  anotados.push({ n: numero, ...fila });
+  anotados.push(fila);
   if (anotados.length > TOPE) anotados.shift();
 }
 
@@ -52,6 +57,8 @@ function medidor() {
     if (req.path === '/api/caja/_diario') return siguiente();   // no se anota a sí mismo
 
     const arranque = Date.now();
+    const caso = siguienteCaso();
+    try { res.setHeader('X-Caso', String(caso)); } catch (e) { /* si ya salió, no importa */ }
     const jsonOriginal = res.json.bind(res);
     let error = null;
     /* El mensaje de error vive en el cuerpo de la respuesta, no en el código HTTP: el motor
@@ -72,6 +79,7 @@ function medidor() {
     res.on('finish', () => {
       try {
         anotar({
+          n: caso,
           cuando: new Date().toISOString(),
           ruta: req.path.replace('/api/caja/', ''),
           metodo: req.method,
@@ -125,6 +133,8 @@ function montar(app) {
 
     const q = req.query;
     let filas = anotados;
+    /* Buscar UN caso por su número es lo primero que se hace cuando alguien reporta un error. */
+    if (q.caso) filas = filas.filter((f) => String(f.n) === String(q.caso));
     if (q.quien) filas = filas.filter((f) => f.quien === q.quien);
     if (q.ruta) filas = filas.filter((f) => f.ruta.includes(String(q.ruta)));
     if (q.soloFallas === '1') filas = filas.filter((f) => f.error || f.estado >= 400);

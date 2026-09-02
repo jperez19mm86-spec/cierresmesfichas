@@ -37,6 +37,10 @@
       const r = await fetch(url, Object.assign({ credentials: 'same-origin', signal: corte.signal }, opciones));
       const d = await r.json().catch(() => null);
       if (d) {
+        /* El número de caso del servidor viaja en una cabecera. Se pega a la respuesta para que
+           las pantallas de error lo puedan mostrar: es el puente entre lo que vio la persona y lo
+           que quedó anotado del otro lado. */
+        try { d.caso = r.headers.get('X-Caso') || null; } catch (e) { d.caso = null; }
         if (r.status === 401 && d.relogin) volverAlLogin('Se venció la sesión. Entrá de nuevo.');
         if (!d.ok) seccionNegada(queEs, d.error);
         return d;
@@ -619,7 +623,7 @@
       return hoja(`<div class="resultado"><div class="sello malo">?</div>
         <h3>No sabemos si entró</h3>
         <div class="sub">El casino no contestó en todo este rato. La orden pudo haber entrado igual.
-        <b>Mirá el saldo antes de volver a intentarlo.</b></div></div>
+        <b>Mirá el saldo antes de volver a intentarlo.</b></div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn" onclick="olvidarTodo(); cerrarHoja(); pintar()">Mirar el saldo</button></div>`);
     }
 
@@ -629,7 +633,7 @@
     if (!r.ok && r.enCurso) {
       return hoja(`<div class="resultado"><div class="sello">⏳</div>
         <h3>Esperá un momento</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
     }
 
@@ -639,7 +643,7 @@
       pintar();
       return hoja(`<div class="resultado"><div class="sello malo">!</div>
         <h3>No se movió nada</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
     }
     if (!r.ok) {
@@ -730,7 +734,7 @@
       return setTimeout(() => abrirHoja(`
         <div class="resultado"><div class="sello malo">✕</div>
           <h3>${ocupado ? 'Ese nombre ya está usado' : 'No se pudo crear'}</h3>
-          <div class="sub">${r.error}</div></div>
+          <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button>
           ${/* 🔴 VUELVE AL MISMO FORMULARIO, no al selector. Antes llamaba a `abrirAlta()`, que
                 abre «¿Qué querés crear?»: entrabas a crear un jugador, el login estaba ocupado,
@@ -816,7 +820,7 @@
     if (!r.ok) {
       return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No se borró' : 'No se pudo'}</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     }
 
@@ -849,7 +853,7 @@
     if (!r.ok) {
       abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No quedó aplicado' : 'No se pudo'}</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
       return false;
     }
@@ -921,7 +925,7 @@
     const r = await API.enviar('mi-clave', { actual, nueva });
     if (!r.ok) {
       return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
-        <h3>No se cambió</h3><div class="sub">${r.error}</div></div>
+        <h3>No se cambió</h3><div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cambiarMiClave()">Probar de nuevo</button></div>`);
     }
     /* El backend ya cerró la sesión: con la clave vieja no se entra más. */
@@ -942,7 +946,7 @@
     const r = await API.enviar('clave-de', { cuenta: String(id), nueva, esJugador });
     if (!r.ok) {
       return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
-        <h3>No se cambió</h3><div class="sub">${r.error}</div></div>
+        <h3>No se cambió</h3><div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     }
     if (cuenta.password !== undefined) cuenta.password = nueva;
@@ -979,7 +983,7 @@
   const errorEnHoja = (r, volverA) => abrirHoja(
     `<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
       <h3>${r.sinEfecto ? 'No quedó guardado' : 'No se pudo'}</h3>
-      <div class="sub">${r.error}</div></div>
+      <div class="sub">${r.error}</div>${pieCaso(r)}</div>
      <div class="acciones"><button class="btn sec" onclick="${volverA}">Volver</button></div>`);
 
   /* 🔴 «Medios de comunicación» DE TU PROPIA FICHA llama a `misContactos`, no a
@@ -1144,7 +1148,7 @@
       const ocupado = !!r.ocupado;
       return abrirHoja(`<div class="resultado"><div class="sello malo">✕</div>
         <h3>${ocupado ? 'Ese nombre ya está usado' : 'No se pudo crear'}</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     }
     alCrear(String(r.cuenta.id), r.cuenta);
@@ -1201,7 +1205,7 @@
     if (!r.ok) {
       return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No quedó guardado' : 'No se pudo'}</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="abrirSub('${id}')">Volver</button></div>`);
     }
     for (const [k, v] of Object.entries(r.estado || {})) s[k] = v;
@@ -1467,7 +1471,7 @@
     if (!r.ok) {
       return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No se restauró' : 'No se pudo'}</h3>
-        <div class="sub">${r.error}</div></div>
+        <div class="sub">${r.error}</div>${pieCaso(r)}</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     }
     olvidar(`borradas:${b.sala}`);

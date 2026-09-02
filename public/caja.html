@@ -1004,6 +1004,12 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .fila b.mas{color:var(--ok)} .fila b.menos{color:var(--no)}
 
 .resultado{text-align:center; padding:6px 0 4px}
+/* 🔴 EL NÚMERO DE CASO. Discreto a propósito: no es para el operador, es para poder decirlo.
+   «Me salió E-347» y del otro lado se ve quién fue, qué apretó y qué contestó el casino, sin que
+   nadie tenga que describir nada. Se puede tocar para copiarlo. */
+.caso{margin-top:14px; font-size:11.5px; letter-spacing:.04em; color:var(--mut2); opacity:.75}
+.caso b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mut); font-weight:600;
+  background:var(--bg2); border:1px solid var(--bor); border-radius:6px; padding:2px 7px; cursor:pointer}
 .sello{width:56px; height:56px; border-radius:50%; margin:0 auto 12px; display:grid; place-items:center;
   background:var(--ok-soft); color:var(--ok); font-size:26px; font-weight:700}
 .sello.malo{background:var(--no-soft); color:var(--no)}
@@ -2957,6 +2963,22 @@ function setEst(que, v){
    `pintar()`, que redibuja la SECCIÓN — así que una nota metida en una hoja emergente no se
    actualizaba nunca y la (i) parecía rota. Tocando el elemento directamente funciona en los dos
    lados, y de paso una explicación no hace una vuelta entera de dibujo. */
+/* Se muestra sólo cuando algo salió mal: en una pantalla que anduvo bien, el número sobra. */
+function pieCaso(r){
+  const c = r && r.caso;
+  if (!c) return '';
+  return `<div class="caso">Si lo reportás, pasá este número:
+    <b onclick="copiarCaso('${c}')" title="Tocá para copiar">E-${c}</b></div>`;
+}
+function copiarCaso(c){
+  /* El aviso lo da el botón mismo: no hay barra de mensajes en esta app, y agregar una por esto
+     sería construir de más para algo que se usa una semana. */
+  const b = document.querySelector('.caso b');
+  const decir = (t) => { if (!b) return; b.textContent = t; setTimeout(() => { b.textContent = 'E-' + c; }, 1400); };
+  try { navigator.clipboard.writeText('E-' + c).then(() => decir('¡copiado!'), () => decir('E-' + c)); }
+  catch (e) { decir('E-' + c); }
+}
+
 function notaInfo(clave, corto, detalle){
   return `<div class="nota neutra coninfo" data-info="${clave}">
     <div class="linea"><span>${corto}</span>

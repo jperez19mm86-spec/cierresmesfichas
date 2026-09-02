@@ -219,6 +219,34 @@ async function main() {
       (r.data.filas || []).some((f) => f.error));
     check('y mide cuánto tardó cada pantalla',
       (r.data.resumen || []).length > 0 && r.data.resumen.every((x) => typeof x.medio === 'number'));
+    /* El número de caso: el puente entre lo que vio la persona y lo que quedó anotado. */
+    const conCaso = await axios.post(`${BASE}/api/caja/fichas`,
+      { cuenta: '301', login: 'JugadorUno', padre: '200', operacion: 'in', monto: 999999,
+        todo: false, gesto: gestoNuevo() },
+      { validateStatus: () => true, headers: { Cookie: galleta } });
+    const nCaso = conCaso.headers['x-caso'];
+    check('cada respuesta trae su número de caso en la cabecera', !!nCaso, `E-${nCaso}`);
+    r = await diario('clave-de-test');
+    const suyo = (r.data.filas || []).filter((f) => String(f.n) === String(nCaso));
+    check('ese número encuentra el caso exacto en el diario',
+      suyo.length === 1 && suyo[0].ruta === 'fichas' && !!suyo[0].error,
+      suyo.length ? `${suyo[0].ruta} · ${suyo[0].error.slice(0, 40)}` : 'no lo encontró');
+    r = await axios.get(`${BASE}/api/caja/_diario?clave=clave-de-test&caso=${nCaso}`,
+      { validateStatus: () => true });
+    check('y se puede buscar por número, sin leer todo',
+      r.data.ok && r.data.filas.length === 1 && String(r.data.filas[0].n) === String(nCaso));
+    /* 🔴 EL MENSAJE TIENE QUE DECIR LO QUE PASÓ. «Retirar todo» sobre una caja no mueve nada, y
+       antes contestaba «fijate que el jugador tenga ese saldo» — hablando de alguien que no
+       intervino. Lo reportó el dueño el 2-sep-2026 mirando la pantalla. */
+    const todoEnCaja = await enviar('/api/caja/fichas', {
+      cuenta: '200', padre: '100', login: 'CajaDePrueba', operacion: 'out', todo: true,
+      gesto: gestoNuevo(),
+    });
+    check('«retirar todo» sobre una caja avisa que es la caja, no el jugador',
+      !todoEnCaja.data.ok && /CAJA/.test(todoEnCaja.data.error || '')
+        && !/^No se pudo retirar\. Fijate que el jugador/.test(todoEnCaja.data.error || ''),
+      (todoEnCaja.data.error || '').slice(0, 62));
+
     check('el diario no se anota a sí mismo',
       !(r.data.filas || []).some((f) => f.ruta.includes('_diario')));
     check('ninguna contraseña quedó anotada',
