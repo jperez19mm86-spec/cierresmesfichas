@@ -5309,15 +5309,17 @@ VIEWS.chat = async () => {
         'Le pagás <b>dos cosas</b>: el <b>' + esc(pc.costo_pct) + '%</b> de la ganancia, y el <b>mantenimiento de cada caja entero</b>.',
         'Van a wallets distintas y se pagan en fechas distintas, por eso cada pago dice de cuál de las dos es.'
         + '<div style="margin-top:9px">La hoja que se le manda muestra la ganancia de cada caja y ese %, y no dice qué le cobrás vos a cada cliente.</div>')}
-      <!-- ⚠️ ANTES ACÁ SÓLO ESTABA EL %. El mantenimiento no entraba, y va entero al proveedor:
-           en agosto la pantalla decía 169,44 cuando lo real eran 1.219,44 — faltaban los 1.050 de
-           las siete mensualidades. Ahora el total arriba y las dos partes abajo. -->
+      <!-- ⚠️ SON DOS PLATAS QUE VIAJAN POR CAMINOS DISTINTOS, y confundirlas hacía pagar dos veces.
+           EL MANTENIMIENTO NO PASA POR ACÁ: las wallets del mantenimiento son DEL PROVEEDOR y el
+           cliente le transfiere directo. Antes se sumaba a lo que ella le debía —1.050 de agosto—
+           y quedaba esperando que ella le mandara algo que él ya había cobrado.
+           El % SÍ: ése entra a su wallet y después le manda la parte de él. Es la única deuda. -->
       <div class="totalote" style="margin-top:14px">
-        <div class="k">Le falta cobrarte de ${esc(mesNombre(_chatMes))}</div>
+        <div class="k">Le tenés que transferir de ${esc(mesNombre(_chatMes))}</div>
         <div class="v">${money(dp.total.falta,2)} USDT</div>
         <dl>
-          <div><dt>Le debés en total</dt><dd>${money(dp.total.debe,2)}</dd></div>
-          <div><dt>Ya le pagaste</dt><dd>${money(dp.total.pagado,2)}</dd></div>
+          <div><dt>Su ${esc(pc.costo_pct)}% del mes</dt><dd>${money(dp.ganancia.debe,2)}</dd></div>
+          <div><dt>Ya le transferiste</dt><dd>${money(dp.ganancia.pagado,2)}</dd></div>
         </dl>
       </div>
       <div class="tc-tiles" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))">
@@ -5326,12 +5328,16 @@ VIEWS.chat = async () => {
           <div class="v">${money(dp.ganancia.falta,2)}</div>
           <div class="f">de ${money(dp.ganancia.debe,2)} · pagaste ${money(dp.ganancia.pagado,2)}</div>
         </div>
-        <div class="tc-t${Number(dp.mantenimiento.falta)>0?' mal':''}">
+        <div class="tc-t">
           <div class="d">MANTENIMIENTO · ${dp.mantenimiento.cajas} CAJA${dp.mantenimiento.cajas===1?'':'S'}</div>
-          <div class="v">${money(dp.mantenimiento.falta,2)}</div>
-          <div class="f">de ${money(dp.mantenimiento.debe,2)} · pagaste ${money(dp.mantenimiento.pagado,2)}</div>
+          <div class="v">${money(dp.mantenimiento.faltaQueLePaguen||'0',2)}</div>
+          <div class="f">no es tuyo: le pagan a él directo · de ${money(dp.mantenimiento.factura||'0',2)}
+            ya le llegaron ${money(dp.mantenimiento.leLlegoDelCliente||'0',2)}</div>
         </div>
       </div>
+      <div class="nota-suave" style="margin-top:10px">Las wallets del mantenimiento son
+        <b>del proveedor</b>: el cliente le transfiere directo y esa plata no pasa por vos. Vos lo
+        facturás y le confirmás el pago. Lo único que le transferís es su ${esc(pc.costo_pct)}%.</div>
       <div class="acciones">
         <button class="outline" onclick="chatHojaProv()">Ver la hoja del proveedor</button>
       </div>

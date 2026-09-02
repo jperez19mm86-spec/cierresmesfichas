@@ -4238,11 +4238,19 @@ async function main() {
          en "ahora" y se rompe al cambiar el mes. */
       const mm = ch.cobrarMensualidad({ cliente_id: CLI.id, panel: 'ZZ-Panel-Chat', fecha: '2026-08-15' });
       const dpv = ch.deudaProveedor('2026-08');
-      check('chat: lo que le debés al proveedor incluye el mantenimiento',
+      /* ⚠️ EL MANTENIMIENTO NO ES DEUDA DE ELLA. Las wallets del mantenimiento son DEL PROVEEDOR:
+         el cliente le transfiere directo y esa plata nunca pasa por ella. Antes se sumaba a lo que
+         le debía —1.050 de agosto— y quedaba esperando que ella le mandara algo que él ya había
+         cobrado. Lo único que le debe es el % , que sí entra a su wallet. */
+      check('chat: lo que le debés al proveedor es SÓLO el %, no el mantenimiento',
         mm.ok
-        && Number(dpv.total.debe) === Number(dpv.ganancia.debe) + Number(dpv.mantenimiento.debe)
-        && Number(dpv.mantenimiento.debe) > 0,
-        `% ${dpv.ganancia.debe} + mantenimiento ${dpv.mantenimiento.debe} = ${dpv.total.debe}`);
+        && dpv.total.debe === dpv.ganancia.debe
+        && dpv.mantenimiento.debe === '0',
+        `% ${dpv.ganancia.debe} · mantenimiento ${dpv.mantenimiento.factura} (directo) · total ${dpv.total.debe}`);
+      check('chat: pero se ve cuánto es el mantenimiento y cuánto le pagaron ya',
+        Number(dpv.mantenimiento.factura) > 0 && dpv.mantenimiento.directo === true
+        && 'faltaQueLePaguen' in dpv.mantenimiento,
+        'lo que falta lo cobra él, no ella — pero tiene que poder verlo');
 
       // Y cada pago dice de cuál de los dos es: si no, un saldo a medias no dice qué falta.
       const pg = ch.pagar({ mes: '2026-08', monto: '5', concepto: 'mantenimiento' });
