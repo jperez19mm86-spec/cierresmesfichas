@@ -10,12 +10,48 @@
 
    Uso:  node test/caja-pantalla.js                                                               */
 
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const L = require('../public/caja-logica');
 
 const verificaciones = [];
 function check(nombre, condicion, detalle) {
   verificaciones.push({ nombre, ok: !!condicion });
   console.log(`${condicion ? '✅' : '❌'} ${nombre}${detalle ? '  → ' + detalle : ''}`);
+}
+
+/* ── 0 · QUE LA PANTALLA COMPILE ───────────────────────────────────────────────────────────────
+   🔴 ESTO FALTABA, Y COSTÓ CARO. El 2-sep-2026 un comentario con acentos graves adentro de una
+   plantilla de texto rompió el script entero de `caja.html`: la página cargaba, los archivos
+   cargaban, el servidor contestaba — y el botón de entrar no hacía nada, porque la función nunca
+   llegaba a definirse. Nadie pudo entrar hasta que lo reportó el equipo.
+
+   Las 71 verificaciones que ya había no lo vieron: probaban el servidor y la lógica suelta, pero
+   nunca preguntaban si el archivo que ve el navegador es JavaScript válido. Ahora sí. */
+function guionDe(archivo) {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', archivo), 'utf8');
+  const trozos = [];
+  const re = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g;
+  let m = re.exec(html);
+  while (m) { trozos.push(m[1]); m = re.exec(html); }
+  return trozos;
+}
+
+const trozos = guionDe('caja.html');
+check('caja.html trae su script adentro', trozos.length > 0, `${trozos.length} bloque(s)`);
+trozos.forEach((codigo, i) => {
+  let falla = null;
+  try { new vm.Script(codigo, { filename: `caja.html#${i + 1}` }); }
+  catch (e) { falla = e.message; }
+  check(`el script ${i + 1} de caja.html compila`, !falla, falla || `${Math.round(codigo.length / 1024)} KB`);
+});
+
+for (const archivo of ['caja-conexion.js', 'caja-logica.js']) {
+  let falla = null;
+  try { new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'public', archivo), 'utf8'), { filename: archivo }); }
+  catch (e) { falla = e.message; }
+  check(`${archivo} compila`, !falla, falla || 'ok');
 }
 
 /* ── 1 · leer un monto ─────────────────────────────────────────────────────────────────────────
