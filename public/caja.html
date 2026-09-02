@@ -1140,7 +1140,10 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
       </div>
       <div class="cmp">
         <label class="campo" for="u">Tu usuario</label>
-        <input class="entrada mono" id="u" value="GanamosxLatam" autocomplete="off" spellcheck="false">
+        <!-- 🔴 SIN `value`: venía con un login escrito a mano de la maqueta. Con el sistema conectado
+             eso es el usuario de OTRA persona, y encima confunde al navegador, que ve una
+             credencial distinta de la guardada y vuelve a preguntar si la guarda. -->
+        <input class="entrada mono" id="u" autocomplete="username" spellcheck="false">
       </div>
       <div class="cmp">
         <label class="campo" for="p">Tu contraseña</label>

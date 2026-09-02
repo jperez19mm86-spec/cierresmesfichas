@@ -227,12 +227,23 @@
   })();
 
   /* Apaga (o revive) los dos campos del login. Ver el porqué en `entrarDeVerdad`. */
+  /* 🔴 EL CAMPO DE CONTRASEÑA SE SACA DEL DOCUMENTO, NO SE APAGA. Chrome decide si ofrecer
+     guardar la clave mirando el campo: mientras siga ahí, cada vez que la pantalla cambia vuelve a
+     preguntar — y aparecía en un momento raro, pasando del hub al panel, no al entrar. Sacándolo
+     no queda a qué agarrarse. Se guarda para devolverlo al salir. Reportado el 2-sep-2026. */
+  let campoClaveGuardado = null;
   function apagarLogin(apagar) {
-    for (const id of ['u', 'p']) {
-      const el = document.getElementById(id);
-      if (!el) continue;
-      if (apagar) { el.value = ''; el.blur(); }
-      el.disabled = !!apagar;
+    const u = document.getElementById('u');
+    if (u) { if (apagar) { u.value = ''; u.blur(); } u.disabled = !!apagar; }
+
+    if (apagar) {
+      const p = document.getElementById('p');
+      if (p) { p.value = ''; p.blur(); campoClaveGuardado = { el: p, donde: p.parentNode, antes: p.nextSibling }; p.remove(); }
+    } else if (campoClaveGuardado && campoClaveGuardado.donde) {
+      const { el, donde, antes } = campoClaveGuardado;
+      el.value = ''; el.disabled = false;
+      donde.insertBefore(el, antes);
+      campoClaveGuardado = null;
     }
   }
 
@@ -2003,7 +2014,10 @@
     const demo = document.querySelector('.demo');
     if (demo) demo.remove();
     const aviso = document.querySelector('.aviso');
-    if (aviso) aviso.innerHTML = '<b>En pruebas</b> · algunas pantallas todavía muestran ejemplos';
+    /* 🔴 EL CARTEL TIENE QUE DECIR ALGO CIERTO. Decía que algunas pantallas mostraban ejemplos;
+       revisadas las nueve el 2-sep-2026, todas traen datos del casino. Dejarlo así le restaba
+       confianza a números que son reales. Ahora dice para qué sirve el cartel. */
+    if (aviso) aviso.innerHTML = '<b>En pruebas</b> · si algo falla, pasá el número de caso que sale en el error';
   });
 
   window.__cajaAPI = API;
