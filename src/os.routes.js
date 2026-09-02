@@ -2343,6 +2343,22 @@ function mount(app) {
     const r = chat.pagarCliente(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
+  /* SALDAR UNA DIFERENCIA. El cliente que paga en pesos usa SU tipo de cambio: si debe 160 y paga
+     155, esos 5 no se le reclaman. Pero no se borran — quedan como una fila con el motivo escrito,
+     y la cuenta cierra en cero sin perder el porqué. */
+  app.post('/api/os/chat/ajustes', wrap((req, res) => {
+    const r = chat.ajustar(req.body || {});
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  /* Cuánto falta para saldar lo que dijo pagar, y si entra en la tolerancia. Lo usa la pantalla
+     para preguntar antes de aprobar cuando la diferencia es grande. */
+  app.get('/api/os/chat/diferencia', (req, res) => {
+    const q = req.query || {};
+    ok(res, {
+      diferencia: chat.diferenciaDe(q.cliente_id, q.concepto, q.divisa, q.monto, q.cajas),
+      tolerancia: chat.TOLERANCIA_PCT,
+    });
+  });
   app.delete('/api/os/chat/movs/:id', wrap((req, res) => ok(res, chat.borrarMov(req.params.id))));
 
   /* ── LOS AVISOS DE PAGO DEL CLIENTE ─────────────────────────────────────────────────────────

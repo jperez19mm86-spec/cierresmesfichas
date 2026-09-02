@@ -2791,6 +2791,50 @@ async function main() {
         return /^\d{4}-\d{2}$/.test(String(m));
       })() : false);
 
+    /* ══ LA DIFERENCIA DE CAMBIO ES UNA FILA, NO UNA NOTA AL PIE ═════════════════════════════
+       El cliente que paga en pesos usa SU tipo de cambio: si debe 160 y paga 155, esos 5 no se le
+       reclaman. Pero borrarlos sin rastro hace que dentro de tres meses nadie pueda explicar por
+       qué la cuenta cerró con menos de lo facturado. */
+    check('ajuste: sin motivo no se puede saldar nada',
+      ch.ajustar({ cliente_id: 'c_x', monto: '5' }).ok === false,
+      'un ajuste sin motivo es exactamente el agujero que esto viene a tapar');
+    check('ajuste: baja la deuda pero NO cuenta como plata recibida',
+      (() => {
+        const dbx = require('../src/db').db;
+        const cid = 'c_ajuste_prueba';
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        dbx.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+          VALUES ('chm_aj1',?,'2026-08','cobro','160','USDT','2026-08-31','','2026-09-01T00:00:00Z','')`).run(cid);
+        ch.pagarCliente({ cliente_id: cid, mes: '2026-08', monto: '155', concepto: 'ganancia' });
+        ch.ajustar({ cliente_id: cid, mes: '2026-08', monto: '5', concepto: 'ganancia',
+          motivo: 'diferencia por tipo de cambio' });
+        const g = ch.cuentas('2026-08').clientes.find((x) => x.cliente_id === cid);
+        const okk = g.cobrado === '160' && g.pagado === '155' && g.ajustado === '5' && g.debe === '0';
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        return okk;
+      })(),
+      'sumarlo a «pagado» diría que entraron 160 cuando entraron 155');
+    check('ajuste: la tolerancia es del 5% — 5 sobre 160 salda, 20 no',
+      (() => {
+        const dbx = require('../src/db').db;
+        const cid = 'c_tol_prueba';
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        dbx.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa)
+          VALUES ('chm_tol',?,'2026-08','cobro','160','USDT','2026-08-31','','2026-09-01T00:00:00Z','')`).run(cid);
+        const chica = ch.diferenciaDe(cid, 'ganancia', '', '155');
+        const grande = ch.diferenciaDe(cid, 'ganancia', '', '140');
+        const justa = ch.diferenciaDe(cid, 'ganancia', '', '160');
+        dbx.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(cid);
+        return chica && chica.tolerado === true && chica.falta === '5'
+          && grande && grande.tolerado === false && grande.pct > 5
+          && justa === null;                       // pagó igual: no hay nada que saldar
+      })(),
+      'menos del 5% salda solo; de ahí para arriba lo confirma ella');
+    check('ajuste: y el motivo le llega al cliente en su cuenta',
+      /motivo: m\.tipo === 'ajuste'/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'chat-externo.store.js'), 'utf8')),
+      'su cuenta cierra en cero: tiene que poder ver por qué');
+
     /* ── EL PROVEEDOR NO SABE DE QUIÉN ES CADA CAJA ──────────────────────────────────────────
        Él cobra por caja y cobra lo mismo por todas: de quién es cada una no cambia un número de su
        liquidación. Pero saber que estas tres son del mismo y aquella otra no le dice el tamaño de
