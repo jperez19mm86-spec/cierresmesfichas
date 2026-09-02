@@ -319,6 +319,13 @@ try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN cajas TEXT'); } catch (e)
    aviso que no dice de cuál es, al aprobarse le tapa deuda a la equivocada y las dos quedan mal.
    Vacío = tiene una sola, que es el caso de casi todos. */
 try { db.exec('ALTER TABLE chat_comprobante ADD COLUMN divisa TEXT'); } catch (e) { /* ya estaba */ }
+/* ── POR QUÉ SE SALDÓ UNA DIFERENCIA ─────────────────────────────────────────────────────────
+   El cliente que paga en pesos usa SU tipo de cambio: si debe 160 y paga 155, esos 5 no se le
+   reclaman — se asumen como diferencia de cambio. Pero borrarlos sin dejar rastro hace que dentro
+   de tres meses nadie pueda explicar por qué la cuenta cerró con menos de lo facturado.
+   Así que la diferencia es UNA FILA MÁS, tipo 'ajuste', con el motivo escrito. La cuenta queda en
+   cero y el porqué queda auditable. */
+try { db.exec('ALTER TABLE chat_mov ADD COLUMN motivo TEXT'); } catch (e) { /* ya estaba */ }
 try { db.exec('ALTER TABLE chat_mov ADD COLUMN cajas TEXT'); } catch (e) { /* ya estaba */ }
 /* ¿EL AVISO A LA MATRIZ SALIÓ? Un comprobante que no llega al grupo no dejaba forma de saber si el
    problema era el grupo, el bot o el permiso.
@@ -1438,13 +1445,19 @@ function cuentas(mes) {
       const c = cli.get(f.cliente_id) || {};
       por.set(f.cliente_id, {
         cliente_id: f.cliente_id, cliente: c.nombre || c.codigo || '(cliente borrado)',
-        cobrado: '0', pagado: '0', debe: '0', movs: [], porDivisa: [],
+        cobrado: '0', pagado: '0', ajustado: '0', debe: '0', movs: [], porDivisa: [],
       });
     }
     const g = por.get(f.cliente_id);
     g.movs.push(f);
-    // La mensualidad suma del mismo lado que el cobro: las dos son plata que te deben.
+    /* Tres lados, no dos:
+       · `cobrado`  — lo que se le facturó (el % y las mensualidades)
+       · `pagado`   — la plata que efectivamente entró
+       · `ajustado` — lo que se dio por saldado sin que entrara plata (la diferencia de cambio).
+       Meter el ajuste adentro de `pagado` diría que recibiste 160 cuando recibiste 155. Baja la
+       deuda igual, pero se cuenta aparte. */
     if (f.tipo === 'pago') g.pagado = money.add(g.pagado, f.monto || '0');
+    else if (f.tipo === 'ajuste') g.ajustado = money.add(g.ajustado || '0', f.monto || '0');
     else g.cobrado = money.add(g.cobrado, f.monto || '0');
     /* ── Y LA MISMA CUENTA, PARTIDA POR DIVISA ────────────────────────────────────────────────
        Se AGREGA adentro en vez de cambiarle la forma a `cuentas`. El total del cliente sigue
@@ -1453,16 +1466,19 @@ function cuentas(mes) {
        solo renglón, así que no hay dos caminos que mantener. */
     const dv = String(f.divisa || '').toUpperCase();
     let d = g.porDivisa.find((x) => x.divisa === dv);
-    if (!d) { d = { divisa: dv, cobrado: '0', pagado: '0', debe: '0' }; g.porDivisa.push(d); }
+    if (!d) { d = { divisa: dv, cobrado: '0', pagado: '0', ajustado: '0', debe: '0' }; g.porDivisa.push(d); }
     if (f.tipo === 'pago') d.pagado = money.add(d.pagado, f.monto || '0');
+    else if (f.tipo === 'ajuste') d.ajustado = money.add(d.ajustado || '0', f.monto || '0');
     else d.cobrado = money.add(d.cobrado, f.monto || '0');
   }
   const out = [...por.values()];
   out.forEach((g) => {
-    g.debe = money.round(money.sub(g.cobrado, g.pagado), 2);
+    g.ajustado = money.round(g.ajustado || '0', 2);
+    g.debe = money.round(money.sub(money.sub(g.cobrado, g.pagado), g.ajustado), 2);
     g.porDivisa.forEach((d) => {
       d.cobrado = money.round(d.cobrado, 2); d.pagado = money.round(d.pagado, 2);
-      d.debe = money.round(money.sub(d.cobrado, d.pagado), 2);
+      d.ajustado = money.round(d.ajustado || '0', 2);
+      d.debe = money.round(money.sub(money.sub(d.cobrado, d.pagado), d.ajustado), 2);
     });
     g.porDivisa.sort((a, b) => money.cmp(b.debe, a.debe));
     /* La señal de que este cliente TIENE dos cuentas. Una sola divisa —o ninguna, que es lo de
@@ -1476,6 +1492,7 @@ function cuentas(mes) {
     totales: {
       cobrado: money.round(money.sum(out.map((g) => g.cobrado)), 2),
       pagado: money.round(money.sum(out.map((g) => g.pagado)), 2),
+      ajustado: money.round(money.sum(out.map((g) => g.ajustado || '0')), 2),
       debe: money.round(money.sum(out.map((g) => g.debe)), 2),
     },
   };
@@ -1515,22 +1532,32 @@ function saldoPorConcepto(clienteId, mes, divisa = null) {
 
   const suma = (f) => money.round(money.sum(movs.filter(f).map((x) => x.monto || '0')), 2);
   const cobradoM = suma((x) => x.tipo === 'mensualidad');
-  const cobradoG = suma((x) => x.tipo !== 'mensualidad' && x.tipo !== 'pago');
+  const cobradoG = suma((x) => x.tipo === 'cobro');
   const pagadoM = suma((x) => x.tipo === 'pago' && x.concepto === 'mantenimiento');
   const pagadoG = suma((x) => x.tipo === 'pago' && x.concepto === 'ganancia');
   const suelto = suma((x) => x.tipo === 'pago' && !x.concepto);
+  /* Lo saldado sin plata: la diferencia de cambio. Salda igual que un pago pero NO es plata que
+     entró, así que viaja en su propia columna — si se sumara a `pagado`, la cuenta diría que
+     recibiste 160 cuando recibiste 155. */
+  const ajusM = suma((x) => x.tipo === 'ajuste' && x.concepto === 'mantenimiento');
+  const ajusG = suma((x) => x.tipo === 'ajuste' && x.concepto === 'ganancia');
+  const ajusSuelto = suma((x) => x.tipo === 'ajuste' && !x.concepto);
 
   // La cascada. Nunca deja el mantenimiento en negativo: lo que sobra pasa entero al mes.
   const faltaM = money.sub(cobradoM, pagadoM);
   const aM = money.isPos(faltaM) ? (money.cmp(suelto, faltaM) > 0 ? faltaM : suelto) : '0';
   const aG = money.sub(suelto, aM);
 
-  const parte = (cobrado, pagado) => ({
-    cobrado, pagado: money.round(pagado, 2),
-    debe: money.round(money.sub(cobrado, pagado), 2),
+  const parte = (cobrado, pagado, ajustado) => ({
+    cobrado, pagado: money.round(pagado, 2), ajustado: money.round(ajustado, 2),
+    debe: money.round(money.sub(money.sub(cobrado, pagado), ajustado), 2),
   });
-  const mant = parte(cobradoM, money.add(pagadoM, aM));
-  const gan = parte(cobradoG, money.add(pagadoG, aG));
+  /* Los ajustes sin concepto tapan primero el mantenimiento, igual que los pagos sin concepto. */
+  const faltaMa = money.sub(money.sub(cobradoM, pagadoM), ajusM);
+  const bM = money.isPos(faltaMa) ? (money.cmp(ajusSuelto, faltaMa) > 0 ? faltaMa : ajusSuelto) : '0';
+  const bG = money.sub(ajusSuelto, bM);
+  const mant = parte(cobradoM, money.add(pagadoM, aM), money.add(ajusM, bM));
+  const gan = parte(cobradoG, money.add(pagadoG, aG), money.add(ajusG, bG));
 
   const generado = m ? !!(dv == null
     ? db.prepare("SELECT id FROM chat_mov WHERE cliente_id=? AND mes=? AND tipo='cobro'").get(id, m)
@@ -1544,6 +1571,7 @@ function saldoPorConcepto(clienteId, mes, divisa = null) {
     total: {
       cobrado: money.round(money.add(cobradoM, cobradoG), 2),
       pagado: money.round(money.add(mant.pagado, gan.pagado), 2),
+      ajustado: money.round(money.add(mant.ajustado, gan.ajustado), 2),
       debe: money.round(money.add(mant.debe, gan.debe), 2),
     },
   };
@@ -1589,7 +1617,9 @@ function mantenimientoPorCaja(clienteId, divisa = null) {
     return usa;
   };
 
-  const pagos = movs.filter((x) => x.tipo === 'pago' && x.concepto === 'mantenimiento');
+  /* El ajuste salda una caja igual que un pago: la diferencia de cambio de esa transferencia es
+     de esa caja. Si no entrara acá, la caja quedaría debiendo cinco pesos para siempre. */
+  const pagos = movs.filter((x) => (x.tipo === 'pago' || x.tipo === 'ajuste') && x.concepto === 'mantenimiento');
   let sobra = '0';
   for (const p of pagos) {
     let resto = String(p.monto || '0');
@@ -2040,6 +2070,8 @@ function portalDe(clienteId) {
         // agosto pero también podría cobrarse el 3 de septiembre, y ahí la fecha engaña.
         fecha: m.fecha, mes: m.mes, tipo: m.tipo, monto: m.monto, moneda: m.moneda,
         caja, periodo: per ? per.texto : '',
+        // El motivo del ajuste SÍ es para él: es la explicación de por qué su cuenta cerró en cero.
+        motivo: m.tipo === 'ajuste' ? (m.motivo || '') : '',
         // La nota cruda queda de respaldo: si la caja ya no está, el renglón dice algo igual.
         nota: m.tipo === 'mensualidad' ? m.nota : '',
       };
@@ -2316,6 +2348,64 @@ function archivoDeAviso(id) {
  * Aprueba un aviso: recién ACÁ se mueve el saldo. Rechazarlo no mueve nada y queda registrado —
  * borrarlo dejaría al cliente diciendo "yo avisé" sin nada que mirar.
  */
+/* ── SALDAR UNA DIFERENCIA ───────────────────────────────────────────────────────────────────
+ * El cliente que paga en pesos usa SU tipo de cambio: si debe 160 y paga 155, esos 5 no se le
+ * reclaman. Pero no se borran: se anotan como una fila más, con el motivo escrito, y la cuenta
+ * queda en cero. Así siempre se puede auditar por qué cerró con menos de lo facturado.
+ */
+function ajustar(d) {
+  const id = String(d.cliente_id || '').trim();
+  if (!id) return { ok: false, error: 'falta el cliente' };
+  const monto = String(d.monto == null ? '' : d.monto).trim();
+  if (!money.esNumero(monto) || !money.isPos(monto)) {
+    return { ok: false, error: 'la diferencia tiene que ser un número mayor que cero' };
+  }
+  /* EL MOTIVO ES OBLIGATORIO. Un ajuste sin motivo es exactamente el agujero que esto viene a
+     tapar: una cuenta que cierra en cero y nadie sabe por qué. */
+  const motivo = String(d.motivo || '').trim().slice(0, 200);
+  if (!motivo) return { ok: false, error: 'poné el motivo: un ajuste sin motivo no se puede auditar después' };
+  const conc = normConcepto(d.concepto);
+  const dv = String(d.divisa || '').trim().toUpperCase().slice(0, 8) || _cuentaUnicaDe(id);
+  const m = String(d.mes || '').slice(0, 7) || _mesQueSePaga(id, d.concepto, dv);
+  const mid = 'chm_' + require('crypto').randomBytes(6).toString('hex');
+  db.prepare(`INSERT INTO chat_mov (id,cliente_id,mes,tipo,monto,moneda,fecha,nota,createdAt,divisa,motivo)
+    VALUES (?,?,?,'ajuste',?,'USDT',?,?,?,?,?)`).run(mid, id, m, money.round(monto, 2),
+    String(d.fecha || '').slice(0, 10) || hoy(), '', nowISO(), dv, motivo);
+  if (conc) db.prepare('UPDATE chat_mov SET concepto=? WHERE id=?').run(conc, mid);
+  const cjs = conc === 'mantenimiento' ? juntarWallets(d.cajas) : '';
+  if (cjs) db.prepare('UPDATE chat_mov SET cajas=? WHERE id=?').run(cjs, mid);
+  return { ok: true, mov: db.prepare('SELECT * FROM chat_mov WHERE id=?').get(mid) };
+}
+
+/* CUÁNTO FALTA PARA SALDAR lo que el cliente dijo estar pagando, y si esa diferencia entra en la
+   tolerancia. Regla de ella: menos del 5% se salda solo; de ahí para arriba, avisa y ella confirma.
+   Devuelve `null` cuando no hay nada que saldar (pagó igual o de más). */
+const TOLERANCIA_PCT = Number(process.env.CHAT_TOLERANCIA_PCT || '5');
+function diferenciaDe(clienteId, concepto, divisa, monto, cajas) {
+  try {
+    const sc = saldoPorConcepto(clienteId, null, divisa || null);
+    const conc = normConcepto(concepto);
+    /* Contra la deuda de LO QUE DIJO PAGAR: si marcó cajas del mantenimiento, contra esas cajas;
+       si no, contra el concepto entero. Comparar contra el total del cliente diría que falta
+       muchísimo cada vez que paga una sola cosa. */
+    let debe;
+    const nombres = partirWallets(cajas);
+    if (conc === 'mantenimiento' && nombres.length) {
+      const porCaja = mantenimientoPorCaja(clienteId, divisa || null);
+      debe = money.round(money.sum(nombres
+        .map((n) => (porCaja.find((c) => c.panel === n) || {}).debe || '0')), 2);
+    } else if (conc === 'mantenimiento') debe = sc.mantenimiento.debe;
+    else if (conc === 'ganancia') debe = sc.ganancia.debe;
+    else debe = sc.total.debe;
+    const falta = money.sub(debe, String(monto || '0'));
+    if (!money.isPos(falta)) return null;                       // pagó igual o de más
+    const pct = money.isPos(debe)
+      ? Number(money.round(money.pctDe ? money.pctDe(falta, debe) : String((Number(falta) / Number(debe)) * 100), 2))
+      : 100;
+    return { debe, pagado: String(monto), falta: money.round(falta, 2), pct, tolerado: pct < TOLERANCIA_PCT };
+  } catch (e) { return null; }
+}
+
 function resolverAviso(id, aprobar) {
   const f = db.prepare('SELECT * FROM chat_comprobante WHERE id=?').get(String(id || ''));
   if (!f) return { ok: false, error: 'no existe ese aviso' };
@@ -2335,7 +2425,20 @@ function resolverAviso(id, aprobar) {
   if (!pg.ok) return pg;
   db.prepare("UPDATE chat_comprobante SET estado='aprobado', resuelto_at=?, mov_id=? WHERE id=?")
     .run(nowISO(), pg.mov.id, f.id);
-  return { ok: true, estado: 'aprobado', mov: pg.mov };
+  /* ⚠️ Y LA DIFERENCIA, SI LA HAY. Se calcula DESPUÉS de registrar el pago —con el pago adentro,
+     lo que queda es exactamente lo que falta— y se salda sola sólo si está dentro de la tolerancia.
+     Por encima, no se toca nada: se devuelve para que ella lo mire y confirme. */
+  const dif = diferenciaDe(f.cliente_id, f.concepto, f.divisa, '0', f.cajas);
+  let ajuste = null;
+  if (dif && dif.tolerado) {
+    const r = ajustar({
+      cliente_id: f.cliente_id, monto: dif.falta, concepto: f.concepto, divisa: f.divisa,
+      cajas: f.cajas, mes: pg.mov.mes, fecha: String(f.creado_at || '').slice(0, 10),
+      motivo: `diferencia por tipo de cambio (${dif.pct}%)`,
+    });
+    if (r.ok) ajuste = r.mov;
+  }
+  return { ok: true, estado: 'aprobado', mov: pg.mov, ajuste, diferencia: dif };
 }
 
 /* ── LO QUE YA LE PAGASTE AL PROVEEDOR ───────────────────────────────────────────────────────
@@ -2497,6 +2600,7 @@ _ponerDivisaALoViejo();
 module.exports = {
   config, setConfig, list, set, quitar, gananciaDelMes, cierre, mensualidadesDe,
   destino, setDestino, porCliente, pagos, pagado, pagar, borrarPago, botToken, deudaProveedor,
+  ajustar, diferenciaDe, TOLERANCIA_PCT,
   marcarEnviado, envios, partirGrupos, destinos, marcarAvisoMens, avisosMensDe,
   wallets, guardarWallet, borrarWallet, walletDe, walletsDe, partirWallets, comoPagar, walletsApagadasEnUso,
   cobrar, descobrar, pagarCliente, borrarMov, cuentas, cobrarMensualidad, periodoDesde,

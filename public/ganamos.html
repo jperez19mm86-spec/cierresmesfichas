@@ -429,7 +429,10 @@ function ver(cual) {
       + (movs.length ? '<table><tbody>' + movs.map(function (m) {
         /* La mensualidad ya trae la caja y el período adentro de la nota ("Mantenimiento Ariel-A1 ·
            15 ago – 14 sep"): repetir "Mensualidad" adelante no agrega nada. */
-        var nom = m.tipo === 'pago' ? 'Pago tuyo'
+        /* La diferencia de cambio es un renglón como cualquier otro, con su motivo: si no se
+           viera, la cuenta cerraría en cero y el cliente no sabría por qué. */
+        var nom = m.tipo === 'ajuste' ? (m.motivo || 'Diferencia')
+          : m.tipo === 'pago' ? 'Pago tuyo'
           /* Con el mes: en octubre, tres renglones que dicen todos «% sobre las ganancias» no
              dejan saber cuál es de agosto y cuál de septiembre. */
           : (m.tipo === 'mensualidad'
@@ -440,7 +443,7 @@ function ver(cual) {
             : '% sobre las ganancias' + (mesEnLetras(m.mes) ? ' de ' + mesEnLetras(m.mes) : ''));
         var extra = m.tipo === 'mensualidad' ? '' : (m.nota ? ' · ' + esc(m.nota) : '');
         return '<tr><td>' + esc(m.fecha) + '<div class="tenue">' + esc(nom) + extra + '</div></td>'
-          + '<td class="r">' + (m.tipo === 'pago' ? '− ' : '') + num(m.monto, 2)
+          + '<td class="r">' + (m.tipo === 'pago' || m.tipo === 'ajuste' ? '− ' : '') + num(m.monto, 2)
           + ' <span class="tenue">' + esc(m.moneda) + '</span></td></tr>';
       }).join('') + '</tbody></table>'
         : '<p class="vacio">Todavía no hay movimientos.</p>')
