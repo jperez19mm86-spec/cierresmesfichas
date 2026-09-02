@@ -5245,6 +5245,39 @@ VIEWS.chat = async () => {
           </div>
         </div>`).join('')}
       </div>
+    </div>`:''}
+    ${(pc.avisosResueltos||[]).length?`<div class="card">
+      <h2>Los últimos que resolviste <span class="muted">(${pc.avisosResueltos.length})</span></h2>
+      <div class="muted">Apenas aprobabas uno desaparecía de la pantalla y no había desde dónde
+        volver a mandarle el comprobante al proveedor. <b>Reenviar no mueve un peso</b>: sólo vuelve
+        a mandar el mensaje.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+        ${pc.avisosResueltos.map(a=>`<div class="subcaja" style="background:var(--bg2)">
+          <div class="cn" style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+            ${esc(a.cliente)}
+            <small style="font-weight:400">${esc(a.mes)}</small>
+            <span class="señal ${a.estado==='aprobado'?'verde':'rosa'}">${esc(a.estado)}</span>
+            <span style="margin-left:auto;font-weight:750;font-variant-numeric:tabular-nums">${
+              money(a.monto,2)} <span class="muted" style="font-size:12px;font-weight:500">${esc(a.moneda)}</span></span>
+          </div>
+          <div class="subdatos">
+            <div><span class="k">De qué es</span><span class="v">${
+              a.concepto==='mantenimiento'?'Mantenimiento'
+              :(a.concepto==='ganancia'?'% sobre las ganancias'
+              :'<span class="muted" style="font-weight:500">no lo dijo</span>')}</span></div>
+            ${a.cajas?`<div><span class="k">Cajas</span><span class="v">${esc(a.cajas)}</span></div>`:''}
+            <div><span class="k">Resuelto el</span><span class="v">${esc(String(a.resuelto_at||'').slice(0,10))}</span></div>
+          </div>
+          <div class="acciones">
+            ${a.archivo_bytes?`<button class="outline small"
+              onclick="window.open('/api/os/chat/avisos/${a.id}/archivo','_blank')">Ver el comprobante</button>`:''}
+            ${(a.estado==='aprobado'&&a.concepto==='mantenimiento')?`<button class="outline small"
+              data-id="${esc(a.id)}" data-nom="${esc(a.cliente)}"
+              onclick="chatReenviarProv(this.dataset.id,this.dataset.nom)"
+              title="Le reenvía el comprobante al proveedor. No mueve el saldo.">Reenviar al proveedor</button>`:''}
+          </div>
+        </div>`).join('')}
+      </div>
     </div>`:''}`;
 
   /* ── LA CUENTA DEL CHAT ──────────────────────────────────────────────────────────────────────
@@ -5698,6 +5731,15 @@ async function chatSolicitud(id,listo,caja){
   if(r&&r.ok) toast(listo?'Marcado como listo':'Pedido rechazado');
   VIEWS.chat();
 }
+/* SALE PARA AFUERA: le llega al grupo del PROVEEDOR. No mueve un peso — sólo vuelve a mandar el
+   comprobante de un mantenimiento que ya aprobaste. Es lo que hay que usar cuando el mensaje no
+   salió, en vez de anular el pago, que sí mueve el saldo. */
+async function chatReenviarProv(id,nombre){
+  if(!confirm('¿Reenviarle al proveedor el comprobante del mantenimiento de «'+nombre+'»?\n\nNo mueve el saldo: sólo vuelve a mandar el mensaje.')) return;
+  const r=await api('/api/os/chat/avisos/'+id+'/avisar-proveedor',{method:'POST',body:'{}'});
+  toast(r&&r.ok?'Reenviado al proveedor':(r&&r.error)||'No se pudo reenviar');
+}
+
 // SALE PARA AFUERA: le llega al grupo del cliente. Por eso se pregunta siempre.
 async function chatAvisarMens(cid,panel){
   if(!confirm('¿Avisarle que vence la mensualidad de «'+panel+'»?\n\nLe llega al grupo de Telegram de este servicio.')) return;

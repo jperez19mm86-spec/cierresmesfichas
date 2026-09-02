@@ -2328,6 +2328,19 @@ function avisosSinResolver(clienteId) {
 }
 
 /** Los que están esperando que alguien los mire. Sin el archivo: pesa cientos de KB cada uno. */
+/* LOS ÚLTIMOS AVISOS YA RESUELTOS. Hasta acá, apenas aprobabas uno desaparecía de la pantalla:
+   no había dónde ver qué aprobaste ni desde dónde reenviarle el comprobante al proveedor si el
+   mensaje no había salido —o si, como pasó, todavía no existía ese aviso cuando lo aprobaste. */
+function avisosResueltos(limite = 12) {
+  const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes,
+    estado, creado_at, resuelto_at, concepto, cajas, divisa
+    FROM chat_comprobante WHERE estado<>'pendiente' ORDER BY resuelto_at DESC, creado_at DESC LIMIT ?`)
+    .all(Number(limite) || 12);
+  const cli = new Map(clientes.list().clientes.map((c) => [c.id, c]));
+  return filas.map((f) => ({ ...f,
+    cliente: (cli.get(f.cliente_id) || {}).nombre || (cli.get(f.cliente_id) || {}).codigo || '(cliente borrado)' }));
+}
+
 function avisosPendientes() {
   const filas = db.prepare(`SELECT id, cliente_id, mes, monto, moneda, referencia, archivo_bytes, estado, creado_at, concepto, cajas, divisa,
     aviso_ok, aviso_error, aviso_at
@@ -2657,7 +2670,7 @@ module.exports = {
   devengarMensualidades,
   avisarPago, avisosDe, avisosPendientes, archivoDeAviso, resolverAviso, avisosSinResolver,
   avisoPorId, marcarAvisoPago, avisosSinNotificar, mesEnLetras, listasParaMandar,
-  archivosDeAviso, MAX_ARCHIVOS,
+  archivosDeAviso, MAX_ARCHIVOS, avisosResueltos,
   claveEnvio: _claveEnvio,
   saldoPorConcepto, opcionesDeConcepto, mantenimientoPorCaja, gananciaDelMes, sumarDesde,
   comoLaLlamaElCliente: _comoLaLlamaElCliente, divisaDelPanel: _divisaDelPanel,

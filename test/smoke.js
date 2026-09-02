@@ -2846,6 +2846,26 @@ async function main() {
       try { dbx.prepare('DELETE FROM chat_comprobante_archivo WHERE comprobante_id=?').run(id); } catch (e) { /* ya está */ }
     };
 
+    /* ── REENVIAR, NO ANULAR ─────────────────────────────────────────────────────────────────
+       Cuando el aviso al proveedor no salió —o se aprobó antes de que ese mensaje existiera— la
+       salida NO puede ser anular el pago: anular mueve el saldo y pierde el historial. Se reenvía. */
+    check('reenvío: los avisos ya resueltos se pueden ver y volver a mandar',
+      (() => {
+        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        return /avisos\/:id\/avisar-proveedor/.test(rt)
+          && /avisosResueltos: chat\.avisosResueltos/.test(rt)
+          && /chatReenviarProv/.test(o);
+      })());
+    check('reenvío: sólo del mantenimiento —el % lo pagás vos y se avisa al registrarlo—',
+      /ese aviso no es del mantenimiento/.test(
+        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8')));
+    check('reenvío: y la lista de resueltos trae de qué era y qué cajas',
+      (() => {
+        const r = ch.avisosResueltos(5);
+        return Array.isArray(r) && (!r.length || ('concepto' in r[0] && 'cajas' in r[0] && 'estado' in r[0]));
+      })());
+
     /* ── TU GRUPO INTERNO NO ES EL DE TBS ────────────────────────────────────────────────────
        Eran dos cosas guardadas en la misma clave: «el grupo donde va la copia de las cuentas de
        TBS» y «el grupo interno de ella». Por eso al de TBS le entraban también los avisos del chat
