@@ -3398,8 +3398,10 @@ function claveDeOtro(id){
       placeholder="${esJugador ? 'La que quieras, sin espacios' : 'Mín. 8, con mayúscula y número'}"
       oninput="$('guardarOtra').disabled = !avisarClave('avisoOtra', this.value, ${esJugador})">
     <div class="tope" id="avisoOtra"></div>
-    <div class="nota">Cambiarla <b>no le avisa a nadie</b>. Si está jugando, va a quedar afuera —
-    acordate de pasarle la nueva.</div>
+    <!-- El aviso ya sabe a quién le habla tres líneas más arriba (`esJugador`): un cajero no
+         juega, está trabajando, y decirle lo otro hace dudar del resto del cartel. -->
+    <div class="nota">Cambiarla <b>no le avisa a nadie</b>. Si ${esJugador ? 'está jugando'
+      : 'está trabajando'}, va a quedar afuera — acordate de pasarle la nueva.</div>
     <div class="acciones">
       <button class="btn sec" onclick="volverDeClave('${id}')">Volver</button>
       <button class="btn" id="guardarOtra" disabled onclick="guardarClaveDeOtro('${id}')">Cambiarla</button>
@@ -4052,8 +4054,13 @@ function confirmarMov(){
       <div class="fila"><span>${TODO_EL_SALDO ? 'Todo el saldo' : 'Monto exacto'}</span>
         <b class="num ${carga?'mas':'menos'}">${carga?'+':'−'} ${fmt(v)}</b></div>
       ${TODO_EL_SALDO && !carga ? `<div class="fila"><span>Ojo</span>
-        <b style="font-weight:600;color:var(--mut2);font-size:12.5px;text-align:right">se lleva lo que haya
-        al confirmar, aunque esté jugando</b></div>` : ''}
+        <b style="font-weight:600;color:var(--mut2);font-size:12.5px;text-align:right">${viendoSalas()
+          /* 🔴 EL AVISO TIENE QUE HABLARLE A QUIEN ES. «Aunque esté jugando» es para un jugador;
+             un cajero no juega, y decírselo hace dudar de todo el resto del cartel. El riesgo con
+             una caja es otro y también vale avisarlo: puede estar moviendo fichas en ese momento.
+             Reportado el 2-sep-2026 mirando la pantalla. */
+          ? 'se lleva lo que haya al confirmar; si está cargando fichas ahora, el número puede cambiar'
+          : 'se lleva lo que haya al confirmar, aunque esté jugando'}</b></div>` : ''}
       <div class="fila"><span>Le queda</span><b class="num">${fmt(ACTUAL.balance + (carga?v:-v))}</b></div>
       ${yo().hide_hall_balance ? '' : `<div class="fila"><span>${DENTRO ? 'Le queda al cajero' : 'Te queda'}</span><b class="num">${fmt(bolsillo().balance + (carga?-v:v))}</b></div>`}
     </div>
