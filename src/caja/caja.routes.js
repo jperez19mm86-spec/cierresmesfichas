@@ -1099,19 +1099,37 @@ function mount(app) {
     /* Editar uno existente, o crear. Al crear, el motor lo agrega vacío y después se llena. */
     let n = Number(b.n) || 0;
     if (!n) {
-      const antes = (await leerContactos(cli, caja)) || [];
-      await ajusteDeCaja(cli, caja, 'add_contact', '1');
+        const antes = (await leerContactos(cli, caja)) || [];
+      const alta = await ajusteDeCaja(cli, caja, 'add_contact', '1');
       const despues = (await leerContactos(cli, caja)) || [];
       const nuevo = despues.find((c) => !antes.some((x) => x.id === c.id));
-      if (!nuevo) return mal(res, 'el casino no creó el contacto', 502);
+      if (!nuevo) {
+        /* 🔴 UNA CAJA RECIÉN CREADA NO TIENE DÓNDE GUARDAR CONTACTOS. El motor contesta
+           «Wrong name» a `add_contact`: esa caja sólo tiene el ajuste `active` y la sección de
+           contactos todavía no existe. Medido el 2-sep-2026 comparando una caja nueva con una
+           vieja. No es un fallo nuestro y no se arregla desde acá, así que se dice lo que pasa
+           en vez de un «no se pudo» que manda a nadie a ningún lado. */
+        const porQue = alta && alta.data && alta.data.error === 'Wrong name'
+          ? 'Esta caja todavía no tiene la sección de contactos habilitada en el casino. '
+            + 'Escribile a soporte para que se la abran; una vez abierta, acá se cargan solos.'
+          : 'El casino no creó el contacto.';
+        return res.status(502).json({ ok: false, sinSeccion: true, error: porQue });
+      }
       n = nuevo.n;
     }
 
+    /* 🔴 EL TÍTULO Y LA DESCRIPCIÓN SÓLO SE MANDAN SI TIENEN ALGO. El motor los rechaza vacíos
+       con «Required», y la pantalla dejó de pedirlos (no servían para nada, decisión del dueño el
+       1-sep-2026). Mandarlos igual eran dos llamadas al casino que siempre fallaban, ensuciando un
+       guardado que por lo demás salía bien — y en el camino, dos viajes de más por cada guardado.
+       Medido el 2-sep-2026 con una sonda sobre una caja real. */
     const ruta = (campo) => ['contacts', `contact_${n}`, campo];
     await ajusteDeCaja(cli, caja, ruta('type'), tipo);
     await ajusteDeCaja(cli, caja, ruta('contact'), String(b.contacto).trim());
-    await ajusteDeCaja(cli, caja, ruta('title'), String(b.titulo || '').trim());
-    await ajusteDeCaja(cli, caja, ruta('description'), String(b.descripcion || '').trim());
+    const titulo = String(b.titulo || '').trim();
+    if (titulo) await ajusteDeCaja(cli, caja, ruta('title'), titulo);
+    const descripcion = String(b.descripcion || '').trim();
+    if (descripcion) await ajusteDeCaja(cli, caja, ruta('description'), descripcion);
 
     /* Se relee: el link lo arma el motor, así que es lo único que prueba que quedó bien. */
     const lista = await leerContactos(cli, caja);
@@ -1378,15 +1396,38 @@ function mount(app) {
     const cli = auth.clienteDe(req.caja);
     await cli.apiCall('delete', { restore: 'true' }, { id: cuenta });
 
-    /* Y se comprueba mirando la lista de vivas, como siempre. */
-    const r = await cli.apiCall('users',
-      { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '500' },
-      { id: caja, offset: '1' });
-    if (!esJson(r)) return delMotor(res, r);
-    const viva = sinFilaTotal(r.data.users || []).find((u) => String(u.id) === cuenta);
+    /* 🔴 SE MIRA VARIAS VECES, Y EN VARIAS PÁGINAS. Antes se miraba UNA vez la primera página y,
+       si la cuenta no estaba, se contestaba «sigue eliminada». Y no era cierto: la cuenta volvía
+       entera un rato después. Es lo mismo que pasa en el alta — el motor tarda en mostrar lo que
+       ya hizo—, y encima en una caja grande la cuenta puede estar en otra página. Medido el
+       1-sep-2026 restaurando una caja de prueba.
+
+       Si aun así no aparece, NO se dice que falló: se dice que no se pudo confirmar. Decirle a
+       alguien que su cuenta sigue borrada cuando en realidad volvió lo empuja a repetir la orden
+       o a dar la plata por perdida. */
+    const buscarViva = async () => {
+      for (let pag = 1; pag <= 3; pag += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await cli.apiCall('users',
+          { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '500' },
+          { id: caja, offset: String(pag) });
+        if (!esJson(r)) return null;
+        const hallada = sinFilaTotal(r.data.users || []).find((u) => String(u.id) === cuenta);
+        if (hallada) return hallada;
+        if (Number(r.data.pageCount || 1) <= pag) break;
+      }
+      return null;
+    };
+
+    let viva = await buscarViva();
     if (!viva) {
-      return res.status(409).json({ ok: false, sinEfecto: true,
-        error: 'El casino aceptó la orden pero la cuenta sigue eliminada.' });
+      await new Promise((r) => { setTimeout(r, 1200); });
+      viva = await buscarViva();
+    }
+    if (!viva) {
+      return res.status(202).json({ ok: false, sinConfirmar: true,
+        error: 'La orden se envió, pero el casino todavía no muestra la cuenta como activa. '
+          + 'Suele tardar un momento: mirá la lista en un rato antes de volver a intentarlo.' });
     }
     ok(res, { cuenta: { id: String(viva.id), login: viva.login, balances: viva.balances } });
   }));
