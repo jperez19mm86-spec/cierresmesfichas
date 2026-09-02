@@ -38,14 +38,16 @@
       const d = await r.json().catch(() => null);
       if (d) {
         if (r.status === 401 && d.relogin) volverAlLogin('Se venció la sesión. Entrá de nuevo.');
+        if (!d.ok) seccionNegada(queEs, d.error);
         return d;
       }
       return { ok: false, error: `El servidor contestó algo que no se entiende (código ${r.status}).`,
         detalle: `${queEs} · HTTP ${r.status}` };
     } catch (e) {
       if (e && e.name === 'AbortError') {
-        return { ok: false, error: 'El casino no contestó en 30 segundos. Suele ser el casino, no vos: '
-          + 'esperá un momento y probá de nuevo.', detalle: `${queEs} · tiempo agotado` };
+        return { ok: false, agotado: true,
+          error: 'El casino no contestó en 30 segundos. Suele ser el casino, no vos: '
+            + 'esperá un momento y probá de nuevo.', detalle: `${queEs} · tiempo agotado` };
       }
       return { ok: false, error: 'No se pudo hablar con el sistema. Fijate que tengas conexión; si '
         + 'estás en la computadora del sistema, puede que el servidor esté apagado.',
@@ -53,6 +55,16 @@
     } finally {
       clearTimeout(reloj);
     }
+  }
+
+  /* 🔴 CUANDO EL MOTOR NIEGA UNA SECCIÓN, LA PESTAÑA SE VA. El menú se arma con una lista fija
+     —ver el comentario largo de `MENU_ROL` en caja.html: `area=buttons` no sirve para armarlo—,
+     así que la lista puede quedar corta o larga. Si queda larga, esto lo corrige solo la primera
+     vez que se toca, sin ninguna llamada de más: se aprovecha la respuesta que ya vino.
+     Sólo se actúa ante un «no» explícito del motor; un error de red no saca nada. */
+  function seccionNegada(ruta, error) {
+    const sec = seccionNegadaPor(ruta, error);   // caja-logica.js, cubierto por los tests
+    if (sec && typeof window.sacarSeccion === 'function') window.sacarSeccion(sec);
   }
 
   const API = {
@@ -96,6 +108,10 @@
       [Symbol.iterator]: function* () { for (const k of [...m.keys()]) if (vivo(k)) yield [k, m.get(k).v]; },
     };
   })();
+  /* El botón de «mirar el saldo» necesita tirar lo guardado: si no, vuelve a mostrar el número
+     viejo, que es justo lo que no hay que hacer después de un corte por tiempo. */
+  window.olvidarTodo = () => cache.clear();
+
   const conCache = async (clave, traer) => {
     if (cache.has(clave)) return cache.get(clave);
     const v = await traer();
@@ -206,6 +222,38 @@
     else if (c) setTimeout(() => { try { c.focus(); } catch (e) {} }, 60);
   })();
 
+  /* Apaga (o revive) los dos campos del login. Ver el porqué en `entrarDeVerdad`. */
+  function apagarLogin(apagar) {
+    for (const id of ['u', 'p']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (apagar) { el.value = ''; el.blur(); }
+      el.disabled = !!apagar;
+    }
+  }
+
+  /* Al salir vuelven a hacer falta. `salir()` la declara caja.html con `function`, así que está
+     en `window` y se puede envolver sin tocar el archivo de la maqueta. */
+  const salirDeLaMaqueta = window.salir;
+  window.salir = function salirYReviviElLogin() {
+    try { apagarLogin(false); } catch (e) { /* seguir: salir importa más */ }
+
+    /* 🔴 SALIR TIENE QUE CERRAR LA SESIÓN DEL SERVIDOR, no sólo cambiar de pantalla.
+       Así estaba: `salir()` hacía `mostrar('login')` y nada más. La cookie seguía viva, así que
+       alcanzaba con recargar la página para volver a entrar sin la clave. En un teléfono que se
+       presta o se pierde, eso es la caja abierta.
+       Medido el 1-sep-2026: después de «Salir», la misma cookie seguía contestando `/api/caja/yo`.
+       No se espera la respuesta: la pantalla vuelve al login igual, y si la red falla el servidor
+       igual vence la sesión sola. Lo que no puede pasar es que no se pida. */
+    try {
+      window.__caja_sesion = null;
+      API.enviar('logout', {});
+    } catch (e) { /* que un error acá no impida salir */ }
+
+    if (typeof salirDeLaMaqueta === 'function') return salirDeLaMaqueta.apply(this, arguments);
+    return undefined;
+  };
+
   window.entrar = async function entrarDeVerdad() {
     const usuario = (document.getElementById('u') || {}).value || '';
     const clave = (document.getElementById('p') || {}).value || '';
@@ -231,14 +279,35 @@
     cache.clear();
     try { localStorage.setItem(ULTIMO, r.yo.login || usuario); } catch (e) {}
 
+    /* 🔴 LOS CAMPOS DEL LOGIN SE APAGAN APENAS ENTRA. No es prolijidad: es lo único que calla a
+       Chrome.
+
+       Esto es una sola página: la tarjeta de login no se destruye, se esconde. Mientras siga
+       existiendo un <input type="password"> junto a uno de usuario, Chrome ve un formulario de
+       acceso vivo, y cada vez que la pantalla cambia de forma —cargar fichas, traer los
+       movimientos— lo lee como «envió el formulario» y dispara «¿Quieres actualizar la
+       contraseña?».
+
+       Ya se probaron dos cosas que NO alcanzan, y conviene que quede escrito para no repetirlas:
+         · `autocomplete="off"`  → Chrome lo ignora en campos de contraseña, hace años.
+         · borrar sólo el valor  → el campo sigue estando, y Chrome se guía por el campo.
+       Lo que sí funciona es `disabled`: un campo deshabilitado queda afuera de la detección de
+       credenciales. Se vuelven a habilitar en `salir()`, que es cuando hacen falta de nuevo. */
+    try { apagarLogin(true); } catch (e) { /* si no están los campos, no hay nada que apagar */ }
+
     /* La app decide qué dibujar según ROL: se lo damos con lo que dijo el motor, no con un
        selector. `area=info` devolvió el group y de ahí sale el rol. */
-    const porGrupo = { 3: 'agente', 4: 'cajero', 6: 'agente', 8: 'subcajero' };
-    window.ROL = porGrupo[Number(r.yo.group)] || 'cajero';
+    /* 🔴 `fijarNivel`, no `window.ROL = ...`: ver el comentario largo en caja.html. La
+       asignación directa no llega al `let` del panel. Qué grupo es qué nivel lo decide
+       `nivelDeGrupo`, en caja-logica.js, donde lo cubren los tests. */
+    const grupo = Number(r.yo.group);
+    const nivel = nivelDeGrupo(grupo);
+    fijarNivel(nivel.rol, nivel.subagente);
     CUENTAS[ROL] = Object.assign({}, CUENTAS[ROL], {
-      id: r.yo.id, login: r.yo.login, group: Number(r.yo.group),
+      id: r.yo.id, login: r.yo.login, group: grupo,
       currency: r.yo.moneda || 'ARS',
-      nivel: { agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
+      nivel: SUBAGENTE ? 'Sub-agente'
+        : { agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
       /* El de la maqueta era 100.000. Fuera antes de que se pinte nada. */
       balance: null,
     });
@@ -508,7 +577,16 @@
       <h3>${carga ? 'Cargando' : 'Retirando'} ${todo ? 'todo el saldo' : fmt(v)}</h3>
       <div class="sub">Un momento, no cierres esta pantalla.</div></div>`);
 
-    const r = await API.enviar('fichas', {
+    /* 🔴 EL MISMO GESTO, HASTA TRES VECES. Los dos relojes no coinciden: el navegador corta a los
+       30 segundos y el servidor sigue hablando con el casino hasta 120. En el medio, la carga
+       entra y el operador ve un error — que es exactamente cómo se cobró 10.000 dos veces.
+
+       No se puede alargar la espera del navegador sin dejar la pantalla colgada dos minutos, así
+       que se reintenta con el MISMO `gesto`, que es lo que el servidor usa de huella:
+         · si ya terminó, devuelve el resultado guardado — no vuelve a mover una ficha;
+         · si sigue en curso, el pedido espera turno en la cola y recibe lo que dio el primero.
+       Un `gesto` nuevo en cada intento —que es lo que había— salteaba las dos redes. */
+    const cuerpo = {
       cuenta: String(destino.id),
       login: destino.login,
       padre: DENTRO ? String(DENTRO) : undefined,
@@ -516,19 +594,56 @@
       monto: todo ? undefined : v,
       todo,
       gesto: gestoNuevo(),
-    });
+    };
+    let r = await API.enviar('fichas', cuerpo);
+    let reintente = false;
+    for (let intento = 2; r && r.agotado && intento <= 3; intento++) {
+      reintente = true;
+      hoja(`<div class="resultado"><div class="sello latir">…</div>
+        <h3>El casino está tardando</h3>
+        <div class="sub">Seguimos esperando la respuesta. <b>No lo pidas de nuevo</b>: si ya entró,
+        lo vamos a ver acá.</div></div>`);
+      r = await API.enviar('fichas', cuerpo);
+    }
+
+    /* 🔴 EL RECIBO LLEGA VESTIDO DE ERROR. Cuando el servidor reconoce la huella contesta 409
+       «esa misma operación ya se hizo», con el resultado adentro. Para un doble clic de verdad
+       está bien avisar así. Pero si el que repitió fui yo —porque se venció el reloj— eso NO es
+       un error: la carga entró, y mostrarle una ✕ roja al operador lo empuja a repetirla otra
+       vez. Se muestra lo que pasó. */
+    if (reintente && r && r.repetida && r.resultado) r = { ok: true, ...r.resultado, yaEstaba: true };
+
+    /* Tres cortes seguidos: no sabemos, y se dice. Lo único que no se puede hacer es invitarlo a
+       repetir, porque repetir es lo que cobra dos veces. */
+    if (r && r.agotado) {
+      return hoja(`<div class="resultado"><div class="sello malo">?</div>
+        <h3>No sabemos si entró</h3>
+        <div class="sub">El casino no contestó en todo este rato. La orden pudo haber entrado igual.
+        <b>Mirá el saldo antes de volver a intentarlo.</b></div></div>
+        <div class="acciones"><button class="btn" onclick="olvidarTodo(); cerrarHoja(); pintar()">Mirar el saldo</button></div>`);
+    }
+
+    /* Ya hay un movimiento corriendo sobre esta cuenta. NO es un error y no se muestra como
+       tal: si sale la ✕ roja, el operador vuelve a apretar, que es justo lo que hay que evitar.
+       Se dice que espere y se le ofrece mirar el saldo, no reintentar. */
+    if (!r.ok && r.enCurso) {
+      return hoja(`<div class="resultado"><div class="sello">⏳</div>
+        <h3>Esperá un momento</h3>
+        <div class="sub">${r.error}</div></div>
+        <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
+    }
 
     /* El motor aceptó la orden y no movió nada: el caso que más engaña. */
     if (!r.ok && r.sinEfecto) {
       if (typeof r.saldo === 'number') destino.balance = r.saldo;
       pintar();
-      return hoja(`<div class="resultado"><div class="sello">!</div>
+      return hoja(`<div class="resultado"><div class="sello malo">!</div>
         <h3>No se movió nada</h3>
         <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
     }
     if (!r.ok) {
-      return hoja(`<div class="resultado"><div class="sello">✕</div>
+      return hoja(`<div class="resultado"><div class="sello malo">✕</div>
         <h3>No se pudo</h3>
         <div class="sub">${r.error || 'El casino no contestó.'} ${r.repetida ? '' :
           'Revisá el saldo antes de intentarlo otra vez.'}</div></div>
@@ -598,6 +713,10 @@
         </div>`).join('')}</div>`);
     dibujar(0);
 
+    /* Se guarda ANTES de mandar: si el motor dice que el login está ocupado, el formulario se
+       vuelve a abrir con la contraseña y el balance ya puestos y sólo hay que cambiar el nombre. */
+    window.ALTA_PREVIA = { grupo, login, clave, bal: bal || '' };
+
     const r = await API.enviar('crear', {
       padre: DENTRO ? String(DENTRO) : undefined,
       login, clave,
@@ -613,10 +732,19 @@
           <h3>${ocupado ? 'Ese nombre ya está usado' : 'No se pudo crear'}</h3>
           <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button>
-          ${ocupado ? '<button class="btn" onclick="abrirAlta()">Probar otro nombre</button>' : ''}
+          ${/* 🔴 VUELVE AL MISMO FORMULARIO, no al selector. Antes llamaba a `abrirAlta()`, que
+                abre «¿Qué querés crear?»: entrabas a crear un jugador, el login estaba ocupado,
+                apretabas «Probar otro nombre» y aparecías eligiendo otra vez si querías un
+                jugador o un sub-cajero. Se perdía lo que ya habías decidido.
+                `grupo` es el tipo que se estaba creando, así que se vuelve exactamente ahí. Los
+                sub-cajeros tienen su propio formulario y por eso van aparte. */''
+          }${ocupado ? (grupo === '8'
+              ? `<button class="btn" onclick="altaSubCajero('${DENTRO || (window.__caja_sesion || {}).id}')">Probar otro nombre</button>`
+              : `<button class="btn" onclick="altaFormulario('${grupo}', true)">Probar otro nombre</button>`) : ''}
         </div>`), 500);
     }
 
+    window.ALTA_PREVIA = null;   // salió bien: la contraseña no se guarda ni un segundo más
     olvidar('cuentas:');   // la cuenta nueva no está en la copia guardada
     /* El id y el saldo son los que el casino confirmó, no los que pedimos. */
     const c = r.cuenta;
@@ -686,7 +814,7 @@
     });
 
     if (!r.ok) {
-      return abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No se borró' : 'No se pudo'}</h3>
         <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
@@ -719,7 +847,7 @@
   async function guardarPermisos(subId, cajas, alTerminar) {
     const r = await API.enviar('permisos-subagente', { sub: String(subId), cajas });
     if (!r.ok) {
-      abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No quedó aplicado' : 'No se pudo'}</h3>
         <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
@@ -727,7 +855,9 @@
     }
     /* Se refleja lo que el motor CONFIRMÓ, no lo que pedimos. */
     const s = SUBAGENTES.find((x) => String(x.id) === String(subId));
-    if (s) { s.cajas = {}; for (const [id, e] of Object.entries(r.estado || {})) s.cajas[id] = !!e.ve; }
+    const cajasConfirmadas = {};
+    for (const [id, e] of Object.entries(r.estado || {})) cajasConfirmadas[id] = !!(e && e.ve);
+    if (s) s.cajas = cajasConfirmadas;
     if (alTerminar) alTerminar();
     return true;
   }
@@ -790,7 +920,7 @@
       <h3>Cambiando tu contraseña</h3><div class="sub">Un momento…</div></div>`);
     const r = await API.enviar('mi-clave', { actual, nueva });
     if (!r.ok) {
-      return abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>No se cambió</h3><div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cambiarMiClave()">Probar de nuevo</button></div>`);
     }
@@ -811,7 +941,7 @@
       <div class="sub">Un momento…</div></div>`);
     const r = await API.enviar('clave-de', { cuenta: String(id), nueva, esJugador });
     if (!r.ok) {
-      return abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>No se cambió</h3><div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     }
@@ -847,10 +977,27 @@
   }
 
   const errorEnHoja = (r, volverA) => abrirHoja(
-    `<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+    `<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
       <h3>${r.sinEfecto ? 'No quedó guardado' : 'No se pudo'}</h3>
       <div class="sub">${r.error}</div></div>
      <div class="acciones"><button class="btn sec" onclick="${volverA}">Volver</button></div>`);
+
+  /* 🔴 «Medios de comunicación» DE TU PROPIA FICHA llama a `misContactos`, no a
+     `abrirContactos`. Son dos funciones distintas y sólo estaba envuelta la segunda: desde la
+     ficha del agente la pantalla abría con la lista de la maqueta —vacía— y el operador veía un
+     botón que «no sirve». Se envuelve igual que la otra, pidiendo los del propio nodo.
+     Encontrado el 1-sep-2026 recorriendo la aplicación con una cuenta real. */
+  const misContactosOriginal = window.misContactos;
+  window.misContactos = function misContactosDeVerdad() {
+    if (!window.__caja_sesion) return misContactosOriginal.apply(this, arguments);
+    const mio = String(window.__caja_sesion.id);
+    if (CONTACTOS[mio]) return misContactosOriginal.apply(this, arguments);
+    abrirHoja(`<div class="resultado"><div class="sello latir">…</div>
+      <h3>Medios de comunicación</h3>
+      <div class="sub">Un momento, estamos trayéndolos del casino.</div></div>`);
+    traerContactos(mio, () => misContactosOriginal.call(window));
+    return undefined;
+  };
 
   const contactosOriginal = window.abrirContactos;
   window.abrirContactos = function abrirContactosDeVerdad(cajaId) {
@@ -871,8 +1018,12 @@
     const r = await API.enviar('contacto', {
       caja: String(cajaId), n: previo ? previo.n : 0, tipo,
       contacto: ($('cContacto') || {}).value || '',
-      titulo: ($('cTitulo') || {}).value || '',
-      descripcion: ($('cDesc') || {}).value || '',
+      /* El título y la descripción ya no se piden —el jugador no los ve— pero se REENVÍAN los
+         que la ficha ya tenía. Si se mandaran vacíos, editar un número para corregir un dígito
+         borraría de paso un título que alguien cargó alguna vez. No pedir un dato no es lo mismo
+         que borrarlo. */
+      titulo: (previo && previo.title) || '',
+      descripcion: (previo && previo.description) || '',
     });
     if (!r.ok) return errorEnHoja(r, `editarContacto('${cajaId}',${i})`);
     CONTACTOS[cajaId] = (r.contactos || []).map((c) => ({ ...c }));
@@ -936,7 +1087,7 @@
     if (!window.__caja_sesion) return;
     const a = await accesoDe(ACTUAL.id);
     const texto = (a.ok && a.compartir) || (a.ok && a.acceso) || '';
-    if (!texto) return abrirHoja(`<div class="resultado"><div class="sello">!</div>
+    if (!texto) return abrirHoja(`<div class="resultado"><div class="sello malo">!</div>
       <h3>No hay nada para compartir</h3><div class="sub">${SIN_LINK}</div></div>
       <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
     compartirTexto(texto);
@@ -970,6 +1121,9 @@
     const caja = SALAS.find((c) => String(c.id) === String(cajaId));
     if (caja) caja.ticket_url = r.url;
     ACCESOS.clear();          // los links de sus jugadores cambian con el dominio
+    /* Guardado, pero sin haber podido comprobarlo contra los dominios habilitados: se dice.
+       Callarlo sería dar por bueno un link que quizá no le abre a nadie. */
+    if (r.aviso) { if (aviso) aviso.textContent = r.aviso; return; }
     editarCaja(cajaId);
   };
 
@@ -1045,7 +1199,7 @@
     if (!s) return;
     const r = await API.enviar('permisos-subcajero', { sub: String(id), permisos: { [campo]: !s[campo] } });
     if (!r.ok) {
-      return abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No quedó guardado' : 'No se pudo'}</h3>
         <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="abrirSub('${id}')">Volver</button></div>`);
@@ -1311,7 +1465,7 @@
       <h3>Restaurando ${b.login}</h3><div class="sub">Un momento…</div></div>`);
     const r = await API.enviar('restaurar', { cuenta: String(id), caja: String(b.sala) });
     if (!r.ok) {
-      return abrirHoja(`<div class="resultado"><div class="sello">${r.sinEfecto ? '!' : '✕'}</div>
+      return abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
         <h3>${r.sinEfecto ? 'No se restauró' : 'No se pudo'}</h3>
         <div class="sub">${r.error}</div></div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button></div>`);
@@ -1433,10 +1587,20 @@
     deposit: 'Cargas', withdraw: 'Retiros',
     active_players: 'Jugadores', active_halls: 'Cajeros',
   };
+  /* Los nombres del EJE sí se traducen por texto —el motor no da una clave para esto— así que
+     hay que tenerlos todos. El 1-sep-2026 se le preguntó al motor qué manda de verdad y contestó:
+     Amount · Player count · Number of visitors · Active players · Active halls · Profit · Deposit ·
+     Withdraw · GGR. Faltaba «Player count» y salía en inglés abajo del gráfico: «Player count · 2
+     ago a 31 ago». Están las variantes que ya había porque el motor cambia de forma entre
+     versiones y no cuesta nada dejarlas. */
   const NOMBRE_EJE = {
     amount: 'Monto', 'sum of money': 'Suma de dinero',
+    'player count': 'Cantidad de jugadores', 'hall count': 'Cantidad de cajeros',
     'number of players': 'Cantidad de jugadores', 'number of halls': 'Cantidad de cajeros',
     'quantity of players': 'Cantidad de jugadores', 'quantity of halls': 'Cantidad de cajeros',
+    'number of visitors': 'Cantidad de visitas', 'visitor count': 'Cantidad de visitas',
+    'active players': 'Jugadores con movimiento', 'active halls': 'Cajeros con movimiento',
+    profit: 'Ganancia', deposit: 'Cargas', withdraw: 'Retiros', ggr: 'GGR',
   };
 
   const aPaneles = (charts) => {
@@ -1445,8 +1609,21 @@
       if (!panel || !panel.data) continue;
       const d = panel.data;
       if (d.graphic) {
+        /* 🔴 EL MOTOR SE EQUIVOCA EN UN TÍTULO Y HAY QUE PISARLO. Medido el 1-sep-2026: para el
+           panel `active_halls` —cuántos CAJEROS movieron fichas— manda `yAxisTitle: "Player
+           count"`, el de jugadores. Traducido fiel, la tarjeta de cajeros decía «Cantidad de
+           jugadores».
+           Cuando la serie nos dice qué se está contando, mandamos nosotros; si no la conocemos,
+           se usa lo que vino. La clave es confiable, el título no. */
+        const porClave = {
+          active_halls: 'Cantidad de cajeros',
+          active_players: 'Cantidad de jugadores',
+        };
+        const clave0 = ((d.graphic.datasets || [])[0] || {}).key;
         d.graphic = Object.assign({}, d.graphic, {
-          yAxisTitle: NOMBRE_EJE[String(d.graphic.yAxisTitle || '').toLowerCase()] || d.graphic.yAxisTitle,
+          yAxisTitle: porClave[clave0]
+            || NOMBRE_EJE[String(d.graphic.yAxisTitle || '').toLowerCase()]
+            || d.graphic.yAxisTitle,
           datasets: (d.graphic.datasets || []).map((s) => Object.assign({}, s, {
             label: NOMBRE_SERIE[s.key] || s.label,
           })),
@@ -1742,7 +1919,23 @@
       const destino = (esAgente() && !DENTRO) ? SUBAGENTES : SUBCAJEROS;
       destino.length = 0;
       destino.push(...lista);
-      return subOriginal.apply(this, arguments);
+      const r0 = subOriginal.apply(this, arguments);
+
+      /* 🔴 QUÉ CAJAS VE CADA SUB-AGENTE HAY QUE PREGUNTARLO. La lista del motor no lo trae, así
+         que se pide la ficha de cada uno. Son POCOS por naturaleza —un sub-agente es otro acceso
+         a tu propia cuenta, no se tienen veinte— y las consultas van EN PARALELO, así que cuesta
+         lo que la más lenta, no la suma.
+         Se hace después de dibujar: la lista aparece enseguida diciendo «viendo qué cajas
+         tiene…» y se completa sola. Si alguna falla, esa queda sin dato y no se inventa. */
+      /* 🔴 ACÁ HABÍA UNA CONSULTA POR CADA SUB-AGENTE, PARA PINTAR UN CARTELITO. Se sacó.
+         La idea era mostrar en la lista cuántas cajas ve cada uno. El motor no manda ese dato en
+         la lista —hay que pedir la ficha de cada uno— y esa consulta extra, con su caché y su
+         redibujado, rompió la pantalla tres veces seguidas: primero el cartel se quedaba
+         cargando, después mostraba «no ve ninguna» con los permisos bien puestos, y al final
+         desapareció un sub-agente de la lista.
+         El dato está a un toque de distancia: entrás al sub-agente y ves sus cajas con sus
+         llaves. No vale romper la lista de todos para ahorrar ese toque. */
+      return r0;
     }
     cargando('Un momento, estamos trayendo tus sub-usuarios', 'lista');
     pedirUnaVez(clave, () => API.pedir('subusuarios', { id: nodo }), pintarSub);
@@ -1779,13 +1972,19 @@
        pulsación: escribir «ganamos» dejaba siete carteles iguales debajo de la lista. */
     const previo = document.getElementById('cartelOrigen');
     if (previo) previo.remove();
+    /* 🔴 CUANDO EL DATO ES REAL NO SE DICE NADA. Era útil mientras media aplicación era maqueta:
+       había que poder distinguir de un vistazo qué venía del casino y qué no. Ahora que todo
+       viene del casino, ese cartel verde aparecía en TODAS las pantallas anunciando lo normal, y
+       un aviso que sale siempre deja de leerse — con lo cual también se deja de ver el día que
+       diga otra cosa.
+       Los otros dos SÍ se quedan: «no se pudo traer» y «números de ejemplo» avisan que algo anda
+       mal o que lo que mirás no es tuyo, y eso hay que decirlo siempre. */
+    if (ORIGEN === 'servidor') return;
+
     const nota = document.createElement('div');
     nota.id = 'cartelOrigen';
     nota.className = 'nota';
-    if (ORIGEN === 'servidor') {
-      nota.style.cssText = 'background:var(--ok-soft); color:var(--ok); margin-top:10px';
-      nota.innerHTML = '<b>Esto es real.</b> Sale de tu casino, en vivo.';
-    } else if (ORIGEN === 'error') {
+    if (ORIGEN === 'error') {
       nota.style.cssText = 'background:var(--no-soft); color:var(--no); margin-top:10px';
       nota.innerHTML = `<b>No se pudo traer del casino.</b> ${ultimoError || ''}`;
     } else {

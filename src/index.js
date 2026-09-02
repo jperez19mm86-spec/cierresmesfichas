@@ -12,6 +12,7 @@
  */
 require('dotenv').config();
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const path = require('path');
 const store = require('./systems-store');
@@ -80,6 +81,33 @@ function parseImportText(text) {
 }
 
 const app = express();
+
+/* 🔴 SE COMPRIME LO QUE VIAJA. Medido el 1-sep-2026: la pantalla de Mi Caja son 526 KB y salían
+   crudos; el código y los estilos bajan a 77 KB comprimidos. En una caja que se usa desde el
+   teléfono, con datos móviles, esa diferencia se siente en cada visita. Va lo más arriba posible
+   para que alcance a todo. */
+app.use(compression());
+
+/* ══════ MI CAJA, SOLA ══════
+   Con `SOLO_CAJA=1` este mismo código levanta ÚNICAMENTE Mi Caja: la raíz es su pantalla y
+   cualquier otra dirección da 404. Sirve para desplegarla como servicio aparte —su propio proceso,
+   su propio dominio— sin duplicar el código y sin que una caída se lleve puesto al OS. */
+const SOLO_CAJA = process.env.SOLO_CAJA === '1';
+if (SOLO_CAJA) {
+  const DE_CAJA = /^\/(caja(\/|$)|caja-(conexion|logica)\.js$|api\/caja(\/|$)|img\/|logo|favicon)/;
+  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')));
+  app.use((req, res, next) => {
+    if (DE_CAJA.test(req.path)) return next();
+    /* Al navegador se le contesta en castellano; a una llamada de datos, JSON. Un 404 en HTML
+       dentro de un fetch se lee como «vino basura» y cuesta más entender qué pasó. */
+    if (String(req.headers.accept || '').includes('text/html')) {
+      return res.status(404).send('<meta charset="utf-8"><body style="font:15px system-ui;padding:40px">'
+        + '<b>Acá sólo vive Mi Caja.</b><p>El panel del OS corre aparte, en su propio servicio.'
+        + '<p><a href="/">Ir a Mi Caja</a>');
+    }
+    return res.status(404).json({ ok: false, error: 'esta ruta no existe en Mi Caja' });
+  });
+}
 app.use(cors({ origin: true }));
 
 // ── EL COMPROBANTE VIENE EN EL CUERPO, Y UNA FOTO NO ENTRA EN 1 MB ───────────────────────────
@@ -152,6 +180,11 @@ require('./os.routes').mount(app);
 
 /* Mi Caja: el panel simple para agentes y cajeros. Los endpoints van acá, con `/api/caja/*`;
    la página se sirve más abajo, con el resto del frontend. */
+/* El diario: mide y anota cada pedido de Mi Caja. Va ANTES de las rutas para poder cronometrarlas,
+   y lee `req.caja` recién cuando la respuesta terminó, que es cuando ya existe. */
+const diario = require('./caja/caja-diario');
+app.use(diario.medidor());
+diario.montar(app);
 require('./caja/caja.routes').mount(app);
 
 // ─────────────── SISTEMAS (CRUD) ───────────────
@@ -1554,6 +1587,10 @@ app.get('/logo.png', (_req, res, next) => {
   } catch (e) { return next(); }
 });
 
+/* Las imágenes van con su versión en la dirección (`?v=1`), así que se pueden guardar mucho
+   tiempo: si alguna cambia, cambia la versión. Va antes del estático general, que da una hora. */
+app.use('/img', express.static(path.join(__dirname, '..', 'public', 'img'),
+  { maxAge: '30d', immutable: true }));
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, ruta) => {
     res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');

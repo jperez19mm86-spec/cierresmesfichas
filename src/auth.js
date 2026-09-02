@@ -62,6 +62,8 @@ const PUBLIC = [
   // /api/caja/* exige su propia sesión y contesta 401 sin ella.
   /^\/caja\/?$/,
   /^\/caja-conexion\.js$/,
+  /^\/caja-logica\.js$/,
+  /^\/img\/[\w.-]+\.(png|jpg|webp|svg)$/,
   /^\/api\/caja(\/|$)/,
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada

@@ -317,7 +317,8 @@ function mount(app) {
       let fanOut = [];
       if (req.caja.rol === 'agente' && String(nodo) === String(req.caja.id)) {
         const hijos = await cli.apiCall('users',
-          { limit: '200', inactive_users: 'all' }, { id: nodo, offset: '1' });
+          { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
+          { id: nodo, offset: '1' });
         if (!esJson(hijos)) return delMotor(res, hijos);
         fanOut = sinFilaTotal(hijos.data.users || hijos.data.rows || [])
           .map((c) => ({ id: String(c.id), login: c.login || String(c.id) }));
@@ -331,7 +332,8 @@ function mount(app) {
 
     if (q.agrupar === 'child_users') {
       const hijos = await cli.apiCall('users',
-        { limit: '200', inactive_users: 'all' }, { id: nodo, offset: '1' });
+        { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
+        { id: nodo, offset: '1' });
       if (!esJson(hijos)) return delMotor(res, hijos);
       const cajas = sinFilaTotal(hijos.data.users || hijos.data.rows || []);
 
@@ -425,6 +427,20 @@ function mount(app) {
     for (const [k, v] of hechas) if (v.cuando < corte) hechas.delete(k);
   }, 60 * 1000).unref?.();
 
+  /* 🔴 UNA OPERACIÓN POR CUENTA A LA VEZ.
+     `hechas` atrapa el doble clic —el MISMO gesto repetido— pero no esto: el operador aprieta
+     Cargar, la pantalla parece trabada, aprieta de nuevo, y sale un gesto NUEVO que pasa el
+     filtro. Las dos órdenes corren juntas sobre la misma cuenta, se pisan al leer el saldo, y
+     una devuelve un error que dice «no se movió nada» mientras la otra sí movió.
+
+     Pasó de verdad el 1-sep-2026: dos cargas de 10.000 sobre 7369514, una entró y la otra
+     contestó error. El operador vio el error y creyó que no se había cargado.
+
+     Se guarda por CUENTA y no por sesión: la misma cuenta puede tocarse desde dos lados —el
+     agente y su sub-usuario— y el problema es del lado del casino, no de quién lo pide. */
+  const enCurso = new Map();
+  const LIMPIAR_CURSO = 3 * 60 * 1000;   // por si un pedido muere sin pasar por `finally`
+
   /**
    * El saldo de UNA cuenta, en el momento.
    * 🔴 Se busca con `search` EN LA QUERY. Recorrer las páginas no sirve: una caja tiene 1.851
@@ -447,27 +463,61 @@ function mount(app) {
   const rangoBarato = () => ({ from: `${hoy()} 00:00:00`, to: `${hoy()} 23:59:59` });
 
   async function saldoDeCuenta(cli, idPadre, idCuenta, login) {
-    const comun = { ...rangoBarato(), inactive_users: 'all', limit: '500' };
+    /* 🔴 `deleted_users` VA SIEMPRE, aunque su valor sea el que el motor usa por defecto.
+       Acá estaba el error que hizo que «no se pudo leer el saldo» apareciera durante horas sin
+       patrón: el motor RECUERDA el último valor por sesión, y la pantalla «Jugadores eliminados»
+       pide `delete`. Desde el momento en que alguien la abre, esta lectura —que no mandaba el
+       parámetro— hereda ese filtro y **sólo ve cuentas borradas**. El jugador vivo no aparece
+       jamás, y no se arregla ni volviendo a entrar: el token del motor es el mismo.
+
+       Medido el 1-sep-2026 con el diagnóstico puesto: pidiendo el saldo de 7369500 la página 1
+       devolvía [7378089, 7378088, 7357744] — las tres eliminadas de esa caja, ninguna otra.
+
+       Es el mismo vicio de `from`/`to` y de `search`: lo que no se manda, se hereda. La regla en
+       este motor es mandar SIEMPRE todos los filtros, incluso los que parecen redundantes. */
+    const comun = {
+      ...rangoBarato(),
+      inactive_users: 'all',
+      deleted_users: 'undelete',
+      limit: '500',
+    };
     const buscarEn = async (query) => {
       const r = await cli.apiCall('users', comun, Object.assign({ id: String(idPadre) }, query));
       if (!esJson(r)) return null;
       return sinFilaTotal(r.data.users).find((u) => String(u.id) === String(idCuenta)) || null;
     };
-    let fila = login ? await buscarEn({ search: String(login), offset: '1' }) : null;
-    /* Sin login, o si la búsqueda no lo trajo: se recorren las páginas, hasta un tope sensato. */
-    /* ⚡ Con login, la primera página ya lo trae salvo en cajas enormes: se recorre poco. Sin
-       login hay que buscarlo, y ahí sí vale la pena insistir. */
-    const tope = login ? 2 : 8;
-    for (let pag = 1; !fila && pag <= tope; pag++) fila = await buscarEn({ offset: String(pag) });
+
+    /* 🔴 PRIMERO SE RECORREN LAS PÁGINAS, Y RECIÉN DESPUÉS SE BUSCA. El orden importa y costó
+       encontrarlo.
+
+       Antes se buscaba primero con `search=<login>` porque es una sola llamada. El problema: el
+       motor deja el filtro PEGADO EN LA SESIÓN. Si esa búsqueda no encuentra nada —y a veces no
+       encuentra, sin motivo aparente— TODAS las llamadas siguientes heredan el filtro y vuelven
+       vacías, aunque no manden `search`. La cuenta existe, está en la primera página, y el panel
+       decía «no se pudo leer el saldo» una y otra vez.
+
+       Mandar `search: ''` para limpiarlo NO sirve: el motor ignora el valor vacío y se queda con
+       el anterior. Medido el 1-sep-2026 sobre la cuenta 7369514: cuatro intentos seguidos
+       fallaron, y `/cuentas` —que nunca usa `search`— la devolvía sin problema.
+
+       Listar la página es igual de barato (~330 ms) y no ensucia nada. La búsqueda queda sólo
+       como último recurso, para cajas de miles de cuentas donde el recorrido no llegue. */
+    let fila = null;
+    for (let pag = 1; !fila && pag <= 4; pag++) {
+      // eslint-disable-next-line no-await-in-loop
+      fila = await buscarEn({ offset: String(pag) });
+    }
+    if (!fila && login) fila = await buscarEn({ search: String(login), offset: '1' });
     if (!fila) return null;
     const b = fila.balances && Object.values(fila.balances)[0];
     return Number(String(b == null ? 0 : b).replace(/[^\d.-]/g, '')) || 0;
   }
 
+
   app.post('/api/caja/fichas', auth.requerida, wrap(async (req, res) => {
     const b = req.body || {};
     const cuenta = String(b.cuenta || '').trim();          // a quién
-    const padre = String(b.padre || req.caja.id).trim();   // de qué caja sale / entra
+    let padre = String(b.padre || req.caja.id).trim();     // de qué caja sale / entra
     const operacion = b.operacion === 'out' ? 'out' : 'in';
     const todo = b.todo === true;                          // explícito, nunca deducido
     const monto = Number(b.monto);
@@ -491,12 +541,87 @@ function mount(app) {
     }
 
     const cli = auth.clienteDe(req.caja);
+
+    /* ── LA COLA ────────────────────────────────────────────────────────────────────────
+       Antes esto rebotaba con «esperá y volvé a intentar», y hacer volver al operador es
+       justamente lo que queríamos evitar. Ahora espera el turno solo. Pero hay que separar
+       DOS casos que parecen iguales y no lo son:
+
+       · MISMO pedido (misma cuenta, misma operación, mismo monto): es un doble clic. Encolarlo
+         cargaría DOS VECES. Se espera al que ya está corriendo y se devuelve SU resultado —lo
+         que el operador quería ver— sin tocar el casino de nuevo.
+       · Pedido DISTINTO sobre la misma cuenta: es trabajo real. Se hace la cola de verdad.
+
+       Sin esa distinción, «encolar» sería duplicar la plata. */
+    const marca = `${cuenta}|${operacion}|${todo ? 'ALL' : monto}`;
+    /* Se espera EN BUCLE, no una sola vez: si hay tres esperando, al despertarse todas juntas
+       arrancarían a la vez y estaríamos igual que al principio. Cada una vuelve a mirar si la
+       cuenta quedó libre. El tope evita que alguien espere para siempre. */
+    const HASTA = Date.now() + 45 * 1000;
+    let espero = false;
+    for (;;) {
+      const previo = enCurso.get(cuenta);
+      if (!previo || Date.now() - previo.desde >= LIMPIAR_CURSO) break;
+      const suyo = await previo.promesa.catch(() => null);
+      if (previo.marca === marca) {
+        console.log('[caja/fichas] doble clic sobre %s: devuelvo el resultado del primero', cuenta);
+        if (suyo) return ok(res, { ...suyo, yaEstaba: true });
+        return res.status(409).json({ ok: false, enCurso: true,
+          error: 'Se pidió dos veces lo mismo y el primero no terminó bien. Mirá el saldo antes '
+            + 'de repetir.' });
+      }
+      espero = true;
+      if (Date.now() > HASTA) {
+        return res.status(409).json({ ok: false, enCurso: true,
+          error: 'La cuenta estuvo ocupada demasiado tiempo y no llegamos a hacerlo. Mirá el saldo '
+            + 'y volvé a intentar.' });
+      }
+    }
+    if (espero) console.log('[caja/fichas] %s esperó turno en la cola', cuenta);
+
+    /* El turno propio: se anota ANTES de tocar el casino, con una promesa que el que venga
+       después pueda esperar. */
+    let terminar;
+    const promesa = new Promise((r) => { terminar = r; });
+    enCurso.set(cuenta, { desde: Date.now(), marca, promesa });
+
     console.log('[caja/fichas] %s %s cuenta=%s padre=%s monto=%s todo=%s',
       req.caja.login, operacion, cuenta, padre, monto, todo);
+    try {
 
     /* 1 · el saldo ANTES — la única forma de saber después si se movió algo */
-    const antes = await saldoDeCuenta(cli, padre, cuenta, b.login);
-    if (antes == null) return mal(res, 'no se pudo leer el saldo de esa cuenta', 502);
+    let dePadre = padre;
+    let antes = await saldoDeCuenta(cli, dePadre, cuenta, b.login);
+
+    /* 🔴 UN REINTENTO, PORQUE EL MOTOR SE TROPIEZA SOLO.
+       Medido el 1-sep-2026: la misma carga a la misma cuenta falló dos veces seguidas al leer el
+       saldo y funcionó a la tercera, sin cambiar nada. El motor devuelve HTML en vez de JSON cada
+       tanto —una sesión que se refresca, un pico— y `saldoDeCuenta` contesta null.
+
+       Rendirse al primer tropiezo tiene un costo que no se ve: el operador recibe un error, vuelve
+       a apretar, y ESE reintento manual es el que se pisa con el anterior y termina cargando dos
+       veces. Reintentar una vez acá, con medio segundo de espera, evita casi todos esos.
+       Es sólo una LECTURA: repetirla no mueve una ficha. */
+    if (antes == null) {
+      await new Promise((r) => { setTimeout(r, 500); });
+      antes = await saldoDeCuenta(cli, dePadre, cuenta, b.login);
+    }
+
+    /* Si no apareció, puede que el padre esté mal: la pantalla manda `padre` sólo cuando entraste
+       al cajero, y quien llega al jugador por el buscador global no lo tiene. Antes eso terminaba
+       en «no se pudo leer el saldo de esa cuenta» y no se podía cargar. Se le pregunta al motor de
+       qué caja cuelga y se reintenta una vez. Medido el 1-sep-2026 con P000999888. */
+    if (antes == null) {
+      const real = await padreDeVerdad(cli, cuenta, b.login);
+      if (real && real !== String(dePadre)) {
+        dePadre = real;
+        antes = await saldoDeCuenta(cli, dePadre, cuenta, b.login);
+      }
+    }
+    if (antes == null) {
+      return mal(res, 'No se pudo leer el saldo de esa cuenta, así que la orden no se envió. No se movió nada.', 502);
+    }
+    padre = dePadre;
 
     /* 2 · la orden */
     const r = await cli.apiCall('balance', {
@@ -518,7 +643,7 @@ function mount(app) {
         : saldoDeCuenta(cli, req.caja.id, String(padre)),
     ]);
     if (despues == null) {
-      return mal(res, 'la orden se envió pero no se pudo confirmar el saldo. Revisá antes de repetir.', 502);
+      return mal(res, 'La orden se envió pero no pudimos confirmar el saldo, así que NO sabemos si se movió. Mirá el saldo antes de repetir.', 502);
     }
 
     const movido = Math.round((despues - antes) * 100) / 100;
@@ -541,11 +666,19 @@ function mount(app) {
     };
     if (b.gesto) hechas.set(huella, { cuando: Date.now(), resultado });
 
-    ok(res, {
+    const salida = {
       ...resultado,
       pagador: { id: String(padre), saldo: saldoPagador },
       motor: esJson(r) ? undefined : 'el motor respondió en HTML; el saldo se verificó igual',
-    });
+    };
+    terminar(salida);          // el que esté esperando por doble clic recibe esto
+    return ok(res, salida);
+    } finally {
+      /* Pase lo que pase se suelta y se despierta al que esté en la cola. Si esto no corriera,
+         un error dejaría la cuenta trabada y a alguien esperando para siempre. */
+      terminar(null);
+      enCurso.delete(cuenta);
+    }
   }));
 
 
@@ -572,10 +705,35 @@ function mount(app) {
     return lista.find((x) => x && String(x.login) === String(login)) || null;
   }
 
-  /* Busca un login dentro de un nodo. El parámetro `search` va en la QUERY. */
+  /* Busca un login dentro de un nodo. El parámetro `search` va en la QUERY.
+
+     🔴 EL RANGO NO ES OPCIONAL, y su ausencia rompía el alta de una forma fea: sin `from`/`to`
+        el motor devuelve sólo las cuentas CON MOVIMIENTO, y una recién creada no movió nada.
+        La verificación del alta —que es esta misma función— no la encontraba y contestaba «ese
+        nombre ya está usado, probá con otro»… con la cuenta ya creada del otro lado. El operador
+        creaba la misma persona dos y tres veces.
+        Medido el 1-sep-2026: se creó PruebaClaude051848, la ruta devolvió ese error, y la cuenta
+        estaba ahí (id 7378088). Con el rango puesto aparece. */
+  /* DE QUÉ CAJA CUELGA ESTA CUENTA, preguntándoselo al motor.
+     `area=search` busca en TODO lo que ve la sesión y devuelve `create`, que es el id del padre.
+     Sirve de red cuando la pantalla no sabe el padre —llegaste al jugador por el buscador global,
+     no entrando a su cajero— y sin eso la carga fallaba con «no se pudo leer el saldo». */
+  async function padreDeVerdad(cli, cuenta, login) {
+    const r = await cli.apiCall('search', { search_login: String(login || cuenta), page: '1' }, {});
+    if (!esJson(r)) return null;
+    const fila = (r.data.users || []).find((u) => u && String(u.id) === String(cuenta));
+    return fila && fila.create ? String(fila.create) : null;
+  }
+
   async function buscarLogin(cli, padre, login) {
+    /* 🔴 `deleted_users` VA ACÁ TAMBIÉN. Mismo vicio del motor que en `saldoDeCuenta`: lo que no
+       se manda, se hereda de la última consulta de la sesión. Si alguien abrió «Eliminados», esta
+       búsqueda mira SÓLO cuentas borradas y no encuentra la que se acaba de crear — y el alta
+       contesta «ese nombre ya está usado» con la cuenta creada del otro lado.
+       Medido el 1-sep-2026: crear CajaTest093825 devolvió ese error y la cuenta estaba ahí
+       (id 7378275). Es el mismo error que ya se había arreglado para el saldo; faltaba acá. */
     const r = await cli.apiCall('users',
-      { limit: '200', inactive_users: 'all' },
+      { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
       { id: String(padre), offset: '1', search: String(login) });
     if (!esJson(r)) return null;
     const filas = sinFilaTotal(r.data.users || r.data.rows || []);
@@ -1015,8 +1173,15 @@ function mount(app) {
     }
 
     const cli = auth.clienteDe(req.caja);
+    /* 🔴 SI NO SE PUEDE LEER LA LISTA, SE GUARDA PERO SE AVISA. El motor le niega `usersettings`
+       a todo lo que esté por debajo de agente —contesta `error: "No rights"`, medido el
+       1-sep-2026 con un cajero de prueba—, y antes esta validación se salteaba en silencio: el
+       cajero grababa cualquier dominio y el panel le decía que estaba todo bien. El link del
+       billete no se deduce ni se supone; si no se pudo comprobar, se dice. */
     const d = await cli.apiCall('usersettings', {}, { id: caja, module: 'domains' });
+    let verificado = false;
     if (esJson(d) && !d.data.error) {
+      verificado = true;
       const permitidos = Object.keys(aplanarAjustes(d.data.settings))
         .filter((k) => k.startsWith('domains/')).map((k) => k.slice(8).toLowerCase());
       if (permitidos.length && !permitidos.includes(limpio)) {
@@ -1036,7 +1201,10 @@ function mount(app) {
       return res.status(409).json({ ok: false, sinEfecto: true,
         error: 'El casino aceptó el link pero no quedó guardado.' });
     }
-    ok(res, { url: quedo, dominio: quedo.replace(/^https?:\/\//, '') });
+    ok(res, { url: quedo, dominio: quedo.replace(/^https?:\/\//, ''), verificado,
+      aviso: verificado ? null
+        : `Quedó guardado, pero no pude comprobar que «${limpio}» esté habilitado: tu nivel no `
+          + 'puede ver esa lista. Si a tus jugadores no les abre el link, escribile a soporte.' });
   }));
 
 
