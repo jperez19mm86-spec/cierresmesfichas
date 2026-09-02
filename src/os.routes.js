@@ -262,6 +262,17 @@ function mount(app) {
     ok(res, { bot: true, grupos, rotos: grupos.filter((g) => !g.ok).length });
   }));
 
+  /* ── DIVISAS QUE NO SE CONSULTAN ──────────────────────────────────────────────────────────
+   * La lista de monedas que la Foto del mes no pregunta nunca, aunque el casino las tenga
+   * habilitadas. No borra nada: los paneles conservan su lista tal como vino del casino, y esto
+   * sólo filtra al momento de armar el plan. Sacar una de acá la devuelve al mes siguiente. */
+  app.get('/api/os/config/divisas-ignoradas', (_req, res) => ok(res, { divisas: configStore.getDivisasIgnoradas() }));
+  app.put('/api/os/config/divisas-ignoradas', wrap((req, res) => {
+    const b = req.body || {};
+    const r = configStore.setDivisasIgnoradas(b.divisas === undefined ? '' : b.divisas);
+    ok(res, { divisas: r.divisasIgnoradas });
+  }));
+
   app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
   app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
 

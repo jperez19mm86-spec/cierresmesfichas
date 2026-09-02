@@ -8015,6 +8015,63 @@ async function main() {
     check('plan: no pide una divisa que el panel no tiene habilitada', !intrusa, JSON.stringify(intrusa || {}).slice(0, 60));
   }
 
+  // ── DIVISAS QUE NO SE CONSULTAN NUNCA ────────────────────────────────────────────────────
+  // `ALL` está habilitada de verdad en dos superagentes porque alguien la tocó sin querer: el
+  // casino dice que sí y el acumulado dice que nunca se movió, así que no hay forma de deducirlo.
+  // Lo que se cuida acá es que ignorar una divisa NO deje a un panel sin ninguna consulta —
+  // preguntarle cero es declararlo completo sin haber preguntado nada.
+  {
+    const cfgS = require('../src/config-store');
+    const antes = cfgS.getDivisasIgnoradas();
+
+    check('ignoradas: por defecto trae ALL', antes.includes('ALL'), antes.join(','));
+
+    let g = cfgS.setDivisasIgnoradas(' all , clpp , , 123 , TOOLARGO ');
+    check('ignoradas: limpia, ordena y descarta lo que no es una moneda',
+      g.divisasIgnoradas.join(',') === 'ALL,CLPP', g.divisasIgnoradas.join(','));
+
+    const { divisasDePanel: dp } = require('../src/estadisticas-mes.service');
+    let r = dp({ id: 'x1', divisas: ['ARS', 'ALL', 'CLPP'] }, 'todas', {}, ['ALL', 'CLPP']);
+    check('ignoradas: no entran ni con alcance "todas"', r.pedir.join(',') === 'ARS', r.pedir.join(','));
+    check('ignoradas: el plan dice cuáles salteó', (r.ignoradas || []).join(',') === 'ALL,CLPP', (r.ignoradas || []).join(','));
+
+    r = dp({ id: 'x2', divisas: ['ALL'] }, 'todas', {}, ['ALL']);
+    check('ignoradas: un panel que sólo tenía ignoradas NO queda sin consultas',
+      r.pedir.join(',') === 'ARS', r.pedir.join(','));
+
+    // aunque el acumulado diga que la movió: si está en la lista es porque ese movimiento es el error
+    r = dp({ id: 'x3', divisas: ['ALL', 'ARS'] }, 'movidas', { x3: ['ALL'] }, ['ALL']);
+    check('ignoradas: gana la lista aunque el acumulado la haya visto moverse',
+      !r.pedir.includes('ALL'), r.pedir.join(','));
+
+    let rr = await get('/api/os/config/divisas-ignoradas');
+    check('ignoradas: la ruta las devuelve', rr.status === 200 && Array.isArray(rr.data.divisas), String(rr.status));
+    rr = await put('/api/os/config/divisas-ignoradas', { divisas: 'ALL' });
+    check('ignoradas: la ruta las guarda', rr.status === 200 && rr.data.divisas.join(',') === 'ALL',
+      JSON.stringify(rr.data).slice(0, 60));
+    rr = await put('/api/os/config/divisas-ignoradas', { divisas: '' });
+    check('ignoradas: se pueden vaciar (volver a consultarlas todas)',
+      rr.status === 200 && rr.data.divisas.length === 0, JSON.stringify(rr.data).slice(0, 60));
+
+    cfgS.setDivisasIgnoradas(antes);   // dejar la base como estaba
+  }
+
+  // ── el cartel de divisas de cada panel ───────────────────────────────────────────────────
+  // Lo que se rompió una vez: el botón ofrecía dejar sólo lo MOVIDO, y un cliente que pasó un mes
+  // sin pedir fichas perdía divisas buenas. Lo movido no dice nada de lo habilitado.
+  {
+    const html = require('fs').readFileSync('public/os.html', 'utf8');
+    const celda = html.slice(html.indexOf('const sobran=g.sobran'), html.indexOf('const sobran=g.sobran') + 1400);
+    check('divisas: el cartel "sobran" ya no ofrece dejar lo que el panel movió',
+      !/setDivisas\([^)]*g\.usadas/.test(celda), 'sigue ofreciendo g.usadas');
+    check('divisas: ofrece exactamente lo que el casino tiene habilitado',
+      /setDivisas\([^)]*habilitadas/.test(celda), 'no usa habilitadas');
+    check('divisas: cada panel tiene el botón para buscar divisas nuevas',
+      /onclick="buscarDivisas\(/.test(html) && /async function buscarDivisas\(/.test(html));
+    check('divisas: buscar nuevas no aplica nada sin preguntar',
+      /buscarDivisas[\s\S]{0,1600}aplicar:false/.test(html) && /buscarDivisas[\s\S]{0,1900}confirm\(txt\)/.test(html));
+  }
+
   // panel /os se sirve (detrás de auth)
   r = await axios.get(BASE + '/os', H());
   /* El nombre va UNA sola vez y en el logo, no escrito a mano en cada pantalla: antes decía

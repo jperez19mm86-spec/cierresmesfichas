@@ -50,6 +50,39 @@ function setGrupoInterno(v) {
   return { grupoInterno: x };
 }
 
+/* ── DIVISAS QUE NO SE CONSULTAN NUNCA ───────────────────────────────────────────────────────
+ * Una divisa habilitada en el casino NO es una divisa que exista de verdad. `ALL` (el lek albanés)
+ * está prendida en dos superagentes porque alguien la tocó sin querer en la pantalla de divisas, y
+ * el casino la acepta igual. Mientras esté prendida, la Foto del mes la pide todos los meses: una
+ * consulta más por vuelta, por conexión, para traer siempre cero.
+ *
+ * Por eso esto NO se arregla mirando el casino ni mirando las fichas pedidas:
+ *   - el casino dice que sí (está habilitada de verdad, ese es el error),
+ *   - las fichas pedidas dicen que no, pero también dicen que no cuando un cliente pasó un mes sin
+ *     pedir — y con esa señal ya se borraron divisas buenas una vez.
+ * La única que sabe cuáles no van a moverse nunca es la dueña. Entonces se escriben acá a mano.
+ *
+ * Es global y no por panel: si el lek no existe para el negocio, no existe en ninguna conexión.
+ * Nunca toca lo guardado en el panel: filtra al momento de preguntar. El día que una de estas
+ * empiece a moverse de verdad, se saca de la lista y vuelve sola, sin re-linkear nada.
+ */
+const DIVISAS_IGNORADAS_DEFAULT = ['ALL'];
+
+function getDivisasIgnoradas() {
+  const guardado = getCfg('divisasIgnoradas');
+  // Distinto de vacío: null es "nunca se configuró" → el default. '' es "la dueña las quiere todas".
+  if (guardado === null || guardado === undefined) return DIVISAS_IGNORADAS_DEFAULT.slice();
+  return String(guardado).split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+}
+function setDivisasIgnoradas(v) {
+  const lista = (Array.isArray(v) ? v : String(v == null ? '' : v).split(','))
+    .map((x) => String(x).trim().toUpperCase())
+    .filter((x) => /^[A-Z]{2,6}$/.test(x));
+  const limpio = [...new Set(lista)].sort();
+  setCfg('divisasIgnoradas', limpio.join(','));
+  return { divisasIgnoradas: limpio };
+}
+
 function getTelegramToken() { return String(getCfg('telegramBotToken') || '').trim(); }
 
 /* EL DOMINIO DE LOS LINKS QUE VE EL CLIENTE.
@@ -76,4 +109,5 @@ function setTelegramToken(token) {
 
 module.exports = {
   getGrupoInterno, setGrupoInterno,
+  getDivisasIgnoradas, setDivisasIgnoradas,
   getUrlPublica, setUrlPublica, getTelegramToken, setTelegramToken, getApiGrupoMatriz, setApiGrupoMatriz, getCfg, setCfg, FILE };
