@@ -646,11 +646,38 @@ function mount(app) {
       return mal(res, 'La orden se envió pero no pudimos confirmar el saldo, así que NO sabemos si se movió. Mirá el saldo antes de repetir.', 502);
     }
 
-    const movido = Math.round((despues - antes) * 100) / 100;
+    let despuesFinal = despues;
+    let movido = Math.round((despues - antes) * 100) / 100;
     const esperado = todo ? (operacion === 'out' ? -antes : null) : (operacion === 'in' ? monto : -monto);
 
+    /* 🔴 «RETIRAR TODO» DE UNA CAJA: SI EL MOTOR LO IGNORA, SE PIDE EL MONTO EXACTO.
+       El casino acepta `all=true` y no mueve nada cuando el destino es una caja —medido el
+       1-sep-2026—, pero sobre un jugador sí funciona y ahí conviene dejarlo: es atómico, y un
+       jugador puede estar jugando entre que se lee el saldo y se manda la orden.
+
+       Así que se intenta `all` primero y, sólo si no movió nada, se reintenta con el número. Y el
+       número ya lo tenemos: es el saldo que se leyó ANTES de mandar la orden. Antes esto terminaba
+       en «escribí el monto a mano», haciéndole hacer a mano algo que el sistema ya sabía.
+       Pedido por el dueño el 2-sep-2026, mirando el caso E-3: pidió todo de una caja con 5.000 y
+       el servidor tenía el 5.000 delante. */
+    if (movido === 0 && operacion === 'out' && todo && antes > 0) {
+      console.log('[caja/fichas] «todo» no movió nada en %s: reintento con el monto exacto %s', cuenta, antes);
+      await cli.apiCall('balance', {
+        balance_currency: req.caja.moneda || 'ARS',
+        amount: String(antes),
+        send: 'true',
+        all: 'false',
+        operation: 'out',
+      }, { id: cuenta, type: 'frame', printing: 'true' });
+      const reintento = await saldoDeCuenta(cli, padre, cuenta, b.login);
+      if (reintento != null) {
+        despuesFinal = reintento;
+        movido = Math.round((reintento - antes) * 100) / 100;
+      }
+    }
+
     /* 4 · nada se movió: el motor rechazó sin decirlo */
-    console.log('[caja/fichas] antes=%s despues=%s movido=%s', antes, despues, movido);
+    console.log('[caja/fichas] antes=%s despues=%s movido=%s', antes, despuesFinal, movido);
     if (movido === 0) {
       /* 🔴 EL MENSAJE TIENE QUE DECIR LO QUE PASÓ. Antes, cualquier retiro que no moviera nada
          contestaba lo mismo —«fijate que el jugador tenga ese saldo»— incluso cuando el retiro era
@@ -660,15 +687,15 @@ function mount(app) {
       const razon = operacion === 'in'
         ? 'No alcanzan las fichas de la caja. El tope para cargar es el saldo de la caja, no el tuyo.'
         : (todo
-          ? 'El casino no movió nada. Si estabas retirando de una CAJA, «todo» no le funciona: '
-            + 'escribí el monto a mano. Si era de un jugador, fijate que tenga ese saldo.'
+          ? 'No se pudo retirar el saldo. Se probó de las dos maneras —«todo» y el monto exacto— y '
+            + 'el casino no movió nada. Puede que la cuenta tenga el retiro bloqueado.'
           : 'No se pudo retirar. Fijate que tenga ese saldo y que la caja permita retiro parcial.');
-      return res.status(409).json({ ok: false, sinEfecto: true, error: razon, saldo: despues, antes });
+      return res.status(409).json({ ok: false, sinEfecto: true, error: razon, saldo: despuesFinal, antes });
     }
 
     /* 5 · se movió algo distinto de lo pedido: se dice, no se disimula */
     const resultado = {
-      antes, despues, movido,
+      antes, despues: despuesFinal, movido,
       operacion, todo,
       parcial: esperado != null && Math.abs(movido - esperado) > 0.009,
     };

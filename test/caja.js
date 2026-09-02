@@ -151,14 +151,41 @@ async function main() {
     check('si el motor no movió nada, se dice — no se muestra un ✓ falso',
       !r.data.ok && r.data.sinEfecto === true, r.data.error);
 
-    /* La rareza medida el 1-sep: «todo» no vacía una caja. Queda fijada para que, si algún día
-       el motor cambia, un test lo cuente en vez de descubrirlo perdiendo fichas. */
+    /* 🔴 «RETIRAR TODO» DE UNA CAJA TIENE QUE FUNCIONAR. El casino ignora `all` cuando el destino
+       es una caja —el motor de mentira lo imita—, así que el servidor reintenta con el monto
+       exacto, que ya leyó. Para el operador es un botón que anda; el rodeo no se ve. */
     await reiniciarMotor();
+    const cajaAntes = await saldoDe('200');
+    const pagadorAntes = await saldoDe('100');
     r = await enviar('/api/caja/fichas', {
       cuenta: '200', padre: '100', login: 'CajaDePrueba', operacion: 'out', todo: true, gesto: gestoNuevo(),
     });
-    check('«retirar todo» sobre una caja no mueve nada, y lo avisa',
-      !r.data.ok && r.data.sinEfecto === true, r.data.error);
+    check('«retirar todo» vacía una caja, aunque el casino ignore «todo»',
+      r.data.ok && (await saldoDe('200')) === 0 && r.data.movido === -cajaAntes,
+      r.data.ok ? `${cajaAntes} → ${await saldoDe('200')}` : r.data.error);
+    check('y las fichas aparecen en quien las pagó, ni una de menos',
+      (await saldoDe('100')) === pagadorAntes + cajaAntes,
+      `${pagadorAntes} → ${await saldoDe('100')} (esperado ${pagadorAntes + cajaAntes})`);
+    /* Una caja vacía no tiene nada que retirar: ahí sí corresponde avisar, y sin culpar a nadie. */
+    const cajaVacia = await enviar('/api/caja/fichas', {
+      cuenta: '200', padre: '100', login: 'CajaDePrueba', operacion: 'out', todo: true,
+      gesto: gestoNuevo(),
+    });
+    check('si no hay nada que retirar, se dice sin inventar un culpable',
+      !cajaVacia.data.ok && cajaVacia.data.sinEfecto === true
+        && !/el jugador tenga ese saldo/.test(cajaVacia.data.error || ''),
+      (cajaVacia.data.error || '').slice(0, 62));
+
+    /* 🔴 SE DEVUELVEN LAS FICHAS. Vaciar la caja acá dejaba sin fondos a las pruebas de más
+       abajo, y fallaban por una razón que no tenía nada que ver con lo que verifican. Un test que
+       le rompe el piso al siguiente miente dos veces: aprueba lo suyo y ensucia lo ajeno. */
+    await enviar('/api/caja/fichas', {
+      cuenta: '200', padre: '100', login: 'CajaDePrueba', operacion: 'in', monto: cajaAntes,
+      todo: false, gesto: gestoNuevo(),
+    });
+    check('y la caja vuelve a quedar como estaba, para lo que sigue',
+      (await saldoDe('200')) === cajaAntes, `${await saldoDe('200')} de ${cajaAntes}`);
+
 
     /* ── 3 · el filtro que el motor hereda ──────────────────────────────────────────────── */
     await reiniciarMotor();
@@ -235,17 +262,6 @@ async function main() {
       { validateStatus: () => true });
     check('y se puede buscar por número, sin leer todo',
       r.data.ok && r.data.filas.length === 1 && String(r.data.filas[0].n) === String(nCaso));
-    /* 🔴 EL MENSAJE TIENE QUE DECIR LO QUE PASÓ. «Retirar todo» sobre una caja no mueve nada, y
-       antes contestaba «fijate que el jugador tenga ese saldo» — hablando de alguien que no
-       intervino. Lo reportó el dueño el 2-sep-2026 mirando la pantalla. */
-    const todoEnCaja = await enviar('/api/caja/fichas', {
-      cuenta: '200', padre: '100', login: 'CajaDePrueba', operacion: 'out', todo: true,
-      gesto: gestoNuevo(),
-    });
-    check('«retirar todo» sobre una caja avisa que es la caja, no el jugador',
-      !todoEnCaja.data.ok && /CAJA/.test(todoEnCaja.data.error || '')
-        && !/^No se pudo retirar\. Fijate que el jugador/.test(todoEnCaja.data.error || ''),
-      (todoEnCaja.data.error || '').slice(0, 62));
 
     check('el diario no se anota a sí mismo',
       !(r.data.filas || []).some((f) => f.ruta.includes('_diario')));
