@@ -3398,7 +3398,10 @@ function claveDeOtro(id){
       placeholder="${esJugador ? 'La que quieras, sin espacios' : 'Mín. 8, con mayúscula y número'}"
       oninput="$('guardarOtra').disabled = !avisarClave('avisoOtra', this.value, ${esJugador})">
     <div class="tope" id="avisoOtra"></div>
-    <!-- El aviso ya sabe a quién le habla tres líneas más arriba (`esJugador`): un cajero no
+    <!-- 🔴 SIN ACENTOS GRAVES ACÁ ADENTRO: esto vive dentro de una plantilla de texto y esos
+         caracteres la cierran, rompiendo TODO el archivo. Pasó el 2-sep-2026 y dejó el botón de
+         entrar sin funcionar en producción.
+         El aviso ya sabe a quién le habla tres líneas más arriba, con esJugador: un cajero no
          juega, está trabajando, y decirle lo otro hace dudar del resto del cartel. -->
     <div class="nota">Cambiarla <b>no le avisa a nadie</b>. Si ${esJugador ? 'está jugando'
       : 'está trabajando'}, va a quedar afuera — acordate de pasarle la nueva.</div>
