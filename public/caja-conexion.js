@@ -232,6 +232,30 @@
      preguntar — y aparecía en un momento raro, pasando del hub al panel, no al entrar. Sacándolo
      no queda a qué agarrarse. Se guarda para devolverlo al salir. Reportado el 2-sep-2026. */
   let campoClaveGuardado = null;
+  /* 🔴 LOS DATOS DE EJEMPLO SE TIRAN APENAS ENTRA ALGUIEN DE VERDAD.
+     La maqueta trae listas de muestra —un sub-agente, dos cajas, unos movimientos— y cada pantalla
+     las reemplaza recién cuando se la visita. Eso deja un hueco: si alguien llega a una pantalla
+     ANTES de pasar por la que trae esos datos, ve los inventados.
+
+     Pasó de verdad el 2-sep-2026, reportado por el equipo: al crear una caja, la pantalla de «a
+     qué sub-agentes habilitarla» ofrecía `SubAgenteGXL`, que es un nombre de la maqueta y no
+     pertenece a nadie. Tocarlo daba «no tenés permiso» del casino.
+
+     Vaciarlas al entrar es la única regla que no depende de acordarse: en el peor caso una
+     pantalla se ve vacía un instante —que es la verdad— en vez de mostrar algo que no existe. */
+  function vaciarLosEjemplos() {
+    for (const nombre of ['SALAS', 'TERMINALES', 'SUBCAJEROS', 'SUBAGENTES', 'CRUCES', 'BORRADOS']) {
+      try { const l = window[nombre] || eval(nombre); if (Array.isArray(l)) l.length = 0; }
+      catch (e) { /* si esa lista no existe en esta versión, no hay nada que vaciar */ }
+    }
+    for (const nombre of ['MOVS', 'JUGADAS', 'CONTACTOS']) {
+      try {
+        const o = window[nombre] || eval(nombre);
+        if (o && typeof o === 'object') Object.keys(o).forEach((k) => { delete o[k]; });
+      } catch (e) { /* idem */ }
+    }
+  }
+
   function apagarLogin(apagar) {
     const u = document.getElementById('u');
     if (u) { if (apagar) { u.value = ''; u.blur(); } u.disabled = !!apagar; }
@@ -292,6 +316,7 @@
 
     window.__caja_sesion = r.yo;
     cache.clear();
+    vaciarLosEjemplos();
     try { localStorage.setItem(ULTIMO, r.yo.login || usuario); } catch (e) {}
 
     /* 🔴 LOS CAMPOS DEL LOGIN SE APAGAN APENAS ENTRA. No es prolijidad: es lo único que calla a
@@ -778,7 +803,21 @@
     if (s.ok && s.yo && typeof s.yo.balance === 'number') CUENTAS[ROL].balance = s.yo.balance;
     pintar();
 
-    if (grupo === '4' && SUBAGENTES.length) return preguntarQuienLaVe(id, login);
+    /* 🔴 LOS SUB-AGENTES SE PREGUNTAN, NO SE SUPONEN. Antes esta pantalla se ofrecía si la lista
+       `SUBAGENTES` tenía algo — y podía tener el sub-agente de EJEMPLO de la maqueta, que no es de
+       nadie. Reportado el 2-sep-2026: a un agente le ofrecía habilitar `SubAgenteGXL`, y el casino
+       contestaba «no tenés permiso» porque no era suyo.
+       Ahora se le pide la lista de verdad al motor, y la pantalla aparece SÓLO si tiene alguno. */
+    if (grupo === '4') {
+      const sub = await API.pedir('subusuarios', { id: yoId() });
+      SUBAGENTES.length = 0;
+      if (sub.ok) {
+        SUBAGENTES.push(...(sub.subusuarios || []).map((x) => ({
+          id: String(x.id), login: x.login, name: x.name || x.login, cajas: {},
+        })));
+      }
+      if (SUBAGENTES.length) return preguntarQuienLaVe(id, login);
+    }
 
     /* El link lo da el motor: `TICKET_URL` es una constante de la maqueta y el dominio es por
        caja. Recién creada la cuenta, se le pregunta por su acceso. */

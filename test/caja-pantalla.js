@@ -54,6 +54,43 @@ for (const archivo of ['caja-conexion.js', 'caja-logica.js']) {
   check(`${archivo} compila`, !falla, falla || 'ok');
 }
 
+/* ── 0.bis · QUE NINGÚN DATO DE EJEMPLO SOBREVIVA AL LOGIN ─────────────────────────────────────
+   🔴 LA MAQUETA TRAE LISTAS DE MUESTRA y cada pantalla las reemplaza recién cuando se la visita.
+   Si alguien llega a una pantalla antes de pasar por la que trae esos datos, ve los inventados.
+
+   Pasó el 2-sep-2026: al crear una caja, la pantalla de «a qué sub-agentes habilitarla» ofrecía
+   `SubAgenteGXL` —un nombre de la maqueta, de nadie— y el casino contestaba «no tenés permiso».
+
+   Esta verificación no mira una pantalla: mira que la LISTA DE LO QUE SE VACÍA al entrar cubra
+   todas las colecciones de ejemplo que declara la maqueta. Si mañana alguien agrega una nueva y
+   se olvida de vaciarla, esto se pone rojo antes de que se lo encuentre un operador. */
+const htmlCaja = fs.readFileSync(path.join(__dirname, '..', 'public', 'caja.html'), 'utf8');
+const conector = fs.readFileSync(path.join(__dirname, '..', 'public', 'caja-conexion.js'), 'utf8');
+
+/* Qué cuenta como «dato de ejemplo»: una colección que arranca con CUENTAS INVENTADAS adentro.
+   Se reconocen porque el propio texto trae un `login`. Las configuraciones (los meses, los
+   íconos, los períodos) y los cachés vacíos no son esto y no hay que vaciarlos. */
+const declaradas = [...htmlCaja.matchAll(/^(?:const|let) ([A-Z][A-Z_]{2,})\s*=\s*([[{][\s\S]{0,2600}?)\n(?:const|let|function|\/\*)/gm)]
+  .filter((m) => /\blogin\s*:/.test(m[2]))
+  .map((m) => m[1])
+  /* `CUENTAS` queda afuera a propósito: no es una lista de otras personas, es «quién soy yo» en
+     cada nivel, y el conector la PISA con los datos reales al entrar. Vaciarla rompería ese
+     arranque, porque encima de ella se arma el saldo y el nivel. */
+  .filter((n) => n !== 'CUENTAS');
+const vaciadas = (conector.match(/function vaciarLosEjemplos\(\)[\s\S]*?\n  \}/) || [''])[0];
+const sinVaciar = declaradas.filter((n) => !vaciadas.includes(`'${n}'`));
+
+check('el conector tiene la rutina que tira los datos de ejemplo',
+  vaciadas.length > 0);
+check('y se llama apenas alguien entra de verdad',
+  /window\.__caja_sesion = r\.yo;[\s\S]{0,80}vaciarLosEjemplos\(\)/.test(conector));
+check('ninguna colección de ejemplo queda sin vaciar',
+  sinVaciar.length === 0,
+  sinVaciar.length ? `sin vaciar: ${sinVaciar.join(', ')}` : `${declaradas.length} cubiertas`);
+check('el sub-agente inventado ya no puede llegar a una pantalla',
+  htmlCaja.includes('SubAgenteGXL') && vaciadas.includes("'SUBAGENTES'"),
+  'sigue en la maqueta, pero se tira al entrar');
+
 /* ── 1 · leer un monto ─────────────────────────────────────────────────────────────────────────
    🔴 EL QUE OFRECÍA CARGAR DIEZ VECES DE MÁS. */
 check('7.028,6 es siete mil, no setenta mil', L.aNumero('7.028,6') === 7028.6, String(L.aNumero('7.028,6')));
