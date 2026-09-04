@@ -2795,10 +2795,10 @@ VIEWS.pagos = async () => {
     + esc((r&&r.error)||'') + '</div></div>'; return; }
   window._pagDatos = r;
   const T = r.totales;
-  /* ⚠️ EL DE PESOS VA SIN CLIENTE NI CÓDIGO. Ese resumen es para el grupo donde llegan los
-     comprobantes: concilian contra el banco —les sirve la fecha y el monto— y no tienen por qué
-     saber quién pagó cuánto. El de USDT sí los lleva: es para uso interno. */
-  const tabla = (filas, moneda) => { const conCliente = moneda !== 'ARS'; return !filas.length
+  /* ⚠️ EN PANTALLA SE VE TODO — es su panel, necesita saber quién pagó. Lo que se oculta es lo
+     que SALE: el Excel (si está tildado) y el resumen que se manda al grupo de comprobantes, que
+     concilia contra el banco y no tiene por qué saber quién pagó cuánto. Ver pagCSV y pagEnviar. */
+  const tabla = (filas, moneda) => { const conCliente = true; return !filas.length
     ? '<div class="muted">Ninguno este mes.</div>'
     : '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
       + '<th class="reptd">Fecha</th>'
@@ -2831,11 +2831,15 @@ VIEWS.pagos = async () => {
 
     + '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
     + '<h2 style="margin:0">💵 Pesos por transferencia</h2>'
-    + '<div style="display:flex;gap:6px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +   '<label style="font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;'
+    +     'white-space:nowrap;display:flex;align-items:center;gap:5px;cursor:pointer">'
+    +     '<input type="checkbox" id="pag-anon" checked> sin nombre ni código</label>'
     +   '<button class="outline small" onclick="pagCSV(\'cvu\')">⬇ Excel (CSV)</button>'
     +   '<button class="small" onclick="pagEnviar()">📣 Mandar al grupo</button></div></div>'
-    + '<div class="muted" style="font-size:12px;margin-top:2px">Va <b>sin nombre ni código</b>: '
-    + 'ese grupo concilia contra el banco, con la fecha y el monto.</div>'
+    + '<div class="muted" style="font-size:12px;margin-top:2px">Acá lo ves completo. '
+    + 'Lo que <b>sale</b> —el Excel con el tilde puesto, y siempre lo que se manda al grupo— '
+    + 'va sólo con fecha y monto: ese grupo concilia contra el banco.</div>'
     + '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(T.pesos_ars,2)
     + ' <span class="muted" style="font-size:14px">ARS · ' + r.pesos.length + ' pago'+(r.pesos.length===1?'':'s')
     + ' · ≈ ' + money(T.pesos_usdt,2) + ' USDT</span></div>'
@@ -2868,11 +2872,14 @@ function pagCSV(via){
   const col = via==='cvu' ? 'ars' : 'usdt';
   const num = (x)=>String(Number(x||0).toFixed(2)).replace('.',',');
   const q = (x)=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"';
-  // El de pesos, igual que la pantalla: sin cliente ni código, porque es el que se manda al grupo.
-  const conCliente = via !== 'cvu';
+  // El de USDT es interno y va completo. El de pesos obedece al tilde: destildado sale completo
+  // (para ella), tildado sale como lo que se manda al grupo — fecha y monto, nada más.
+  const anon = via === 'cvu' && !!(document.getElementById('pag-anon') || {}).checked;
+  const conCliente = !anon;
+  const recibido = 'Recibido (' + (via==='cvu' ? 'ARS' : 'USDT') + ')';
   const cab = conCliente
-    ? ['Fecha','Entra en el cierre de','Cliente','Código','Recibido (USDT)','Referencia']
-    : ['Fecha','Entra en el cierre de','Recibido (ARS)'];
+    ? ['Fecha','Entra en el cierre de','Cliente','Código',recibido,'Referencia']
+    : ['Fecha','Entra en el cierre de',recibido];
   const cuerpo = filas.map(f=>(conCliente
     ? [q(f.fecha),q(f.mes),q(f.cliente),q(f.codigo),num(f[col]),q(f.referencia)]
     : [q(f.fecha),q(f.mes),num(f[col])]).join(';'));
@@ -2881,7 +2888,8 @@ function pagCSV(via){
   const txt = '\ufeff' + [cab.map(q).join(';'), ...cuerpo, total].join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
-  a.download = 'pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes + '.csv';
+  a.download = 'pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes
+    + (anon ? '-para-el-grupo' : '') + '.csv';
   a.click(); URL.revokeObjectURL(a.href);
 }
 

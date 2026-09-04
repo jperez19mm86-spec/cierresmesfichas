@@ -6252,6 +6252,35 @@ async function main() {
       'ocultarlo con CSS lo deja legible en el código del PDF');
   }
 
+  /* ── LO QUE VE ELLA NO ES LO QUE SALE ────────────────────────────────────────────────────────
+     La primera versión escondía el nombre y el código del cliente TAMBIÉN en la pantalla, y así no
+     se puede trabajar: ella necesita saber quién pagó. Lo que no puede llevar nombres es lo que
+     SALE — el Excel y el resumen que va al grupo de comprobantes, que concilia contra el banco. */
+  {
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const vista = h.slice(h.indexOf('VIEWS.pagos = async'), h.indexOf('async function pagEnviar'));
+    check('pagos: en pantalla se ve el cliente también en pesos',
+      /const conCliente = true;/.test(vista), 'ocultarlo acá le saca la información a ella');
+    check('pagos: el tilde para que el Excel salga sin nombre está y viene puesto',
+      /id="pag-anon" checked/.test(vista));
+    const csv = h.slice(h.indexOf('function pagCSV'), h.indexOf('function pagCSV') + 2000);
+    check('pagos: el Excel de pesos obedece al tilde',
+      /getElementById\('pag-anon'\)/.test(csv) && /const conCliente = !anon;/.test(csv));
+    check('pagos: el de USDT nunca se anonimiza (es interno)',
+      /via === 'cvu' && !!/.test(csv), 'el anónimo es sólo el de pesos');
+    check('pagos: el archivo dice si salió para el grupo',
+      /'-para-el-grupo'/.test(csv), 'si no, dos descargas del mismo mes se pisan sin poder distinguirlas');
+    check('pagos: el encabezado del Excel nombra la moneda que corresponde',
+      /const recibido = 'Recibido \(' \+ \(via==='cvu' \? 'ARS' : 'USDT'\)/.test(csv));
+    // Y lo que sale de verdad para afuera, del lado del servidor, sigue sin nombres.
+    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const env = rutas.slice(rutas.indexOf("app.post('/api/os/pagos/:mes/enviar'"),
+      rutas.indexOf("app.post('/api/os/pagos/:mes/enviar'") + 1800);
+    check('pagos: el resumen al grupo va sólo con fecha y monto',
+      /mv\.fecha \|\| ''\)\.slice\(0, 10\)/.test(env) && !/nom\[mv\.cliente_id\]/.test(env),
+      'el grupo del banco no tiene por qué saber quién pagó cuánto');
+  }
+
   /* ── UNA VARIABLE QUE NO EXISTE ROMPE LA PANTALLA EN SILENCIO ────────────────────────────────
      `calcularFac` ponía "⏳ calculando…", armaba el HTML con `_quedaPorHacer` —que se usaba y NUNCA
      se declaró— y reventaba ahí. La excepción no la agarraba nadie, así que la pantalla de Consumo
