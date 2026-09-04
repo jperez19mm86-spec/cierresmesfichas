@@ -2747,7 +2747,7 @@ function pintarMovs(){
       `Casi todos los movimientos los hizo <b class="mono">${quienMasMueve(filas)}</b>.`,
       'Por eso sólo se aclara quién fue <b>cuando lo hizo otro</b>: si en cada línea dijera el '
       + 'mismo nombre, lo distinto dejaría de saltar a la vista, que es justo lo que hay que mirar.')}` : ''}
-    ${filas.length ? `<button class="masmenos" style="margin-top:4px" onclick="irSec('reports')">
+    ${filas.length && puedeVerNumeros(ROL, yo()) ? `<button class="masmenos" style="margin-top:4px" onclick="irSec('reports')">
       Ver estadísticas ampliadas ›
     </button>` : ''}
     <div class="nota motor">Los tipos los da el propio motor en <b>balanceTypes</b>. Se llaman <span class="mono">usual:to</span>,
@@ -3326,7 +3326,7 @@ function miCuenta(){
      barra, que invita a entrar todos los días a una pantalla cara). Pero al sub-agente el motor
      le niega Movimientos, así que sin esto se queda sin ningún camino a una pantalla que sí
      tiene autorizada. Va acá adentro justamente para que no sea de acceso fácil. */
-  const sinMovs = !seccionesDe(ROL, SUBAGENTE).includes('balance');
+  const sinMovs = !seccionesDe(ROL, SUBAGENTE).includes('balance') && puedeVerNumeros(ROL, yo());
   abrirHoja(`
     <h3 id="hojaTit" class="mono">${yo().login}</h3>
     <div class="sub">${yo().nivel} · ID ${yo().id}</div>

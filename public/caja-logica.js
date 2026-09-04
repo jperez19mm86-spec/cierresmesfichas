@@ -70,7 +70,10 @@ const MENU_POR_NIVEL = {
   agente: ['users', 'dashboard', 'balance', 'sub'],
   /* El cajero no tiene sección de sub-usuarios: sus sub-cajeros salen de la ficha de la caja. */
   cajero: ['users', 'dashboard', 'balance'],
-  /* Sin estadísticas ni panel: los tiene deshabilitados por permiso. */
+  /* 🔴 EL SUB-CAJERO TAMPOCO TIENE RESUMEN, y por un motivo distinto al del sub-agente: el casino
+     se lo calcula, pero con el total de LA CAJA, no con lo que él ve. Medido el 2-sep-2026: su
+     lista mostraba 5 jugadores y el Resumen decía 8. Dos números que no coinciden en la misma
+     pantalla confunden y parece que faltan datos. Señalado por el dueño. */
   subcajero: ['users', 'balance'],
   /* 🔴 EL SUB-AGENTE NO TIENE RESUMEN. El motor le niega Movimientos, y el Resumen se lo contesta
      TODO EN CERO —medido el 2-sep-2026: el agente ve 13 jugadores y él 0, en su propio nodo y en
@@ -80,8 +83,17 @@ const MENU_POR_NIVEL = {
   subagente: ['users'],
 };
 
+/* 🔴 EL PERMISO «SIN ESTADÍSTICAS» LO HACE CUMPLIR ESTA PANTALLA, PORQUE EL MOTOR NO.
+   Medido el 2-sep-2026: con el permiso encendido en el casino, el motor le devuelve los números
+   igual. Es una intención del dueño, y si el panel no la respeta no la respeta nadie. */
 function seccionesDe(rol, esSubAgente) {
   return (MENU_POR_NIVEL[esSubAgente ? 'subagente' : rol] || MENU_POR_NIVEL.cajero).slice();
+}
+
+/* Si el dueño le apagó las estadísticas a un sub-cajero, no le queda ninguna puerta para llegar. */
+function puedeVerNumeros(rol, permisos) {
+  if (rol !== 'subcajero') return true;
+  return !(permisos && permisos.disable_statistic === true);
 }
 
 /* El grupo que da el motor decide el nivel. El 6 navega como agente pero con menú más corto. */
@@ -108,6 +120,6 @@ function seccionNegadaPor(ruta, error) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango,
-    MENU_POR_NIVEL, seccionesDe, nivelDeGrupo, seccionNegadaPor,
+    MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }

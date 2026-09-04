@@ -195,6 +195,28 @@ check('el agente ve sus cuatro secciones',
   L.seccionesDe('agente', false).join(',') === 'users,dashboard,balance,sub');
 check('el cajero no ve la sección de sub-usuarios',
   !L.seccionesDe('cajero', false).includes('sub'));
+
+/* 🔴 NINGUNO DE LOS DOS NIVELES DE ABAJO TIENE RESUMEN, por dos motivos distintos:
+   · al sub-agente el casino se lo contesta TODO EN CERO;
+   · al sub-cajero se lo calcula, pero con el total de LA CAJA y no con lo que él ve — su lista
+     mostraba 5 jugadores y el Resumen decía 8.
+   Medidos los dos el 2-sep-2026. Una pantalla que muestra un número que no coincide con la de al
+   lado confunde más de lo que informa. */
+check('el sub-cajero no tiene Resumen',
+  L.seccionesDe('subcajero', false).join(',') === 'users,balance',
+  L.seccionesDe('subcajero', false).join(','));
+check('el sub-agente tampoco',
+  L.seccionesDe('agente', true).join(',') === 'users',
+  L.seccionesDe('agente', true).join(','));
+
+/* El permiso «sin estadísticas» sigue importando: el motor no lo hace cumplir, así que si el dueño
+   se lo apagó, esta pantalla no le puede dejar ninguna puerta. */
+check('tampoco le queda una puerta a Estadísticas',
+  L.puedeVerNumeros('subcajero', { disable_statistic: true }) === false
+  && L.puedeVerNumeros('subcajero', {}) === true);
+check('a los demás niveles el permiso no les aplica',
+  L.puedeVerNumeros('agente', { disable_statistic: true }) === true
+  && L.puedeVerNumeros('cajero', { disable_statistic: true }) === true);
 check('el sub-agente no ve Movimientos ni Sub-usuarios, que el motor le niega',
   !L.seccionesDe('agente', true).includes('balance') && !L.seccionesDe('agente', true).includes('sub'),
   L.seccionesDe('agente', true).join(','));
