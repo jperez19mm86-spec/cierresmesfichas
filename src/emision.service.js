@@ -60,6 +60,24 @@ function emitido(mes, origen = null) {
 }
 
 /**
+ * QUÉ se emitió, renglón por renglón — no el resumen, la lista.
+ *
+ * `emitido()` contesta cuántos y cuánto; para mandarle la cuenta al grupo interno hace falta el
+ * detalle: quién y cuánto. Sale de los movimientos emitidos, que es lo que de verdad entró a la
+ * deuda — no de recalcular, que consulta el casino, tarda un minuto y puede dar OTRO número si en
+ * el medio cambió un precio. Lo que se manda tiene que ser lo que se cobró.
+ */
+function lineas(mes, origen) {
+  const m = String(mes || '').slice(0, 7);
+  if (!ORIGENES[origen]) return [];
+  return db.prepare(`SELECT cliente_id, monto_usdt, base_pct_aplicado, fecha, createdAt, notas
+    FROM movimientos WHERE origen=? AND origen_ref=? ORDER BY CAST(monto_usdt AS REAL) DESC`)
+    .all(String(origen), m)
+    .map((r) => ({ cliente_id: r.cliente_id, monto_usdt: r.monto_usdt || '0',
+      base_pct: r.base_pct_aplicado, fecha: r.fecha, emitidoAt: r.createdAt, notas: r.notas }));
+}
+
+/**
  * Emite. `lineas` = [{ cliente_id, monto_usdt, base_pct, notas }].
  * Devuelve qué se creó y qué ya estaba, sin tocar lo que ya estaba.
  */
@@ -112,4 +130,4 @@ function anular({ mes, origen }) {
   return { ok: true, mes: m, origen, borrados: antes.c, total: money.round(String(antes.t), 2) };
 }
 
-module.exports = { emitir, anular, emitido, ORIGENES };
+module.exports = { emitir, anular, emitido, lineas, ORIGENES };

@@ -190,4 +190,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
 module.exports = {
-  abonoText, sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta };
+  abonoText, sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta,
+  // Se manda con parse_mode HTML: un nombre de cliente con un & o un < rompe el mensaje entero
+  // y Telegram lo rechaza. Quien arme texto acá afuera lo necesita.
+  escapeHtml };

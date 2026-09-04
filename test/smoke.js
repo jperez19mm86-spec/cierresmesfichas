@@ -6252,6 +6252,121 @@ async function main() {
       'ocultarlo con CSS lo deja legible en el código del PDF');
   }
 
+  /* ── LOS PROVEEDORES INTERNOS NO LLEVAN DIFERENCIAL ─────────────────────────────────────────
+     Regla de la dueña (4-sep-2026): «no se cobra ningún SL, ningún SL2, ningún XG, son internos.
+     Esos van = porcentaje del cliente». La celda de esas tres familias vale SIEMPRE la base, así
+     que el extra es 0.
+
+     Y tiene que SEGUIR a la base, no ser un número copiado: eso es exactamente lo que falló.
+     21 celdas quedaron por encima —Titan con sus 11 SL2 en 8% contra base 5%— y le cobraron de
+     más 3.673,63 USDT en junio, 11.479,52 en julio y 12.970,69 en agosto: el 44% de todo lo
+     emitido de ese mes. Un número pegado a mano se desalinea cuando alguien mueve el % del
+     cliente y nadie se entera. */
+  {
+    const ext = require('../src/externos.service');
+    check('internos: las tres familias son SL, SL2 y XG',
+      (ext.FAMILIAS_INTERNAS || []).join(',') === 'SL,SL2,XG', JSON.stringify(ext.FAMILIAS_INTERNAS));
+    const dentro = ['PRAGMATIC SL2', 'Inbet SL2', 'Microgaming SL2', 'AINSWORTH XG', 'PGSOFT SL'];
+    const fuera = ['PRAGMATIC SZ', '3OAKS OP', 'EGT BVS', 'EVOLUTION LOBBY OP PREMIUM',
+      'CALETA default', 'TOM HORN TOMHORN', 'CQ9 (9x16)', 'SLOTS', 'XGAMING'];
+    check('internos: entran los de las tres familias, escritos como los escribe el casino',
+      dentro.every((x) => ext.esInterno(x)), dentro.filter((x) => !ext.esInterno(x)).join(', '));
+    check('internos: NO entran los que sólo se parecen',
+      fuera.every((x) => !ext.esInterno(x)), fuera.filter((x) => ext.esInterno(x)).join(', '),
+      '"SZ" y "BVS" son otras familias y sí se cobran; "XGAMING" no es "XG"');
+    // La regla vive en el cálculo, no en la matriz: si estuviera copiada en las celdas, mover el
+    // % del cliente la dejaría vieja — que es de dónde salió el problema.
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'externos.service.js'), 'utf8');
+    check('internos: la celda usada es la BASE, no lo que diga la matriz',
+      /const pctUsado = interno \? base : pct;/.test(src)
+      && /money\.sub\(pctUsado, base\)/.test(src),
+      'si se lee la celda de la matriz, una celda mal cargada vuelve a cobrar');
+    check('internos: sigue a la base del MES, no a un número copiado',
+      /const interno = modo !== 'vendedor' && esInterno\(nombreMatriz\)/.test(src),
+      'base ya es la del mes que se está calculando');
+    check('internos: al VENDEDOR no le aplica — paga el costo real del proveedor',
+      /modo !== 'vendedor' && esInterno/.test(src));
+    check('internos: el aviso de "por debajo de la base" los saltea',
+      /!interno && money\.cmp\(pct, base\) < 0/.test(src),
+      'para un interno la celda ES la base: nunca puede quedar por debajo');
+    // Y la pantalla tiene que poder mostrar la celda mal cargada, aunque ya no cambie el número.
+    check('internos: la fila dice que es interno y con qué celda estaba cargada',
+      /interno: !!g\.interno, pctMatriz: g\.pctMatriz \|\| null,/.test(src));
+    const hUi3 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('internos: la pantalla avisa cuáles son y cuáles tienen la celda más alta',
+      /proveedores internos<\/b> \(SL · SL2 · XG\)/.test(hUi3)
+      && /tienen la celda cargada más alta/.test(hUi3),
+      'no se cobran, así que no salen en la tabla: sin el aviso no hay forma de verlos');
+  }
+
+  /* ── LAS CUENTAS DEL MES, TODAS JUNTAS, Y LOS DOS ENVÍOS AL GRUPO INTERNO ────────────────────
+     La factura de externos muestra un cliente por vez y cada consulta al casino tarda un minuto:
+     para ver los 28 hay que entrar 28 veces, y para mandarlas al grupo interno hacen falta todas.
+     Y cerrar el mes no termina con la deuda emitida: las dos cuentas van a «Cuentas Imperium».
+     Eso era a mano y no estaba escrito en ningún lado, así que se olvidaba. */
+  {
+    let x = await get('/api/os/emision/detalle/2026-01');
+    check('cuentas del mes: se piden todas de una', x.status === 200 && x.data.ok
+      && x.data.externos && x.data.vendedores, JSON.stringify(x.data).slice(0, 90));
+    check('cuentas del mes: sin nada emitido contesta vacío, no error',
+      x.data.externos.cantidad === 0 && x.data.externos.total_usdt === '0');
+    x = await get('/api/os/emision/detalle/2026-1');
+    check('cuentas del mes: un mes mal escrito se rechaza', x.status === 400);
+
+    // Mandar algo que todavía no se emitió sería mandar un número que puede cambiar.
+    x = await post('/api/os/emision/externos/2026-01/enviar', {});
+    check('envío interno: no se manda un mes sin emitir', x.status >= 400,
+      String(x.status) + ' ' + String((x.data || {}).error || ''));
+    x = await post('/api/os/emision/cualquiera/2026-01/enviar', {});
+    check('envío interno: sólo externos y vendedores', x.status === 400
+      && /no sé mandar/.test(String((x.data || {}).error || '')));
+
+    // El registro de lo que salió: sin él el paso del cierre no puede decir si ya se mandó.
+    const env = require('../src/envios-store');
+    const m1 = env.marcar({ mes: '1999-01', que: 'externos', chat: '-1', cantidad: 3, total_usdt: '10.50', quien: 'test' });
+    check('envío interno: queda anotado con fecha y total',
+      m1.ok && m1.envio.cantidad === 3 && m1.envio.total_usdt === '10.50' && !!m1.envio.at);
+    const m2 = env.marcar({ mes: '1999-01', que: 'externos', chat: '-1', cantidad: 4, total_usdt: '11', quien: 'test' });
+    check('envío interno: mandarlo de nuevo pisa la fila y avisa que ya había salido',
+      m2.ok && m2.yaHabiaSalido && m2.envio.cantidad === 4 && m2.envio.veces >= 2, 'veces=' + m2.envio.veces);
+    check('envío interno: no acepta cualquier cosa', !env.marcar({ mes: '1999-01', que: 'otra' }).ok);
+
+    // Y los dos pasos, al final del cierre, después de su emisión.
+    x = await get('/api/os/cierre/pasos/2026-01');
+    const ids = (x.data.pasos || []).map((p) => p.id);
+    check('cierre: mandar las dos cuentas al grupo interno son pasos del cierre',
+      ids.includes('enviar_externos') && ids.includes('enviar_vendedores'), ids.join(' → '));
+    check('cierre: cada envío va DESPUÉS de su emisión',
+      ids.indexOf('enviar_externos') > ids.indexOf('externos')
+      && ids.indexOf('enviar_vendedores') > ids.indexOf('vendedores'),
+      'mandar una cuenta sin emitir es mandar un número que todavía puede cambiar');
+    const pv = (x.data.pasos || []).find((p) => p.id === 'enviar_externos');
+    check('cierre: sin emitir, el paso dice qué falta primero',
+      /primero hay que emitirlo/.test(String(pv && pv.detalle)), String(pv && pv.detalle));
+
+    // El grupo interno es una configuración más, no un id escrito en el código.
+    const rutasE = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('envío interno: el grupo sale de la configuración, no está escrito en el código',
+      /tgChatInterno/.test(rutasE) && !/-5461524792/.test(rutasE),
+      'un chatId pegado en el código no se puede cambiar sin un deploy');
+    /* Y NO se recalcula para mandar: se manda lo EMITIDO. Recalcular hoy puede dar otro número
+       —cambió un %, un precio, el TC— y mandar al grupo algo distinto de lo que se le facturó al
+       cliente es peor que no mandar nada. */
+    const envRuta = rutasE.slice(rutasE.indexOf("app.post('/api/os/emision/:origen/:mes/enviar'"),
+      rutasE.indexOf("app.get('/api/os/emision/:mes'"));
+    check('envío interno: manda lo emitido, no un cálculo nuevo',
+      /emision\.lineas\(mes, origen\)/.test(envRuta) && !/externosSvc\.reporte/.test(envRuta));
+    check('envío interno: los nombres se escapan (va como HTML)',
+      /telegram\.escapeHtml/.test(envRuta), 'un nombre con & rompe el mensaje entero');
+
+    const hUi2 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('cuentas del mes: la lista está en las dos pantallas',
+      /todasCargar\('externos', 'ext-todas'/.test(hUi2) && /todasCargar\('vendedores', 'ven-todas'/.test(hUi2));
+    check('cuentas del mes: al grupo interno va CON nombre',
+      /Cuentas Imperium<\/b> no es un grupo de clientes/.test(hUi2),
+      'es el criterio opuesto al resumen de pesos, que va sin nombre');
+  }
+
   /* ── LO QUE VE ELLA NO ES LO QUE SALE ────────────────────────────────────────────────────────
      La primera versión escondía el nombre y el código del cliente TAMBIÉN en la pantalla, y así no
      se puede trabajar: ella necesita saber quién pagó. Lo que no puede llevar nombres es lo que
@@ -6546,16 +6661,18 @@ async function main() {
 
   // ── LA PANTALLA DE MEDIOS DE PAGO GUARDA TODO LO QUE MUESTRA ──
   //
-  // Guardaba 5 de los 12 valores. Los otros 7 —titular, mínimo, máximo, las dos advertencias y los
-  // dos grupos de Telegram— existían, se usaban y no tenían dónde escribirse: quedaban de la
-  // primera carga y para cambiarlos había que entrar a la API. Justo las advertencias, que son lo
-  // que el cliente lee antes de mandar plata a un CVU.
+  // Guardaba 5 de los 12 valores de entonces. Los otros 7 —titular, mínimo, máximo, las dos
+  // advertencias y los dos grupos de Telegram— existían, se usaban y no tenían dónde escribirse:
+  // quedaban de la primera carga y para cambiarlos había que entrar a la API. Justo las
+  // advertencias, que son lo que el cliente lee antes de mandar plata a un CVU.
+  // Hoy son 13: se sumó el grupo interno (Cuentas Imperium). El número está a propósito — agregar
+  // una clave sin darle su casillero en la pantalla la vuelve a dejar sin dónde escribirse.
   {
     const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     const claves = (rutas.match(/const PAGOS_KEYS = \[([\s\S]*?)\];/) || [])[1] || '';
     const lista = [...claves.matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
-    check('medios de pago: hay 12 valores', lista.length === 12, String(lista.length));
+    check('medios de pago: hay 13 valores', lista.length === 13, String(lista.length));
     const guarda = html.slice(html.indexOf('async function savePagos()'), html.indexOf('async function savePagos()') + 900);
     const faltan = lista.filter((k) => !guarda.includes(k + ':'));
     check('medios de pago: la pantalla guarda TODOS los valores', faltan.length === 0, faltan.join(','));

@@ -33,6 +33,29 @@ const money = require('./lib/money');
 const { db } = require('./db');
 
 const K = (s) => String(s || '').trim().toLowerCase();
+
+/* ── LOS PROVEEDORES INTERNOS NO LLEVAN DIFERENCIAL ─────────────────────────────────────────────
+   Regla de la dueña (4-sep-2026): «no se cobra ningún SL, ningún SL2, ningún XG, son internos.
+   Esos van = porcentaje del cliente».
+
+   O sea: para estas tres familias la celda vale SIEMPRE lo mismo que la base del cliente, así que
+   el extra es 0 y no se cobran. Y tiene que SEGUIR a la base: si el % del cliente cambia, esto
+   cambia con él, en el mes que corresponda.
+
+   Por eso está acá y no como un número copiado en cada celda de la matriz. Copiarlo es lo que
+   venía pasando y por eso se desalineó: 21 celdas quedaron por encima de la base —Titan con sus
+   11 SL2 en 8% contra una base de 5%— y eso le cobró de más 3.673,63 USDT en junio, 11.479,52 en
+   julio y 12.970,69 en agosto (el 44% de todo lo emitido de ese mes). Un número pegado a mano se
+   desalinea el día que alguien toca el % del cliente y nadie se entera; una regla, no.
+
+   La familia es la ÚLTIMA palabra del nombre del proveedor, que es como los nombra el casino:
+   "PRAGMATIC SL2", "Inbet SL2", "AINSWORTH XG", "PGSOFT SL". */
+const FAMILIAS_INTERNAS = ['SL', 'SL2', 'XG'];
+function esInterno(proveedor) {
+  const partes = String(proveedor || '').trim().split(/\s+/);
+  return FAMILIAS_INTERNAS.includes(String(partes[partes.length - 1] || '').toUpperCase());
+}
+
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 /** '2026-07' → 'Julio_2026'. Los meses del cierre se llaman así, no en ISO. */
@@ -404,11 +427,16 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
         if (modo === 'vendedor') {
           if (costoProv == null || costoProv === '') continue;   // sin costo cargado no se puede cobrar
         } else if (pct == null) continue;                        // el cliente no tiene ese proveedor
-        // Para los clientes, la celda es el precio final y se le resta su % base.
-        const dif = modo === 'vendedor' ? costoProv : money.sub(pct, base);
+        /* Para los clientes, la celda es el precio final y se le resta su % base. Salvo los
+           INTERNOS: ésos valen la base y punto — ver FAMILIAS_INTERNAS. Lo que diga la matriz
+           para ellos no se usa; si dice otra cosa es un error de carga, y acá deja de doler. */
+        const interno = modo !== 'vendedor' && esInterno(nombreMatriz);
+        const pctUsado = interno ? base : pct;
+        const dif = modo === 'vendedor' ? costoProv : money.sub(pctUsado, base);
         const cobra = money.cmp(dif, '0') > 0;
         // Aviso: un cliente que hoy trabaja al 7% no puede tener un proveedor en 6 → daría negativo.
-        if (modo === 'total' && money.cmp(pct, base) < 0) {
+        // Los internos no entran: para ellos la celda ES la base, nunca puede quedar por debajo.
+        if (modo === 'total' && !interno && money.cmp(pct, base) < 0) {
           negativos.set(nombreMatriz, { proveedor: nombreMatriz, pct, base });
         }
         // 🔑 QUÉ TC SE USA DEPENDE DE QUÉ CUENTA ES (regla del dueño, 4-ago). Hay tres:
@@ -427,7 +455,10 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
           panel: panel.nombre, panel_id: panel.id, nivel: panel.nivel_usuario, sistema: panel.sistema,
           divisa, proveedor: nombreMatriz, deCasino: [],
           costo: costoDe[K(nombreMatriz)] ?? null,
-          profit: '0', pct, base, dif, cobra, tasa, tcFuente: tcE.fuente,
+          // `pct` es el que se USÓ. Para un interno es la base, aunque la matriz diga otra cosa:
+          // mostrar el de la matriz haría que el renglón no cierre con su propio extra.
+          profit: '0', pct: pctUsado, base, dif, cobra, tasa, tcFuente: tcE.fuente,
+          interno, pctMatriz: interno && String(pct) !== String(base) ? pct : null,
         };
         g.profit = money.add(g.profit, profit);        // la ganancia se suma ENTERA, sin redondear
         g.deCasino.push(`${f.label || f.provider} ${f.vendor}`.trim());
@@ -449,6 +480,9 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
       lineas: g.deCasino.length,
       costo: g.costo,
       profit: money.round(g.profit, 2), pct: g.pct, base: g.base, dif: g.dif, cobra: g.cobra, monto,
+      // Interno = va a la base por regla. `pctMatriz` sólo viene si la matriz decía otra cosa:
+      // es una celda mal cargada que conviene ver y corregir, aunque ya no cambie el número.
+      interno: !!g.interno, pctMatriz: g.pctMatriz || null,
       tasa: g.tasa, usdt: (g.cobra && g.tasa) ? money.round(money.div(monto, g.tasa), 2) : '0',
       // De dónde salió la tasa. Viaja hasta acá porque es lo que deja ver que una línea del
       // VENDEDOR se valuó con el promedio por falta del TC del proveedor: sin esto el aviso
@@ -531,4 +565,6 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
 // cruce casino→matriz que la de lo que les cobramos a los clientes. Si fueran dos, los dos lados
 // del mismo proveedor podrían resolverse distinto.
 module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango, traductor,
-  pctsDelCliente, columnaDe };
+  pctsDelCliente, columnaDe,
+  // Se exportan para que la pantalla de la matriz pueda marcarlos y los tests puedan probar la regla.
+  FAMILIAS_INTERNAS, esInterno };

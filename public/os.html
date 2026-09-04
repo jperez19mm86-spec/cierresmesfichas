@@ -3868,11 +3868,13 @@ async function cieVendedores(){
       </div>
       <div id="ven-emi-out"></div>
       <div id="ven-body" style="margin-top:14px"><div class="muted">Apretá Calcular. Consulta el casino, así que tarda.</div></div>
-    </div>`;
+    </div><div id="ven-todas"></div>`;
   if(_venData) venPintar();
+  todasCargar('vendedores', 'ven-todas', _venMes);  // lo emitido: no consulta el casino
 }
 async function venCalcular(){
   _venMes = val('ven-mes') || _venMes;
+  todasCargar('vendedores', 'ven-todas', _venMes);
   const out = document.getElementById('ven-body');
   out.innerHTML = '<div class="empty">Consultando el casino vendedor por vendedor… puede tardar un rato.</div>';
   const lista = (await api('/api/os/vendedores')).vendedores || [];
@@ -3942,6 +3944,98 @@ async function venAnular(){
 }
 
 
+/* ══ 📋 TODAS LAS CUENTAS DEL MES, JUNTAS ═══════════════════════════════════════════════════
+   La factura de externos muestra UN cliente por vez y cada consulta al casino tarda cerca de un
+   minuto: para ver los 28 hay que entrar 28 veces. Y para mandarlas al grupo interno hacen falta
+   todas juntas.
+
+   Esto NO recalcula: lee lo EMITIDO, que es lo que entró a la deuda de cada uno. Es instantáneo, y
+   sobre todo es lo que se cobró — recalcular hoy podría dar otro número (cambió un %, un precio,
+   el TC) y mandar al grupo algo distinto de la factura es peor que no mandar nada.
+
+   El grupo es «Cuentas Imperium», que es INTERNO: por eso acá sí van los nombres, al revés del
+   resumen de pesos, que va al grupo donde concilian contra el banco y va sin nombre ni código. */
+let _todas = {};                     // { externos: {...}, vendedores: {...} } — lo último leído
+
+async function todasCargar(origen, cont, mes){
+  const box = document.getElementById(cont); if(!box) return;
+  box.innerHTML = '<div class="card"><div class="muted">Leyendo lo emitido…</div></div>';
+  const r = await api('/api/os/emision/detalle/' + encodeURIComponent(mes));
+  if(!r || !r.ok){
+    box.innerHTML = '<div class="card"><div class="nota err">No se pudieron leer las cuentas del mes: '
+      + esc((r && r.error) || '') + '</div></div>'; return; }
+  _todas[origen] = { mes, cont, datos: r[origen] || {filas:[]}, enviado: (r.enviado||{})[origen] || null, chat: r.chat };
+  todasPintar(origen);
+}
+
+function todasPintar(origen){
+  const t = _todas[origen]; if(!t) return;
+  const box = document.getElementById(t.cont); if(!box) return;
+  const d = t.datos; const filas = d.filas || [];
+  const quien = origen === 'externos' ? 'cliente' : 'vendedor';
+  const titulo = origen === 'externos' ? '📋 Todas las cuentas de externos' : '📋 Todas las cuentas de vendedores';
+
+  if(!filas.length){
+    box.innerHTML = '<div class="card"><h2>' + titulo + ' <span class="muted">— ' + esc(mesNombre(t.mes)) + '</span></h2>'
+      + '<div class="muted">Todavía no se emitió nada de este mes. Se llena solo cuando emitís: '
+      + 'esto muestra lo que entró a la deuda, no un cálculo aparte.</div></div>';
+    return;
+  }
+  /* El estado del envío se dice SIEMPRE, también cuando ya salió: si salió antes de la última
+     emisión, lo que está en el grupo ya no es lo que se cobró y hay que mandarlo de nuevo. */
+  const e = t.enviado;
+  const viejo = !!(e && d.emitidoAt && String(e.at) < String(d.emitidoAt));
+  const señal = !e ? '<span class="señal durazno">todavía no salió al grupo</span>'
+    : viejo ? '<span class="señal durazno">salió el ' + esc(fechaLarga(e.at)) + ', pero después se volvió a emitir</span>'
+    : '<span class="señal">salió el ' + esc(fechaLarga(e.at)) + '</span>';
+
+  box.innerHTML = '<div class="card">'
+    + '<div class="tapa"><div><h2>' + titulo + ' <span class="muted">— ' + esc(mesNombre(t.mes)) + '</span></h2>'
+    +   '<div class="sub">Lo que se emitió: es lo que entró a la deuda de cada ' + quien + '. '
+    +   'Al grupo interno va con nombre — <b>Cuentas Imperium</b> no es un grupo de clientes.</div></div>'
+    +   '<div class="acciones">' + señal
+    +     '<button class="outline small" onclick="todasCSV(\'' + origen + '\')">⬇ Excel (CSV)</button>'
+    +     '<button class="small" onclick="todasEnviar(\'' + origen + '\')">📣 Mandar a Cuentas Imperium</button>'
+    +   '</div></div>'
+    + '<div class="reppct" style="font-size:28px;margin:8px 0 4px">' + money(d.total_usdt,2)
+    +   ' <span class="muted" style="font-size:14px">USDT · ' + filas.length + ' ' + quien + (filas.length===1?'':'s') + '</span></div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+    +   '<th class="reptd">' + quien.charAt(0).toUpperCase() + quien.slice(1) + '</th>'
+    +   '<th class="reptd">Código</th><th class="reptd right">USDT</th></tr></thead><tbody>'
+    + filas.map(f => '<tr><td class="reptd"><b>' + esc(f.cliente) + '</b></td>'
+    +   '<td class="reptd muted">' + esc(f.codigo) + '</td>'
+    +   '<td class="reptd right"><b>' + money(f.monto_usdt,2) + '</b></td></tr>').join('')
+    + '</tbody></table></div>';
+}
+
+/* Punto y coma y coma decimal, como el resto: así lo abre el Excel en castellano. */
+function todasCSV(origen){
+  const t = _todas[origen]; if(!t) return;
+  const filas = t.datos.filas || [];
+  const num = (x)=>String(Number(x||0).toFixed(2)).replace('.',',');
+  const q = (x)=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"';
+  const cab = [origen==='externos'?'Cliente':'Vendedor','Código','USDT'];
+  const cuerpo = filas.map(f=>[q(f.cliente),q(f.codigo),num(f.monto_usdt)].join(';'));
+  const txt = '﻿' + [cab.map(q).join(';'), ...cuerpo, ['','TOTAL',num(t.datos.total_usdt)].join(';')].join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
+  a.download = 'cuentas-' + origen + '-' + t.mes + '.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* SALE PARA AFUERA: se pregunta siempre, se dice a qué grupo y cuánto suma. No se puede deshacer. */
+async function todasEnviar(origen){
+  const t = _todas[origen]; if(!t || !(t.datos.filas||[]).length) return toast('No hay nada emitido este mes');
+  const q = origen==='externos' ? 'EXTERNOS de los clientes' : 'los VENDEDORES';
+  if(!confirm('¿Mandar la cuenta de ' + q + ' de ' + mesNombre(t.mes) + ' a Cuentas Imperium?\n\n'
+    + t.datos.filas.length + ' cuenta(s) · ' + money(t.datos.total_usdt,2) + ' USDT\n\n'
+    + 'Va con el nombre de cada uno: es el grupo interno.')) return;
+  const r = await api('/api/os/emision/' + origen + '/' + encodeURIComponent(t.mes) + '/enviar', { method:'POST' });
+  if(!r.ok) return toast('Error: ' + (r.error||''));
+  toast('Mandado — ' + r.enviado + ' cuenta(s) · ' + money(r.total,2) + ' USDT');
+  todasCargar(origen, t.cont, t.mes);          // para que la señal diga que ya salió
+}
+
 // ── sub-vista §9 PROVEEDORES EXTERNOS ──
 // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
 let _extCli = '', _extMes = mesDeCierre(), _extData = null;
@@ -3987,9 +4081,10 @@ async function cieExternos() {
     + '<div style="flex:0 0 auto"><button onclick="extCalcular()">Calcular</button></div>'
     + '<div style="flex:0 0 auto;margin-left:auto"><button class="grave" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button></div>'
     + '</div><div id="ext-emi-out"></div>'
-    + '</div><div id="rep-cartel"></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
+    + '</div><div id="rep-cartel"></div><div id="ext-todas"></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
   repCartel();                       // no bloquea el pintado: es una consulta aparte
+  todasCargar('externos', 'ext-todas', _extMes);   // lo emitido: no consulta el casino, es instantáneo
 }
 
 /* ══ ✅ EL REPASO DE % DEL MES ═══════════════════════════════════════════════════════════════
@@ -4215,6 +4310,19 @@ function extPintar() {
   if (!d.congelado) avisos.push('Este mes <b>no está congelado</b>: se calcula con los precios de HOY. Si ya lo facturaste, congelalo para poder reproducirlo.');
   if ((d.negativos || []).length) avisos.push('<b>' + d.negativos.length + ' proveedores por debajo del ' + esc(d.base) + '%</b> de ' + esc(d.cliente) + ': ' + d.negativos.slice(0, 4).map(x => esc(x.proveedor) + ' (' + esc(x.pct) + ')').join(', ') + (d.negativos.length > 4 ? '…' : '') + ' — no se cobran, el diferencial nunca queda negativo.');
   if ((d.sinVincular || []).length) avisos.push('<b>' + d.sinVincular.length + ' proveedores del casino sin vincular</b> a la matriz: su ganancia NO se está cobrando. Vinculalos en 🔗 Vincular proveedores.');
+  /* Los INTERNOS (SL · SL2 · XG) van SIEMPRE al % base del cliente, así que su extra es 0 y no se
+     cobran. Como no se cobran no aparecen en la tabla de abajo, y sin este aviso no habría forma
+     de ver que existen ni de descubrir una celda mal cargada. */
+  {
+    const items = (d.paneles || []).reduce((a, p) => a.concat(p.items || []), []);
+    const internos = [...new Set(items.filter(i => i.interno).map(i => i.proveedor))];
+    const mal = [...new Set(items.filter(i => i.interno && i.pctMatriz).map(i => i.proveedor + ' (' + i.pctMatriz + '%)'))];
+    if (internos.length) avisos.push('<b>' + internos.length + ' proveedores internos</b> (SL · SL2 · XG) '
+      + 'van al ' + esc(d.base) + '% del cliente: extra 0, no se cobran.'
+      + (mal.length ? ' <b style="color:var(--red)">' + mal.length + ' tienen la celda cargada más alta</b> — '
+          + mal.slice(0, 6).map(esc).join(', ') + (mal.length > 6 ? '…' : '')
+          + ': ya no cambia el número, pero conviene corregirla en la matriz.' : ''));
+  }
   (d.avisos || []).forEach(a => avisos.push(esc(a)));
   const cab = '<div class="card" style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
     + '<div><div class="muted">Total a cobrar</div><div style="font-size:26px;font-weight:700">' + n(d.totalUsdt) + ' <span class="muted" style="font-size:14px">USDT</span></div></div>'
@@ -5450,6 +5558,8 @@ CFG.pagos = async () => {
       <div class="row" style="align-items:flex-end">
         <div style="flex:1"><label>Grupo para pagos en pesos</label><input id="pg-tgars" value="${esc(p.tgChatArs||'')}" placeholder="-100xxxxxxxxx"></div>
         <div style="flex:1"><label>Grupo para pagos en USDT</label><input id="pg-tgusdt" value="${esc(p.tgChatUsdt||'')}" placeholder="-100xxxxxxxxx"></div>
+        <div style="flex:1"><label>Grupo interno (Cuentas Imperium)</label><input id="pg-tgint" value="${esc(p.tgChatInterno||'')}" placeholder="-100xxxxxxxxx">
+          <div class="muted" style="font-size:11px">Ahí van las cuentas de externos y de vendedores al cerrar el mes. Es interno: esos mensajes sí llevan nombres.</div></div>
       </div>
       <div style="margin-top:12px"><button onclick="savePagos()">💾 Guardar</button></div>
     </div>`;
@@ -5464,7 +5574,7 @@ async function savePagos(){
     cvuVigente:val('pg-cvu'), cvuTitular:val('pg-titular'), cvuNota:t('pg-cvunota'),
     arsMin:val('pg-arsmin'), arsMax:val('pg-arsmax'), arsAviso:t('pg-arsaviso'),
     usdtAddress:val('pg-usdt'), usdtRed:val('pg-red'), usdtNota:t('pg-usdtnota'), usdtAviso:t('pg-usdtaviso'),
-    tgChatArs:val('pg-tgars'), tgChatUsdt:val('pg-tgusdt'),
+    tgChatArs:val('pg-tgars'), tgChatUsdt:val('pg-tgusdt'), tgChatInterno:val('pg-tgint'),
   })});
   toast('Guardado');
 }

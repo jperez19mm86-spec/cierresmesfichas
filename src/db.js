@@ -368,6 +368,17 @@ db.exec(`
     validado_at TEXT,
     confirmado_at TEXT, confirmado_por TEXT
   );
+  /* ───── LO QUE YA SE MANDÓ AL GRUPO INTERNO ─────
+     Cerrar el mes termina en dos envíos a «Cuentas Imperium»: la cuenta de externos de los
+     clientes y la de los vendedores. Sin dejar rastro, el paso del cierre no puede decir si ya
+     salió, y lo que no se puede ver se manda dos veces o no se manda ninguna. Una fila por
+     (mes, qué): mandar de nuevo pisa la fila y deja la última fecha. */
+  CREATE TABLE IF NOT EXISTS envio_interno (
+    mes TEXT, que TEXT,             -- 'externos' | 'vendedores'
+    chat TEXT, cantidad INTEGER, total_usdt TEXT,
+    at TEXT, quien TEXT, veces INTEGER DEFAULT 1,
+    PRIMARY KEY (mes, que)
+  );
   CREATE TABLE IF NOT EXISTS cierre_link (
     casino TEXT PRIMARY KEY,   -- proveedor que sale del casino "MARCA VENDOR" (ej "RUBYPLAY XG")
     matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")

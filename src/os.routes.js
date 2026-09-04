@@ -55,6 +55,7 @@ const ventasOnline = require('./ventas-online.service');
 const facturaSvc = require('./factura.service');
 const crucePanel = require('./cruce-panel.service');
 const facturasGuardadas = require('./facturas-guardadas');
+const enviosStore = require('./envios-store');
 const vendedoresSvc = require('./vendedores.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
@@ -214,6 +215,9 @@ function mount(app) {
     'cvuVigente', 'cvuTitular', 'cvuNota', 'arsMin', 'arsMax', 'arsAviso',
     'usdtAddress', 'usdtRed', 'usdtNota', 'usdtAviso',
     'tgChatArs', 'tgChatUsdt',   // a qué grupo de Telegram avisa cada camino
+    // El grupo INTERNO («Cuentas Imperium»): ahí van las cuentas de externos y de vendedores al
+    // cerrar el mes. No es de clientes — por eso esos mensajes sí llevan nombres.
+    'tgChatInterno',
   ];
   /**
    * ¿A qué grupo llegan los avisos de pago, y el bot llega ahí? Sólo LEE (getChat): no manda un
@@ -223,7 +227,7 @@ function mount(app) {
   app.get('/api/os/config/pagos/probar', wrap(async (_req, res) => {
     const tok = configStore.getTelegramToken();
     const out = [];
-    for (const k of ['tgChatArs', 'tgChatUsdt']) {
+    for (const k of ['tgChatArs', 'tgChatUsdt', 'tgChatInterno']) {
       const chat = String(configStore.getCfg(k) || '').trim();
       if (!chat) { out.push({ clave: k, chat: null, ok: false, error: 'no hay grupo configurado' }); continue; }
       out.push({ clave: k, chat, ...(await telegram.verChat(tok, chat)) });
@@ -252,7 +256,7 @@ function mount(app) {
       if ((c.telegram || {}).enabled) g.encendidos += 1;
       porChat.set(id, g);
     });
-    ['tgChatArs', 'tgChatUsdt'].forEach((k) => {
+    ['tgChatArs', 'tgChatUsdt', 'tgChatInterno'].forEach((k) => {
       const id = String(configStore.getCfg(k) || '').trim();
       if (!id) return;
       const g = porChat.get(id) || { chat: id, clientes: [], encendidos: 0 };
@@ -4053,6 +4057,33 @@ function mount(app) {
         emitidoAt: o ? o.hasta : null });
     }
 
+    /* 9-10 · LOS DOS ENVÍOS AL GRUPO INTERNO. Cerrar el mes no termina cuando la deuda está
+       emitida: las dos cuentas van a «Cuentas Imperium», y eso es a mano y se olvida. Un paso que
+       no está escrito no existe — por eso están acá, con su fecha, y no en la cabeza de nadie.
+       Van DESPUÉS de su emisión: mandar una cuenta que todavía no se emitió es mandar un número
+       que puede cambiar. */
+    {
+      const enviado = enviosStore.delMes(mes);
+      const hayChat = !!String(configStore.getCfg('tgChatInterno') || '').trim();
+      [['externos', 'Mandar la cuenta de EXTERNOS a Cuentas Imperium', 'cierre:externos'],
+       ['vendedores', 'Mandar la cuenta de VENDEDORES a Cuentas Imperium', 'cierre:vendedores']]
+        .forEach(([que, titulo, ir]) => {
+          const e = enviado[que]; const o = em[que];
+          // Si salió ANTES de la última emisión, lo que está en el grupo ya no es lo que se cobró.
+          const desactualizado = !!(e && o && o.hasta && String(e.at) < String(o.hasta));
+          paso({ id: 'enviar_' + que, titulo, ir,
+            estado: e ? (desactualizado ? 'aviso' : 'listo') : (o ? 'falta' : 'aviso'),
+            detalle: e
+              ? (desactualizado
+                ? 'salió el ' + String(e.at).slice(0, 10) + ', pero DESPUÉS se volvió a emitir: mandala de nuevo'
+                : e.cantidad + ' cuenta(s) · ' + e.total_usdt + ' USDT · salió el ' + String(e.at).slice(0, 10))
+              : !o ? 'primero hay que emitirlo'
+              : hayChat ? 'todavía no salió al grupo'
+              : 'falta cargar el grupo interno en ⚙ Ajustes → Medios de pago',
+            enviadoAt: e ? e.at : null });
+        });
+    }
+
     const falta = pasos.filter((p) => p.estado === 'falta');
     ok(res, { mes, pasos, falta: falta.length, avisos: pasos.filter((p) => p.estado === 'aviso').length,
       siguiente: (falta[0] || null), puedeCerrar: !falta.length });
@@ -4067,6 +4098,67 @@ function mount(app) {
       crucePanel.guardar(v);
     }
     ok(res, { validacion: crucePanel.leer(req.params.mes) });
+  }));
+
+  /* ── TODAS LAS CUENTAS DEL MES, JUNTAS ───────────────────────────────────────────────────────
+     La pantalla de externos muestra un cliente por vez: para ver los 28 hay que entrar 28 veces y
+     esperar el minuto que tarda cada consulta al casino. Y para mandarlas al grupo interno hacen
+     falta todas juntas.
+
+     Sale de lo EMITIDO, no de recalcular: lo emitido es lo que entró a la deuda del cliente, y es
+     instantáneo. Recalcular acá daría un número que puede no ser el que se cobró —cambió un %, un
+     precio, el TC— y mandar al grupo algo distinto de lo facturado es peor que no mandarlo. */
+  app.get('/api/os/emision/detalle/:mes', wrap((req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const nom = {}; clientes.list().clientes.forEach((c) => { nom[c.id] = c; });
+    const armar = (origen) => {
+      const filas = emision.lineas(mes, origen).map((l) => {
+        const c = nom[l.cliente_id] || {};
+        return { ...l, cliente: c.nombre || l.cliente_id, codigo: c.codigo || '', es_vendedor: !!c.es_vendedor };
+      });
+      return { origen, filas, cantidad: filas.length,
+        total_usdt: money.round(money.sum(filas.map((f) => f.monto_usdt)), 2),
+        emitidoAt: filas.reduce((a, f) => (!a || String(f.emitidoAt) > a ? f.emitidoAt : a), null) };
+    };
+    ok(res, { mes, externos: armar('externos'), vendedores: armar('vendedores'),
+      enviado: enviosStore.delMes(mes), chat: String(configStore.getCfg('tgChatInterno') || '').trim() || null });
+  }));
+
+  /* ── Y SE MANDAN AL GRUPO INTERNO ────────────────────────────────────────────────────────────
+     «Cuentas Imperium» es interno: ahí SÍ van los nombres, al revés del resumen de pesos, que va
+     al grupo donde concilian contra el banco. Son dos grupos y dos criterios distintos; no se
+     mezclan.
+     Se pregunta siempre antes desde la pantalla, y queda anotado qué salió y cuándo — así el paso
+     del cierre puede decir si ya se mandó en vez de que haya que acordarse. */
+  app.post('/api/os/emision/:origen/:mes/enviar', wrap(async (req, res) => {
+    const origen = String(req.params.origen || '');
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!enviosStore.QUE.includes(origen)) return err(res, 400, `no sé mandar "${origen}"`);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const chat = String(configStore.getCfg('tgChatInterno') || '').trim();
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'el bot de Telegram no está configurado');
+    if (!chat) return err(res, 400, 'no hay grupo interno cargado en Config → Medios de pago (Cuentas Imperium)');
+
+    const nom = {}; clientes.list().clientes.forEach((c) => { nom[c.id] = c; });
+    const filas = emision.lineas(mes, origen);
+    if (!filas.length) return err(res, 400, `no hay nada emitido de ${origen} en ${mes}: emitilo antes de mandarlo`);
+    const total = money.round(money.sum(filas.map((f) => f.monto_usdt)), 2);
+    const fmt = (x) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const titulo = origen === 'externos' ? '🧾 <b>Proveedores externos' : '🤝 <b>Proveedores de vendedores';
+    const texto = [`${titulo} — ${mesCierreLbl(mes).replace('_', ' ')}</b>`, '']
+      .concat(filas.map((f) => {
+        const c = nom[f.cliente_id] || {};
+        return `  ${telegram.escapeHtml(c.nombre || f.cliente_id)}   ${fmt(f.monto_usdt)}`;
+      }))
+      .concat(['', `<b>Total: ${fmt(total)} USDT</b>`, `<i>${filas.length} cuenta(s)</i>`])
+      .join('\n');
+    const r = await telegram.sendMessage(tok, chat, texto);
+    if (!r.ok) return err(res, 502, r.error || 'Telegram no aceptó el mensaje');
+    const marca = enviosStore.marcar({ mes, que: origen, chat, cantidad: filas.length, total_usdt: total,
+      quien: (req.usuario && req.usuario.usuario) || 'admin' });
+    ok(res, { enviado: filas.length, total, chat, ...marca });
   }));
 
   app.get('/api/os/emision/:mes', (req, res) => ok(res, emision.emitido(req.params.mes)));
