@@ -89,6 +89,26 @@ function eliminadasDeLaLista(filas, borrados, nodo) {
   return halladas;
 }
 
+/* ── LA TIRA DE PERÍODOS ─────────────────────────────────────────────────────────────────────────
+   🔴 EL BOTÓN ELEGIDO PODÍA QUEDAR FUERA DE PANTALLA. La tira se desplaza de costado y
+   «Otro rango…» es el último de seis: en un teléfono no entra. O sea que justo el botón que LLEVA
+   LAS FECHAS elegidas era el que no se veía, y la tira parecía no tener nada marcado. Pedido el
+   4-sep-2026: «el filtro de fecha debería ser más visible cuando se selecciona otro rango».
+
+   Devuelve a cuánto hay que desplazar la tira, o `null` si el botón ya está a la vista — que es la
+   mitad del asunto: si no hace falta no se mueve nada, para no pelearle al dedo de quien la está
+   desplazando. */
+function desplazarHastaElegido(boton, tira) {
+  if (!boton || !tira || !tira.ancho) return null;
+  const fin = boton.izq + boton.ancho;
+  const yaSeVe = boton.izq >= tira.scroll && fin <= tira.scroll + tira.ancho;
+  if (yaSeVe) return null;
+  /* Centrado cuando entra; pegado al borde cuando el botón es más ancho que la tira. */
+  const centrado = boton.izq - (tira.ancho - boton.ancho) / 2;
+  const tope = Math.max(0, tira.total - tira.ancho);
+  return Math.max(0, Math.min(Math.round(centrado), tope));
+}
+
 /* ── EL MENÚ DE CADA NIVEL ──────────────────────────────────────────────────────────────────────
    🔴 NO SALE DEL MOTOR, Y NO PUEDE. `area=buttons` miente para los dos lados, medido el
    1-sep-2026: al cajero no le nombra el Resumen y el Resumen le funciona; al sub-agente sí le
@@ -152,6 +172,7 @@ function seccionNegadaPor(ruta, error) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango, eliminadasDeLaLista,
+    desplazarHastaElegido,
     MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }

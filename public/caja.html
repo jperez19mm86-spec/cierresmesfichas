@@ -2174,6 +2174,26 @@ function resumen(items, { estilo = 'caja' } = {}){
      rangoCustom — {from,to} para rotular el chip cuando está activo */
 function tiraPeriodos(activo, alTocar, { conCustom = true, rangoCustom = null } = {}){
   const lista = conCustom ? PERIODOS_MOV : PERIODOS_MOV.filter(([k]) => k !== 'custom');
+  /* 🔴 EL BOTÓN ELEGIDO PODÍA QUEDAR FUERA DE PANTALLA. La tira se desplaza de costado y
+     «Otro rango…» es el último de seis: en un teléfono no entra. O sea que justo el botón que
+     LLEVA LAS FECHAS elegidas era el que no se veía, y la tira parecía no tener nada marcado.
+     Pedido el 4-sep-2026: «el filtro de fecha debería ser más visible cuando se selecciona otro
+     rango». Se corre sola hasta el elegido, y sólo si hace falta — si ya está a la vista no se
+     mueve nada, para no pelear con el dedo de quien la está desplazando. */
+  /* 🔑 `setTimeout(0)` y no `requestAnimationFrame`: rAF sólo corre cuando la página está
+     pintando, así que en una pestaña de fondo la tira se quedaría sin correr —y encima no hay
+     forma de probarlo, porque en el navegador de pruebas rAF no dispara nunca—. Con el tiempo
+     cero se ejecuta apenas termina de dibujarse, mire alguien o no. */
+  setTimeout(() => {
+    document.querySelectorAll('.periodos').forEach((tira) => {
+      const b = tira.querySelector('button[aria-pressed="true"]');
+      if (!b) return;
+      const donde = desplazarHastaElegido(
+        { izq: b.offsetLeft, ancho: b.offsetWidth },
+        { scroll: tira.scrollLeft, ancho: tira.clientWidth, total: tira.scrollWidth });
+      if (donde !== null) tira.scrollLeft = donde;
+    });
+  }, 0);
   return `<div class="periodos">${lista.map(([k, n]) => `
     <button aria-pressed="${k === activo}" onclick="${alTocar}('${k}')">${
       k === 'custom' && activo === 'custom' && rangoCustom ? rotuloRango(rangoCustom) + ' ✎' : n

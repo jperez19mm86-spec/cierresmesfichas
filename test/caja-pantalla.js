@@ -404,6 +404,48 @@ check('el texto de «sin link» está escrito una sola vez',
   /window\.SIN_LINK = SIN_LINK;/.test(conector)
   && (htmlCaja.match(/no tiene cargado <b>su<\/b> link de acceso/g) || []).length <= 1);
 
+/* ── 9 · la tira de períodos ────────────────────────────────────────────────────────────────────
+   🔴 «Otro rango…» es el último de seis botones y la tira se desplaza de costado: en un teléfono
+   el botón que lleva las fechas elegidas quedaba fuera de pantalla, y la tira parecía no tener
+   nada marcado. Medidas de un teléfono real: tira de 343 px de ancho, 470 px de botones. */
+const TIRA = { scroll: 0, ancho: 343, total: 470 };
+const OTRO_RANGO = { izq: 360, ancho: 104 };   // el último, arrancando fuera de la vista
+const HOY = { izq: 0, ancho: 44 };
+
+check('el botón que no entra hace que la tira se corra',
+  L.desplazarHastaElegido(OTRO_RANGO, TIRA) !== null,
+  String(L.desplazarHastaElegido(OTRO_RANGO, TIRA)));
+check('y después de correrse, se ve entero',
+  (() => { const d = L.desplazarHastaElegido(OTRO_RANGO, TIRA);
+    return OTRO_RANGO.izq >= d && OTRO_RANGO.izq + OTRO_RANGO.ancho <= d + TIRA.ancho; })());
+check('nunca se pasa del final de la tira',
+  L.desplazarHastaElegido(OTRO_RANGO, TIRA) <= TIRA.total - TIRA.ancho,
+  `${L.desplazarHastaElegido(OTRO_RANGO, TIRA)} ≤ ${TIRA.total - TIRA.ancho}`);
+
+/* La otra mitad: si ya se ve, NO se mueve. Moverla igual le pelea el dedo a quien la desplaza. */
+check('el botón que ya está a la vista no mueve nada',
+  L.desplazarHastaElegido(HOY, TIRA) === null);
+check('y si la tira entera entra en pantalla, tampoco',
+  L.desplazarHastaElegido(OTRO_RANGO, { scroll: 0, ancho: 600, total: 470 }) === null);
+check('vuelto ya al principio, «Hoy» no la vuelve a correr',
+  L.desplazarHastaElegido(HOY, { scroll: 0, ancho: 343, total: 470 }) === null);
+
+/* Si ya está desplazada a la derecha y se elige el primero, tiene que volver. */
+check('elegir el primero desde el final trae la tira de vuelta',
+  L.desplazarHastaElegido(HOY, { scroll: 127, ancho: 343, total: 470 }) === 0,
+  String(L.desplazarHastaElegido(HOY, { scroll: 127, ancho: 343, total: 470 })));
+
+check('sin medidas no se toca nada, en vez de romper',
+  L.desplazarHastaElegido(null, TIRA) === null
+  && L.desplazarHastaElegido(HOY, { scroll: 0, ancho: 0, total: 0 }) === null);
+
+check('la pantalla usa esa función y no su propia cuenta',
+  /desplazarHastaElegido\(\s*\n?\s*\{ izq: b\.offsetLeft/.test(htmlCaja));
+/* 🔑 rAF sólo corre si la página pinta: en una pestaña de fondo la tira nunca se acomodaría. */
+check('y no depende de que la página esté pintando',
+  /setTimeout\(\(\) => \{\n\s*document\.querySelectorAll\('\.periodos'\)/.test(htmlCaja)
+  && !/requestAnimationFrame\(\(\) => \{\n\s*document\.querySelectorAll\('\.periodos'\)/.test(htmlCaja));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
