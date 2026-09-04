@@ -40,6 +40,23 @@
   .fvta.ahora { background:rgba(120,200,140,.07) }
   .fmes { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border) }
   .fmes:last-child { border-bottom:0 }
+
+  /* ── ✅ REPASO DE % ───────────────────────────────────────────────────────────────────────
+     Un cliente por pantalla y el número grande: se pasan 39 con la mano en Enter, y lo que hay
+     que mirar —el % y si cambió— se lee sin buscarlo. */
+  .repbarra { height:6px; background:var(--bg3); border-radius:99px; overflow:hidden; margin:10px 0 0 }
+  .repbarra i { display:block; height:100%; background:var(--gold); transition:width .18s }
+  .repquien { font-size:27px; font-weight:800; letter-spacing:-.5px; line-height:1.15 }
+  .reppct { font-size:64px; font-weight:800; letter-spacing:-2px; line-height:1; margin:22px 0 4px }
+  .reppct small { font-size:26px; font-weight:700; margin-left:3px }
+  .repotro { font-family:inherit; font-size:26px; font-weight:800; width:120px; text-align:center; padding:8px 10px }
+  .repbig { font-size:15px; padding:13px 22px }
+  .repcambio { color:var(--gold); font-weight:700 }
+  .reptd { padding:7px 9px; border-bottom:1px solid var(--border); text-align:left }
+  thead .reptd { font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted) }
+  .reptd.right { text-align:right; font-variant-numeric:tabular-nums }
+  kbd { background:var(--bg3); border:1px solid var(--border); border-bottom-width:2px; border-radius:5px;
+        padding:1px 6px; font-size:11.5px; font-family:inherit }
   /* La barra en dos filas: arriba los grupos, abajo las pantallas del grupo abierto. La barra
      de siempre es un flex en fila, y con dos hijos los pondría uno al lado del otro: con dos
      filas pasa a ser un bloque y cada fila maneja su propio desborde. */
@@ -3735,9 +3752,159 @@ async function cieExternos() {
     + '<div style="flex:0 0 auto"><button onclick="extCalcular()">Calcular</button></div>'
     + '<div style="flex:0 0 auto;margin-left:auto"><button class="grave" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button></div>'
     + '</div><div id="ext-emi-out"></div>'
-    + '</div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
+    + '</div><div id="rep-cartel"></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
+  repCartel();                       // no bloquea el pintado: es una consulta aparte
 }
+
+/* ══ ✅ EL REPASO DE % DEL MES ═══════════════════════════════════════════════════════════════
+   Para sacar la cuenta del mes hay que confirmar el % de cada cliente, y eso se hacía entrando a
+   la factura de cada uno: 39 pantallas para 39 números que en su mayoría no cambiaron. Acá es una
+   sola pantalla que los pasa de a uno, con el número ya puesto y al lado el del mes pasado — si
+   sigue igual es un Enter.
+
+   Se guarda UNO POR UNO, a medida que se avanza: si se corta a mitad de camino, lo confirmado
+   queda. Cada confirmación es su propia decisión y queda con fecha.
+
+   Los VENDEDORES no entran: pagan el costo real del proveedor, no llevan % base. Serían pantallas
+   para no decidir nada. Se listan al final para que se vea que no se los olvidó. */
+let _rep = null;                     // { mes, prev, cola[], vendedores[], i, hecho{} }
+
+async function repCartel(){
+  const cont = document.getElementById('rep-cartel'); if(!cont) return;
+  const r = await api('/api/os/externos?mes=' + encodeURIComponent(_extMes));
+  if(!r || !r.ok) return;
+  const cola = (r.clientes||[]).filter(c=>!c.esVendedor);
+  const faltan = cola.filter(c=>!c.confirmada).length;
+  const sinPct = cola.filter(c=>c.base==null);
+  window._repDatos = { mes:r.mes, prev:r.prev, cola, vendedores:(r.clientes||[]).filter(c=>c.esVendedor) };
+  cont.innerHTML = '<div class="card" style="border-left:3px solid var(--'+(faltan?'gold':'green')+')">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">'
+    + '<div><div style="font-size:16px;font-weight:800">'
+    +   (faltan ? 'Faltan ' + faltan + ' ' + (faltan===1?'cliente':'clientes') + ' por confirmar para ' + esc(mesNombre(r.mes))
+               : 'Los ' + cola.length + ' % están confirmados para ' + esc(mesNombre(r.mes))) + '</div>'
+    + '<div class="muted" style="font-size:13px;margin-top:3px">'
+    +   (sinPct.length
+        ? '<b style="color:var(--red)">' + sinPct.map(c=>esc(c.cliente)).join(', ') + '</b> no '
+          + (sinPct.length===1?'tiene':'tienen') + ' % cargado: sin eso el mes no se puede calcular.'
+        : 'Los que no confirmes toman el % vigente igual. Se guarda uno por uno, a medida que avanzás.')
+    + '</div></div>'
+    + '<button onclick="repArrancar()">' + (faltan ? '✅ Repasar los ' + cola.length : '↺ Volver a repasar') + '</button>'
+    + '</div></div>';
+}
+
+function repArrancar(){
+  const d = window._repDatos; if(!d) return;
+  /* El orden lo decide qué tan urgente es mirarlo, no el alfabeto: primero el que FRENA el mes
+     —sin % no se puede calcular—, después los que cambiaron respecto al mes pasado, y al final los
+     que siguen igual, que son un Enter cada uno.
+     Pasar de "sin %" a 12 TAMBIÉN es un cambio: pedir que los dos meses tengan número dejaba a
+     esos mezclados con los que no se movieron, que son justo los que hay que mirar. */
+  const cambio = (c)=> String(c.base) !== String(c.basePrev);
+  const cola = d.cola.slice().sort((a,b)=>{
+    const p = (c)=> c.base==null ? 0 : (cambio(c) ? 1 : 2);
+    return p(a)-p(b) || String(a.cliente).localeCompare(b.cliente,'es');
+  });
+  _rep = { mes:d.mes, prev:d.prev, cola, vendedores:d.vendedores, i:0, hecho:{} };
+  repPintar();
+}
+function repSalir(){ _rep = null; cieExternos(); }
+
+function repPintar(){
+  if(!_rep) return;
+  const cont = document.getElementById('cie-body'); if(!cont) return;
+  if(_rep.i >= _rep.cola.length) return repFinal();
+  const c = _rep.cola[_rep.i], sug = c.base;
+  const igual = c.base!=null && String(c.base)===String(c.basePrev);
+  const nota = c.base==null
+    ? '<span style="color:var(--red);font-weight:700">No tiene % cargado — sin esto el mes no se puede calcular</span>'
+    : igual ? 'el mismo que en ' + esc(mesNombre(_rep.prev))
+    : c.basePrev==null ? '<span class="repcambio">en ' + esc(mesNombre(_rep.prev)) + ' no tenía</span>'
+    : '<span class="repcambio">en ' + esc(mesNombre(_rep.prev)) + ' era ' + esc(c.basePrev) + ' %</span>';
+
+  cont.innerHTML = '<div class="card">'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
+    +   '<h2 style="margin:0">✅ Repasar los % de ' + esc(mesNombre(_rep.mes)) + '</h2>'
+    +   '<span class="muted">' + (_rep.i+1) + ' de ' + _rep.cola.length
+    +     ' · <a href="#" onclick="repSalir();return false">salir</a></span></div>'
+    + '<div class="repbarra"><i style="width:' + Math.round(_rep.i/_rep.cola.length*100) + '%"></i></div></div>'
+
+    + '<div class="card" style="text-align:center;padding:26px 20px">'
+    + '<div class="repquien">' + esc(c.cliente) + '</div>'
+    + '<div class="muted" style="font-size:13px;margin-top:3px">' + esc(c.codigo||'') + '</div>'
+    + '<div class="reppct">' + (sug==null?'—':esc(sug)) + '<small>%</small></div>'
+    + '<div style="font-size:13.5px">' + nota + '</div>'
+    + '<div class="muted" style="font-size:12.5px;margin-top:6px">sale de: <b>' + esc(c.fuente||'—') + '</b>'
+    +   (c.confirmada?' · ya confirmado':'') + '</div>'
+    + '<div style="display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:22px">'
+    +   (sug==null?'':'<button class="repbig" onclick="repConfirmar(' + JSON.stringify(String(sug)) + ')">✓ Sigue en ' + esc(sug) + ' %</button>')
+    +   '<span class="muted">o poné otro:</span>'
+    +   '<input class="repotro" id="rep-otro" type="number" step="0.01" min="0" max="100" placeholder="' + (sug==null?'%':esc(sug)) + '"'
+    +     ' onkeydown="if(event.key===&quot;Enter&quot;)repConfirmar(this.value)">'
+    +   '<button class="outline repbig" onclick="repConfirmar(document.getElementById(\'rep-otro\').value)">Guardar</button>'
+    + '</div>'
+    + '<div style="margin-top:16px;display:flex;gap:14px;justify-content:center;font-size:13px">'
+    +   (_rep.i>0?'<a href="#" onclick="_rep.i--;repPintar();return false">← anterior</a>':'<span class="muted">← anterior</span>')
+    +   '<a href="#" onclick="repSaltear();return false" class="muted">saltear por ahora →</a></div>'
+    + '<div class="muted" style="margin-top:12px;font-size:12px">'
+    +   '<kbd>Enter</kbd> confirma lo que dice · <kbd>→</kbd> saltea · <kbd>←</kbd> vuelve</div>'
+    + '</div>'
+    + (Object.keys(_rep.hecho).length ? '<div class="card"><h2>Ya repasados</h2>' + repTabla(Object.keys(_rep.hecho)) + '</div>' : '');
+  const el = document.getElementById('rep-otro'); if(el) el.focus();
+}
+
+function repTabla(nombres){
+  return '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+    + '<thead><tr><th class="reptd">Cliente</th><th class="reptd right">' + esc(mesNombre(_rep.prev)) + '</th>'
+    + '<th class="reptd right">' + esc(mesNombre(_rep.mes)) + '</th></tr></thead><tbody>'
+    + nombres.map(n=>{ const c=_rep.cola.find(x=>x.cliente===n)||{}, v=_rep.hecho[n];
+        const cambió = c.basePrev!=null && String(v)!==String(c.basePrev);
+        return '<tr><td class="reptd">' + esc(n) + '</td>'
+          + '<td class="reptd right muted">' + (c.basePrev==null?'—':esc(c.basePrev)+' %') + '</td>'
+          + '<td class="reptd right"><b' + (cambió?' class="repcambio"':'') + '>' + esc(v) + ' %</b></td></tr>'; }).join('')
+    + '</tbody></table>';
+}
+
+/* Se guarda EN EL ACTO, no al final: si se corta la sesión en el cliente 30 no se pierden los 29. */
+async function repConfirmar(v){
+  const n = String(v==null?'':v).trim().replace(',', '.');
+  if(n==='' || isNaN(Number(n)) || Number(n)<0 || Number(n)>100) return toast('Poné un número entre 0 y 100', true);
+  const c = _rep.cola[_rep.i];
+  const r = await api('/api/os/externos/' + encodeURIComponent(c.cliente) + '/base',
+    { method:'POST', body: JSON.stringify({ mes:_rep.mes, base_pct: String(Number(n)) }) });
+  if(!r || !r.ok) return toast('No se pudo guardar: ' + ((r&&r.error)||''), true);
+  _rep.hecho[c.cliente] = String(Number(n));
+  c.confirmada = true; c.base = String(Number(n));
+  _rep.i++; repPintar(); window.scrollTo(0,0);
+}
+function repSaltear(){ _rep.i++; repPintar(); window.scrollTo(0,0); }
+
+function repFinal(){
+  const faltan = _rep.cola.filter(c=>!(c.cliente in _rep.hecho) && !c.confirmada);
+  document.getElementById('cie-body').innerHTML = '<div class="card">'
+    + '<h2>✅ Repaso de ' + esc(mesNombre(_rep.mes)) + ' terminado</h2>'
+    + '<div class="muted">Confirmaste <b>' + Object.keys(_rep.hecho).length + '</b> de ' + _rep.cola.length + '.'
+    +   (faltan.length ? ' Quedaron ' + faltan.length + ' sin confirmar.' : '') + '</div></div>'
+    + (Object.keys(_rep.hecho).length ? '<div class="card"><h2>Lo que quedó</h2>' + repTabla(Object.keys(_rep.hecho)) + '</div>' : '')
+    + (faltan.length ? '<div class="card"><h2>Sin confirmar</h2>'
+        + '<div class="muted" style="margin-bottom:8px">Siguen tomando el % vigente; el mes se calcula igual salvo que no tengan ninguno.</div>'
+        + faltan.map(c=>'<div style="padding:6px 0;border-bottom:1px solid var(--border)">' + esc(c.cliente)
+          + ' <span style="' + (c.base==null?'color:var(--red);font-weight:700':'color:var(--muted)') + '">'
+          + (c.base==null?'sin % cargado':esc(c.base)+' %') + '</span></div>').join('') + '</div>' : '')
+    + '<div class="card"><h2>Vendedores</h2>'
+    + '<div class="muted" style="margin-bottom:8px">No entran al repaso: pagan el <b>costo real del proveedor</b>, no llevan % base.</div>'
+    + '<div>' + _rep.vendedores.map(v=>'<span class="pill" style="background:var(--bg3);margin:2px">' + esc(v.cliente) + '</span>').join('') + '</div></div>'
+    + '<div class="card"><button onclick="repSalir()">← Volver a la factura de externos</button></div>';
+}
+
+document.addEventListener('keydown', (e)=>{
+  if(!_rep || _rep.i >= _rep.cola.length) return;
+  if(e.key==='ArrowRight') repSaltear();
+  else if(e.key==='ArrowLeft' && _rep.i>0){ _rep.i--; repPintar(); }
+  else if(e.key==='Enter' && document.activeElement && document.activeElement.id!=='rep-otro'){
+    const c=_rep.cola[_rep.i]; if(c.base!=null) repConfirmar(c.base);
+  }
+});
 
 // Emite la factura de EXTERNOS de todo el mes. Es la otra factura, separada de la de consumo:
 // va como 'proveedor_extra' y cae en su propia columna de la cuenta corriente.

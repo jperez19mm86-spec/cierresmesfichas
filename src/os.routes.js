@@ -1847,21 +1847,41 @@ function mount(app) {
     if (base_pct === undefined || base_pct === null || base_pct === '') return err(res, 400, 'falta base_pct');
     ok(res, { confirmada: externosSvc.confirmarBase(req.params.cliente, mes, base_pct) });
   }));
-  // Resumen de TODOS los clientes del mes (para ver el total y quién falta confirmar).
+  /**
+   * Resumen de TODOS los clientes del mes: el % de cada uno, el del mes anterior, y si ya se
+   * confirmó. Es lo que come el repaso.
+   *
+   * 🔴 ACÁ LEÍA LA COLUMNA EQUIVOCADA. Sacaba el % de `c.precio_base_pct`, que es un campo de la
+   * ficha — y el % NO vive ahí: es versionado (config_valores, vía historial.js), y esa columna
+   * está vacía para casi todos. Resultado: la pantalla cuyo trabajo es decir "quién falta
+   * confirmar" informaba 43 de 47 clientes SIN % base cuando en realidad faltaba UNO solo.
+   * El número bueno lo resuelve `baseDelMes`, que es la única función que responde esta pregunta
+   * en todo el sistema (mira el precio propio del panel, el confirmado del mes, y el vigente al
+   * cierre, en ese orden).
+   */
   app.get('/api/os/externos', wrap(async (req, res) => {
     const mes = req.query.mes || new Date().toISOString().slice(0, 7);
     const soloVendedor = req.query.vendedor || null;
+    // El mes anterior, para poder decir "sigue igual que en julio" en vez de sólo mostrar un número.
+    const [ay, am] = String(mes).split('-').map(Number);
+    const prevD = new Date(Date.UTC(ay, am - 2, 1));
+    const prev = prevD.getUTCFullYear() + '-' + String(prevD.getUTCMonth() + 1).padStart(2, '0');
     const lista = clientes.list().clientes
       .filter((c) => !soloVendedor || String(c.vendedor_id) === String(soloVendedor))
       .map((c) => {
         const g = externosSvc.baseGuardada(c.nombre, mes);
+        const r = externosSvc.baseDelMes(c, mes);
+        const rp = externosSvc.baseDelMes(c, prev);
         return {
-          cliente: c.nombre, id: c.id, esVendedor: !!c.es_vendedor, vendedor_id: c.vendedor_id || null,
-          base: g ? g.base_pct : (c.precio_base_pct != null ? String(c.precio_base_pct) : null),
-          confirmada: !!g, margenExtra: c.margen_externos_pct ?? null,
+          cliente: c.nombre, id: c.id, codigo: c.codigo,
+          esVendedor: !!c.es_vendedor, vendedor_id: c.vendedor_id || null,
+          base: r.valor != null ? String(r.valor) : null, fuente: r.fuente,
+          basePrev: rp.valor != null ? String(rp.valor) : null,
+          confirmada: !!g, confirmadoAt: g ? g.confirmadoAt : null,
+          margenExtra: c.margen_externos_pct ?? null,
         };
       });
-    ok(res, { mes, clientes: lista });
+    ok(res, { mes, prev, clientes: lista });
   }));
 
   // ───────── MOVIMIENTOS ─────────
