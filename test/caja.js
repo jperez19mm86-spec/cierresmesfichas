@@ -330,7 +330,18 @@ async function main() {
     await motor.cerrar();
   }
 
-  const fallaron = verificaciones.filter((v) => !v.ok);
+  /* 🔴 EL ARREGLO QUE NO LLEGA. Reportado dos veces el mismo error (`SubAgenteGXL`) con un día de
+   diferencia, ya corregido: el navegador traía `caja.html` fresco y `caja-conexion.js` de hasta
+   una hora antes. La pantalla y su conector tienen que caducar juntos. */
+{
+  const idx = require('fs').readFileSync(__dirname + '/../src/index.js', 'utf8');
+  check('el conector y la lógica caducan igual que la pantalla',
+    /SIEMPRE_FRESCO = \/\(\\.html\?\|caja-\(conexion\|logica\)\\.js\)\$\/i/.test(idx));
+  check('y lo demás sigue guardándose una hora',
+    /SIEMPRE_FRESCO\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(idx));
+}
+
+const fallaron = verificaciones.filter((v) => !v.ok);
   console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
   if (fallaron.length) {
     console.log('Fallaron:\n' + fallaron.map((v) => '  · ' + v.nombre).join('\n'));

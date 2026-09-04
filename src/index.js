@@ -1601,9 +1601,19 @@ app.get('/logo.png', (_req, res, next) => {
    tiempo: si alguna cambia, cambia la versión. Va antes del estático general, que da una hora. */
 app.use('/img', express.static(path.join(__dirname, '..', 'public', 'img'),
   { maxAge: '30d', immutable: true }));
+/* 🔴 EL PANEL Y SU CEREBRO TIENEN QUE CADUCAR JUNTOS. `caja.html` se servía con `no-cache` y
+   `caja-conexion.js` con una hora: el navegador se traía la pantalla nueva y seguía usando el
+   conector viejo. Durante la semana de pruebas eso significa que un arreglo desplegado tarda
+   hasta una hora en llegarle a quien está probando — y mientras tanto reporta como error algo que
+   ya está corregido, que fue justo lo que pasó el 4-sep-2026 con `SubAgenteGXL` (arreglado el
+   3-sep a las 14:34 y reportado de nuevo al día siguiente). Peor todavía: la mezcla de pantalla
+   nueva con conector viejo puede romper cosas que ninguna de las dos versiones rompe sola.
+   `no-cache` NO es «no guardes», es «preguntá si cambió»: con el ETag que ya manda express eso se
+   contesta con un 304 sin cuerpo. */
+const SIEMPRE_FRESCO = /(\.html?|caja-(conexion|logica)\.js)$/i;
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, ruta) => {
-    res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');
+    res.setHeader('Cache-Control', SIEMPRE_FRESCO.test(ruta) ? 'no-cache' : 'public, max-age=3600');
   },
 }));
 app.get('*', (_req, res) => {
