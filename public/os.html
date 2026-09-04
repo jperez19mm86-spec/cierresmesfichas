@@ -2084,15 +2084,27 @@ async function fotoSacar(cxId, nivel, rehacer){
 }
 
 
-async function facEmitir(confirmado) {
+async function facEmitir(confirmado, sinPreguntar) {
   const mes = val('fac-mes');
-  if (!confirmado && !confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nAntes se contrasta contra los paneles del casino. Genera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
+  if (!confirmado && !sinPreguntar && !confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nAntes se contrasta contra los paneles del casino. Genera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
+  // El contraste consulta el casino panel por panel y tarda más de un minuto. Un toast se va en dos
+  // segundos y deja la pantalla igual que antes: parece que el botón no hizo nada.
+  const espera = document.getElementById('fac-emi-out');
+  if (espera) espera.innerHTML = '<div class="card" style="background:var(--bg3)"><b>'
+    + (confirmado ? '⏳ Emitiendo…' : '⏳ Contrastando contra los paneles del casino…') + '</b>'
+    + '<div class="muted" style="margin-top:4px">'
+    + (confirmado ? 'Generando un movimiento por cliente.'
+       : 'Se le pregunta a cada panel por su historial, moneda por moneda. Suele tardar entre uno y dos minutos. No cierres esta pantalla.')
+    + '</div></div>';
   toast(confirmado ? 'Emitiendo…' : 'Contrastando contra los paneles… puede tardar');
   const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes, confirmado: !!confirmado }) });
   // El panel es la validación: si no cuadra, no se emite a ciegas. Se muestra qué no cuadra y
   // recién ahí se puede confirmar.
   if (!r.ok && r.requiereConfirmacion) return pintarValidacion(r.validacion, mes, r.paraRevisar);
-  if (!r.ok) return toast('Error: ' + (r.error || ''));
+  if (!r.ok) {
+    if (espera) espera.innerHTML = '<div class="card"><span class="badge err">Error: ' + esc(r.error || '') + '</span></div>';
+    return toast('Error: ' + (r.error || ''));
+  }
   const box = document.getElementById('fac-emi-out'); if (box) box.innerHTML = '';
   toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (r.yaEstaban ? ' · ' + r.yaEstaban + ' ya estaban' : '') + (r.enCero ? ' · ' + r.enCero + ' en cero (no se emiten)' : ''));
   // A quién NO se le cobró y por qué. El toast se va; esto se queda.
@@ -2244,13 +2256,13 @@ async function difResolver(arg, decision) {
     { method: 'POST', body: JSON.stringify({ ...d, decision, motivo }) });
   if (!r.ok) return toast('No se pudo: ' + (r.error || ''));
   toast('Marcada');
-  facEmitir();          // se vuelve a contrastar: el total tiene que bajar
+  facEmitir(false, true);   // se vuelve a contrastar sin volver a preguntar: el total tiene que bajar
 }
 async function difDesresolver(clave) {
   const r = await api('/api/os/validacion/resolver/' + clave, { method: 'DELETE' });
   if (!r.ok) return toast('No se pudo');
   toast('Vuelve a estar pendiente');
-  facEmitir();
+  facEmitir(false, true);
 }
 
 async function facAnular() {

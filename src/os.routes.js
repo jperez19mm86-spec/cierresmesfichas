@@ -3427,7 +3427,11 @@ function mount(app) {
     return {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
-      origen, avisoPuente, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, vendedores, huerfanas,
+      origen, avisoPuente, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, huerfanas,
+      /* Los vendedores que DE VERDAD quedaron afuera: los que no aparecen en la tabla. Desde que un
+         vendedor con % base sí se factura por sus propias cargas, listarlos a todos como "afuera
+         por diseño" era mentira en pantalla — David y Julian estaban ahí Y facturando. */
+      vendedores: vendedores.filter((n) => !out.some((c) => (c.nombre || c.codigo) === n)),
       // Cargas que se le facturaron a otro (por la marca del panel) y cargas que no se cobran.
       ruteadas, sinCobrar, paraRevisar,
       totales: {
