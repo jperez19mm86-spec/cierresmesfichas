@@ -96,8 +96,10 @@ function update(id, patch) {
   const enFoto = patch.en_foto !== undefined ? (patch.en_foto ? 1 : 0) : (p.en_foto ? 1 : 0);
   const alias = patch.alias !== undefined ? normAlias(patch.alias) : (p.alias || []);
   db.prepare(`UPDATE paneles SET cliente_id=@cli,nombre=@nombre,sistema=@sistema,tipo=@tipo,nivel_usuario=@nivel,
-      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,alias=@alias,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid,en_foto=@enfoto WHERE id=@id`).run({
+      id_usuario=@idu,usa_config_cliente=@ucc,divisas=@div,alias=@alias,usuario=@usuario,montosRapidos=@montos,notas=@notas,conexion_id=@cxid,en_foto=@enfoto,consumo_a=@consumoA WHERE id=@id`).run({
     id, cli: f('cliente_id', p.cliente_id), nombre: String(f('nombre', p.nombre)).trim(), sistema: f('sistema', p.sistema),
+    // sólo 'dueno' y 'ninguno' se guardan: cualquier otra cosa vuelve al default, que es el código
+    consumoA: ['dueno', 'ninguno'].includes(f('consumo_a', p.consumo_a)) ? f('consumo_a', p.consumo_a) : null,
     tipo: f('tipo', p.tipo), nivel, idu: String(f('id_usuario', p.id_usuario)).trim(),
     ucc: (patch.usa_config_cliente !== undefined ? (patch.usa_config_cliente ? 1 : 0) : (p.usa_config_cliente ? 1 : 0)),
     enfoto: enFoto,

@@ -1204,6 +1204,12 @@ function bloquePaneles(c){
        <td><input value="${esc((p.alias||[]).join(', '))}" placeholder="—" style="width:150px"
             title="Si el sistema de pedidos lo escribe distinto (463.life vs 463.live), poné acá esa otra forma. Separá con comas."
             onchange="setAlias('${p.id}', this.value)"></td>
+       <td><select style="width:150px" onchange="setConsumoA('${p.id}', this.value)"
+            title="A quién se le cobra lo que entra a este panel. Por el código es lo normal, y es lo correcto cuando el panel es de la misma persona con otra cuenta (los de JJ son de Marcelo, los de Ariel son de Fran).">
+         <option value="" ${!p.consumo_a?'selected':''}>al del código</option>
+         <option value="dueno" ${p.consumo_a==='dueno'?'selected':''}>al dueño del panel</option>
+         <option value="ninguno" ${p.consumo_a==='ninguno'?'selected':''}>no genera deuda</option>
+       </select></td>
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
      </tr>`).join('') || '<tr><td colspan="7" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
    </table>
@@ -1802,6 +1808,18 @@ async function setAlias(id, txt){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({alias:txt})});
   toast(r.ok?'Nombres guardados':'✗ '+((r&&r.error)||'error'));
 }
+/* A quién se le cobra lo que entra a un panel. Cambia lo que se factura, así que se avisa en el
+   momento con lo que implica — no es una preferencia de pantalla. */
+async function setConsumoA(id, v){
+  const que = v==='dueno' ? 'Lo que entre a este panel se le va a cobrar a SU DUEÑO, sin importar con qué código se pidió.'
+    : v==='ninguno' ? 'Lo que entre a este panel NO va a generar deuda a nadie.'
+    : 'Lo que entre a este panel se le va a cobrar al cliente del CÓDIGO del pedido (lo normal).';
+  if(!confirm(que+'\n\nAfecta la facturación de los meses que todavía no se emitieron. ¿Confirmás?')) return VIEWS.clientes();
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({consumo_a: v||null})});
+  toast(r.ok?'Listo':'No se pudo');
+  VIEWS.clientes();
+}
+
 async function delPanel(id){
   const p=(_paneles||[]).find(x=>x.id===id);
   if(!confirm('¿Eliminar el panel "'+((p&&p.nombre)||id)+'"?'))return;
@@ -2066,17 +2084,106 @@ async function fotoSacar(cxId, nivel, rehacer){
 }
 
 
-async function facEmitir() {
+async function facEmitir(confirmado) {
   const mes = val('fac-mes');
-  if (!confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nGenera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
-  toast('Emitiendo…');
-  const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes }) });
+  if (!confirmado && !confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nAntes se contrasta contra los paneles del casino. Genera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
+  toast(confirmado ? 'Emitiendo…' : 'Contrastando contra los paneles… puede tardar');
+  const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes, confirmado: !!confirmado }) });
+  // El panel es la validación: si no cuadra, no se emite a ciegas. Se muestra qué no cuadra y
+  // recién ahí se puede confirmar.
+  if (!r.ok && r.requiereConfirmacion) return pintarValidacion(r.validacion, mes, r.paraRevisar);
   if (!r.ok) return toast('Error: ' + (r.error || ''));
+  const box = document.getElementById('fac-emi-out'); if (box) box.innerHTML = '';
   toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (r.yaEstaban ? ' · ' + r.yaEstaban + ' ya estaban' : '') + (r.enCero ? ' · ' + r.enCero + ' en cero (no se emiten)' : ''));
   // A quién NO se le cobró y por qué. El toast se va; esto se queda.
   pintarSalteados('fac-emi-out', r, 'cliente');
   facturar();
 }
+/**
+ * EL AVISO: qué no cuadra entre lo que se factura y lo que registran los paneles.
+ *
+ * Las tres cosas se separan porque no son lo mismo en plata:
+ *   · se cobra de más → le estamos cobrando fichas que el panel no registra haberle dado
+ *   · no se cobra     → el panel le entregó fichas que ningún pedido respalda
+ *   · sin validar     → el casino no contestó por ese panel o esa moneda: no se sabe
+ * Y se cuentan aparte las que llegaron bien por un camino que NO es la venta directa, para poder
+ * decir "estas no son un problema, es cómo entrega el vendedor" en vez de dejarlas como ruido.
+ */
+function pintarValidacion(v, mes, paraRevisar) {
+  const box = document.getElementById('fac-emi-out');
+  if (!box) return toast('El contraste encontró diferencias');
+  // Las que no se le cobran a NADIE van primero y solas: es lo único que no puede quedar tapado.
+  const revisar = (paraRevisar || []).length
+    ? '<div class="card" style="background:rgba(217,83,79,.10);border-color:rgba(217,83,79,.5)">'
+      + '<b style="color:var(--red)">🔴 ' + paraRevisar.length + ' carga(s) no se le cobran a NADIE</b>'
+      + '<div class="muted" style="margin-top:4px">Cayeron en un panel marcado como de tránsito, pero no aparecen cobradas a ningún cliente más abajo.</div>'
+      + '<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Panel</th><th>Código</th><th>Moneda</th><th class="right">Monto</th></tr></thead><tbody>'
+      + paraRevisar.map(x => '<tr><td>' + esc(x.fecha) + ' <span class="muted">' + esc(x.hora) + '</span></td><td>' + esc(x.panel) + '</td>'
+          + '<td><span class="pill">' + esc(x.codigo) + '</span></td><td>' + esc(x.divisa) + '</td><td class="right">' + money(x.monto,2) + '</td></tr>').join('')
+      + '</tbody></table></div>'
+    : '';
+  if (!v || !v.ok) { box.innerHTML = revisar + '<div class="card"><span class="badge err">Además, no se pudo contrastar contra los paneles</span>'
+      + '<div class="row" style="margin-top:8px"><button class="danger" onclick="facEmitir(true)">Emitir igual, ya lo vi</button>'
+      + '<button class="outline" onclick="document.getElementById(\'fac-emi-out\').innerHTML=\'\'">Cancelar</button></div></div>'; return; }
+  const T = v.totales;
+  const $ = (x) => money(x, 2);
+  const chip = (n, txt, col) => n ? '<span class="badge ' + col + '" style="margin-right:6px">' + txt + '</span>' : '';
+
+  const filas = (v.porCliente || []).map(c =>
+    '<tr><td><b>' + esc(c.nombre) + '</b>' + (c.es_vendedor ? ' <span class="muted">(vendedor)</span>' : '')
+      + '<div class="muted" style="font-size:11px">' + esc((c.paneles || []).join(' · ')) + '</div></td>'
+    + '<td class="right">' + (c.cargasSinRegistro ? '<b style="color:var(--red)">' + c.cargasSinRegistro + '</b> · ' + $(c.cobraDeMas_usdt) : '<span class="muted">—</span>') + '</td>'
+    + '<td class="right">' + (c.ventasSinPedido ? '<b style="color:var(--gold)">' + c.ventasSinPedido + '</b> · ' + $(c.noSeCobra_usdt) : '<span class="muted">—</span>') + '</td>'
+    + '<td class="right">' + (c.cargasSinValidar ? c.cargasSinValidar + ' · ' + $(c.sinValidar_usdt) : '<span class="muted">—</span>') + '</td>'
+    + '<td class="right">' + (c.deOtroCliente ? '<b style="color:var(--red)">' + c.deOtroCliente + '</b>' : '<span class="muted">—</span>') + '</td>'
+    // Se informan aunque no sean plata: una prueba es una prueba hasta que alguien la mira.
+    + '<td class="right">' + (c.dosVeces ? '<b style="color:var(--red)">' + c.dosVeces + '</b> · ' + $(c.dosVeces_usdt) : '<span class="muted">—</span>') + '</td>'
+    + '<td class="right">' + (c.pruebas ? c.pruebas + ' · ' + $(c.pruebas_usdt) : '<span class="muted">—</span>') + '</td>'
+    + '<td class="right">' + (c.sinTc ? '<b style="color:var(--gold)">' + c.sinTc + '</b>' : '<span class="muted">—</span>') + '</td></tr>').join('');
+
+  box.innerHTML =
+    revisar
+    + (v.totales.anteriorAlCorte
+      ? '<div class="card" style="background:rgba(196,86,173,.09);border-color:rgba(196,86,173,.5)">'
+        + '<b style="color:var(--gold)">📅 Este mes es anterior a julio de 2026</b>'
+        + '<div class="muted" style="margin-top:4px">El árbol de paneles no estaba armado como ahora: se cargaba a nodos intermedios '
+        + 'que después bajaban al destino, y quedó más de un pedido por una sola entrega. Lo de abajo hay que leerlo con eso puesto.</div></div>'
+      : '')
+    + '<div class="card" style="background:rgba(196,86,173,.09);border-color:rgba(196,86,173,.5)">'
+    + '<b style="color:var(--gold)">⚠ El contraste contra los paneles encontró diferencias</b>'
+    + '<div class="muted" style="margin-top:4px">El panel del casino es la validación de lo que se factura. '
+      + T.cruzan + ' de ' + T.cargas + ' cargas aparecen en el historial de su panel · '
+      + T.panelesQueCuadran + ' de ' + T.panelesMirados + ' paneles cuadran.</div>'
+    + '<div style="margin-top:8px">'
+      + chip(Number(T.cobraDeMas_usdt) > 0 || T.clientesConDiferencias, 'se cobra de más: ' + $(T.cobraDeMas_usdt) + ' USDT', 'err')
+      + chip(1, 'no se cobra: ' + $(T.noSeCobra_usdt) + ' USDT', 'warn')
+      + chip(T.panelesSinValidar, T.panelesSinValidar + ' panel(es) sin validar · ' + $(T.sinValidar_usdt) + ' USDT', 'warn')
+      + chip(T.cobradasDosVeces, T.cobradasDosVeces + ' entrega(s) FACTURADAS DOS VECES · ' + $(T.dosVeces_usdt) + ' USDT', 'err')
+      + chip(T.cargasDePaso, T.cargasDePaso + ' carga(s) de un vendedor que bajaron a un cliente y se cobran a los dos', 'err')
+      + chip(T.deOtroCliente, T.deOtroCliente + ' carga(s) vinieron del árbol de otro cliente', 'err')
+      + chip(T.probablesPruebas, T.probablesPruebas + ' que parecen prueba o reposición · ' + $(T.pruebas_usdt) + ' USDT', 'warn')
+      + chip(T.sinTcNoMedible, T.sinTcNoMedible + ' que NO se pudieron medir: falta el tipo de cambio', 'err')
+    + '</div>'
+    // Lo que llegó bien por un camino que no es la venta directa. No es un problema, pero si no se
+    // dice parece que faltan cargas.
+    + ((T.entregadasPorVendedor || T.bajaronDeSuArbol || T.comprasDeVendedor || T.pasesEntrePaneles)
+        ? '<div class="muted" style="margin-top:6px">Sin problema: '
+          + [T.entregadasPorVendedor ? T.entregadasPorVendedor + ' carga(s) entregadas por el árbol de un vendedor' : '',
+             T.bajaronDeSuArbol ? T.bajaronDeSuArbol + ' que bajaron por el propio árbol del cliente' : '',
+             T.pasesEntrePaneles ? T.pasesEntrePaneles + ' pase(s) de fichas entre sus propios paneles' : '',
+             T.pasesAMano ? T.pasesAMano + ' que parecen pases hechos a mano (tienen su retiro en otro panel suyo)' : '',
+             T.comprasDeVendedor ? T.comprasDeVendedor + ' compra(s) mayoristas de un vendedor' : ''].filter(Boolean).join(' · ')
+          + '.</div>' : '')
+    + (filas ? '<table style="margin-top:10px"><thead><tr><th>Cliente</th><th class="right">Se cobra de más</th><th class="right">No se cobra</th><th class="right">Sin validar</th><th class="right">De otro cliente</th><th class="right">Dos veces</th><th class="right">Prueba</th><th class="right">Sin TC</th></tr></thead><tbody>' + filas + '</tbody></table>' : '')
+    + '<div class="row" style="margin-top:10px">'
+      + '<button class="danger" onclick="facEmitir(true)">Emitir igual, ya lo vi</button>'
+      + '<button class="outline" onclick="document.getElementById(\'fac-emi-out\').innerHTML=\'\'">Cancelar</button>'
+    + '</div>'
+    + '<div class="muted" style="margin-top:6px">Queda guardado qué se validó y quién decidió emitir con esto a la vista.</div>'
+    + '</div>';
+  box.scrollIntoView({ block: 'start' });
+}
+
 async function facAnular() {
   const mes = val('fac-mes');
   if (!confirm('¿Anular la emisión de ' + mes + '?\n\nBorra SOLO los movimientos que generó esa emisión. Lo cargado a mano no se toca.')) return;
@@ -2090,10 +2197,17 @@ async function facAnular() {
 // Junta las dos facturas (consumo y externos) más la cuenta corriente, en un documento para
 // mandarle al cliente. Los números salen de las mismas funciones que las pantallas: lo que se
 // manda no puede diferir de lo que se ve acá.
-async function verFactura(clienteId) {
-  const mes = val('fac-mes');
-  toast('Armando la factura…');
-  const r = await api('/api/os/factura/' + clienteId + '?mes=' + encodeURIComponent(mes));
+// `conCruce` va aparte porque consulta el casino una vez por panel y por moneda: la factura se
+// abre muchas veces al día y no puede pagar eso siempre. Se pide con el botón.
+// De dónde se abrió la factura, para que el ← vuelva ahí. Se abre desde 🧾 Factura de consumo y
+// también desde 📒 Cuenta del cliente, que está mirando OTRO mes.
+let _facVolverA = 'facturacion';
+function facVolver(){ if(_facVolverA === 'cuenta'){ _movSub='cliente'; go('movimientos'); } else go('facturacion'); }
+
+async function verFactura(clienteId, conCruce) {
+  const mes = val('fac-mes') || _facMes;
+  toast(conCruce ? 'Consultando los paneles… puede tardar' : 'Armando la factura…');
+  const r = await api('/api/os/factura/' + clienteId + '?mes=' + encodeURIComponent(mes) + (conCruce ? '&cruce=1' : ''));
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   const $ = (x) => money(x, 2);
   const cons = r.consumo ? ('<div class="card" style="margin:8px 0"><b>Cargas del mes</b>'
@@ -2149,11 +2263,53 @@ async function verFactura(clienteId) {
        + '<div style="max-height:340px;overflow:auto;margin-top:6px"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Panel</th><th>Moneda</th><th class="right">Monto</th></tr></thead><tbody>'
        + r.detalle.map(d => '<tr' + (d.anulando ? ' style="opacity:.6"' : '') + '><td>' + esc(d.fecha) + '</td><td class="muted">' + esc(d.hora) + '</td><td>' + esc(d.panel) + '</td><td>' + esc(d.divisa) + '</td><td class="right">' + money(d.monto,2) + (d.anulando ? ' <span class="muted">(anulando)</span>' : '') + '</td></tr>').join('')
        + '</tbody></table></div></div>') : '';
+  // ───────── ¿lo que se pidió es lo que registra el panel? ─────────
+  // Ojo con lo que se compara: la columna "Casino" de la pantalla anterior mira el `in` del nodo,
+  // que es lo que depositan los JUGADORES. Esto mira el historial de balance, que es fila por fila
+  // lo que entró a la cuenta — y es lo único que se puede contrastar contra una carga.
+  const cruceHtml = (() => {
+    if (!r.cruce) return '';
+    if (!r.cruce.ok) return '<div class="card" style="margin:8px 0"><b>Contraste con los paneles</b><div class="muted">No se pudo: ' + esc(r.cruce.error||'') + '</div></div>';
+    const T = r.cruce.totales;
+    const fila = (p) => {
+      const cab = '<tr style="background:var(--bg3)"><td colspan="4"><b>' + esc(p.panel) + '</b>'
+        + (p.noSePuedeVerificar
+            ? ' <span class="muted">— ' + esc(p.noSePuedeVerificar) + '</span>'
+            : ' <span class="' + (p.cuadra ? 'badge ok' : 'badge warn') + '">' + (p.cuadra ? 'cuadra' : 'revisar') + '</span>'
+              + ' <span class="muted">· ' + p.pedidas + ' pedidas · el panel registra ' + p.registradas + ' venta(s)'
+              + (p.internos ? ' · ' + p.internos + ' que bajaron de arriba' : '')
+              + (p.devoluciones ? ' · ' + p.devoluciones + ' devolución(es)' : '') + '</span>')
+        + (p.incompleto ? '<div class="muted" style="color:var(--red)">⚠ el casino no devolvió: ' + p.incompleto.map(x=>esc(x.divisa)+' ('+esc(x.error)+')').join(' · ') + '</div>' : '')
+        + '</td></tr>';
+      // Cada moneda por separado: sumar pesos con dólares no significa nada.
+      const divs = (p.porDivisa||[]).map(d => '<tr><td class="muted" style="padding-left:18px">' + esc(d.divisa) + '</td>'
+        + '<td class="right">' + money(d.monto,2) + '</td>'
+        + '<td class="right">' + d.cruzan + ' de ' + d.pedidas + '</td>'
+        + '<td>' + (d.cruzan === d.pedidas ? '<span class="muted">todas aparecen en el panel</span>' : '<span style="color:var(--gold)">faltan ' + (d.pedidas-d.cruzan) + '</span>') + '</td></tr>').join('');
+      // Y acá lo que pediste: CADA diferencia con su motivo, no un total que no se puede explicar.
+      const difs = (p.diferencias||[]).map(d => {
+        if (d.tipo === 'pedida_sin_registro') return '<tr><td colspan="2" style="padding-left:18px">🔸 <b>' + esc(d.carga.fecha) + ' ' + esc(d.carga.hora) + '</b> · ' + esc(d.carga.divisa) + ' ' + money(d.carga.monto,2) + '</td><td colspan="2" class="muted">se pidió y el panel no la registra como venta — ' + esc(d.motivo) + '</td></tr>';
+        if (d.tipo === 'registrada_y_devuelta') return '<tr><td colspan="2" style="padding-left:18px;opacity:.6">↩ ' + esc(d.venta.fecha||'(sin hora)') + ' · ' + esc(d.venta.divisa) + ' ' + money(d.venta.monto,2) + '</td><td colspan="2" class="muted">' + esc(d.motivo) + '</td></tr>';
+        return '<tr><td colspan="2" style="padding-left:18px">🔴 ' + esc(d.venta.fecha||'(sin hora)') + ' · ' + esc(d.venta.divisa) + ' ' + money(d.venta.monto,2) + (d.venta.iniciador?' <span class="muted">· '+esc(d.venta.iniciador)+'</span>':'') + '</td><td colspan="2" style="color:var(--red)">' + esc(d.motivo) + '</td></tr>';
+      }).join('');
+      return cab + divs + difs;
+    };
+    return '<div class="card" style="margin:8px 0"><b>Contraste con los paneles</b>'
+      + '<div class="muted" style="margin-top:4px">' + T.cruzan + ' de ' + T.pedidas + ' cargas aparecen en el historial del panel · '
+      + T.panelesQueCuadran + ' de ' + r.cruce.paneles.length + ' paneles cuadran'
+      + (T.sinPedido ? ' · <span style="color:var(--red)">' + T.sinPedido + ' venta(s) que nadie pidió</span>' : '')
+      + (T.panelesSinVerificar ? ' · ' + T.panelesSinVerificar + ' sin verificar' : '') + '</div>'
+      + '<table style="margin-top:6px"><thead><tr><th>Panel / moneda</th><th class="right">Pedido</th><th class="right">Cruzan</th><th></th></tr></thead><tbody>'
+      + r.cruce.paneles.map(fila).join('')
+      + '</tbody></table></div>';
+  })();
+
   const html =
     '<div id="fac-doc">'
     + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
-    + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '') + '</div>'
-    + cons + porPanel + det + extHtml
+    + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '')
+      + (r.detalleDe ? ' · detalle: ' + esc(r.detalleDe) : '') + '</div>'
+    + cons + porPanel + det + cruceHtml + extHtml
     + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b>'
     + (r.totalMes_local ? '<div style="margin-top:2px;font-weight:700;color:var(--muted)">' + (r.totalMes_local.aproximado?'≈ ':'') + $(r.totalMes_local.monto) + ' ' + esc(r.totalMes_local.divisa) + '</div>' : '')
     + '</div>'
@@ -2170,9 +2326,10 @@ async function verFactura(clienteId) {
     + '<button onclick="facturaCopiar()">📋 Copiar para mandar</button>'
     + '<button class="outline" onclick="facturaImprimir()">🖨 Imprimir / PDF</button>'
     + '<button class="outline" onclick="facturaEnviar(\'' + r.cliente.id + '\')">✈️ Enviar al grupo del cliente</button>'
+    + (r.cruce ? '' : '<button class="outline" onclick="verFactura(\'' + r.cliente.id + '\', true)">🔍 Contrastar contra los paneles</button>')
     + '</div>'
     + '<textarea id="fac-texto" style="position:absolute;left:-9999px">' + esc(r.textoConDetalle || r.texto) + '</textarea>';
-  document.getElementById('main').innerHTML = '<div class="card"><button class="outline small" onclick="VIEWS.facturacion()">← volver</button></div>' + html;
+  document.getElementById('main').innerHTML = '<div class="card"><button class="outline small" onclick="facVolver()">← volver</button></div>' + html;
 }
 
 // Manda la factura al grupo de Telegram DEL CLIENTE. Sale para afuera: se pregunta siempre, y
@@ -3774,6 +3931,7 @@ const MOV = {};
 VIEWS.movimientos = async () => {
   const subs = [
     ['cuenta', '💳 Cuenta y pagos'],
+    ['cliente', '📒 Cuenta del cliente'],
     ['pendientes', '⏳ Por aprobar' + (_cmpPend ? ' (' + _cmpPend + ')' : '')],
     ['historial', '🧾 Ya resueltos'],
   ];
@@ -3784,6 +3942,101 @@ VIEWS.movimientos = async () => {
   await (MOV[_movSub] || MOV.cuenta)();
 };
 function movSub(s){ _movSub=s; VIEWS.movimientos(); }
+
+/* ───────── 📒 LA CUENTA DE UN CLIENTE, MES A MES ─────────────────────────────────────────────
+   Lo que faltaba: poder abrir un cliente y ver qué se le facturó hace tres o cinco meses, qué
+   pagó y de qué mes viene el arrastre — sin volver a calcularlo, porque el cálculo de hoy no es
+   el de entonces. Y al lado de cada mes, si lo que se le cobró estaba validado contra sus paneles
+   o se emitió igual. */
+let _mcCli = '';
+
+MOV.cliente = async () => {
+  if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  const orden = _clientes.slice().sort((a,b)=>String(a.codigo||'').localeCompare(String(b.codigo||'')));
+  if(!_mcCli && orden.length) _mcCli = orden[0].id;
+  document.getElementById('mov-body').innerHTML = `
+    <div class="card">
+      <h2>📒 Cuenta del cliente</h2>
+      <div class="muted" style="margin-bottom:8px">Mes por mes: qué se le facturó, qué pagó y cómo viene el saldo. Al lado de cada mes, qué dijo el contraste contra sus paneles cuando se emitió.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1 1 260px"><label>Cliente</label><select id="mc-sel" onchange="mcVer(this.value)">${
+          orden.map(c=>`<option value="${c.id}" ${c.id===_mcCli?'selected':''}>${esc(c.codigo)} ${esc(c.nombre||'')}</option>`).join('')
+          ||'<option value="">(sin clientes)</option>'}</select></div>
+      </div>
+    </div>
+    <div id="mc-out"><div class="card"><div class="muted">Cargando…</div></div></div>`;
+  await mcPintar();
+};
+function mcVer(id){ _mcCli = id; mcPintar(); }
+
+async function mcPintar(){
+  const dest = document.getElementById('mc-out'); if(!dest) return;
+  if(!_mcCli){ dest.innerHTML = '<div class="card"><div class="empty">Elegí un cliente.</div></div>'; return; }
+  dest.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/cuenta/'+encodeURIComponent(_mcCli));
+  if(!r.ok){ dest.innerHTML = '<div class="card"><span class="badge err">Error: '+esc(r.error||'')+'</span></div>'; return; }
+  const cc = r.cuenta||{}, meses = r.meses||[];
+  const signo = (x)=>Number(x)>0?'var(--gold)':(Number(x)<0?'var(--green)':'inherit');
+
+  // El estado del contraste de ese mes. Un mes sin validar no se pinta como si estuviera bien.
+  const val = (m)=>{
+    const v = m.validacion;
+    if(!v) return '<span class="muted" title="Ese mes se emitió antes de que se contrastara contra los paneles">sin contrastar</span>';
+    const p = [];
+    if(v.cuadra) p.push('<span class="badge ok">cuadra</span>');
+    else {
+      if(Number(v.cobraDeMas_usdt)>0) p.push('<span class="badge err" title="Fichas que se le cobraron y el panel no registra">de más '+money(v.cobraDeMas_usdt,2)+'</span>');
+      if(Number(v.noSeCobra_usdt)>0) p.push('<span class="badge warn" title="Fichas que el panel le entregó sin pedido">sin cobrar '+money(v.noSeCobra_usdt,2)+'</span>');
+      if(Number(v.sinValidar_usdt)>0) p.push('<span class="badge warn" title="El casino no contestó por ese panel o esa moneda">sin validar '+money(v.sinValidar_usdt,2)+'</span>');
+      if(!p.length) p.push('<span class="badge warn">revisar</span>');
+    }
+    if(v.confirmadoAt) p.push('<span class="muted" title="Se emitió con las diferencias a la vista">✔ '+esc(String(v.confirmadoPor||'')) +'</span>');
+    return p.join(' ');
+  };
+
+  const filas = meses.map(m=>
+    '<tr><td><b>'+esc(m.mes)+'</b></td>'
+    + '<td class="right">'+(Number(m.consumo)?money(m.consumo,2):'<span class="muted">—</span>')+'</td>'
+    + '<td class="right">'+(Number(m.externos)?money(m.externos,2):'<span class="muted">—</span>')+'</td>'
+    + '<td class="right">'+(Number(m.otros)?money(m.otros,2):'<span class="muted">—</span>')+'</td>'
+    + '<td class="right"><b>'+money(m.facturado,2)+'</b></td>'
+    + '<td class="right" style="color:var(--green)">'+(Number(m.pagos)?money(m.pagos,2):'<span class="muted">—</span>')+'</td>'
+    + '<td class="right" style="font-weight:700;color:'+signo(m.saldo_acumulado)+'">'+money(m.saldo_acumulado,2)+'</td>'
+    + '<td>'+val(m)+'</td>'
+    + '<td class="right" style="white-space:nowrap">'
+      + '<button class="outline small" title="Ver la factura de este mes" onclick="mcFactura(\''+m.mes+'\')">📄</button> '
+      + '<button class="outline small" title="Copiar el link para el cliente" onclick="mcLink(\''+m.mes+'\')">🔗</button>'
+    + '</td></tr>').join('');
+
+  dest.innerHTML =
+    '<div class="row" style="align-items:stretch">'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Consumo pendiente</label><div style="font-size:20px;font-weight:800">'+money(cc.fichas_pendientes,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Externos pendientes</label><div style="font-size:20px;font-weight:800">'+money(cc.proveedores_pendientes,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Pagado</label><div style="font-size:20px;font-weight:800;color:var(--green)">'+money(cc.pagos,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Saldo</label><div style="font-size:20px;font-weight:800;color:'+signo(cc.total)+'">'+money(cc.total,2)+'</div>'
+      + '<div class="muted" style="font-size:11px">USDT · '+(Number(cc.total)<0?'lo que tiene a favor':(Number(cc.total)>0?'lo que debe hoy':'está al día'))+'</div></div>'
+    + '</div>'
+    + '<div class="card"><h2>Mes a mes <span class="muted">(todo en USDT)</span></h2>'
+    + '<table><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Facturado</th><th class="right">Pagado</th><th class="right">Saldo</th><th>Contra el panel</th><th></th></tr></thead><tbody>'
+    + (filas || '<tr><td colspan="9" class="empty">Este cliente no tiene ningún movimiento todavía.</td></tr>')
+    + '</tbody></table>'
+    + '<div class="muted" style="margin-top:6px">El <b>saldo</b> va acumulado: incluye lo que arrastra de los meses anteriores.</div>'
+    // Antes de julio de 2026 el árbol de paneles no estaba armado como ahora: se cargaba a nodos
+    // intermedios que después bajaban al destino, y quedaban dos pedidos por una sola entrega.
+    // Esos meses están cerrados y no se tocan — pero tampoco se leen como si fueran comparables.
+    + (meses.some(m => m.mes < '2026-07')
+        ? '<div class="card" style="background:rgba(196,86,173,.09);border-color:rgba(196,86,173,.5);margin-top:10px">'
+          + '<b style="color:var(--gold)">📅 Los meses anteriores a julio de 2026 están cerrados</b>'
+          + '<div class="muted" style="margin-top:4px">En esos meses se cargaba a nodos intermedios que después bajaban al destino, '
+          + 'y quedó <b>más de un pedido por una sola entrega</b>. Los números están como se emitieron y <b>no se tocan</b>, '
+          + 'pero no son comparables con los de julio en adelante ni sirven para contrastar contra los paneles.</div></div>'
+        : '')
+    + '</div>';
+}
+
+// Abrir la factura de un mes desde la cuenta: el mes lo manda la fila, y el ← tiene que volver acá.
+function mcFactura(mes){ _facVolverA='cuenta'; _facMes=mes; verFactura(_mcCli); }
+function mcLink(mes){ _facMes=mes; facturaLink(_mcCli); }
 
 MOV.pendientes = () => pintarComprobantes('pendiente', false);
 MOV.historial  = () => pintarComprobantes(_cmpFiltro, true);

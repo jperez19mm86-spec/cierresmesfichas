@@ -53,6 +53,7 @@ const comprobantes = require('./comprobantes-store');
 const emision = require('./emision.service');
 const ventasOnline = require('./ventas-online.service');
 const facturaSvc = require('./factura.service');
+const crucePanel = require('./cruce-panel.service');
 const vendedoresSvc = require('./vendedores.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
@@ -3232,15 +3233,19 @@ function mount(app) {
       origen = 'pedidos del sistema en línea';
       }
     }
+    let ruteadas = []; let sinCobrar = []; let paraRevisar = [];
     if (!Object.keys(ventasCli).length) {
-      const locales = pedidosStore.ventasDelMes(mes);
-      const porCodigo = {};
-      clientes.list().clientes.forEach((c) => { porCodigo[String(c.codigo).toLowerCase()] = c.id; });
-      for (const [cod, v] of Object.entries(locales)) {
-        const id = porCodigo[cod.toLowerCase()];
-        if (!id) { huerfanas.push({ codigo: cod, pedidos: v.count, porDivisa: Object.entries(v.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })) }); continue; }
-        ventasCli[id] = { ...v, codigos: [cod] };
-      }
+      /* El ruteo lo decide cada panel (`consumo_a`), no el código a secas: hay paneles que son de
+         la misma persona con otra cuenta (los de JJ son de Marcelo, los de Ariel de Fran) y hay
+         paneles de tránsito de un vendedor donde cobrar sería cobrar dos veces la misma entrega.
+         Lo que se ruteó distinto y lo que no se cobra se devuelve, para que no pase en silencio. */
+      const r = pedidosStore.ventasDelMesPorCliente(mes);
+      ventasCli = r.porCliente;
+      ruteadas = r.ruteadas; sinCobrar = r.sinCobrar; paraRevisar = r.paraRevisar;
+      huerfanas = huerfanas.concat((r.sinCliente || []).map((x) => ({
+        codigo: x.codigo, pedidos: x.count,
+        porDivisa: Object.entries(x.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })),
+      })));
     }
 
     // 2) EL CONTROL: lo que dice el casino. Si falla, se informa y se sigue.
@@ -3307,10 +3312,18 @@ function mount(app) {
     for (const c of clientes.list().clientes) {
       const v = ventasCli[c.id] || null;
       const cps = linked.filter((p) => p.cliente_id === c.id);
-      if (c.es_vendedor) {
-        if (v || cps.length) vendedores.push(c.nombre || c.nombreVisible || c.codigo);
-        continue;
-      }
+      /* ── UN VENDEDOR TAMBIÉN CONSUME ────────────────────────────────────────────────────────
+         Antes se los salteaba enteros, y con eso se perdían las cargas que llevan SU código —
+         las que carga para sí mismo, no las que pasan hacia sus clientes. Medido jun-ago 2026:
+         364.965 USDT que no generaban deuda a nadie. Julian tenía 4 cargas propias en M7Martin-SA
+         y David 8 en sus paneles, todas con su código y ninguna de paso.
+         Lo que separa una cosa de la otra es el CÓDIGO del pedido, que ya viene resuelto: lo que
+         va hacia un cliente lleva el código del cliente y se le factura a él.
+         Y lo que decide si al vendedor se le cobra es su % base: en 0 no se le cobra nada, que es
+         el caso de IGLatam (regla de la dueña: «IGLatamYa no se cobra, sólo lo que se cobran a los
+         usuarios abajo»). Se lo sigue listando aparte para que se vea que es vendedor. */
+      if (c.es_vendedor && (v || cps.length)) vendedores.push(c.nombre || c.nombreVisible || c.codigo);
+      if (c.es_vendedor && !v) continue;          // vendedor sin cargas propias: nada que facturar
 
       // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
       // de un panel no se puede aplicar acá: si un cliente tiene paneles con precios distintos, hay
@@ -3381,6 +3394,10 @@ function mount(app) {
         porDivisa,
         sinTC: sinTCCliente,          // las monedas de ESTE cliente que no se pudieron pasar a USDT
         paneles: cps.map((p) => p.nombre),
+        // Con qué código(s) se pidieron estas cargas. La factura lo necesita para traer el detalle
+        // de los MISMOS pedidos que forman el total: si eligiera por su cuenta, las líneas podrían
+        // no sumar el número de arriba.
+        codigos: (v && v.codigos) || [c.codigo],
       });
       totVend = money.add(totVend, vendUsdt);
       totFee = money.add(totFee, feeUsdt);
@@ -3411,6 +3428,8 @@ function mount(app) {
       mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
       fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
       origen, avisoPuente, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, vendedores, huerfanas,
+      // Cargas que se le facturaron a otro (por la marca del panel) y cargas que no se cobran.
+      ruteadas, sinCobrar, paraRevisar,
       totales: {
         vendido_usdt: money.round(totVend, 2),
         fee_usdt: money.round(totFee, 2),
@@ -3490,6 +3509,72 @@ function mount(app) {
   // ───────── PASAR LO FACTURADO A LA DEUDA ─────────
   // Emitir es EXPLÍCITO y no se puede duplicar: hay un índice único en la base sobre
   // (cliente, origen, mes). Volver a emitir el mismo mes no agrega nada.
+  // ───────── 📒 LA CUENTA DE UN CLIENTE, MES A MES ─────────
+  //
+  // El agujero que cerraba: no había dónde ver qué se le facturó a un cliente hace tres o cinco
+  // meses. La factura se armaba en pantalla y se iba; para saber qué se le había cobrado en mayo
+  // había que volver a calcularlo, y el cálculo de hoy no es el de entonces.
+  //
+  // Sale de los MOVIMIENTOS, que son la deuda de verdad, así que también muestra los meses viejos.
+  // El saldo va acumulado hacia adelante a propósito: deber 20.000 no es lo mismo si son de este
+  // mes o si vienen arrastrando desde marzo.
+  app.get('/api/os/cuenta/:clienteId', (req, res) => {
+    const cli = clientes.get(req.params.clienteId);
+    if (!cli) return err(res, 404, 'cliente no encontrado');
+    const movimientos = movs.list({ cliente_id: cli.id });
+
+    const meses = {};
+    const fila = (m) => (meses[m] = meses[m] || {
+      mes: m, consumo: '0', externos: '0', otros: '0', pagos: '0',
+      facturado: '0', movimientos: 0,
+    });
+    for (const mv of movimientos) {
+      const m = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(m)) continue;
+      const f = fila(m); f.movimientos += 1;
+      const u = mv.monto_usdt || '0';
+      if (mv.tipo === 'carga') f.consumo = money.add(f.consumo, u);
+      else if (mv.tipo === 'proveedor_extra') f.externos = money.add(f.externos, u);
+      else if (mv.tipo === 'pago') f.pagos = money.add(f.pagos, u);
+      else if (mv.tipo === 'bonificacion') f.otros = money.sub(f.otros, u);
+      else f.otros = money.add(f.otros, u);
+    }
+
+    const filas = Object.values(meses).sort((a, b) => a.mes.localeCompare(b.mes));
+    let acum = '0';
+    for (const f of filas) {
+      f.facturado = money.round(money.add(money.add(f.consumo, f.externos), f.otros), 2);
+      acum = money.sub(money.add(acum, f.facturado), f.pagos);
+      f.saldo_acumulado = money.round(acum, 2);
+      ['consumo', 'externos', 'otros', 'pagos'].forEach((k) => { f[k] = money.round(f[k], 2); });
+      // Qué decía el contraste contra los paneles ese mes, para ESTE cliente. Es lo que permite
+      // mirar hacia atrás y saber si lo que se le cobró estaba validado o se emitió igual.
+      const v = crucePanel.leer(f.mes);
+      const suyo = v && v.datos && (v.datos.porCliente || []).find((x) => x.cliente_id === cli.id);
+      f.validacion = v ? {
+        validadoAt: v.validadoAt, confirmadoAt: v.confirmadoAt, confirmadoPor: v.confirmadoPor,
+        cuadra: !suyo,
+        cobraDeMas_usdt: suyo ? suyo.cobraDeMas_usdt : '0',
+        noSeCobra_usdt: suyo ? suyo.noSeCobra_usdt : '0',
+        sinValidar_usdt: suyo ? suyo.sinValidar_usdt : '0',
+      } : null;
+    }
+    filas.reverse();
+    ok(res, { cliente: { id: cli.id, codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
+      cuenta: deudaSvc.cuentaCorriente(cli.id), meses: filas });
+  });
+
+  // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
+  // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
+  app.get('/api/os/validacion/:mes', wrap(async (req, res) => {
+    if (req.query.correr === '1') {
+      const v = await crucePanel.cruzarMes(req.params.mes);
+      if (!v.ok) return err(res, 502, v.error);
+      crucePanel.guardar(v);
+    }
+    ok(res, { validacion: crucePanel.leer(req.params.mes) });
+  }));
+
   app.get('/api/os/emision/:mes', (req, res) => ok(res, emision.emitido(req.params.mes)));
   /**
    * Generar hacia atrás la deuda de las cargas de un mes.
@@ -3524,6 +3609,32 @@ function mount(app) {
 
   app.post('/api/os/emision/facturacion', wrap(async (req, res) => {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+
+    /* ── EL PANEL ES LA VALIDACIÓN: NO SE EMITE SIN HABERLA MIRADO ────────────────────────────
+       Emitir convierte el número en deuda. Si una carga que se factura no existe en el panel se
+       está cobrando de más; si el panel entregó fichas que nadie pidió, no se está cobrando. Las
+       dos cosas cuadran igual en todas las pantallas, que es la forma cara de estar mal.
+       Así que antes de emitir se contrasta contra los paneles. No BLOQUEA —el casino puede estar
+       lento o no devolver una moneda, y el mes tiene que poder cerrarse— pero no se puede emitir
+       sin haber visto el resultado: la primera llamada devuelve las diferencias y pide confirmar.
+       La validación queda guardada, con quién confirmó, para poder mirarla meses después. */
+    if (!(req.body && req.body.confirmado)) {
+      // Lo que el ruteo dejó SIN COBRAR A NADIE: cargas en un panel de tránsito que no aparecen
+      // cobradas más abajo. La marca del panel no las puede hacer desaparecer sin que alguien las vea.
+      const previa = await _facturacionDe(mes, { control: false });
+      const revisar = (previa && previa.paraRevisar) || [];
+      const v = await crucePanel.cruzarMes(mes);
+      if (v.ok) crucePanel.guardar(v);
+      if (revisar.length || (v.ok && crucePanel.hayQueMirar(v))) {
+        return res.status(409).json({ ok: false, requiereConfirmacion: true,
+          error: revisar.length
+            ? `hay ${revisar.length} carga(s) que no se le cobran a nadie, y el contraste contra los paneles puede tener más: mirá el detalle antes de emitir`
+            : 'el contraste contra los paneles encontró diferencias: mirá el detalle antes de emitir',
+          paraRevisar: revisar,
+          validacion: v.ok ? v : null });
+      }
+    }
+
     // el mismo cálculo que muestra la pantalla, para que no puedan diferir
     const fac = await _facturacionDe(mes, { control: false });
     // ── LO QUE YA ESTÁ CARGA POR CARGA NO SE VUELVE A COBRAR ──────────────────────────────────
@@ -3567,7 +3678,12 @@ function mount(app) {
     }).filter(Boolean);
     const r = emision.emitir({ mes, origen: 'facturacion', lineas });
     if (!r.ok) return err(res, 400, r.error);
-    ok(res, { ...r, sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
+    // Queda el rastro de que se emitió con las diferencias a la vista, y de quién lo decidió.
+    if (req.body && req.body.confirmado) {
+      const guardada = crucePanel.leer(mes);
+      if (guardada && guardada.datos) crucePanel.guardar(guardada.datos, { confirmadoPor: (req.usuario && req.usuario.usuario) || 'admin' });
+    }
+    ok(res, { ...r, validacion: crucePanel.leer(mes), sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
       // Quiénes quedaron sin emitir por falta de tipo de cambio: es lo que hay que destrabar.
       fallaron: recortados,
       // Quiénes ya tenían su deuda cargada carga por carga, y cuánto se aparta del cálculo mensual.
@@ -3669,6 +3785,9 @@ function mount(app) {
     const f = await facturaSvc.armar({
       clienteId: req.params.clienteId, mes, consumo: linea,
       conExternos: req.query.externos !== '0',
+      // El cruce contra el panel va APAGADO por defecto: consulta el casino una vez por panel y
+      // por moneda, y la factura se abre muchas veces al día. Se pide con ?cruce=1.
+      conCruce: req.query.cruce === '1',
     });
     if (!f.ok) return err(res, 404, f.error);
     ok(res, { ...f, texto: facturaSvc.aTexto(f), textoConDetalle: facturaSvc.aTexto(f, { detalle: true }) });

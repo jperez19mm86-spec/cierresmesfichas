@@ -4,7 +4,9 @@
   "description": "LATAM Games OS — sistema comercial/financiero sobre la MATRIZ de venta de fichas (clientes, paneles, participaciones, proveedores, TC, movimientos, reportes).",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node test/smoke.js && node test/factura-cruce.js",
+    "test:factura": "node test/factura-cruce.js"
   },
   "engines": {
     "node": "22.x"

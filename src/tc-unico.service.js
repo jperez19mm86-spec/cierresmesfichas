@@ -64,12 +64,34 @@ function manual(divisa, mes) {
  *   `conflicto` viene cargado cuando dos fuentes difieren más de un 1%: no cambia el número que se
  *   usa (manda el de la regla), pero deja que la pantalla lo muestre.
  */
+/* 🇻🇪 VES y VEF son la MISMA moneda con dos códigos, y el casino devuelve las dos.
+   Regla de la dueña (3-sep-2026): «con VES, tenés, como regla, que usar el mismo que usemos en VEF».
+   Sin esto, un mes con el TC cargado sólo en VEF dejaba lo movido en VES fuera del total —
+   sin error, sin aviso, simplemente sin cobrar. Se resuelve en el único lugar donde se pide un TC
+   para que no dependa de que alguien se acuerde de cargar las dos. */
+const ALIAS_DIVISA = { VES: 'VEF' };
+
 function tcDelMes(divisa, mes) {
   const D = String(divisa || 'ARS').toUpperCase();
   const m = String(mes || '').slice(0, 7);
   if (D === 'USD' || D === 'USDT') {
     return { valor: '1', fuente: 'el dólar es la unidad', divisa: D, mes: m, fuentes: {}, conflicto: null };
   }
+  // Si la moneda tiene alias, se prueba primero con la suya y se cae a la del alias. Al revés no:
+  // se informa con qué se resolvió, para que en pantalla no parezca que VES tenía su propio TC.
+  if (ALIAS_DIVISA[D]) {
+    const propio = _tcCrudo(D, m);
+    if (propio.valor != null) return propio;
+    const alias = _tcCrudo(ALIAS_DIVISA[D], m);
+    if (alias.valor != null) {
+      return { ...alias, divisa: D, fuente: `${alias.fuente} (de ${ALIAS_DIVISA[D]}: es la misma moneda)` };
+    }
+    return { ...propio, divisa: D };
+  }
+  return _tcCrudo(D, m);
+}
+
+function _tcCrudo(D, m) {
 
   // 🔑 El PESO se cotiza contra el dólar cripto, no contra el oficial: su promedio automático es
   // el de Binance/criptoya (tc_snapshots → tc_mes), NO el de la fuente de cotizaciones oficiales

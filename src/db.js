@@ -313,6 +313,23 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS cierre_mes_snapshot (
     mes TEXT PRIMARY KEY, datos TEXT, createdAt TEXT, notas TEXT
   );
+  /* LA VALIDACION CONTRA LOS PANELES DE UN MES, guardada.
+     El panel del casino es la validacion de lo que se factura: si una carga que se cobra no existe
+     en el panel se esta cobrando de mas, y si el panel entrego fichas que nadie pidio no se esta
+     cobrando. Eso se mira ANTES de emitir, que es cuando el numero se vuelve deuda.
+     Se guarda porque preguntarselo al casino de nuevo cinco meses despues no devuelve lo mismo
+     —los paneles se renombran, se dan de baja, cambian de conexion— y porque hay que poder ver
+     que se valido y que se dejo pasar cuando se emitio, no lo que daria hoy.
+     La columna confirmado_por deja el rastro de quien decidio emitir igual con las diferencias
+     a la vista. */
+  CREATE TABLE IF NOT EXISTS validacion_mes (
+    mes TEXT PRIMARY KEY,
+    datos TEXT,                    -- el resultado completo (JSON)
+    cobra_de_mas TEXT, no_se_cobra TEXT, sin_validar TEXT,
+    clientes_con_diferencias INTEGER,
+    validado_at TEXT,
+    confirmado_at TEXT, confirmado_por TEXT
+  );
   CREATE TABLE IF NOT EXISTS cierre_link (
     casino TEXT PRIMARY KEY,   -- proveedor que sale del casino "MARCA VENDOR" (ej "RUBYPLAY XG")
     matriz TEXT,               -- proveedor de la matriz de % (ej "RUBYPLAY OP")
@@ -395,6 +412,19 @@ ensureColumns('paneles', { conexion_id: 'TEXT' });
 // dueño del código en vez de a quien recibió las fichas. `alias` deja registrar esas otras formas
 // sin tener que renombrar nada en el casino, que es donde el nombre no lo elegimos nosotros.
 ensureColumns('paneles', { alias: 'TEXT' });   // JSON array de nombres alternativos
+
+/* A QUIÉN SE LE COBRA lo que entra a este panel. Tres valores, y ninguno se adivina:
+   · 'codigo'  (por defecto) — al cliente del código del pedido. Es lo que venía haciendo el
+                sistema y lo correcto cuando el panel es de la misma persona con otra cuenta:
+                Marcelo carga en los paneles de JJ y JJ *es* Marcelo; Fran en los de Ariel, igual.
+   · 'dueno'   — al cliente dueño del panel, sin importar con qué código se pidió. Caso Rafael-SA:
+                entró con el código de Alexa y se le cobra a Rafael.
+   · 'ninguno' — no genera deuda. Son los paneles de tránsito de un vendedor, por donde bajan las
+                fichas hacia sus clientes: RMIglatamAlexa e IgLatamAlexa. Cobrar ahí sería cobrar
+                dos veces la misma entrega.
+   Decisión de la dueña, 3-sep-2026. El default deja el comportamiento anterior intacto: sólo
+   cambia lo que se marque a mano. */
+ensureColumns('paneles', { consumo_a: 'TEXT' });
 
 // ¿Este panel entra en la Foto del mes? La Foto existe para no tener que preguntarle al casino en
 // vivo cuando se saca el reporte de externos. Sacar un panel de la Foto NO rompe nada: su reporte

@@ -342,6 +342,137 @@ function ventasDelMes(mes) {
 }
 
 /**
+ * ⭐ EL DETALLE CARGA POR CARGA de un mes — lo que hace que la factura se pueda auditar.
+ *
+ * Es el mismo universo que `ventasDelMes` (cargados + anulando del mes, la fecha sale de
+ * `resueltoAt` y si falta de `createdAt`), pero fila por fila en vez de sumado. Tiene que ser la
+ * MISMA función la que decide qué entra: si el detalle mostrara un pedido que el total no cuenta,
+ * el cliente sumaría las líneas y le daría otra cosa.
+ *
+ * Cada fila lleva el NODO del casino (`userId`), que es lo que después permite cruzar la carga
+ * contra el movimiento real del panel.
+ */
+function detalleDelMes(mes) {
+  // El nombre del panel se resuelve por el NODO del casino, no por el texto que quedó guardado en
+  // el pedido. Dos motivos:
+  //   · el mismo panel viene escrito distinto según cuándo se cargó (`cash365.vip` / `Cash365.vip`,
+  //     `Celuapuestas-SA` / `CeluApuestas-SA`), y así "Por panel" lo partía en dos filas;
+  //   · si un panel se renombró, las cargas viejas seguían mostrando el nombre anterior y el
+  //     cliente no las reconocía como suyas.
+  // El nodo no cambia nunca, así que es la única llave estable. Si ese nodo no está registrado
+  // como panel se deja el texto del pedido, que es lo único que hay.
+  const porNodo = {};
+  try {
+    require('./paneles-store').list().forEach((p) => { if (p.id_usuario) porNodo[String(p.id_usuario)] = p.nombre; });
+  } catch (e) { /* sin padrón de paneles el detalle sale igual, con el nombre del pedido */ }
+  const out = [];
+  for (const p of load().pedidos) {
+    if (p.estado !== 'cargado' && p.estado !== 'anulando') continue;
+    const f = String(p.resueltoAt || p.createdAt || '');
+    if (mes && f.slice(0, 7) !== mes) continue;
+    out.push({
+      id: p.id,
+      codigo: String(p.codigo || '—'),
+      fecha: f.slice(0, 10),
+      hora: f.slice(11, 16),
+      iso: f,
+      panel: porNodo[String(p.userId || '')] || p.cajaUsuario || p.userId || '—',
+      panelPedido: p.cajaUsuario || null,   // cómo estaba escrito cuando se cargó
+      userId: String(p.userId || ''),
+      sistema: p.sistema || '',
+      divisa: String(p.divisa || 'ARS').toUpperCase(),
+      monto: Number(p.monto) || 0,
+      anulando: p.estado === 'anulando',
+    });
+  }
+  out.sort((a, b) => String(a.iso).localeCompare(String(b.iso)));
+  return out;
+}
+
+/**
+ * ⭐ LO VENDIDO DEL MES, YA RUTEADO AL CLIENTE QUE LO PAGA.
+ *
+ * `ventasDelMes` agrupa por CÓDIGO, y el código no siempre dice quién paga. Cada panel puede
+ * decidirlo con `consumo_a`:
+ *
+ *   'codigo'  (default) → al cliente del código. Correcto cuando el panel es de la misma persona
+ *                         con otra cuenta: Marcelo carga en los de JJ y JJ *es* Marcelo; Fran en
+ *                         los de Ariel, igual. 213 cargas dependen de esto.
+ *   'dueno'             → al dueño del panel. `Rafael-SA` recibió una carga con el código de Alexa
+ *                         y se le cobra a Rafael.
+ *   'ninguno'           → panel de TRÁNSITO de un vendedor, por donde bajan las fichas hacia sus
+ *                         clientes. Pero no se descarta a ciegas: 🔴 SE VERIFICA que esa misma
+ *                         entrega esté cobrada abajo. Regla de la dueña (3-sep-2026): «hay que
+ *                         verificar si se cobran a un cliente. Si cobran a un cliente, no generan
+ *                         deuda; si no, hay que revisarlo».
+ *                         Una marca ciega se tragaría justo las que NO se cobraron a nadie, que son
+ *                         las únicas que importan. Verificado: de las 5 cargas en los paneles de
+ *                         tránsito de Alexa, 3 bajaron a clientes y 2 no — esas dos hay que verlas.
+ *
+ * Devuelve además QUÉ se ruteó distinto, qué no se cobró y qué quedó PARA REVISAR, porque una carga
+ * que cambia de dueño o que deja de cobrarse no puede pasar en silencio.
+ */
+function ventasDelMesPorCliente(mes) {
+  let paneles = []; let clientes = [];
+  try { paneles = require('./paneles-store').list(); } catch (e) { /* sin padrón se rutea por código */ }
+  try { clientes = require('./clientes-store').list().clientes; } catch (e) { /* idem */ }
+  const porNodo = {}; paneles.forEach((p) => { if (p.id_usuario) porNodo[String(p.id_usuario)] = p; });
+  const porCodigo = {}; clientes.forEach((c) => { porCodigo[String(c.codigo).toLowerCase()] = c; });
+
+  const porCliente = {}; const sinCliente = {}; const ruteadas = []; const sinCobrar = []; const paraRevisar = [];
+  const todas = detalleDelMes(mes);
+  /** ¿Esta misma entrega aparece cobrada más abajo, con el código de otro cliente? */
+  const bajoAUnCliente = (d) => todas.find((x) => x.id !== d.id
+    && x.divisa === d.divisa && Math.abs(x.monto - d.monto) < 0.01
+    && String(x.codigo).toLowerCase() !== String(d.codigo).toLowerCase()
+    && Math.abs(Date.parse(x.iso) - Date.parse(d.iso)) <= 5 * 60 * 1000);
+  const bolsa = (dest) => (porCliente[dest] = porCliente[dest] || {
+    count: 0, porDivisa: {}, porUserId: {}, anulando: { count: 0, porDivisa: {} }, codigos: new Set(),
+  });
+
+  for (const d of todas) {
+    const pan = porNodo[d.userId];
+    const delCodigo = porCodigo[String(d.codigo).toLowerCase()];
+    const modo = (pan && pan.consumo_a) || 'codigo';
+
+    if (modo === 'ninguno') {
+      const abajo = bajoAUnCliente(d);
+      if (abajo) {
+        sinCobrar.push({ ...d, panel: pan ? pan.nombre : d.panel, cobradaEn: abajo.panel, conCodigo: abajo.codigo,
+          motivo: `bajó a ${abajo.panel} y ahí se cobra con el código ${abajo.codigo}: cobrarla acá sería cobrarla dos veces` });
+        continue;
+      }
+      // 🔴 No bajó a ningún cliente: NO se la traga la marca. Queda para revisar y el mes no se
+      // puede emitir sin haberla visto.
+      paraRevisar.push({ ...d, panel: pan ? pan.nombre : d.panel,
+        motivo: 'ese panel es de tránsito, pero esta carga no aparece cobrada a ningún cliente más abajo' });
+      continue;
+    }
+    const destino = modo === 'dueno' && pan && pan.cliente_id ? pan.cliente_id : (delCodigo ? delCodigo.id : null);
+    if (!destino) {
+      const s = sinCliente[d.codigo] = sinCliente[d.codigo] || { codigo: d.codigo, count: 0, porDivisa: {} };
+      s.count += 1; s.porDivisa[d.divisa] = (s.porDivisa[d.divisa] || 0) + d.monto;
+      continue;
+    }
+    if (modo === 'dueno' && delCodigo && delCodigo.id !== destino) {
+      ruteadas.push({ ...d, deCodigo: delCodigo.nombre, aCliente: (clientes.find((c) => c.id === destino) || {}).nombre });
+    }
+    const o = bolsa(destino);
+    o.codigos.add(d.codigo);
+    if (d.anulando) {
+      o.anulando.count += 1;
+      o.anulando.porDivisa[d.divisa] = (o.anulando.porDivisa[d.divisa] || 0) + d.monto;
+      continue;
+    }
+    o.count += 1;
+    o.porDivisa[d.divisa] = (o.porDivisa[d.divisa] || 0) + d.monto;
+    if (d.userId) o.porUserId[d.userId] = (o.porUserId[d.userId] || 0) + d.monto;
+  }
+  Object.values(porCliente).forEach((o) => { o.codigos = [...o.codigos]; });
+  return { porCliente, sinCliente: Object.values(sinCliente), ruteadas, sinCobrar, paraRevisar };
+}
+
+/**
  * Borra un pedido. Para sacar los que se sembraron de prueba o los que se crearon por error.
  *
  * Es acotado a propósito: los pedidos son la base de lo que se le cobra a cada cliente, así que
@@ -374,4 +505,4 @@ function marcarAviso(id, { ok, error }) {
 }
 
 module.exports = { marcarAviso, create, importar, get, setEstado, setCascada, tomarParaCargar, soltarCarga,
-  destrabarAlArrancar, destrabarCarga, marcarEnCurso, quitarEnCurso, estaEnCurso, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, remove, seed: save, FILE };
+  destrabarAlArrancar, destrabarCarga, marcarEnCurso, quitarEnCurso, estaEnCurso, tomarParaAnular, revertirAnulando, list, counts, ventasCargadasMes, ventasDelMes, ventasDelMesPorCliente, detalleDelMes, remove, seed: save, FILE };

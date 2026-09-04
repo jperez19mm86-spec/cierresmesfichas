@@ -20,6 +20,8 @@ const movs = require('./movimientos-store');
 const externosSvc = require('./externos.service');
 const tcUnico = require('./tc-unico.service');
 const ventasOnline = require('./ventas-online.service');
+const pedidosStore = require('./pedidos-store');
+const crucePanel = require('./cruce-panel.service');
 const money = require('./lib/money');
 const crypto = require('crypto');
 const { db } = require('./db');
@@ -34,7 +36,7 @@ const nombreMes = (m) => {
  * @param consumo  la línea de ese cliente que devuelve la facturación del mes (ya calculada afuera,
  *                 para no volver a consultar el sistema en línea por cada factura)
  */
-async function armar({ clienteId, mes, consumo = null, conExternos = true, conDetalle = true }) {
+async function armar({ clienteId, mes, consumo = null, conExternos = true, conDetalle = true, conCruce = false }) {
   const cli = clientes.get(clienteId);
   if (!cli) return { ok: false, error: 'cliente no encontrado' };
   const m = String(mes || '').slice(0, 7);
@@ -52,12 +54,28 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
   // ── 1b) el detalle carga por carga, para que se pueda auditar ──
   // Sin esto el cliente ve un total y tiene que creernos. Con esto puede cruzar cada línea contra
   // lo que él pidió: fecha, panel, moneda y monto.
-  let detalle = null; let porPanel = null;
+  let detalle = null; let porPanel = null; let detalleDe = null;
   if (conDetalle) {
     try {
-      const d = await ventasOnline.detalleDelMes(m, cli.id);
-      if (d.ok) {
-        detalle = d.detalle;
+      // 🔴 DE DÓNDE SALE EL DETALLE
+      //
+      // Antes salía SOLO del puente al sistema en línea. El puente dejó de autenticar (401) y
+      // `armar` se comía el error en silencio: la facturación caía a los pedidos de acá y seguía
+      // dando el total correcto, pero el detalle volvía `null` — o sea que **al cliente le
+      // llegaba la factura con el total y sin una sola línea para auditar**, y nadie se enteraba.
+      //
+      // Ahora se prueba el puente y, si no contesta, se usan los pedidos de ESTE sistema, que
+      // desde la migración son los buenos. Se filtra por los MISMOS códigos con los que se armó
+      // el total, para que las líneas sumen lo de arriba y no otra cosa.
+      const d = await ventasOnline.detalleDelMes(m, cli.id).catch(() => ({ ok: false }));
+      if (d && d.ok && (d.detalle || []).length) { detalle = d.detalle; detalleDe = 'sistema en línea'; }
+      else {
+        const cods = new Set(((consumo && consumo.codigos) || [cli.codigo])
+          .filter(Boolean).map((x) => String(x).toLowerCase()));
+        detalle = pedidosStore.detalleDelMes(m).filter((x) => cods.has(String(x.codigo).toLowerCase()));
+        detalleDe = 'pedidos de este sistema';
+      }
+      if ((detalle || []).length) {
         const acc = {};
         for (const x of detalle) {
           const k = `${x.panel}|${x.divisa}`;
@@ -86,7 +104,23 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
           d.n = cuenta[k];                 // 1, 2, 3… dentro de SU panel
         });
       }
-    } catch (e) { /* si el puente no responde, la factura sale igual sin el detalle */ }
+    } catch (e) { /* si algo falla, la factura sale igual: el total no depende del detalle */ }
+  }
+
+  // ── 1c) ¿lo que se pidió coincide con lo que registra cada panel? ──
+  // Es el contraste que faltaba. La columna "Casino" de la pantalla compara contra el `in` del
+  // nodo, que es lo que depositan los JUGADORES — no las fichas que se le vendieron. Esto va
+  // contra el historial de balance, que sí es fila por fila lo que entró a la cuenta.
+  let cruce = null;
+  if (conCruce) {
+    try {
+      const r = await crucePanel.cruzar({
+        codigos: (consumo && consumo.codigos) || [cli.codigo],
+        mes: m,
+        detalle: detalleDe === 'pedidos de este sistema' ? detalle : null,
+      });
+      if (r.ok) cruce = r;
+    } catch (e) { cruce = { ok: false, error: String((e && e.message) || e) }; }
   }
 
   // ── 2) proveedores externos ──
@@ -237,7 +271,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
     emitidaEl: new Date().toISOString().slice(0, 10),
     tc: tcUnico.tcDelMes('ARS', m).valor,
     consumo: cons,
-    detalle, porPanel,
+    detalle, porPanel, detalleDe, cruce,
     externos: ext,
     totalMes_usdt: money.round(delMes, 2),
     totalMes_local: local ? { divisa: local.divisa, monto: local.total, aproximado: local.aproximado } : null,
