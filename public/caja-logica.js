@@ -70,11 +70,12 @@ const MENU_POR_NIVEL = {
   agente: ['users', 'dashboard', 'balance', 'sub'],
   /* El cajero no tiene sección de sub-usuarios: sus sub-cajeros salen de la ficha de la caja. */
   cajero: ['users', 'dashboard', 'balance'],
-  /* 🔴 EL SUB-CAJERO TAMPOCO TIENE RESUMEN, y por un motivo distinto al del sub-agente: el casino
-     se lo calcula, pero con el total de LA CAJA, no con lo que él ve. Medido el 2-sep-2026: su
-     lista mostraba 5 jugadores y el Resumen decía 8. Dos números que no coinciden en la misma
-     pantalla confunden y parece que faltan datos. Señalado por el dueño. */
-  subcajero: ['users', 'balance'],
+  /* 🔴 EL SUB-CAJERO SÍ TIENE RESUMEN. Un sub-cajero ve TODO lo de su caja —así está construido,
+     no filtra nada— y se comprobó el 2-sep-2026: lista exactamente los mismos 5 jugadores que ve
+     el agente. El «8» que decía el Resumen y no cerraba con esa lista no era un problema suyo:
+     ese número cuenta también las cuentas eliminadas (5 activas + 3 borradas = 8), y eso pasa en
+     todos los niveles. Se arregló ahí, que es donde estaba. */
+  subcajero: ['users', 'dashboard', 'balance'],
   /* 🔴 EL SUB-AGENTE NO TIENE RESUMEN. El motor le niega Movimientos, y el Resumen se lo contesta
      TODO EN CERO —medido el 2-sep-2026: el agente ve 13 jugadores y él 0, en su propio nodo y en
      la caja que sí tiene habilitada—. Llegamos a calcularlo sumando sus cajas, pero costaba una

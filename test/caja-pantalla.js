@@ -202,12 +202,15 @@ check('el cajero no ve la sección de sub-usuarios',
      mostraba 5 jugadores y el Resumen decía 8.
    Medidos los dos el 2-sep-2026. Una pantalla que muestra un número que no coincide con la de al
    lado confunde más de lo que informa. */
-check('el sub-cajero no tiene Resumen',
-  L.seccionesDe('subcajero', false).join(',') === 'users,balance',
+check('el sub-cajero SÍ tiene Resumen: ve todo lo de su caja',
+  L.seccionesDe('subcajero', false).join(',') === 'users,dashboard,balance',
   L.seccionesDe('subcajero', false).join(','));
-check('el sub-agente tampoco',
+check('el sub-agente no, porque el casino se lo contesta en cero',
   L.seccionesDe('agente', true).join(',') === 'users',
   L.seccionesDe('agente', true).join(','));
+check('y el total de cuentas ya no se llama «jugadores», porque cuenta las eliminadas',
+  /Cuentas en total/.test(htmlCaja) && !/Jugadores en total/.test(htmlCaja)
+  && /eliminadas[\s\S]{0,40}también cuentan/.test(htmlCaja));
 
 /* El permiso «sin estadísticas» sigue importando: el motor no lo hace cumplir, así que si el dueño
    se lo apagó, esta pantalla no le puede dejar ninguna puerta. */

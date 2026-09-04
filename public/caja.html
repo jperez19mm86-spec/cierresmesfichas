@@ -2642,7 +2642,15 @@ function pintarTablero(){
       fmt(caja ? caja.balance : yo().balance)} de saldo</span></div>
     <div class="tarjetas">
       <div class="tj"><svg class="tj-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M4.5 12a7.5 7.5 0 0115 0" opacity=".55"/><path d="M2 12a10 10 0 0120 0" opacity=".3"/></svg><div class="et">Jugando ahora</div><div class="vl num">${t.summary_stats.online_players}</div></div>
-      <div class="tj"><svg class="tj-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11.2a3 3 0 100-6M18 20c0-2.4-.9-4.2-2.3-5.2"/></svg><div class="et">Jugadores en total</div><div class="vl num">${t.summary_stats.total_players}</div></div>
+      <div class="tj"><svg class="tj-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 11.2a3 3 0 100-6M18 20c0-2.4-.9-4.2-2.3-5.2"/></svg><div class="et">Cuentas en total</div><div class="vl num">${t.summary_stats.total_players}</div></div>
+      ${/* 🔴 «CUENTAS», NO «JUGADORES». Ese número lo da el motor y CUENTA TAMBIÉN LAS ELIMINADAS:
+            medido el 2-sep-2026 sobre una caja con 5 jugadores activos y 3 borrados, decía 8. El
+            rótulo prometía otra cosa y no cerraba con la lista de al lado, que muestra 5.
+            Restarlas costaría una consulta más por visita —el motor no las separa— y ésta es una
+            pantalla que se abre seguido. Así que se dice lo que el número ES, y se apunta a dónde
+            están las que faltan. */''
+      }<div class="piepie" style="grid-column:1/-1;margin:-4px 0 2px">Las cuentas eliminadas
+        <b>también cuentan</b> acá. Las ves desde tu lista, abajo de todo.</div>
       <div class="tj ancha">
         ${/* «Movimientos» y no «Cargas y retiros»: el gráfico dibuja CUATRO series —ganancia,
               GGR, cargas y retiros— y el título nombraba dos. El que mira busca la ganancia en
