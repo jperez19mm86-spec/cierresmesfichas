@@ -6154,6 +6154,25 @@ async function main() {
       'si las dos ramas usaran la misma, o se cobra de más a los clientes o de menos a los vendedores');
   }
 
+  /* ── LA FACTURA DE UN MES NO COBRA EL MES SIGUIENTE ──────────────────────────────────────────
+     La factura de agosto de Marcelo mostraba "Saldo: 18.771,52", que es el de HOY — y ahí adentro
+     ya había 793,29 de septiembre. El cliente recibe un número que no se puede reconciliar con
+     nada de lo que dice la factura, y la conversación que sigue es "¿de dónde sale esto?".
+     Ahora el saldo se corta al mes que se factura; el de hoy sigue estando, abajo y con su nombre. */
+  {
+    const svc = fs.readFileSync(path.join(ROOT, 'src', 'factura.service.js'), 'utf8');
+    check('factura: el saldo se corta al mes que se factura',
+      /saldoAlCierre:/.test(svc) && /k \+ '-99' > hasta/.test(svc),
+      'sin el corte, agosto arrastraba los 793,29 de septiembre de Marcelo');
+    check('factura: los meses posteriores se marcan, no se esconden',
+      /posterior: a\.mes > m/.test(svc));
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('factura: la pantalla dice "al cierre de", no "Saldo" a secas',
+      /Saldo al cierre de/.test(h) && /r\.saldoAlCierre/.test(h));
+    check('factura: y sigue mostrando lo que debe HOY, con otro nombre',
+      /Hoy debe/.test(h), 'para cobrar sirve, pero es otra pregunta');
+  }
+
   /* ── UNA VARIABLE QUE NO EXISTE ROMPE LA PANTALLA EN SILENCIO ────────────────────────────────
      `calcularFac` ponía "⏳ calculando…", armaba el HTML con `_quedaPorHacer` —que se usaba y NUNCA
      se declaró— y reventaba ahí. La excepción no la agarraba nadie, así que la pantalla de Consumo

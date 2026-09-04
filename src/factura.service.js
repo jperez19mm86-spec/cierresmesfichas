@@ -299,9 +299,29 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
       }
       return Object.values(porMes)
         .map((a) => ({ ...a, esteMes: a.mes === m,
+          // Lo que pasó DESPUÉS del mes que se factura. Se marca en vez de esconderse: la factura
+          // de agosto no lo cobra, pero quien la mira tiene que poder ver que existe.
+          posterior: a.mes > m,
           consumo: money.round(a.consumo, 2), externos: money.round(a.externos, 2),
           pagos: money.round(a.pagos, 2), otros: money.round(a.otros, 2) }))
         .sort((a, b) => a.mes.localeCompare(b.mes));
+    })(),
+    /* ⭐ EL SALDO DE LA FACTURA ES EL DEL CIERRE DEL MES, NO EL DE HOY.
+       La factura de agosto mostraba el saldo de HOY, que ya arrastraba 793,29 de septiembre: el
+       cliente recibía un número que no se puede reconciliar con nada de lo que dice la factura.
+       Acá se corta al mes que se está facturando. El de hoy sigue viajando aparte, porque para
+       cobrar sirve — pero es otra pregunta y va con otro nombre. */
+    saldoAlCierre: (() => {
+      const hasta = m + '-99';                        // cualquier día de m entra; los de m+1 no
+      let t = '0';
+      for (const mv of movs.list({ cliente_id: cli.id })) {
+        const k = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(k) || k + '-99' > hasta) continue;
+        const u = mv.monto_usdt || '0';
+        if (mv.tipo === 'pago' || mv.tipo === 'bonificacion') t = money.sub(t, u);
+        else t = money.add(t, u);
+      }
+      return money.round(t, 2);
     })(),
     cuenta: {
       consumo_pendiente: cuenta.fichas_pendientes,

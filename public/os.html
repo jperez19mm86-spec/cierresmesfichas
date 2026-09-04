@@ -2672,7 +2672,8 @@ async function verFactura(clienteId, conCruce) {
        siguientes, y que los externos entran recién cuando se emite esa factura. */
     + ((r.saldoDesglose||[]).length
         ? '<table style="margin-top:6px"><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Pagos</th></tr></thead><tbody>'
-          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':'')+'><td>'+esc(x.mes)+(x.esteMes?' <span class="muted">(este mes)</span>':'')+'</td>'
+          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':(x.posterior?' style="opacity:.55"':''))+'><td>'+esc(x.mes)
+            +(x.esteMes?' <span class="muted">(este mes)</span>':(x.posterior?' <span class="muted">(posterior · no entra en esta factura)</span>':''))+'</td>'
             + '<td class="right">'+(Number(x.consumo)?money(x.consumo,2):'<span class="muted">—</span>')+'</td>'
             + '<td class="right">'+(Number(x.externos)?money(x.externos,2):'<span class="muted">—</span>')+'</td>'
             + '<td class="right">'+(Number(x.otros)?money(x.otros,2):'<span class="muted">—</span>')+'</td>'
@@ -2682,7 +2683,14 @@ async function verFactura(clienteId, conCruce) {
     + (Number(r.cuenta.externos_pendiente)===0 && r.externos && Number(r.externos.total_usdt||0)>0
         ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ Los ' + $(r.externos.total_usdt) + ' USDT de proveedores externos de este mes <b>todavía no están en el saldo</b>: esa factura se emite aparte, desde 🧮 Cierre de Mes.</div>'
         : '')
-    + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo: ' + $(r.cuenta.saldo) + ' USDT</div>'
+    /* El saldo de la factura es el del CIERRE del mes. Antes se ponía el de hoy, que ya arrastraba
+       lo del mes siguiente: el cliente recibía un número imposible de reconciliar con la factura.
+       El de hoy sigue estando, abajo y en chico, porque para cobrar sirve. */
+    + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo al cierre de ' + esc(r.mesNombre) + ': '
+    +   $(r.saldoAlCierre != null ? r.saldoAlCierre : r.cuenta.saldo) + ' USDT</div>'
+    + (r.saldoAlCierre != null && String(r.saldoAlCierre) !== String(r.cuenta.saldo)
+        ? '<div class="muted" style="margin-top:2px">Hoy debe <b>' + $(r.cuenta.saldo) + ' USDT</b>: '
+          + 'lo de después de ' + esc(r.mesNombre) + ' no entra en esta factura.</div>' : '')
     // Un saldo que todavía se mueve se dice que se mueve. Presentarlo como cerrado es peor que
     // no darlo: se manda, el cliente lo anota, y al cerrar el mes no coincide.
     + (Number(r.cuenta.esperandoTC||0) ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⏳ ' + r.cuenta.esperandoTC + ' pago(s) contados con el promedio del mes — se ajustan al cargar el TC del cierre</div>' : '')
