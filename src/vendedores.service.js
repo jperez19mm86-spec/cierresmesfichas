@@ -183,19 +183,38 @@ async function repartoCosto(mes) {
   // Lo PROPIO de cada nodo: lo suyo menos lo de los nodos con costo que cuelgan debajo.
   const esDescendiente = (hijo, ancestroNodo) =>
     (hijo.escala || []).some((x) => String(x.id) === String(ancestroNodo));
+  /* ── LA RESTA SÓLO ENTRE VENDEDORES, Y NO ES UN ATAJO ────────────────────────────────────────
+     Se probó restando TODO lo que cuelga debajo, de cualquier cliente, y no funciona: cada nivel
+     del casino es una consulta aparte con su propio filtro `profit > 0`, así que los hijos suman
+     MÁS que el padre y el resto da negativo. Medido en agosto 2026: `GanamosBot-SA` quedaba en
+     −431,83 sobre una base de 1.820,96, un 24% restado de más. Para cobrar eso no sirve.
+
+     Lo que SÍ es exacto y es el problema real: un vendedor cuyo panel cuelga del panel de OTRO
+     vendedor se cobra dos veces —los 176,80 de GanamosSarah estaban enteros adentro de IGLatam—.
+     Esa resta se hace entre pocos nodos, todos del mismo tipo, y cierra sin residuo.
+
+     Lo de un cliente que no es vendedor (Fran bajo Alexa, que comercialmente es de Julian) queda
+     como número INFORMATIVO en `rama_usdt`: saber cuánto vale esa rama se puede, atribuirlo al
+     centavo no, y un número que no cierra es peor que uno que falta. */
+  const esDeVendedor = {};
+  todos.filter((c) => c.es_vendedor && !esLaCasa(c)).forEach((v) => {
+    paneles.filter((p) => p.cliente_id === v.id).forEach((p) => { esDeVendedor[String(p.id_usuario)] = v.id; });
+  });
   const filas = [];
   for (const [k, v] of Object.entries(costo)) {
     const [nodo, divisa] = k.split('|');
     let ajeno = 0;
     for (const [k2, v2] of Object.entries(costo)) {
       if (k2 === k) continue;
-      const [, d2] = k2.split('|');
+      const [n2, d2] = k2.split('|');
       if (d2 !== divisa) continue;
+      if (!esDeVendedor[n2] || esDeVendedor[n2] === v.cliente_id) continue;   // sólo otro vendedor
       if (esDescendiente(v2.panel, nodo)) ajeno += v2.usdt;
     }
     filas.push({ nodo, divisa, panel: v.panel.nombre, cliente_id: v.cliente_id,
       rama_usdt: money.round(String(v.usdt), 2),
       propio_usdt: money.round(String(v.usdt - ajeno), 2),
+      yaArriba_usdt: money.round(String(ajeno), 2),
       grupo: grupoDe(v.cliente_id) });
   }
 
