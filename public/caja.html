@@ -1007,6 +1007,14 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .fila b{font-weight:600; text-align:right}
 .fila b.mas{color:var(--ok)} .fila b.menos{color:var(--no)}
 
+/* El aviso de «todo el saldo» ocupa el ancho entero: no es un dato al lado de otro, es lo que
+   relativiza el número de arriba.
+   ⚠️ NO llamarlo `.ojo`: esa clase ya es el botón «Ver» de las contraseñas, y una regla con el
+   mismo nombre acá abajo le pisa el fondo, el padding y el color en la pantalla de entrar. */
+.avisotodo{margin-top:9px; padding:10px 11px; border-radius:11px; background:var(--warn-soft);
+  color:var(--txt); font-size:12.5px; line-height:1.5}
+.avisotodo b{font-weight:700}
+
 .resultado{text-align:center; padding:6px 0 4px}
 /* 🔴 EL NÚMERO DE CASO. Discreto a propósito: no es para el operador, es para poder decirlo.
    «Me salió E-347» y del otro lado se ve quién fue, qué apretó y qué contestó el casino, sin que
@@ -4132,14 +4140,22 @@ function confirmarMov(){
       <div class="fila"><span>${viendoSalas()?'Cajero':'Jugador'}</span><b class="mono">${ACTUAL.login}</b></div>
       <div class="fila"><span>${TODO_EL_SALDO ? 'Todo el saldo' : 'Monto exacto'}</span>
         <b class="num ${carga?'mas':'menos'}">${carga?'+':'−'} ${fmt(v)}</b></div>
-      ${TODO_EL_SALDO && !carga ? `<div class="fila"><span>Ojo</span>
-        <b style="font-weight:600;color:var(--mut2);font-size:12.5px;text-align:right">${viendoSalas()
-          /* 🔴 EL AVISO TIENE QUE HABLARLE A QUIEN ES. «Aunque esté jugando» es para un jugador;
-             un cajero no juega, y decírselo hace dudar de todo el resto del cartel. El riesgo con
-             una caja es otro y también vale avisarlo: puede estar moviendo fichas en ese momento.
-             Reportado el 2-sep-2026 mirando la pantalla. */
-          ? 'se lleva lo que haya al confirmar; si está cargando fichas ahora, el número puede cambiar'
-          : 'se lleva lo que haya al confirmar, aunque esté jugando'}</b></div>` : ''}
+      ${TODO_EL_SALDO && !carga ? `<div class="avisotodo">
+        ${/* 🔴 EL AVISO TIENE QUE HABLARLE A QUIEN ES. «Aunque esté jugando» es para un jugador; un
+             cajero no juega, y decírselo hace dudar de todo el resto del cartel. El riesgo con una
+             caja es otro y también vale avisarlo: puede estar moviendo fichas en ese momento.
+             Reportado el 2-sep-2026 mirando la pantalla.
+
+             🔴 Y NO EXPLICABA NADA. Reportado el 4-sep-2026: «la información es confusa». Estaba
+             metido como una fila más de la tabla, con el rótulo «Ojo», al lado de números — se leía
+             como un dato suelto y no como lo que es: la advertencia de que EL NÚMERO DE ARRIBA
+             PUEDE NO SER EL QUE SE VAYA. Ahora lo dice con ese número, dice qué hace el casino, y
+             dice en qué caso sale distinto. */''}
+        <b>${fmt(v)} es lo que hay ahora.</b> Al tocar «Retirar ahora» el casino se lleva lo que
+        haya <b>en ese momento</b>, no este número: ${viendoSalas()
+          ? 'si el cajero está cargando o cobrando fichas justo ahora, se va a retirar otra cantidad.'
+          : 'si el jugador está jugando, se va a retirar otra cantidad.'}
+      </div>` : ''}
       <div class="fila"><span>Le queda</span><b class="num">${fmt(ACTUAL.balance + (carga?v:-v))}</b></div>
       ${yo().hide_hall_balance ? '' : `<div class="fila"><span>${DENTRO ? 'Le queda al cajero' : 'Te queda'}</span><b class="num">${fmt(bolsillo().balance + (carga?-v:v))}</b></div>`}
     </div>

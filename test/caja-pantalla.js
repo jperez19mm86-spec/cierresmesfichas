@@ -340,6 +340,23 @@ check('el aviso de «sin link» distingue el dominio del casino del de la caja',
 check('y aclara que con el usuario se entra igual',
   /con el usuario y la contraseña se entra igual/.test(conector));
 
+/* 🔴 UNA CLASE NUEVA QUE PISABA UNA VIEJA. `.ojo` ya era el botón «Ver» de las contraseñas;
+   agregar otra regla `.ojo` más abajo le cambiaba fondo, padding y color en la pantalla de entrar.
+   No lo vio ningún test: lo vio el navegador, buscando el aviso y encontrando el botón. */
+check('el aviso de «todo el saldo» no usa la clase del botón de ver la clave',
+  /<div class="avisotodo">/.test(htmlCaja)
+  && !/\$\{TODO_EL_SALDO && !carga \? `<div class="ojo">/.test(htmlCaja));
+check('y `.ojo` sigue siendo una sola cosa',
+  (htmlCaja.match(/^\.ojo\{/gm) || []).length === 1);
+
+/* 🔴 EL AVISO NO EXPLICABA NADA. Reportado el 4-sep-2026. Ahora nombra el número que puede
+   cambiar, dice qué hace el casino y en qué caso sale distinto. */
+check('el aviso habla del número que se está mostrando',
+  /\$\{fmt\(v\)\} es lo que hay ahora/.test(htmlCaja));
+check('y le habla distinto a un cajero que a un jugador',
+  /si el cajero está cargando o cobrando fichas/.test(htmlCaja)
+  && /si el jugador está jugando/.test(htmlCaja));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
