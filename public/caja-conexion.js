@@ -909,7 +909,11 @@
         una casilla HTML) BORRA el permiso. Eso lo resuelve el backend; acá sólo se manda
         verdadero/falso por caja. */
 
+  /* Al cambiar un permiso, lo guardado queda viejo: se tira para que la próxima lectura sea real. */
+  const olvidarPermisos = (subId) => { try { cache.delete(`permisos-sub:${subId}`); } catch (e) { /* nada */ } };
+
   async function guardarPermisos(subId, cajas, alTerminar) {
+    olvidarPermisos(subId);   // lo que había guardado ya no vale
     const r = await API.enviar('permisos-subagente', { sub: String(subId), cajas });
     if (!r.ok) {
       abrirHoja(`<div class="resultado"><div class="sello malo">${r.sinEfecto ? '!' : '✕'}</div>
@@ -1963,6 +1967,34 @@
   }
 
   /* ══════ 7 · SUB-USUARIOS ══════ */
+
+  /* 🔴 QUÉ CAJAS VE UN SUB-AGENTE SE PREGUNTA AL ABRIR SU FICHA. La lista de sub-usuarios no lo
+     trae, así que hasta hoy el panel mostraba «no ve ninguna caja» SIEMPRE — una afirmación que no
+     tenía con qué respaldar. Reportado el 2-sep-2026 con SubASoph: decía que no veía ninguna, y
+     entrando con esa cuenta las veía todas.
+
+     🔑 Se pide UNA sola vez y SÓLO al abrir la ficha de uno. En agosto se intentó pedirlo para cada
+     fila de la lista y la rompió tres veces —se quedaba cargando, mostraba el dato equivocado, y
+     una vez hizo desaparecer a un sub-agente—. Una consulta por ficha abierta no puede romper una
+     lista que ya está dibujada. */
+  const abrirSubAgenteOriginal = window.abrirSubAgente;
+  window.abrirSubAgente = function abrirSubAgenteDeVerdad(id) {
+    if (!window.__caja_sesion) return abrirSubAgenteOriginal.apply(this, arguments);
+    const clave = `permisos-sub:${id}`;
+    const ponerlos = (d) => {
+      const s = SUBAGENTES.find((x) => String(x.id) === String(id));
+      if (!s || !d || !d.ok) return;
+      s.cajas = {};
+      for (const [caja, info] of Object.entries(d.estado || {})) s.cajas[caja] = info.ve === true;
+      s.permisosLeidos = true;
+    };
+    if (cache.has(clave)) { ponerlos(cache.get(clave)); return abrirSubAgenteOriginal.call(window, id); }
+    abrirHoja(`<div class="resultado"><div class="sello latir">…</div>
+      <h3>Un momento</h3>
+      <div class="sub">Estamos viendo qué cajas tiene habilitadas.</div></div>`);
+    pedirUnaVez(clave, () => API.pedir('permisos-subagente', { sub: id }), () => abrirSubAgente(id));
+    return undefined;
+  };
 
   const subOriginal = window.pintarSub;
   window.pintarSub = function pintarSubDeVerdad() {

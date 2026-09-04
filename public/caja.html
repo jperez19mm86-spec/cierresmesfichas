@@ -3036,11 +3036,16 @@ function pintarSub(){
 /* Qué cajas ve este sub-agente. Es la única configuración que importa de él. */
 function abrirSubAgente(id){
   const s = SUBAGENTES.find(x => x.id === id);
-  const ve = Object.values(s.cajas).filter(Boolean).length;
+  const ve = Object.values(s.cajas || {}).filter(Boolean).length;
+  /* 🔴 SÓLO SE AFIRMA CON EL DATO EN LA MANO. El aviso de abajo es fuerte —«entra al panel y no
+     encuentra nada»— y hasta hoy salía SIEMPRE, porque los permisos nunca se leían: quedaban en
+     blanco y de ahí se concluía que no veía ninguna caja. Reportado el 2-sep-2026 con SubASoph,
+     que las veía todas. Si por lo que sea no se pudieron leer, no se dice nada. */
+  const sabemos = s.permisosLeidos === true;
   abrirHoja(`
     <h3 id="hojaTit" class="mono">${s.login}</h3>
     <div class="sub">Sub-agente</div>
-    ${!ve ? `<div class="nota">⚠️ <b>No ve ninguna caja.</b> Así como está, entra al panel y no
+    ${sabemos && !ve ? `<div class="nota">⚠️ <b>No ve ninguna caja.</b> Así como está, entra al panel y no
       encuentra nada — ni las cajas ni sus jugadores.</div>` : ''}
     <div class="rot" style="margin:14px 0 2px">Cajas que puede ver</div>
     ${SALAS.map(c => `

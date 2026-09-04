@@ -106,6 +106,20 @@ check('y la lista dice si son cajeros o jugadores',
 check('el conector le pasa ese dato al dibujar',
   /enlaceOriginal\.call\(window, cajaId, sonCajas\)/.test(conector));
 
+/* 🔴 Reportado el 2-sep-2026 con SubASoph: la ficha decía «No ve ninguna caja» —un aviso fuerte,
+   «entra al panel y no encuentra nada»— y esa cuenta las veía TODAS. Los permisos nunca se leían:
+   quedaban en blanco y de ahí se concluía que no veía nada. Ahora el aviso está atado a haberlos
+   leído de verdad, y el conector los pide al abrir la ficha. */
+check('el aviso de «no ve ninguna caja» exige haber leído los permisos',
+  /const sabemos = s\.permisosLeidos === true;/.test(htmlCaja)
+  && /\$\{sabemos && !ve \?/.test(htmlCaja));
+check('y el conector los pide al abrir la ficha, no por cada fila de la lista',
+  /window\.abrirSubAgente = function/.test(conector)
+  && /permisos-subagente/.test(conector)
+  && !/SUBAGENTES\.map[\s\S]{0,200}permisos-subagente/.test(conector));
+check('al cambiar un permiso se tira lo guardado',
+  /olvidarPermisos\(subId\);/.test(conector));
+
 check('la cuenta propia no se arma encima del ejemplo de la maqueta',
   !/CUENTAS\[ROL\] = Object\.assign\(\{\}, CUENTAS\[ROL\]/.test(conector)
   && /CUENTAS\[ROL\] = \{/.test(conector),
