@@ -3388,10 +3388,25 @@ function mount(app) {
           const k = dest.nombre || dest.codigo;
           aOtro[k] = (aOtro[k] || 0) + 1;
         }
+        /* Y lo que decide si esto es normal o no: ¿cuándo fue la última vez que a estos paneles les
+           entró una carga? El `in` del nodo es lo que depositan los JUGADORES, y eso sigue pasando
+           mientras les quede saldo — un cliente que compró en julio y no en agosto tiene movimiento
+           en agosto sin deberle nada a nadie. Distinto es un panel al que NUNCA le entró una carga
+           por el sistema y aun así tiene jugadores depositando: ahí las fichas entran por otro lado.
+           Verificado: Luis compró 9.856.250 en julio y nada en agosto; los paneles de Ivan y Raul
+           no recibieron una sola carga en toda la historia. */
+        let ultimaCarga = null;
+        try {
+          for (const d of pedidosStore.detalleDelMes(null)) {
+            if (!nodos.has(String(d.userId))) continue;
+            if (!ultimaCarga || d.iso > ultimaCarga.iso) ultimaCarga = { iso: d.iso, mes: String(d.iso).slice(0, 7), codigo: d.codigo };
+          }
+        } catch (e) { /* sin esto el aviso sale igual, sólo que sin poder distinguir */ }
         sinPedidos.push({
           codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
           casino_usdt: money.round(casinoUsdt, 2),
           seFacturanA: Object.entries(aOtro).map(([n, k]) => ({ cliente: n, cargas: k })),
+          ultimaCarga,
         });
       }
 
