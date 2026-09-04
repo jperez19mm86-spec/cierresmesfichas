@@ -5742,9 +5742,21 @@ async function main() {
   {
     const em = require('../src/estadisticas-mes.service');
     const niveles = em.NIVELES || [];
-    check('foto: los niveles son superagente y distribuidor',
-      niveles.length === 2 && niveles.includes('superagente') && niveles.includes('distribuidor'),
+    /* Los tres niveles de CUENTA. 'agente' entró después: un panel de ese nivel no tiene fila
+       propia en la foto de distribuidor, así que su reporte de externos daba cero sin avisar —
+       9 paneles de 5 clientes en agosto 2026, ninguno aparecía. */
+    check('foto: los niveles son superagente, distribuidor y agente',
+      niveles.length === 3 && ['superagente', 'distribuidor', 'agente'].every((n) => niveles.includes(n)),
       JSON.stringify(niveles));
+    check('foto: un panel se lee en el nivel que TIENE, no siempre en distribuidor',
+      em.nivelDe({ nivel_usuario: 'SuperAgente' }) === 'superagente'
+      && em.nivelDe({ nivel_usuario: 'Distribuidor' }) === 'distribuidor'
+      && em.nivelDe({ nivel_usuario: 'Agente' }) === 'agente');
+    /* 'superagent' CONTIENE 'agent': con un /agent/ en vez de comparar exacto, la vuelta de
+       superagentes se guardaría etiquetada como la de agentes y el mes entero quedaría mal. */
+    check('foto: el modo del casino se traduce por igualdad exacta, no por parecido',
+      em.nivelDeModo('agent') === 'agente' && em.nivelDeModo('superagent') === 'superagente'
+      && em.nivelDeModo('diller') === 'distribuidor' && em.nivelDeModo('hall') === null);
     const html = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
     const vista = html.slice(html.indexOf('VIEWS.foto ='), html.indexOf('async function fotoSacar'));
     check('foto: la pantalla mapea EXACTAMENTE esos nombres',
@@ -6088,12 +6100,12 @@ async function main() {
   // Datos generales — justo la que dice cuánto le debemos nosotros al proveedor.
   {
     const em = require('../src/estadisticas-mes.service');
-    check('vueltas: son tres', (em.VUELTAS || []).length === 3, JSON.stringify(em.VUELTAS));
+    check('vueltas: son cuatro', (em.VUELTAS || []).length === 4, JSON.stringify(em.VUELTAS));
     check('vueltas: incluye la general', (em.VUELTAS || []).includes('nodo'));
     // y NIVELES sigue siendo sólo los niveles de cuenta: lo usa la limpieza de grupos viejos, y
     // meterle 'nodo' ahí no cambia nada, pero sacárselo borraría la vista general entera.
-    check('vueltas: NIVELES sigue con los dos niveles de cuenta',
-      (em.NIVELES || []).join(',') === 'superagente,distribuidor', JSON.stringify(em.NIVELES));
+    check('vueltas: NIVELES son SÓLO los niveles de cuenta',
+      (em.NIVELES || []).join(',') === 'superagente,distribuidor,agente', JSON.stringify(em.NIVELES));
     check('vueltas: la limpieza conserva la general',
       [...em.NIVELES, 'nodo'].includes('nodo'));
   }

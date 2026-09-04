@@ -2068,7 +2068,7 @@ VIEWS.foto = async () => {
   const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
   window._divIgnoradas = ((await api('/api/os/config/divisas-ignoradas')).divisas)||[];
   const d = r.detalle||[];
-  const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores', nodo:'Datos generales'};
+  const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores', agente:'Agentes', nodo:'Datos generales'};
   const errs = d.filter(x=>x.estado==='error');
   const pn = r.porNivel||{}, sa = pn.superagente||{}, di = pn.distribuidor||{};
   setTimeout(fotoModos, 0);   // no bloquea el pintado: son dos consultas al casino
@@ -2112,9 +2112,10 @@ VIEWS.foto = async () => {
     + tarjetaDivisasIgnoradas()
     // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
     // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
-    + '<div class="nota" style="margin-top:10px"><span class="tit">Las tres vueltas</span>'
-    + 'Hay que pasar por las <b>tres</b>: el nivel no se elige acá, lo decide <b>Agrupar por</b> adentro del casino.<br>'
-    + '<b>Superagente</b> y <b>Distribuidor</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente. '
+    + '<div class="nota" style="margin-top:10px"><span class="tit">Las cuatro vueltas</span>'
+    + 'Hay que pasar por las <b>cuatro</b>: el nivel no se elige acá, lo decide <b>Agrupar por</b> adentro del casino.<br>'
+    + '<b>Superagente</b>, <b>Distribuidor</b> y <b>Agente</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente '
+    + '— cada panel se lee en el nivel que tiene, y sin la vuelta de Agentes los paneles de ese nivel daban <b>cero</b> sin avisar. '
     + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.'
     + '<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">'
     + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs' && c.paneles>0).map(c=>{

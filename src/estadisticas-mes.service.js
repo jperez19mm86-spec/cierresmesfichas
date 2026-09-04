@@ -77,11 +77,22 @@ function divisasDe(conexionId) {
  *
  * ⚠️ El nivel del reporte NO se elige desde acá: es un ajuste guardado en el servidor del casino
  * por cuenta (Estadísticas → Agrupar por), y mandar el mismo formulario por HTTP no lo cambia —
- * probado. Así que la foto se saca en DOS pasadas: una con la cuenta en Superagente y otra en
- * Dealer. `capturar()` lee en qué modo está y guarda las filas con ESE nivel; nunca las etiqueta
- * como el otro.
+ * probado. Así que la foto se saca en VARIAS pasadas: una por cada valor de "Agrupar por" que se
+ * necesita — Superagent, Dealer, Agent y Datos generales. `capturar()` lee en qué modo está y
+ * guarda las filas con ESE nivel; nunca las etiqueta como el otro.
  */
-const NIVELES = ['superagente', 'distribuidor'];
+/* ── POR QUÉ ESTÁ 'agente' ─────────────────────────────────────────────────────────────────────
+   La foto se sacaba en Superagente y Distribuidor nada más. Un panel registrado en nivel AGENTE no
+   tiene fila propia en ninguna de las dos —su consumo se acumula en el nodo padre— así que
+   `filasDe` le devolvía una lista vacía y su reporte de proveedores externos daba CERO. Sin error
+   y sin aviso.
+   Verificado en agosto 2026: de los 9 paneles en nivel Agente, NINGUNO aparecía en el reporte de
+   su cliente, mientras que los 14 Superagentes y Distribuidores de Henry sí. Cuatro de esos nueve
+   cuelgan de `GanamosAlexa` —panel de otra clienta— y cinco de nodos que ni siquiera están
+   cargados en el OS: ese consumo no se le cobraba a nadie.
+   El casino sabe agrupar así: el selector `reports_user_group_by` tiene `agent` ("Agent") en las
+   dos conexiones. */
+const NIVELES = ['superagente', 'distribuidor', 'agente'];
 // Las vueltas que hay que dar para tener el mes entero. 'nodo' es la vista general (Datos
 // generales): NIVELES son los niveles de cuenta, y la general no es un nivel de cuenta — no abre
 // por nadie. Se guarda con ese nombre desde antes y por eso sobrevive a la limpieza de grupos.
@@ -89,13 +100,19 @@ const VUELTAS = [...NIVELES, 'nodo'];
 
 /** El nivel de captura que le corresponde a un panel. */
 function nivelDe(panel) {
-  return (panel && panel.nivel_usuario === 'SuperAgente') ? 'superagente' : 'distribuidor';
+  const n = panel && panel.nivel_usuario;
+  if (n === 'SuperAgente') return 'superagente';
+  if (n === 'Agente') return 'agente';
+  return 'distribuidor';
 }
 
 /** El modo del casino ('superagent' | 'diller') traducido al nivel que produce. */
 function nivelDeModo(valor) {
+  // Comparación EXACTA y no un /agent/: 'superagent' contiene 'agent', y confundirlos etiquetaría
+  // la vuelta de superagentes como si fuera la de agentes.
   if (valor === 'superagent') return 'superagente';
   if (valor === 'diller') return 'distribuidor';
+  if (valor === 'agent') return 'agente';
   // "Datos generales": el casino no abre por cuenta, devuelve UNA fila por proveedor para toda la
   // plataforma. Responde otra pregunta — no quién consumió qué, sino cuánto le debemos al
   // proveedor. Se guarda con grupo 'nodo', que es como ya se llamaba esa vista.
@@ -235,12 +252,12 @@ function plan(mes, { conexionId = null, nivel = null, divisa = null, alcance = '
  */
 function planGlobal(mes, { conexionId = null } = {}) {
   // Sin las conexiones de carga: no tienen paneles y su plan es de cero consultas, pero salían en
-  // la pantalla con las tres vueltas en 0/0 y un botón Sacar que no traía nada. Ver listDeReportes.
+  // la pantalla con las vueltas en 0/0 y un botón Sacar que no traía nada. Ver listDeReportes.
   const cxs = casinoConex.listDeReportes().filter((c) => !conexionId || c.id === conexionId);
   const out = [];
   // Este es el plan que de verdad cuenta las consultas de la Foto: la UNIÓN de las divisas de
-  // todos los paneles de la conexión, por las tres vueltas. Una sola moneda prendida por error en
-  // un solo panel le suma tres consultas a TODA la conexión — por eso las ignoradas se filtran acá.
+  // todos los paneles de la conexión, por las CUATRO vueltas. Una sola moneda prendida por error en
+  // un solo panel le suma cuatro consultas a TODA la conexión — por eso las ignoradas se filtran acá.
   const ignoradas = cfg.getDivisasIgnoradas();
   cxs.forEach((cx) => {
     const divs = new Set();
@@ -250,8 +267,9 @@ function planGlobal(mes, { conexionId = null } = {}) {
     // Si la conexión entera queda sin divisas, ARS: cero consultas sería declararla completa sin
     // haber preguntado nada, que es peor que preguntar de más.
     if (!divs.size) divs.add('ARS');
-    // Los TRES niveles, no dos. 'nodo' es la vista general: sin contarla, el mes daba "completa"
-    // faltando justamente la que dice cuánto le debemos al proveedor.
+    // Las CUATRO vueltas, no dos. 'nodo' es la vista general: sin contarla, el mes daba "completa"
+    // faltando justamente la que dice cuánto le debemos al proveedor. Y 'agente' entró después,
+    // por los paneles de ese nivel que daban cero en silencio.
     [...divs].sort().forEach((divisa) => VUELTAS.forEach((nivel) => {
       out.push({ conexion_id: cx.id, conexion: cx.nombre, mes, divisa, nivel });
     }));
