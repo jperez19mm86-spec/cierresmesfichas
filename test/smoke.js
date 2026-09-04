@@ -1859,10 +1859,23 @@ async function main() {
     const re = await axios.get(BASE + '/tbs', H());
     check('cache: sigue mandando ETag, así revalidar no cuesta nada', !!re.headers.etag,
       String(re.headers.etag || '').slice(0, 24));
-    // Lo que NO es HTML sí puede cachearse: no cambia en cada despliegue.
+    /* Lo que NO es HTML sí puede cachearse: no cambia en cada despliegue. Con UNA excepción,
+       agregada el 4-sep-2026: el conector y la lógica de Mi Caja caducan junto con su pantalla.
+       Se servían con una hora mientras `caja.html` iba con `no-cache`, así que el navegador
+       mezclaba pantalla nueva con conector viejo — y un error corregido el 3-sep a las 14:34 se
+       volvió a reportar al día siguiente porque quien probaba seguía ejecutando el viejo. */
     const srcIdx6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
-    check('cache: sólo los HTML se revalidan; el resto se cachea',
-      /\.html\?\$\/i\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(srcIdx6));
+    check('cache: los HTML y el cerebro de Mi Caja se revalidan; el resto se cachea',
+      /SIEMPRE_FRESCO\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(srcIdx6)
+      && /SIEMPRE_FRESCO = \/\(\\.html\?\|caja-\(conexion\|logica\)\\.js\)\$\/i/.test(srcIdx6));
+    /* Y se comprueba en la respuesta de verdad, no sólo en el código: la cabecera es lo que ve
+       el navegador. */
+    for (const [ruta, esperado] of [['/caja-conexion.js', 'no-cache'], ['/caja-logica.js', 'no-cache']]) {
+      const rc = await axios.get(BASE + ruta, H());
+      check(`cache: ${ruta} se revalida siempre`,
+        String(rc.headers['cache-control'] || '') === esperado,
+        ruta + ' → ' + (rc.headers['cache-control'] || '(sin cabecera)'));
+    }
   }
 
   /* ── 💬 CHAT EXTERNO ─────────────────────────────────────────────────────────────────────────
