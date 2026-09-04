@@ -256,28 +256,24 @@ async function main() {
        de verdad. Lo que no se puede derivar se marca, para decirlo en vez de mostrar un cero. */
     galleta = galletaAgente;
 
-    /* ── 5.ter · EL RESUMEN DE UN SUB-AGENTE ────────────────────────────────────────────────
-       🔴 El casino le contesta TODO EN CERO. Medido el 2-sep-2026: el agente ve 13 jugadores y el
-       sub-agente 0, en su propio nodo Y en la caja que sí tiene habilitada. Cero se lee como «no
-       hay», que es una mentira que asusta — reportado por el equipo con SubASoph, que sí ve los
-       cajeros donde están los jugadores.
-       Lo que el motor SÍ le da es la lista de sus cajas con cuántos jugadores tiene cada una: de
-       ahí sale el número de verdad. Lo que no se puede derivar se marca, para decirlo. */
+    /* ── 5.ter · EL SUB-AGENTE NO TIENE RESUMEN ─────────────────────────────────────────────
+       🔴 El casino le contesta ese panel TODO EN CERO —medido el 2-sep-2026— y un cero se lee como
+       «no hay». Se llegó a calcularlo sumando sus cajas y se dio de baja: costaba una consulta más
+       por visita para sostener algo que el casino no sostiene. La pantalla no existe a ese nivel.
+       Se verifica que el resumen NO haga consultas de más, que es lo que motivó sacarlo. */
     r = await enviar('/api/caja/login', { usuario: 'SubAgenteDePrueba', clave: 'clave-de-prueba' });
     const galletaSubAg = (r.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
     check('entra un sub-agente', r.data.ok && r.data.yo.group === '6',
       r.data.ok ? `grupo ${r.data.yo.group}` : r.data.error);
 
     galleta = galletaSubAg;
+    await reiniciarMotor();
     r = await pedir('/api/caja/resumen');
-    const nums = ((((r.data.paneles || {}).summary_stats || {}).data || {}).numbers) || {};
-    check('sus jugadores se cuentan de sus cajas, no se dejan en el cero del casino',
-      r.data.ok && (nums.total_players || {}).total > 0,
-      `total_players=${(nums.total_players || {}).total}`);
-    check('y se dice cuáles el casino no calcula, en vez de mostrarlos como cero',
-      r.data.ok && (r.data.sinDato || []).includes('active_players')
-        && (r.data.sinDato || []).includes('active_halls'),
-      JSON.stringify(r.data.sinDato));
+    const pedidosResumen = await pedidosDelMotor();
+    check('el resumen pide UNA sola cosa al casino, no dos',
+      pedidosResumen.filter((x) => x.area === 'dashboardinfo').length === 1
+      && pedidosResumen.filter((x) => x.area === 'users').length === 0,
+      `dashboardinfo=${pedidosResumen.filter((x) => x.area === 'dashboardinfo').length} · users=${pedidosResumen.filter((x) => x.area === 'users').length}`);
     galleta = galletaAgente;
 
     /* ── 6 · el diario ───────────────────────────────────────────────────────────────────── */

@@ -198,8 +198,10 @@ check('el cajero no ve la sección de sub-usuarios',
 check('el sub-agente no ve Movimientos ni Sub-usuarios, que el motor le niega',
   !L.seccionesDe('agente', true).includes('balance') && !L.seccionesDe('agente', true).includes('sub'),
   L.seccionesDe('agente', true).join(','));
-check('y sí ve sus cajeros y el resumen',
-  L.seccionesDe('agente', true).join(',') === 'users,dashboard');
+/* 🔴 Tampoco el Resumen: el casino se lo contesta en cero y sostenerlo costaba una consulta más
+   por visita. Si el casino no lo da, la pantalla no va — decisión del dueño, 2-sep-2026. */
+check('ni el Resumen, que el casino no le calcula',
+  L.seccionesDe('agente', true).join(',') === 'users');
 check('nadie tiene Estadísticas ni Cruces en la barra — se llega desde otro lado',
   ['agente', 'cajero', 'subcajero'].every((r) => {
     const m = L.seccionesDe(r, false);

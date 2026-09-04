@@ -72,8 +72,12 @@ const MENU_POR_NIVEL = {
   cajero: ['users', 'dashboard', 'balance'],
   /* Sin estadísticas ni panel: los tiene deshabilitados por permiso. */
   subcajero: ['users', 'balance'],
-  /* El sub-agente navega como agente —tiene cajeros abajo— pero el motor le niega estas dos. */
-  subagente: ['users', 'dashboard'],
+  /* 🔴 EL SUB-AGENTE NO TIENE RESUMEN. El motor le niega Movimientos, y el Resumen se lo contesta
+     TODO EN CERO —medido el 2-sep-2026: el agente ve 13 jugadores y él 0, en su propio nodo y en
+     la caja que sí tiene habilitada—. Llegamos a calcularlo sumando sus cajas, pero costaba una
+     consulta más por cada visita a una pantalla que el casino no sostiene. Decisión del dueño:
+     si el casino no lo da, no se arma. Le queda su lista de cajeros, que es lo que usa. */
+  subagente: ['users'],
 };
 
 function seccionesDe(rol, esSubAgente) {

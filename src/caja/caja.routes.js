@@ -192,43 +192,14 @@ function mount(app) {
     if (!esJson(resp)) return delMotor(res, resp);
     const charts = resp.data.charts || {};
 
-    /* 🔴 A UN SUB-AGENTE EL MOTOR LE CONTESTA TODO EN CERO. Medido el 2-sep-2026: el agente ve 13
-       jugadores y el sub-agente 0 — en su propio nodo Y en la caja que sí tiene habilitada. No es
-       un permiso mal puesto: el casino no calcula este panel para ese nivel.
-
-       Pero cero es MENTIRA, y encima de las que asustan: parece que se quedó sin jugadores.
-       Reportado por el equipo con SubASoph, que sí ve los cajeros donde están los jugadores.
-
-       Lo que SÍ le da el motor es la lista de sus cajas, con cuántos jugadores tiene cada una.
-       Con eso los dos números que importan se calculan de verdad. Los otros dos —activos del
-       período, cajas activas— no se pueden derivar: se marcan como «no lo da el casino» para que
-       la pantalla lo diga en vez de mostrar un cero. */
-    const sinDato = [];
-    if (req.caja.rol === 'subagente') {
-      const cuantos = (x) => Number(String((x && Object.values(x)[0]) || 0).replace(/[^\d.-]/g, '')) || 0;
-      const hijos = await cli.apiCall('users',
-        { ...rangoBarato(), limit: '500', inactive_users: 'all', deleted_users: 'undelete' },
-        { id: q.id || req.caja.id, offset: '1' });
-      if (esJson(hijos)) {
-        const cajas = sinFilaTotal(hijos.data.users || hijos.data.rows || []);
-        const jugadores = cajas.reduce((a, c) => a + cuantos(c.terminals), 0);
-        const conectados = cajas.reduce((a, c) => a + cuantos(c.terminals_online), 0);
-        charts.summary_stats = charts.summary_stats || { data: { numbers: {} } };
-        charts.summary_stats.data = charts.summary_stats.data || { numbers: {} };
-        charts.summary_stats.data.numbers = Object.assign({}, charts.summary_stats.data.numbers, {
-          total_players: { total: jugadores },
-          online_players: { total: conectados },
-        });
-        charts.summary_stats.calculado = true;
-      }
-      sinDato.push('active_players', 'active_halls');
-    }
-
+    /* 🔴 A UN SUB-AGENTE EL MOTOR LE CONTESTA TODO EN CERO. Medido el 2-sep-2026: el agente ve
+       13 jugadores y el sub-agente 0, en su propio nodo Y en la caja que sí tiene habilitada. No
+       es un permiso mal puesto: el casino no calcula este panel para ese nivel.
+       Por eso a ese nivel la pantalla directamente no existe (ver `MENU_POR_NIVEL` en
+       caja-logica.js). Se llegó a calcularla sumando sus cajas, y se dio de baja: costaba una
+       consulta más por visita para sostener algo que el casino no sostiene. */
     ok(res, {
       paneles: charts,
-      /* Qué paneles el casino no calcula en este nivel. La pantalla los muestra como «sin dato»,
-         no como cero: un cero se lee como «no hay», y no es lo mismo que «no lo sabemos». */
-      sinDato,
       /* Lo que se pidió, para que el panel pueda comparar con lo que muestra. */
       rango: { desde, hasta },
       rangoDelMotor: resp.data.config || null,
