@@ -6252,6 +6252,49 @@ async function main() {
       'ocultarlo con CSS lo deja legible en el código del PDF');
   }
 
+  /* ── UN % QUE CAMBIA TIENE QUE DECIR DESDE CUÁNDO ───────────────────────────────────────────
+     Una CORRECCIÓN pisa el tramo vigente en su lugar: el valor viejo desaparece de la línea de
+     tiempo. Titan estaba al 7 desde el 1-ago; el 11-ago se corrigió a 5 con la nota «desde agosto
+     2026» —una nota, que ningún cálculo lee— y el 7 se borró. Julio quedó sin ningún tramo que lo
+     cubriera, el repaso propuso el 5 de hoy y se le facturó 3.179,64 USDT de más.
+     Ahora hay que decirlo: una fecha (vigencia) o 'siempre' (corrección). Sin default. */
+  {
+    const cx = (await post('/api/clientes', { codigo: 'PBX1', nombreVisible: 'PruebaPB' })).data.cliente;
+    const url = '/api/os/clientes/' + cx.id + '/precio-base';
+    let x = await put(url, { valor: '9' });
+    check('% : sin decir desde cuándo, no se guarda', x.status === 400
+      && /DESDE CU[ÁA]NDO/i.test(String(x.data.error || '')), String(x.data.error || '').slice(0, 60));
+    x = await put(url, { valor: '9', vigente_desde: 'el mes pasado' });
+    check('% : una fecha inventada tampoco pasa', x.status === 400);
+
+    x = await put(url, { valor: '9', vigente_desde: '2026-05' });
+    check('% : un mes suelto vale y se toma desde el día 1',
+      x.status === 200 && x.data.desde === '2026-05-01', JSON.stringify(x.data.desde));
+    x = await put(url, { valor: '7', vigente_desde: '2026-08-01' });
+    check('% : una fecha nueva NO borra el tramo anterior',
+      x.status === 200 && (x.data.tramos || []).length === 2
+      && x.data.tramos[0].valor === '9' && x.data.tramos[1].valor === '7',
+      (x.data.tramos || []).map((t) => t.valor + '@' + t.vigente_desde).join(' · '));
+    check('% : el tramo viejo queda cerrado el día antes',
+      (x.data.tramos || [])[0].vigente_hasta === '2026-07-31', JSON.stringify((x.data.tramos || [])[0]));
+
+    // 'siempre' sí pisa — es para un número mal tipeado, y avisa si ya hay meses confirmados.
+    await post('/api/os/externos/' + encodeURIComponent(cx.nombre) + '/base', { mes: '2026-08', base_pct: '7' });
+    x = await put(url, { valor: '6', vigente_desde: 'siempre' });
+    check('% : corregir hacia atrás avisa qué meses ya estaban confirmados con otro %',
+      x.status === 409 && x.data.requiereConfirmacion && /2026-08 al 7%/.test(String(x.data.error || '')),
+      String(x.data.error || '').slice(0, 90));
+    x = await put(url, { valor: '6', vigente_desde: 'siempre', confirmar: true });
+    check('% : con confirmar, la corrección entra', x.status === 200 && x.data.desde === 'siempre');
+
+    const hUi4 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('% : la pantalla pregunta desde cuándo, no "tipo de cambio"',
+      /Desde cuándo rige/.test(hUi4) && /desde una fecha \(cambió el precio\)/.test(hUi4));
+    check('% : y explica qué hace cada una',
+      /nunca para «se lo bajé este mes»/.test(hUi4),
+      'sin eso, "corrección" suena a la opción prolija y es la que borra el pasado');
+  }
+
   /* ── LOS PROVEEDORES INTERNOS NO LLEVAN DIFERENCIAL ─────────────────────────────────────────
      Regla de la dueña (4-sep-2026): «no se cobra ningún SL, ningún SL2, ningún XG, son internos.
      Esos van = porcentaje del cliente». La celda de esas tres familias vale SIEMPRE la base, así

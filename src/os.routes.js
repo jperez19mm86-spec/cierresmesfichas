@@ -461,12 +461,53 @@ function mount(app) {
   // El cruce entre Proveedores (el nombre resuelve) y Matriz (a quién se le cobra): lo que
   // ninguna de las dos contesta sola es si algo dio ganancia y no se le cobra a nadie.
   app.get('/api/os/cierre/cruce', (req, res) => ok(res, revision.cruceProveedores(req.query.mes)));
-  // precio base con vigencia/corrección
+  /* ── CAMBIAR UN % SIN DECIR DESDE CUÁNDO ES LO QUE ROMPIÓ JULIO ───────────────────────────────
+     Una CORRECCIÓN pisa el tramo vigente EN SU LUGAR: el valor viejo desaparece de la línea de
+     tiempo, no queda un tramo anterior. Titan estaba al 7 desde el 1-ago; el 11-ago se lo corrigió
+     a 5 con la nota «desde agosto 2026» —una nota, que ningún cálculo lee— y el 7 se borró. Julio
+     quedó sin ningún tramo que lo cubriera, así que al confirmar los % de julio el repaso propuso
+     el 5 de hoy y se le facturó 3.179,64 USDT de más.
+
+     Por eso ahora hay que decir SIEMPRE desde cuándo rige, y son dos cosas distintas:
+       · una fecha  → VIGENCIA: de ahí en adelante vale esto, lo de antes queda como estaba
+       · 'siempre'  → CORRECCIÓN: estaba mal escrito, vale para todo lo que ese tramo cubre
+     No hay default, a propósito: el default es justo la respuesta que nadie piensa.
+
+     Y si la corrección pisa meses que ya tienen el % confirmado, se dice cuáles y se pide
+     confirmar: esos meses se facturaron con el valor viejo. */
   app.put('/api/os/clientes/:id/precio-base', wrap((req, res) => {
-    const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};
-    if (valor === undefined) return err(res, 400, 'falta valor');
-    const v = historial.setValor('cliente', req.params.id, 'precio_base_pct', { valor, tipo_cambio, vigente_desde, notas });
-    ok(res, { precio_base_pct: v });
+    const b = req.body || {};
+    if (b.valor === undefined) return err(res, 400, 'falta valor');
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+
+    const crudo = String(b.vigente_desde || b.desde || '').trim();
+    const siempre = crudo.toLowerCase() === 'siempre' || b.desde_siempre === true;
+    if (!siempre && !/^\d{4}-\d{2}(-\d{2})?$/.test(crudo)) {
+      return err(res, 400, 'falta decir DESDE CUÁNDO rige este %: una fecha (2026-08 o 2026-08-01) '
+        + 'si cambió a partir de ahí, o "siempre" si estaba mal escrito y hay que corregirlo hacia atrás. '
+        + 'Sin eso, el valor viejo se borra de la línea de tiempo y los meses anteriores se recalculan mal.');
+    }
+
+    if (siempre) {
+      // Qué meses ya confirmados quedan con otro piso. Se avisa antes, no después de facturar.
+      const pisados = externosSvc.mesesConfirmados(c.nombre)
+        .filter((m) => String(m.base_pct) !== String(b.valor));
+      if (pisados.length && b.confirmar !== true) {
+        return res.status(409).json({ ok: false, requiereConfirmacion: true,
+          error: `este cliente tiene ${pisados.length} mes(es) confirmados con otro %: `
+            + pisados.map((m) => `${m.mes} al ${m.base_pct}%`).join(', ')
+            + '. Corregir hacia atrás los deja distintos de lo que se les facturó. Si el % cambió a '
+            + 'partir de una fecha, mandá esa fecha en vez de "siempre".',
+          meses: pisados });
+      }
+    }
+
+    const vigente_desde = siempre ? null : (crudo.length === 7 ? crudo + '-01' : crudo);
+    const v = historial.setValor('cliente', req.params.id, 'precio_base_pct', {
+      valor: b.valor, tipo_cambio: siempre ? 'correccion' : 'vigencia', vigente_desde, notas: b.notas });
+    ok(res, { precio_base_pct: v, desde: siempre ? 'siempre' : vigente_desde,
+      tramos: historial.listValores('cliente', req.params.id, 'precio_base_pct') });
   }));
   app.get('/api/os/clientes/:id/precio-base/historial', (req, res) =>
     ok(res, { historial: historial.listValores('cliente', req.params.id, 'precio_base_pct') }));

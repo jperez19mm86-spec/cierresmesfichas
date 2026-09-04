@@ -1590,11 +1590,17 @@ function editCli(id){
           <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
           <div class="row">
             <div><label>Valor %</label><input id="pb-val" value="${esc(c.precio_base_pct||'')}" placeholder="11"/></div>
-            <div style="flex:0"><label>Tipo</label><select id="pb-tipo"><option value="vigencia">vigencia (desde fecha)</option><option value="correccion">corrección (retroactivo)</option></select></div>
-            <div><label>Vigente desde</label><input id="pb-desde" type="date"/></div>
+            <div style="flex:0"><label>Desde cuándo rige</label><select id="pb-tipo" onchange="pbTipo()">
+              <option value="vigencia">desde una fecha (cambió el precio)</option>
+              <option value="correccion">desde siempre (estaba mal escrito)</option></select></div>
+            <div id="pb-desde-box"><label>Vigente desde</label><input id="pb-desde" type="date"/></div>
             <button onclick="savePB('${id}')">Aplicar</button>
             <button class="outline" onclick="verPBHist('${id}')">Ver historial</button>
           </div>
+          <div class="muted" style="font-size:12px;margin-top:4px">
+            <b>Desde una fecha</b> deja el valor anterior en su tramo: los meses de antes se siguen
+            calculando con el viejo. <b>Desde siempre</b> lo pisa — usalo sólo si el número estaba mal
+            tipeado, nunca para «se lo bajé este mes».</div>
           <div id="pb-hist" class="muted"></div>
         </div>
         <div class="card">
@@ -1834,11 +1840,25 @@ async function aplicarSaldoIni(id){
   if(r&&r.ok){ toast('Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); VIEWS.clientes(); }
   else toast('✗ '+((r&&r.error)||'no se pudo aplicar'));
 }
-async function savePB(id){
-  const b={valor:val('pb-val'), tipo_cambio:val('pb-tipo'), vigente_desde:val('pb-desde')};
-  if(b.tipo_cambio==='vigencia' && !b.vigente_desde) return toast('Poné la fecha de vigencia');
+function pbTipo(){
+  const box=document.getElementById('pb-desde-box');
+  if(box) box.style.display = val('pb-tipo')==='correccion' ? 'none' : '';
+}
+/* Se manda SIEMPRE desde cuándo: una fecha, o el literal 'siempre'. Sin eso el servidor rechaza,
+   y con razón — una corrección sin fecha borra el valor viejo de la línea de tiempo y los meses
+   anteriores se recalculan con el nuevo. Es lo que le facturó 3.179,64 USDT de más a Titan. */
+async function savePB(id, confirmar){
+  const siempre = val('pb-tipo')==='correccion';
+  if(!siempre && !val('pb-desde')) return toast('Poné desde qué fecha rige');
+  const b={valor:val('pb-val'), vigente_desde: siempre ? 'siempre' : val('pb-desde'),
+    ...(confirmar?{confirmar:true}:{})};
   const r=await api('/api/os/clientes/'+id+'/precio-base',{method:'PUT',body:JSON.stringify(b)});
+  if(r && r.requiereConfirmacion){
+    if(confirm(r.error + '\n\n¿Corregirlo igual?')) return savePB(id, true);
+    return;
+  }
   if(r.ok){ toast('Precio base: '+r.precio_base_pct+'%'); VIEWS.clientes(); }
+  else toast('✗ '+((r&&r.error)||'no se pudo guardar'));
 }
 async function verPBHist(id){
   const r=await api('/api/os/clientes/'+id+'/precio-base/historial');

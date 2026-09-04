@@ -183,6 +183,13 @@ function baseGuardada(cliente, mes) {
   const r = db.prepare('SELECT base_pct, confirmadoAt FROM externos_base_mes WHERE cliente=? AND mes=?').get(String(cliente), String(mes));
   return r || null;
 }
+/** Los meses que ya tienen el % CONFIRMADO para ese cliente. Sirve para saber a qué se le está
+    cambiando el piso cuando alguien corrige un porcentaje hacia atrás. */
+function mesesConfirmados(cliente) {
+  return db.prepare('SELECT mes, base_pct, confirmadoAt FROM externos_base_mes WHERE cliente=? ORDER BY mes')
+    .all(String(cliente));
+}
+
 function confirmarBase(cliente, mes, base_pct) {
   db.prepare(`INSERT INTO externos_base_mes (cliente,mes,base_pct,confirmadoAt) VALUES (?,?,?,?)
               ON CONFLICT(cliente,mes) DO UPDATE SET base_pct=excluded.base_pct, confirmadoAt=excluded.confirmadoAt`)
@@ -565,6 +572,6 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
 // cruce casino→matriz que la de lo que les cobramos a los clientes. Si fueran dos, los dos lados
 // del mismo proveedor podrían resolverse distinto.
 module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango, traductor,
-  pctsDelCliente, columnaDe,
+  pctsDelCliente, columnaDe, mesesConfirmados,
   // Se exportan para que la pantalla de la matriz pueda marcarlos y los tests puedan probar la regla.
   FAMILIAS_INTERNAS, esInterno };
