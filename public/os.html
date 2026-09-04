@@ -17,6 +17,29 @@
   .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
   .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
+
+  /* ── 📸 FOTO DEL MES ──────────────────────────────────────────────────────────────────────
+     El campo del mes venía chico y en monoespaciado, y es el control que más se toca. Chrome sí
+     respeta font-family y font-size en un input[type=month]; lo único que no deja tocar es el
+     iconito del calendario. Sin alto fijo: la fila lo iguala con el cartel de al lado, y sigue
+     igualándolos aunque el cartel diga algo más largo. */
+  .fotofila { display:flex; gap:14px; align-items:stretch; flex-wrap:wrap; margin:14px 0 2px }
+  .fotofila > * { min-height:64px }
+  .fotofila input.mes { font-family:inherit; font-size:19px; font-weight:700; padding:0 14px;
+                        letter-spacing:0; width:100%; max-width:280px; }
+  .fotofila .nota { flex:1; min-width:260px; margin:0; display:flex; flex-direction:column;
+                    justify-content:center; padding:12px 16px }
+  .fcx { border:1px solid var(--border); border-radius:10px; overflow:hidden; flex:1 1 320px; min-width:290px; }
+  .fcx-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;
+           padding:11px 14px; background:var(--bg3); border-bottom:1px solid var(--border); }
+  .fcx-h b { font-size:16px }
+  .fvta { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .fvta:last-child { border-bottom:0 }
+  .fvta .ic { font-size:15px; width:18px; text-align:center }
+  .fvta .nb { flex:1; font-weight:600; background:none; color:inherit; padding:0; font-size:14px }
+  .fvta.ahora { background:rgba(120,200,140,.07) }
+  .fmes { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border) }
+  .fmes:last-child { border-bottom:0 }
   /* La barra en dos filas: arriba los grupos, abajo las pantallas del grupo abierto. La barra
      de siempre es un flex en fila, y con dos hijos los pondría uno al lado del otro: con dos
      filas pasa a ser un bloque y cada fila maneja su propio desborde. */
@@ -498,6 +521,14 @@ function mesDeCierre(d = new Date()) {
 }
 const mesNombre = (iso) => { const [a,m] = String(iso||'').split('-');
   return (MESES_UI[Number(m)-1] || iso) + ' ' + a; };
+/* Una fecha ENTERA y siempre igual: 10 Agosto 2026. "ayer" y "hace 3 días" se leen rápido hoy y no
+   significan nada dentro de un año, que es justo cuando se vuelve a mirar un mes viejo; y
+   "2026-08-10" no se lee de un vistazo. */
+const fechaLarga = (iso) => { if(!iso) return '—';
+  const f = new Date(iso); if (isNaN(f)) return String(iso).slice(0,10);
+  // Con mayúscula: acá el mes es parte de una fecha suelta, no de una frase.
+  const m = MESES_UI[f.getMonth()] || '';
+  return f.getDate() + ' ' + m.charAt(0).toUpperCase() + m.slice(1) + ' ' + f.getFullYear(); };
 
 /* El cartel que dice QUÉ MES se está mirando, con el otro a un clic.
    La regla de los 10 días acierta casi siempre; cuando no acierta —un cierre que se atrasó— tiene
@@ -1992,16 +2023,23 @@ async function fotoModos(){
   if(!r||!r.ok) return;
   (r.conexiones||[]).forEach(c=>{
     const el=document.getElementById('modo-'+c.id);
+    // El mismo nombre que la fila de al lado: "distribuidor" y "Distribuidores" obligaban a
+    // traducir de una punta a la otra de la misma tarjeta.
+    const NOMV = {superagente:'Superagentes', distribuidor:'Distribuidores', agente:'Agentes', general:'Datos generales'};
     if(el) el.innerHTML = c.error ? '<span style="color:var(--red)">'+esc(String(c.error).slice(0,40))+'</span>'
-      : 'puesto en <b>'+esc(c.nivel==='general'?'Datos generales':(c.nivel||'?'))+'</b>';
+      : 'agrupando por <b>'+esc(NOMV[c.nivel]||c.nivel||'?')+'</b>';
     // Sólo se puede sacar la vuelta que el casino tenga puesta: el botón va en ESA fila y en
-    // ninguna otra. Poner un botón en las tres invitaría a apretar la que el server va a rechazar.
+    // ninguna otra. Poner un botón en las cuatro invitaría a apretar la que el server va a rechazar.
+    // Y dice qué hace: sacar lo que falta, o REHACER lo que ya está —que reemplaza, no agrega.
     const clave = c.nivel==='general' ? 'nodo' : c.nivel;
-    document.querySelectorAll('tr.vta[data-cx="'+c.id+'"]').forEach(tr=>{
-      const es = tr.getAttribute('data-niv')===clave;
-      tr.classList.toggle('vta-ahora', es);
-      const td=tr.querySelector('.vta-a'); if(!td) return;
-      td.innerHTML = es ? '<button class="small" onclick="fotoSacar(\''+c.id+'\',null,false)">Sacar</button>' : '';
+    document.querySelectorAll('.fvta[data-cx="'+c.id+'"]').forEach(fila=>{
+      const es = fila.getAttribute('data-niv')===clave;
+      fila.classList.toggle('ahora', es);
+      const td=fila.querySelector('.vta-a'); if(!td) return;
+      if(!es){ td.innerHTML=''; return; }
+      const lista = fila.getAttribute('data-lista')==='1';
+      td.innerHTML = '<button class="'+(lista?'outline ':'')+'small" onclick="fotoSacar(\''+c.id+'\',null,'+(lista?'true':'false')+')">'
+        + (lista?'🔄 Rehacer':'📸 Sacar') + '</button>';
     });
   });
 }
@@ -2070,7 +2108,6 @@ VIEWS.foto = async () => {
   const d = r.detalle||[];
   const NIV = {superagente:'Superagentes', distribuidor:'Distribuidores', agente:'Agentes', nodo:'Datos generales'};
   const errs = d.filter(x=>x.estado==='error');
-  const pn = r.porNivel||{}, sa = pn.superagente||{}, di = pn.distribuidor||{};
   setTimeout(fotoModos, 0);   // no bloquea el pintado: son dos consultas al casino
   const hecha = r.listas>0;
 
@@ -2092,32 +2129,54 @@ VIEWS.foto = async () => {
         }).join('') + '</div>';
   }).join('');
 
-  document.getElementById('main').innerHTML =
-      '<div class="card"><h2>📸 Foto del mes</h2>' + bannerMes(_fotoMes, 'fotoIrA')
-    + (fotoMesSinTerminar(_fotoMes) ? AVISO_FOTO_EN_CURSO : '')
-    + ayuda('foto',
-        'Se saca <b>a principio del mes siguiente, una vez</b>. Es lo que hace que el reporte de <b>proveedores externos</b> salga al instante.',
-        'Ese reporte necesita saber cuánto ganó cada proveedor en cada panel. Preguntárselo al casino en vivo son ~525 consultas de hasta 16 segundos: con un cliente multidivisa no llega a terminar. Como <b>un mes cerrado ya no cambia</b>, se le pregunta una sola vez, queda guardado, y después cualquier reporte sale de la base al instante — aunque el casino esté caído.'
-        + '<div style="margin-top:9px">Si un mes no tiene foto, su reporte de externos igual funciona, pero lento y puede fallar.</div>')
-    + '<div class="row" style="margin-top:10px;align-items:flex-end">'
-    + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" value="'+esc(_fotoMes)+'" onchange="_fotoMes=this.value;VIEWS.foto()"></div>'
-    + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Consultas listas</label>'
-    +   '<div style="font-size:22px;font-weight:800;color:'+(r.completa?'var(--green)':'inherit')+'">'+r.listas+' / '+r.total+'</div></div>'
-    + '<div class="card" style="flex:0 0 160px;background:var(--bg3);margin:0"><label>Filas guardadas</label>'
-    +   '<div style="font-size:22px;font-weight:800">'+money(r.filasGuardadas,0)+'</div></div>'
-    + '<div style="flex:0"><button onclick="fotoSacar(null,null,false)">📸 Sacar todo lo que falta</button></div>'
+  /* ── UN SOLO ESTADO, NO DOS NÚMEROS ─────────────────────────────────────────────────────────
+     Acá había "Consultas listas 210/210" y "Filas guardadas 4.807". Ninguno de los dos se usa para
+     decidir nada: la pregunta es una sola —¿el reporte de externos de este mes sale solo o no?—.
+     Los números siguen estando, abajo del todo, para cuando algo falla. */
+  const estado = r.completa
+    ? '<div class="nota ok"><span class="tit">Mes listo</span>El reporte de proveedores externos de '
+      + esc(mesNombre(_fotoMes)) + ' sale al instante.</div>'
+    : hecha
+    ? '<div class="nota warn"><span class="tit">Falta una parte</span>Lo que falta se le pregunta al '
+      + 'casino en vivo cada vez, y puede tardar o fallar.</div>'
+    : '<div class="nota warn"><span class="tit">Sin foto</span>El reporte de externos de este mes le '
+      + 'va a preguntar todo al casino, y puede no terminar.</div>';
 
-    + (hecha?'<div style="flex:0"><button class="outline" onclick="fotoSacar(null,null,true)">🔄 Rehacer todo</button></div>':'')
-    + '</div>'
-    + tarjetaDivisasIgnoradas()
-    // De a pedazos: cada botón saca una conexión y un nivel. Es lo que el casino puede dar en una
-    // pasada — el nivel se cambia a mano allá — y además hace que cada corrida sea corta.
-    + '<div class="nota" style="margin-top:10px"><span class="tit">Las cuatro vueltas</span>'
-    + 'Hay que pasar por las <b>cuatro</b>: el nivel no se elige acá, lo decide <b>Agrupar por</b> adentro del casino.<br>'
-    + '<b>Superagente</b>, <b>Distribuidor</b> y <b>Agente</b> dicen <i>quién consumió qué</i>, para cobrarle a cada cliente '
-    + '— cada panel se lee en el nivel que tiene, y sin la vuelta de Agentes los paneles de ese nivel daban <b>cero</b> sin avisar. '
-    + '<b>Datos generales</b> es el total de la plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.'
-    + '<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:10px">'
+  document.getElementById('main').innerHTML =
+      '<div class="card">'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+    +   '<h2 style="margin:0">📸 Foto del mes</h2>'
+    +   '<a href="#" onclick="var q=document.getElementById(\'foto-quees\');q.open=!q.open;return false"'
+    +     ' style="text-decoration:none;font-size:19px" title="Qué es esto">ⓘ</a></div>'
+    + bannerMes(_fotoMes, 'fotoIrA')
+    + (fotoMesSinTerminar(_fotoMes) ? AVISO_FOTO_EN_CURSO : '')
+    /* Una sola puerta a la explicación. Antes estaban la ⓘ y un renglón "Cómo funciona esto"
+       abriendo lo mismo, y el texto de las vueltas ocupaba la pantalla todos los días. */
+    + '<details id="foto-quees" style="margin:0"><summary style="display:none"></summary>'
+    + '<div class="nota" style="margin-top:10px">'
+    + 'La foto es lo que hace que el reporte de <b>proveedores externos</b> salga al instante. Sin ella '
+    + 'ese reporte le pregunta al casino panel por panel y divisa por divisa —cientos de consultas de '
+    + 'hasta 16 segundos— y con un cliente multidivisa no termina nunca. Como <b>un mes cerrado ya no '
+    + 'cambia</b>, se le pregunta una sola vez y queda guardado.'
+    + '<div style="margin-top:9px"><b>Las cuatro vueltas.</b> El nivel no se elige acá: lo decide '
+    + '<b>Agrupar por</b> adentro del casino, y por eso el botón aparece sólo en la vuelta que tiene '
+    + 'puesta. <b>Superagentes</b>, <b>Distribuidores</b> y <b>Agentes</b> dicen <i>quién consumió qué</i>, '
+    + 'para cobrarle a cada cliente — cada panel se lee en el nivel que tiene, y sin la vuelta de Agentes '
+    + 'los paneles de ese nivel daban <b>cero</b> sin avisar. <b>Datos generales</b> es el total de la '
+    + 'plataforma sin abrir por nadie: lo que <i>vos</i> le debés al proveedor.</div>'
+    + '<div style="margin-top:9px">Se saca <b>a principio del mes siguiente</b>. Si la sacás con el mes '
+    + 'en curso, el casino contesta con lo que hay hasta hoy y esa foto <b>cortada queda guardada como si '
+    + 'fuera la del mes entero</b>.</div></div></details>'
+    + '<div class="fotofila">'
+    +   '<input class="mes" type="month" value="'+esc(_fotoMes)+'" title="Mes que estás mirando"'
+    +     ' onchange="_fotoMes=this.value;VIEWS.foto()">'
+    +   estado
+    + '</div></div>'
+
+    /* Una conexión = una tarjeta con sus cuatro vueltas. Sin números de consultas: sólo si está o
+       no, y el botón únicamente en la vuelta que el casino tiene puesta — en las otras el server la
+       rechaza, así que un botón ahí sería una invitación a un error. Lo pone fotoModos(). */
+    + '<div class="card"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:stretch">'
     + cxs.filter(c=>c.activa!==false && (c.motor||'463')!=='tbs' && c.paneles>0).map(c=>{
         const p = d.filter(x=>x.conexion===c.nombre);
         const listo = p.length && p.every(x=>x.estado==='ok');
@@ -2126,43 +2185,40 @@ VIEWS.foto = async () => {
           const ok = q.filter(x=>x.estado==='ok').length;
           const err = q.filter(x=>x.estado==='error').length;
           const completa = q.length && ok===q.length;
-          return '<tr class="vta'+(completa?' vta-ok':'')+'" data-niv="'+esc(niv)+'" data-cx="'+esc(c.id)+'">'
-            + '<td class="vta-i">'+(completa?'✅':(err?'⚠️':'○'))+'</td>'
-            + '<td>'+esc(NIV[niv])+'</td>'
-            + '<td class="right"><b>'+ok+'</b><span class="muted">/'+q.length+'</span></td>'
-            + '<td class="vta-a"></td></tr>';
+          return '<div class="fvta" data-niv="'+esc(niv)+'" data-cx="'+esc(c.id)+'" data-lista="'+(completa?'1':'0')+'">'
+            + '<span class="ic">'+(completa?'✅':(err?'⚠️':'○'))+'</span>'
+            + '<span class="nb">'+esc(NIV[niv])+'</span>'
+            + '<span class="vta-a"></span></div>';
         }).join('');
-        return '<div class="vcx'+(listo?' vcx-ok':'')+'">'
-          + '<div class="vcx-h"><b>'+esc(c.nombre)+'</b>'
-          + '<span id="modo-'+esc(c.id)+'" class="muted" style="font-size:11px"></span></div>'
-          + '<table class="vtab"><tbody>'+filas+'</tbody></table></div>';
+        return '<div class="fcx'+(listo?' vcx-ok':'')+'">'
+          + '<div class="fcx-h"><b>'+esc(c.nombre)+'</b>'
+          + '<span id="modo-'+esc(c.id)+'" class="muted" style="font-size:12px"></span></div>'
+          + filas + '</div>';
       }).join('')
-    + '</div></div>'
-    + '<div id="foto-prog" style="margin-top:10px"></div>'
-    + (r.completa ? '<div class="nota ok" style="margin-top:10px"><span class="tit">Mes listo</span>'
-        + 'El reporte de externos de '+esc(_fotoMes)+' sale de la base, al instante.</div>'
-      : hecha ? '<div class="nota warn" style="margin-top:10px"><span class="tit">Foto a medias</span>'
-        + 'Falta '+(r.total-r.listas)+' de '+r.total+'. Lo que falta se le pregunta al casino en vivo cada vez que se pide el reporte.</div>'
-      : '<div class="nota warn" style="margin-top:10px"><span class="tit">Sin foto</span>'
-        + esc(_fotoMes)+' no tiene nada guardado: cada reporte de externos de este mes va a preguntarle al casino las '
-        + r.total+' consultas, y puede no terminar.</div>')
-    + (errs.length ? '<div class="nota err" style="margin-top:8px"><span class="tit">'+errs.length+' con error</span>'
+    + '</div>'
+    + (errs.length ? '<div class="nota err" style="margin-top:10px"><span class="tit">'+errs.length+' con error</span>'
         + [...new Set(errs.map(e=>e.conexion+' → '+e.error))].map(esc).join('<br>')+'</div>' : '')
-    + '<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700">Cómo se saca, y el detalle por divisa</summary>'
-    + '<div class="nota" style="margin-top:8px"><b>Son dos pasadas y hay que cambiar un ajuste en el casino entre una y otra.</b> '
-    + 'El casino agrupa por un nivel a la vez y eso <b>no se puede cambiar desde acá</b>: se cambia a mano en su pantalla '
-    + '(Estadísticas → Agrupar por). Y los dos niveles no dan lo mismo — el filtro de ganancias esconde los negativos '
-    + 'distinto en cada uno — así que hacen falta las dos.'
-    + '<div class="row" style="margin-top:8px">'
-    + '<div class="card" style="flex:1;margin:0"><label>1 · Agrupar por Superagent</label><div style="font-size:19px;font-weight:800;color:'+((sa.listas===sa.total&&sa.total)?'var(--green)':'inherit')+'">'+(sa.listas||0)+' / '+(sa.total||0)+'</div></div>'
-    + '<div class="card" style="flex:1;margin:0"><label>2 · Agrupar por Distributor</label><div style="font-size:19px;font-weight:800;color:'+((di.listas===di.total&&di.total)?'var(--green)':'inherit')+'">'+(di.listas||0)+' / '+(di.total||0)+'</div></div>'
-    + '</div></div>'
-    + (detalle?'<div class="muted" style="margin-top:10px">Verde = guardada · rojo = falló · gris = falta. Pasá el mouse para ver filas y segundos.</div>'+detalle:'')
-    + '</details></div>'
-    + (ms.length ? '<div class="card"><h2>Meses con foto</h2>'
-        + '<table><thead><tr><th>Mes</th><th class="right">Filas</th><th>Última vez</th></tr></thead><tbody>'
-        + ms.map(x=>'<tr><td><b>'+esc(x.mes)+'</b></td><td class="right">'+money(x.filas,0)+'</td><td class="muted">'+esc(String(x.ultimo||'').slice(0,16).replace('T',' '))+'</td></tr>').join('')
-        + '</tbody></table></div>' : '');
+    + '<div id="foto-prog"></div></div>'
+
+    /* Las fechas, enteras y siempre iguales: "ayer" se lee rápido hoy y no significa nada dentro de
+       un año, que es cuando se vuelve a mirar esto. Y sin la columna de filas, que no se usa. */
+    + (ms.length ? '<div class="card"><h2>Meses guardados</h2>'
+        + ms.map(x=>'<div class="fmes"><span style="font-size:15px">✅</span>'
+            + '<b style="flex:1;font-size:15px;text-transform:capitalize">'+esc(mesNombre(x.mes))+'</b>'
+            + '<span class="muted" style="font-size:12.5px">'+esc(fechaLarga(x.ultimo))+'</span></div>').join('')
+        + '</div>' : '')
+
+    /* Todo lo que no se mira salvo que algo falle: los números finos, las divisas que no se
+       consultan y el detalle divisa por divisa. */
+    + '<details class="card" style="padding:12px 16px">'
+    + '<summary style="cursor:pointer;font-weight:700">Ajustes y detalle fino</summary>'
+    + '<div class="muted" style="font-size:13px;margin:10px 0 8px">No hace falta mirarlo salvo que algo falle.</div>'
+    + '<div style="font-size:13px;margin-bottom:10px">Consultas guardadas: <b>'+r.listas+' de '+r.total+'</b>'
+    +   ' · filas: <b>'+money(r.filasGuardadas,0)+'</b></div>'
+    + tarjetaDivisasIgnoradas()
+    + (detalle?'<div class="muted" style="margin-top:12px">Verde = guardada · rojo = falló · gris = falta. '
+        + 'Pasá el mouse para ver filas y segundos.</div>'+detalle:'')
+    + '</details>';
 };
 async function fotoSacar(cxId, nivel, rehacer){
   // `nivel` ya no se manda: lo decide el casino. Se deja el parámetro porque los botones viejos

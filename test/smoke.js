@@ -6090,7 +6090,7 @@ async function main() {
     // eso, no porque el bloque hubiera desaparecido. Un test que se rompe al cambiar una palabra
     // enseña a ignorarlo.
     check('general: el bloque de conexiones sigue en pie',
-      /class="vcx/.test(html) && /fotoSacar\(/.test(html));
+      /class="fcx/.test(html) && /fotoSacar\(/.test(html));
     // y la vista general tiene que ser una de las vueltas que se muestran
     check('general: aparece como una vuelta más en la pantalla', /Datos generales/.test(html));
   }
@@ -6167,8 +6167,13 @@ async function main() {
     check('vueltas: el estado también se marca con un símbolo', /✅/.test(html) && /○/.test(html));
     // el botón va sólo en la vuelta que el casino tiene puesta
     const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
+    /* El botón va en la fila de la vuelta que el casino tiene puesta y en ninguna otra: en las
+       demás el server rechaza la pasada, así que un botón ahí es una invitación a un error. Y dice
+       cuál de las dos cosas hace — sacar lo que falta, o REHACER, que reemplaza lo guardado. */
     check('vueltas: el botón Sacar va sólo en la vuelta activa',
-      /vta-ahora/.test(js) && /es \? '<button/.test(js));
+      /classList\.toggle\('ahora', es\)/.test(js) && /if\(!es\)\{ td\.innerHTML=''; return; \}/.test(js));
+    check('vueltas: el botón dice si saca o si rehace, y manda ese flag',
+      /lista\?'🔄 Rehacer':'📸 Sacar'/.test(js) && /\(lista\?'true':'false'\)/.test(js));
   }
 
   // ── las tres vistas de la factura de proveedores son la misma plata ──
