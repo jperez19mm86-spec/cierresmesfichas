@@ -2399,7 +2399,12 @@ function pintarUsuarios(){
     </div>
     <div class="tit"><h2>${salas ? 'Mis cajeros' : DENTRO ? 'Jugadores del cajero' : 'Mis jugadores'}</h2><em id="cuenta"></em></div>
     <div class="lista" id="lista"></div>
-    ${!salas ? enlaceBorrados(DENTRO || (yo().caja || yo().id)) : ''}`;
+    ${/* 🔴 TAMBIÉN CUANDO SE MIRAN LAS CAJAS. Antes este enlace sólo aparecía adentro de una caja,
+         así que un JUGADOR borrado se podía encontrar y restaurar, pero un CAJERO borrado no
+         aparecía en ningún lado — y sus fichas tampoco. Reportado por el equipo el 2-sep-2026:
+         «al eliminar un cajero no aparece opción para restaurarlo y el saldo desaparece».
+         No desaparecía: quedaba adentro de la cuenta oculta, sin ninguna pantalla que la mostrara. */''
+    }${enlaceBorrados(salas ? yo().id : (DENTRO || (yo().caja || yo().id)), salas)}`;
   pintarFilas();
 }
 /* Los mismos cuatro números de la hoja del cajero, también cuando se entra a sus jugadores:
@@ -2416,20 +2421,20 @@ function perCajaLista(p){ CAJA_PER = p; pintarUsuarios(); }
 
 /* Un enlace chico, no una sección: se mira de vez en cuando. Pero si hay fichas
    congeladas ahí adentro, lo dice — es plata que no está viendo nadie. */
-function enlaceBorrados(cajaId){
+function enlaceBorrados(cajaId, sonCajas){
   const bs = BORRADOS.filter(b => b.sala === cajaId);
   if (!bs.length) return '';
   const conFichas = bs.filter(b => b.balance > 0);
   const total = conFichas.reduce((a, b) => a + b.balance, 0);
-  return `<button class="verborrados ${conFichas.length ? 'hayfichas' : ''}" onclick="verBorrados('${cajaId}')">
+  return `<button class="verborrados ${conFichas.length ? 'hayfichas' : ''}" onclick="verBorrados('${cajaId}', ${!!sonCajas})">
     ${bs.length} ${bs.length === 1 ? 'eliminado' : 'eliminados'}${
       conFichas.length ? ` · <b>saldo ${yo().currency} ${fmt(total)}</b>` : ''} ›
   </button>`;
 }
-function verBorrados(cajaId){
+function verBorrados(cajaId, sonCajas){
   const bs = BORRADOS.filter(b => b.sala === cajaId);
   abrirHoja(`
-    <h3 id="hojaTit">Jugadores eliminados</h3>
+    <h3 id="hojaTit">${sonCajas ? 'Cajeros eliminados' : 'Jugadores eliminados'}</h3>
     <div class="sub">Siguen existiendo con sus fichas, pero nadie los ve.</div>
     <div class="lista">
       ${bs.map(b => `<div class="fila-b" style="align-items:flex-start; cursor:default">

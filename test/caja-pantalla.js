@@ -91,6 +91,21 @@ check('el sub-agente inventado ya no puede llegar a una pantalla',
   htmlCaja.includes('SubAgenteGXL') && vaciadas.includes("'SUBAGENTES'"),
   'sigue en la maqueta, pero se tira al entrar');
 
+/* ── 0.ter · LAS CUENTAS BORRADAS SE TIENEN QUE PODER ENCONTRAR ───────────────────────────────
+   🔴 Reportado el 2-sep-2026: «al eliminar un cajero no aparece opción para restaurarlo y el saldo
+   desaparece». No desaparecía —quedaba adentro de la cuenta oculta— pero el enlace a la lista de
+   eliminados sólo se dibujaba ADENTRO de una caja. Un jugador borrado se encontraba; un cajero
+   borrado, no: ni él ni sus fichas.
+
+   Se verifica la regla, no el dibujo: que ese enlace no esté condicionado a NO estar mirando cajas.
+   Es plata que nadie ve, y la única pantalla que la muestra no puede depender de dónde estés. */
+check('el enlace a eliminados no se esconde cuando mirás las cajas',
+  !/\$\{!salas \? enlaceBorrados\(/.test(htmlCaja) && /enlaceBorrados\(salas \?/.test(htmlCaja));
+check('y la lista dice si son cajeros o jugadores',
+  /Cajeros eliminados/.test(htmlCaja) && /Jugadores eliminados/.test(htmlCaja));
+check('el conector le pasa ese dato al dibujar',
+  /enlaceOriginal\.call\(window, cajaId, sonCajas\)/.test(conector));
+
 /* ── 1 · leer un monto ─────────────────────────────────────────────────────────────────────────
    🔴 EL QUE OFRECÍA CARGAR DIEZ VECES DE MÁS. */
 check('7.028,6 es siete mil, no setenta mil', L.aNumero('7.028,6') === 7028.6, String(L.aNumero('7.028,6')));

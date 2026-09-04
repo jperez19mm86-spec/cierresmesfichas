@@ -1498,7 +1498,7 @@
 
   /* El aviso se dibuja con la lista que ya esté; si todavía no vino, se pide y se repinta. */
   const enlaceOriginal = window.enlaceBorrados;
-  window.enlaceBorrados = function enlaceBorradosDeVerdad(cajaId) {
+  window.enlaceBorrados = function enlaceBorradosDeVerdad(cajaId, sonCajas) {
     if (!window.__caja_sesion) return enlaceOriginal.apply(this, arguments);
     const clave = `borradas:${cajaId}`;
     if (!cache.has(clave)) {
@@ -1508,7 +1508,9 @@
       return '';                       // todavía no se sabe: no se afirma nada
     }
     traerEliminadas(cajaId);
-    return enlaceOriginal.call(window, cajaId);
+    /* El segundo dato dice si son cajas o jugadores: sin él, la pantalla del agente titulaba
+       «Jugadores eliminados» mostrando cajeros. */
+    return enlaceOriginal.call(window, cajaId, sonCajas);
   };
 
   window.restaurar = async function restaurarDeVerdad(id) {
