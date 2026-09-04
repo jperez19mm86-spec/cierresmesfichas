@@ -341,6 +341,23 @@ async function main() {
     /SIEMPRE_FRESCO\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(idx));
 }
 
+/* 🔴 EL AVISO FALSO EN TODA ALTA CON SALDO. Reportado el 4-sep-2026: crear un jugador con 1.000
+   mostraba «Le pediste 1.000 y quedó con 0», y las fichas estaban. La fila de `users` trae el
+   saldo en `balances: { ARS: "1000.00" }`; se leía `fila.balance`, que no existe — y `undefined`
+   se vuelve 0 sin quejarse. O sea que `parcial` daba true SIEMPRE que hubiera saldo inicial.
+   Comprobado contra el casino real: alta de 7 fichas → balances {ARS:'7.00'}, saldoQuedo 7,
+   parcial false; la caja pasó de 8 a 1 y volvió a 8 al devolverlas. */
+{
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  check('el saldo del alta se lee de `balances`, no de `balance`',
+    /const quedo = saldoDeFila\(creada\);/.test(rutas)
+    && !/Number\(creada\.balance\)/.test(rutas));
+  check('y hay una sola forma de leer el saldo de una fila',
+    (rutas.match(/fila\.balances && Object\.values\(fila\.balances\)\[0\]/g) || []).length === 1);
+  check('la pantalla recibe ese saldo ya resuelto',
+    /cuenta: \{ \.\.\.creada, balance: quedo \}/.test(rutas));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
   console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
   if (fallaron.length) {

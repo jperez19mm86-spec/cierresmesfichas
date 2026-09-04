@@ -31,6 +31,17 @@ const esJson = (r) => r && r.ok && r.data && typeof r.data === 'object';
 const sinFilaTotal = (filas) => (filas || []).filter((x) => x && x.id !== '' && x.id != null);
 
 const hoy = () => new Date().toISOString().slice(0, 10);
+/* 🔴 EL SALDO DE UNA FILA DE `users` VIVE EN `balances`, NO EN `balance`. El motor manda
+   `balances: { ARS: "1000.00" }` — un objeto por moneda, y el número como texto. Leerlo como
+   `fila.balance` da `undefined`, que en JavaScript se convierte en 0 sin quejarse.
+   Ahí estaba el error que reportó Sarah el 4-sep-2026: creó un jugador con 1.000 y la pantalla
+   le dijo «Le pediste 1.000 y quedó con 0». Las fichas SÍ estaban en el jugador; lo que estaba
+   mal era la lectura, y el aviso salía en TODA alta con saldo inicial, siempre. */
+const saldoDeFila = (fila) => {
+  const b = fila && fila.balances && Object.values(fila.balances)[0];
+  return Number(String(b == null ? 0 : b).replace(/[^\d.-]/g, '')) || 0;
+};
+
 const rango = (q) => ({
   from: `${q.desde || hoy()} 00:00:00`,
   to: `${q.hasta || hoy()} 23:59:59`,
@@ -532,8 +543,7 @@ function mount(app) {
     }
     if (!fila && login) fila = await buscarEn({ search: String(login), offset: '1' });
     if (!fila) return null;
-    const b = fila.balances && Object.values(fila.balances)[0];
-    return Number(String(b == null ? 0 : b).replace(/[^\d.-]/g, '')) || 0;
+    return saldoDeFila(fila);
   }
 
 
@@ -848,9 +858,10 @@ function mount(app) {
           + 'en tu panel: los logins son únicos y quedan reservados aunque la cuenta se elimine. '
           + 'Probá con otro.' });
     }
-    ok(res, { cuenta: creada, saldoPedido: saldo,
-      saldoQuedo: Number(creada.balance) || 0,
-      parcial: saldo > 0 && Math.abs((Number(creada.balance) || 0) - saldo) > 0.009 });
+    /* El saldo que se muestra es el que el casino confirma, leído de donde de verdad está. */
+    const quedo = saldoDeFila(creada);
+    ok(res, { cuenta: { ...creada, balance: quedo }, saldoPedido: saldo, saldoQuedo: quedo,
+      parcial: saldo > 0 && Math.abs(quedo - saldo) > 0.009 });
   }));
 
   app.post('/api/caja/eliminar', auth.requerida, wrap(async (req, res) => {
