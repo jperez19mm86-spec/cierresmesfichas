@@ -3290,6 +3290,11 @@ function mount(app) {
       }
     }
 
+    // Las cargas del mes, una sola vez: sirven para saber a quién se le facturó lo que entró a cada
+    // panel, que es lo que distingue "faltan pedidos" de "sus cargas van a otra cuenta".
+    let detalleMes = [];
+    try { detalleMes = pedidosStore.detalleDelMes(mes); } catch (e) { /* el aviso sale igual, sin el detalle */ }
+
     const _tc = tcUnico.tcDelMes('ARS', mes);
     const tc = _tc.valor;
     const out = []; const sinBase = new Set(); const sinTC = new Set();
@@ -3368,10 +3373,26 @@ function mount(app) {
         enCero.push({ nombre: c.nombre || c.nombreVisible || c.codigo, vendido_usdt: money.round(vendUsdt, 2), casino_usdt: money.round(casinoUsdt, 2) });
       }
 
-      // Movimiento en el casino pero CERO pedidos: no se factura en cero y listo — se avisa. Una
-      // factura en cero pasa desapercibida; un aviso no.
+      /* Movimiento en el casino pero CERO pedidos: se avisa, porque una factura en cero pasa
+         desapercibida. Pero NO siempre falta algo: si los paneles de este cliente recibieron cargas
+         que se le facturan a OTRO —los de JJ llevan el código de Marcelo, los de Ariel el de Fran—
+         entonces está bien que él no tenga pedidos, y decir "faltan pedidos" manda a buscar algo
+         que no existe. Se dice a quién se le facturaron. */
       if (!v && hayCasino && money.isPos(casinoUsdt)) {
-        sinPedidos.push({ codigo: c.codigo, nombre: c.nombre || c.nombreVisible, casino_usdt: money.round(casinoUsdt, 2) });
+        const nodos = new Set(cps.map((p) => String(p.id_usuario)));
+        const aOtro = {};
+        for (const d of (detalleMes || [])) {
+          if (!nodos.has(String(d.userId))) continue;
+          const dest = clientes.list().clientes.find((x) => String(x.codigo).toLowerCase() === String(d.codigo).toLowerCase());
+          if (!dest || dest.id === c.id) continue;
+          const k = dest.nombre || dest.codigo;
+          aOtro[k] = (aOtro[k] || 0) + 1;
+        }
+        sinPedidos.push({
+          codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
+          casino_usdt: money.round(casinoUsdt, 2),
+          seFacturanA: Object.entries(aOtro).map(([n, k]) => ({ cliente: n, cargas: k })),
+        });
       }
 
       // lo que quedó a mitad de anular: las fichas están puestas pero la vuelta no se confirmó
