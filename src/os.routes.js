@@ -3772,12 +3772,16 @@ function mount(app) {
       [...usadas].forEach((d) => { if (tcUnico.tcDelMes(d, mes).valor == null) sinTC.push(d); });
       /* ── Y EL TC DEL PROVEEDOR, QUE ES OTRO NÚMERO ────────────────────────────────────────
          `ARS_OF` no es una moneda: es el ARS que factura el PROVEEDOR, sale de su factura y se
-         carga a mano. `tcExternos` lo usa para todo lo que se le cobra en pesos, y si no está
-         CAE AL PROMEDIO DEL MES sin frenar nada — sólo deja un texto en `fuente` que no mira
-         nadie. Y no es un detalle: en julio 2026 el del proveedor era 1485,44 y el promedio
-         1574,42, casi 89 pesos de diferencia. Como el promedio es más alto y se divide por él,
-         la factura sale con MENOS dólares: se cobra de menos y el total cuadra igual.
-         Este paso se llama "el TC del proveedor", así que tiene que mirar el del proveedor. */
+         carga a mano.
+
+         ⚠️ NO afecta lo que se le cobra al CLIENTE. Regla del dueño (4-ago-2026), escrita en
+         externos.service: al cliente se le cobra SIEMPRE con el promedio del mes, y la diferencia
+         entre las dos tasas es margen, no un costo a trasladar. Lo que sí depende de este TC es
+         la cuenta de los VENDEDORES y el PAGO A PROVEEDORES — las dos son lo que se paga de
+         verdad. Si falta, esas dos caen al promedio sin frenar nada: sólo queda un texto en
+         `fuente` que no mira nadie.
+         Agosto 2026: con el promedio (1584,53) los vendedores daban una cosa y con el del
+         proveedor (1508,77) otra. Este paso se llama "el TC del proveedor": mira el del proveedor. */
       hayARS = usadas.has('ARS');
       if (hayARS) {
         const t = tcStore.getMes(mes);
@@ -3786,8 +3790,9 @@ function mount(app) {
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
     const porQueTC = [];
     if (sinTC.length) porQueTC.push('falta el de ' + sinTC.join(', ') + ' — sin él esa moneda entra valiendo cero');
-    if (faltaProv) porQueTC.push('falta el TC del PROVEEDOR de ARS (la fila ARS_OF): sin él lo que se cobra '
-      + 'en pesos se valúa con el promedio del mes, que es más alto, y la factura sale con menos dólares');
+    if (faltaProv) porQueTC.push('falta el TC del PROVEEDOR de ARS (la fila ARS_OF): sin él la cuenta de los '
+      + 'VENDEDORES y el pago a proveedores se valúan con el promedio del mes. Al cliente no lo afecta: '
+      + 'a él se le cobra siempre con el promedio');
     paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc',
       estado: porQueTC.length ? 'falta' : 'listo',
       detalle: porQueTC.length ? porQueTC.join(' · ')
