@@ -326,6 +326,20 @@ check('un error de plata tampoco saca nada',
 check('una ruta que no es una sección no saca nada',
   L.seccionNegadaPor('fichas', 'No rights') === null);
 
+/* ── 6 · lo que se le dice a quien acaba de crear una cuenta ────────────────────────────────────
+   🔴 DOS TEXTOS QUE CONFUNDÍAN, reportados el 4-sep-2026. */
+check('el aviso de credenciales se adapta a si hay link o no',
+  /const AVISO_CRED = \(hayLink\) =>/.test(conector)
+  && !/Las dos cosas valen lo mismo que la contraseña/.test(conector),
+  'sin link no puede decir «las dos cosas»');
+check('y dice lo único que importa: que con eso se entra',
+  /Con eso se entra a la cuenta/.test(conector)
+  && /Cualquiera de las dos cosas abre la cuenta/.test(conector));
+check('el aviso de «sin link» distingue el dominio del casino del de la caja',
+  /Se configura \\n?\s*\+ 'caja por caja/.test(conector) || /caja por caja/.test(conector));
+check('y aclara que con el usuario se entra igual',
+  /con el usuario y la contraseña se entra igual/.test(conector));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

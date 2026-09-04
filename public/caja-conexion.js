@@ -844,8 +844,7 @@
         Revisá el saldo de la caja antes de darle más.</div>` : ''}
       ${filaCred('Usuario y contraseña', acceso, true)}
       ${link ? filaCred('Link de acceso directo', link, true) : `<div class="nota">${SIN_LINK}</div>`}
-      <div class="nota"><b>Las dos cosas valen lo mismo que la contraseña.</b> Mandá una sola vez
-      y pedile que la cambie.</div>
+      <div class="nota">${AVISO_CRED(!!link)}</div>
       <div class="acciones">
         <button class="btn sec" onclick="compartirTexto(\`${acceso}${link ? '\n' + link : ''}\`)">Compartir</button>
         <button class="btn" onclick="cerrarHoja()">Listo</button>
@@ -1128,8 +1127,24 @@
   }
   const olvidarAcceso = (id) => ACCESOS.delete(String(id));
 
-  const SIN_LINK = 'Esta caja no tiene dominio configurado, así que no hay link para dar. '
-    + 'Se lo puede pedir a soporte.';
+  /* 🔴 «DOMINIO CONFIGURADO» SE ENTENDÍA COMO OTRA COSA. Reportado el 4-sep-2026: «la caja tiene
+     activo los dominios». Y es cierto — pero son dos cosas distintas. El casino tiene una lista de
+     dominios habilitados, y aparte CADA CAJA tiene el suyo cargado en su ficha (`ticket_url`).
+     El link sale de ahí, y sólo de ahí. Comprobado ese día: la caja 7357557 lo tiene y da link al
+     instante; la 7357836 lo tiene vacío y no da ninguno. Tampoco es que preguntemos muy pronto —
+     se midió a los 0, 1, 3 y 6 segundos de crear la cuenta y el link ya estaba.
+     Así que el texto ahora dice CUÁL de las dos cosas falta, y que con el usuario se entra igual. */
+  const SIN_LINK = 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino. Se configura '
+    + 'caja por caja: que el casino tenga dominios habilitados no alcanza. Pedíselo a soporte — '
+    + 'mientras tanto, con el usuario y la contraseña se entra igual.';
+
+  /* 🔴 «LAS DOS COSAS VALEN LO MISMO QUE LA CONTRASEÑA» NO SE ENTENDÍA. Reportado el mismo día.
+     Decía «las dos» aunque muchas veces hay una sola —cuando la caja no tiene link—, y «valen lo
+     mismo que la contraseña» no dice lo único que importa: que con eso se entra a la cuenta. */
+  const AVISO_CRED = (hayLink) => (hayLink
+    ? '<b>Cualquiera de las dos cosas abre la cuenta.</b> Mandale una sola, por un canal privado, '
+    : '<b>Con eso se entra a la cuenta.</b> Mandáselo por un canal privado ')
+    + 'y pedile que cambie la contraseña apenas entre.';
 
   /* Las tres pantallas que muestran el acceso, con los textos de la maqueta intactos. */
   window.copiar = async function copiarDeVerdad(texto, mensaje) {
@@ -1137,11 +1152,11 @@
     if (navigator.clipboard) navigator.clipboard.writeText(texto).catch(() => {});
     const a = await accesoDe(ACTUAL.id);
     abrirHoja(`<div class="resultado"><div class="sello">✓</div><h3>${mensaje}</h3>
-        <div class="sub">Ya está en el portapapeles. Las dos cosas, por si querés la otra:</div></div>
+        <div class="sub">Ya está en el portapapeles${a.ok && a.link ? ', y acá abajo está la otra' : ''}:</div></div>
       ${filaCred('Usuario y contraseña', (a.ok && a.acceso) || '—', true)}
       ${a.ok && a.link ? filaCred('Link de acceso directo', a.link, true)
                        : `<div class="nota">${SIN_LINK}</div>`}
-      <div class="nota"><b>Valen lo mismo que la contraseña.</b> Mandá una sola vez y pedile que la cambie.</div>
+      <div class="nota">${AVISO_CRED(!!(a.ok && a.link))}</div>
       <div class="acciones">
         <button class="btn sec" onclick="abrirNodo('${ACTUAL.id}')">Volver</button>
         <button class="btn" onclick="cerrarHoja()">Listo</button>
