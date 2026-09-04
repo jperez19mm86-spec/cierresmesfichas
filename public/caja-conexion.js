@@ -1746,6 +1746,21 @@
     if (SEC === 'dashboard') tableroOriginal.call(window);
   }
 
+  const ROTULO_PANEL = { active_players: 'Jugadores activos', active_halls: 'Cajeros activos' };
+  function avisarSinDato(sinDato) {
+    if (!sinDato || !sinDato.length) return;
+    const cuerpo = document.getElementById('cuerpo');
+    if (!cuerpo || cuerpo.querySelector('.sindato')) return;
+    const cuales = sinDato.map((x) => ROTULO_PANEL[x] || x);
+    const nota = document.createElement('div');
+    nota.className = 'nota aviso sindato';
+    nota.style.marginTop = '12px';
+    nota.innerHTML = `<b>${cuales.join(' y ')}</b>: el casino no calcula ${
+      cuales.length > 1 ? 'estos números' : 'este número'} para tu nivel, así que ${
+      cuales.length > 1 ? 'aparecen' : 'aparece'} en cero. <b>No quiere decir que no haya.</b>`;
+    cuerpo.appendChild(nota);
+  }
+
   const tableroOriginal = window.pintarTablero;
   window.pintarTablero = function pintarTableroDeVerdad() {
     if (!window.__caja_sesion) return tableroOriginal.apply(this, arguments);
@@ -1761,6 +1776,11 @@
       const paneles = aPaneles(d.paneles);
       if (DENTRO) TABLERO_CAJA[DENTRO] = paneles; else Object.assign(TABLERO, paneles);
       tableroOriginal.apply(this, arguments);
+      /* 🔴 UN CERO QUE NO ES UN CERO. Al sub-agente el casino no le calcula dos de estos paneles y
+         contesta 0 — que se lee como «no hay nadie activo», y no es eso: es «no lo sabemos».
+         Reportado el 2-sep-2026 con SubASoph. Los jugadores y los conectados sí se calculan (el
+         servidor los suma de sus cajas); estos dos no se pueden derivar, así que se dice. */
+      avisarSinDato(d.sinDato);
       /* La comparación «vs el período anterior» era de ejemplo. Se pide DESPUÉS de dibujar: es un
          dato secundario y no tiene por qué hacer esperar a los números principales. */
       traerPrevio(nodo, r);

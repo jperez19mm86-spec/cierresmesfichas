@@ -41,12 +41,20 @@ function crearMotorFalso() {
      del motor y no se supone. La maqueta lo traía escrito a mano en `true` para todos. */
   poner({ id: '801', login: 'SubCajaDePrueba', group: 8, padre: '200', saldo: 0,
     permisos: { hide_hall_balance: '1', disable_statistic: '0' } });
+  /* Un sub-agente: cuelga del agente y ve sus cajas. Al motor de verdad, este nivel le pide el
+     resumen y recibe TODO EN CERO — se imita, porque de ahí sale la única forma honesta de
+     mostrarlo: calcular lo que se pueda y decir lo que no. */
+  poner({ id: '601', login: 'SubAgenteDePrueba', group: 6, padre: '100', saldo: 0 });
 
   const hijosDe = (id) => [...cuentas.values()].filter((c) => c.padre === String(id));
 
   const comoFila = (c) => ({
     id: c.id, login: c.login, name: '', group: c.group,
     balances: { ARS: String(c.saldo) },
+    /* Cuántos jugadores tiene esa caja. Es el dato con el que se arma el resumen de un
+       sub-agente cuando el casino no se lo calcula. */
+    terminals: { ARS: String(hijosDe(c.id).length) },
+    terminals_online: { ARS: '0' },
     deleted: c.borrada ? '1' : '0',
   });
 
@@ -134,7 +142,12 @@ function crearMotorFalso() {
         /* El paginado del motor: `offset` es la PÁGINA, empezando en 1. */
         const pagina = Math.max(1, Number(query.offset) || 1);
         const porPagina = Math.max(1, Number(cuerpo.limit) || 200);
-        let filas = hijosDe(query.id);
+        /* 🔴 UN SUB-AGENTE PIDIENDO SU PROPIO NODO RECIBE LAS CAJAS DE SU AGENTE. Medido contra
+           el casino el 2-sep-2026: entrando con un sub-agente, `users` sobre su propio id devolvió
+           la caja que tiene habilitada, no una lista vacía. El motor resuelve el alcance solo. */
+        const dueño = (yo.group === '6' && String(query.id) === String(yo.id) && yo.padre)
+          ? yo.padre : query.id;
+        let filas = hijosDe(dueño);
         /* El filtro de borradas: el motor devuelve unas u otras, nunca las dos. */
         filas = filas.filter((c) => (cuerpo.deleted_users === 'delete' ? c.borrada : !c.borrada));
         if (cuerpo.search) filas = filas.filter((c) => c.login.includes(cuerpo.search));
@@ -170,6 +183,19 @@ function crearMotorFalso() {
       /* `useredit` da la ficha de una cuenta, con sus permisos. Una cuenta NO puede leer la
          propia: el motor de verdad contesta que no tiene permiso, y por eso hay que preguntar con
          la credencial raíz. Se imita para que el test lo exija. */
+      /* `dashboardinfo`: los números del resumen. A un sub-agente el casino le contesta todo en
+         cero — medido el 2-sep-2026 contra el motor de verdad. */
+      if (area === 'dashboardinfo') {
+        const cero = { data: { numbers: { total_players: { total: 0 }, online_players: { total: 0 } } } };
+        if (yo.group === '6') {
+          return responder({ charts: { summary_stats: cero, active_players: cero, active_halls: cero } });
+        }
+        const mios = hijosDe(query.id || yo.id);
+        const jug = mios.reduce((a, c) => a + hijosDe(c.id).length, 0);
+        return responder({ charts: { summary_stats:
+          { data: { numbers: { total_players: { total: jug }, online_players: { total: 0 } } } } } });
+      }
+
       if (area === 'useredit') {
         const quien = cuentas.get(String(query.id));
         if (!quien) return responder({ error: 'No such user' });

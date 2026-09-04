@@ -249,6 +249,35 @@ async function main() {
     check('sus cuentas eliminadas son las suyas, no las de otra caja',
       r.data.ok && (r.data.eliminadas || []).length === 0,
       r.data.ok ? `${(r.data.eliminadas || []).length}` : r.data.error);
+    /* 🔴 EL RESUMEN DE UN SUB-AGENTE. El casino le contesta TODO EN CERO — medido el 2-sep-2026:
+       el agente ve 13 jugadores y el sub-agente 0, en su propio nodo y en la caja que sí tiene
+       habilitada. Cero se lee como «no hay», que es una mentira que asusta. Lo que el motor sí le
+       da es la lista de sus cajas con cuántos jugadores tiene cada una, y de ahí sale el número
+       de verdad. Lo que no se puede derivar se marca, para decirlo en vez de mostrar un cero. */
+    galleta = galletaAgente;
+
+    /* ── 5.ter · EL RESUMEN DE UN SUB-AGENTE ────────────────────────────────────────────────
+       🔴 El casino le contesta TODO EN CERO. Medido el 2-sep-2026: el agente ve 13 jugadores y el
+       sub-agente 0, en su propio nodo Y en la caja que sí tiene habilitada. Cero se lee como «no
+       hay», que es una mentira que asusta — reportado por el equipo con SubASoph, que sí ve los
+       cajeros donde están los jugadores.
+       Lo que el motor SÍ le da es la lista de sus cajas con cuántos jugadores tiene cada una: de
+       ahí sale el número de verdad. Lo que no se puede derivar se marca, para decirlo. */
+    r = await enviar('/api/caja/login', { usuario: 'SubAgenteDePrueba', clave: 'clave-de-prueba' });
+    const galletaSubAg = (r.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    check('entra un sub-agente', r.data.ok && r.data.yo.group === '6',
+      r.data.ok ? `grupo ${r.data.yo.group}` : r.data.error);
+
+    galleta = galletaSubAg;
+    r = await pedir('/api/caja/resumen');
+    const nums = ((((r.data.paneles || {}).summary_stats || {}).data || {}).numbers) || {};
+    check('sus jugadores se cuentan de sus cajas, no se dejan en el cero del casino',
+      r.data.ok && (nums.total_players || {}).total > 0,
+      `total_players=${(nums.total_players || {}).total}`);
+    check('y se dice cuáles el casino no calcula, en vez de mostrarlos como cero',
+      r.data.ok && (r.data.sinDato || []).includes('active_players')
+        && (r.data.sinDato || []).includes('active_halls'),
+      JSON.stringify(r.data.sinDato));
     galleta = galletaAgente;
 
     /* ── 6 · el diario ───────────────────────────────────────────────────────────────────── */
