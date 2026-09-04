@@ -6126,6 +6126,17 @@ async function main() {
     check('cierre: el aviso de TC sale de tcDelMes, no de la tabla en crudo',
       /tcUnico\.tcDelMes\(d, mes\)\.valor == null/.test(pasos) && !/cierreStore\.getTC\(\)/.test(pasos),
       'mirar la tabla directo vuelve a pedir el TC de USD');
+    /* ARS_OF no es una moneda: es el ARS que factura el PROVEEDOR, y es OTRO número. Si no está,
+       `tcExternos` cae al promedio del mes sin frenar nada — en julio 2026 el del proveedor era
+       1485,44 y el promedio 1574,42: como se divide por él, la factura sale con menos dólares y el
+       total cuadra igual. El paso se llama "el TC del proveedor": tiene que mirar el del proveedor. */
+    check('cierre: el paso del TC también mira el del PROVEEDOR (ARS_OF), no sólo el general',
+      /tcStore\.getMes\(mes\)/.test(pasos) && /tc_proveedor_ext/.test(pasos),
+      'sin esto el paso da verde y lo que se cobra en pesos se valúa con el promedio');
+    const tcu = require('../src/tc-unico.service');
+    check('cierre: tcExternos y tcDelMes son preguntas distintas',
+      typeof tcu.tcExternos === 'function' && typeof tcu.tcDelMes === 'function'
+      && String(tcu.tcExternos).includes('tc_proveedor_ext'));
   }
 
   /* ── UN onclick ARMADO CON COMILLAS DOBLES NO EXISTE ─────────────────────────────────────────

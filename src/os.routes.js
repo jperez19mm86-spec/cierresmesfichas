@@ -3765,15 +3765,33 @@ function mount(app) {
        que VES se resuelve con el de VEF. Un aviso que pide algo que no existe hace que se deje de
        confiar en los avisos, que es peor que no tenerlos. */
     const sinTC = [];
+    let faltaProv = false; let hayARS = false;
     try {
       const usadas = new Set();
       pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
       [...usadas].forEach((d) => { if (tcUnico.tcDelMes(d, mes).valor == null) sinTC.push(d); });
+      /* ── Y EL TC DEL PROVEEDOR, QUE ES OTRO NÚMERO ────────────────────────────────────────
+         `ARS_OF` no es una moneda: es el ARS que factura el PROVEEDOR, sale de su factura y se
+         carga a mano. `tcExternos` lo usa para todo lo que se le cobra en pesos, y si no está
+         CAE AL PROMEDIO DEL MES sin frenar nada — sólo deja un texto en `fuente` que no mira
+         nadie. Y no es un detalle: en julio 2026 el del proveedor era 1485,44 y el promedio
+         1574,42, casi 89 pesos de diferencia. Como el promedio es más alto y se divide por él,
+         la factura sale con MENOS dólares: se cobra de menos y el total cuadra igual.
+         Este paso se llama "el TC del proveedor", así que tiene que mirar el del proveedor. */
+      hayARS = usadas.has('ARS');
+      if (hayARS) {
+        const t = tcStore.getMes(mes);
+        faltaProv = !(t && t.tc_proveedor_ext != null && String(t.tc_proveedor_ext) !== '');
+      }
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
+    const porQueTC = [];
+    if (sinTC.length) porQueTC.push('falta el de ' + sinTC.join(', ') + ' — sin él esa moneda entra valiendo cero');
+    if (faltaProv) porQueTC.push('falta el TC del PROVEEDOR de ARS (la fila ARS_OF): sin él lo que se cobra '
+      + 'en pesos se valúa con el promedio del mes, que es más alto, y la factura sale con menos dólares');
     paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc',
-      estado: sinTC.length ? 'falta' : 'listo',
-      detalle: sinTC.length ? 'falta el de ' + sinTC.join(', ') + ' — sin él esa moneda entra valiendo cero'
-                            : 'todas las monedas que movió el mes lo tienen' });
+      estado: porQueTC.length ? 'falta' : 'listo',
+      detalle: porQueTC.length ? porQueTC.join(' · ')
+        : 'todas las monedas que movió el mes lo tienen' + (hayARS ? ', y el del proveedor está cargado' : '') });
 
     // 3 · los % del mes. No confirmarlos NO frena: se usa el vigente. No tener ninguno SÍ frena.
     const sinValor = []; const sinConfirmar = [];
