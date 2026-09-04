@@ -48,7 +48,16 @@ function valuar(m) {
   if (tieneArs && tieneUsdt) return m;
   if (!tieneArs && !tieneUsdt) return m;                    // no hay de dónde partir
 
-  const mes = String(m.fecha || m.createdAt || '').slice(0, 7);
+  /* ⚠️ EL MES DE CIERRE, NO EL DE LA FECHA. Un pago del 3 de septiembre puede estar asignado al
+     cierre de AGOSTO, y entonces tiene que valuarse con el TC de agosto — que ya está cerrado y no
+     se mueve. Con el de la fecha pasaban dos cosas, las dos malas: dos pagos idénticos de 130.000
+     al mismo cierre daban distinto (82,04 y 81,91), y el de septiembre seguía CAMBIANDO todos los
+     días con el promedio del mes en curso, así que el cierre de agosto nunca terminaba de cuajar.
+     La regla es la misma que `movimientos-store.mesDe`; se repite acá porque ese módulo importa a
+     éste y no puede haber ida y vuelta. */
+  const mes = m.mes_cierre
+    ? String(m.mes_cierre).slice(0, 7)
+    : String(m.fecha || m.createdAt || '').slice(0, 7);
   const t = mes ? tcUnico.tcDelMes('ARS', mes) : null;
   // `derivada` dice CUÁL de las dos caras salió de un tipo de cambio. Sin ese dato no se puede
   // avisar bien: un pago en dólares sobre una cuenta en dólares deriva la cara en pesos, que nadie

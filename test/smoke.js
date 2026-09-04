@@ -6203,7 +6203,25 @@ async function main() {
     /* Y en el TEXTO que se copia y se manda, lo mismo: ahí iba el saldo de hoy. */
     check('factura: el texto que se manda también cierra con el saldo del mes',
       /Saldo al cierre de \$\{esc\(f\.mesNombre\)\}/.test(svc) && !/Saldo de la cuenta/.test(svc));
-    /* ── LO QUE ES TUYO NO VA EN EL PAPEL DEL CLIENTE ──────────────────────────────────────────
+    /* ── UN PAGO ASIGNADO A UN CIERRE SE VALÚA CON EL TC DE ESE CIERRE ───────────────────────────
+     `valuacion` miraba el mes de la FECHA. Un pago del 3 de septiembre asignado al cierre de
+     agosto se valuaba con el promedio de septiembre, y pasaban dos cosas: dos pagos idénticos de
+     130.000 al mismo cierre daban distinto (82,04 y 81,91), y el de septiembre seguía CAMBIANDO
+     todos los días con el promedio del mes en curso — el cierre de agosto nunca cuajaba. */
+  {
+    const v = fs.readFileSync(path.join(ROOT, 'src', 'valuacion.js'), 'utf8');
+    check('valuación: usa el mes de CIERRE cuando el movimiento lo tiene',
+      /m\.mes_cierre\s*\n?\s*\? String\(m\.mes_cierre\)/.test(v),
+      'con el de la fecha, un pago de septiembre puesto en agosto se valúa con septiembre');
+    check('valuación: sin mes de cierre sigue usando la fecha',
+      /: String\(m\.fecha \|\| m\.createdAt/.test(v));
+    // Y la misma regla que usa el resto del sistema, para que no puedan decidir distinto.
+    const ms = fs.readFileSync(path.join(ROOT, 'src', 'movimientos-store.js'), 'utf8');
+    check('valuación: `mesDe` dice lo mismo en un solo lugar',
+      /function mesDe/.test(ms) && /mv\.mes_cierre/.test(ms));
+  }
+
+  /* ── LO QUE ES TUYO NO VA EN EL PAPEL DEL CLIENTE ──────────────────────────────────────────
        "regenerada 3 veces", "salió por impresa", "Hoy debe 18.771,52", de dónde salió el detalle:
        sirven para trabajar y no tienen por qué llegarle al cliente. Se SACAN del documento al
        imprimir, no se ocultan con CSS: escondido, cualquiera que abra el PDF igual lo lee. */
