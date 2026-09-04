@@ -58,6 +58,30 @@ function crucesEnRango(cruces, rango) {
     .filter((c) => c.cuentas.length > 1);   // una sola cuenta no es un cruce
 }
 
+/* ── MOVIMIENTOS DE CUENTAS QUE YA NO ESTÁN ─────────────────────────────────────────────────────
+   Señalado el 4-sep-2026: al eliminar una caja, sus movimientos siguen en la lista con su login y
+   nada avisa que esa cuenta ya no existe. Y TIENEN que seguir — el historial es historial, no
+   desaparece porque alguien haya borrado la cuenta; si desapareciera, la plata de esos días no
+   cuadraría con nada. Lo que faltaba no era esconderlos: era decirlo.
+
+   🔴 EL MOTOR NO LO DICE. La fila de `area=balance` trae `user` y `uid` y NINGÚN campo de borrado
+   —comprobado el 4-sep sobre 29 movimientos reales—. El cruce se hace acá, por `uid`, contra la
+   lista de eliminadas QUE YA ESTÉ CARGADA: la trae la pantalla de Cuentas, así que normalmente
+   está. Nunca se pide de más. Y si no la tenemos, no se afirma nada — el aviso pasa a decir «puede
+   incluir» en lugar de nombrarlas. Medido ese mismo día: 4 de 29 movimientos eran de dos cajas de
+   prueba ya borradas, y la pantalla las mostraba como si siguieran vivas. */
+function eliminadasDeLaLista(filas, borrados, nodo) {
+  const ids = new Set((borrados || [])
+    .filter((b) => nodo == null || String(b.sala) === String(nodo))
+    .map((b) => String(b.id)));
+  const halladas = new Map();
+  for (const m of filas || []) {
+    const uid = String((m && m.uid) == null ? '' : m.uid);
+    if (ids.has(uid)) halladas.set(uid, (m && m.user) || uid);
+  }
+  return { ids: new Set(halladas.keys()), logins: [...halladas.values()] };
+}
+
 /* ── EL MENÚ DE CADA NIVEL ──────────────────────────────────────────────────────────────────────
    🔴 NO SALE DEL MOTOR, Y NO PUEDE. `area=buttons` miente para los dos lados, medido el
    1-sep-2026: al cajero no le nombra el Resumen y el Resumen le funciona; al sub-agente sí le
@@ -120,7 +144,7 @@ function seccionNegadaPor(ruta, error) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango,
+    aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango, eliminadasDeLaLista,
     MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }

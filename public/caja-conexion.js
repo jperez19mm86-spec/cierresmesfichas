@@ -1514,6 +1514,15 @@
     return suyas;
   }
 
+  /* 🔴 SABER SI SABEMOS. Movimientos marca las cuentas eliminadas cruzando contra `BORRADOS`,
+     pero sólo puede AFIRMAR que están todas si esa lista ya se trajo para ese nodo. Sin esto no
+     hay diferencia visible entre «no hay ninguna» y «todavía no miramos», y son cosas distintas:
+     la primera se puede decir, la segunda no. No dispara ninguna consulta a propósito — pedirla
+     ahí cargaría una llamada extra a una pantalla que se abre todo el día. */
+  window.__borradosListos = function borradosListos(nodo) {
+    return cache.has(`borradas:${nodo}`);
+  };
+
   /* El aviso se dibuja con la lista que ya esté; si todavía no vino, se pide y se repinta. */
   const enlaceOriginal = window.enlaceBorrados;
   window.enlaceBorrados = function enlaceBorradosDeVerdad(cajaId, sonCajas) {

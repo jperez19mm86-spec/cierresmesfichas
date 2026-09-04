@@ -198,6 +198,52 @@ check('el mes anterior muestra lo que pasó en el mes anterior',
 check('sin datos no se inventa nada', L.crucesEnRango(null, hoy).length === 0
   && L.crucesEnRango([], hoy).length === 0);
 
+/* ── 3.bis · movimientos de cuentas eliminadas ──────────────────────────────────────────────────
+   🔴 EL QUE MOSTRABA UNA CAJA BORRADA COMO SI SIGUIERA TRABAJANDO. Los datos son los reales del
+   4-sep-2026: `CajTodo145348` y `CajReloj144848` estaban eliminadas y sus movimientos se leían
+   igual que los de una caja viva. */
+const movsReales = [
+  { uid: '7357557', user: 'GanamosxLatamCaja', operation: 'out', cash: 2 },
+  { uid: '7378791', user: 'CajTodo145348',     operation: 'in',  cash: 3 },
+  { uid: '7378791', user: 'CajTodo145348',     operation: 'out', cash: 3 },
+  { uid: '7378774', user: 'CajReloj144848',    operation: 'in',  cash: 2 },
+];
+const borradasDelAgente = [
+  { id: '7378791', login: 'CajTodo145348',  sala: '7357552' },
+  { id: '7378774', login: 'CajReloj144848', sala: '7357552' },
+  { id: '9999999', login: 'DeOtraCaja',     sala: '7357836' },
+];
+let ya = L.eliminadasDeLaLista(movsReales, borradasDelAgente, '7357552');
+check('una caja eliminada se reconoce en sus movimientos viejos',
+  ya.ids.has('7378791') && ya.ids.has('7378774'), [...ya.ids].join(','));
+check('y la que sigue viva no se marca', !ya.ids.has('7357557'));
+check('se nombra cada cuenta una sola vez, aunque tenga varios movimientos',
+  ya.logins.length === 2, ya.logins.join(','));
+
+/* Una eliminada de OTRA caja no tiene por qué aparecer acá: si el nodo no filtrara, un login
+   borrado en otro lado marcaría filas que no le corresponden. */
+check('las eliminadas de otro nodo no se cuelan',
+  !L.eliminadasDeLaLista([{ uid: '9999999', user: 'DeOtraCaja' }], borradasDelAgente, '7357552').logins.length);
+
+check('sin lista de eliminadas no se marca nada, no se adivina',
+  L.eliminadasDeLaLista(movsReales, [], '7357552').logins.length === 0
+  && L.eliminadasDeLaLista(movsReales, null, '7357552').logins.length === 0);
+check('sin movimientos tampoco explota',
+  L.eliminadasDeLaLista(null, borradasDelAgente, '7357552').logins.length === 0);
+
+/* El id llega como texto del motor y como número de algún lado: los dos tienen que cruzar. */
+check('el id cruza aunque uno venga número y el otro texto',
+  L.eliminadasDeLaLista([{ uid: 7378791, user: 'CajTodo145348' }],
+    [{ id: 7378791, login: 'CajTodo145348', sala: 7357552 }], 7357552).logins.length === 1);
+
+check('la pantalla sólo AFIRMA cuando la lista ya se trajo',
+  /window\.__borradosListos = function/.test(conector)
+  && /cache\.has\(`borradas:\$\{nodo\}`\)/.test(conector));
+check('y no dispara una consulta extra para saberlo',
+  !/__borradosListos[\s\S]{0,300}API\.pedir/.test(conector));
+check('con la lista traída y ninguna eliminada, no se muestra ningún aviso',
+  /if \(sabemosBorr && !yaNo\.logins\.length\) return '';/.test(htmlCaja));
+
 /* ── 4 · el nivel y su menú ─────────────────────────────────────────────────────────────────────
    🔴 EL QUE HACÍA QUE TODOS ENTRARAN COMO AGENTE. */
 check('el grupo 3 es agente', L.nivelDeGrupo(3).rol === 'agente' && !L.nivelDeGrupo(3).subagente);

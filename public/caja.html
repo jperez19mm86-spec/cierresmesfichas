@@ -799,6 +799,8 @@ button{font-family:inherit}
 .mov .qu{flex:1; min-width:0}
 .mov .qu b{display:block; font-weight:600; font-size:13.5px}
 .mov .qu span{font-size:11.5px; color:var(--mut)}
+.mov .qu .yano{display:inline-block; margin-top:3px; padding:1px 6px; border-radius:6px;
+  font-size:10.5px; font-weight:700; color:var(--no); background:var(--no-soft)}
 .mov .mn{font-weight:700; text-align:right; flex:none}
 .mov .mn.menos{color:var(--no)} .mov .mn.mas{color:var(--ok)}
 .mov .mn small{display:block; font-size:10.5px; color:var(--mut); font-weight:500}
@@ -2695,6 +2697,14 @@ function pintarMovs(){
   const filas = todas.filter(m => { const d = m.datetime.slice(0, 10); return d >= r.from && d <= r.to; });
   const suma = filas.reduce((a, m) => { a[m.operation] += m.cash; return a; }, { in:0, out:0 });
   const caja = DENTRO ? SALAS.find(s => s.id === DENTRO) : null;
+  /* 🔴 LOS MOVIMIENTOS DE UNA CUENTA BORRADA SIGUEN ACÁ, Y ESTÁ BIEN QUE SIGAN. Lo que faltaba era
+     decir cuáles son: la fila del motor trae el login y nada más, así que una caja eliminada hace
+     un mes se lee igual que una que sigue trabajando. Se cruza por `uid` contra la lista de
+     eliminadas de ESTE nodo — la misma que ya trajo la pantalla de Cuentas, sin pedir nada de
+     nuevo. Si todavía no está cargada no se inventa: el aviso lo dice de otra manera. */
+  const nodoBorr = DENTRO || yo().id;
+  const sabemosBorr = typeof window.__borradosListos === 'function' && window.__borradosListos(nodoBorr);
+  const yaNo = eliminadasDeLaLista(filas, BORRADOS, nodoBorr);
   $('cuerpo').innerHTML = `
     ${caja ? `
       <button class="icobtn" style="margin-bottom:12px" onclick="volverARaiz()">‹ Mis cajeros</button>
@@ -2711,6 +2721,27 @@ function pintarMovs(){
     <div class="rango"><b>${rotuloRango(r)}</b>
       <span>${filas.length} ${filas.length === 1 ? 'movimiento' : 'movimientos'}</span></div>
     <div class="nota neutra" style="margin:0 0 12px">${explica[TIPO_MOV]}</div>
+    ${(() => {
+      /* Tres estados, y cada uno dice sólo lo que es cierto:
+           · sabemos y hay      → se nombran y se marcan en la lista
+           · sabemos y no hay   → no se dice nada; un aviso de que no pasa nada es ruido
+           · no sabemos         → «puede incluir», sin marcar ninguna                             */
+      if (sabemosBorr && !yaNo.logins.length) return '';
+      const detalle = 'El historial no se borra cuando se borra la cuenta, y no debería: esos '
+        + 'movimientos son plata que entró y salió de verdad, y si desaparecieran los totales del '
+        + 'período dejarían de cuadrar. <b>El casino no marca las filas</b> — manda el login y '
+        + 'nada más — así que la marca la pone este panel cruzando contra tus cuentas eliminadas. '
+        + 'Las eliminadas y sus fichas se ven desde <b>Cuentas</b>.';
+      return sabemosBorr
+        ? notaInfo('movsborrados', `Hay movimientos de <b>${yaNo.logins.length} ${
+            yaNo.logins.length === 1 ? 'cuenta ya eliminada' : 'cuentas ya eliminadas'}</b>: `
+            + `<b class="mono">${yaNo.logins.slice(0, 3).join('</b>, <b class="mono">')}</b>`
+            + `${yaNo.logins.length > 3 ? ` y ${yaNo.logins.length - 3} más` : ''}. Van marcadas abajo.`,
+            detalle)
+        : notaInfo('movsborrados',
+            'Esta lista <b>puede incluir cuentas que hoy están eliminadas</b>, con el login que '
+            + 'tenían. Las que este panel ya reconoce van marcadas.', detalle);
+    })()}
     ${resumen([['Cargas', fmt(suma.in), 'ok'], ['Retiros', fmt(suma.out), 'no'],
                 ['Ganancia', fmt(suma.in - suma.out)]])}
     ${/* 🔴 `sum` del motor suma SÓLO las filas devueltas, y el tope por página es 1000
@@ -2744,6 +2775,7 @@ function pintarMovs(){
           <span class="hora">${m.datetime.slice(11,16)}</span>
           <span class="sig ${m.operation==='out'?'menos':''}">${m.operation==='out'?'−':'+'}</span>
           <span class="qu"><b class="mono">${m.user || (caja ? caja.login : yo().login)}</b>
+            ${yaNo.ids.has(String(m.uid)) ? '<span class="yano">cuenta eliminada</span>' : ''}
             ${raro ? `<span>${quienLoHizo(m.initiator)}</span>` : ''}</span>
           <span class="mn num ${m.operation==='out'?'menos':'mas'}">${
             m.operation==='out'?'−':'+'}${fmt(m.cash)}</span>
