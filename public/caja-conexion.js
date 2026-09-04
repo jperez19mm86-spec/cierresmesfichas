@@ -1096,6 +1096,9 @@
     });
     if (!r.ok) return errorEnHoja(r, `editarContacto('${cajaId}',${i})`);
     CONTACTOS[cajaId] = (r.contactos || []).map((c) => ({ ...c }));
+    /* Lo que se estaba armando ya se guardó: si queda pegado, el próximo contacto nuevo arranca
+       con el canal y el número del anterior. */
+    if (typeof olvidarNuevo === 'function') olvidarNuevo();
     volverContactos(cajaId);
   };
 

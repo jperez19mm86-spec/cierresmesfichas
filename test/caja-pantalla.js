@@ -120,6 +120,23 @@ check('y el conector los pide al abrir la ficha, no por cada fila de la lista',
 check('al cambiar un permiso se tira lo guardado',
   /olvidarPermisos\(subId\);/.test(conector));
 
+/* 🔴 Reportado el 2-sep-2026 sobre el cajero GaCajersala: «Telegram funciona, pero WhatsApp no
+   permite configurarlo». En un contacto NUEVO el canal elegido se guardaba en `CONTACTOS.__nuevo`
+   y el formulario lo ignoraba al redibujarse, volviendo siempre a telegram: la pestaña de WhatsApp
+   rebotaba. En uno ya existente andaba, porque ahí el canal se escribe en la lista. */
+check('el formulario de un contacto nuevo respeta el canal elegido',
+  /CONTACTOS\.__nuevo \|\| \{ type:'telegram'/.test(htmlCaja));
+check('y lo olvida al salir, para que el próximo no herede el anterior',
+  /function olvidarNuevo\(\)/.test(htmlCaja)
+  && /olvidarNuevo\(\); volverContactos/.test(htmlCaja)
+  && /olvidarNuevo\(\);/.test(conector));
+
+/* 🔴 El link lo arma el casino pegando el valor tal cual: guardando «+549…» sale
+   `https://wa.me/+549…`, y wa.me no acepta el «+» — el jugador toca y no le abre. */
+check('un número de WhatsApp se guarda sin «+», que es lo que wa.me necesita',
+  /return v\.replace\(\/\[\^\\d\]\/g, ''\);/.test(htmlCaja)
+  && !/const mas = v\.trim\(\)\.startsWith\('\+'\)/.test(htmlCaja));
+
 check('la cuenta propia no se arma encima del ejemplo de la maqueta',
   !/CUENTAS\[ROL\] = Object\.assign\(\{\}, CUENTAS\[ROL\]/.test(conector)
   && /CUENTAS\[ROL\] = \{/.test(conector),

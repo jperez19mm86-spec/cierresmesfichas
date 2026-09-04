@@ -1303,8 +1303,11 @@ function revisarContacto(tipo, valor){
 function limpiarContacto(tipo, valor){
   const v = String(valor || '');
   if (tipo !== 'whatsapp') return v.replace(/[^\w@]/g, '');
-  const mas = v.trim().startsWith('+') ? '+' : '';
-  return mas + v.replace(/[^\d]/g, '');
+  /* 🔴 SIN «+»: EL LINK LO ARMA EL CASINO, PEGANDO EL VALOR TAL CUAL. Guardando «+549…» el link
+     sale `https://wa.me/+549…`, y wa.me no acepta el «+» — el jugador toca y no le abre. Es el
+     mismo tipo de link muerto que dejó el apóstrofo de un contacto viejo. El número solo es el
+     formato que wa.me espera. Medido el 2-sep-2026 guardándolo de las dos maneras. */
+  return v.replace(/[^\d]/g, '');
 }
 /* Los del AGENTE bajan a todos sus jugadores. Los de una caja PISAN a los del agente
    sólo para los jugadores de esa caja: es una línea de soporte central con excepciones. */
@@ -3518,7 +3521,13 @@ function cambiarOrigen(cajaId){
 
 function editarContacto(cajaId, i){
   const lista = CONTACTOS[cajaId] || (CONTACTOS[cajaId] = []);
-  const c = i >= 0 ? lista[i] : { type:'telegram', title:'', contact:'', description:'' };
+  /* 🔴 EN UN CONTACTO NUEVO, EL CANAL ELEGIDO SE PERDÍA. `cambiarCanal` lo guardaba en
+     `CONTACTOS.__nuevo` y esta función lo ignoraba, volviendo siempre a `telegram`: la pestaña de
+     WhatsApp rebotaba y no se podía elegir nunca. En uno YA EXISTENTE andaba, porque ahí el canal
+     se escribe en la lista. Reportado el 2-sep-2026 sobre el cajero GaCajersala: «Telegram
+     funciona, WhatsApp no permite configurarlo». */
+  const c = i >= 0 ? lista[i]
+    : (CONTACTOS.__nuevo || { type:'telegram', title:'', contact:'', description:'' });
   abrirHoja(`
     <h3 id="hojaTit">${i >= 0 ? 'Editar contacto' : 'Nuevo contacto'}</h3>
     <div class="sub">Lo van a ver tus jugadores en el sitio.</div>
@@ -3539,11 +3548,14 @@ function editarContacto(cajaId, i){
           cargado— pero no se piden más. */''}
     <div class="acciones">
       ${i >= 0 ? `<button class="btn peligro" onclick="borrarContacto('${cajaId}',${i})">Eliminar</button>`
-               : `<button class="btn sec" onclick="volverContactos('${cajaId}')">Cancelar</button>`}
+               : `<button class="btn sec" onclick="olvidarNuevo(); volverContactos('${cajaId}')">Cancelar</button>`}
       <button class="btn" onclick="guardarContacto('${cajaId}',${i},'${c.type}')">Guardar</button>
     </div>`);
   setTimeout(() => verLink(c.type), 30);
 }
+/* Lo del contacto nuevo se tira al salir: si no, el próximo formulario arranca con lo de antes. */
+function olvidarNuevo(){ try { delete CONTACTOS.__nuevo; } catch (e) { CONTACTOS.__nuevo = null; } }
+
 function cambiarCanal(cajaId, i, tipo){
   const lista = CONTACTOS[cajaId];
   const actual = i >= 0 ? lista[i] : null;
