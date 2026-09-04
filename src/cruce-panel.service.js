@@ -146,7 +146,13 @@ function _clasificarOrigen(login, porLogin) {
 async function cruzar({ codigos = [], mes, detalle = null }) {
   const m = String(mes || '').slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
-  const from = `${m}-01 00:00:00`;
+  /* El historial se pide desde una semana ANTES del mes. No es para cruzar cargas de otro mes —eso
+     se sigue haciendo sólo con las del mes— sino para poder encontrar la otra mitad de un pase
+     hecho a mano que cruza el borde: Titan retiró 50.000.000 de `463.live` a fin de julio y los
+     cargó en `Beting-SA` el 1 de agosto. Con la ventana pegada al mes, ese retiro quedaba afuera y
+     la carga aparecía como 31.555 USDT sin cobrar. */
+  const desde = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1) - 7 * 86400000);
+  const from = `${desde.toISOString().slice(0, 10)} 00:00:00`;
   const to = `${m}-${String(ultimoDia(m)).padStart(2, '0')} 23:59:59`;
 
   const cods = new Set(codigos.map((c) => String(c).toLowerCase()));

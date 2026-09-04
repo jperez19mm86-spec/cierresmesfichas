@@ -38,7 +38,15 @@ function getConfig(conClave = false) {
 function setConfig({ url, usuario, password }) {
   const actual = getConfig(true) || {};
   const c = {
-    url: K(url) || actual.url || '',
+    /* Mandar la URL vacía APAGA el puente. Antes no se podía: `K(url) || actual.url` conservaba la
+       vieja, así que una vez configurado no había forma de sacarlo desde la pantalla.
+       Importa porque el puente apunta a `app.latamgames.online`, que después de la migración es
+       ESTE MISMO servicio: el OS se logueaba contra sí mismo y por eso devolvía 401. Si alguien
+       "lo arregla" poniéndole las credenciales del propio OS, funciona — y ahí la facturación
+       vuelve a rutear por `ventas_mapeo`, salteando la marca por panel y la verificación de los
+       paneles de tránsito. Apagarlo es la forma de que eso no pueda pasar.
+       `undefined` (no vino el campo) conserva; `''` borra. */
+    url: url === undefined ? (actual.url || '') : K(url),
     usuario: K(usuario) || actual.usuario || '',
     // si no mandan contraseña nueva, se conserva la que había (no se borra por editar la URL)
     password: password ? crypto.encrypt(String(password)) : (actual.password ? crypto.encrypt(actual.password) : ''),

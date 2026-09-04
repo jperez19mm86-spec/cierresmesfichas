@@ -336,6 +336,18 @@ const facturaSvc = require('../src/factura.service');
 
   bd.prepare("UPDATE paneles SET consumo_a=NULL WHERE id IN ('p_lucia','p_sa_alexa')").run();
 
+  // ── 4e) apagar el puente ──────────────────────────────────────────────────────────────────
+  // Apunta a un dominio que después de la migración es ESTE servicio, así que dejarlo prendido es
+  // un riesgo: si alguien acierta las credenciales, la facturación vuelve a rutear por el mapeo
+  // viejo y se saltea la marca por panel.
+  const vo = require('../src/ventas-online.service');
+  vo.setConfig({ url: 'https://app.latamgames.online', usuario: 'Admin', password: 'x' });
+  ok((vo.getConfig() || {}).url === 'https://app.latamgames.online', 'el puente se puede configurar');
+  vo.setConfig({ usuario: 'Otro' });
+  ok((vo.getConfig() || {}).url === 'https://app.latamgames.online', 'y si no mandás la URL, se conserva');
+  vo.setConfig({ url: '' });
+  ok(!(vo.getConfig() || {}).url, 'mandando la URL vacía se APAGA — antes no había forma');
+
   // ── 5) el candado ──
   const svc = require('../src/cruce-panel.service');
   for (const malo of ['amount', 'send', 'sended', 'operation', 'all']) {
