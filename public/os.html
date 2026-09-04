@@ -6896,6 +6896,13 @@ async function calcularFac(vivo){
     + '<div class="muted" style="margin-top:4px">Lo que el cliente <b>pidió y se le cargó</b> en el mes, por su % base. Ej: pidió 50.000.000 y su % es 10 → se le cobran 5.000.000, pasados a USDT con el TC del mes.</div>'
     + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🧮 Cierre de Mes → 🧾 Factura de externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
   const emF = (em.porOrigen || {}).facturacion || null;
+  /* Acá iba un cartel de "qué le queda al mes" que nunca se llegó a armar: la variable se usaba y
+     no existía, así que esta pantalla reventaba justo después de poner "⏳ calculando…" y se quedaba
+     ahí para siempre, sin decir una palabra. Esa lista ahora vive en 💰 Cuentas → 🗓 Cerrar el mes,
+     que es su lugar; acá va el link y nada más. */
+  const _quedaPorHacer = '<div class="muted" style="margin:0 0 10px;font-size:13px">'
+    + '¿Qué le falta al mes para estar cerrado? Está en <a href="#" onclick="irA(\'cierre:pasos\');return false">'
+    + '<b>🗓 Cerrar el mes</b></a>.</div>';
   out.innerHTML = _quedaPorHacer + procedencia + _cabecera +
     (emF
       ? '<div class="card" style="background:rgba(46,160,67,.07);border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'

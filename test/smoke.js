@@ -6154,6 +6154,39 @@ async function main() {
       'si las dos ramas usaran la misma, o se cobra de más a los clientes o de menos a los vendedores');
   }
 
+  /* ── UNA VARIABLE QUE NO EXISTE ROMPE LA PANTALLA EN SILENCIO ────────────────────────────────
+     `calcularFac` ponía "⏳ calculando…", armaba el HTML con `_quedaPorHacer` —que se usaba y NUNCA
+     se declaró— y reventaba ahí. La excepción no la agarraba nadie, así que la pantalla de Consumo
+     se quedaba en "calculando…" para siempre. Estuvo rota desde el commit que la introdujo y no lo
+     detectó ni `node --check`, porque sintácticamente es válida.
+
+     Esto recorre los identificadores `_algo` que se USAN sueltos y verifica que estén declarados.
+     No es un linter: es la red para la clase de error que ya nos costó una pantalla. */
+  {
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    /* Sin comentarios: un nombre nombrado en un comentario —«_CIE_BADGE se usaba en…»— no es un uso,
+       y contarlo haría que el chequeo grite por algo que no existe. Se pierde alguna cosa rara con
+       "//" adentro de un string, y está bien: acá un falso positivo cuesta más que un olvido. */
+    const js = h.slice(h.indexOf('<script>'), h.lastIndexOf('</script>'))
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n').map((l) => l.replace(/(^|[^:'"`\\])\/\/.*$/, '$1')).join('\n');
+    const declarados = new Set();
+    for (const m of js.matchAll(/(?:let|const|var|function)\s+(_[A-Za-z]\w*)/g)) declarados.add(m[1]);
+    for (const m of js.matchAll(/(_[A-Za-z]\w*)\s*=[^=]/g)) declarados.add(m[1]);      // asignaciones sueltas
+    for (const m of js.matchAll(/function\s*\([^)]*?(_[A-Za-z]\w*)/g)) declarados.add(m[1]); // parámetros
+    for (const m of js.matchAll(/\(([^)]*)\)\s*=>/g)) String(m[1]).split(',')
+      .forEach((x) => { const n = x.trim().match(/^(_[A-Za-z]\w*)/); if (n) declarados.add(n[1]); });
+    const usados = new Map();
+    for (const m of js.matchAll(/(^|[^\w.$'"`])(_[A-Za-z]\w*)\b/g)) {
+      if (!usados.has(m[2])) usados.set(m[2], js.slice(Math.max(0, m.index - 40), m.index + 40).replace(/\s+/g, ' '));
+    }
+    const huerfanos = [...usados.keys()].filter((n) => !declarados.has(n));
+    check('os.html: ninguna variable _algo se usa sin declarar',
+      huerfanos.length === 0,
+      huerfanos.length ? huerfanos.map((n) => n + ' → ' + usados.get(n)).slice(0, 3).join('  |  ')
+        : declarados.size + ' declaradas, ' + usados.size + ' usadas');
+  }
+
   /* ── NADA PUEDE DEJAR LA PANTALLA COLGADA ────────────────────────────────────────────────────
      `api()` no atrapaba nada: si la conexión se caía —o el proxy cortaba una llamada larga— la
      promesa se rompía, nadie la agarraba, y el "⏳ Cargando…" se quedaba para siempre sin decir
