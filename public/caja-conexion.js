@@ -843,7 +843,7 @@
       ${r.parcial ? `<div class="nota">⚠️ <b>Le pediste ${fmt(r.saldoPedido)} y quedó con ${fmt(saldoReal)}.</b>
         Revisá el saldo de la caja antes de darle más.</div>` : ''}
       ${filaCred('Usuario y contraseña', acceso, true)}
-      ${link ? filaCred('Link de acceso directo', link, true) : `<div class="nota">${SIN_LINK}</div>`}
+      ${filaLink(link)}
       <div class="nota">${AVISO_CRED(!!link)}</div>
       <div class="acciones">
         <button class="btn sec" onclick="compartirTexto(\`${acceso}${link ? '\n' + link : ''}\`)">Compartir</button>
@@ -1159,8 +1159,7 @@
     abrirHoja(`<div class="resultado"><div class="sello">✓</div><h3>${mensaje}</h3>
         <div class="sub">Ya está en el portapapeles${a.ok && a.link ? ', y acá abajo está la otra' : ''}:</div></div>
       ${filaCred('Usuario y contraseña', (a.ok && a.acceso) || '—', true)}
-      ${a.ok && a.link ? filaCred('Link de acceso directo', a.link, true)
-                       : `<div class="nota">${SIN_LINK}</div>`}
+      ${filaLink((a.ok && a.link) || '')}
       <div class="nota">${AVISO_CRED(!!(a.ok && a.link))}</div>
       <div class="acciones">
         <button class="btn sec" onclick="abrirNodo('${ACTUAL.id}')">Volver</button>

@@ -391,6 +391,19 @@ check('la pantalla no promete un detalle de tirada que el casino no manda',
    diciendo «lo toca y ya está adentro». Al tocarla, `navigator.share({text:''})` abría el menú de
    compartir del sistema operativo con nada adentro y contestaba «Inténtalo de nuevo». Ese cartel
    lo pone el teléfono, no la página: el `.catch` no lo tapa. */
+/* 🔴 LA REGLA, EN UN SOLO LUGAR. Pedido del dueño el 4-sep-2026: «a veces va a pasar que no
+   tienen el link; tiene que haber un filtro para no dar la opción de copiar el ticket si no hay
+   URL puesta». No alcanza con arreglar la pantalla que se reportó: mientras el link se pueda
+   dibujar con `filaCred`, la próxima pantalla se olvida del filtro. */
+check('ninguna pantalla dibuja un link con filaCred: todas pasan por filaLink',
+  (htmlCaja.match(/filaCred\('Link de acceso directo'/g) || []).length === 1   // la de adentro de filaLink
+  && !/filaCred\('Link de acceso directo'/.test(conector));
+check('y filaLink decide por las dos: fila si hay, explicación si no',
+  /function filaLink\(link\)\{\n\s*if \(link\) return filaCred/.test(htmlCaja));
+check('las cuatro pantallas que muestran un link usan la regla',
+  (htmlCaja.match(/filaLink\(/g) || []).length >= 4
+  && (conector.match(/filaLink\(/g) || []).length === 2);
+
 check('la tarjeta del link sólo se dibuja si hay link',
   /\$\{e\.link\s*\n?\s*\? tarjeta\('link'/.test(htmlCaja));
 check('y si no hay, se explica en vez de dejar un hueco',

@@ -3536,7 +3536,7 @@ function guardarClaveDeOtro(id){
       <h3>Contraseña cambiada</h3>
       <div class="sub"><b class="mono">${c ? c.login : ''}</b> ya usa la nueva</div></div>
     ${filaCred('Usuario y contraseña', `Login:${c.login} Contraseña:${nueva}`, true)}
-    ${link ? filaCred('Link de acceso directo', link, true) : ''}
+    ${filaLink(link)}
     <div class="acciones"><button class="btn" onclick="volverDeClave('${id}')">Listo</button></div>`);
 }
 
@@ -3874,6 +3874,22 @@ function accion(i){
 /* Dibuja una fila con el dato y su botón de copiar. */
 /* `exacto` = hay que poder leerlo carácter por carácter: es una credencial o un link que alguien
    va a tipear o dictar por teléfono. Ahí la monoespaciada no es decoración. */
+/* 🔴 NUNCA SE OFRECE COPIAR UN LINK QUE NO EXISTE. Regla del dueño, 4-sep-2026: «a veces va a
+   pasar que no tienen el link; tiene que haber un filtro para no dar la opción de copiar el ticket
+   si no hay URL puesta». El link sale del `ticket_url` de CADA CAJA, y muchas lo tienen vacío. Un
+   botón «Copiar» sobre nada copia nada, y en el teléfono además dispara el menú de compartir del
+   sistema, que contesta «Inténtalo de nuevo».
+   Por eso el link NO se dibuja con `filaCred` en ninguna pantalla: se dibuja con esto, que decide
+   por las dos. Una pantalla nueva no puede olvidarse del filtro, porque no hay otra forma de
+   poner un link. */
+function filaLink(link){
+  if (link) return filaCred('Link de acceso directo', link, true);
+  return `<div class="nota">${window.SIN_LINK
+    /* La maqueta corre sin conector: ahí no existe el texto de verdad y hace falta uno. */
+    || 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino, así que no hay link para '
+       + 'dar. Con el usuario y la contraseña se entra igual.'}</div>`;
+}
+
 function filaCred(rotulo, valor, exacto){
   const id = 'cp' + Math.random().toString(36).slice(2, 8);
   window.__cred = window.__cred || {};
@@ -3900,7 +3916,7 @@ function copiar(texto, mensaje){
   abrirHoja(`<div class="resultado"><div class="sello">✓</div><h3>${mensaje}</h3>
       <div class="sub">Ya está en el portapapeles. Las dos cosas, por si querés la otra:</div></div>
     ${filaCred('Usuario y contraseña', acceso, true)}
-    ${filaCred('Link de acceso directo', link, true)}
+    ${filaLink(link)}
     <div class="nota"><b>Valen lo mismo que la contraseña.</b> Mandá una sola vez y pedile que la cambie.</div>
     <div class="acciones">
       <button class="btn sec" onclick="abrirNodo('${ACTUAL.id}')">Volver</button>
@@ -4016,10 +4032,8 @@ function pintarEnvio(copiado){
          Un error del sistema operativo por algo que el panel nunca debió ofrecer. */''}
     ${e.link
       ? tarjeta('link', 'Link para entrar directo', 'Lo toca y ya está adentro', e.link)
-      : `<div class="nota">${window.SIN_LINK
-          /* La maqueta corre sin conector: ahí no existe el texto de verdad y hace falta uno. */
-          || 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino, así que no hay link '
-             + 'para dar. Con el usuario y la contraseña de arriba se entra igual.'}</div>`}
+      /* Sin link, la misma explicación que usa el resto del panel: una sola redacción. */
+      : filaLink('')}
     <button class="masmenos" style="margin-top:4px" onclick="claveDeOtro('${c.id}')">
       Cambiarle la contraseña
     </button>
@@ -4537,7 +4551,7 @@ function crear(){
         <h3>Creado</h3>
         <div class="sub"><b class="mono">${login}</b> · ID ${id} · verificado en el casino${bal?` · con ${fmt(bal)} ${yo().currency}`:''}</div></div>
       ${filaCred('Usuario y contraseña', acceso, true)}
-      ${filaCred('Link de acceso directo', link, true)}
+      ${filaLink(link)}
       <div class="nota"><b>Cualquiera de las dos cosas abre la cuenta.</b> Mandale una sola, por un
       canal privado, y pedile que cambie la contraseña apenas entre.</div>
       <div class="acciones">
