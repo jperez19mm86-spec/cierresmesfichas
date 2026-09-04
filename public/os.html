@@ -439,6 +439,7 @@ const GRUPOS = [
        mandó un cliente, ya aprobados o rechazados — los que todavía esperan viven en 🔔 Pendientes
        y no se repiten acá, que es de lo que se trataba ordenar la barra. */
     ['movimientos:cuenta', '💳 Pagos y cargas'],
+    ['pagos', '💵 Pagos recibidos'],
     ['movimientos:historial', '🧾 Comprobantes resueltos'],
     ['cierre:vendedores', '🤝 Vendedores'],
     ['cierre:pago', '💸 Pago a proveedores'],
@@ -2765,6 +2766,86 @@ function facturaImprimir() {
   w.focus();
   setTimeout(() => w.print(), 300);
 }
+/* ══ 💵 PAGOS RECIBIDOS ═══════════════════════════════════════════════════════════════════════
+   Lo que entró de verdad, mes por mes, separado por dónde llegó. Es lo que se le manda a quien
+   pregunta cuánto se cobró: pesos por un lado y USDT por el otro, porque no son el mismo dinero y
+   sumarlos da un número que no entró a ninguna cuenta.
+
+   Agrupa por MES DE CIERRE, no por fecha: un pago del 3 de septiembre asignado a agosto va en
+   agosto, que es para lo que existe ese campo. */
+let _pagMes = mesDeCierre();
+function pagIrA(m){ _pagMes = m; VIEWS.pagos(); }
+
+VIEWS.pagos = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/pagos?mes=' + encodeURIComponent(_pagMes));
+  if(!r || !r.ok){ main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: '
+    + esc((r&&r.error)||'') + '</div></div>'; return; }
+  window._pagDatos = r;
+  const T = r.totales;
+  const tabla = (filas, moneda) => !filas.length
+    ? '<div class="muted">Ninguno este mes.</div>'
+    : '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+      + '<th class="reptd">Fecha</th><th class="reptd">Cliente</th><th class="reptd">Código</th>'
+      + '<th class="reptd right">Recibido</th><th class="reptd">Referencia</th></tr></thead><tbody>'
+      + filas.map(f=>'<tr><td class="reptd">'+esc(f.fecha)
+          + (f.mes !== f.fecha.slice(0,7) ? ' <span class="muted" style="font-size:11px">(entra en '+esc(f.mes)+')</span>' : '')
+          + '</td><td class="reptd">'+esc(f.cliente)+'</td>'
+          + '<td class="reptd muted">'+esc(f.codigo)+'</td>'
+          + '<td class="reptd right"><b>'+money(moneda==='ARS'?f.ars:f.usdt,2)+'</b>'
+          + (f.sinValuar ? ' <span style="color:var(--red);font-size:11px">sin TC</span>'
+             : (f.provisional ? ' <span class="muted" style="font-size:11px">provisorio</span>' : ''))
+          + '</td><td class="reptd muted" style="font-size:11px;word-break:break-all">'
+          + (esc(f.referencia)||'—') + (f.archivo?' 📎':'') + '</td></tr>').join('')
+      + '</tbody></table>';
+
+  main.innerHTML = '<div class="card"><h2>💵 Pagos recibidos</h2>'
+    + bannerMes(_pagMes, 'pagIrA')
+    + '<div class="muted" style="font-size:13px">Lo que entró de verdad, por el mes al que lo asignaste. '
+    + 'El monto es el que se <b>acreditó</b>, no el que declaró el cliente.</div>'
+    + ((r.meses||[]).length ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">'
+        + '<thead><tr><th class="reptd">Mes</th><th class="reptd right">Pagos</th></tr></thead><tbody>'
+        + r.meses.map(m=>'<tr'+(m.mes===_pagMes?' style="background:var(--bg3)"':'')+'>'
+            + '<td class="reptd"><a href="#" onclick="pagIrA(\''+m.mes+'\');return false"><b>'+esc(mesNombre(m.mes))+'</b></a></td>'
+            + '<td class="reptd right">'+m.pagos+'</td></tr>').join('')
+        + '</tbody></table>' : '')
+    + '</div>'
+
+    + '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
+    + '<h2 style="margin:0">💵 Pesos por transferencia</h2>'
+    + '<button class="outline small" onclick="pagCSV(\'cvu\')">⬇ Excel (CSV)</button></div>'
+    + '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(T.pesos_ars,2)
+    + ' <span class="muted" style="font-size:14px">ARS · ' + r.pesos.length + ' pago'+(r.pesos.length===1?'':'s')
+    + ' · ≈ ' + money(T.pesos_usdt,2) + ' USDT</span></div>'
+    + tabla(r.pesos, 'ARS') + '</div>'
+
+    + '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
+    + '<h2 style="margin:0">₮ Pagos en USDT</h2>'
+    + '<button class="outline small" onclick="pagCSV(\'usdt\')">⬇ Excel (CSV)</button></div>'
+    + '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(T.usdt_usdt,2)
+    + ' <span class="muted" style="font-size:14px">USDT · ' + r.usdt.length + ' pago'+(r.usdt.length===1?'':'s')+'</span></div>'
+    + tabla(r.usdt, 'USDT') + '</div>';
+};
+
+/* Punto y coma y coma decimal: así lo abre el Excel en castellano. Con coma de separador,
+   "1.234,56" se parte en dos columnas y el archivo llega roto. El BOM es por los acentos. */
+function pagCSV(via){
+  const r = window._pagDatos; if(!r) return;
+  const filas = via==='cvu' ? r.pesos : r.usdt;
+  const col = via==='cvu' ? 'ars' : 'usdt';
+  const num = (x)=>String(Number(x||0).toFixed(2)).replace('.',',');
+  const q = (x)=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"';
+  const cab = ['Fecha','Entra en el cierre de','Cliente','Código','Recibido ('+(via==='cvu'?'ARS':'USDT')+')','Referencia'];
+  const cuerpo = filas.map(f=>[q(f.fecha),q(f.mes),q(f.cliente),q(f.codigo),num(f[col]),q(f.referencia)].join(';'));
+  const total = ['','','','TOTAL',num(filas.reduce((a,f)=>a+Number(f[col]||0),0)),''].join(';');
+  const txt = '\ufeff' + [cab.map(q).join(';'), ...cuerpo, total].join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
+  a.download = 'pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes + '.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
 // ───────── 🧾 COMPROBANTES DE PAGO ─────────
 // Los sube el cliente desde la pantalla pública y quedan PENDIENTES. Aprobar genera el
 // movimiento de pago, que es lo único que baja la deuda. Por eso el monto que se acredita se

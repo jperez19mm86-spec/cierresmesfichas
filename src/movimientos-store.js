@@ -79,6 +79,23 @@ function list(filters = {}) {
   return valuacion.valuarLista(db.prepare(sql).all(...p));
 }
 
+/**
+ * Corregir A QUÉ MES entra un movimiento. Es lo ÚNICO que se puede cambiar de uno ya creado.
+ *
+ * El resto no se toca a propósito —ver el comentario de arriba: los valores derivados se calculan
+ * al leer, y un movimiento editable los volvería inconsistentes—. Pero el mes de cierre no es un
+ * dato del movimiento: es una decisión de quien lleva la cuenta, y equivocarse al cargarlo tiene
+ * que poder arreglarse sin borrar el pago y perder su comprobante.
+ *
+ * `null` lo devuelve al mes de su fecha.
+ */
+function setMesCierre(id, mes) {
+  const m = mes ? String(mes).slice(0, 7) : null;
+  if (m && !/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido' };
+  const n = db.prepare('UPDATE movimientos SET mes_cierre=? WHERE id=?').run(m, id).changes;
+  return n ? { ok: true, movimiento: get(id) } : { ok: false, error: 'no existe ese movimiento' };
+}
+
 function remove(id) { return db.prepare('DELETE FROM movimientos WHERE id=?').run(id).changes > 0; }
 
 /* A QUÉ MES pertenece un movimiento. Vive acá y no en cada pantalla: si la cuenta corriente lo
@@ -88,4 +105,4 @@ function mesDe(mv) {
   return String((mv && (mv.fecha || mv.createdAt)) || '').slice(0, 7);
 }
 
-module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe };
+module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre };

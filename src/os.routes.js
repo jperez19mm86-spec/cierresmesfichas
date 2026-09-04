@@ -1884,9 +1884,79 @@ function mount(app) {
     ok(res, { mes, prev, clientes: lista });
   }));
 
+  /**
+   * ── 💵 LOS PAGOS QUE ENTRARON, POR MES ──────────────────────────────────────────────────────
+   *
+   * Para mandarle a alguien lo que se recibió: pesos por un lado y USDT por el otro, porque no son
+   * el mismo dinero y sumarlos da un número que no entró a ninguna cuenta.
+   *
+   * ⚠️ Agrupa por MES DE CIERRE, no por fecha. Un pago del 3 de septiembre asignado a agosto tiene
+   * que aparecer en agosto: es la razón por la que existe ese campo. Con la fecha, el resumen del
+   * mes que se está cerrando dejaría afuera justo los pagos que llegaron tarde.
+   *
+   * El monto es el que se ACREDITÓ, no el que declaró el cliente: son dos números distintos y el
+   * que vale es el que entró.
+   */
+  app.get('/api/os/pagos', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const cs = clientes.list().clientes;
+    const nom = {}; cs.forEach((c) => { nom[c.id] = c; });
+    // Los comprobantes, para poder mostrar la referencia y si hay archivo.
+    const porMov = {};
+    // `limite` alto a propósito: por defecto son 200 y el resumen de un mes viejo se quedaría sin
+    // las referencias de los comprobantes más antiguos, en silencio.
+    try { comprobantes.list({ limite: 5000 }).forEach((c) => { if (c.movimiento_id) porMov[c.movimiento_id] = c; }); }
+    catch (e) { /* sin comprobantes el resumen sale igual */ }
+
+    const todos = movs.list({ tipo: 'pago' });
+    const meses = {};
+    todos.forEach((mv) => { const k = movs.mesDe(mv); if (/^\d{4}-\d{2}$/.test(k)) meses[k] = (meses[k] || 0) + 1; });
+
+    const fila = (mv) => {
+      const c = nom[mv.cliente_id] || {};
+      const cmp = porMov[mv.id] || {};
+      /* La vía sale del `medio`; los primeros pagos no lo tienen guardado y ahí manda el
+         comprobante que los originó. Sin esa vuelta, el de Rafael (1.000 USDT del 10-ago) caía
+         del lado equivocado o se perdía. */
+      const via = (mv.medio === 'usdt' || mv.medio === 'cvu') ? mv.medio
+        : (cmp.via === 'usdt' ? 'usdt' : (mv.monto_ars ? 'cvu' : 'usdt'));
+      return {
+        id: mv.id, fecha: String(mv.fecha || mv.createdAt || '').slice(0, 10),
+        mes: movs.mesDe(mv), cliente: c.nombre || c.codigo || '(sin cliente)', codigo: c.codigo || '',
+        via, medio: mv.medio || null,
+        ars: mv.monto_ars ?? null, usdt: mv.monto_usdt ?? null,
+        tc: mv.tc_usado || mv.tc_momento || null,
+        provisional: !!mv.provisional, sinValuar: !!mv.sinValuar,
+        referencia: cmp.referencia || '', comprobante: cmp.id || null, archivo: !!(cmp.archivo_bytes),
+      };
+    };
+    const delMes = todos.filter((mv) => movs.mesDe(mv) === mes).map(fila)
+      .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+    const pesos = delMes.filter((x) => x.via === 'cvu');
+    const usdt = delMes.filter((x) => x.via === 'usdt');
+    const suma = (arr, k) => arr.reduce((a, x) => money.add(a, x[k] || '0'), '0');
+    ok(res, {
+      mes,
+      meses: Object.keys(meses).sort().reverse().map((m) => ({ mes: m, pagos: meses[m] })),
+      pesos, usdt,
+      totales: {
+        pesos_ars: money.round(suma(pesos, 'ars'), 2),
+        pesos_usdt: money.round(suma(pesos, 'usdt'), 2),
+        usdt_usdt: money.round(suma(usdt, 'usdt'), 2),
+      },
+    });
+  }));
+
   // ───────── MOVIMIENTOS ─────────
   app.get('/api/os/movimientos', (req, res) => ok(res, { movimientos: movs.list({ cliente_id: req.query.cliente_id, tipo: req.query.tipo, mes: req.query.mes }) }));
   app.post('/api/os/movimientos', wrap((req, res) => ok(res, { movimiento: movs.create(req.body || {}) })));
+  /* A qué mes entra un pago ya cargado. Es lo único editable de un movimiento: el resto se
+     inserta y se borra, nunca se modifica (ver movimientos-store). Corregirlo no puede obligar a
+     borrar el pago y perder su comprobante. */
+  app.put('/api/os/movimientos/:id/mes-cierre', wrap((req, res) => {
+    const r = movs.setMesCierre(req.params.id, (req.body || {}).mes_cierre || null);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
   app.delete('/api/os/movimientos/:id', (req, res) => movs.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
 
   // ───────── IMPORTAR LA PLANILLA "BASE DE DATOS CLIENTES" (v3.0) ─────────
