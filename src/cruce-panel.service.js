@@ -270,7 +270,10 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
       return null;
     };
 
-    const usadasV = new Set(); const usadasE = new Set();
+    // Las salidas INTERNAS: las fichas que se fueron hacia otro nodo. Son la vuelta de una anulación
+    // cuando el panel cuelga del árbol de un vendedor.
+    const salidasInternas = h.filas.filter((f) => f.desde != null && f.operacion === 'out' && delMes(f));
+    const usadasV = new Set(); const usadasE = new Set(); const usadasS = new Set();
     const cargasOut = []; const diferencias = [];
     let entregadasPorVendedor = 0; let bajaronDeSuArbol = 0;
 
@@ -340,6 +343,22 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
         diferencias.push({ tipo: 'pase_entre_paneles', venta: o, paseId: pase.id,
           motivo: `es el pase que se hizo desde ${desde ? desde.nombre : 'otro panel suyo'} y bajó por `
             + `${o.desde} — fichas que el cliente ya había comprado, no una entrega nueva` });
+        return;
+      }
+      /* 🔴 ¿Entró y VOLVIÓ? Un pedido anulado deja las dos patas, y cuando el panel cuelga del árbol
+         de un vendedor las dos son INTERNAS —entra desde el padre y sale hacia el padre—, así que
+         no aparecen ni en las ventas ni en las devoluciones de la cuenta principal.
+         Verificado: `GanamosF01` recibió 1.000.000 desde GanamosAlexa a las 01:22:21 del 30-ago y
+         los devolvió a las 01:25:14, el mismo segundo en que el pedido quedó `anulado`. Figuraba
+         como "el cliente las recibió y no se le cobraron". */
+      const vuelta = salidasInternas.find((x, j) => !usadasS.has(j)
+        && x.divisa === o.divisa && Math.abs(x.monto - o.monto) < 0.01
+        && (!x.fecha || !o.fecha || Date.parse(`${x.fecha.replace(' ', 'T')}Z`) >= Date.parse(`${o.fecha.replace(' ', 'T')}Z`))
+        && (usadasS.add(j) || true));
+      if (vuelta) {
+        diferencias.push({ tipo: 'entro_y_volvio', venta: o, devueltaEl: vuelta.fecha,
+          motivo: `entraron desde ${o.desde} y volvieron${vuelta.fecha ? ` el ${vuelta.fecha}` : ''} — `
+            + 'normalmente es un pedido anulado, y funcionó bien' });
         return;
       }
       const org = _clasificarOrigen(o.desde, porLogin);
@@ -522,6 +541,7 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
       sinRegistro: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'pedida_sin_registro').length, 0),
       sinPedido: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'registrada_sin_pedido').length, 0),
       entroSinPedido: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'entro_sin_pedido').length, 0),
+      entraronYVolvieron: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'entro_y_volvio').length, 0),
       deOtroCliente: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'vino_de_otro_cliente').length, 0),
       comprasDeVendedor: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'compra_del_vendedor').length, 0),
       pasesEntrePaneles: salida.reduce((a, p) => a + p.diferencias.filter((d) => d.tipo === 'pase_entre_paneles').length, 0),

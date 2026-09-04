@@ -355,6 +355,23 @@ const facturaSvc = require('../src/factura.service');
   MOVS['222|ARS'].pop();
   db.prepare("DELETE FROM movimiento_panel WHERE id='mp_2'").run();
 
+  // ── 4c-ter) ENTRÓ Y VOLVIÓ: la anulación por el árbol ─────────────────────────────────────
+  // Un pedido anulado deja las dos patas. Si el panel cuelga del árbol de un vendedor las dos son
+  // INTERNAS, y no aparecían ni en las ventas ni en las devoluciones. Le pasó a Fran: 1.000.000
+  // que entraron y volvieron tres minutos después figuraban como plata sin cobrar.
+  MOVS['222|ARS'].push(
+    { id: '21', from: 'IgLatamAlexa', operation: 'in', currency: 'ARS', cash: '4200000.00', datetime: '2026-08-18 01:22:21', initiator: 'x' },
+    { id: '22', from: 'IgLatamAlexa', operation: 'out', currency: 'ARS', cash: '4200000.00', datetime: '2026-08-18 01:25:14', initiator: 'x' },
+  );
+  const mesA = await crucePanel2.cruzarMes('2026-08');
+  const luciA = mesA.paneles.find((p) => p.panel === '21luciadm');
+  const dVuelta = (luciA.diferencias || []).find((d) => d.tipo === 'entro_y_volvio');
+  ok(!!dVuelta, 'una entrada interna que volvió se reconoce como anulación, no como plata sin cobrar');
+  ok(dVuelta && /funcionó bien/.test(dVuelta.motivo), 'y se dice que funcionó bien');
+  ok(!(luciA.diferencias || []).some((d) => d.tipo === 'entro_sin_pedido' && Math.abs(d.venta.monto - 4200000) < 1),
+    'y no queda además como entrada sin pedido');
+  MOVS['222|ARS'].pop(); MOVS['222|ARS'].pop();
+
   // ── 4d-bis) LA VENTANA PREVIA NO ENSUCIA EL MES ───────────────────────────────────────────
   // El historial se pide desde una semana antes para encontrar el retiro de un pase que cruza el
   // borde del mes. Pero si esas filas se cuentan como ventas del mes, cada venta de fin del mes
