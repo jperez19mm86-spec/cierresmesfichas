@@ -3728,6 +3728,103 @@ function mount(app) {
     ok(res, { mes, listo, falta, puedeCerrar: !falta.length });
   }));
 
+  /**
+   * ── CERRAR EL MES: LOS PASOS, EN ORDEN ──────────────────────────────────────────────────────
+   *
+   * Cerrar un mes son ocho cosas en un orden que importa, repartidas en cinco pantallas. Saltearse
+   * una no da error: hace que la siguiente cobre de menos y el total igual cuadre. Eso ya pasó —la
+   * factura de externos de agosto 2026 se emitió antes de sacar la vuelta de Agentes y le faltaban
+   * 121,61 USDT de Fran, con los 18 renglones dando bien.
+   *
+   * Acá se contesta, en una sola respuesta, en qué paso está el mes y qué falta para el siguiente.
+   *
+   * ⚠️ Y se avisa cuando una emisión quedó VIEJA: si la foto se volvió a sacar DESPUÉS de emitir,
+   * esos números ya no son los de hoy. Volver a apretar Emitir no los arregla —no actualiza lo ya
+   * emitido, a propósito— hay que anular y emitir de nuevo.
+   */
+  app.get('/api/os/cierre/pasos/:mes', wrap(async (req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const pasos = [];
+    const paso = (o) => { pasos.push({ n: pasos.length + 1, estado: 'falta', porQue: [], ...o }); };
+
+    // 1 · la foto
+    let foto = null;
+    try { foto = estadMes.estado(mes); } catch (e) { /* se dice abajo */ }
+    let fotoAt = null;
+    try { fotoAt = (estadMes.meses().find((x) => x.mes === mes) || {}).ultimo || null; } catch (e) {}
+    paso({ id: 'foto', titulo: 'Sacar la foto del mes', ir: 'foto',
+      estado: foto && foto.completa ? 'listo' : 'falta',
+      detalle: !foto ? 'no se pudo leer el estado de la foto'
+        : foto.completa ? foto.total + ' consultas, las cuatro vueltas'
+        : foto.listas + ' de ' + foto.total + ' consultas · falta cambiar «Agrupar por» en el casino y sacar la vuelta que falte' });
+
+    // 2 · el TC del proveedor de cada moneda que el mes movió
+    const sinTC = [];
+    try {
+      const tc = cierreStore.getTC() || {};
+      const lbl = mesCierreLbl(mes);
+      const usadas = new Set();
+      pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
+      [...usadas].forEach((d) => { if (d !== 'USDT' && !((tc.tasas || {})[d] || {})[lbl]) sinTC.push(d); });
+    } catch (e) { /* si no se puede leer, no se frena el resto */ }
+    paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc',
+      estado: sinTC.length ? 'falta' : 'listo',
+      detalle: sinTC.length ? 'falta el de ' + sinTC.join(', ') + ' — sin él esa moneda entra valiendo cero'
+                            : 'todas las monedas que movió el mes lo tienen' });
+
+    // 3 · los % del mes. No confirmarlos NO frena: se usa el vigente. No tener ninguno SÍ frena.
+    const sinValor = []; const sinConfirmar = [];
+    for (const c of clientes.list().clientes) {
+      if (c.es_vendedor) continue;
+      if (!paneles.list().some((p) => p.cliente_id === c.id)) continue;
+      if (externosSvc.baseDelMes(c, mes).valor == null) sinValor.push(c.nombre || c.codigo);
+      else if (!externosSvc.baseGuardada(c.nombre, mes)) sinConfirmar.push(c.nombre || c.codigo);
+    }
+    paso({ id: 'pct', titulo: 'Repasar los % del mes', ir: 'cierre:externos',
+      estado: sinValor.length ? 'falta' : (sinConfirmar.length ? 'aviso' : 'listo'),
+      detalle: sinValor.length
+        ? sinValor.length + ' sin % cargado: ' + sinValor.slice(0, 6).join(', ') + ' — sin eso no se puede calcular'
+        : sinConfirmar.length ? sinConfirmar.length + ' sin confirmar: toman el % vigente igual'
+        : 'todos confirmados para este mes' });
+
+    // 4 · congelar. Sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes.
+    let congelado = false;
+    try { congelado = (cierreMesSvc.listar() || []).some((x) => x.mes === mes); } catch (e) {}
+    paso({ id: 'congelar', titulo: 'Congelar el mes', ir: 'cierre:externos',
+      estado: congelado ? 'listo' : 'aviso',
+      detalle: congelado ? 'los precios de este mes quedaron fijos'
+        : 'sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes' });
+
+    // 5-7 · las tres emisiones. Cada una a su cuenta, y cada una avisa si quedó vieja.
+    const vieja = (o) => !!(o && o.hasta && fotoAt && String(o.hasta) < String(fotoAt));
+    const em = emision.emitido(mes).porOrigen || {};
+    [['externos', 'Emitir proveedores externos', 'cierre:externos'],
+     ['vendedores', 'Emitir lo de los vendedores', 'cierre:vendedores'],
+     ['facturacion', 'Emitir el consumo (fichas)', 'facturacion']].forEach(([id, titulo, ir]) => {
+      const o = em[id];
+      paso({ id, titulo, ir,
+        estado: !o ? 'falta' : (vieja(o) ? 'aviso' : 'listo'),
+        detalle: !o ? 'todavía no se pasó a la deuda de nadie'
+          : o.cantidad + ' cliente(s) · ' + o.total + ' USDT'
+            + (vieja(o) ? ' — ⚠ se emitió ANTES de la última foto: anulá y emití de nuevo' : ''),
+        emitidoAt: o ? o.hasta : null });
+    });
+
+    // 8 · las facturas que salieron
+    let guardadas = [];
+    try { guardadas = facturasGuardadas.delMes(mes) || []; } catch (e) {}
+    const salieron = guardadas.filter((g) => g.salio_at).length;
+    paso({ id: 'facturas', titulo: 'Mandar las facturas a los clientes', ir: 'facturacion',
+      estado: salieron ? 'listo' : (guardadas.length ? 'aviso' : 'falta'),
+      detalle: !guardadas.length ? 'ninguna generada todavía'
+        : salieron + ' de ' + guardadas.length + ' salieron (impresa, copiada, link o Telegram)' });
+
+    const falta = pasos.filter((p) => p.estado === 'falta');
+    ok(res, { mes, pasos, falta: falta.length, avisos: pasos.filter((p) => p.estado === 'aviso').length,
+      siguiente: (falta[0] || null), puedeCerrar: !falta.length });
+  }));
+
   // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
   // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
   app.get('/api/os/validacion/:mes', wrap(async (req, res) => {

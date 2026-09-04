@@ -44,6 +44,18 @@
   /* ── ✅ REPASO DE % ───────────────────────────────────────────────────────────────────────
      Un cliente por pantalla y el número grande: se pasan 39 con la mano en Enter, y lo que hay
      que mirar —el % y si cambió— se lee sin buscarlo. */
+  /* ── 🗓 CERRAR EL MES ─────────────────────────────────────────────────────────────────── */
+  .paso { display:flex; align-items:center; gap:12px; padding:13px 4px; border-bottom:1px solid var(--border) }
+  .paso:last-child { border-bottom:0 }
+  .paso-n { width:22px; height:22px; flex:0 0 22px; border-radius:50%; background:var(--bg3); color:var(--muted);
+            font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center }
+  .paso-ic { font-size:15px; width:20px; text-align:center; flex:0 0 20px }
+  .paso-txt { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px }
+  .paso-txt b { font-size:14.5px }
+  .paso-txt .muted { font-size:12.5px; line-height:1.4 }
+  .paso-toca { background:var(--bg3); border-radius:9px; padding-left:10px; padding-right:10px }
+  .paso-toca .paso-n { background:var(--gold); color:#000 }
+
   .repbarra { height:6px; background:var(--bg3); border-radius:99px; overflow:hidden; margin:10px 0 0 }
   .repbarra i { display:block; height:100%; background:var(--gold); transition:width .18s }
   .repquien { font-size:27px; font-weight:800; letter-spacing:-.5px; line-height:1.15 }
@@ -415,6 +427,9 @@ const GRUPOS = [
     label: () => { const n = _pendTotal(); return (n ? '🔔' : '✅') + ' Pendientes' + (n ? ' <span class="nb urg">' + n + '</span>' : ''); },
     items: [] },                                        // sin subs: es una sola pantalla
   { id: 'cuentas', label: () => '💰 Cuentas', items: [
+    /* Primera a propósito: cerrar un mes son ocho cosas en un orden que importa, repartidas en
+       cinco pantallas. Acá se ve en cuál está el mes y qué falta para la siguiente. */
+    ['cierre:pasos', '🗓 Cerrar el mes'],
     ['facturacion', '🧾 Consumo (fichas)'],
     ['cierre:externos', '🏷 Proveedores externos'],
     ['foto', '📸 Foto del mes'],
@@ -3352,15 +3367,60 @@ const CIE_STYLE = `<style>
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
   // "Vincular proveedores" se fue a la pestaña 🏷 Proveedores: era la otra mitad de esa tabla.
-  const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
+  const subs = [['pasos','🗓 Cerrar el mes'],['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE
     + (_subsArriba() ? '' : `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div>`)
     + `<div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
+  ({pasos:ciePasos, matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
+
+/* ══ 🗓 CERRAR EL MES ════════════════════════════════════════════════════════════════════════
+   Cerrar un mes son ocho cosas en un orden que importa, repartidas en cinco pantallas. Saltearse
+   una no da error: hace que la siguiente cobre de menos y el total igual cuadre. Pasó en agosto
+   2026 — la factura de externos se emitió antes de sacar la vuelta de Agentes, le faltaban 121,61
+   USDT de Fran, y los 18 renglones daban bien.
+
+   Acá está el camino entero, con el estado de cada paso y el botón que lleva a la pantalla donde
+   se hace. Los pasos siguen estando en sus pantallas: esto no las reemplaza, las ordena. */
+let _pasosMes = mesDeCierre();
+function pasosIrA(m){ _pasosMes = m; ciePasos(); }
+
+async function ciePasos(){
+  const cont = document.getElementById('cie-body');
+  cont.innerHTML = '<div class="card"><div class="muted">Mirando cómo viene el mes…</div></div>';
+  const r = await api('/api/os/cierre/pasos/' + encodeURIComponent(_pasosMes));
+  if(!r || !r.ok) { cont.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc((r&&r.error)||'') + '</div></div>'; return; }
+  const ICO = { listo:'✅', aviso:'⚠️', falta:'○' };
+  const primeroQueFalta = (r.pasos.find(p=>p.estado==='falta')||{}).n;
+
+  cont.innerHTML = '<div class="card">'
+    + '<h2 style="margin:0">🗓 Cerrar el mes</h2>'
+    + bannerMes(_pasosMes, 'pasosIrA')
+    + '<div class="' + (r.puedeCerrar ? 'nota ok' : 'nota warn') + '" style="margin:0">'
+    +   '<span class="tit">' + (r.puedeCerrar ? 'El mes está cerrado' : 'Falta ' + r.falta + ' paso' + (r.falta===1?'':'s')) + '</span>'
+    +   (r.puedeCerrar
+        ? 'Todo lo del mes pasó a la deuda y las facturas salieron.'
+        : 'El siguiente es <b>' + esc((r.siguiente||{}).titulo||'') + '</b>.')
+    +   (r.avisos ? ' Hay ' + r.avisos + ' aviso' + (r.avisos===1?'':'s') + ' que conviene mirar.' : '')
+    + '</div></div>'
+
+    + '<div class="card">' + r.pasos.map(p=>{
+        /* El paso que toca se marca, pero NINGUNO se bloquea: a veces hay que rehacer algo de más
+           atrás, y una pantalla que no te deja entrar es peor que una que te avisa. */
+        const toca = p.n === primeroQueFalta;
+        return '<div class="paso' + (toca?' paso-toca':'') + '">'
+          + '<span class="paso-n">' + p.n + '</span>'
+          + '<span class="paso-ic">' + ICO[p.estado] + '</span>'
+          + '<span class="paso-txt"><b>' + esc(p.titulo) + '</b>'
+          +   '<span class="muted">' + esc(p.detalle||'') + '</span></span>'
+          + '<button class="' + (toca?'':'outline ') + 'small" onclick="irA(\'' + esc(p.ir) + '\')">'
+          +   (p.estado==='listo' ? 'ver' : 'ir') + ' →</button>'
+          + '</div>';
+      }).join('') + '</div>';
+}
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
 
 /* ── sub-vista 💸 PAGO A PROVEEDORES ───────────────────────────────────────────────────

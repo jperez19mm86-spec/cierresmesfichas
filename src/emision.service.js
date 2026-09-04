@@ -45,10 +45,15 @@ function emitido(mes, origen = null) {
     : db.prepare('SELECT * FROM movimientos WHERE origen IS NOT NULL AND origen_ref=?').all(m);
   const porOrigen = {};
   for (const f of filas) {
-    const o = porOrigen[f.origen] = porOrigen[f.origen] || { cantidad: 0, total: '0', desde: null };
+    const o = porOrigen[f.origen] = porOrigen[f.origen] || { cantidad: 0, total: '0', desde: null, hasta: null };
     o.cantidad += 1;
     o.total = money.add(o.total, f.monto_usdt || '0');
     if (!o.desde || String(f.createdAt) < o.desde) o.desde = f.createdAt;
+    // `hasta` es la última vez que se emitió algo de este origen. Sirve para saber si la emisión
+    // quedó VIEJA: si la foto del mes se volvió a sacar después, sus números ya no son los de hoy
+    // y hay que anular y emitir de nuevo. Pasó con Fran en agosto 2026 — 53,93 emitidos contra
+    // 175,54 reales, porque la vuelta de Agentes se sacó después de emitir.
+    if (!o.hasta || String(f.createdAt) > o.hasta) o.hasta = f.createdAt;
   }
   Object.values(porOrigen).forEach((o) => { o.total = money.round(o.total, 2); });
   return { mes: m, cantidad: filas.length, porOrigen };
