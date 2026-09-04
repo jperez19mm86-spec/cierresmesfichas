@@ -3692,12 +3692,11 @@ function mount(app) {
       /* El TC de proveedores NO es el del mercado: sale de la factura que manda el proveedor y se
          carga a mano. Sin él, lo de esa moneda se liquida mal. Se miran sólo las monedas que el mes
          movió de verdad. */
+      // Por la misma función que hace la cuenta: ver el comentario en /cierre/pasos.
       try {
-        const tc = cierreStore.getTC() || {};
-        const lbl = mesCierreLbl(mes);
         const usadas = new Set();
         pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
-        const sinTC = [...usadas].filter((d) => d !== 'USDT' && !((tc.tasas || {})[d] || {})[lbl]);
+        const sinTC = [...usadas].filter((d) => tcUnico.tcDelMes(d, mes).valor == null);
         if (sinTC.length) porQue.push(`falta el tipo de cambio del proveedor de ${sinTC.join(', ')}`);
       } catch (e) { /* sin esto igual se avisa lo demás */ }
 
@@ -3760,13 +3759,16 @@ function mount(app) {
         : foto.listas + ' de ' + foto.total + ' consultas · falta cambiar «Agrupar por» en el casino y sacar la vuelta que falte' });
 
     // 2 · el TC del proveedor de cada moneda que el mes movió
+    /* ⚠️ SE LE PREGUNTA A LA MISMA FUNCIÓN QUE HACE LA CUENTA, no a la tabla en crudo.
+       Miraba `cierre_tc` directo y salteaba sólo USDT: reclamaba el TC del proveedor de USD, que
+       NUNCA hace falta —`tcDelMes` contesta 1 y lo dice, "el dólar es la unidad"— y tampoco veía
+       que VES se resuelve con el de VEF. Un aviso que pide algo que no existe hace que se deje de
+       confiar en los avisos, que es peor que no tenerlos. */
     const sinTC = [];
     try {
-      const tc = cierreStore.getTC() || {};
-      const lbl = mesCierreLbl(mes);
       const usadas = new Set();
       pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
-      [...usadas].forEach((d) => { if (d !== 'USDT' && !((tc.tasas || {})[d] || {})[lbl]) sinTC.push(d); });
+      [...usadas].forEach((d) => { if (tcUnico.tcDelMes(d, mes).valor == null) sinTC.push(d); });
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
     paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc',
       estado: sinTC.length ? 'falta' : 'listo',

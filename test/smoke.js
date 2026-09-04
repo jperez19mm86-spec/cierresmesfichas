@@ -6110,6 +6110,24 @@ async function main() {
       [...em.NIVELES, 'nodo'].includes('nodo'));
   }
 
+  /* ── LOS AVISOS DEL CIERRE PREGUNTAN LO MISMO QUE LA CUENTA ──────────────────────────────────
+     El paso "falta el TC del proveedor" miraba la tabla `cierre_tc` en crudo y salteaba sólo USDT.
+     Reclamaba el TC de USD, que NUNCA hace falta —tcDelMes contesta 1: "el dólar es la unidad"— y
+     tampoco veía que VES se resuelve con el de VEF. Un aviso que pide algo que no existe hace que
+     se deje de confiar en los avisos, que es peor que no tenerlos.
+     La regla: el chequeo le pregunta a la MISMA función que hace la cuenta. */
+  {
+    const tc = require('../src/tc-unico.service');
+    check('cierre: el dólar no necesita TC del proveedor',
+      tc.tcDelMes('USD', '2026-08').valor === '1' && tc.tcDelMes('USDT', '2026-08').valor === '1');
+    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const pasos = rutas.slice(rutas.indexOf("app.get('/api/os/cierre/pasos/:mes'"),
+      rutas.indexOf("app.get('/api/os/validacion/:mes'"));
+    check('cierre: el aviso de TC sale de tcDelMes, no de la tabla en crudo',
+      /tcUnico\.tcDelMes\(d, mes\)\.valor == null/.test(pasos) && !/cierreStore\.getTC\(\)/.test(pasos),
+      'mirar la tabla directo vuelve a pedir el TC de USD');
+  }
+
   /* ── UN onclick ARMADO CON COMILLAS DOBLES NO EXISTE ─────────────────────────────────────────
      El botón del repaso se armaba con JSON.stringify, que devuelve comillas DOBLES, dentro de un
      atributo delimitado por comillas dobles: quedaba onclick="repConfirmar("14")" y el navegador
