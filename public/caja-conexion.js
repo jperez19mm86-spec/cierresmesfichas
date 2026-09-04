@@ -1488,7 +1488,16 @@
         JUGADAS[s] = [];
       }
       const g = grupos[s];
-      g.bet += plata(f.bet); g.win += plata(f.win); g.profit += plata(f.profit);
+      g.bet += plata(f.bet); g.win += plata(f.win);
+      /* 🔴 EL `profit` DEL MOTOR ES DE LA CASA, NO DEL JUGADOR: es `apostado − ganado`.
+         Comprobado el 4-sep-2026 sobre 10 sesiones reales, sin una sola excepción — apostó 5.210,
+         ganó 7.250, y el motor manda −2.040. Se pintaba tal cual, con «+» y en verde, en las TRES
+         pantallas del historial: un jugador que perdió 324 aparecía como «+324» mientras la fila
+         de abajo, que sí calcula `ganado − apostado`, decía «−324». Dos números opuestos en la
+         misma tarjeta, y el grande era el equivocado.
+         Acá se guarda el neto DEL JUGADOR, que es el que usan las filas: así el encabezado y el
+         detalle salen del mismo cálculo y no pueden volver a contradecirse. */
+      g.profit = g.win - g.bet;
       /* La sesión abarca desde la primera jugada hasta la última. */
       if (f.datetime_open && (!g.datetime_open || f.datetime_open < g.datetime_open)) g.datetime_open = f.datetime_open;
       if (f.datetime_last && f.datetime_last > g.datetime_last) g.datetime_last = f.datetime_last;

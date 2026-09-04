@@ -357,6 +357,34 @@ check('y le habla distinto a un cajero que a un jugador',
   /si el cajero está cargando o cobrando fichas/.test(htmlCaja)
   && /si el jugador está jugando/.test(htmlCaja));
 
+/* ── 7 · el historial de jugadas ────────────────────────────────────────────────────────────────
+   🔴 EL NÚMERO GRANDE DECÍA LO CONTRARIO QUE LAS FILAS. El `profit` del motor es de la CASA
+   —`apostado − ganado`—, comprobado el 4-sep-2026 sobre 10 sesiones reales sin una excepción:
+   apostó 5.210, ganó 7.250, el motor manda −2.040. Se pintaba con «+» y en verde como si fuera
+   del jugador. */
+{
+  /* Lo mismo que hace el conector al agrupar: el neto es SIEMPRE el del jugador. */
+  const neto = (bet, win) => win - bet;
+  check('el que pierde queda en negativo, no en positivo',
+    neto(560, 236) === -324, String(neto(560, 236)));
+  check('y el que gana, en positivo',
+    neto(5210, 7250) === 2040, String(neto(5210, 7250)));
+  check('el conector guarda el neto del jugador, no el del motor',
+    /g\.profit = g\.win - g\.bet;/.test(conector)
+    && !/g\.profit \+= plata\(f\.profit\)/.test(conector));
+  check('y las tres pantallas dicen de quién es el número',
+    (htmlCaja.match(/'Le quedó al jugador'/g) || []).length === 2
+    && !/\['Resultado', \(tot\.profit/.test(htmlCaja)
+    && !/\['Resultado', \(s\.profit/.test(htmlCaja));
+}
+
+/* 🔴 LA MATRIX NO LLEGA. El comentario decía que «algunos proveedores traen la grilla del slot y
+   las líneas ganadoras» — y nada en el código leía jamás un campo así. Medido: el motor manda 21
+   campos por jugada y ninguno es la grilla, las líneas ni un enlace al log. */
+check('la pantalla no promete un detalle de tirada que el casino no manda',
+  !/algunos traen la grilla del/.test(htmlCaja)
+  && /no manda el detalle de cada tirada/.test(htmlCaja));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

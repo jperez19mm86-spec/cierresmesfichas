@@ -3273,7 +3273,7 @@ function abrirHistoria(id){
         abiertas ? ` · ${abiertas} abierta${abiertas > 1 ? 's' : ''}` : ''}</span></div>
     ${ses.length ? `
       ${resumen([['Apostado', fmt(tot.bet)], ['Ganado', fmt(tot.win)],
-                  ['Resultado', (tot.profit>=0?'+':'') + fmt(tot.profit), tot.profit>=0?'ok':'no']])}
+                  ['Le quedó al jugador', (tot.profit>=0?'+':'') + fmt(tot.profit), tot.profit>=0?'ok':'no']])}
       <div class="lista">${ses.map(s => `
         <div class="fila-b" role="button" tabindex="0" style="align-items:flex-start"
           onclick="abrirSesion('${id}','${s.session}')"
@@ -3310,8 +3310,13 @@ function abrirSesion(jugadorId, sesionId){
          ${s.datetime_open.slice(11,16)}, última jugada ${s.datetime_last.slice(11,16)}.</div>`
       : `<div class="nota neutra">Abrió ${s.datetime_open.slice(5,16)} · cerró
          ${s.datetime_close.slice(11,16)} · última jugada ${s.datetime_last.slice(11,16)}.</div>`}
+    ${/* 🔴 EL ENCABEZADO DECÍA LO CONTRARIO QUE LAS FILAS. El `profit` del motor es de la casa
+           —`apostado − ganado`— y acá se pintaba con «+» y en verde como si fuera del jugador: uno
+           que perdió 324 salía «+324» arriba y «−324» abajo. Reportado el 4-sep-2026. Ahora el
+           número es el neto del jugador, el mismo que suman las filas, y el rótulo dice de quién
+           es para no tener que adivinarlo. */''}
     ${resumen([['Jugadas', js.length], ['Saldo al empezar', fmt(s.balance_before)],
-                ['Resultado', (s.profit>=0?'+':'') + fmt(s.profit), s.profit>=0?'ok':'no']])}
+                ['Le quedó al jugador', (s.profit>=0?'+':'') + fmt(s.profit), s.profit>=0?'ok':'no']])}
     ${js.map(x => {
       const neto = x.win - x.bet;
       /* Misma forma que las otras dos listas: la hora a la izquierda como columna y el saldo de
@@ -3332,8 +3337,17 @@ function abrirSesion(jugadorId, sesionId){
     ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
       para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por
       <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
-    <div class="nota motor">El detalle <b>cambia según el proveedor</b>: algunos traen la grilla del
-    slot y las líneas ganadoras, otros parten cada jugada en dos registros.</div>
+    ${notaInfo('sinmatrix',
+      'El casino <b>no manda el detalle de cada tirada</b>, así que acá no se puede mostrar.',
+      'Pedido el 4-sep-2026: revisar con la <b>matrix</b> para entender cómo se pagó un premio. Se '
+      + 'revisó lo que llega: el motor manda <b>21 datos por jugada</b> —apostado, ganado, saldo '
+      + 'antes, juego, proveedor, horarios— y <b>ninguno</b> es la grilla, las líneas ganadoras ni '
+      + 'un enlace al log. Con eso no se puede armar una matrix, y dibujarla con lo que hay sería '
+      + 'inventarla. Mientras tanto se mira desde el panel del casino. Si el casino abre esa '
+      + 'dirección, se enchufa acá y esta pantalla la muestra.')}
+    <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
+    <span class="mono">round_id</span>. Lo que llega es siempre lo mismo: los importes y los
+    horarios de la ronda, nunca su desarrollo.</div>
     <div class="acciones"><button class="btn sec" onclick="abrirHistoria('${jugadorId}')">Volver</button></div>`);
 }
 
