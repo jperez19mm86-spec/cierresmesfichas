@@ -330,6 +330,21 @@ function mount(app) {
         if (!esJson(hijos)) return delMotor(res, hijos);
         fanOut = sinFilaTotal(hijos.data.users || hijos.data.rows || [])
           .map((c) => ({ id: String(c.id), login: c.login || String(c.id) }));
+
+        /* 🔴 SIN CAJAS NO HAY EJE DE JUGADORES, Y NO SE PUEDE DISIMULAR. Acá abajo, si el fan-out
+           queda vacío, `ejeDineroArmado` cae al propio nodo del agente — y `usual:from` sobre la
+           raíz de un agente NO son sus jugadores: son sus CAJEROS. La tabla salía igual, con el
+           encabezado «Jugador» y un cajero adentro. Reportado el 4-sep-2026: un agente vio una
+           sola fila, `GaCajersala`, con 5.100 de cargas y 0 retiros — que es exactamente la
+           transferencia que él le había hecho a su cajero, presentada como si la hubiera jugado
+           alguien. El número era real y el significado, falso.
+           Ese respaldo es correcto para un CAJERO —ahí `usual:from` sí son sus jugadores— pero
+           nunca para un agente parado en su raíz. Si no se pudieron leer las cajas, se contesta
+           vacío y se dice por qué. */
+        if (!fanOut.length) {
+          return ok(res, { filas: [], cuantas: 0, total: null, eje: 'dinero', ejePedido: 'dinero',
+            armadoDeMovimientos: true, cajasLeidas: 0, sinCajas: true });
+        }
       }
       const armado = await ejeDineroArmado(cli, { nodo, fanOut, from: r.from, to: r.to, agrupar: q.agrupar });
       const num = (x) => Number(x) || 0;

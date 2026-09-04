@@ -1866,6 +1866,12 @@
         /* Ya no hay eje que elegir. Lo único que queda por avisar es cuando los números no
            salieron del informe sino armados de los movimientos, porque esa cuenta tiene una
            plantilla en apuestas: son exactos igual, pero tardan más y conviene saber por qué. */
+        /* 🔴 El servidor contesta vacío antes que inventar filas: sin las cajas leídas, el eje
+           por jugador no se puede armar. Se dice, no se rellena. */
+        if (d.sinCajas) {
+          destino.filas = [];
+          destino.sinCajas = true;
+        } else { destino.sinCajas = false; }
         destino.aviso = d.armadoDeMovimientos
           ? 'Tu cuenta está configurada para mostrar <b>apuestas</b>, así que estos números los '
             + 'calculamos con tus movimientos. Son exactos, pero tardan un poco más. '
