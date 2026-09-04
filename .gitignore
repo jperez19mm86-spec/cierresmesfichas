@@ -1,5 +1,6 @@
 # Dependencias
 node_modules/
+/node_modules
 
 # IMPORTANTE: data/ guarda los sistemas CON CONTRASEÑAS en claro.
 # NUNCA se sube a GitHub.
