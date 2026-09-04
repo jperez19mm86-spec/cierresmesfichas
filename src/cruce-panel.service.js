@@ -237,16 +237,25 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
     }
 
     const h = await historialDe(pan);
-    const ventas = h.filas.filter((f) => f.desde == null && f.operacion === 'in');
+    /* 🔴 La ventana se abre una semana ANTES del mes sólo para encontrar el retiro de un pase que
+       cruza el borde. Todo lo demás se mira SÓLO dentro del mes: si no, cada venta de fin del mes
+       anterior —cuyo pedido está en el mes anterior— aparece como "entregada y no cobrada".
+       Medido cuando faltaba este filtro: el "no se cobra" de agosto pasó de 34.091 a 164.679 USDT
+       y los paneles que cuadraban de 66 a 38. Las filas sin fecha se cuentan como del mes: son las
+       que el motor devuelve sin `datetime` y no hay con qué ubicarlas. */
+    const inicioMes = Date.parse(`${m}-01T00:00:00Z`);
+    const delMes = (f) => !f.fecha || Date.parse(`${f.fecha.replace(' ', 'T')}Z`) >= inicioMes;
+    const ventas = h.filas.filter((f) => f.desde == null && f.operacion === 'in' && delMes(f));
     // Un retiro que es el ORIGEN de un pase no es una devolución: las fichas no volvieron, se
     // fueron al otro panel del mismo cliente. Confundirlos hacía que una venta legítima pareciera
     // anulada sólo porque el importe coincidía con un pase.
+    // Los retiros sí se miran en toda la ventana: son los candidatos a ser la otra mitad de un pase.
     const salidas = h.filas.filter((f) => f.desde == null && f.operacion === 'out');
     const esOrigenDePase = (o) => pases.some((x) => String(x.origen_panel_id) === String(pan.id)
       && String(x.divisa || '').toUpperCase() === o.divisa
       && Math.abs(Number(x.monto) - o.monto) < 0.01);
-    const devoluciones = salidas.filter((o) => !esOrigenDePase(o));
-    const entradas = h.filas.filter((f) => f.desde != null && f.operacion === 'in');
+    const devoluciones = salidas.filter((o) => !esOrigenDePase(o) && delMes(o));
+    const entradas = h.filas.filter((f) => f.desde != null && f.operacion === 'in' && delMes(f));
 
     const cerca = (o, c) => o.fecha
       && Math.abs(Date.parse(`${o.fecha.replace(' ', 'T')}Z`) - Date.parse(c.iso)) <= TOLERANCIA_MS;
@@ -389,7 +398,9 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
       // Los retiros que quedaron SUELTOS: no son el origen de un pase registrado y tampoco
       // explicaron una anulación en este panel. Son los candidatos a ser la otra mitad de un pase
       // hecho a mano, que se busca en la pasada final.
-      salidasLibres: devoluciones.filter((o) => !diferencias.some(
+      // Acá sí entra toda la ventana, incluida la semana previa: es lo que hace que el pase de
+      // Titan —retiro el 31 de julio, carga el 1 de agosto— se pueda reconocer.
+      salidasLibres: salidas.filter((o) => !esOrigenDePase(o)).filter((o) => !diferencias.some(
         (d) => d.tipo === 'registrada_y_devuelta' && d.venta.divisa === o.divisa
           && Math.abs(d.venta.monto - o.monto) < 0.01)),
       esDeVendedor,

@@ -336,6 +336,19 @@ const facturaSvc = require('../src/factura.service');
 
   bd.prepare("UPDATE paneles SET consumo_a=NULL WHERE id IN ('p_lucia','p_sa_alexa')").run();
 
+  // ── 4d-bis) LA VENTANA PREVIA NO ENSUCIA EL MES ───────────────────────────────────────────
+  // El historial se pide desde una semana antes para encontrar el retiro de un pase que cruza el
+  // borde del mes. Pero si esas filas se cuentan como ventas del mes, cada venta de fin del mes
+  // anterior aparece "sin cobrar": medido en producción, el total pasó de 34.091 a 164.679 USDT.
+  MOVS['9099270|ARS'].push(
+    { id: 'jul1', from: null, operation: 'in', currency: 'ARS', cash: '4444000.00', datetime: '2026-07-28 10:00:00', initiator: 'x' },
+  );
+  const mesV = await crucePanel2.cruzarMes('2026-08');
+  const celuV = mesV.paneles.find((p) => p.panel === 'Celuapuestas-SA');
+  ok(!(celuV.diferencias || []).some((d) => d.venta && Math.abs(d.venta.monto - 4444000) < 1),
+    'una venta del mes ANTERIOR no se reporta como carga sin cobrar de este mes');
+  MOVS['9099270|ARS'].pop();
+
   // ── 4e) apagar el puente ──────────────────────────────────────────────────────────────────
   // Apunta a un dominio que después de la migración es ESTE servicio, así que dejarlo prendido es
   // un riesgo: si alguien acierta las credenciales, la facturación vuelve a rutear por el mapeo
