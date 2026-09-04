@@ -4306,6 +4306,12 @@ function mount(app) {
   // Un vendedor no paga un % sobre lo que carga: paga AL COSTO por los proveedores que use, en
   // sus paneles y en los de sus clientes. Es una cuenta interna, no una factura.
   app.get('/api/os/vendedores', (_req, res) => ok(res, { vendedores: vendedoresSvc.lista() }));
+  /* El costo de proveedores del mes, repartido sin superponer. Ver el comentario grande en
+     vendedores.service: el número de un vendedor incluye el de los que tiene abajo. */
+  app.get('/api/os/vendedores-reparto/:mes', wrap(async (req, res) => {
+    const r = await vendedoresSvc.repartoCosto(req.params.mes);
+    r.ok ? ok(res, r) : err(res, 502, r.error);
+  }));
   app.get('/api/os/vendedores/:id', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     // la facturación se calcula UNA vez y se reparte: el vendedor y sus clientes salen de ahí

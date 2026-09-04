@@ -207,7 +207,14 @@ function baseDelMes(cliente, mes, panel = null) {
  * El reporte de un cliente para un mes.
  * @returns { cliente, mes, base, baseConfirmada, paneles[], totales, sinVincular[], avisos[] }
  */
-async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }) {
+/**
+ * @param forzarModo  'vendedor' para pedir el COSTO de los paneles de un cliente cualquiera, en
+ *                    vez de su diferencial. Lo usa el reparto de la cuenta de vendedores: para
+ *                    saber a qué rama pertenece el costo de un panel hay que poder calcularlo
+ *                    también en los clientes que NO son vendedores. No cambia lo que se le cobra
+ *                    a nadie — es otra pregunta sobre los mismos datos.
+ */
+async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, forzarModo = null }) {
   const cli = clientes.list().clientes.find((c) => K(c.nombre) === K(clienteNombre));
   if (!cli) return { ok: false, error: `no existe el cliente "${clienteNombre}"` };
 
@@ -218,7 +225,10 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   // más abajo). Exigirle un % base cortaba el reporte por un dato que su cálculo ni mira — y como
   // sus bases se cargaron en 0 recién el 1-ago, julio abortaba para 7 de los 8. Se asume 0.
   const esVendedor = !!cli.es_vendedor;
-  const base = basePct != null ? String(basePct) : (res.valor != null ? res.valor : (esVendedor ? '0' : null));
+  /* En modo COSTO la base ni se mira: se paga el costo del proveedor y punto. Exigirla haría que
+     el reparto se corte por un cliente sin % cargado, por un dato que su cuenta no usa. */
+  const comoVendedor = esVendedor || forzarModo === 'vendedor';
+  const base = basePct != null ? String(basePct) : (res.valor != null ? res.valor : (comoVendedor ? '0' : null));
   const baseFuente = basePct != null ? 'a mano' : (res.valor != null ? res.fuente : 'vendedor: paga el costo, no lleva base');
   if (base == null) {
     return { ok: false, error: `"${cli.nombre}" no tiene % base cargado. Confirmalo antes de calcular.`, faltaBase: true };
@@ -232,7 +242,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   const mios = paneles.list().filter((p) => p.cliente_id === cli.id);
 
   // Cómo se lee la celda de la matriz para ESTE cliente.
-  const modo = esVendedor ? 'vendedor' : (cli.externos_modo || 'total');
+  const modo = forzarModo || (esVendedor ? 'vendedor' : (cli.externos_modo || 'total'));
 
   const filas = [];            // una por panel+proveedor+divisa
   const sinVincular = new Map();
