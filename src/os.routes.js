@@ -3821,11 +3821,12 @@ function mount(app) {
       detalle: congelado ? 'los precios de este mes quedaron fijos'
         : 'sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes' });
 
-    // 5-7 · las tres emisiones. Cada una a su cuenta, y cada una avisa si quedó vieja.
+    /* 5-8 · las emisiones y las facturas. El orden lo puso la dueña: lo de los VENDEDORES va al
+       final, después de mandarle las facturas a los clientes — no bloquea nada y llegaba a frenar
+       lo urgente, que es el consumo. Cada emisión avisa si quedó vieja. */
     const vieja = (o) => !!(o && o.hasta && fotoAt && String(o.hasta) < String(fotoAt));
     const em = emision.emitido(mes).porOrigen || {};
     [['externos', 'Emitir proveedores externos', 'cierre:externos'],
-     ['vendedores', 'Emitir lo de los vendedores', 'cierre:vendedores'],
      ['facturacion', 'Emitir el consumo (fichas)', 'facturacion']].forEach(([id, titulo, ir]) => {
       const o = em[id];
       paso({ id, titulo, ir,
@@ -3836,7 +3837,7 @@ function mount(app) {
         emitidoAt: o ? o.hasta : null });
     });
 
-    // 8 · las facturas que salieron
+    // 7 · las facturas que salieron
     let guardadas = [];
     try { guardadas = facturasGuardadas.delMes(mes) || []; } catch (e) {}
     const salieron = guardadas.filter((g) => g.salio_at).length;
@@ -3844,6 +3845,17 @@ function mount(app) {
       estado: salieron ? 'listo' : (guardadas.length ? 'aviso' : 'falta'),
       detalle: !guardadas.length ? 'ninguna generada todavía'
         : salieron + ' de ' + guardadas.length + ' salieron (impresa, copiada, link o Telegram)' });
+
+    // 8 · los vendedores, al final: es la única cuenta que no le llega al cliente.
+    {
+      const o = em.vendedores;
+      paso({ id: 'vendedores', titulo: 'Emitir lo de los vendedores', ir: 'cierre:vendedores',
+        estado: !o ? 'falta' : (vieja(o) ? 'aviso' : 'listo'),
+        detalle: !o ? 'todavía no se pasó a la deuda de nadie — no frena nada, puede ir al final'
+          : o.cantidad + ' cliente(s) · ' + o.total + ' USDT'
+            + (vieja(o) ? ' — ⚠ se emitió ANTES de la última foto: anulá y emití de nuevo' : ''),
+        emitidoAt: o ? o.hasta : null });
+    }
 
     const falta = pasos.filter((p) => p.estado === 'falta');
     ok(res, { mes, pasos, falta: falta.length, avisos: pasos.filter((p) => p.estado === 'aviso').length,
@@ -3914,15 +3926,31 @@ function mount(app) {
       const revisar = ((previa && previa.paraRevisar) || []).map((x) => ({
         ...x, clave: crucePanel.claveDe(mes, x.id, { divisa: x.divisa, monto: x.monto, fecha: x.iso || null }),
       })).filter((x) => !vistas[x.clave]);
-      const v = await crucePanel.cruzarMes(mes);
-      if (v.ok) crucePanel.guardar(v);
-      if (revisar.length || (v.ok && crucePanel.hayQueMirar(v))) {
+      /* ── EL CRUCE SE SACA UNA VEZ, COMO LA FOTO ─────────────────────────────────────────────
+         Acá se le preguntaba el historial a los 73 paneles CADA VEZ: 78 segundos, y si el proxy
+         cortaba antes, la pantalla quedaba colgada sin decir nada. Y era al pedo — las cargas y
+         los pedidos de un mes que pasó ya no se mueven, igual que la foto.
+         Se lee el guardado; sólo se sale a preguntar si no hay ninguno o si se pide de nuevo con
+         `recontrastar: true`. Lo que puede cambiar en el medio son las cargas que se marcaron como
+         vistas, y eso se filtra acá arriba, sobre lo guardado. */
+      // `leer` devuelve la fila con el cruce adentro de `datos`; `cruzarMes` devuelve el cruce
+      // pelado. Se desenvuelve para que las dos ramas hablen la misma forma — si no, `v.ok` es
+      // undefined sobre lo guardado y se sale a preguntar igual, que es justo lo que se evita.
+      let v = (crucePanel.leer(mes) || {}).datos || null;
+      if (!v || !v.ok || (req.body && req.body.recontrastar)) {
+        v = await crucePanel.cruzarMes(mes);
+        if (v.ok) crucePanel.guardar(v);
+      }
+      if (revisar.length || (v && v.ok && crucePanel.hayQueMirar(v))) {
         return res.status(409).json({ ok: false, requiereConfirmacion: true,
           error: revisar.length
             ? `hay ${revisar.length} carga(s) que no se le cobran a nadie, y el contraste contra los paneles puede tener más: mirá el detalle antes de emitir`
             : 'el contraste contra los paneles encontró diferencias: mirá el detalle antes de emitir',
           paraRevisar: revisar,
-          validacion: v.ok ? v : null });
+          // Cuándo se sacó el contraste que se está mostrando: si es de hace una semana, quien lo
+          // mira tiene que poder saberlo y pedirlo de nuevo, no descubrirlo cuando un número no da.
+          contrasteDe: (v && v.validadoAt) || null,
+          validacion: v && v.ok ? v : null });
       }
     }
 

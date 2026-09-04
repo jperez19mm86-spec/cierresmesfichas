@@ -6154,6 +6154,38 @@ async function main() {
       'si las dos ramas usaran la misma, o se cobra de más a los clientes o de menos a los vendedores');
   }
 
+  /* ── NADA PUEDE DEJAR LA PANTALLA COLGADA ────────────────────────────────────────────────────
+     `api()` no atrapaba nada: si la conexión se caía —o el proxy cortaba una llamada larga— la
+     promesa se rompía, nadie la agarraba, y el "⏳ Cargando…" se quedaba para siempre sin decir
+     una palabra. Pasó con la emisión del consumo, que tardaba ~78s preguntándole el historial a
+     los 73 paneles: parecía que el botón no había hecho nada. */
+  {
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const fn = h.slice(h.indexOf('async function api(path'), h.indexOf('async function api(path') + 1400);
+    check('api: un corte de conexión vuelve como error, no como promesa rota',
+      /catch\(e\)\{/.test(fn) && /seCorto: true/.test(fn));
+    check('api: una respuesta que no es JSON (502/504 del proxy) también avisa',
+      /if\(!r\.ok\)/.test(fn) && (fn.match(/seCorto/g) || []).length >= 2,
+      'sin esto quedaba un {} sin `error` y nadie decía nada');
+  }
+
+  /* ── EL CRUCE CONTRA LOS PANELES SE SACA UNA VEZ, COMO LA FOTO ───────────────────────────────
+     Las cargas y los pedidos de un mes que pasó ya no se mueven. Preguntarle el historial a los
+     73 paneles en CADA emisión eran 78 segundos al pedo, y si el proxy cortaba antes, la pantalla
+     quedaba colgada. Se lee lo guardado; sólo se sale a preguntar si no hay o si se pide. */
+  {
+    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const emi = rutas.slice(rutas.indexOf("app.post('/api/os/emision/facturacion'"),
+      rutas.indexOf("app.post('/api/os/emision/externos'"));
+    check('emisión: el cruce se lee de lo guardado antes de salir a preguntar',
+      /crucePanel\.leer\(mes\)/.test(emi) && /recontrastar/.test(emi));
+    check('emisión: se desenvuelve `datos`, si no lo guardado nunca sirve',
+      /crucePanel\.leer\(mes\) \|\| \{\}\)\.datos/.test(emi),
+      '`leer` devuelve la fila con el cruce adentro; `cruzarMes` lo devuelve pelado');
+    check('emisión: dice de cuándo es el contraste que muestra',
+      /contrasteDe:/.test(emi));
+  }
+
   /* ── UN onclick ARMADO CON COMILLAS DOBLES NO EXISTE ─────────────────────────────────────────
      El botón del repaso se armaba con JSON.stringify, que devuelve comillas DOBLES, dentro de un
      atributo delimitado por comillas dobles: quedaba onclick="repConfirmar("14")" y el navegador

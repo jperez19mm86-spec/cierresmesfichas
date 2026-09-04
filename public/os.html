@@ -630,10 +630,28 @@ function _ciePct(el, r){
   if (el.select) el.select();
   return false;
 }
+/* ⚠️ UNA LLAMADA QUE SE CORTA NO PUEDE DEJAR LA PANTALLA COLGADA.
+   Esto no atrapaba nada: si la conexión se caía —o el proxy cortaba una llamada larga— la promesa
+   se rompía, nadie la agarraba, y el cartel de "⏳ Cargando…" se quedaba ahí para siempre sin decir
+   una palabra. Pasó de verdad con la emisión del consumo, que tarda ~78 segundos porque le pregunta
+   el historial a los 73 paneles: parecía que el botón no había hecho nada.
+   Ahora cualquier corte vuelve como un error con texto, que es lo que la pantalla sabe mostrar. */
 async function api(path, opts={}){
-  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  let r;
+  try { r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts)); }
+  catch(e){
+    const msg = 'se cortó la conexión con el servidor'
+      + (/abort/i.test(String(e&&e.message)) ? ' (la llamada tardó demasiado)' : '')
+      + '. Lo que ya se había guardado quedó guardado: volvé a intentar.';
+    toast('⚠ '+msg, true);
+    return { ok:false, error: msg, seCorto: true };
+  }
   if(r.status===401){ location.href='/login'; return {ok:false}; }
-  let b={}; try{ b=await r.json(); }catch(e){}
+  let b={}; try{ b=await r.json(); }catch(e){
+    // 502/504 del proxy vienen en HTML: sin esto quedaba un {} sin `error` y nadie avisaba nada.
+    if(!r.ok) { const msg = 'el servidor cortó la llamada (' + r.status + '). Suele ser porque tardó '
+      + 'demasiado; lo que se guardó quedó guardado.'; toast('⚠ '+msg, true); return { ok:false, error: msg, seCorto:true }; }
+  }
   if(!b.ok && b.error) toast('⚠ '+b.error);
   return b;
 }
@@ -2317,23 +2335,24 @@ async function fotoSacar(cxId, nivel, rehacer){
 }
 
 
-async function facEmitir(confirmado, sinPreguntar) {
+async function facEmitir(confirmado, sinPreguntar, recontrastar) {
   const mes = val('fac-mes');
   if (!confirmado && !sinPreguntar && !confirm('¿Pasar la facturación de ' + mes + ' a la deuda de cada cliente?\n\nAntes se contrasta contra los paneles del casino. Genera un movimiento por cliente. Emitir de nuevo NO duplica: si hace falta corregir, se anula y se vuelve a emitir.')) return;
   // El contraste consulta el casino panel por panel y tarda más de un minuto. Un toast se va en dos
   // segundos y deja la pantalla igual que antes: parece que el botón no hizo nada.
   const espera = document.getElementById('fac-emi-out');
   if (espera) espera.innerHTML = '<div class="card" style="background:var(--bg3)"><b>'
-    + (confirmado ? '⏳ Emitiendo…' : '⏳ Contrastando contra los paneles del casino…') + '</b>'
+    + (confirmado ? '⏳ Emitiendo…' : (recontrastar ? '⏳ Contrastando contra los paneles del casino…' : '⏳ Buscando el contraste del mes…')) + '</b>'
     + '<div class="muted" style="margin-top:4px">'
     + (confirmado ? 'Generando un movimiento por cliente.'
-       : 'Se le pregunta a cada panel por su historial, moneda por moneda. Suele tardar entre uno y dos minutos. No cierres esta pantalla.')
+       : recontrastar ? 'Se le pregunta a cada panel por su historial, moneda por moneda. Suele tardar entre uno y dos minutos. No cierres esta pantalla.'
+       : 'Si ya se sacó, sale al instante. Si no, hay que preguntarle a cada panel y tarda uno o dos minutos.')
     + '</div></div>';
   toast(confirmado ? 'Emitiendo…' : 'Contrastando contra los paneles… puede tardar');
-  const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes, confirmado: !!confirmado }) });
+  const r = await api('/api/os/emision/facturacion', { method: 'POST', body: JSON.stringify({ mes, confirmado: !!confirmado, recontrastar: !!recontrastar }) });
   // El panel es la validación: si no cuadra, no se emite a ciegas. Se muestra qué no cuadra y
   // recién ahí se puede confirmar.
-  if (!r.ok && r.requiereConfirmacion) return pintarValidacion(r.validacion, mes, r.paraRevisar);
+  if (!r.ok && r.requiereConfirmacion) return pintarValidacion(r.validacion, mes, r.paraRevisar, r.contrasteDe);
   if (!r.ok) {
     if (espera) espera.innerHTML = '<div class="card"><span class="badge err">Error: ' + esc(r.error || '') + '</span></div>';
     return toast('Error: ' + (r.error || ''));
@@ -2354,9 +2373,17 @@ async function facEmitir(confirmado, sinPreguntar) {
  * Y se cuentan aparte las que llegaron bien por un camino que NO es la venta directa, para poder
  * decir "estas no son un problema, es cómo entrega el vendedor" en vez de dejarlas como ruido.
  */
-function pintarValidacion(v, mes, paraRevisar) {
+function pintarValidacion(v, mes, paraRevisar, contrasteDe) {
   const box = document.getElementById('fac-emi-out');
   if (!box) return toast('El contraste encontró diferencias');
+  /* De cuándo es lo que se está mirando. El cruce se saca UNA vez —las cargas de un mes que pasó
+     ya no se mueven, igual que la foto— así que puede ser de hace días; quien lo mira tiene que
+     poder saberlo y pedirlo de nuevo, en vez de descubrirlo cuando un número no da. */
+  const sello = contrasteDe
+    ? '<div class="muted" style="font-size:12.5px;margin:0 0 8px">Contraste del <b>' + esc(fechaLarga(contrasteDe))
+      + '</b> · no se vuelve a preguntar solo, porque un mes que pasó ya no cambia. '
+      + '<a href="#" onclick="facEmitir(false,true,true);return false">Contrastar de nuevo</a> (tarda ~1 minuto).</div>'
+    : '';
   // Las que no se le cobran a NADIE van primero y solas: es lo único que no puede quedar tapado.
   const revisar = (paraRevisar || []).length
     ? '<div class="card" style="background:rgba(217,83,79,.10);border-color:rgba(217,83,79,.5)">'
@@ -2373,7 +2400,7 @@ function pintarValidacion(v, mes, paraRevisar) {
         }).join('')
       + '</tbody></table></div>'
     : '';
-  if (!v || !v.ok) { box.innerHTML = revisar + '<div class="card"><span class="badge err">Además, no se pudo contrastar contra los paneles</span>'
+  if (!v || !v.ok) { box.innerHTML = sello + revisar + '<div class="card"><span class="badge err">Además, no se pudo contrastar contra los paneles</span>'
       + '<div class="row" style="margin-top:8px"><button class="danger" onclick="facEmitir(true)">Emitir igual, ya lo vi</button>'
       + '<button class="outline" onclick="document.getElementById(\'fac-emi-out\').innerHTML=\'\'">Cancelar</button></div></div>'; return; }
   const T = v.totales;
@@ -2393,7 +2420,8 @@ function pintarValidacion(v, mes, paraRevisar) {
     + '<td class="right">' + (c.sinTc ? '<b style="color:var(--gold)">' + c.sinTc + '</b>' : '<span class="muted">—</span>') + '</td></tr>').join('');
 
   box.innerHTML =
-    revisar
+    sello
+    + revisar
     + (v.totales.anteriorAlCorte
       ? '<div class="card" style="background:rgba(196,86,173,.09);border-color:rgba(196,86,173,.5)">'
         + '<b style="color:var(--gold)">📅 Este mes es anterior a julio de 2026</b>'
