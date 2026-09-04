@@ -554,7 +554,12 @@ ensureColumns('estad_captura', { modo: 'TEXT' });
 // `tc_modo='mes'` = el pago se valúa con el tipo de cambio del mes, que puede no estar cargado
 // todavía. La cara que falta NO se guarda: se deriva al leer (ver src/valuacion.js), así el día
 // que se carga el TC del cierre todos los pagos que esperaban pasan a valer lo correcto solos.
-ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT', tc_modo: 'TEXT' });
+/* `mes_cierre`: a QUÉ MES entra este movimiento, que no es lo mismo que cuándo pasó. Un cliente
+   puede pagar el 2 de septiembre algo que corresponde al cierre de agosto. Antes había una sola
+   fecha y el mes se deducía de ella: para mandar ese pago a agosto había que MENTIR la fecha, y se
+   perdía el dato de cuándo entró de verdad. Son dos cosas distintas — la fecha es un hecho, el mes
+   de cierre es una decisión— y ahora se guardan por separado. Vacío = el mes de la fecha. */
+ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT', tc_modo: 'TEXT', mes_cierre: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

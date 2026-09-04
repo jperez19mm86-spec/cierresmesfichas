@@ -551,6 +551,10 @@ function mesDeCierre(d = new Date()) {
   if (d.getDate() <= CIERRE_DIAS) { m -= 1; if (m === 0) { m = 12; a -= 1; } }
   return a + '-' + String(m).padStart(2,'0');
 }
+/* Hoy, en la zona de acá. `toISOString()` devuelve UTC: a la noche argentina ya es el día
+   siguiente, y un pago cargado a las 22:00 quedaría fechado mañana. */
+const hoyISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0,10); };
 const mesNombre = (iso) => { const [a,m] = String(iso||'').split('-');
   return (MESES_UI[Number(m)-1] || iso) + ' ' + a; };
 /* Una fecha ENTERA y siempre igual: 10 Agosto 2026. "ayer" y "hace 3 días" se leen rápido hoy y no
@@ -4702,8 +4706,9 @@ MOV.cuenta = async () => {
       <button class="small" style="margin-left:8px" onclick="movSub('pendientes')">Verlos</button></div>` : ''}
 
     <div class="card"><h2>💳 Registrar un pago a mano</h2>
-      <div class="muted" style="margin-bottom:10px">Para lo que no entra por un comprobante:
-        un pago en efectivo, una transferencia que llegó por otro lado. Baja la deuda igual que aprobar un comprobante.</div>
+      <div class="muted" style="margin-bottom:10px">Para lo que no entra por un comprobante del cliente:
+        un pago en efectivo, una transferencia que llegó por otro lado. Baja la deuda igual que aprobar uno,
+        y el comprobante queda guardado como respaldo. <b>El aviso a los grupos no sale solo</b>: se marca abajo.</div>
       <div class="row" style="align-items:flex-end">
         <div><label>Cliente</label><select id="mp-cli">
           <!-- Arrancaba en el primero por orden alfabético: apretar «Registrar» sin tocar nada
@@ -4715,6 +4720,35 @@ MOV.cuenta = async () => {
           <option value="efectivo">Efectivo</option><option value="otro">Otro</option></select></div>
         <div style="flex:0"><button onclick="regPago()">Registrar pago</button></div>
       </div>
+      <!-- La FECHA y el MES son dos cosas distintas: la fecha es cuándo entró la plata, el mes es
+           a qué cierre pertenece. Un pago del 2 de septiembre puede ser del cierre de agosto, y
+           antes para lograr eso había que mentir la fecha. -->
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:0 0 auto"><label>Fecha del pago</label>
+          <input id="mp-fecha" type="date" value="${hoyISO()}" onchange="mpFecha()"></div>
+        <div style="flex:0 0 auto"><label>Entra en el cierre de</label>
+          <input id="mp-mes" type="month" value="${hoyISO().slice(0,7)}" onchange="_mpMesTocado=true"></div>
+        <div class="muted" style="flex:1;font-size:12.5px;padding-bottom:9px">
+          El mes arranca en el de la fecha. Cambialo si ese pago corresponde a otro cierre.</div>
+      </div>
+      <!-- El comprobante: acá no había forma de adjuntarlo, así que un pago cargado a mano quedaba
+           sin respaldo. Es opcional —un pago en efectivo no tiene— pero se pide. -->
+      <div class="row" style="margin-top:8px;align-items:center">
+        <div style="flex:0 0 auto"><label>Comprobante <span class="muted">(opcional)</span></label>
+          <input id="mp-arch" type="file" accept="image/*,application/pdf" onchange="mpArchivo(this)"></div>
+        <div id="mp-arch-info" class="muted" style="flex:1;font-size:12.5px">
+          Queda guardado como respaldo, junto a los que suben los clientes.</div>
+      </div>
+      <!-- 📣 SALE PARA AFUERA: se pregunta siempre. Muchos de estos pagos ya se avisaron por otro
+           lado, y cargar comprobantes viejos dispararía avisos de cosas de hace un mes. -->
+      <!-- text-transform:none: el CSS de la pantalla pone los <label> en mayúsculas, y acá el
+           label es una frase, no el nombre de un campo. -->
+      <label class="row" style="margin-top:8px;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="mp-avisar" style="width:auto;margin:0">
+        <span style="font-size:13.5px;color:var(--text)">📣 <b>Avisar al grupo</b>
+          <span class="muted">— manda el comprobante al grupo de cobranzas y al del cliente.
+          Si ya lo avisaste por otro lado, dejalo sin marcar.</span></span>
+      </label>
     </div>
 
     <div class="card">
@@ -4769,13 +4803,51 @@ MOV.cuenta = async () => {
     </div>`;
   refrescarPendientes();
 };
+/* El archivo se lee acá y viaja en base64, igual que el comprobante que sube el cliente: es el
+   mismo campo de la misma tabla, así que después se ve en el mismo lugar. */
+let _mpArchivo = null;
+/* El mes sigue a la fecha mientras nadie lo toque a mano. Si se tocó, se respeta: quien lo cambió
+   sabe algo que el calendario no. */
+let _mpMesTocado = false;
+function mpFecha(){
+  const f = val('mp-fecha'), m = document.getElementById('mp-mes');
+  if(m && f && !_mpMesTocado) m.value = f.slice(0,7);
+}
+function mpArchivo(input){
+  const f = input.files && input.files[0];
+  const info = document.getElementById('mp-arch-info');
+  if(!f){ _mpArchivo = null; if(info) info.textContent = 'Si lo adjuntás, va con la foto al grupo de cobranzas.'; return; }
+  const MAX = 6 * 1024 * 1024;
+  if(f.size > MAX){ input.value=''; _mpArchivo=null;
+    if(info) info.innerHTML = '<span style="color:var(--red)">Pesa '+(f.size/1048576).toFixed(1)+' MB y el máximo son 6 MB</span>';
+    return; }
+  const r = new FileReader();
+  r.onload = () => { _mpArchivo = { nombre: f.name, tipo: f.type, base64: String(r.result) };
+    if(info) info.innerHTML = '📎 <b>'+esc(f.name)+'</b> · '+(f.size/1024).toFixed(0)+' KB — va adjunto al aviso.'; };
+  r.readAsDataURL(f);
+}
 async function regPago(){
   // El desplegable arranca vacío a propósito; sin esta guarda el POST salía con cliente_id='' y el
   // servidor contestaba un error críptico en vez de decir qué falta.
   const cli=val('mp-cli'); if(!cli) return toast('Elegí a qué cliente es el pago');
   const monto=val('mp-monto'); if(!monto || Number(monto)<=0) return toast('Poné el monto en USDT');
-  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({cliente_id:cli,monto_usdt:monto,medio:val('mp-medio')})});
-  if(r.ok) toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT');
+  const avisar = !!(document.getElementById('mp-avisar')||{}).checked;
+  // SALE PARA AFUERA: se pregunta, siempre, y se dice a dónde.
+  if(avisar && !confirm('¿Mandar este comprobante a los grupos de Telegram?\n\nVa al grupo de cobranzas (con la foto) y al grupo del cliente.')) return;
+  const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({
+    cliente_id:cli, monto_usdt:monto, medio:val('mp-medio'), archivo:_mpArchivo,
+    fecha:val('mp-fecha')||undefined, mes_cierre:val('mp-mes')||undefined, avisar })});
+  if(r.ok){
+    _mpArchivo = null;
+    // A dónde salió el aviso, dicho acá: si el bot no está en un grupo hay que enterarse ahora,
+    // no cuando alguien pregunte por qué no le llegó.
+    const a = r.aviso;
+    const cola = !r.avisado ? ' · sin avisar (así lo pediste)'
+      : (!a ? '' : (a.ok ? ' · avisado a cobranzas y al cliente' : ' · ⚠ el aviso NO salió: '+(a.error||'')));
+    toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT'+cola);
+    // Si el respaldo no se pudo guardar hay que enterarse: el pago está, el comprobante no.
+    if(r.comprobante && r.comprobante.ok === false) toast('⚠ el pago quedó registrado pero SIN comprobante: '+(r.comprobante.error||''), true);
+  }
   _movSub='cuenta'; VIEWS.movimientos();
 }
 

@@ -1978,19 +1978,68 @@ function mount(app) {
   //
   // Lo que sí queda es el LIBRO (la lista de movimientos) y el registro de PAGOS.
 
-  // PAGO: registra el pago en USDT, recalcula saldo, avisa
+  /**
+   * PAGO A MANO: para lo que no entra por un comprobante del cliente.
+   *
+   * 🔴 ANTES ERA UN CAMINO APARTE, Y SE NOTABA. No había forma de adjuntar el comprobante —un pago
+   * cargado a mano quedaba sin respaldo— y el aviso salía SÓLO al grupo del cliente: el de
+   * cobranzas, que es el que controla, no se enteraba. Aprobar un comprobante avisa a los dos y
+   * manda la foto; registrarlo a mano no. La misma plata entrando por dos puertas distintas.
+   *
+   * Ahora es la misma puerta: se crea un comprobante YA APROBADO, con su archivo, apuntando al
+   * movimiento. Con eso hereda todo — la foto al grupo de cobranzas, el aviso al cliente, y
+   * aparece en «Comprobantes resueltos» junto a los demás, donde antes no figuraba en ningún lado.
+   */
   app.post('/api/os/movimientos/pago', wrap(async (req, res) => {
-    const { cliente_id, monto_usdt, fecha, notas, medio } = req.body || {};
+    const { cliente_id, monto_usdt, fecha, notas, medio, archivo, mes_cierre } = req.body || {};
+    /* ⚠️ EL AVISO NO SALE SOLO. Muchos de estos pagos ya se avisaron por otro lado —el cliente
+       mandó la captura al grupo— y volver a mandarlos sería ruido; y cargar comprobantes viejos
+       dispararía avisos de cosas que pasaron hace un mes. Se manda sólo si quien lo carga lo pide:
+       una decisión por pago, no un comportamiento por defecto. */
+    const avisar = (req.body || {}).avisar === true;
     const cli = clientes.get(cliente_id); if (!cli) return err(res, 404, 'cliente no encontrado');
     if (!money.isPos(monto_usdt)) return err(res, 400, 'monto inválido');
     const antes = deudaSvc.cuentaCorriente(cliente_id).total;
     // `medio` = por dónde entró la plata (CVU, USDT, efectivo…). Sin esto, al mes siguiente no
     // se puede reconstruir de dónde vino cada pago, que es lo primero que se pregunta cuando
     // un cliente reclama.
-    const movimiento = movs.create({ cliente_id, tipo: 'pago', monto_usdt, fecha, notas, medio });
+    const movimiento = movs.create({ cliente_id, tipo: 'pago', monto_usdt, fecha, notas, medio, mes_cierre });
     const despues = deudaSvc.cuentaCorriente(cliente_id);
-    const aviso = await notify.avisarPago(cli, { nombre: cli.nombre || cli.codigo, pago: monto_usdt, deudaAnterior: antes, saldo: despues.total });
-    ok(res, { movimiento, deuda: despues, aviso });
+
+    /* La vía decide a QUÉ grupo de cobranzas va (hay uno de pesos y otro de USDT). Efectivo y
+       "otro" van al de pesos, que es donde se concilia lo que no es cripto. */
+    const via = String(medio || '').toLowerCase() === 'usdt' ? 'usdt' : 'ars';
+    let comprobante = null; let avisoCobranzas = null;
+    try {
+      const c = comprobantes.crear({
+        codigo: cli.codigo, clienteNombre: cli.nombreVisible || cli.nombre,
+        via, monto: String(monto_usdt), divisa: 'USDT',
+        notas: 'cargado a mano desde el panel' + (notas ? ' · ' + notas : ''),
+        archivo: archivo || null,
+      });
+      if (c.ok) {
+        comprobante = comprobantes.resolver(c.comprobante.id, {
+          estado: 'aprobado', por: 'panel',
+          motivo: 'pago registrado a mano', movimiento_id: movimiento.id,
+        });
+        // El MISMO aviso que al aprobar un comprobante —foto al grupo de cobranzas + el cliente—
+        // pero SÓLO si se pidió. El comprobante queda guardado igual, así que se puede avisar
+        // después desde «Comprobantes resueltos» sin volver a cargar nada.
+        const fn = req.app.get('avisarComprobante');
+        if (avisar && typeof fn === 'function') {
+          avisoCobranzas = await Promise.resolve(
+            fn(comprobantes.get(c.comprobante.id), cli, String(monto_usdt), 'USDT'),
+          ).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
+        }
+      } else comprobante = { ok: false, error: c.error };
+    } catch (e) {
+      // Que el respaldo o el aviso fallen no puede tumbar un pago YA registrado: baja la deuda
+      // igual y se dice qué no salió.
+      comprobante = { ok: false, error: String((e && e.message) || e) };
+    }
+    /* Un solo `aviso`: `avisarComprobante` manda los DOS —cobranzas con la foto y el cliente— y
+       devuelve el de cobranzas, que es el que puede fallar por falta de grupo configurado. */
+    ok(res, { movimiento, deuda: despues, comprobante, aviso: avisoCobranzas, avisado: avisar });
   }));
 
   // ───────── HISTORIAL / AUDITORÍA ─────────

@@ -34,8 +34,8 @@ function create(d) {
   // MAX+1, no COUNT: con un borrado de por medio el COUNT repite el mismo `ord`.
   const ord = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM movimientos').get().n;
   db.prepare(`INSERT INTO movimientos
-    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo)
-    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo)`).run({
+    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo,mes_cierre)
+    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo,@mescierre)`).run({
     id, cli: d.cliente_id || null, pan: d.panel_id || null, prov: d.proveedor_id || null, ped: d.pedido_id || null,
     tipo: d.tipo, mars: S(d.monto_ars), musdt: S(d.monto_usdt), tc: S(d.tc_momento), base: S(d.base_pct_aplicado),
     div: d.divisa || 'ARS', fecha: d.fecha || nowISO(), uid: d.usuario_id || null, notas: d.notas || '', ca: nowISO(), ord,
@@ -43,6 +43,8 @@ function create(d) {
     // Solo lo pone emision.service: desde la ruta de alta manual llega siempre vacío.
     origen: d.origen || null, oref: d.origen_ref || null,
     medio: d.medio || null,   // por dónde entró el pago: cvu | usdt | efectivo | …
+    // A qué mes entra. Vacío = el de la fecha; se guarda sólo cuando alguien decidió otra cosa.
+    mescierre: d.mes_cierre ? String(d.mes_cierre).slice(0, 7) : null,
     // 'mes' = la cara que falta se deriva del TC del mes al leer, no se congela acá.
     tcmodo: d.tc_modo === 'mes' ? 'mes' : null,
   });
@@ -79,4 +81,11 @@ function list(filters = {}) {
 
 function remove(id) { return db.prepare('DELETE FROM movimientos WHERE id=?').run(id).changes > 0; }
 
-module.exports = { TIPOS, create, get, getCrudo, list, remove };
+/* A QUÉ MES pertenece un movimiento. Vive acá y no en cada pantalla: si la cuenta corriente lo
+   decidiera distinto que la factura, el mismo pago aparecería en dos meses según dónde se mire. */
+function mesDe(mv) {
+  if (mv && mv.mes_cierre) return String(mv.mes_cierre).slice(0, 7);
+  return String((mv && (mv.fecha || mv.createdAt)) || '').slice(0, 7);
+}
+
+module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe };

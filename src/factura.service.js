@@ -287,7 +287,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
     saldoDesglose: (() => {
       const porMes = {};
       for (const mv of movs.list({ cliente_id: cli.id })) {
-        const k = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+        const k = movs.mesDe(mv);          // el mes de cierre si lo tiene; si no, el de la fecha
         if (!/^\d{4}-\d{2}$/.test(k)) continue;
         const a = porMes[k] = porMes[k] || { mes: k, consumo: '0', externos: '0', pagos: '0', otros: '0' };
         const u = mv.monto_usdt || '0';
@@ -315,7 +315,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
       const hasta = m + '-99';                        // cualquier día de m entra; los de m+1 no
       let t = '0';
       for (const mv of movs.list({ cliente_id: cli.id })) {
-        const k = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+        const k = movs.mesDe(mv);
         if (!/^\d{4}-\d{2}$/.test(k) || k + '-99' > hasta) continue;
         const u = mv.monto_usdt || '0';
         if (mv.tipo === 'pago' || mv.tipo === 'bonificacion') t = money.sub(t, u);
