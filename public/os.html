@@ -3837,7 +3837,10 @@ function repPintar(){
     + '<div class="muted" style="font-size:12.5px;margin-top:6px">sale de: <b>' + esc(c.fuente||'—') + '</b>'
     +   (c.confirmada?' · ya confirmado':'') + '</div>'
     + '<div style="display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:22px">'
-    +   (sug==null?'':'<button class="repbig" onclick="repConfirmar(' + JSON.stringify(String(sug)) + ')">✓ Sigue en ' + esc(sug) + ' %</button>')
+    /* Comillas SIMPLES adentro del atributo. Con JSON.stringify salían dobles —onclick="repConfirmar("14")"—
+       y el navegador cortaba el atributo en la primera: el botón no hacía nada. Y esc() sobre el
+       valor, que además de escapar deja el número intacto. */
+    +   (sug==null?'':'<button class="repbig" onclick="repConfirmar(\'' + esc(String(sug)) + '\')">✓ Sigue en ' + esc(sug) + ' %</button>')
     +   '<span class="muted">o poné otro:</span>'
     +   '<input class="repotro" id="rep-otro" type="number" step="0.01" min="0" max="100" placeholder="' + (sug==null?'%':esc(sug)) + '"'
     +     ' onkeydown="if(event.key===&quot;Enter&quot;)repConfirmar(this.value)">'

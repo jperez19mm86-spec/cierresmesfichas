@@ -6110,6 +6110,27 @@ async function main() {
       [...em.NIVELES, 'nodo'].includes('nodo'));
   }
 
+  /* ── UN onclick ARMADO CON COMILLAS DOBLES NO EXISTE ─────────────────────────────────────────
+     El botón del repaso se armaba con JSON.stringify, que devuelve comillas DOBLES, dentro de un
+     atributo delimitado por comillas dobles: quedaba onclick="repConfirmar("14")" y el navegador
+     cortaba el atributo en la primera. El botón se veía perfecto y no hacía absolutamente nada.
+
+     No lo agarró ninguna prueba porque yo llamaba a la función desde la consola en vez de HACER
+     CLIC — y llamar a la función salta justamente la parte que estaba rota. */
+  {
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    // Un atributo de evento con comillas dobles adentro: eso no llega vivo al navegador.
+    const rotos = [...h.matchAll(/\son(?:click|change|input|keydown)="([^"]*)"/g)]
+      .filter((m) => /JSON\.stringify/.test(m[1]))
+      .map((m) => m[1].slice(0, 60));
+    check('onclick: ninguno se arma con JSON.stringify (mete comillas dobles y corta el atributo)',
+      rotos.length === 0, rotos.join(' | ') || 'ninguno');
+    // Y el del repaso, que es el que se rompió, con comillas simples.
+    check('repaso: el botón de confirmar usa comillas simples',
+      /onclick="repConfirmar\(\\'/.test(h) || /repConfirmar\(\\'' \+ esc/.test(h),
+      'onclick="repConfirmar(\'14\')" — no con dobles');
+  }
+
   /* ── EL RECORTE DE 1000 FILAS ────────────────────────────────────────────────────────────────
      El motor del casino entrega de a 1000 y devolvía sólo la primera página: 1000 de 1949 y el
      total parecía bueno. Se arregló paginando por offset DENTRO de `_runReport`, que es por donde
