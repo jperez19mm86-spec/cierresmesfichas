@@ -336,6 +336,25 @@ const facturaSvc = require('../src/factura.service');
 
   bd.prepare("UPDATE paneles SET consumo_a=NULL WHERE id IN ('p_lucia','p_sa_alexa')").run();
 
+  // ── 4c-bis) UN PASE QUE BAJA POR EL ÁRBOL ─────────────────────────────────────────────────
+  // Si el panel de destino cuelga hondo, la cascada le baja las fichas desde su PADRE: la entrada
+  // llega como interna (`from` = el padre) y no como venta. Buscar el pase sólo entre las ventas
+  // dejaba justo esos afuera — le pasó a las dos de Lucia, 1.779,49 USDT.
+  db.prepare(`INSERT INTO movimiento_panel (id,cliente_id,origen_panel_id,destino_panel_id,divisa,monto,estado,creado_at,hecho_at)
+              VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run('mp_2', LUCIA.id, 'p_celu', 'p_lucia', 'ARS', '2500000', 'hecho',
+      '2026-08-14T09:59:00.000Z', '2026-08-14T10:00:00.000Z');
+  MOVS['222|ARS'].push({ id: '20', from: 'IgLatamAlexa', operation: 'in', currency: 'ARS', cash: '2500000.00', datetime: '2026-08-14 09:59:59', initiator: 'x' });
+  const mesP = await crucePanel2.cruzarMes('2026-08');
+  const luciP = mesP.paneles.find((p) => p.panel === '21luciadm');
+  const dBaja = (luciP.diferencias || []).find((d) => d.tipo === 'pase_entre_paneles');
+  ok(!!dBaja, 'un pase que baja por el árbol se reconoce como pase, no como plata sin cobrar');
+  ok(dBaja && /bajó por IgLatamAlexa/.test(dBaja.motivo), `y dice por dónde bajó: ${dBaja && dBaja.motivo.slice(-40)}`);
+  ok(!(luciP.diferencias || []).some((d) => d.tipo === 'entro_sin_pedido' && Math.abs(d.venta.monto - 2500000) < 1),
+    'y no queda además como entrada sin pedido');
+  MOVS['222|ARS'].pop();
+  db.prepare("DELETE FROM movimiento_panel WHERE id='mp_2'").run();
+
   // ── 4d-bis) LA VENTANA PREVIA NO ENSUCIA EL MES ───────────────────────────────────────────
   // El historial se pide desde una semana antes para encontrar el retiro de un pase que cruza el
   // borde del mes. Pero si esas filas se cuentan como ventas del mes, cada venta de fin del mes

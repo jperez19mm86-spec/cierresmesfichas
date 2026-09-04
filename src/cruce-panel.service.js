@@ -326,6 +326,22 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
     // mezclarla con las otras.
     entradas.forEach((o, i) => {
       if (usadasE.has(i)) return;
+      /* 🔴 Un PASE cuyo destino cuelga hondo en el árbol no llega como venta: la cascada del OS le
+         baja las fichas desde su nodo PADRE, así que `from` trae el padre y no el origen del pase.
+         Buscarlo sólo entre las ventas dejaba afuera justo esos. Verificado: el pase
+         `CM-21L → RM21Luciadm` de 2.000.000 quedó hecho a las 03:47:10 del 13-ago y la entrada en
+         RM21Luciadm figura a las 03:47:09 con `from: RMIglatamAlexa`, que es su padre. */
+      const pase = pases.find((x) => String(x.destino_panel_id) === String(pan.id)
+        && String(x.divisa || '').toUpperCase() === o.divisa
+        && Math.abs(Number(x.monto) - o.monto) < 0.01
+        && (!o.fecha || Math.abs(Date.parse(`${o.fecha.replace(' ', 'T')}Z`) - x.at) <= TOLERANCIA_MS));
+      if (pase) {
+        const desde = paneles.list().find((q) => String(q.id) === String(pase.origen_panel_id));
+        diferencias.push({ tipo: 'pase_entre_paneles', venta: o, paseId: pase.id,
+          motivo: `es el pase que se hizo desde ${desde ? desde.nombre : 'otro panel suyo'} y bajó por `
+            + `${o.desde} — fichas que el cliente ya había comprado, no una entrega nueva` });
+        return;
+      }
       const org = _clasificarOrigen(o.desde, porLogin);
       // Si bajó de un nodo del MISMO cliente es su propia redistribución: ya se cobró arriba.
       if (org.tipo === 'cliente' && org.panel && org.panel.cliente_id === pan.cliente_id) return;
