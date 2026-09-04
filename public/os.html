@@ -6339,8 +6339,8 @@ VIEWS.facturacion = async () => {
       <h2>🧾 Factura de consumo <span class="muted">(se cobra por los PEDIDOS)</span></h2>
       ${bannerMes(mes, 'facIrA')}
       ${ayuda('fac',
-        'Lo que se cobra sale de los <b>pedidos</b>: <b>fee = % base × vendido</b>. El <b>casino va al lado como control</b>, con la diferencia en %.',
-        'Ese control sale del <b>acumulado guardado</b> —el cron lo baja todas las noches—, así que es instantáneo. Antes se le preguntaba al casino en cada pantallazo y tardaba más de un minuto para llegar al mismo número, y un mes cerrado ya no cambia.')}
+        'Lo que se cobra sale de los <b>pedidos</b>: <b>fee = % base × vendido</b>. Para saber si eso coincide con lo que registran los paneles, está <b>🔍 Contrastar contra los paneles</b>, adentro de la factura de cada cliente.',
+        'Acá al lado había un "control" que comparaba lo vendido contra el <b>movimiento de juego</b> del casino, y salía un porcentaje de diferencia. Eran dos cosas distintas: el movimiento es la plata que entra a las máquinas, y las mismas fichas se juegan muchas veces — Marcelo daba −50,7% sin que faltara un peso. Se sacó. El contraste de verdad mira el <b>historial de balance</b> de cada panel, fila por fila, y dice qué carga cruza y cuál no.')}
       <div class="row" style="align-items:flex-end">
         <div><label>Mes</label><input type="month" id="fac-mes" value="${mes}" onchange="_facMes=this.value"></div>
         <div><label>Desde (opcional)</label><input type="date" id="fac-from"></div>
@@ -6447,7 +6447,7 @@ async function calcularFac(vivo){
 
 
           +'<td>'+(chips||'<span class="muted">—</span>')+'</td>'+'<td class="right"><button class="outline small" onclick="verFactura(\''+c.cliente_id+'\')">📄</button></td></tr>';
-      }).join('')||'<tr><td colspan="8" class="empty">Sin pedidos cargados ni movimiento en el casino este mes.</td></tr>')
+      }).join('')||'<tr><td colspan="7" class="empty">Sin pedidos cargados ni movimiento en el casino este mes.</td></tr>')
     + '</tbody></table>'
     + ((r.errores&&r.errores.length)?('<div class="muted" style="color:var(--gold);margin-top:6px">⚠ el control del casino falló: '+r.errores.map(esc).join('<br>')+'<br>La facturación igual salió, porque sale de los pedidos.</div>'):'');
 }
