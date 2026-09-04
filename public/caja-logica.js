@@ -109,6 +109,27 @@ function desplazarHastaElegido(boton, tira) {
   return Math.max(0, Math.min(Math.round(centrado), tope));
 }
 
+/* ── LA MATRIZ DE UNA RONDA ──────────────────────────────────────────────────────────────────────
+   🔴 `elements` VIENE [COLUMNA, FILA] Y EMPIEZA EN 1. No está documentado en ningún lado: se
+   comprobó contra la grilla el 4-sep-2026. La línea ganadora decía símbolo 6, 7 celdas, y las
+   siete posiciones —(5,4) (5,5) (6,5) (7,5) (7,4) (6,6) (5,6)— caen exactamente sobre un 6 leyendo
+   [columna, fila] con base 1. Leído al revés, o con base 0, marcaría celdas equivocadas y la
+   pantalla mostraría un premio pintado donde no está. */
+function celdasGanadoras(lineas) {
+  const marcadas = new Set();
+  for (const l of lineas || []) {
+    for (const e of (l && l.elements) || []) {
+      if (Array.isArray(e) && e.length >= 2) marcadas.add(`${e[0]}:${e[1]}`);
+    }
+  }
+  return marcadas;
+}
+
+/* `fila` y `columna` en base 0, que es como se recorre la grilla al dibujarla. */
+function esCeldaGanadora(marcadas, fila, columna) {
+  return !!marcadas && marcadas.has(`${columna + 1}:${fila + 1}`);
+}
+
 /* ── EL MENÚ DE CADA NIVEL ──────────────────────────────────────────────────────────────────────
    🔴 NO SALE DEL MOTOR, Y NO PUEDE. `area=buttons` miente para los dos lados, medido el
    1-sep-2026: al cajero no le nombra el Resumen y el Resumen le funciona; al sub-agente sí le
@@ -172,7 +193,7 @@ function seccionNegadaPor(ruta, error) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango, eliminadasDeLaLista,
-    desplazarHastaElegido,
+    desplazarHastaElegido, celdasGanadoras, esCeldaGanadora,
     MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }

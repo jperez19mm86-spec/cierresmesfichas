@@ -181,6 +181,59 @@ function mount(app) {
     });
   }));
 
+  /* ══════ la matriz de una ronda ══════
+     🔴 EL MOTOR SÍ LA DA, Y YO DIJE QUE NO. El 4-sep-2026 contesté que no se podía porque la lista
+     de sesiones trae 21 campos y ninguno es la grilla. Era cierto de ESA llamada, y yo nunca probé
+     la de adentro. El dueño abrió el panel del casino y ahí estaba, un `[LOG]` por ronda.
+
+     🔑 Es la MISMA área `history`, con un parámetro más: `session`. Y va el campo `id` de la
+        sesión, NO el campo `session` —que es un hash y devuelve la respuesta vacía—. Con el `id`
+        vuelve `history` con una fila por ronda y, en cada una, `matrix` y `winLines`.
+
+     `winLines` llega como TEXTO con JSON adentro; se parsea acá para que la pantalla no tenga que
+     saberlo. Trae lo único que importa para entender un pago: qué símbolo, cuántos, en qué celdas
+     y cuánto pagó. */
+
+  app.get('/api/caja/ronda', auth.requerida, wrap(async (req, res) => {
+    const q = req.query;
+    if (!q.jugador) return mal(res, 'falta el jugador');
+    if (!q.sesion) return mal(res, 'falta la sesión');
+    const cli = auth.clienteDe(req.caja);
+    const r = rango(q);
+    const d = await cli.apiCall('history', {}, {
+      id: String(q.jugador), session: String(q.sesion),
+      from: r.from, to: r.to,
+      limit: String(limiteValido(q.limite || 200)), offset: String(q.pagina || 1),
+    });
+    if (!esJson(d)) return delMotor(res, d);
+    /* Sin `session` válido el motor contesta sin `history`: no es un error, es «no hay detalle». */
+    if (!d.data.history) return ok(res, { rondas: [], sinDetalle: true });
+
+    const comoJson = (t) => {
+      if (t == null || t === '') return null;
+      if (typeof t === 'object') return t;
+      try { return JSON.parse(t); } catch (e) { return null; }
+    };
+    ok(res, {
+      rondas: (d.data.history || []).map((f) => ({
+        id: String(f.id), estado: f.status, cuando: f.dateTime,
+        antes: f.before, apostó: f.bet, ganó: f.win,
+        juego: f.gameName, proveedor: f.gameProvider,
+        /* 🔴 NO TODAS LAS RONDAS SE VEN IGUAL. Señalado por el dueño el 4-sep-2026: «no siempre
+           se ve igual, no todos llevan imágenes». El motor declara una `class` por proveedor
+           —`slot` es la que medimos— y hay rondas sin grilla ninguna (una apuesta sin premio, o
+           un juego que no la manda). Se pasa la grilla SI VIENE y se pasa la forma que el motor
+           declaró, para que la pantalla dibuje lo que hay en vez de suponer. */
+        matriz: (f.matrix && Array.isArray(f.matrix.matrix) && f.matrix.matrix.length)
+          ? f.matrix.matrix : null,
+        forma: (f.matrix && f.matrix.class) || null,
+        lineas: comoJson(f.winLines) || [],
+        info: comoJson(f.info),
+      })),
+      paginas: d.data.pageCount || 1,
+    });
+  }));
+
   /* ══════ el tablero ══════ */
 
   app.get('/api/caja/resumen', auth.requerida, wrap(async (req, res) => {

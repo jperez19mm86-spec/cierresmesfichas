@@ -801,6 +801,17 @@ button{font-family:inherit}
 .mov .qu span{font-size:11.5px; color:var(--mut)}
 .titulopant{margin:12px 0 2px; font-size:19px; font-weight:800; letter-spacing:-.01em}
 .bajotitulo{margin:0 0 12px; font-size:12px; color:var(--mut); line-height:1.45}
+/* La grilla: cuadrada, legible, y que entre en un teléfono sin desbordar. */
+.matriz-caja{margin-top:8px}
+.matriz{display:grid; gap:3px; margin-bottom:8px; max-width:290px}
+.matriz span{aspect-ratio:1; display:grid; place-items:center; border-radius:6px;
+  background:var(--bg3); color:var(--mut2); font-size:12px; font-weight:700}
+.matriz span.gana{background:var(--ok-soft); color:var(--ok); outline:1.5px solid var(--ok)}
+.linea-gana{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px;
+  padding:5px 0; color:var(--mut)}
+.linea-gana + .linea-gana{border-top:1px dashed var(--bor)}
+.linea-gana .num{margin-left:auto}
+
 .mov .qu .yano{display:inline-block; margin-top:3px; padding:1px 6px; border-radius:6px;
   font-size:10.5px; font-weight:700; color:var(--no); background:var(--no-soft)}
 .mov .mn{font-weight:700; text-align:right; flex:none}
@@ -3316,6 +3327,36 @@ function abrirHistoria(id){
     <div class="acciones"><button class="btn sec" onclick="abrirNodo('${id}')">Volver</button></div>`);
 }
 
+/* 🔴 LA MATRIZ, DIBUJADA CON LO QUE HAYA. Pedida el 4-sep-2026 —«la manera más óptima es revisar
+   con la MATRIX para entender el pago»— y el dueño avisó algo que cambia el diseño: «no siempre se
+   ve igual, no todos llevan imágenes». Así que esto NO supone una forma: dibuja la grilla si vino,
+   marca las celdas que pagaron, y si no vino grilla muestra lo que sí hay.
+   Las imágenes de los símbolos no se pueden usar: el motor manda un `imgUrl` y ninguna dirección
+   armada con él resuelve —seis variantes probadas, todas 404—. Se dibuja el número del símbolo,
+   que es lo que deja seguir la línea; inventar un dibujo sería peor que mostrar el dato. */
+function dibujarMatriz(j){
+  const lineas = j.lineas || [];
+  const marcadas = celdasGanadoras(lineas);
+  const resumen = lineas.map(l => `<div class="linea-gana">
+      <b>Símbolo ${l.symbol}</b> × ${l.count}${l.line != null ? ` · línea ${l.line}` : ''}${
+        Number(l.xWin) > 1 ? ` · ×${l.xWin}` : ''}
+      <b class="num t-ok">${fmt(Number(l.cash) || 0)}</b></div>`).join('');
+  if (!j.matriz) {
+    return `<div class="matriz-caja">${resumen
+      || '<div class="piepie">El casino no mandó la grilla de esta ronda.</div>'}</div>`;
+  }
+  const ancho = Math.max(...j.matriz.map(f => f.length));
+  return `<div class="matriz-caja">
+    <div class="matriz" style="grid-template-columns:repeat(${ancho}, minmax(0, 1fr))">
+      ${j.matriz.map((fila, f) => fila.map((simbolo, c) =>
+        `<span class="${esCeldaGanadora(marcadas, f, c) ? 'gana' : ''}">${simbolo}</span>`
+      ).join('')).join('')}
+    </div>
+    ${resumen}
+    <div class="piepie">Cada número es un símbolo del juego; en verde, las posiciones que pagaron.</div>
+  </div>`;
+}
+
 /* Nivel 2: las jugadas de una sesión. */
 function abrirSesion(jugadorId, sesionId){
   const s = (SESIONES[jugadorId] || []).find(x => x.session === sesionId);
@@ -3352,19 +3393,19 @@ function abrirSesion(jugadorId, sesionId){
           x.win ? ` · ganó <span class="num t-ok">${fmt(x.win)}</span>` : ' · sin premio'}</b></span>
       <span class="mn num ${neto >= 0 ? 'mas' : 'menos'}">${neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
       <span class="antes">saldo antes <b>${fmt(x.before)}</b> · el neto de la jugada es lo que
-        muestra la fila</span>
+        muestra la fila${(x.matriz || (x.lineas && x.lineas.length)) ? dibujarMatriz(x) : ''}</span>
     </div>`; }).join('')}
     ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
       para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por
       <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
-    ${notaInfo('sinmatrix',
-      'El casino <b>no manda el detalle de cada tirada</b>, así que acá no se puede mostrar.',
-      'Pedido el 4-sep-2026: revisar con la <b>matrix</b> para entender cómo se pagó un premio. Se '
-      + 'revisó lo que llega: el motor manda <b>21 datos por jugada</b> —apostado, ganado, saldo '
-      + 'antes, juego, proveedor, horarios— y <b>ninguno</b> es la grilla, las líneas ganadoras ni '
-      + 'un enlace al log. Con eso no se puede armar una matrix, y dibujarla con lo que hay sería '
-      + 'inventarla. Mientras tanto se mira desde el panel del casino. Si el casino abre esa '
-      + 'dirección, se enchufa acá y esta pantalla la muestra.')}
+    ${notaInfo('matriz',
+      'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
+      'El 4-sep-2026 dije que el casino no la daba. Estaba equivocado: la lista de sesiones no la '
+      + 'trae, pero la consulta de UNA sesión sí — es la misma dirección con un parámetro más. '
+      + 'El dueño lo mostró abriendo el <b>[LOG]</b> del panel del casino, y de ahí salió. '
+      + '<b>No todas se ven igual</b>: hay proveedores que no mandan grilla, y entonces se muestra '
+      + 'lo que sí llega. Los dibujitos de los símbolos el motor no los sirve, así que va el número '
+      + 'de cada símbolo.')}
     <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
     <span class="mono">round_id</span>. Lo que llega es siempre lo mismo: los importes y los
     horarios de la ronda, nunca su desarrollo.</div>

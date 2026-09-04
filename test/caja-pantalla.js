@@ -381,9 +381,20 @@ check('y le habla distinto a un cajero que a un jugador',
 /* 🔴 LA MATRIX NO LLEGA. El comentario decía que «algunos proveedores traen la grilla del slot y
    las líneas ganadoras» — y nada en el código leía jamás un campo así. Medido: el motor manda 21
    campos por jugada y ninguno es la grilla, las líneas ni un enlace al log. */
-check('la pantalla no promete un detalle de tirada que el casino no manda',
+/* 🔴 ME EQUIVOQUÉ Y HAY QUE DEJARLO FIJADO. El 4-sep dije que el casino no daba la matriz: la
+   lista de sesiones no la trae, pero la consulta de UNA sesión sí — misma área, un parámetro más.
+   El dueño lo mostró abriendo el [LOG] del panel. */
+check('la pantalla ya no dice que el casino no manda el detalle',
   !/algunos traen la grilla del/.test(htmlCaja)
-  && /no manda el detalle de cada tirada/.test(htmlCaja));
+  && !/no manda el detalle de cada tirada/.test(htmlCaja));
+check('y ahora ofrece ver la matriz de cada jugada',
+  /Tocá una jugada para ver <b>su matriz<\/b>/.test(htmlCaja)
+  && /function dibujarMatriz\(j\)\{/.test(htmlCaja));
+check('el detalle se pide con el id del motor, no con el hash de la sesión',
+  /sesion: String\(ses\.idMotor\)/.test(conector) && /idMotor: String\(f\.id \|\| ''\)/.test(conector));
+check('y se pide UNA vez por sesión, sólo al abrirla',
+  /const clave = `ronda:\$\{sesionId\}`/.test(conector)
+  && /cache\.has\(clave\)\) return abrirSesionOriginal/.test(conector));
 
 /* ── 8 · las credenciales de un jugador ─────────────────────────────────────────────────────────
    🔴 OFRECÍA UN LINK QUE NO EXISTE, Y EL TELÉFONO SE QUEJABA. Reportado el 4-sep-2026: la tarjeta

@@ -1480,6 +1480,9 @@
       if (!grupos[s]) {
         grupos[s] = {
           session: s, game: f.game || '—',
+          /* El id que quiere el motor para pedir el detalle. Se guarda ahora porque después no se
+             puede deducir: `session` es un hash y no sirve para esa consulta. */
+          idMotor: String(f.id || ''),
           providertitle: f.provider || '', labeltitle: f.label || '',
           bet: 0, win: 0, profit: 0,
           balance_before: plata(f.balance_before),
@@ -1519,6 +1522,41 @@
     SESIONES[id] = orden.map((s) => grupos[s]);
   }
 
+
+  /* ══════ 3.undecies bis · LA MATRIZ DE CADA RONDA ══════
+     🔴 LA LISTA DE SESIONES NO LA TRAE; LA CONSULTA DE UNA SESIÓN SÍ. Es la misma área `history`
+     con `session=<id de la sesión>`. Cuesta UNA llamada, y sólo cuando alguien abre una sesión —
+     que es un gesto deliberado, no algo que pase al pasar. Por eso no se pide antes, y se guarda:
+     volver a entrar a la misma sesión no vuelve a preguntar. */
+
+  const abrirSesionOriginal = window.abrirSesion;
+  window.abrirSesion = function abrirSesionDeVerdad(jugadorId, sesionId) {
+    if (!window.__caja_sesion) return abrirSesionOriginal.apply(this, arguments);
+    const ses = (SESIONES[jugadorId] || []).find((x) => String(x.session) === String(sesionId));
+    const clave = `ronda:${sesionId}`;
+    /* 🔑 El motor quiere el `id` de la sesión, NO el hash `session`: con el hash contesta sin
+       `history` y no hay detalle. */
+    if (!ses || !ses.idMotor || cache.has(clave)) return abrirSesionOriginal.apply(this, arguments);
+
+    abrirSesionOriginal.apply(this, arguments);
+    pedirUnaVez(clave, () => API.pedir('ronda', {
+      jugador: String(jugadorId), sesion: String(ses.idMotor),
+      desde: (ses.datetime_open || '').slice(0, 10),
+      hasta: (ses.datetime_last || ses.datetime_open || '').slice(0, 10),
+      limite: 200,
+    }), (d) => {
+      cache.set(clave, d);
+      if (d && d.ok && (d.rondas || []).length) {
+        JUGADAS[sesionId] = d.rondas.map((r) => ({
+          round_id: String(r.id), dateTime: r.cuando,
+          before: plata(r.antes), bet: plata(r.apostó), win: plata(r.ganó),
+          status: Number(r.estado) || 0,
+          matriz: r.matriz, lineas: r.lineas || [], forma: r.forma,
+        }));
+        abrirSesionOriginal.call(window, jugadorId, sesionId);
+      }
+    });
+  };
 
   /* ══════ 3.duodecies · LAS CUENTAS ELIMINADAS ══════
      El aviso de «hay borrados con fichas adentro» era de ejemplo. Importa que sea real: borrar NO
