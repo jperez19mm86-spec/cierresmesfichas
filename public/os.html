@@ -494,6 +494,15 @@ const ES_TBS = location.pathname.replace(/\/+$/,'') === '/tbs';
 const ES_CHAT = location.pathname.replace(/\/+$/,'') === '/chat-externo';
 const TABS = ES_CHAT ? TABS_CHAT : (ES_TBS ? TABS_TBS : TABS_COMERCIAL);
 let _tab = ES_CHAT ? 'chatcuentas' : (ES_TBS ? 'tbsmatriz' : 'clientes');
+/* ── LA BARRA DE DOS FILAS ES SOLO DEL PANEL ─────────────────────────────────────────────────
+   Los grupos (Pendientes · Cuentas · Reportes · Clientes · Ajustes) son las pantallas de /os.
+   TBS y Chat tienen su propia lista y su barra simple de siempre.
+
+   Preguntar «¿hay grupos?» mirando GRUPOS no distingue nada: GRUPOS existe igual en los tres
+   espacios porque es una constante del archivo. Por eso /chat-externo y /tbs terminaron
+   dibujando la barra del Panel encima de la suya, y desde el Chat se llegaba a la factura de
+   FICHAS. La pregunta verdadera es en qué espacio estamos: eso es lo que decide TABS. */
+const USA_GRUPOS = !ES_CHAT && !ES_TBS;
 /* Qué tarjetas muestra cada pantalla del chat. Una sola fuente: cambiar el orden acá lo cambia en
    la pantalla, sin tocar el armado de las tarjetas. */
 const SUB_CHAT = {
@@ -679,7 +688,7 @@ function renderHeader(){
 /* A qué grupo pertenece cada pantalla. Se calcula del propio mapa: agregar una entrada arriba
    alcanza para que la barra la resalte, sin una segunda lista que se desincronice. */
 function _grupoDe(vista){
-  if (!Array.isArray(GRUPOS) || !GRUPOS[0] || !GRUPOS[0].items) return null;
+  if (!USA_GRUPOS) return null;
   for (const g of GRUPOS) {
     if (g.id === vista) return g;
     if ((g.items||[]).some(([d]) => String(d).split(':')[0] === vista)) return g;
@@ -691,7 +700,8 @@ let _grupo = 'pendientes';
 function renderNav(){
   renderHeader();
   const nav = document.getElementById('nav');
-  if (!Array.isArray(GRUPOS) || !GRUPOS[0] || !GRUPOS[0].items) {   // TBS y Chat siguen con barra simple
+  if (!USA_GRUPOS) {                              // TBS y Chat siguen con barra simple
+    nav.className = 'nav';
     nav.innerHTML = TABS.map(t=>
       t==='|' ? '<span class="navsep"></span>'
               : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
@@ -712,7 +722,7 @@ function renderNav(){
 /* Cuando la barra de arriba ya muestra las subpantallas de una vista, esa vista NO dibuja la
    suya: si no, quedan dos filas de botones con las mismas opciones. TBS y Chat siguen con barra
    simple, así que ahí las vistas dibujan la propia como siempre. */
-const _subsArriba = () => Array.isArray(GRUPOS) && !!(GRUPOS[0] || {}).items;
+const _subsArriba = () => USA_GRUPOS;
 
 let _dest = '';                       // la subpantalla exacta que se está mirando
 function irAGrupo(id){
