@@ -17,6 +17,16 @@
   .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
   .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
   .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
+  /* La barra en dos filas: arriba los grupos, abajo las pantallas del grupo abierto. La barra
+     de siempre es un flex en fila, y con dos hijos los pondría uno al lado del otro: con dos
+     filas pasa a ser un bloque y cada fila maneja su propio desborde. */
+  .nav.dos { display:block; overflow-x:visible; padding:0; }
+  .navfila { display:flex; gap:2px; padding:0 12px; overflow-x:auto; white-space:nowrap; }
+  .subnav { display:flex; gap:4px; flex-wrap:wrap; padding:7px 12px 8px; border-top:1px solid var(--border); background:var(--bg3); }
+  .subnavbtn { background:transparent; border:1px solid transparent; border-radius:6px; color:var(--muted);
+               padding:5px 10px; font-weight:600; cursor:pointer; font-size:12.5px; }
+  .subnavbtn:hover { border-color:var(--border); }
+  .subnavbtn.active { background:var(--bg2); border-color:var(--gold); color:var(--gold); }
   .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
   .nb { background:var(--gold); color:#fff; border-radius:20px; padding:0 6px; font-size:11px; margin-left:3px; vertical-align:1px; }
   /* El de Pendientes es rojo y late: es lo único de la barra que pide que alguien haga algo.
@@ -342,20 +352,67 @@ tr.vta-ahora.vta-ok td{background:#eaf5ec}
    distintas en la misma barra.
    Ahora son tres: Operativo (/), Comercial (/os) y TBS (/tbs). Mismo archivo y mismos helpers
    —duplicarlos habría sido peor— pero cada uno con su barra y su nombre. */
-const TABS_COMERCIAL = [
-  // 🔔 PENDIENTES VA PRIMERO, Y SIEMPRE. Las tres cosas que esperan una decisión —comprobantes,
-  // cajas y movimientos de fichas— estaban repartidas en dos pantallas y detrás de botones que
-  // había que ir a buscar. Lo que espera a alguien tiene que anunciarse solo: si hay que buscarlo,
-  // se atiende tarde. Con cero pendientes queda gris y no molesta.
-  ['pendientes', ()=>{ const n=_pendTotal(); return (n?'🔔':'✅')+' Pendientes' + (n?' <span class="nb urg">'+n+'</span>':''); }],
-  ['acumulado','📒 Acumulado'], ['clientes','👥 Clientes'],
-  ['movimientos', ()=>'💸 Movimientos' + (_cmpPend ? ' <span class="nb">'+_cmpPend+'</span>' : '')],
-  '|',
-  ['cierre','🧮 Cierre de Mes'], ['facturacion','🧾 Factura de consumo'], ['reparto','💰 Reparto'], ['foto','📸 Foto del mes'],
-  '|',
-  ['proveedores','🏷 Proveedores'], ['tc','💱 Tipos de cambio'], ['reportes','📈 Reportes'],
-  ['accesos','🔐 Accesos'], ['config','⚙ Config'],
+/* ── LA BARRA, EN DOS NIVELES ────────────────────────────────────────────────────────────────
+   Eran 13 pestañas en una sola fila, y adentro había 17 subpantallas más. Se salía de la
+   pantalla y ya no se sabía dónde estaba nada.
+
+   Pero el problema no era sólo la cantidad: la CUENTA DE UN CLIENTE estaba partida en tres
+   lugares que no se hablaban — la factura de consumo arriba, la de proveedores externos
+   escondida adentro de Cierre de Mes, y el saldo con el historial adentro de Movimientos. Son
+   las dos mitades de lo mismo más su resultado. Que se emitieran en pantallas distintas es
+   justamente por qué un saldo podía quedar sin sus externos y parecer correcto.
+
+   Ahora: 5 grupos arriba, y las subpantallas del grupo activo en una segunda fila. Ninguna
+   pantalla se tocó — sólo se agrupó de otra manera y se subieron a primer nivel las que estaban
+   enterradas.
+
+   📸 Foto del mes vive en CUENTAS, no en Ajustes: Ajustes es lo que se configura una vez, y la
+   Foto es algo que se hace todos los meses. Además el aviso de "falta emitir externos porque la
+   foto está incompleta" manda ahí — mandarte a otra sección para destrabar algo que estabas
+   haciendo acá es el mismo corte que ya costó caro. */
+const GRUPOS = [
+  { id: 'pendientes',
+    label: () => { const n = _pendTotal(); return (n ? '🔔' : '✅') + ' Pendientes' + (n ? ' <span class="nb urg">' + n + '</span>' : ''); },
+    items: [] },                                        // sin subs: es una sola pantalla
+  { id: 'cuentas', label: () => '💰 Cuentas', items: [
+    ['facturacion', '🧾 Consumo (fichas)'],
+    ['cierre:externos', '🏷 Proveedores externos'],
+    ['foto', '📸 Foto del mes'],
+    ['movimientos:cliente', '📒 Cuenta del cliente'],
+    /* Estas dos NO son "pendiente" y "resuelto" de la misma cosa. La primera es el libro de la
+       cuenta: cargas, pagos y ajustes de todos los clientes. La segunda son los comprobantes que
+       mandó un cliente, ya aprobados o rechazados — los que todavía esperan viven en 🔔 Pendientes
+       y no se repiten acá, que es de lo que se trataba ordenar la barra. */
+    ['movimientos:cuenta', '💳 Pagos y cargas'],
+    ['movimientos:historial', '🧾 Comprobantes resueltos'],
+    ['cierre:vendedores', '🤝 Vendedores'],
+    ['cierre:pago', '💸 Pago a proveedores'],
+  ] },
+  { id: 'numeros', label: () => '📊 Reportes', items: [
+    ['acumulado:pulso', '📊 Movimientos mensuales'],
+    ['acumulado:detalle', '📒 Diario'],
+    ['reportes', '🎰 Consulta al casino'],
+  ] },
+  { id: 'padron', label: () => '👥 Clientes', items: [
+    ['clientes', '👥 Clientes y paneles'],
+    ['proveedores', '🏷 Proveedores'],
+    ['cierre:matriz', '🧮 Matriz de %'],
+    ['reparto', '💰 Reparto'],
+    ['accesos', '🔐 Accesos'],
+  ] },
+  { id: 'ajustes', label: () => '⚙ Ajustes', items: [
+    ['tc', '💱 Tipos de cambio'],
+    ['config:divisas', '💱 Divisas'],
+    ['config:pagos', '💳 Medios de pago'],
+    ['config:telegram', '📣 Telegram'],
+    ['config:casino', '🎰 Casino'],
+    ['config:revision', '🩺 Revisión'],
+    ['config:backup', '🛟 Copia de seguridad'],
+    ['config:importar', '📥 Importar planilla'],
+  ] },
 ];
+// Se deja la lista plana por compatibilidad: hay pantallas que llaman go('config') directo.
+const TABS_COMERCIAL = GRUPOS;
 // Las 4 subpantallas de TBS suben a primer nivel. Tipos de cambio va también porque las cuentas
 // de API se convierten con él: sin eso habría que saltar al otro espacio para revisar un TC.
 const TABS_TBS = [
@@ -533,13 +590,80 @@ function renderHeader(){
     otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
     + '<button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>';
 }
+/* A qué grupo pertenece cada pantalla. Se calcula del propio mapa: agregar una entrada arriba
+   alcanza para que la barra la resalte, sin una segunda lista que se desincronice. */
+function _grupoDe(vista){
+  if (!Array.isArray(GRUPOS) || !GRUPOS[0] || !GRUPOS[0].items) return null;
+  for (const g of GRUPOS) {
+    if (g.id === vista) return g;
+    if ((g.items||[]).some(([d]) => String(d).split(':')[0] === vista)) return g;
+  }
+  return null;
+}
+let _grupo = 'pendientes';
+
 function renderNav(){
   renderHeader();
-  document.getElementById('nav').innerHTML = TABS.map(t=>
-    t==='|' ? '<span class="navsep"></span>'
-            : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
+  const nav = document.getElementById('nav');
+  if (!Array.isArray(GRUPOS) || !GRUPOS[0] || !GRUPOS[0].items) {   // TBS y Chat siguen con barra simple
+    nav.innerHTML = TABS.map(t=>
+      t==='|' ? '<span class="navsep"></span>'
+              : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
+    return;
+  }
+  const act = GRUPOS.find(g=>g.id===_grupo) || GRUPOS[0];
+  const arriba = GRUPOS.map(g=>
+    `<button class="navbtn ${g.id===_grupo?'active':''}" onclick="irAGrupo('${g.id}')">${typeof g.label==='function'?g.label():g.label}</button>`).join('');
+  // La segunda fila sólo aparece si el grupo tiene subpantallas: Pendientes es una sola cosa.
+  const abajo = (act.items||[]).length
+    ? `<div class="subnav">` + act.items.map(([dest,lbl])=>
+        `<button class="subnavbtn ${dest===_dest?'active':''}" onclick="irA('${dest}')">${typeof lbl==='function'?lbl():lbl}</button>`).join('') + `</div>`
+    : '';
+  nav.className = 'nav dos';
+  nav.innerHTML = `<div class="navfila">${arriba}</div>${abajo}`;
 }
-function go(t){ _tab=t; renderNav(); VIEWS[t](); }
+
+/* Cuando la barra de arriba ya muestra las subpantallas de una vista, esa vista NO dibuja la
+   suya: si no, quedan dos filas de botones con las mismas opciones. TBS y Chat siguen con barra
+   simple, así que ahí las vistas dibujan la propia como siempre. */
+const _subsArriba = () => Array.isArray(GRUPOS) && !!(GRUPOS[0] || {}).items;
+
+let _dest = '';                       // la subpantalla exacta que se está mirando
+function irAGrupo(id){
+  const g = GRUPOS.find(x=>x.id===id); if (!g) return;
+  _grupo = id;
+  if (!(g.items||[]).length) { irA(g.id); return; }
+  irA(g.items[0][0]);
+}
+/* Ir a una pantalla. `vista:sub` deja parada la subpantalla que corresponde antes de pintarla —
+   así "Proveedores externos" abre directo esa solapa de Cierre de Mes en vez de su primera. */
+function irA(dest){
+  _dest = dest;
+  const [vista, sub] = String(dest).split(':');
+  if (sub) {
+    if (vista === 'cierre') _cieSub = sub;
+    else if (vista === 'movimientos') _movSub = sub;
+    else if (vista === 'config') _cfgSub = sub;
+    else if (vista === 'acumulado') _acSub = sub;
+  }
+  const g = _grupoDe(vista); if (g) _grupo = g.id;
+  go(vista);
+}
+function go(t){
+  _tab=t;
+  const g=_grupoDe(t); if(g) _grupo=g.id;
+  /* Hay pantallas que llaman go('config') o go('cierre') derecho, sin decir cuál solapa. Sin esto
+     la fila de abajo se queda sin ningún botón marcado y no se ve dónde estás parado: se busca en
+     el grupo el botón que lleva a esa vista, prefiriendo la solapa que la pantalla ya tiene puesta. */
+  if (!_dest || String(_dest).split(':')[0] !== t) {
+    const sub = t==='cierre'?_cieSub : t==='movimientos'?_movSub : t==='config'?_cfgSub : t==='acumulado'?_acSub : '';
+    const items = ((g||{}).items||[]).filter(([d])=>String(d).split(':')[0]===t);
+    const exacto = sub && items.find(([d])=>d===t+':'+sub);
+    _dest = exacto ? exacto[0] : (items[0] ? items[0][0] : t);
+  }
+  renderNav();
+  VIEWS[t]();
+}
 
 // ───────── CLIENTES (con sus PANELES adentro) ─────────
 // Un panel no existe solo: siempre es de alguien. Tenerlos en pestañas separadas obligaba a ir y
@@ -3135,9 +3259,11 @@ VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
   // "Vincular proveedores" se fue a la pestaña 🏷 Proveedores: era la otra mitad de esa tabla.
   const subs = [['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
-  document.getElementById('main').innerHTML = CIE_STYLE + `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
+  document.getElementById('main').innerHTML = CIE_STYLE
+    + (_subsArriba() ? '' : `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
-    </div></div><div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
+    </div></div>`)
+    + `<div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
   ({matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
@@ -4049,12 +4175,14 @@ VIEWS.movimientos = async () => {
     ['cuenta', '💳 Cuenta y pagos'],
     ['cliente', '📒 Cuenta del cliente'],
     ['pendientes', '⏳ Por aprobar' + (_cmpPend ? ' (' + _cmpPend + ')' : '')],
-    ['historial', '🧾 Ya resueltos'],
+    ['historial', '🧾 Comprobantes resueltos'],
   ];
   document.getElementById('main').innerHTML =
-    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
-    + subs.map(([k,l])=>`<button class="${k===_movSub?'':'outline'} small" onclick="movSub('${k}')">${l}</button>`).join('')
-    + `</div></div><div id="mov-body"><div class="card"><div class="muted">Cargando…</div></div></div>`;
+    (_subsArriba() ? '' :
+      `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
+      + subs.map(([k,l])=>`<button class="${k===_movSub?'':'outline'} small" onclick="movSub('${k}')">${l}</button>`).join('')
+      + `</div></div>`)
+    + `<div id="mov-body"><div class="card"><div class="muted">Cargando…</div></div></div>`;
   await (MOV[_movSub] || MOV.cuenta)();
 };
 function movSub(s){ _movSub=s; VIEWS.movimientos(); }
@@ -4505,9 +4633,10 @@ function renderCfgHeader(){
   // Socios, Participaciones y Tabla Split se fueron a 💰 Reparto: las tres eran la misma
   // pregunta (cómo se divide lo que paga un cliente) partida en tres pantallas.
   const subs=[['revision','🩺 Revisión'],['backup','🛟 Copia de seguridad'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
-  return `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
+  return (_subsArriba() ? '' :
+    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
-    `</div></div><div id="cfg-body"></div>`;
+    `</div></div>`) + `<div id="cfg-body"></div>`;
 }
 /* ───────── LA COPIA DE SEGURIDAD ─────────
    Es lo único de todo el sistema que, si falta, no se puede rehacer con trabajo: la cotización de
@@ -8329,11 +8458,13 @@ let _acMes='', _acData=null, _acView=null, _acCxs=[], _acSub='pulso';
 const AC = {};
 
 VIEWS.acumulado = async () => {
-  const subs=[['pulso','📊 Pulso del mes'],['detalle','📒 Día a día']];
+  const subs=[['pulso','📊 Movimientos mensuales'],['detalle','📒 Diario']];
   document.getElementById('main').innerHTML =
-    `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
-    + subs.map(([k,l])=>`<button class="${k===_acSub?'':'outline'} small" onclick="acSub('${k}')">${l}</button>`).join('')
-    + `</div></div><div id="ac-cuerpo"><div class="card"><div class="muted">Cargando…</div></div></div>`;
+    (_subsArriba() ? '' :
+      `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
+      + subs.map(([k,l])=>`<button class="${k===_acSub?'':'outline'} small" onclick="acSub('${k}')">${l}</button>`).join('')
+      + `</div></div>`)
+    + `<div id="ac-cuerpo"><div class="card"><div class="muted">Cargando…</div></div></div>`;
   await (AC[_acSub]||AC.pulso)();
 };
 function acSub(s){ _acSub=s; VIEWS.acumulado(); }

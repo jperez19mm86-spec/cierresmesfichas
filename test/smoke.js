@@ -4107,7 +4107,7 @@ async function main() {
     // La pantalla existe y hace las cosas de a varios.
     const uiAcc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('accesos: hay una pantalla propia y las acciones valen para los marcados',
-      /\['accesos','🔐 Accesos'\]/.test(uiAcc) && /VIEWS\.accesos = async/.test(uiAcc)
+      /\['accesos', '🔐 Accesos'\]/.test(uiAcc) && /VIEWS\.accesos = async/.test(uiAcc)
       && /Dar acceso y generar contraseña/.test(uiAcc) && /accCopiar\(\)/.test(uiAcc));
     check('accesos: la pantalla avisa que la contraseña no se puede volver a ver',
       /No se pueden volver a ver/.test(uiAcc));
@@ -4957,9 +4957,9 @@ async function main() {
   {
     const h5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
     check('pendientes: la pestaña existe y es la primera',
-      /\['pendientes', \(\)=>/.test(h5)
-      && h5.indexOf("['pendientes'") < h5.indexOf("['acumulado'"),
-      'orden en la barra');
+      /id: 'pendientes'/.test(h5)
+      && h5.indexOf("id: 'pendientes'") < h5.indexOf("id: 'cuentas'"),
+      'primer grupo de la barra');
     check('pendientes: cuenta las TRES cosas',
       /_pendTotal/.test(h5) && /comprobantes\?estado=pendiente/.test(h5)
       && /solicitudes-caja\?estado=pendiente/.test(h5) && /movimientos-panel/.test(h5));
