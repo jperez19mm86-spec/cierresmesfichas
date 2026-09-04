@@ -275,6 +275,34 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
     externos: ext,
     totalMes_usdt: money.round(delMes, 2),
     totalMes_local: local ? { divisa: local.divisa, monto: local.total, aproximado: local.aproximado } : null,
+    /* ⭐ DE QUÉ ESTÁ HECHO EL SALDO.
+       El cliente veía "TOTAL DEL MES 17.959,47" y abajo "Saldo 15.916,93", dos números grandes sin
+       relación aparente y el de abajo MÁS CHICO que el del mes. La primera lectura es "ya pagué" o
+       "está mal", y ninguna de las dos. Son tres cosas distintas:
+         · el saldo incluye los meses siguientes (Marcelo ya llevaba 793,29 de septiembre),
+         · los externos del mes no entran hasta que esa factura se emite, que es aparte,
+         · y el consumo del mes puede diferir del acumulado por el TIPO DE CAMBIO: cada carga se
+           congela con el suyo y el cálculo mensual usa el del mes (18,76 de diferencia en agosto).
+       Mostrarlo desarmado es la diferencia entre un número que no cierra y uno que se entiende. */
+    saldoDesglose: (() => {
+      const porMes = {};
+      for (const mv of movs.list({ cliente_id: cli.id })) {
+        const k = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(k)) continue;
+        const a = porMes[k] = porMes[k] || { mes: k, consumo: '0', externos: '0', pagos: '0', otros: '0' };
+        const u = mv.monto_usdt || '0';
+        if (mv.tipo === 'carga') a.consumo = money.add(a.consumo, u);
+        else if (mv.tipo === 'proveedor_extra') a.externos = money.add(a.externos, u);
+        else if (mv.tipo === 'pago') a.pagos = money.add(a.pagos, u);
+        else if (mv.tipo === 'bonificacion') a.otros = money.sub(a.otros, u);
+        else a.otros = money.add(a.otros, u);
+      }
+      return Object.values(porMes)
+        .map((a) => ({ ...a, esteMes: a.mes === m,
+          consumo: money.round(a.consumo, 2), externos: money.round(a.externos, 2),
+          pagos: money.round(a.pagos, 2), otros: money.round(a.otros, 2) }))
+        .sort((a, b) => a.mes.localeCompare(b.mes));
+    })(),
     cuenta: {
       consumo_pendiente: cuenta.fichas_pendientes,
       externos_pendiente: cuenta.proveedores_pendientes,

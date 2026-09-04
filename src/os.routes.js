@@ -54,6 +54,7 @@ const emision = require('./emision.service');
 const ventasOnline = require('./ventas-online.service');
 const facturaSvc = require('./factura.service');
 const crucePanel = require('./cruce-panel.service');
+const facturasGuardadas = require('./facturas-guardadas');
 const vendedoresSvc = require('./vendedores.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
@@ -3580,6 +3581,9 @@ function mount(app) {
       else f.otros = money.add(f.otros, u);
     }
 
+    // Un mes puede tener factura generada y todavía ningún movimiento (si no se emitió): igual tiene
+    // que aparecer, o el historial de facturas queda con agujeros.
+    facturasGuardadas.delCliente(cli.id).forEach((g) => fila(g.mes));
     const filas = Object.values(meses).sort((a, b) => a.mes.localeCompare(b.mes));
     let acum = '0';
     for (const f of filas) {
@@ -3589,6 +3593,12 @@ function mount(app) {
       ['consumo', 'externos', 'otros', 'pagos'].forEach((k) => { f[k] = money.round(f[k], 2); });
       // Qué decía el contraste contra los paneles ese mes, para ESTE cliente. Es lo que permite
       // mirar hacia atrás y saber si lo que se le cobró estaba validado o se emitió igual.
+      const g = facturasGuardadas.get(cli.id, f.mes);
+      f.factura = g ? {
+        total_usdt: g.total_usdt, consumo_usdt: g.consumo_usdt, externos_usdt: g.externos_usdt,
+        generada_at: g.generada_at, generada_por: g.generada_por, veces: g.veces,
+        salio_at: g.salio_at, salio_como: g.salio_como,
+      } : null;
       const v = crucePanel.leer(f.mes);
       const suyo = v && v.datos && (v.datos.porCliente || []).find((x) => x.cliente_id === cli.id);
       f.validacion = v ? {
@@ -3622,6 +3632,70 @@ function mount(app) {
   }));
   app.delete('/api/os/validacion/resolver/:clave', (req, res) =>
     ok(res, crucePanel.desresolver(decodeURIComponent(req.params.clave))));
+
+  /* ⭐ ¿ESTÁ LISTO PARA CERRAR ESTE MES?
+     No alcanza con que la Factura de consumo dé un número: cerrar un mes son varias cosas y una se
+     olvida. Agosto tenía la foto completa (210/210) y la factura de externos sin emitir, y nada
+     lo decía — el saldo de cada cliente quedaba sin sus externos y parecía correcto.
+     Se mira todo lo barato: qué hay emitido, si la foto está, si están los tipos de cambio y los %
+     que la factura de externos necesita. No consulta el casino. */
+  app.get('/api/os/cierre/listo/:mes', wrap(async (req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const falta = []; const listo = [];
+
+    const emC = emision.emitido(mes, 'facturacion');
+    const emE = emision.emitido(mes, 'externos');
+    (emC.cantidad ? listo : falta).push(emC.cantidad
+      ? { que: 'La factura de consumo está emitida', detalle: `${emC.cantidad} cliente(s)` }
+      : { que: 'Falta emitir la factura de CONSUMO', detalle: 'es el botón de esta pantalla', donde: 'acá' });
+
+    // ── lo que la factura de externos necesita ──
+    let foto = null;
+    try { foto = estadMes.estado(mes); } catch (e) { /* si no se puede leer, se dice abajo */ }
+    if (!emE.cantidad) {
+      const porQue = [];
+      if (!foto) porQue.push('no se pudo leer el estado de la foto del mes');
+      else if (!foto.completa) porQue.push(`la foto del mes está incompleta (${foto.listas} de ${foto.total} consultas)`);
+
+      /* El TC de proveedores NO es el del mercado: sale de la factura que manda el proveedor y se
+         carga a mano. Sin él, lo de esa moneda se liquida mal. Se miran sólo las monedas que el mes
+         movió de verdad. */
+      try {
+        const tc = cierreStore.getTC() || {};
+        const lbl = mesCierreLbl(mes);
+        const usadas = new Set();
+        pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
+        const sinTC = [...usadas].filter((d) => d !== 'USDT' && !((tc.tasas || {})[d] || {})[lbl]);
+        if (sinTC.length) porQue.push(`falta el tipo de cambio del proveedor de ${sinTC.join(', ')}`);
+      } catch (e) { /* sin esto igual se avisa lo demás */ }
+
+      // El % de externos se confirma MES A MES: el que no lo tenga se saltea en silencio al emitir.
+      const sinBase = [];
+      for (const c of clientes.list().clientes) {
+        if (c.es_vendedor) continue;
+        if (!paneles.list().some((p) => p.cliente_id === c.id)) continue;
+        const b = externosSvc.baseDelMes(c, mes);
+        if (b.valor == null) sinBase.push(c.nombre || c.codigo);
+      }
+      if (sinBase.length) porQue.push(`${sinBase.length} cliente(s) sin % confirmado para el mes: ${sinBase.slice(0, 6).join(', ')}${sinBase.length > 6 ? '…' : ''}`);
+
+      falta.push({
+        que: 'Falta emitir la factura de PROVEEDORES EXTERNOS',
+        detalle: porQue.length ? porQue.join(' · ') : 'ya está todo lo que necesita: se puede emitir',
+        listaParaEmitir: !porQue.length,
+        donde: '🧮 Cierre de Mes → 🧾 Factura de externos',
+      });
+    } else {
+      listo.push({ que: 'La factura de externos está emitida', detalle: `${emE.cantidad} cliente(s)` });
+    }
+
+    if (foto) (foto.completa ? listo : falta).push(foto.completa
+      ? { que: 'La foto del mes está completa', detalle: `${foto.total} consultas` }
+      : { que: 'La foto del mes está incompleta', detalle: `${foto.listas} de ${foto.total}`, donde: '📸 Foto del mes' });
+
+    ok(res, { mes, listo, falta, puedeCerrar: !falta.length });
+  }));
 
   // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
   // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
@@ -3742,12 +3816,25 @@ function mount(app) {
     }).filter(Boolean);
     const r = emision.emitir({ mes, origen: 'facturacion', lineas });
     if (!r.ok) return err(res, 400, r.error);
+    /* Y se congela la factura de cada cliente. Emitir es el momento en que el número se vuelve
+       deuda: si no se guarda acá, dentro de tres meses no hay forma de volver a lo que se cobró.
+       El detalle se trae UNA vez para todos, no una vez por cliente. */
+    let guardadas = 0;
+    try {
+      for (const c of (fac.clientes || [])) {
+        if (c.sinBase) continue;
+        const f = await facturaSvc.armar({ clienteId: c.cliente_id, mes, consumo: c, conExternos: false });
+        if (!f.ok) continue;
+        facturasGuardadas.guardar(f, { quien: (req.usuario && req.usuario.usuario) || 'admin' });
+        guardadas += 1;
+      }
+    } catch (e) { console.warn('[Factura] no se pudieron guardar todas:', e.message); }
     // Queda el rastro de que se emitió con las diferencias a la vista, y de quién lo decidió.
     if (req.body && req.body.confirmado) {
       const guardada = crucePanel.leer(mes);
       if (guardada && guardada.datos) crucePanel.guardar(guardada.datos, { confirmadoPor: (req.usuario && req.usuario.usuario) || 'admin' });
     }
-    ok(res, { ...r, validacion: crucePanel.leer(mes), sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
+    ok(res, { ...r, guardadas, validacion: crucePanel.leer(mes), sinBase: fac.sinBase, sinPedidos: fac.sinPedidos,
       // Quiénes quedaron sin emitir por falta de tipo de cambio: es lo que hay que destrabar.
       fallaron: recortados,
       // Quiénes ya tenían su deuda cargada carga por carga, y cuánto se aparta del cálculo mensual.
@@ -3840,8 +3927,54 @@ function mount(app) {
   // Junta las DOS facturas (consumo y proveedores externos) en un documento, más la cuenta
   // corriente. No recalcula: pide los mismos números que muestran las pantallas, para que lo
   // que se manda no pueda diferir de lo que dice el panel.
+  /** Arma la factura de un cliente para un mes, con la misma línea de consumo que muestra la pantalla. */
+  async function _armarFactura(clienteId, mes, { conExternos = true, conCruce = false } = {}) {
+    const fac = await _facturacionDe(mes, { control: false });
+    if (fac.ok === false) return { ok: false, error: fac.error, esDelPuente: true };
+    const linea = (fac.clientes || []).find((c) => c.cliente_id === clienteId) || null;
+    return facturaSvc.armar({ clienteId, mes, consumo: linea, conExternos, conCruce });
+  }
+
+  /* Registrar que la factura salió del sistema. Se llama al imprimir y al copiar, que son las dos
+     formas en que se venía usando y las dos que no dejaban ningún rastro. */
+  app.post('/api/os/factura/:clienteId/registrar', wrap(async (req, res) => {
+    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    const como = ['impresa', 'copiada'].includes(req.body && req.body.como) ? req.body.como : 'copiada';
+    // Si ya estaba guardada se registra la salida sobre ESA, sin recalcular: lo que se imprimió
+    // es lo que se estaba mirando, no lo que daría el cálculo de este segundo.
+    const ya = facturasGuardadas.get(req.params.clienteId, mes);
+    if (ya && ya.datos) return ok(res, { ok: true, factura: facturasGuardadas.marcarSalida(req.params.clienteId, mes, como) });
+    const f = await _armarFactura(req.params.clienteId, mes, { conExternos: true });
+    if (!f.ok) return err(res, 400, f.error);
+    const r = facturasGuardadas.guardar(f, { como, quien: (req.usuario && req.usuario.usuario) || 'admin' });
+    ok(res, r);
+  }));
+
+  // El historial de facturas de un cliente: qué se le generó, cuándo, y si salió.
+  app.get('/api/os/facturas-guardadas/:clienteId', (req, res) =>
+    ok(res, { facturas: facturasGuardadas.delCliente(req.params.clienteId) }));
+
+  // La factura guardada de un mes, tal cual se generó.
+  app.get('/api/os/facturas-guardadas/:clienteId/:mes', (req, res) => {
+    const f = facturasGuardadas.get(req.params.clienteId, req.params.mes);
+    if (!f) return err(res, 404, 'no hay ninguna factura guardada de ese mes');
+    ok(res, { factura: f });
+  });
+
   app.get('/api/os/factura/:clienteId', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    /* Si ya se generó una factura de ese mes, se muestra ESA y no un recálculo: es lo que se le
+       mandó al cliente, y pedirla de nuevo dos meses después daría otro número. Con ?vivo=1 se
+       fuerza el recálculo, para comparar la guardada contra lo que daría hoy. */
+    if (req.query.vivo !== '1') {
+      const g = facturasGuardadas.get(req.params.clienteId, mes);
+      if (g && g.datos) {
+        return ok(res, { ...g.datos, guardada: {
+          generada_at: g.generada_at, generada_por: g.generada_por, veces: g.veces,
+          actualizada_at: g.actualizada_at, salio_at: g.salio_at, salio_como: g.salio_como,
+        }, texto: facturaSvc.aTexto(g.datos), textoConDetalle: facturaSvc.aTexto(g.datos, { detalle: true }) });
+      }
+    }
     // la línea de consumo sale de la MISMA función que la pantalla de Factura de consumo
     const fac = await _facturacionDe(mes, { control: false });
     if (fac.ok === false) return err(res, 502, fac.error);
@@ -3862,11 +3995,17 @@ function mount(app) {
   // El LINK con el que el cliente ve el desglose completo. Por Telegram le va el resumen y esto.
   app.post('/api/os/factura/:clienteId/link', wrap(async (req, res) => {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
-    const fac = await _facturacionDe(mes, { control: false });
-    if (fac.ok === false) return err(res, 502, fac.error);
-    const linea = (fac.clientes || []).find((c) => c.cliente_id === req.params.clienteId) || null;
-    const f = await facturaSvc.armar({ clienteId: req.params.clienteId, mes, consumo: linea });
-    if (!f.ok) return err(res, 404, f.error);
+    /* Si ya hay una factura guardada de ese mes, el link tiene que mostrar ESA: si recalculara, el
+       cliente abriría el link y vería un número distinto del que se le mandó. */
+    const g = facturasGuardadas.get(req.params.clienteId, mes);
+    let f = g && g.datos ? g.datos : null;
+    if (!f) {
+      f = await _armarFactura(req.params.clienteId, mes);
+      if (!f.ok) return err(res, f.esDelPuente ? 502 : 404, f.error);
+      facturasGuardadas.guardar(f, { como: 'link', quien: (req.usuario && req.usuario.usuario) || 'admin' });
+    } else {
+      facturasGuardadas.marcarSalida(req.params.clienteId, mes, 'link');
+    }
     const l = facturaSvc.crearLink(f);
     ok(res, { ...l, url: _urlPublica(req) + '/factura/' + l.token, mes });
   }));
@@ -3890,11 +4029,14 @@ function mount(app) {
     const tok = configStore.getTelegramToken();
     if (!tok) return err(res, 400, 'falta el token del bot de Telegram (⚙ Config)');
 
-    const fac = await _facturacionDe(mes, { control: false });
-    if (fac.ok === false) return err(res, 502, fac.error);
-    const linea = (fac.clientes || []).find((c) => c.cliente_id === cli.id) || null;
-    const f = await facturaSvc.armar({ clienteId: cli.id, mes, consumo: linea, conExternos: req.body.externos !== false });
-    if (!f.ok) return err(res, 400, f.error);
+    /* Se manda la guardada si existe: lo que le llega al cliente tiene que ser lo mismo que ya se
+       generó, no lo que daría el cálculo de este momento. */
+    const g = facturasGuardadas.get(cli.id, mes);
+    let f = g && g.datos ? g.datos : null;
+    if (!f) {
+      f = await _armarFactura(cli.id, mes, { conExternos: req.body.externos !== false });
+      if (!f.ok) return err(res, f.esDelPuente ? 502 : 400, f.error);
+    }
 
     // Por Telegram va el RESUMEN, y el desglose completo por link: 153 cargas en tres mensajes
     // seguidos no hay quien las lea, y en la página se pueden mirar por panel con calma.
@@ -3913,6 +4055,9 @@ function mount(app) {
     const fallo = enviados.find((x) => !x.ok);
     if (fallo) return err(res, 502, `se mandaron ${enviados.length - 1} de ${partes.length} partes: ${fallo.error}`);
     console.log(`[Factura] enviada a ${cli.nombre} (${mes}) · ${partes.length} mensaje(s)`);
+    // Recién con el envío hecho queda registrado: si Telegram falla no se marca como enviada.
+    if (g && g.datos) facturasGuardadas.marcarSalida(cli.id, mes, 'telegram');
+    else facturasGuardadas.guardar(f, { como: 'telegram', quien: (req.usuario && req.usuario.usuario) || 'admin' });
     ok(res, { enviado: true, partes: partes.length, total_usdt: f.totalMes_usdt, saldo: f.cuenta.saldo });
   }));
   // Todas las facturas de un mes de una sola pasada: los pedidos se traen UNA vez, no una por

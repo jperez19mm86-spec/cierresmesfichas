@@ -2283,10 +2283,13 @@ async function facAnular() {
 // De dónde se abrió la factura, para que el ← vuelva ahí. Se abre desde 🧾 Factura de consumo y
 // también desde 📒 Cuenta del cliente, que está mirando OTRO mes.
 let _facVolverA = 'facturacion';
+// Qué factura se está mirando: los botones de abajo la necesitan para registrar que salió.
+let _facCtx = { clienteId: null, mes: null };
 function facVolver(){ if(_facVolverA === 'cuenta'){ _movSub='cliente'; go('movimientos'); } else go('facturacion'); }
 
 async function verFactura(clienteId, conCruce) {
   const mes = val('fac-mes') || _facMes;
+  _facCtx = { clienteId, mes };
   toast(conCruce ? 'Consultando los paneles… puede tardar' : 'Armando la factura…');
   const r = await api('/api/os/factura/' + clienteId + '?mes=' + encodeURIComponent(mes) + (conCruce ? '&cruce=1' : ''));
   if (!r.ok) return toast('Error: ' + (r.error || ''));
@@ -2390,12 +2393,34 @@ async function verFactura(clienteId, conCruce) {
     + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
     + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '')
       + (r.detalleDe ? ' · detalle: ' + esc(r.detalleDe) : '') + '</div>'
+    + (r.guardada
+        ? '<div class="card" style="margin:8px 0;background:rgba(46,158,99,.10);border-color:rgba(46,158,99,.5);padding:8px 10px">'
+          + '<b style="color:var(--green)">🔒 Ésta es la factura guardada</b>'
+          + '<span class="muted"> · generada el ' + esc(String(r.guardada.generada_at).slice(0,16).replace('T',' '))
+          + (r.guardada.veces > 1 ? ' · regenerada ' + r.guardada.veces + ' veces' : '')
+          + (r.guardada.salio_at ? ' · salió por ' + esc(r.guardada.salio_como) + ' el ' + esc(String(r.guardada.salio_at).slice(0,10)) : ' · todavía no se envió')
+          + '. Son los números que se le mandaron, no se recalculan.</span></div>'
+        : '')
     + cons + porPanel + det + cruceHtml + extHtml
     + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b>'
     + (r.totalMes_local ? '<div style="margin-top:2px;font-weight:700;color:var(--muted)">' + (r.totalMes_local.aproximado?'≈ ':'') + $(r.totalMes_local.monto) + ' ' + esc(r.totalMes_local.divisa) + '</div>' : '')
     + '</div>'
     + '<div class="card" style="margin:8px 0"><b>Cuenta corriente</b>'
-    + '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>'
+    /* El saldo NO es el total del mes, y presentarlos pegados sin explicar de qué está hecho cada
+       uno hace que parezca un error. Se desarma por mes: así se ve que incluye los meses
+       siguientes, y que los externos entran recién cuando se emite esa factura. */
+    + ((r.saldoDesglose||[]).length
+        ? '<table style="margin-top:6px"><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Pagos</th></tr></thead><tbody>'
+          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':'')+'><td>'+esc(x.mes)+(x.esteMes?' <span class="muted">(este mes)</span>':'')+'</td>'
+            + '<td class="right">'+(Number(x.consumo)?money(x.consumo,2):'<span class="muted">—</span>')+'</td>'
+            + '<td class="right">'+(Number(x.externos)?money(x.externos,2):'<span class="muted">—</span>')+'</td>'
+            + '<td class="right">'+(Number(x.otros)?money(x.otros,2):'<span class="muted">—</span>')+'</td>'
+            + '<td class="right" style="color:var(--green)">'+(Number(x.pagos)?money(x.pagos,2):'<span class="muted">—</span>')+'</td></tr>').join('')
+          + '</tbody></table>'
+        : '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>')
+    + (Number(r.cuenta.externos_pendiente)===0 && r.externos && Number(r.externos.total_usdt||0)>0
+        ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ Los ' + $(r.externos.total_usdt) + ' USDT de proveedores externos de este mes <b>todavía no están en el saldo</b>: esa factura se emite aparte, desde 🧮 Cierre de Mes.</div>'
+        : '')
     + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo: ' + $(r.cuenta.saldo) + ' USDT</div>'
     // Un saldo que todavía se mueve se dice que se mueve. Presentarlo como cerrado es peor que
     // no darlo: se manda, el cliente lo anota, y al cerrar el mes no coincide.
@@ -2436,14 +2461,24 @@ async function facturaLink(clienteId) {
     .then(() => toast(msg + ' y copiado'))
     .catch(() => toast(msg + ': ' + r.url));
 }
+/* Registrar que la factura salió. Imprimir y copiar eran las dos formas en que se venía usando y
+   las dos que no dejaban ningún rastro: en todo el sistema había DOS facturas guardadas. */
+async function facturaRegistrar(como) {
+  const cid = _facCtx.clienteId, mes = _facCtx.mes || _facMes;
+  if (!cid || !mes) return;
+  try { await api('/api/os/factura/' + cid + '/registrar', { method: 'POST', body: JSON.stringify({ mes, como }) }); }
+  catch (e) { /* que falle el registro no puede impedir imprimir o copiar */ }
+}
+
 function facturaCopiar() {
   const t = document.getElementById('fac-texto');
   if (!t) return;
-  navigator.clipboard.writeText(t.value).then(() => toast('Copiada — pegala en WhatsApp o Telegram')).catch(() => toast('No se pudo copiar'));
+  navigator.clipboard.writeText(t.value).then(() => { facturaRegistrar('copiada'); toast('Copiada y guardada — pegala en WhatsApp o Telegram'); }).catch(() => toast('No se pudo copiar'));
 }
 function facturaImprimir() {
   const d = document.getElementById('fac-doc');
   if (!d) return;
+  facturaRegistrar('impresa');
   const w = window.open('', '_blank');
   w.document.write('<html><head><title>Factura</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left;font-size:13px}.right{text-align:right}.muted{color:#666;font-size:12px}.card{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}</style></head><body>' + d.innerHTML + '</body></html>');
   w.document.close();
@@ -4059,6 +4094,18 @@ async function mcPintar(){
   const cc = r.cuenta||{}, meses = r.meses||[];
   const signo = (x)=>Number(x)>0?'var(--gold)':(Number(x)<0?'var(--green)':'inherit');
 
+  /* La factura de ese mes: si se generó, cuándo, y si salió. Sin esto no había forma de saber qué
+     se le mandó a un cliente en mayo — pedirla de nuevo la recalcula y da otro número. */
+  const _fact = (m)=>{
+    const f = m.factura;
+    if(!f) return '<span class="muted">no se generó</span>';
+    const p = ['<span class="badge ok" title="Generada el '+esc(String(f.generada_at).slice(0,16).replace("T"," "))+(f.veces>1?(' · regenerada '+f.veces+' veces'):'')+'">'+money(f.total_usdt,2)+'</span>'];
+    p.push('<span class="muted">'+esc(String(f.generada_at).slice(0,10))+'</span>');
+    if(f.salio_at) p.push('<span class="muted" title="Salió el '+esc(String(f.salio_at).slice(0,16).replace("T"," "))+'">'+({impresa:'🖨',copiada:'📋',link:'🔗',telegram:'✈️'}[f.salio_como]||'✔')+'</span>');
+    else p.push('<span class="muted" style="color:var(--gold)" title="Se generó pero no consta que se le haya mandado">sin enviar</span>');
+    return p.join(' ');
+  };
+
   // El estado del contraste de ese mes. Un mes sin validar no se pinta como si estuviera bien.
   const val = (m)=>{
     const v = m.validacion;
@@ -4083,6 +4130,7 @@ async function mcPintar(){
     + '<td class="right"><b>'+money(m.facturado,2)+'</b></td>'
     + '<td class="right" style="color:var(--green)">'+(Number(m.pagos)?money(m.pagos,2):'<span class="muted">—</span>')+'</td>'
     + '<td class="right" style="font-weight:700;color:'+signo(m.saldo_acumulado)+'">'+money(m.saldo_acumulado,2)+'</td>'
+    + '<td>'+_fact(m)+'</td>'
     + '<td>'+val(m)+'</td>'
     + '<td class="right" style="white-space:nowrap">'
       + '<button class="outline small" title="Ver la factura de este mes" onclick="mcFactura(\''+m.mes+'\')">📄</button> '
@@ -4098,8 +4146,8 @@ async function mcPintar(){
       + '<div class="muted" style="font-size:11px">USDT · '+(Number(cc.total)<0?'lo que tiene a favor':(Number(cc.total)>0?'lo que debe hoy':'está al día'))+'</div></div>'
     + '</div>'
     + '<div class="card"><h2>Mes a mes <span class="muted">(todo en USDT)</span></h2>'
-    + '<table><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Facturado</th><th class="right">Pagado</th><th class="right">Saldo</th><th>Contra el panel</th><th></th></tr></thead><tbody>'
-    + (filas || '<tr><td colspan="9" class="empty">Este cliente no tiene ningún movimiento todavía.</td></tr>')
+    + '<table><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Facturado</th><th class="right">Pagado</th><th class="right">Saldo</th><th>Factura</th><th>Contra el panel</th><th></th></tr></thead><tbody>'
+    + (filas || '<tr><td colspan="10" class="empty">Este cliente no tiene ningún movimiento todavía.</td></tr>')
     + '</tbody></table>'
     + '<div class="muted" style="margin-top:6px">El <b>saldo</b> va acumulado: incluye lo que arrastra de los meses anteriores.</div>'
     // Antes de julio de 2026 el árbol de paneles no estaba armado como ahora: se cargaba a nodos
@@ -6384,7 +6432,7 @@ async function calcularFac(vivo){
     + '<div class="muted" style="margin-top:4px">Lo que el cliente <b>pidió y se le cargó</b> en el mes, por su % base. Ej: pidió 50.000.000 y su % es 10 → se le cobran 5.000.000, pasados a USDT con el TC del mes.</div>'
     + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🧮 Cierre de Mes → 🧾 Factura de externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
   const emF = (em.porOrigen || {}).facturacion || null;
-  out.innerHTML = procedencia + _cabecera +
+  out.innerHTML = _quedaPorHacer + procedencia + _cabecera +
     (emF
       ? '<div class="card" style="background:rgba(46,160,67,.07);border-color:#3c9;margin:0 0 10px"><b style="color:#3c9">✅ Ya emitido a la deuda</b>'
         + '<div class="muted" style="margin-top:4px">' + emF.cantidad + ' cliente(s) · <b>' + money(emF.total,2) + ' USDT</b> · emitido el ' + esc(String(emF.desde||'').slice(0,16).replace('T',' ')) + '</div>'

@@ -340,6 +340,26 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS ix_dif_resuelta_mes ON diferencia_resuelta (mes);
 
+  /* LA FACTURA DE UN MES, GUARDADA.
+     Hasta acá una factura sólo quedaba congelada si alguien apretaba el boton del link o la mandaba
+     por Telegram. Imprimirla a PDF -que es como se venia usando- no dejaba rastro: en todo el
+     sistema habia DOS facturas guardadas. Sin eso no se puede volver a lo que se le mando a un
+     cliente, y el numero de hoy no es el de entonces.
+     Se guarda cuando la factura SALE del sistema: al emitir el mes, al imprimirla, al copiarla, al
+     crear el link o al mandarla. Abrirla para mirar no guarda nada.
+     No lleva token: el link publico sigue viviendo en la tabla factura_link. Acunar una URL publica cada
+     vez que alguien imprime seria crear una credencial de paso, sin querer. */
+  CREATE TABLE IF NOT EXISTS factura_guardada (
+    cliente_id TEXT, mes TEXT,
+    datos TEXT,                     -- la factura entera, congelada (JSON)
+    consumo_usdt TEXT, externos_usdt TEXT, total_usdt TEXT,
+    generada_at TEXT, generada_por TEXT, veces INTEGER DEFAULT 1,
+    actualizada_at TEXT,
+    salio_at TEXT, salio_como TEXT,  -- impresa | copiada | link | telegram
+    PRIMARY KEY (cliente_id, mes)
+  );
+  CREATE INDEX IF NOT EXISTS ix_factura_guardada_mes ON factura_guardada (mes);
+
   CREATE TABLE IF NOT EXISTS validacion_mes (
     mes TEXT PRIMARY KEY,
     datos TEXT,                    -- el resultado completo (JSON)

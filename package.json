@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.js && node test/factura-cruce.js",
+    "test": "node test/smoke.js && node test/factura-cruce.js && node test/facturas-guardadas.js",
     "test:factura": "node test/factura-cruce.js"
   },
   "engines": {
