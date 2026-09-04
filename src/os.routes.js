@@ -3564,6 +3564,25 @@ function mount(app) {
       cuenta: deudaSvc.cuentaCorriente(cli.id), meses: filas });
   });
 
+  /* ── MARCAR UNA DIFERENCIA COMO YA MIRADA ────────────────────────────────────────────────────
+     Muchas diferencias tienen una explicación que sólo conoce quien las hizo: una prueba, una
+     reposición, una carga a mano. Sin poder anotarlo, el mismo aviso sale todos los meses y termina
+     salteándose sin leer. No borra ni corrige nada: deja dicho que alguien lo miró, quién y cuándo,
+     y sale del recuento de plata. Se puede deshacer. */
+  app.post('/api/os/validacion/:mes/resolver', wrap((req, res) => {
+    const b = req.body || {};
+    const r = crucePanel.resolver({
+      mes: req.params.mes, nodo: b.nodo, panel: b.panel, cliente_id: b.cliente_id || null,
+      divisa: b.divisa, monto: b.monto, fecha: b.fecha || null,
+      decision: b.decision, motivo: b.motivo,
+      quien: (req.usuario && req.usuario.usuario) || 'admin',
+    });
+    if (!r.ok) return err(res, 400, r.error);
+    ok(res, r);
+  }));
+  app.delete('/api/os/validacion/resolver/:clave', (req, res) =>
+    ok(res, crucePanel.desresolver(decodeURIComponent(req.params.clave))));
+
   // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
   // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
   app.get('/api/os/validacion/:mes', wrap(async (req, res) => {
@@ -3622,7 +3641,12 @@ function mount(app) {
       // Lo que el ruteo dejó SIN COBRAR A NADIE: cargas en un panel de tránsito que no aparecen
       // cobradas más abajo. La marca del panel no las puede hacer desaparecer sin que alguien las vea.
       const previa = await _facturacionDe(mes, { control: false });
-      const revisar = (previa && previa.paraRevisar) || [];
+      // Las que ya se miraron no vuelven a frenar la emisión. Usan el id del pedido como nodo:
+      // vienen de los pedidos, no de una fila del casino.
+      const vistas = crucePanel.resoluciones(mes);
+      const revisar = ((previa && previa.paraRevisar) || []).map((x) => ({
+        ...x, clave: crucePanel.claveDe(mes, x.id, { divisa: x.divisa, monto: x.monto, fecha: x.iso || null }),
+      })).filter((x) => !vistas[x.clave]);
       const v = await crucePanel.cruzarMes(mes);
       if (v.ok) crucePanel.guardar(v);
       if (revisar.length || (v.ok && crucePanel.hayQueMirar(v))) {

@@ -2117,9 +2117,15 @@ function pintarValidacion(v, mes, paraRevisar) {
     ? '<div class="card" style="background:rgba(217,83,79,.10);border-color:rgba(217,83,79,.5)">'
       + '<b style="color:var(--red)">🔴 ' + paraRevisar.length + ' carga(s) no se le cobran a NADIE</b>'
       + '<div class="muted" style="margin-top:4px">Cayeron en un panel marcado como de tránsito, pero no aparecen cobradas a ningún cliente más abajo.</div>'
-      + '<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Panel</th><th>Código</th><th>Moneda</th><th class="right">Monto</th></tr></thead><tbody>'
-      + paraRevisar.map(x => '<tr><td>' + esc(x.fecha) + ' <span class="muted">' + esc(x.hora) + '</span></td><td>' + esc(x.panel) + '</td>'
-          + '<td><span class="pill">' + esc(x.codigo) + '</span></td><td>' + esc(x.divisa) + '</td><td class="right">' + money(x.monto,2) + '</td></tr>').join('')
+      + '<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Panel</th><th>Código</th><th>Moneda</th><th class="right">Monto</th><th></th></tr></thead><tbody>'
+      + paraRevisar.map(x => {
+          const arg = encodeURIComponent(JSON.stringify({ mes, nodo: x.id, panel: x.panel, cliente_id: null,
+            divisa: x.divisa, monto: x.monto, fecha: x.iso || null }));
+          return '<tr><td>' + esc(x.fecha) + ' <span class="muted">' + esc(x.hora) + '</span></td><td>' + esc(x.panel) + '</td>'
+            + '<td><span class="pill">' + esc(x.codigo) + '</span></td><td>' + esc(x.divisa) + '</td><td class="right">' + money(x.monto,2) + '</td>'
+            + '<td class="right" style="white-space:nowrap"><button class="outline small" onclick="difResolver(\'' + arg + '\',\'prueba\')">es una prueba</button> '
+            + '<button class="outline small" onclick="difResolver(\'' + arg + '\',\'revisada\')">ya la revisé</button></td></tr>';
+        }).join('')
       + '</tbody></table></div>'
     : '';
   if (!v || !v.ok) { box.innerHTML = revisar + '<div class="card"><span class="badge err">Además, no se pudo contrastar contra los paneles</span>'
@@ -2176,6 +2182,10 @@ function pintarValidacion(v, mes, paraRevisar) {
              T.comprasDeVendedor ? T.comprasDeVendedor + ' compra(s) mayoristas de un vendedor' : ''].filter(Boolean).join(' · ')
           + '.</div>' : '')
     + (filas ? '<table style="margin-top:10px"><thead><tr><th>Cliente</th><th class="right">Se cobra de más</th><th class="right">No se cobra</th><th class="right">Sin validar</th><th class="right">De otro cliente</th><th class="right">Dos veces</th><th class="right">Prueba</th><th class="right">Sin TC</th></tr></thead><tbody>' + filas + '</tbody></table>' : '')
+    // ── UNA POR UNA, CON CÓMO RESOLVERLA ──
+    // El total dice cuánto; esto dice QUÉ, y deja marcarlo sin salir de acá. Si no, el mismo aviso
+    // vuelve todos los meses y se termina salteando sin leer.
+    + _difsSueltas(v, mes)
     + '<div class="row" style="margin-top:10px">'
       + '<button class="danger" onclick="facEmitir(true)">Emitir igual, ya lo vi</button>'
       + '<button class="outline" onclick="document.getElementById(\'fac-emi-out\').innerHTML=\'\'">Cancelar</button>'
@@ -2183,6 +2193,64 @@ function pintarValidacion(v, mes, paraRevisar) {
     + '<div class="muted" style="margin-top:6px">Queda guardado qué se validó y quién decidió emitir con esto a la vista.</div>'
     + '</div>';
   box.scrollIntoView({ block: 'start' });
+}
+
+/* El listado de cada diferencia que todavía nadie miró, con el botón para resolverla.
+   Las que ya se miraron siguen figurando, en gris y con quién las marcó: sacarlas del todo haría
+   imposible darse cuenta de que algo se marcó por error. */
+function _difsSueltas(v, mes) {
+  const filas = [];
+  (v.paneles || []).forEach(p => (p.diferencias || []).forEach(d => {
+    if (!['registrada_sin_pedido','entro_sin_pedido','probable_prueba','sin_tc_no_medible','vino_de_otro_cliente','cobrada_dos_veces'].includes(d.tipo)) return;
+    const o = d.venta || d.carga || {};
+    filas.push({ p, d, o });
+  }));
+  if (!filas.length) return '';
+  const pend = filas.filter(f => !f.d.resuelta).length;
+  return '<div class="card" style="margin-top:10px"><b>Una por una</b> <span class="muted">('
+    + pend + ' sin mirar de ' + filas.length + ')</span>'
+    + '<table style="margin-top:6px"><thead><tr><th>Cliente</th><th>Panel</th><th>Fecha</th><th>Moneda</th><th class="right">Monto</th><th>Qué es</th><th></th></tr></thead><tbody>'
+    + filas.map(({p, d, o}) => {
+        const cli = (v.porCliente || []).find(c => (c.paneles || []).includes(p.panel));
+        const arg = encodeURIComponent(JSON.stringify({ mes, nodo: p.nodo, panel: p.panel,
+          cliente_id: cli ? cli.cliente_id : null, divisa: o.divisa, monto: o.monto, fecha: o.fecha || null, clave: d.clave }));
+        return '<tr' + (d.resuelta ? ' style="opacity:.5"' : '') + '>'
+          + '<td>' + esc(cli ? cli.nombre : (p.esDeVendedor ? '(vendedor)' : '—')) + '</td>'
+          + '<td>' + esc(p.panel) + '</td>'
+          + '<td class="muted">' + esc(o.fecha || '(sin hora)') + '</td>'
+          + '<td>' + esc(o.divisa || '') + '</td>'
+          + '<td class="right">' + money(o.monto, 2) + '</td>'
+          + '<td class="muted" style="max-width:320px">' + esc(d.motivo || d.tipo) + '</td>'
+          + '<td class="right" style="white-space:nowrap">'
+            + (d.resuelta
+                ? '<span class="badge ok">' + (d.resuelta.decision === 'prueba' ? 'prueba' : 'revisada') + '</span>'
+                  + ' <span class="muted">' + esc(d.resuelta.quien || '') + '</span>'
+                  + ' <button class="outline small" title="Volver a dejarla pendiente" onclick="difDesresolver(\'' + encodeURIComponent(d.clave) + '\')">↩</button>'
+                : '<button class="outline small" onclick="difResolver(\'' + arg + '\',\'prueba\')">es una prueba</button> '
+                  + '<button class="outline small" onclick="difResolver(\'' + arg + '\',\'revisada\')">ya la revisé</button>')
+          + '</td></tr>';
+      }).join('')
+    + '</tbody></table>'
+    + '<div class="muted" style="margin-top:6px">Marcar una no borra ni corrige nada: deja anotado que alguien la miró, con su nombre y la fecha. Se puede deshacer.</div></div>';
+}
+
+async function difResolver(arg, decision) {
+  const d = JSON.parse(decodeURIComponent(arg));
+  const motivo = prompt(decision === 'prueba'
+    ? '¿Por qué es una prueba? (queda anotado)'
+    : '¿Qué era? (queda anotado)', decision === 'prueba' ? 'carga de prueba, no se cobra' : '');
+  if (motivo === null) return;
+  const r = await api('/api/os/validacion/' + encodeURIComponent(d.mes) + '/resolver',
+    { method: 'POST', body: JSON.stringify({ ...d, decision, motivo }) });
+  if (!r.ok) return toast('No se pudo: ' + (r.error || ''));
+  toast('Marcada');
+  facEmitir();          // se vuelve a contrastar: el total tiene que bajar
+}
+async function difDesresolver(clave) {
+  const r = await api('/api/os/validacion/resolver/' + clave, { method: 'DELETE' });
+  if (!r.ok) return toast('No se pudo');
+  toast('Vuelve a estar pendiente');
+  facEmitir();
 }
 
 async function facAnular() {

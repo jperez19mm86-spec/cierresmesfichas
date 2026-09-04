@@ -322,6 +322,24 @@ db.exec(`
      que se valido y que se dejo pasar cuando se emitio, no lo que daria hoy.
      La columna confirmado_por deja el rastro de quien decidio emitir igual con las diferencias
      a la vista. */
+  /* UNA DIFERENCIA QUE YA SE MIRÓ.
+     El contraste encuentra cosas que no cuadran, pero muchas tienen una explicación que sólo
+     conoce quien las hizo: una prueba, una reposición, una carga a mano. Sin poder anotarlo, el
+     mismo aviso vuelve a salir todos los meses y termina salteándose sin leer — que es la forma
+     en que se pierde la señal que el aviso existe para dar.
+     La CLAVE identifica el movimiento, no la fila del reporte: mes + nodo + divisa + monto + fecha, sin
+     el tipo, para que la resolución sobreviva si mañana el cruce lo clasifica mejor.
+     No borra ni corrige nada: sólo deja dicho que alguien lo miró, quién y cuándo. */
+  CREATE TABLE IF NOT EXISTS diferencia_resuelta (
+    clave TEXT PRIMARY KEY,
+    mes TEXT, nodo TEXT, panel TEXT, cliente_id TEXT,
+    divisa TEXT, monto TEXT, fecha TEXT,
+    decision TEXT,              -- prueba | revisada
+    motivo TEXT,
+    quien TEXT, cuando TEXT
+  );
+  CREATE INDEX IF NOT EXISTS ix_dif_resuelta_mes ON diferencia_resuelta (mes);
+
   CREATE TABLE IF NOT EXISTS validacion_mes (
     mes TEXT PRIMARY KEY,
     datos TEXT,                    -- el resultado completo (JSON)

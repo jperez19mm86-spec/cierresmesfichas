@@ -526,9 +526,23 @@ async function cruzar({ codigos = [], mes, detalle = null }) {
   salida.forEach((p) => { delete p.salidasLibres; });
   salida.forEach((p) => {
     p.cuadra = p.cargas.every((c) => c.cruza)
-      && !p.diferencias.some((d) => ['registrada_sin_pedido', 'vino_de_otro_cliente', 'entro_sin_pedido',
-        'probable_prueba', 'sin_tc_no_medible', 'cobrada_dos_veces'].includes(d.tipo));
+      && !p.diferencias.some((d) => !d.resuelta && ['registrada_sin_pedido', 'vino_de_otro_cliente',
+        'entro_sin_pedido', 'probable_prueba', 'sin_tc_no_medible', 'cobrada_dos_veces'].includes(d.tipo));
   });
+
+  /* Las que ya se miraron dejan de contar. No se borran ni se esconden: se marcan con quién las
+     revisó y cuándo, y salen del recuento de plata para que el aviso vuelva a hablar sólo de lo
+     que nadie vio todavía. */
+  const yaVistas = resoluciones(m);
+  for (const p of salida) {
+    for (const d of (p.diferencias || [])) {
+      const o = d.venta || d.carga;
+      if (!o) continue;
+      d.clave = claveDe(m, p.nodo, { divisa: o.divisa, monto: o.monto, fecha: o.fecha || null });
+      const r = yaVistas[d.clave];
+      if (r) d.resuelta = { decision: r.decision, motivo: r.motivo, quien: r.quien, cuando: r.cuando };
+    }
+  }
 
   salida.sort((a, b) => b.pedidas - a.pedidas);
   return {
@@ -615,12 +629,13 @@ async function cruzarMes(mes) {
     // por su propio árbol o entregadas por el vendedor — son tres caminos, no tres problemas.
     for (const c of p.cargas) {
       if (c.cruza) continue;
+      if ((p.diferencias || []).some((d) => d.resuelta && d.carga && d.carga.id === c.id)) continue;
       const a = acc(dueño(c.codigo)); a.cargasSinRegistro += 1;
       a.cobraDeMas_usdt = money.add(a.cobraDeMas_usdt, usdt(c.monto, c.divisa) || '0');
       if (!a.paneles.includes(p.panel)) a.paneles.push(p.panel);
     }
     // Fichas que vinieron del árbol de OTRO cliente: ni venta nuestra ni movimiento suyo.
-    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'vino_de_otro_cliente')) {
+    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'vino_de_otro_cliente' && !x.resuelta)) {
       const a = acc(dueño(d.carga.codigo)); a.deOtroCliente = (a.deOtroCliente || 0) + 1;
       if (!a.paneles.includes(p.panel)) a.paneles.push(p.panel);
     }
@@ -631,7 +646,7 @@ async function cruzarMes(mes) {
     /* Las pruebas y las que no se pueden medir NO son plata sin cobrar, pero SÍ se informan.
        Regla de la dueña (3-sep-2026): «cualquier cosa que no cuadre, que no cierre, incluso los
        movimientos que asumimos como test, se me deben avisar». Van en su propia columna. */
-    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'probable_prueba')) {
+    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'probable_prueba' && !x.resuelta)) {
       const pan = paneles.list().find((x) => String(x.id_usuario) === String(p.nodo));
       const a = acc(pan ? clientes.get(pan.cliente_id) : null);
       a.pruebas += 1;
@@ -640,19 +655,20 @@ async function cruzarMes(mes) {
     }
     // Cobrar dos veces la misma entrega es el error más caro de todos: se le imputa al cliente
     // cuyo código lleva la carga, que es a quien se le está cobrando de más.
-    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'cobrada_dos_veces')) {
+    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'cobrada_dos_veces' && !x.resuelta)) {
       const a = acc(dueño(d.carga.codigo));
       a.dosVeces += 1;
       a.dosVeces_usdt = money.add(a.dosVeces_usdt, usdt(d.carga.monto, d.carga.divisa) || '0');
       if (!a.paneles.includes(p.panel)) a.paneles.push(p.panel);
     }
-    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'sin_tc_no_medible')) {
+    for (const d of (p.diferencias || []).filter((x) => x.tipo === 'sin_tc_no_medible' && !x.resuelta)) {
       const pan = paneles.list().find((x) => String(x.id_usuario) === String(p.nodo));
       const a = acc(pan ? clientes.get(pan.cliente_id) : null);
       a.sinTc += 1;
       if (!a.paneles.includes(p.panel)) a.paneles.push(p.panel);
     }
-    const sinPedido = (p.diferencias || []).filter((d) => d.tipo === 'registrada_sin_pedido' || d.tipo === 'entro_sin_pedido');
+    const sinPedido = (p.diferencias || []).filter((d) => !d.resuelta
+      && (d.tipo === 'registrada_sin_pedido' || d.tipo === 'entro_sin_pedido'));
     if (sinPedido.length) {
       const pan = paneles.list().find((x) => String(x.id_usuario) === String(p.nodo));
       const c = pan ? clientes.get(pan.cliente_id) : null;
@@ -736,6 +752,7 @@ async function cruzarMes(mes) {
       pruebas_usdt: money.round(money.sum(lista.map((a) => a.pruebas_usdt)), 2),
       dosVeces_usdt: money.round(money.sum(lista.map((a) => a.dosVeces_usdt)), 2),
       clientesConDiferencias: lista.length,
+      yaRevisadas: r.paneles.reduce((a, p) => a + (p.diferencias || []).filter((d) => d.resuelta).length, 0),
     },
   };
 }
@@ -760,6 +777,49 @@ function hayQueMirar(v) {
   return (v.porCliente || []).some((c) => c.cargasSinRegistro || c.ventasSinPedido
       || c.deOtroCliente || c.pruebas || c.sinTc || c.dosVeces || c.dePaso)
     || t.panelesSinValidar > 0 || (t.cobradasDosVeces || 0) > 0;
+}
+
+/**
+ * La clave de un movimiento, para poder decir "esto ya lo miré".
+ *
+ * Va sin el TIPO a propósito: si mañana el cruce clasifica mejor la misma fila —de "sin pedido" a
+ * "pase a mano", por ejemplo— la resolución que ya se anotó sigue valiendo. Lo que identifica al
+ * movimiento es el nodo, la moneda, el importe y la hora, no cómo lo llamamos nosotros.
+ */
+function claveDe(mes, nodo, o) {
+  return [String(mes), String(nodo), String(o.divisa || ''), String(o.monto), String(o.fecha || '')].join('|');
+}
+
+/** Las diferencias que ya se miraron en un mes, por clave. */
+function resoluciones(mes) {
+  const { db } = require('./db');
+  const out = {};
+  db.prepare('SELECT * FROM diferencia_resuelta WHERE mes=?').all(String(mes || '').slice(0, 7))
+    .forEach((r) => { out[r.clave] = r; });
+  return out;
+}
+
+/** Deja anotado que alguien miró una diferencia. No borra ni corrige: sólo dice quién y cuándo. */
+function resolver({ mes, nodo, panel, cliente_id, divisa, monto, fecha, decision, motivo, quien }) {
+  if (!['prueba', 'revisada'].includes(decision)) return { ok: false, error: `decisión inválida: ${decision}` };
+  const { db } = require('./db');
+  const clave = claveDe(mes, nodo, { divisa, monto, fecha });
+  db.prepare(`INSERT INTO diferencia_resuelta
+      (clave, mes, nodo, panel, cliente_id, divisa, monto, fecha, decision, motivo, quien, cuando)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(clave) DO UPDATE SET decision=excluded.decision, motivo=excluded.motivo,
+        quien=excluded.quien, cuando=excluded.cuando`)
+    .run(clave, String(mes).slice(0, 7), String(nodo), panel || null, cliente_id || null,
+      divisa || null, String(monto), fecha || null, decision, motivo || null,
+      quien || 'admin', new Date().toISOString());
+  return { ok: true, clave };
+}
+
+/** Deshace una resolución: si se marcó por error, tiene que poder volver a aparecer. */
+function desresolver(clave) {
+  const { db } = require('./db');
+  const n = db.prepare('DELETE FROM diferencia_resuelta WHERE clave=?').run(String(clave)).changes;
+  return { ok: true, borradas: n };
 }
 
 /** Guarda la validación de un mes. Se mira de nuevo meses después sin volver a preguntarle al casino. */
@@ -796,4 +856,4 @@ function leer(mes) {
   };
 }
 
-module.exports = { cruzar, cruzarMes, hayQueMirar, guardar, leer, _soloLectura: soloLectura };
+module.exports = { cruzar, cruzarMes, hayQueMirar, guardar, leer, resolver, desresolver, resoluciones, claveDe, _soloLectura: soloLectura };

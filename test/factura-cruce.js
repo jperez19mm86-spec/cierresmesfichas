@@ -385,6 +385,37 @@ const facturaSvc = require('../src/factura.service');
     'una venta del mes ANTERIOR no se reporta como carga sin cobrar de este mes');
   MOVS['9099270|ARS'].pop();
 
+  // ── 4d-ter) MARCAR UNA DIFERENCIA COMO YA MIRADA ──────────────────────────────────────────
+  // Sin esto el mismo aviso sale todos los meses y se termina salteando sin leer. Marcarla no borra
+  // ni corrige: la saca del recuento de plata y deja quién la miró.
+  const svcR = require('../src/cruce-panel.service');
+  const antes = await svcR.cruzarMes('2026-08');
+  const marce3 = antes.porCliente.find((x) => x.nombre === 'Marcelo');
+  ok(marce3 && marce3.ventasSinPedido === 1, 'antes de marcarla, la de 900.000 cuenta como plata sin cobrar');
+
+  const celuR = antes.paneles.find((p) => p.panel === 'Celuapuestas-SA');
+  const dR = (celuR.diferencias || []).find((d) => d.tipo === 'registrada_sin_pedido');
+  ok(!!dR.clave, 'cada diferencia trae su clave para poder marcarla');
+  svcR.resolver({ mes: '2026-08', nodo: celuR.nodo, panel: celuR.panel, divisa: dR.venta.divisa,
+    monto: dR.venta.monto, fecha: dR.venta.fecha, decision: 'prueba', motivo: 'carga de prueba', quien: 'alexa' });
+
+  const desp = await svcR.cruzarMes('2026-08');
+  const marce4 = desp.porCliente.find((x) => x.nombre === 'Marcelo');
+  ok(!marce4 || marce4.ventasSinPedido === 0, `marcada, deja de contar como plata (${marce4 ? marce4.ventasSinPedido : 0})`);
+  const celuD = desp.paneles.find((p) => p.panel === 'Celuapuestas-SA');
+  const dD = (celuD.diferencias || []).find((d) => d.clave === dR.clave);
+  ok(dD && dD.resuelta && dD.resuelta.quien === 'alexa', 'pero SIGUE figurando, con quién la marcó');
+  ok(dD && dD.resuelta.decision === 'prueba' && dD.resuelta.motivo === 'carga de prueba', 'y con su motivo');
+  ok(desp.totales.yaRevisadas >= 1, 'se cuentan las ya revisadas');
+
+  svcR.desresolver(dR.clave);
+  const otra = await svcR.cruzarMes('2026-08');
+  const marce5 = otra.porCliente.find((x) => x.nombre === 'Marcelo');
+  ok(marce5 && marce5.ventasSinPedido === 1, 'y se puede deshacer: vuelve a contar');
+
+  // La clave NO lleva el tipo: si mañana el cruce la clasifica mejor, la marca sigue valiendo.
+  ok(!/registrada_sin_pedido/.test(dR.clave), 'la clave no depende de cómo la clasificamos hoy');
+
   // ── 4e) apagar el puente ──────────────────────────────────────────────────────────────────
   // Apunta a un dominio que después de la migración es ESTE servicio, así que dejarlo prendido es
   // un riesgo: si alguien acierta las credenciales, la facturación vuelve a rutear por el mapeo
