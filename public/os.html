@@ -2171,6 +2171,7 @@ function pintarValidacion(v, mes, paraRevisar) {
           + [T.entregadasPorVendedor ? T.entregadasPorVendedor + ' carga(s) entregadas por el árbol de un vendedor' : '',
              T.bajaronDeSuArbol ? T.bajaronDeSuArbol + ' que bajaron por el propio árbol del cliente' : '',
              T.pasesEntrePaneles ? T.pasesEntrePaneles + ' pase(s) de fichas entre sus propios paneles' : '',
+             T.entraronYVolvieron ? T.entraronYVolvieron + ' que entraron y volvieron (pedidos anulados)' : '',
              T.pasesAMano ? T.pasesAMano + ' que parecen pases hechos a mano (tienen su retiro en otro panel suyo)' : '',
              T.comprasDeVendedor ? T.comprasDeVendedor + ' compra(s) mayoristas de un vendedor' : ''].filter(Boolean).join(' · ')
           + '.</div>' : '')

@@ -725,6 +725,7 @@ async function cruzarMes(mes) {
       bajaronDeSuArbol: r.paneles.reduce((a, p) => a + (p.bajaronDeSuArbol || 0), 0),
       comprasDeVendedor: r.totales.comprasDeVendedor,
       pasesEntrePaneles: r.totales.pasesEntrePaneles,
+      entraronYVolvieron: r.totales.entraronYVolvieron,
       pasesAMano: r.totales.pasesAMano,
       probablesPruebas: r.totales.probablesPruebas,
       sinTcNoMedible: r.totales.sinTcNoMedible,
