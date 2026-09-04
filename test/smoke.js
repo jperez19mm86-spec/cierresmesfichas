@@ -6221,6 +6221,26 @@ async function main() {
       /function mesDe/.test(ms) && /mv\.mes_cierre/.test(ms));
   }
 
+  /* ── UN DOCUMENTO QUE SALE PARA AFUERA NO ADIVINA DE QUÉ MES ES ──────────────────────────────
+     `facturaEnviar` leía el mes de `val('fac-mes')`, que es el selector de OTRA pantalla. Entrando
+     a la factura desde otro lado ese campo no está en el DOM, `val` devuelve '' y el servidor caía
+     al mes actual: se le mandó a un cliente la factura de septiembre mientras se miraba la de
+     agosto. Eso no se puede deshacer. */
+  {
+    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const env = h.slice(h.indexOf('async function facturaEnviar'), h.indexOf('async function facturaLink'));
+    check('factura: enviar usa el mes de la factura en pantalla, no el de otro campo',
+      /const mes = _facCtx\.mes/.test(env) && !/val\('fac-mes'\)/.test(env));
+    check('factura: sin mes no manda nada',
+      /if \(!mes\) return toast/.test(env));
+    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const ruta = rutas.slice(rutas.indexOf("app.post('/api/os/factura/:clienteId/enviar'"),
+      rutas.indexOf("app.post('/api/os/factura/:clienteId/enviar'") + 900);
+    check('factura: el servidor tampoco cae al mes actual al enviar',
+      /no se manda a ciegas/.test(ruta) && !/\|\| mesTZ\(\)/.test(ruta),
+      'defaultear a hoy es lo que mandó la factura equivocada');
+  }
+
   /* ── LO QUE ES TUYO NO VA EN EL PAPEL DEL CLIENTE ──────────────────────────────────────────
        "regenerada 3 veces", "salió por impresa", "Hoy debe 18.771,52", de dónde salió el detalle:
        sirven para trabajar y no tienen por qué llegarle al cliente. Se SACAN del documento al

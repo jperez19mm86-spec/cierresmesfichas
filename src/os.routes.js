@@ -4416,7 +4416,9 @@ function mount(app) {
 
   // El LINK con el que el cliente ve el desglose completo. Por Telegram le va el resumen y esto.
   app.post('/api/os/factura/:clienteId/link', wrap(async (req, res) => {
-    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    // Igual que enviar: el link se le pasa al cliente, así que tampoco puede adivinar el mes.
+    const mes = String((req.body && req.body.mes) || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'falta decir de qué mes es la factura — no se arma a ciegas');
     /* Si ya hay una factura guardada de ese mes, el link tiene que mostrar ESA: si recalculara, el
        cliente abriría el link y vería un número distinto del que se le mandó. */
     const g = facturasGuardadas.get(req.params.clienteId, mes);
@@ -4440,7 +4442,11 @@ function mount(app) {
   // botón, nunca sola, y nunca como parte de calcular. Si el cliente no tiene grupo cargado se
   // avisa en vez de fallar en silencio.
   app.post('/api/os/factura/:clienteId/enviar', wrap(async (req, res) => {
-    const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
+    /* 🔴 SIN MES NO SE MANDA. Caía al mes actual, y eso mandó la factura de septiembre a un cliente
+       mientras se estaba mirando la de agosto. Un documento que sale para afuera no puede adivinar
+       de qué mes es: si no viene, se frena y se dice. Un error acá no se puede deshacer. */
+    const mes = String((req.body && req.body.mes) || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'falta decir de qué mes es la factura — no se manda a ciegas');
     const conDetalle = !!(req.body && req.body.detalle);
     const cli = clientes.get(req.params.clienteId);
     if (!cli) return err(res, 404, 'cliente no encontrado');

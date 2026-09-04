@@ -2559,6 +2559,13 @@ async function verFactura(clienteId, conCruce) {
   toast(conCruce ? 'Consultando los paneles… puede tardar' : 'Armando la factura…');
   const r = await api('/api/os/factura/' + clienteId + '?mes=' + encodeURIComponent(mes) + (conCruce ? '&cruce=1' : ''));
   if (!r.ok) return toast('Error: ' + (r.error || ''));
+  /* 🔴 EL MES SALE DE LA FACTURA QUE SE ESTÁ MIRANDO, no de un campo de otra pantalla.
+     `facturaEnviar` y `facturaLink` leían `val('fac-mes')`, que es el selector de la pantalla de
+     Facturación. Entrando a la factura desde otro lado ese campo no está en el DOM, `val` devuelve
+     '' y el servidor caía al MES ACTUAL: se le mandó a Gabriel@ la factura de septiembre mientras
+     se estaba mirando la de agosto. Acá se fija con lo que contestó el servidor, que es el mes de
+     la factura que está en pantalla. */
+  _facCtx = { clienteId, mes: r.mes || mes };
   const $ = (x) => money(x, 2);
   const cons = r.consumo ? ('<div class="card" style="margin:8px 0"><b>Cargas del mes</b>'
     + '<div class="muted" style="margin-top:4px">' + r.consumo.pedidos + ' carga(s) · ' + $(r.consumo.vendido_usdt) + ' USDT</div>'
@@ -2718,9 +2725,12 @@ async function verFactura(clienteId, conCruce) {
 // Manda la factura al grupo de Telegram DEL CLIENTE. Sale para afuera: se pregunta siempre, y
 // se avisa si el cliente no tiene grupo cargado en vez de fallar callado.
 async function facturaEnviar(clienteId) {
-  const mes = val('fac-mes');
+  // El mes de la factura que está en pantalla. Sin él no se manda nada: mandarle al cliente la
+  // factura de otro mes es peor que no mandarle ninguna.
+  const mes = _facCtx.mes;
+  if (!mes) return toast('No sé de qué mes es esta factura — volvé a abrirla', true);
   const conDetalle = confirm('¿Incluir el detalle carga por carga?\n\nAceptar = con detalle (para que pueda auditarlo).\nCancelar = solo el resumen.');
-  if (!confirm('Se le va a MANDAR la factura de ' + mes + ' al grupo de Telegram del cliente. ¿Confirmás?')) return;
+  if (!confirm('Se le va a MANDAR la factura de ' + mesNombre(mes) + ' al grupo de Telegram del cliente. ¿Confirmás?')) return;
   toast('Enviando…');
   const r = await api('/api/os/factura/' + clienteId + '/enviar', { method: 'POST', body: JSON.stringify({ mes, detalle: conDetalle }) });
   if (!r.ok) return toast('No se envió: ' + (r.error || ''));
@@ -2730,7 +2740,8 @@ async function facturaEnviar(clienteId) {
 // Crea el link con el que el cliente ve el desglose completo. Guarda una FOTO: si despues entran
 // cargas nuevas, el link sigue mostrando lo que se le mando.
 async function facturaLink(clienteId) {
-  const mes = val('fac-mes');
+  const mes = _facCtx.mes;
+  if (!mes) return toast('No sé de qué mes es esta factura — volvé a abrirla', true);
   const r = await api('/api/os/factura/' + clienteId + '/link', { method: 'POST', body: JSON.stringify({ mes }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   const msg = r.actualizado ? 'Link actualizado (es el mismo de antes, con los numeros de ahora)' : 'Link creado';
