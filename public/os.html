@@ -2653,9 +2653,12 @@ async function verFactura(clienteId, conCruce) {
     '<div id="fac-doc">'
     + '<h2 style="margin:0">' + esc(r.cliente.nombre) + '</h2>'
     + '<div class="muted">' + esc(r.mesNombre) + ' · emitida el ' + esc(r.emitidaEl) + (r.tc ? ' · TC ' + money(r.tc,2) : '')
-      + (r.detalleDe ? ' · detalle: ' + esc(r.detalleDe) : '') + '</div>'
+      + '</div>'
+    + (r.detalleDe ? '<div class="muted solo-yo">detalle: ' + esc(r.detalleDe) + '</div>' : '')
+    /* `solo-yo` = lo que sirve para trabajar y NO va en el papel que recibe el cliente. Al imprimir
+       o copiar se saca: la trazabilidad de cuántas veces se regeneró es tuya, no suya. */
     + (r.guardada
-        ? '<div class="card" style="margin:8px 0;background:rgba(46,158,99,.10);border-color:rgba(46,158,99,.5);padding:8px 10px">'
+        ? '<div class="card solo-yo" style="margin:8px 0;background:rgba(46,158,99,.10);border-color:rgba(46,158,99,.5);padding:8px 10px">'
           + '<b style="color:var(--green)">🔒 Ésta es la factura guardada</b>'
           + '<span class="muted"> · generada el ' + esc(String(r.guardada.generada_at).slice(0,16).replace('T',' '))
           + (r.guardada.veces > 1 ? ' · regenerada ' + r.guardada.veces + ' veces' : '')
@@ -2672,7 +2675,7 @@ async function verFactura(clienteId, conCruce) {
        siguientes, y que los externos entran recién cuando se emite esa factura. */
     + ((r.saldoDesglose||[]).length
         ? '<table style="margin-top:6px"><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Pagos</th></tr></thead><tbody>'
-          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':(x.posterior?' style="opacity:.55"':''))+'><td>'+esc(x.mes)
+          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':(x.posterior?' class="solo-yo" style="opacity:.55"':''))+'><td>'+esc(x.mes)
             +(x.esteMes?' <span class="muted">(este mes)</span>':(x.posterior?' <span class="muted">(posterior · no entra en esta factura)</span>':''))+'</td>'
             + '<td class="right">'+(Number(x.consumo)?money(x.consumo,2):'<span class="muted">—</span>')+'</td>'
             + '<td class="right">'+(Number(x.externos)?money(x.externos,2):'<span class="muted">—</span>')+'</td>'
@@ -2689,7 +2692,7 @@ async function verFactura(clienteId, conCruce) {
     + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo al cierre de ' + esc(r.mesNombre) + ': '
     +   $(r.saldoAlCierre != null ? r.saldoAlCierre : r.cuenta.saldo) + ' USDT</div>'
     + (r.saldoAlCierre != null && String(r.saldoAlCierre) !== String(r.cuenta.saldo)
-        ? '<div class="muted" style="margin-top:2px">Hoy debe <b>' + $(r.cuenta.saldo) + ' USDT</b>: '
+        ? '<div class="muted solo-yo" style="margin-top:2px">Hoy debe <b>' + $(r.cuenta.saldo) + ' USDT</b>: '
           + 'lo de después de ' + esc(r.mesNombre) + ' no entra en esta factura.</div>' : '')
     // Un saldo que todavía se mueve se dice que se mueve. Presentarlo como cerrado es peor que
     // no darlo: se manda, el cliente lo anota, y al cerrar el mes no coincide.
@@ -2748,8 +2751,12 @@ function facturaImprimir() {
   const d = document.getElementById('fac-doc');
   if (!d) return;
   facturaRegistrar('impresa');
+  /* Se SACAN del documento, no se esconden con CSS: si sólo se ocultaran, el que abra el PDF y
+     mire el código igual los lee. Se clona para no tocar la pantalla. */
+  const limpio = d.cloneNode(true);
+  limpio.querySelectorAll('.solo-yo').forEach((el) => el.remove());
   const w = window.open('', '_blank');
-  w.document.write('<html><head><title>Factura</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left;font-size:13px}.right{text-align:right}.muted{color:#666;font-size:12px}.card{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}</style></head><body>' + d.innerHTML + '</body></html>');
+  w.document.write('<html><head><title>Factura</title><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #ddd;padding:6px;text-align:left;font-size:13px}.right{text-align:right}.muted{color:#666;font-size:12px}.card{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}</style></head><body>' + limpio.innerHTML + '</body></html>');
   w.document.close();
   w.focus();
   setTimeout(() => w.print(), 300);

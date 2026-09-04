@@ -6200,6 +6200,18 @@ async function main() {
       /Saldo al cierre de/.test(h) && /r\.saldoAlCierre/.test(h));
     check('factura: y sigue mostrando lo que debe HOY, con otro nombre',
       /Hoy debe/.test(h), 'para cobrar sirve, pero es otra pregunta');
+    /* Y en el TEXTO que se copia y se manda, lo mismo: ahí iba el saldo de hoy. */
+    check('factura: el texto que se manda también cierra con el saldo del mes',
+      /Saldo al cierre de \$\{esc\(f\.mesNombre\)\}/.test(svc) && !/Saldo de la cuenta/.test(svc));
+    /* ── LO QUE ES TUYO NO VA EN EL PAPEL DEL CLIENTE ──────────────────────────────────────────
+       "regenerada 3 veces", "salió por impresa", "Hoy debe 18.771,52", de dónde salió el detalle:
+       sirven para trabajar y no tienen por qué llegarle al cliente. Se SACAN del documento al
+       imprimir, no se ocultan con CSS: escondido, cualquiera que abra el PDF igual lo lee. */
+    check('factura: lo interno va marcado como solo-yo',
+      (h.match(/solo-yo/g) || []).length >= 5);
+    check('factura: al imprimir se saca del documento, no se esconde',
+      /cloneNode\(true\)/.test(h) && /querySelectorAll\('\.solo-yo'\)\.forEach\(\(el\) => el\.remove\(\)\)/.test(h),
+      'ocultarlo con CSS lo deja legible en el código del PDF');
   }
 
   /* ── UNA VARIABLE QUE NO EXISTE ROMPE LA PANTALLA EN SILENCIO ────────────────────────────────

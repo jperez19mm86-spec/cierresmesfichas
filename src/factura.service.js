@@ -403,7 +403,11 @@ function aTexto(f, { detalle = false } = {}) {
   L.push(`<b>TOTAL DEL MES: ${$(f.totalMes_usdt)} USDT</b>`
     + (tl ? ` <b>(${tl.aproximado ? '≈ ' : ''}${$(tl.monto)} ${esc(tl.divisa)})</b>` : ''));
   L.push('');
-  L.push(`Saldo de la cuenta: <b>${$(f.cuenta.saldo)} USDT</b>`);
+  /* El saldo del texto que se le manda al cliente es el DEL CIERRE del mes, igual que en pantalla.
+     Acá iba el de hoy, que ya arrastraba el mes siguiente: el cliente recibía un número que no se
+     puede reconciliar con nada de lo que la factura dice arriba. Lo que debe hoy es información
+     tuya para cobrarle, no parte del papel de agosto. */
+  L.push(`Saldo al cierre de ${esc(f.mesNombre)}: <b>${$(f.saldoAlCierre != null ? f.saldoAlCierre : f.cuenta.saldo)} USDT</b>`);
   // Un saldo que todavía se mueve se dice que se mueve. Mandarlo como definitivo hace que el
   // cliente lo anote y que al cerrar el mes no le coincida — y el que queda mal es el sistema.
   if (Number(f.cuenta.esperandoTC || 0) > 0) L.push('<i>(incluye pagos en pesos que se ajustan al cerrar el tipo de cambio del mes)</i>');
