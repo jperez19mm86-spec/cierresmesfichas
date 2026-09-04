@@ -70,6 +70,19 @@ function crearMotorFalso() {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify([...cuentas.values()]));
     }
+    /* Sembrar muchas cuentas de una: probar el paginado necesita más de una página, y crearlas
+       por la API serían 250 altas. */
+    if (u.pathname === '/__sembrar') {
+      const n = Number(u.searchParams.get('cuantas')) || 0;
+      const padre = u.searchParams.get('padre') || '100';
+      const grupo = u.searchParams.get('grupo') || '4';
+      const base = u.searchParams.get('prefijo') || 'CajaMasiva';
+      for (let i = 0; i < n; i += 1) {
+        poner({ id: String(50000 + i), login: base + i, group: grupo, padre, saldo: 0 });
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ sembradas: n }));
+    }
     if (u.pathname === '/__reiniciar') {
       pedidos.length = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -150,7 +163,14 @@ function crearMotorFalso() {
         let filas = hijosDe(dueño);
         /* El filtro de borradas: el motor devuelve unas u otras, nunca las dos. */
         filas = filas.filter((c) => (cuerpo.deleted_users === 'delete' ? c.borrada : !c.borrada));
-        if (cuerpo.search) filas = filas.filter((c) => c.login.includes(cuerpo.search));
+        /* 🔴 `search` SÓLO FILTRA JUGADORES, Y SÓLO DESDE LA QUERY. Medido contra el casino el
+           4-sep-2026 barriendo diez nombres de parámetro en la query y en el cuerpo: sobre una
+           caja, `search` en la query devuelve 1 de 5; sobre la raíz de un agente NINGUNO filtra.
+           Se imita para que un test note si el código vuelve a confiar en el filtro. */
+        const hijosSonJugadores = filas.length > 0 && filas.every((c) => c.group === '5');
+        if (query.search && hijosSonJugadores) {
+          filas = filas.filter((c) => c.login.includes(query.search));
+        }
         const desde = (pagina - 1) * porPagina;
         return responder({
           users: filas.slice(desde, desde + porPagina).map(comoFila),

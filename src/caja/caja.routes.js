@@ -140,7 +140,16 @@ function mount(app) {
       ...(q.buscar ? { search: String(q.buscar) } : {}),
     });
     if (!esJson(r)) return delMotor(res, r);
-    const filas = sinFilaTotal(r.data.users);
+    let filas = sinFilaTotal(r.data.users);
+    /* 🔴 «BUSCAR» TIENE QUE BUSCAR. El motor ignora `search` cuando abajo hay CAJEROS —medido el
+       4-sep-2026: sobre una caja filtra 1 de 5, sobre la raíz de un agente devuelve las cuatro
+       igual, y ningún otro nombre de parámetro cambia nada—. Así que devolvía la lista entera como
+       si fuera el resultado de la búsqueda. Se filtra acá sobre lo que vino: dentro de la página es
+       exacto, y es lo único honesto que se puede hacer sin recorrer todo el árbol. */
+    if (q.buscar) {
+      const aguja = String(q.buscar).toLowerCase();
+      filas = filas.filter((f) => `${f.login || ''} ${f.name || ''}`.toLowerCase().includes(aguja));
+    }
     ok(res, {
       cuentas: filas,
       /* ⚠️ Al buscar, `pageCount` NO se actualiza: sigue diciendo el total sin filtro. */
@@ -793,19 +802,36 @@ function mount(app) {
     return fila && fila.create ? String(fila.create) : null;
   }
 
+  /* 🔴 `search` SÓLO FILTRA JUGADORES, NO CAJEROS. Medido el 4-sep-2026 barriendo diez nombres de
+     parámetro (`search`, `login`, `user`, `filter`, `q`…) en la query y en el cuerpo, sobre los dos
+     tipos de nodo: sobre una caja, `search` en la query devuelve 1 de 5; sobre la raíz de un
+     agente, NINGUNO filtra — vuelven las cuatro cajas igual.
+     Por eso esto no puede confiar en el filtro. Se manda igual (cuando sirve, ahorra el recorrido)
+     pero se PAGINA hasta encontrar el login, y sólo se rinde cuando el motor deja de dar filas.
+     Sin esto, un agente con más de 200 cajas no podía crear la 201: la verificación del alta miraba
+     la primera página, no la encontraba, y contestaba «ese nombre ya está usado» con la caja recién
+     creada del otro lado — el mismo error que ya nos costó cuentas duplicadas.
+
+     🔴 Y `deleted_users` VA SIEMPRE. Mismo vicio del motor que en `saldoDeCuenta`: lo que no se
+     manda se hereda de la última consulta de la sesión. Si alguien abrió «Eliminados», esta
+     búsqueda mira SÓLO cuentas borradas y no encuentra la que se acaba de crear.
+     Medido el 1-sep-2026: crear CajaTest093825 devolvió ese error y la cuenta estaba ahí. */
+  const PAGINAS_BUSCANDO = 10;               // 2.000 cuentas: más que cualquier agente real
+
   async function buscarLogin(cli, padre, login) {
-    /* 🔴 `deleted_users` VA ACÁ TAMBIÉN. Mismo vicio del motor que en `saldoDeCuenta`: lo que no
-       se manda, se hereda de la última consulta de la sesión. Si alguien abrió «Eliminados», esta
-       búsqueda mira SÓLO cuentas borradas y no encuentra la que se acaba de crear — y el alta
-       contesta «ese nombre ya está usado» con la cuenta creada del otro lado.
-       Medido el 1-sep-2026: crear CajaTest093825 devolvió ese error y la cuenta estaba ahí
-       (id 7378275). Es el mismo error que ya se había arreglado para el saldo; faltaba acá. */
-    const r = await cli.apiCall('users',
-      { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
-      { id: String(padre), offset: '1', search: String(login) });
-    if (!esJson(r)) return null;
-    const filas = sinFilaTotal(r.data.users || r.data.rows || []);
-    return filas.find((x) => String(x.login) === String(login)) || null;
+    for (let pagina = 1; pagina <= PAGINAS_BUSCANDO; pagina++) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await cli.apiCall('users',
+        { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
+        { id: String(padre), offset: String(pagina), search: String(login) });
+      if (!esJson(r)) return null;
+      const filas = sinFilaTotal(r.data.users || r.data.rows || []);
+      const hallada = filas.find((x) => String(x.login) === String(login));
+      if (hallada) return hallada;
+      /* Página incompleta = no hay más. Y una vacía corta también, por si el motor pagina raro. */
+      if (filas.length < 200) return null;
+    }
+    return null;
   }
 
   app.post('/api/caja/crear', auth.requerida, wrap(async (req, res) => {

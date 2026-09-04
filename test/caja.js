@@ -325,7 +325,86 @@ async function main() {
     check('sin sesión no se mueve una ficha', r.status === 401 && !r.data.ok);
     galleta = sinGalleta;
     void galletaCaja;
+
+    /* ── el diario sobrevive al despliegue ──────────────────────────────────────────────────────
+       🔴 Antes vivía sólo en memoria. El 4-sep-2026 el equipo reportó E-991 y cuando fui a
+       buscarlo ya no existía: había desplegado tres veces en el medio. Un número de caso que no
+       se puede consultar no sirve para nada. */
+    {
+      /* La base del test, no la de siempre: el servidor corre en otro proceso con DB_PATH puesto. */
+      const db = new (require('better-sqlite3'))(BASEDATOS, { readonly: true });
+      const guardadas = db.prepare('SELECT COUNT(*) AS n FROM caja_diario').get().n;
+      check('cada pedido queda escrito en la base, no sólo en memoria',
+        guardadas > 0, `${guardadas} casos guardados`);
+
+      /* Con sesión: el último pedido del diario es el de «sin sesión», donde `quien` es null a
+         propósito — nadie estaba identificado. */
+      const unCaso = db.prepare(
+        'SELECT * FROM caja_diario WHERE ruta LIKE ? AND quien IS NOT NULL ORDER BY n DESC LIMIT 1'
+      ).get('%fichas%');
+      check('y guarda lo que hace falta para entender qué pasó',
+        !!unCaso && unCaso.quien && unCaso.ms >= 0 && unCaso.detalle,
+        unCaso ? `E-${unCaso.n} · ${unCaso.quien} · ${unCaso.detalle}` : '(ninguno)');
+
+      /* 🔴 El número NO puede volver a empezar en 1: habría dos E-347 de días distintos y el que
+         se busca no sería el que aparece. */
+      const archivoDiario = require('fs').readFileSync(
+        __dirname + '/../src/caja/caja-diario.js', 'utf8');
+      check('el número sigue desde el último guardado, no vuelve a 1',
+        /SELECT MAX\(n\) AS n FROM caja_diario/.test(archivoDiario));
+
+      check('no guarda contraseñas en la base',
+        !db.prepare("SELECT COUNT(*) AS n FROM caja_diario WHERE detalle LIKE '%clave%'"
+          + " OR detalle LIKE '%password%'").get().n);
+
+      const archivo = require('fs').readFileSync(__dirname + '/../src/caja/caja-diario.js', 'utf8');
+      check('se borra solo a los 7 días, para que no crezca sin fin',
+        /DIAS_QUE_SE_GUARDA = 7/.test(archivoDiario)
+        && /DELETE FROM caja_diario WHERE cuando < \?/.test(archivoDiario));
+      check('y si la base no abre, el diario sigue andando en memoria',
+        /db = null;\n\}/.test(archivoDiario) && /if \(!guardarFila\) return;/.test(archivoDiario));
+      db.close();
+    }
+
+    /* ── la búsqueda que no busca ───────────────────────────────────────────────────────────────────
+       🔴 Medido contra el casino el 4-sep-2026: `search` filtra JUGADORES pero no CAJEROS, y ningún
+       otro nombre de parámetro cambia nada. El alta verificaba mirando UNA sola página confiando en
+       ese filtro: un agente con más de 200 cajas no podía crear la 201 — la verificación no la
+       encontraba y contestaba «ese nombre ya está usado», con la caja recién creada del otro lado. */
+    {
+      /* 250 cajas para que la que buscamos caiga en la segunda página. */
+      await axios.get(MOTOR + '/__sembrar?cuantas=250&padre=100&grupo=4');
+      const r = (await pedir('/api/caja/cuentas?id=100&limite=200')).data;
+      check('el motor devuelve la primera página nomás',
+        (r.cuentas || []).length === 200, `${(r.cuentas || []).length} cuentas`);
+
+      /* La 249 está en la segunda página: antes esto contestaba «ya está usado». */
+      const alta = (await enviar('/api/caja/crear', {
+        padre: '100', login: 'CajaNueva251', clave: 'Prb7x9k2', tipo: 'cajero', saldo: 0,
+      })).data;
+      check('se puede crear una caja aunque el agente ya tenga más de 200',
+        alta.ok === true, alta.error || 'creada');
+
+      /* Y el duplicado se sigue detectando, esté en la página que esté. */
+      const repe = (await enviar('/api/caja/crear', {
+        padre: '100', login: 'CajaMasiva249', clave: 'Prb7x9k2', tipo: 'cajero', saldo: 0,
+      })).data;
+      check('y una que YA existe en la página 2 se detecta igual',
+        repe.ok === false && repe.ocupado === true, repe.error || '(no la detectó)');
+
+      const conFiltro = (await pedir('/api/caja/cuentas?id=100&buscar=CajaMasiva7')).data;
+      check('«buscar» filtra de verdad, aunque el motor ignore el parámetro',
+        (conFiltro.cuentas || []).length > 0
+        && (conFiltro.cuentas || []).every((c) => c.login.includes('CajaMasiva7')),
+        `${(conFiltro.cuentas || []).length} cuentas`);
+      const vacio = (await pedir('/api/caja/cuentas?id=100&buscar=ZZZnoExiste')).data;
+      check('y buscar algo que no está devuelve nada, no la lista entera',
+        (vacio.cuentas || []).length === 0, `${(vacio.cuentas || []).length} cuentas`);
+    }
   } finally {
+    /* ⚠️ ACÁ SE APAGAN LOS SERVIDORES. Todo lo que hable con el sistema va ARRIBA; abajo sólo
+       pueden ir verificaciones que leen archivos. Una que pida por HTTP acá abajo no falla con
+       un mensaje claro: revienta con ECONNRESET y se lleva la corrida entera. */
     srv.kill();
     await motor.cerrar();
   }
