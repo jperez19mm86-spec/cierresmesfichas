@@ -4004,7 +4004,11 @@ function mount(app) {
     try {
       for (const c of (fac.clientes || [])) {
         if (c.sinBase) continue;
-        const f = await facturaSvc.armar({ clienteId: c.cliente_id, mes, consumo: c, conExternos: false });
+        /* CON los externos. Iba en `false` y por eso la factura guardada mostraba el total con
+           los externos adentro y ni una línea de dónde salían: el cliente veía un número más
+           grande que la suma de sus cargas y no podía auditarlo. Ahora que el reporte sale de la
+           foto del mes tarda ~1s por cliente, así que la factura se guarda completa. */
+        const f = await facturaSvc.armar({ clienteId: c.cliente_id, mes, consumo: c, conExternos: true });
         if (!f.ok) continue;
         facturasGuardadas.guardar(f, { quien: (req.usuario && req.usuario.usuario) || 'admin' });
         guardadas += 1;
@@ -4129,6 +4133,47 @@ function mount(app) {
     if (!f.ok) return err(res, 400, f.error);
     const r = facturasGuardadas.guardar(f, { como, quien: (req.usuario && req.usuario.usuario) || 'admin' });
     ok(res, r);
+  }));
+
+  /**
+   * ── VOLVER A GENERAR LAS FACTURAS YA GUARDADAS DE UN MES ────────────────────────────────────
+   *
+   * La factura guardada es la que se le mandó al cliente, y por eso pedirla de nuevo NO recalcula:
+   * dentro de tres meses tiene que dar lo mismo. Pero cuando se arregla algo que cambia el número
+   * —pasó con el saldo, que arrastraba el mes siguiente— las guardadas quedan con el número viejo
+   * y no hay forma de actualizarlas sin volver a emitir el mes entero, que toca la deuda.
+   *
+   * Esto rehace SÓLO las facturas, sin tocar ningún movimiento. `guardar` conserva `generada_at` y
+   * la primera salida: lo que cambia es el contenido, y sube `veces`.
+   *
+   * Por defecto SIMULA y dice cuáles cambiarían de número. Escribir hay que pedirlo con
+   * `aplicar: true`: son los papeles que ve el cliente.
+   */
+  app.post('/api/os/facturas-guardadas/:mes/regenerar', wrap(async (req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const aplicar = !!(req.body && req.body.aplicar);
+    const guardadas = facturasGuardadas.delMes(mes) || [];
+    const cambian = []; const iguales = []; const fallaron = [];
+    for (const g of guardadas) {
+      let f;
+      try { f = await _armarFactura(g.cliente_id, mes, { conExternos: true }); }
+      catch (e) { fallaron.push({ cliente_id: g.cliente_id, error: String((e && e.message) || e) }); continue; }
+      if (!f || !f.ok) { fallaron.push({ cliente_id: g.cliente_id, error: (f && f.error) || 'no se pudo armar' }); continue; }
+      const fila = { cliente_id: g.cliente_id, cliente: (f.cliente || {}).nombre || g.cliente_id,
+        antes_total: g.total_usdt, ahora_total: f.totalMes_usdt,
+        // el saldo es el que cambió con el arreglo, y es el que el cliente lee al final
+        antes_saldo: ((g.datos || {}).cuenta || {}).saldo ?? null,
+        ahora_saldo: f.saldoAlCierre ?? null,
+        yaSalio: g.salio_at ? g.salio_como : null };
+      const distinto = String(fila.antes_total) !== String(fila.ahora_total)
+        || String(fila.antes_saldo) !== String(fila.ahora_saldo);
+      (distinto ? cambian : iguales).push(fila);
+      if (aplicar) facturasGuardadas.guardar(f, { quien: (req.usuario && req.usuario.usuario) || 'admin' });
+    }
+    ok(res, { mes, simulado: !aplicar, total: guardadas.length,
+      cambian: cambian.length, iguales: iguales.length, fallaron,
+      detalle: cambian, yaEnviadas: cambian.filter((x) => x.yaSalio) });
   }));
 
   // El historial de facturas de un cliente: qué se le generó, cuándo, y si salió.

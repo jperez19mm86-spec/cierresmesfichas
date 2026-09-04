@@ -6154,6 +6154,35 @@ async function main() {
       'si las dos ramas usaran la misma, o se cobra de más a los clientes o de menos a los vendedores');
   }
 
+  /* ── SE PUEDEN REHACER LAS FACTURAS SIN VOLVER A EMITIR ──────────────────────────────────────
+     La guardada es la que se le mandó al cliente y por eso pedirla NO recalcula. Pero cuando se
+     arregla algo que cambia el número —pasó con el saldo, que arrastraba el mes siguiente— las 32
+     de agosto quedaron con el viejo, y la única forma de actualizarlas era re-emitir el mes, que
+     toca la deuda. Ahora se rehacen solas, sin tocar un movimiento. */
+  {
+    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const reg = rutas.slice(rutas.indexOf("app.post('/api/os/facturas-guardadas/:mes/regenerar'"),
+      rutas.indexOf('// El historial de facturas de un cliente'));
+    check('facturas: se pueden regenerar las de un mes sin tocar la deuda',
+      reg.length > 100 && !/emision\.|movs\.create/.test(reg),
+      'si tocara movimientos, rehacer un papel movería plata');
+    check('facturas: por defecto SIMULA y hay que pedir escribir',
+      /const aplicar = !!\(req\.body && req\.body\.aplicar\)/.test(reg)
+      && /if \(aplicar\) facturasGuardadas\.guardar/.test(reg));
+    check('facturas: avisa cuáles ya se le habían enviado al cliente',
+      /yaEnviadas:/.test(reg), 'una que ya salió con otro número hay que volver a mandarla');
+    // Y `guardar` no puede pisar cuándo se generó ni cuándo salió la primera vez.
+    const fg = fs.readFileSync(path.join(ROOT, 'src', 'facturas-guardadas.js'), 'utf8');
+    /* Y se guarda CON los externos. Con `conExternos:false` la factura mostraba el total con los
+       externos adentro y ni una línea de dónde salían: un número más grande que la suma de las
+       cargas, imposible de auditar. */
+    check('facturas: la guardada incluye el detalle de externos',
+      /armar\(\{ clienteId: c\.cliente_id, mes, consumo: c, conExternos: true \}\)/.test(rutas),
+      'sin esto el cliente ve el total y ninguna línea que lo explique');
+    check('facturas: rehacer no pisa la fecha original ni la primera salida',
+      /COALESCE\(factura_guardada\.salio_at/.test(fg) && /veces=factura_guardada\.veces\+1/.test(fg));
+  }
+
   /* ── LA FACTURA DE UN MES NO COBRA EL MES SIGUIENTE ──────────────────────────────────────────
      La factura de agosto de Marcelo mostraba "Saldo: 18.771,52", que es el de HOY — y ahí adentro
      ya había 793,29 de septiembre. El cliente recibe un número que no se puede reconciliar con
