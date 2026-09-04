@@ -152,7 +152,16 @@ require('./os.routes').mount(app);
 
 /* Mi Caja: el panel simple para agentes y cajeros. Los endpoints van acá, con `/api/caja/*`;
    la página se sirve más abajo, con el resto del frontend. */
-require('./caja/caja.routes').mount(app);
+/* 🔴 MI CAJA NO SE SIRVE DESDE ACÁ. Decisión del dueño, 4-sep-2026: «bajalo». Mi Caja vive en su
+   propio servicio (`micaja`, con `SOLO_CAJA=1`) y ese es el único lugar donde se prueba. Acá quedó
+   publicada de cuando se subió por primera vez, y responder 200 en `app.latamgames.online/caja`
+   invita a entrar a una copia vieja: este servicio ni siquiera tiene las variables del casino
+   —comprobado el 4-sep— así que lo único que podía pasar era que alguien intentara entrar y no
+   pudiera, sin entender por qué.
+   Se apaga con una condición y no borrando el código: el día que se quiera volver a publicar acá,
+   alcanza con poner `CAJA_AQUI=1`. */
+const CAJA_AQUI = process.env.SOLO_CAJA === '1' || process.env.CAJA_AQUI === '1';
+if (CAJA_AQUI) require('./caja/caja.routes').mount(app);
 
 // ─────────────── SISTEMAS (CRUD) ───────────────
 
@@ -1327,8 +1336,10 @@ app.get('/cuenta', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
 
 // Mi Caja. La página es pública; el DATO no: cada endpoint /api/caja/* exige la sesión propia,
 // que se abre con el usuario y la clave del casino.
-app.get('/caja', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')); });
+if (CAJA_AQUI) {
+  app.get('/caja', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')); });
+}
 
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,
@@ -1564,6 +1575,15 @@ app.get('/logo.png', (_req, res, next) => {
   } catch (e) { return next(); }
 });
 
+/* 🔴 Y TAMPOCO POR LA PUERTA DE ATRÁS. Apagar la ruta `/caja` no alcanza: el estático sirve la
+   carpeta `public` entera, así que `/caja.html` —y su conector— seguirían abriendo el panel con
+   otra dirección. Se cierran los cuatro archivos juntos. */
+if (!CAJA_AQUI) {
+  /* `/api/caja/*` va en la misma lista: sin esto cae en el comodín del final, que contesta la
+     página del panel con un 200 — una respuesta que un cliente viejo puede leer como «anduvo». */
+  const DE_CAJA = /^\/(caja\.html|caja-(conexion|logica)\.js|api\/caja(\/|$))/;
+  app.use((req, res, siguiente) => (DE_CAJA.test(req.path) ? res.status(404).end() : siguiente()));
+}
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, ruta) => {
     res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');
