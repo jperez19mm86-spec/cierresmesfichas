@@ -3989,7 +3989,17 @@ function pintarEnvio(copiado){
     <div class="sub"><span class="mono">${c.login}</span></div>
     <p class="explica">Escogé si mandarle su login y contraseña, o el link para que entre directo.</p>
     ${tarjeta('clave', 'Su login y contraseña', 'Entra escribiéndolos en la página', e.clave)}
-    ${tarjeta('link', 'Link para entrar directo', 'Lo toca y ya está adentro', e.link)}
+    ${/* 🔴 SIN LINK NO SE OFRECE EL LINK. Reportado el 4-sep-2026: la tarjeta «Link para entrar
+         directo» salía igual cuando la caja no tiene su dirección cargada — vacía, pero diciendo
+         «lo toca y ya está adentro», y al tocarla el teléfono abría el menú de compartir con nada
+         adentro y contestaba «no se pudieron mostrar todas las maneras de compartir contenido».
+         Un error del sistema operativo por algo que el panel nunca debió ofrecer. */''}
+    ${e.link
+      ? tarjeta('link', 'Link para entrar directo', 'Lo toca y ya está adentro', e.link)
+      : `<div class="nota">${window.SIN_LINK
+          /* La maqueta corre sin conector: ahí no existe el texto de verdad y hace falta uno. */
+          || 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino, así que no hay link '
+             + 'para dar. Con el usuario y la contraseña de arriba se entra igual.'}</div>`}
     <button class="masmenos" style="margin-top:4px" onclick="claveDeOtro('${c.id}')">
       Cambiarle la contraseña
     </button>
@@ -3999,6 +4009,11 @@ function pintarEnvio(copiado){
 }
 function copiarEnvio(id){
   const texto = window.__envio[id];
+  /* 🔴 NUNCA COMPARTIR VACÍO. `navigator.share({text:''})` no falla en silencio: el teléfono abre
+     su menú de compartir y muestra «Inténtalo de nuevo · No se pudieron mostrar todas las maneras
+     de compartir contenido». El `.catch` de acá no lo evita, porque ese cartel lo pone el sistema
+     operativo, no la página. */
+  if (!texto) return;
   if (navigator.clipboard) navigator.clipboard.writeText(texto).catch(() => {});
   if (navigator.share) navigator.share({ title:'User data', text:texto }).catch(() => {});
   pintarEnvio(id);

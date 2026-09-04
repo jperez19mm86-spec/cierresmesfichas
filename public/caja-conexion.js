@@ -1134,6 +1134,9 @@
      instante; la 7357836 lo tiene vacío y no da ninguno. Tampoco es que preguntemos muy pronto —
      se midió a los 0, 1, 3 y 6 segundos de crear la cuenta y el link ya estaba.
      Así que el texto ahora dice CUÁL de las dos cosas falta, y que con el usuario se entra igual. */
+  /* 🔑 Va a `window` porque la pantalla también lo necesita: `pintarEnvio` tiene que explicar lo
+     mismo cuando no hay link, y este archivo es una función cerrada. Si no se expone, el texto
+     termina escrito dos veces y uno de los dos se queda viejo. */
   const SIN_LINK = 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino. Se configura '
     + 'caja por caja: que el casino tenga dominios habilitados no alcanza. Pedíselo a soporte — '
     + 'mientras tanto, con el usuario y la contraseña se entra igual.';
@@ -1145,6 +1148,8 @@
     ? '<b>Cualquiera de las dos cosas abre la cuenta.</b> Mandale una sola, por un canal privado, '
     : '<b>Con eso se entra a la cuenta.</b> Mandáselo por un canal privado ')
     + 'y pedile que cambie la contraseña apenas entre.';
+
+  window.SIN_LINK = SIN_LINK;
 
   /* Las tres pantallas que muestran el acceso, con los textos de la maqueta intactos. */
   window.copiar = async function copiarDeVerdad(texto, mensaje) {

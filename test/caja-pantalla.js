@@ -385,6 +385,25 @@ check('la pantalla no promete un detalle de tirada que el casino no manda',
   !/algunos traen la grilla del/.test(htmlCaja)
   && /no manda el detalle de cada tirada/.test(htmlCaja));
 
+/* ── 8 · las credenciales de un jugador ─────────────────────────────────────────────────────────
+   🔴 OFRECÍA UN LINK QUE NO EXISTE, Y EL TELÉFONO SE QUEJABA. Reportado el 4-sep-2026: la tarjeta
+   «Link para entrar directo» salía aunque la caja no tenga su dirección cargada — vacía, pero
+   diciendo «lo toca y ya está adentro». Al tocarla, `navigator.share({text:''})` abría el menú de
+   compartir del sistema operativo con nada adentro y contestaba «Inténtalo de nuevo». Ese cartel
+   lo pone el teléfono, no la página: el `.catch` no lo tapa. */
+check('la tarjeta del link sólo se dibuja si hay link',
+  /\$\{e\.link\s*\n?\s*\? tarjeta\('link'/.test(htmlCaja));
+check('y si no hay, se explica en vez de dejar un hueco',
+  /window\.SIN_LINK/.test(htmlCaja));
+check('nunca se comparte un texto vacío',
+  /if \(!texto\) return;[\s\S]{0,200}navigator\.share/.test(htmlCaja));
+
+/* Un solo texto para «no hay link»: el conector lo expone, la pantalla lo usa. Dos copias del
+   mismo mensaje terminan con una vieja. */
+check('el texto de «sin link» está escrito una sola vez',
+  /window\.SIN_LINK = SIN_LINK;/.test(conector)
+  && (htmlCaja.match(/no tiene cargado <b>su<\/b> link de acceso/g) || []).length <= 1);
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
