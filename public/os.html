@@ -4714,12 +4714,18 @@ MOV.cuenta = async () => {
           <!-- Arrancaba en el primero por orden alfabético: apretar «Registrar» sin tocar nada
                le cargaba el pago a un cliente que nadie eligió. -->
           <option value="">— elegí el cliente —</option>${cliOpts}</select></div>
-        <div><label>Monto (USDT)</label><input id="mp-monto" type="number" placeholder="1000"/></div>
+        <!-- En pesos o en dólares: muchos pagos llegan en ARS y el cambio se acuerda al cerrar
+             el mes. Antes había que poner USDT sí o sí — o se inventaba un número, o el pago no
+             se cargaba y el cliente quedaba debiendo plata que ya había pagado. -->
+        <div><label>Monto</label><input id="mp-monto" type="number" placeholder="1000"/></div>
+        <div style="flex:0"><label>Moneda</label><select id="mp-moneda" onchange="mpMoneda()">
+          <option value="USDT">USDT</option><option value="ARS">ARS (pesos)</option></select></div>
         <div style="flex:0"><label>¿Por dónde?</label><select id="mp-medio">
           <option value="cvu">CVU / transferencia</option><option value="usdt">USDT</option>
           <option value="efectivo">Efectivo</option><option value="otro">Otro</option></select></div>
         <div style="flex:0"><button onclick="regPago()">Registrar pago</button></div>
       </div>
+      <div id="mp-moneda-nota" class="muted" style="font-size:12.5px;margin-top:4px;display:none"></div>
       <!-- La FECHA y el MES son dos cosas distintas: la fecha es cuándo entró la plata, el mes es
            a qué cierre pertenece. Un pago del 2 de septiembre puede ser del cierre de agosto, y
            antes para lograr eso había que mentir la fecha. -->
@@ -4809,6 +4815,17 @@ let _mpArchivo = null;
 /* El mes sigue a la fecha mientras nadie lo toque a mano. Si se tocó, se respeta: quien lo cambió
    sabe algo que el calendario no. */
 let _mpMesTocado = false;
+/* Qué pasa si carga en pesos: se dice ANTES de guardar, no después. Que un pago quede valuado con
+   un promedio provisorio está bien —es mejor que no contarlo— pero tiene que ser una decisión. */
+function mpMoneda(){
+  const n = document.getElementById('mp-moneda-nota');
+  const esArs = val('mp-moneda') === 'ARS';
+  if(!n) return;
+  n.style.display = esArs ? '' : 'none';
+  if(esArs) n.innerHTML = 'Se guarda lo que entró en <b>pesos</b>, que es lo único que se sabe seguro. '
+    + 'Los dólares se calculan con el <b>promedio del mes</b> y, el día que cargues el TC del cierre, '
+    + 'el saldo se ajusta solo — no hay que volver acá.';
+}
 function mpFecha(){
   const f = val('mp-fecha'), m = document.getElementById('mp-mes');
   if(m && f && !_mpMesTocado) m.value = f.slice(0,7);
@@ -4830,12 +4847,16 @@ async function regPago(){
   // El desplegable arranca vacío a propósito; sin esta guarda el POST salía con cliente_id='' y el
   // servidor contestaba un error críptico en vez de decir qué falta.
   const cli=val('mp-cli'); if(!cli) return toast('Elegí a qué cliente es el pago');
-  const monto=val('mp-monto'); if(!monto || Number(monto)<=0) return toast('Poné el monto en USDT');
+  const monto=val('mp-monto'); const moneda=val('mp-moneda')||'USDT';
+  if(!monto || Number(monto)<=0) return toast('Poné el monto en '+moneda);
   const avisar = !!(document.getElementById('mp-avisar')||{}).checked;
   // SALE PARA AFUERA: se pregunta, siempre, y se dice a dónde.
   if(avisar && !confirm('¿Mandar este comprobante a los grupos de Telegram?\n\nVa al grupo de cobranzas (con la foto) y al grupo del cliente.')) return;
   const r=await api('/api/os/movimientos/pago',{method:'POST',body:JSON.stringify({
-    cliente_id:cli, monto_usdt:monto, medio:val('mp-medio'), archivo:_mpArchivo,
+    cliente_id:cli, moneda,
+    monto_usdt: moneda==='USDT' ? monto : undefined,
+    monto_ars:  moneda==='ARS'  ? monto : undefined,
+    medio:val('mp-medio'), archivo:_mpArchivo,
     fecha:val('mp-fecha')||undefined, mes_cierre:val('mp-mes')||undefined, avisar })});
   if(r.ok){
     _mpArchivo = null;

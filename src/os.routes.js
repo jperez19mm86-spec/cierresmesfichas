@@ -1992,18 +1992,40 @@ function mount(app) {
    */
   app.post('/api/os/movimientos/pago', wrap(async (req, res) => {
     const { cliente_id, monto_usdt, fecha, notas, medio, archivo, mes_cierre } = req.body || {};
+    /* ── SE PUEDE CARGAR EN PESOS SIN SABER LOS DÓLARES ────────────────────────────────────────
+       Muchos pagos llegan en pesos y el cambio recién se acuerda al cerrar el mes. Antes acá había
+       que poner USDT sí o sí: o se inventaba un número, o el pago no se cargaba y el cliente
+       aparecía debiendo plata que ya había pagado.
+       Con `tc_modo: 'mes'` se guarda lo único que se sabe de verdad —los pesos— y la otra cara se
+       DERIVA al leer (ver valuacion.js). El día que se carga el TC del cierre, todos estos pagos
+       pasan a valer lo que corresponde solos, sin ningún proceso que haya que acordarse de correr.
+       Es el mismo camino que ya usaba aprobar un comprobante en pesos. */
+    const enPesos = String((req.body || {}).moneda || '').toUpperCase() === 'ARS';
+    const monto_ars = (req.body || {}).monto_ars;
     /* ⚠️ EL AVISO NO SALE SOLO. Muchos de estos pagos ya se avisaron por otro lado —el cliente
        mandó la captura al grupo— y volver a mandarlos sería ruido; y cargar comprobantes viejos
        dispararía avisos de cosas que pasaron hace un mes. Se manda sólo si quien lo carga lo pide:
        una decisión por pago, no un comportamiento por defecto. */
     const avisar = (req.body || {}).avisar === true;
     const cli = clientes.get(cliente_id); if (!cli) return err(res, 404, 'cliente no encontrado');
-    if (!money.isPos(monto_usdt)) return err(res, 400, 'monto inválido');
+    if (enPesos ? !money.isPos(monto_ars) : !money.isPos(monto_usdt)) {
+      return err(res, 400, enPesos ? 'poné cuántos pesos entraron' : 'monto inválido');
+    }
     const antes = deudaSvc.cuentaCorriente(cliente_id).total;
     // `medio` = por dónde entró la plata (CVU, USDT, efectivo…). Sin esto, al mes siguiente no
     // se puede reconstruir de dónde vino cada pago, que es lo primero que se pregunta cuando
     // un cliente reclama.
-    const movimiento = movs.create({ cliente_id, tipo: 'pago', monto_usdt, fecha, notas, medio, mes_cierre });
+    /* La cuenta del cliente se lleva en su moneda; `tc_modo:'mes'` sólo hace falta cuando lo que
+       se cargó NO es esa moneda — si lleva la cuenta en pesos y pagó en pesos, no hay nada que
+       derivar. `divisa` es la de la CUENTA, que es la que resta la deuda. */
+    const monedaCuenta = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
+    const movimiento = movs.create({
+      cliente_id, tipo: 'pago', fecha, notas, medio, mes_cierre,
+      monto_usdt: enPesos ? null : monto_usdt,
+      monto_ars: enPesos ? String(monto_ars) : null,
+      tc_modo: enPesos && monedaCuenta !== 'ARS' ? 'mes' : null,
+      divisa: monedaCuenta,
+    });
     const despues = deudaSvc.cuentaCorriente(cliente_id);
 
     /* La vía decide a QUÉ grupo de cobranzas va (hay uno de pesos y otro de USDT). Efectivo y
@@ -2013,7 +2035,7 @@ function mount(app) {
     try {
       const c = comprobantes.crear({
         codigo: cli.codigo, clienteNombre: cli.nombreVisible || cli.nombre,
-        via, monto: String(monto_usdt), divisa: 'USDT',
+        via, monto: String(enPesos ? monto_ars : monto_usdt), divisa: enPesos ? 'ARS' : 'USDT',
         notas: 'cargado a mano desde el panel' + (notas ? ' · ' + notas : ''),
         archivo: archivo || null,
       });
@@ -2028,7 +2050,9 @@ function mount(app) {
         const fn = req.app.get('avisarComprobante');
         if (avisar && typeof fn === 'function') {
           avisoCobranzas = await Promise.resolve(
-            fn(comprobantes.get(c.comprobante.id), cli, String(monto_usdt), 'USDT'),
+            // En la moneda que ENTRÓ: el cliente verifica contra su comprobante, que está en pesos.
+            fn(comprobantes.get(c.comprobante.id), cli,
+              String(enPesos ? monto_ars : monto_usdt), enPesos ? 'ARS' : 'USDT'),
           ).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
         }
       } else comprobante = { ok: false, error: c.error };
