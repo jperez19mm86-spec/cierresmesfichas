@@ -6110,6 +6110,49 @@ async function main() {
       [...em.NIVELES, 'nodo'].includes('nodo'));
   }
 
+  /* ── EL RECORTE DE 1000 FILAS ────────────────────────────────────────────────────────────────
+     El motor del casino entrega de a 1000 y devolvía sólo la primera página: 1000 de 1949 y el
+     total parecía bueno. Se arregló paginando por offset DENTRO de `_runReport`, que es por donde
+     pasan TODOS los reportes. La vuelta de Agentes lo necesita más que ninguna —los agentes son
+     muchísimos más que los superagentes— y no tuvo que agregar nada porque usa el mismo camino.
+
+     Esto es un chequeo de FORMA, no de comportamiento: lo que fija es que nadie agregue un sexto
+     reporte que se saltee el paginado, y que el freno siga siendo fallar en vez de devolver corto. */
+  {
+    const api = fs.readFileSync(path.join(ROOT, 'src', 'casino-api.js'), 'utf8');
+    check('paginado: hay UNA sola función que corre reportes',
+      (api.match(/async function _runReport\(/g) || []).length === 1);
+    const dentro = api.slice(api.indexOf('async function _runReport('), api.indexOf('async function reporte({'));
+    check('paginado: el paginado vive adentro de esa función',
+      /const PAGINA = /.test(dentro) && /MAX_PAGINAS/.test(dentro) && /offset/.test(dentro),
+      'si se mueve afuera, los reportes que no la llamen quedan sin red');
+    check('paginado: quedarse sin páginas con la última LLENA FALLA, no devuelve corto',
+      /ultimaLlena/.test(dentro) && /viene cortado/.test(dentro)
+      && /if \(ultimaLlena\)[\s\S]{0,200}?ok: false/.test(dentro),
+      'devolver 1000 de 1949 con ok:true es plata de menos con el total cuadrando');
+    /* Todo reporte que le pregunte al casino tiene que entrar por ahí, incluida la Foto. Vale
+       llamar a `_runReport` o delegar en otro reporte que ya lo haga —`reporteProveedoresMonedas`
+       corre `reporteProveedores` una vez por moneda—; lo que no vale es pedirle al casino de una
+       forma propia, que es como se vuelve al recorte silencioso. */
+    const cuerpoDe = (n) => {
+      const i = api.indexOf('async function ' + n + '(');
+      const j = api.indexOf('\n  async function ', i + 1);
+      return api.slice(i, j < 0 ? api.length : j);
+    };
+    const reportes = [...api.matchAll(/async function (reporte\w*|gananciaDeNodo|sondaReporte)\(/g)].map((m) => m[1]);
+    const fuera = reportes.filter((n) => {
+      const cuerpo = cuerpoDe(n);
+      if (/_runReport\(/.test(cuerpo)) return false;
+      return !reportes.some((otro) => otro !== n && new RegExp('\\b' + otro + '\\(').test(cuerpo));
+    });
+    check('paginado: ningún reporte le pregunta al casino por afuera',
+      fuera.length === 0, fuera.join(', ') || reportes.length + ' reportes, todos por _runReport');
+    // Y que el corte llegue a la pantalla: si la Foto se lo traga, volvemos al problema original.
+    const em2 = fs.readFileSync(path.join(ROOT, 'src', 'estadisticas-mes.service.js'), 'utf8');
+    check('paginado: la Foto marca la vuelta como ERROR cuando el reporte vino cortado',
+      /if \(!r\.ok\)[\s\S]{0,400}?estado: 'error', error: r\.error/.test(em2));
+  }
+
   // ── que el estado de cada vuelta SE LEA ──
   // Antes era un botón relleno de magenta con el detalle adentro en gris: el texto no se veía. La
   // regla que quedó es que el relleno marca el estado y el texto va oscuro sobre claro.
