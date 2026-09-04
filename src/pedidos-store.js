@@ -448,13 +448,29 @@ function ventasDelMesPorCliente(mes) {
         motivo: 'ese panel es de tránsito, pero esta carga no aparece cobrada a ningún cliente más abajo' });
       continue;
     }
-    const destino = modo === 'dueno' && pan && pan.cliente_id ? pan.cliente_id : (delCodigo ? delCodigo.id : null);
+    let destino = modo === 'dueno' && pan && pan.cliente_id ? pan.cliente_id : (delCodigo ? delCodigo.id : null);
+    /* ── EL CLIENTE QUE CUELGA DE OTRO ────────────────────────────────────────────────────────
+       Ariel trabaja al 14 pero su consumo lo paga Fran, a quien se le cobra el 12; los 2 puntos
+       de diferencia son la ganancia de Fran. Hasta acá eso funcionaba SOLO porque los pedidos de
+       los paneles de Ariel se cargaban tipeando FRAN74 — una costumbre. El día que alguien
+       tipeara ARIEL65 la deuda se le iba a Ariel, al 14, y no saltaba nada.
+       `factura_a` lo vuelve una regla: la deuda va a quien de verdad paga, se tipee lo que se
+       tipee. El cliente conserva su % para su propia cuenta, que es otra pregunta.
+       Se sigue UNA sola vez a propósito: un cliente que cuelga de otro que a su vez cuelga de un
+       tercero no existe hoy, y una cadena sin tope se cuelga sola con un ciclo mal cargado. */
+    const puente = destino ? (clientes.find((c) => c.id === destino) || {}).factura_a : null;
+    if (puente && puente !== destino && clientes.some((c) => c.id === puente)) {
+      const de = clientes.find((c) => c.id === destino) || {};
+      ruteadas.push({ ...d, deCodigo: de.nombre, aCliente: (clientes.find((c) => c.id === puente) || {}).nombre,
+        porFacturaA: true });
+      destino = puente;
+    }
     if (!destino) {
       const s = sinCliente[d.codigo] = sinCliente[d.codigo] || { codigo: d.codigo, count: 0, porDivisa: {} };
       s.count += 1; s.porDivisa[d.divisa] = (s.porDivisa[d.divisa] || 0) + d.monto;
       continue;
     }
-    if (modo === 'dueno' && delCodigo && delCodigo.id !== destino) {
+    if (modo === 'dueno' && delCodigo && delCodigo.id !== destino && !puente) {
       ruteadas.push({ ...d, deCodigo: delCodigo.nombre, aCliente: (clientes.find((c) => c.id === destino) || {}).nombre });
     }
     const o = bolsa(destino);

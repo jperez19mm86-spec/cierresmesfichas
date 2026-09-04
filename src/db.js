@@ -434,6 +434,18 @@ ensureColumns('clientes', {
   //   puede, desagregar no. Al vendedor se le muestra el total de SUS clientes a precio real.
   es_vendedor: 'INTEGER DEFAULT 0', externos_modo: 'TEXT',
   vendedor_id: 'TEXT',
+  /* ── UN CLIENTE QUE CUELGA DE OTRO (Fran/Ariel, Marcelo/JJ) ──────────────────────────────
+     factura_a: a QUIÉN se le cobra de verdad el consumo de este cliente. Su deuda va a la
+       cuenta de ese otro y con el % de ese otro; el cliente conserva SU precio, que es lo que
+       le paga a quien lo banca. La diferencia entre los dos es la ganancia del intermediario.
+       Hasta ahora esto no estaba escrito en ningún lado: funcionaba porque el pedido se cargaba
+       tipeando el código del que paga. Una costumbre, no una regla — bastaba que alguien tipeara
+       el código del chico para que se le facturara a él, sin que saltara nada.
+     externos_precios_de: de qué cliente salen sus precios de proveedores externos. Fran y Ariel
+       usan los mismos (Ariel no tiene una sola celda propia); Marcelo y JJ no —difieren en 16
+       proveedores— y por eso JJ conserva los suyos. Se LEEN del otro, no se copian: una copia
+       queda vieja el primer mes que se toque un precio. */
+  factura_a: 'TEXT', externos_precios_de: 'TEXT',
   saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
   saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo
   saldo_inicial_mov_id: 'TEXT',           // id del movimiento 'ajuste' que lo materializa (re-aplicable/reversible)

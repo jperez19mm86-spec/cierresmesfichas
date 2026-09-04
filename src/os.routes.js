@@ -177,6 +177,7 @@ function mount(app) {
       // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
       mover_balance: c.mover_balance, moneda_cuenta: c.moneda_cuenta, margen_externos_pct: c.margen_externos_pct,
       es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, externos_modo: c.externos_modo, saldo_inicial: c.saldo_inicial,
+      factura_a: c.factura_a, externos_precios_de: c.externos_precios_de,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
@@ -428,6 +429,16 @@ function mount(app) {
 
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
+    /* ── QUIÉN PAGA Y DE QUIÉN SON LOS PRECIOS APUNTAN A OTRO CLIENTE ────────────────────────
+       Los dos se siguen UNA sola vez, así que un ciclo no cuelga nada; pero apuntar a sí mismo o
+       a un id que no existe deja una ficha que dice algo falso y que después hay que descubrir
+       mirando por qué un número no cierra. Se frena acá, que es donde se escribe. */
+    for (const campo of ['factura_a', 'externos_precios_de']) {
+      const v = (req.body || {})[campo];
+      if (v === undefined || v === null || v === '') continue;
+      if (String(v) === String(req.params.id)) return err(res, 400, `"${campo}": un cliente no puede apuntarse a sí mismo`);
+      if (!clientes.get(String(v))) return err(res, 400, `"${campo}": no existe ese cliente`);
+    }
     if ((req.body || {}).moneda_cuenta !== undefined) {
       const mal = puedeCambiarMoneda(req.params.id, req.body.moneda_cuenta);
       if (mal) return err(res, 400, mal);

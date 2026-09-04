@@ -62,15 +62,39 @@ function tcDe(moneda, iso) {
  * Si el mes está congelado se usa su foto; si no, la matriz viva. Sin esto, cambiar un precio hoy
  * cambiaría lo que calcula un mes ya facturado.
  */
+/* ── DE QUIÉN SALEN LOS PRECIOS ──────────────────────────────────────────────────────────────
+   La matriz tiene una columna por cliente. Ariel no tiene ni una celda —por eso el reporte se
+   negaba a salir— y sus precios son los mismos que los de Fran; Marcelo y JJ, en cambio, difieren
+   en 16 proveedores y cada uno conserva la suya.
+   Se LEE la columna del otro, no se copia: copiar 186 celdas deja una foto que queda vieja el
+   primer mes que se toque un precio, y nadie se entera. */
+function columnaDe(nombreCliente) {
+  try {
+    const lista = clientes.list().clientes;
+    const c = lista.find((x) => K(x.nombre) === K(nombreCliente));
+    if (c && c.externos_precios_de) {
+      // Se guarda el ID, no el nombre: la matriz se referencia por nombre y renombrar un cliente
+      // le arrastra la columna, pero un puntero por nombre quedaría colgado en ese mismo momento.
+      const otro = lista.find((x) => x.id === c.externos_precios_de);
+      // Un solo salto, y nunca a sí mismo: una cadena mal cargada colgaría el reporte.
+      if (otro && otro.id !== c.id) return otro.nombre;
+    }
+  } catch (e) { /* sin padrón se usa la propia */ }
+  return nombreCliente;
+}
+
 function pctsDelCliente(nombreCliente, mes, p) {
   if (!p) p = cierreMes.preciosDe(mes);
+  const columna = columnaDe(nombreCliente);
   const out = {};
   for (const [prov, fila] of Object.entries(p.celdas || {})) {
-    const pct = fila && fila[nombreCliente];
+    const pct = fila && fila[columna];
     if (pct != null && pct !== '') out[K(prov)] = pct;
   }
   return {
     celdas: out,
+    // De quién salieron, para que el reporte lo pueda decir en vez de que haya que adivinarlo.
+    columna, columnaPrestada: K(columna) !== K(nombreCliente),
     congelado: p.congelado, congeladoEn: p.congeladoEn,
     proveedores: Object.entries(p.costo).map(([nombre, base_pct]) => ({ nombre, base_pct })),
   };
@@ -201,7 +225,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   }
 
   const precios = cierreMes.preciosDe(mes);   // UNA sola vez: parsea la foto entera del mes
-  const { celdas, proveedores, congelado, congeladoEn } = pctsDelCliente(cli.nombre, mes, precios);
+  const { celdas, proveedores, congelado, congeladoEn, columna, columnaPrestada } = pctsDelCliente(cli.nombre, mes, precios);
   const costoDe = {}; proveedores.forEach((p) => { costoDe[K(p.nombre)] = p.base_pct; });
   const traducir = traductor(precios);
   const { from, to } = rango(mes);
@@ -450,6 +474,8 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
     ok: true,
     cliente: cli.nombre, clienteId: cli.id, mes, mesNombre: mesCierre(mes), from, to,
     congelado, congeladoEn, baseFuente,
+    // De qué columna de la matriz salieron los precios: la propia, o la del cliente que lo banca.
+    columnaPrecios: columna, columnaPrestada: !!columnaPrestada,
     base, baseConfirmada: !!guardada, confirmadoAt: guardada ? guardada.confirmadoAt : null,
     modo,
     negativos: [...negativos.values()],
@@ -477,4 +503,5 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
 // `traductor` se exporta para que la cuenta de lo que le PAGAMOS a los proveedores use el mismo
 // cruce casino→matriz que la de lo que les cobramos a los clientes. Si fueran dos, los dos lados
 // del mismo proveedor podrían resolverse distinto.
-module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango, traductor };
+module.exports = { reporte, baseGuardada, confirmarBase, baseDelMes, tcDe, mesCierre, rango, traductor,
+  pctsDelCliente, columnaDe };

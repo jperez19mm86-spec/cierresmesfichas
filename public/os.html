@@ -1481,6 +1481,25 @@ function editCli(id){
             }</select></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Un <b>vendedor</b> revende a sus propios clientes: va al 0% y sólo paga proveedores externos. A los clientes chicos asignales su vendedor acá.</div>
           </div>
+
+          <!-- ── CUELGA DE OTRO CLIENTE ────────────────────────────────────────────────────────
+               Ariel trabaja al 14 pero su consumo lo paga Fran, a quien se le cobra el 12: los 2
+               puntos son la ganancia de Fran. Eso funcionaba sólo porque los pedidos se cargaban
+               tipeando el código de Fran — una costumbre. Acá se vuelve una regla.
+               Y los precios de externos: Ariel usa los de Fran (no tiene ni una celda propia),
+               Marcelo y JJ tienen los suyos porque de verdad difieren. -->
+          <div class="row" style="margin-top:6px">
+            <div><label>Su consumo lo paga</label><select id="e-facta"><option value="">— nadie: me lo paga a mí —</option>${
+              _clientes.filter(v=>v.id!==id).map(v=>`<option value="${v.id}" ${c.factura_a===v.id?'selected':''}>${esc(v.nombre)}</option>`).join('')
+            }</select></div>
+            <div><label>Precios de externos</label><select id="e-exprec"><option value="">— los suyos propios —</option>${
+              _clientes.filter(v=>v.id!==id).map(v=>`<option value="${v.id}" ${c.externos_precios_de===v.id?'selected':''}>los mismos que ${esc(v.nombre)}</option>`).join('')
+            }</select></div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">La deuda de sus cargas va a
+              la cuenta de quien paga, y con <b>el % de esa persona</b>; este cliente conserva el suyo, que es lo
+              que le paga a quien lo banca — la diferencia es la ganancia del intermediario. Los precios de externos
+              se <b>leen</b> del otro, no se copian: una copia queda vieja el primer mes que se toque un precio.</div>
+          </div>
           <hr/>
           <h2>Precio base <span class="muted">(con vigencia/corrección)</span></h2>
           <div class="row">
@@ -1679,6 +1698,7 @@ async function saveCli(id){
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
     mover_balance:val('e-mover')==='1', moneda_cuenta:val('e-moneda'), margen_externos_pct:val('e-mext'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
+    factura_a:val('e-facta'), externos_precios_de:val('e-exprec'),
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
