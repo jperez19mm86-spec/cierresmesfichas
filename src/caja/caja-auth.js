@@ -118,8 +118,43 @@ async function entrar({ url, user, password, token, raiz = null, generar = true 
        anda, sólo que caduca. */
     conToken: tokenPropio ? makeClient({ url, token: tokenPropio }) : null,
     tokenGenerado,
+    /* 🔴 DE QUÉ CAJA CUELGA UN SUB-CAJERO. Se pregunta acá, una sola vez, y queda en la sesión.
+       Antes el panel no lo recibía y usaba el valor ESCRITO A MANO de la maqueta —la caja
+       7357557, que es de un cliente real—, así que TODO sub-cajero creía pertenecer a esa caja y
+       veía sus cuentas eliminadas. Reportado el 2-sep-2026 entrando con SubbCajacc: le mostraba
+       «2 eliminados · saldo ARS 100» de una caja que no era la suya.
+       `null` es una respuesta honesta: significa «no lo sabemos». */
+    caja: null,
     vence: Date.now() + VIDA_MS,
   };
+
+  /* 🔴 LOS PERMISOS DE UN SUB-CAJERO SE PREGUNTAN, NO SE SUPONEN. La maqueta los traía escritos
+     a mano —esconder el saldo y las estadísticas, siempre— y el panel se los aplicaba a cualquiera.
+     El motor los tiene en `useredit`. Una llamada más, y sólo para este nivel.
+
+     De qué CAJA cuelga, en cambio, el motor no lo dice por ninguna vía: se probó `info`, `useredit`
+     y `sub` el 2-sep-2026 y ninguno lo trae. Queda en `null`, que es la verdad, y el panel no
+     filtra por una caja ajena — el motor ya le muestra sólo lo suyo. */
+  if (group === '8') {
+    try {
+      /* 🔴 CON LA CREDENCIAL RAÍZ, NO CON LA SUYA. Una cuenta no puede leer su propia ficha —el
+         motor le contesta que no tiene permiso, igual que con los ajustes del sitio— así que
+         preguntando con su propio cliente el permiso volvía siempre apagado. Medido el 2-sep-2026:
+         encendido en el casino, la lectura propia devolvía «0» y la de la raíz «1». */
+      const cli = raiz || (tokenPropio ? makeClient({ url, token: tokenPropio }) : conSesion);
+      const ficha8 = await cli.apiCall('useredit', {}, { id: sesion.id });
+      const campos = (ficha8 && ficha8.data && ficha8.data.fields) || {};
+      const prendido = (c) => {
+        const v = campos[c];
+        const x = v && typeof v === 'object' ? v.value : v;
+        return x === '1' || x === 1 || x === true;
+      };
+      sesion.hide_hall_balance = prendido('hide_hall_balance');
+      sesion.disable_statistic = prendido('disable_statistic');
+    } catch (e) {
+      console.warn('[caja/entrar] no se pudieron leer los permisos de', sesion.login, '·', e.message);
+    }
+  }
   console.log('[caja/entrar] %s · login+info %s ms · token %s ms · TOTAL %s ms',
     user, tInfo, Date.now() - t1, Date.now() - t0);
   vivas.set(sid, sesion);
@@ -166,6 +201,11 @@ function salir(req) {
 
 /** Lo que se le puede contar al navegador: nunca la url, el token ni el cliente. */
 const publica = (s) => ({ login: s.login, id: s.id, group: s.group, rol: s.rol, moneda: s.moneda,
+  /* De qué caja cuelga, cuando corresponde. `null` significa «no lo sabemos», y el panel puede
+     decidir no filtrar en vez de filtrar por una caja que no es. */
+  caja: s.caja || null,
+  hide_hall_balance: s.hide_hall_balance === true,
+  disable_statistic: s.disable_statistic === true,
   /* Para saber, del lado del panel, si Seguridad va a andar: necesita sesión, no token. */
   conToken: !!s.conToken });
 

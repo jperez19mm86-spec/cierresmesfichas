@@ -343,14 +343,25 @@
     const grupo = Number(r.yo.group);
     const nivel = nivelDeGrupo(grupo);
     fijarNivel(nivel.rol, nivel.subagente);
-    CUENTAS[ROL] = Object.assign({}, CUENTAS[ROL], {
+    /* 🔴 LA CUENTA PROPIA SE ARMA DE CERO, NO ENCIMA DE LA MAQUETA. Antes esto era un
+       `Object.assign` sobre el ejemplo, así que todo campo que el servidor NO manda se quedaba con
+       el valor inventado. El más caro: `caja`, que en la maqueta apunta a 7357557 —una caja real,
+       de un cliente— y hacía que TODO sub-cajero creyera pertenecer ahí y viera sus cuentas
+       eliminadas. Reportado el 2-sep-2026 con SubbCajacc.
+       Lo mismo valía para `hide_hall_balance` y `disable_statistic`: dos permisos escritos a mano
+       que se le aplicaban a cualquiera. Ahora sólo entra lo que dijo el servidor. */
+    CUENTAS[ROL] = {
       id: r.yo.id, login: r.yo.login, group: grupo,
       currency: r.yo.moneda || 'ARS',
       nivel: SUBAGENTE ? 'Sub-agente'
         : { agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
+      /* De qué caja cuelga. `null` es «no lo sabemos», y el panel no filtra por una caja ajena. */
+      caja: r.yo.caja || null,
+      hide_hall_balance: r.yo.hide_hall_balance === true,
+      disable_statistic: r.yo.disable_statistic === true,
       /* El de la maqueta era 100.000. Fuera antes de que se pinte nada. */
       balance: null,
-    });
+    };
 
     /* 🔴 EL SALDO NO ES DECORACIÓN: `maxAlta()` sale de `bolsillo().balance`, así que es el tope
        de lo que el panel deja cargar. Si entramos sin él, o con el de la maqueta, el cliente ve un

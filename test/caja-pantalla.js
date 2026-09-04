@@ -106,6 +106,11 @@ check('y la lista dice si son cajeros o jugadores',
 check('el conector le pasa ese dato al dibujar',
   /enlaceOriginal\.call\(window, cajaId, sonCajas\)/.test(conector));
 
+check('la cuenta propia no se arma encima del ejemplo de la maqueta',
+  !/CUENTAS\[ROL\] = Object\.assign\(\{\}, CUENTAS\[ROL\]/.test(conector)
+  && /CUENTAS\[ROL\] = \{/.test(conector),
+  'todo campo que el servidor no manda quedaba con el valor inventado');
+
 /* ── 1 · leer un monto ─────────────────────────────────────────────────────────────────────────
    🔴 EL QUE OFRECÍA CARGAR DIEZ VECES DE MÁS. */
 check('7.028,6 es siete mil, no setenta mil', L.aNumero('7.028,6') === 7028.6, String(L.aNumero('7.028,6')));

@@ -28,6 +28,7 @@ function crearMotorFalso() {
       id: String(c.id), login: c.login, group: String(c.group),
       padre: c.padre == null ? null : String(c.padre),
       saldo: Number(c.saldo) || 0, borrada: !!c.borrada,
+      permisos: c.permisos || {},
     });
   };
 
@@ -36,6 +37,10 @@ function crearMotorFalso() {
   poner({ id: '200', login: 'CajaDePrueba', group: 4, padre: '100', saldo: 8000 });
   poner({ id: '301', login: 'JugadorUno', group: 5, padre: '200', saldo: 500 });
   poner({ id: '302', login: 'JugadorDos', group: 5, padre: '200', saldo: 0 });
+  /* Un sub-cajero con el saldo de la caja escondido: sirve para verificar que ese permiso se LEE
+     del motor y no se supone. La maqueta lo traía escrito a mano en `true` para todos. */
+  poner({ id: '801', login: 'SubCajaDePrueba', group: 8, padre: '200', saldo: 0,
+    permisos: { hide_hall_balance: '1', disable_statistic: '0' } });
 
   const hijosDe = (id) => [...cuentas.values()].filter((c) => c.padre === String(id));
 
@@ -92,6 +97,10 @@ function crearMotorFalso() {
       pedidos.push({ area, query, cuerpo, cookie: req.headers.cookie || '' });
 
       const quienSoy = () => {
+        /* Con `api_token` se entra como la credencial RAÍZ, que en el casino de verdad es la que
+           puede leer la ficha de cualquiera. Sin ella, cada cuenta sólo puede lo suyo — y eso es
+           justo lo que hace falta imitar para que los tests exijan usar la raíz donde corresponde. */
+        if (cuerpo.api_token) return { id: 'RAIZ', login: 'raiz', group: '1', esRaiz: true };
         const m = /sesion-de-(\d+)/.exec(req.headers.cookie || '');
         return m ? cuentas.get(m[1]) : null;
       };
@@ -104,6 +113,7 @@ function crearMotorFalso() {
       if (!yo) return responder({ redirect: 'login' });
 
       if (area === 'info') {
+        if (yo.esRaiz) return responder({ main: { id: 'RAIZ', login: 'raiz', group: '1' } });
         return responder({
           main: { id: yo.id, login: yo.login, group: yo.group, balance: yo.saldo, currency: 'ARS' },
           editUser: { id: yo.id, login: yo.login },
@@ -155,6 +165,16 @@ function crearMotorFalso() {
         destino.saldo += entra ? cuanto : -cuanto;
         if (padre) padre.saldo += entra ? -cuanto : cuanto;
         return responder({});
+      }
+
+      /* `useredit` da la ficha de una cuenta, con sus permisos. Una cuenta NO puede leer la
+         propia: el motor de verdad contesta que no tiene permiso, y por eso hay que preguntar con
+         la credencial raíz. Se imita para que el test lo exija. */
+      if (area === 'useredit') {
+        const quien = cuentas.get(String(query.id));
+        if (!quien) return responder({ error: 'No such user' });
+        if (!yo.esRaiz && String(quien.id) === String(yo.id)) return responder({ error: 'No rights' });
+        return responder({ fields: quien.permisos || {} });
       }
 
       if (area === 'createuser' || area === 'adduser') {

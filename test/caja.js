@@ -76,7 +76,10 @@ async function main() {
     SESSION_SECRET: 'test',
     CRED_KEY: 'testkey',
     DIARIO_CLAVE: 'clave-de-test',
-    /* Sin credencial raíz: no se busca token y se trabaja con la sesión, como en las cajas. */
+    /* 🔴 CON CREDENCIAL RAÍZ, COMO EN PRODUCCIÓN. Sin ella, leer los permisos de un sub-cajero
+       falla —una cuenta no puede leer su propia ficha— y el test aprobaba un camino que en el
+       servidor de verdad no es el que corre. */
+    CASINO_ROOT_TOKEN: 'token-de-raiz-para-pruebas',
     CASINO_ROOT_USER: '',
     CASINO_ROOT_PASSWORD: '',
   };
@@ -224,6 +227,29 @@ async function main() {
     const galletaCaja = (r.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
     check('un cajero entra como cajero, no como agente',
       r.data.ok && r.data.yo.rol === 'cajero', r.data.ok ? r.data.yo.rol : r.data.error);
+
+    /* ── 5.bis · UN SUB-CAJERO NO HEREDA DATOS DE OTRO ──────────────────────────────────────
+       🔴 Reportado el 2-sep-2026 con SubbCajacc: al entrar veía «2 eliminados · saldo ARS 100» de
+       una caja que no era la suya. Eran los datos de EJEMPLO de la maqueta, que traía escrita a
+       mano la caja 7357557 —de un cliente real— y dos permisos siempre encendidos. El panel los
+       heredaba porque el servidor no mandaba esos campos y se armaba encima del ejemplo. */
+    const galletaAgente = galleta;
+    r = await enviar('/api/caja/login', { usuario: 'SubCajaDePrueba', clave: 'clave-de-prueba' });
+    const galletaSub = (r.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    check('entra un sub-cajero', r.data.ok && r.data.yo.rol === 'subcajero',
+      r.data.ok ? r.data.yo.rol : r.data.error);
+    check('sus permisos salen del motor, no de un valor escrito a mano',
+      r.data.ok && r.data.yo.hide_hall_balance === true && r.data.yo.disable_statistic === false,
+      r.data.ok ? `esconder saldo=${r.data.yo.hide_hall_balance} sin estadísticas=${r.data.yo.disable_statistic}` : '');
+    check('y no se le inventa una caja: si no se sabe, se dice que no se sabe',
+      r.data.ok && r.data.yo.caja === null, r.data.ok ? String(r.data.yo.caja) : '');
+
+    galleta = galletaSub;
+    r = await pedir('/api/caja/eliminadas');
+    check('sus cuentas eliminadas son las suyas, no las de otra caja',
+      r.data.ok && (r.data.eliminadas || []).length === 0,
+      r.data.ok ? `${(r.data.eliminadas || []).length}` : r.data.error);
+    galleta = galletaAgente;
 
     /* ── 6 · el diario ───────────────────────────────────────────────────────────────────── */
     const diario = (clave) => axios.get(`${BASE}/api/caja/_diario${clave ? `?clave=${clave}` : ''}`,
