@@ -199,19 +199,41 @@ async function repartoCosto(mes) {
       grupo: grupoDe(v.cliente_id) });
   }
 
+  /* ── SON DOS PREGUNTAS DISTINTAS, Y CONFUNDIRLAS COBRA DE MÁS ────────────────────────────────
+     · A COBRARLE: el costo de SUS PROPIOS paneles. Es lo que el vendedor paga.
+     · SU RAMA: eso más el de todos los clientes que tiene asignados. Es «cuánto cuesta Julian con
+       Fran y Ariel adentro» — sirve para saber cuánto vale esa rama, NO es deuda de él: cada
+       cliente paga su diferencial por su cuenta.
+     Sumar la rama y cobrarla le cargaría a Henry el costo de Titan, que Titan ya paga aparte. */
+  const dueno = {}; todos.forEach((c) => { dueno[c.id] = c; });
   const porGrupo = {};
+  const acc = (clave, campo, f) => {
+    const g = porGrupo[clave] = porGrupo[clave] || { grupo: clave, aCobrar_usdt: '0', rama_usdt: '0', paneles: [] };
+    g[campo] = money.add(g[campo], f.propio_usdt);
+  };
   filas.forEach((f) => {
-    const g = porGrupo[f.grupo] = porGrupo[f.grupo] || { grupo: f.grupo, propio_usdt: '0', paneles: [] };
-    g.propio_usdt = money.add(g.propio_usdt, f.propio_usdt);
-    if (Number(f.propio_usdt)) g.paneles.push(f);
+    const d = dueno[f.cliente_id] || {};
+    // a cobrar: sólo si el panel es DE un vendedor (y la casa no se cobra)
+    const suyo = d.es_vendedor && !esLaCasa(d) ? d.nombre : (esLaCasa(d) || !d.es_vendedor ? null : null);
+    acc(f.grupo, 'rama_usdt', f);
+    if (suyo) acc(suyo, 'aCobrar_usdt', f);
+    else if (esLaCasa(d) || f.grupo === CASA) acc(CASA, 'aCobrar_usdt', f);
+    const g = porGrupo[f.grupo]; if (Number(f.propio_usdt)) g.paneles.push(f);
   });
   const lista = Object.values(porGrupo)
-    .map((g) => ({ ...g, propio_usdt: money.round(g.propio_usdt, 2) }))
-    .sort((a, b) => Number(b.propio_usdt) - Number(a.propio_usdt));
-  const total = lista.reduce((a, g) => money.add(a, g.propio_usdt), '0');
-  const casa = (lista.find((g) => g.grupo === CASA) || {}).propio_usdt || '0';
-  return { ok: true, mes: m, grupos: lista, fallaron,
+    .map((g) => ({ ...g, aCobrar_usdt: money.round(g.aCobrar_usdt, 2), rama_usdt: money.round(g.rama_usdt, 2) }))
+    .sort((a, b) => Number(b.rama_usdt) - Number(a.rama_usdt));
+  const total = filas.reduce((a, f) => money.add(a, f.propio_usdt), '0');
+  const casa = (lista.find((g) => g.grupo === CASA) || {}).aCobrar_usdt || '0';
+  const aCobrar = lista.filter((g) => g.grupo !== CASA).reduce((a, g) => money.add(a, g.aCobrar_usdt), '0');
+  /* ⚠️ EL RESIDUO NEGATIVO ES REAL Y SE INFORMA. Cada nivel del casino es una consulta aparte con
+     su propio filtro de ganancias, y el motor esconde los negativos distinto en cada uno: restarle
+     a un superagente lo de un agente puede dar por debajo de cero. No se corrige solo —taparlo
+     sería inventar plata— se dice cuánto y dónde. */
+  const negativos = filas.filter((f) => Number(f.propio_usdt) < 0)
+    .map((f) => ({ panel: f.panel, divisa: f.divisa, propio_usdt: f.propio_usdt }));
+  return { ok: true, mes: m, grupos: lista, fallaron, negativos,
     total_usdt: money.round(total, 2),
     casa_usdt: money.round(casa, 2),
-    aCobrar_usdt: money.round(money.sub(total, casa), 2) };
+    aCobrar_usdt: money.round(aCobrar, 2) };
 }
