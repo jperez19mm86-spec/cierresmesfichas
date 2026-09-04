@@ -145,4 +145,15 @@ function marcarAvisoCliente(id, { ok, error }) {
   return get(id);
 }
 
-module.exports = { marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, porCliente, resolver, MAX_BYTES, ESTADOS };
+/**
+ * Borra un comprobante. Se usa cuando se borra el PAGO que lo generó: un comprobante aprobado
+ * apuntando a un movimiento que ya no existe es un cobro fantasma — aparece en «Comprobantes
+ * resueltos» como plata acreditada y no está en ninguna cuenta.
+ *
+ * No hay pantalla para esto a propósito: los que sube el cliente no se borran nunca, se rechazan.
+ */
+function borrar(id) {
+  return db.prepare('DELETE FROM comprobantes WHERE id=?').run(String(id)).changes > 0;
+}
+
+module.exports = { borrar, marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, porCliente, resolver, MAX_BYTES, ESTADOS };

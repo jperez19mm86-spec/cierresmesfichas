@@ -1947,6 +1947,47 @@ function mount(app) {
     });
   }));
 
+  /**
+   * El resumen de PESOS al grupo donde llegan los comprobantes.
+   *
+   * ⚠️ SIN NOMBRE NI CÓDIGO DE CLIENTE, y es a propósito: ese grupo concilia contra el banco —le
+   * sirven la fecha y el monto— y no tiene por qué saber quién pagó cuánto. Mandar de más no se
+   * puede deshacer: una vez que salió, salió.
+   *
+   * SALE PARA AFUERA: sólo se manda cuando alguien lo pide, y se dice a qué grupo fue.
+   */
+  app.post('/api/os/pagos/:mes/enviar', wrap(async (req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const chat = String(configStore.getCfg('tgChatArs') || '').trim();
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'el bot de Telegram no está configurado');
+    if (!chat) return err(res, 400, 'no hay grupo de pesos cargado en Config → Medios de pago');
+
+    const cs = clientes.list().clientes; const nom = {}; cs.forEach((c) => { nom[c.id] = c; });
+    const porMov = {};
+    try { comprobantes.list({ limite: 5000 }).forEach((c) => { if (c.movimiento_id) porMov[c.movimiento_id] = c; }); }
+    catch (e) { /* sigue */ }
+    const filas = movs.list({ tipo: 'pago' })
+      .filter((mv) => movs.mesDe(mv) === mes)
+      .filter((mv) => {
+        const c = porMov[mv.id] || {};
+        return (mv.medio === 'cvu') || (mv.medio !== 'usdt' && c.via !== 'usdt' && mv.monto_ars);
+      })
+      .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
+    if (!filas.length) return err(res, 400, `no hay pagos en pesos en ${mes}`);
+
+    const fmt = (x) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const total = filas.reduce((a, mv) => money.add(a, mv.monto_ars || '0'), '0');
+    const texto = [`💵 <b>Pagos en pesos — ${mesCierreLbl(mes).replace('_', ' ')}</b>`, '']
+      .concat(filas.map((mv) => `  ${String(mv.fecha || '').slice(0, 10)}   $ ${fmt(mv.monto_ars)}`))
+      .concat(['', `<b>Total: $ ${fmt(total)}</b>`, `<i>${filas.length} transferencia(s)</i>`])
+      .join('\n');
+    const r = await telegram.sendMessage(tok, chat, texto);
+    r.ok ? ok(res, { enviado: filas.length, total: money.round(total, 2), chat })
+         : err(res, 502, r.error || 'Telegram no aceptó el mensaje');
+  }));
+
   // ───────── MOVIMIENTOS ─────────
   app.get('/api/os/movimientos', (req, res) => ok(res, { movimientos: movs.list({ cliente_id: req.query.cliente_id, tipo: req.query.tipo, mes: req.query.mes }) }));
   app.post('/api/os/movimientos', wrap((req, res) => ok(res, { movimiento: movs.create(req.body || {}) })));
@@ -1957,7 +1998,19 @@ function mount(app) {
     const r = movs.setMesCierre(req.params.id, (req.body || {}).mes_cierre || null);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-  app.delete('/api/os/movimientos/:id', (req, res) => movs.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
+  /* Borrar un pago se lleva su comprobante. Si queda suelto es un cobro fantasma: figura en
+     «Comprobantes resueltos» como plata acreditada y no está en la cuenta de nadie.
+     Sólo se borra el que generó ESE pago, y sólo si fue cargado a mano — los que sube el cliente
+     no se borran nunca, se rechazan. */
+  app.delete('/api/os/movimientos/:id', (req, res) => {
+    let comprobante = null;
+    try {
+      const c = comprobantes.list({ limite: 5000 }).find((x) => x.movimiento_id === req.params.id);
+      if (c && /cargado a mano/.test(c.notas || '')) { comprobantes.borrar(c.id); comprobante = c.id; }
+      else if (c) comprobante = { quedó: c.id, porQue: 'lo subió el cliente: no se borra' };
+    } catch (e) { /* el pago se borra igual */ }
+    return movs.remove(req.params.id) ? ok(res, { comprobante }) : err(res, 404, 'no encontrado');
+  });
 
   // ───────── IMPORTAR LA PLANILLA "BASE DE DATOS CLIENTES" (v3.0) ─────────
   // Flujo obligado: previsualizar → revisar → aplicar con el hash de esa previsualización.
