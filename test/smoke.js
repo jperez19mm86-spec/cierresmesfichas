@@ -6142,6 +6142,13 @@ async function main() {
        eso es lo que se paga de verdad. La diferencia entre las dos tasas es margen, no un costo a
        trasladar. Confundirlas le cambia la factura a todos los clientes. */
     const ext = fs.readFileSync(path.join(ROOT, 'src', 'externos.service.js'), 'utf8');
+    /* Y si ese TC falta, el reporte del vendedor sale INCOMPLETO — que es lo que hace que la
+       emisión no lo pase a la deuda. Antes seguía como si nada y dejaba el aviso adentro de
+       `fuente`, donde no lo veía nadie: la cuenta salía con menos dólares y cuadraba. */
+    check('cierre: sin el TC del proveedor, el reporte del vendedor queda incompleto',
+      /sin TC de proveedor/i.test(ext) && /motivosIncompleto\.push\(`\$\{sinTcProv\}/.test(ext));
+    check('cierre: la fuente de la tasa llega hasta la fila, si no el aviso no se puede ver',
+      /tcFuente: g\.tcFuente/.test(ext));
     check('cierre: al cliente se le cobra con el promedio, al vendedor con el TC del proveedor',
       /modo === 'vendedor'\s*\n?\s*\? tcUnico\.tcExternos\(divisa, mes, nombreMatriz\)\s*\n?\s*: tcUnico\.tcDelMes\(divisa, mes\)/.test(ext),
       'si las dos ramas usaran la misma, o se cobra de más a los clientes o de menos a los vendedores');

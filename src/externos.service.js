@@ -440,6 +440,10 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
       costo: g.costo,
       profit: money.round(g.profit, 2), pct: g.pct, base: g.base, dif: g.dif, cobra: g.cobra, monto,
       tasa: g.tasa, usdt: (g.cobra && g.tasa) ? money.round(money.div(monto, g.tasa), 2) : '0',
+      // De dónde salió la tasa. Viaja hasta acá porque es lo que deja ver que una línea del
+      // VENDEDOR se valuó con el promedio por falta del TC del proveedor: sin esto el aviso
+      // existía adentro del cálculo y no llegaba a ningún lado.
+      tcFuente: g.tcFuente || null,
       sinTasa: g.cobra && !g.tasa,
     });
   }
@@ -469,6 +473,19 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false }
   if (consultasFallidas) motivosIncompleto.push(`${consultasFallidas} consulta(s) al casino fallaron`);
   if (sinTasaN) motivosIncompleto.push(`${sinTasaN} línea(s) cobrables en ${monedasSinTasa.join(', ')} `
     + 'sin tipo de cambio: entran al total valiendo cero');
+
+  /* ── EL VENDEDOR SIN EL TC DEL PROVEEDOR ────────────────────────────────────────────────────
+     La cuenta del vendedor es lo que se paga DE VERDAD, y por eso va con el TC que factura el
+     proveedor (la fila ARS_OF). Si ese TC no está cargado para el mes, `tcExternos` cae al
+     promedio y sigue como si nada: sólo deja un aviso adentro de `fuente`, que no mira nadie.
+     Al cliente no lo afecta —a él se le cobra siempre con el promedio— pero al vendedor sí, y
+     con el promedio (más alto) la cuenta sale con MENOS dólares. Agosto 2026: el promedio era
+     1584,53 y el del proveedor 1508,77.
+     Se marca INCOMPLETO, que es lo que hace que la emisión no lo pase a la deuda: un número
+     cobrado de menos que cuadra es peor que uno que falta. */
+  const sinTcProv = filas.filter((f) => f.cobra && /sin TC de proveedor/i.test(String(f.tcFuente || ''))).length;
+  if (sinTcProv) motivosIncompleto.push(`${sinTcProv} línea(s) sin el TC del proveedor del mes `
+    + '(la fila ARS_OF): se valuarían con el promedio y la cuenta saldría con menos dólares');
 
   return {
     ok: true,
