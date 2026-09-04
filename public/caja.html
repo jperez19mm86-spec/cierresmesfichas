@@ -2726,17 +2726,18 @@ function pintarMovs(){
            · sabemos y hay      → se nombran y se marcan en la lista
            · sabemos y no hay   → no se dice nada; un aviso de que no pasa nada es ruido
            · no sabemos         → «puede incluir», sin marcar ninguna                             */
-      if (sabemosBorr && !yaNo.logins.length) return '';
+      if (sabemosBorr && !yaNo.size) return '';
       const detalle = 'El historial no se borra cuando se borra la cuenta, y no debería: esos '
         + 'movimientos son plata que entró y salió de verdad, y si desaparecieran los totales del '
         + 'período dejarían de cuadrar. <b>El casino no marca las filas</b> — manda el login y '
         + 'nada más — así que la marca la pone este panel cruzando contra tus cuentas eliminadas. '
         + 'Las eliminadas y sus fichas se ven desde <b>Cuentas</b>.';
+      /* 🔴 NO SE NOMBRAN. Con 20.000 movimientos salen 600 cuentas eliminadas distintas: una
+         lista de logins arriba es relleno, y encima suena a total cuando el motor corta en 1.000
+         filas. La marca va en la fila, que es donde estás mirando. */
       return sabemosBorr
-        ? notaInfo('movsborrados', `Hay movimientos de <b>${yaNo.logins.length} ${
-            yaNo.logins.length === 1 ? 'cuenta ya eliminada' : 'cuentas ya eliminadas'}</b>: `
-            + `<b class="mono">${yaNo.logins.slice(0, 3).join('</b>, <b class="mono">')}</b>`
-            + `${yaNo.logins.length > 3 ? ` y ${yaNo.logins.length - 3} más` : ''}. Van marcadas abajo.`,
+        ? notaInfo('movsborrados',
+            'Algunos de estos movimientos son de <b>cuentas que ya eliminaste</b>. Van marcadas.',
             detalle)
         : notaInfo('movsborrados',
             'Esta lista <b>puede incluir cuentas que hoy están eliminadas</b>, con el login que '
@@ -2775,7 +2776,7 @@ function pintarMovs(){
           <span class="hora">${m.datetime.slice(11,16)}</span>
           <span class="sig ${m.operation==='out'?'menos':''}">${m.operation==='out'?'−':'+'}</span>
           <span class="qu"><b class="mono">${m.user || (caja ? caja.login : yo().login)}</b>
-            ${yaNo.ids.has(String(m.uid)) ? '<span class="yano">cuenta eliminada</span>' : ''}
+            ${yaNo.has(String(m.uid)) ? '<span class="yano">cuenta eliminada</span>' : ''}
             ${raro ? `<span>${quienLoHizo(m.initiator)}</span>` : ''}</span>
           <span class="mn num ${m.operation==='out'?'menos':'mas'}">${
             m.operation==='out'?'−':'+'}${fmt(m.cash)}</span>

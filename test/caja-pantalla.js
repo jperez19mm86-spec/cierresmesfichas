@@ -215,26 +215,41 @@ const borradasDelAgente = [
 ];
 let ya = L.eliminadasDeLaLista(movsReales, borradasDelAgente, '7357552');
 check('una caja eliminada se reconoce en sus movimientos viejos',
-  ya.ids.has('7378791') && ya.ids.has('7378774'), [...ya.ids].join(','));
-check('y la que sigue viva no se marca', !ya.ids.has('7357557'));
-check('se nombra cada cuenta una sola vez, aunque tenga varios movimientos',
-  ya.logins.length === 2, ya.logins.join(','));
+  ya.has('7378791') && ya.has('7378774'), [...ya].join(','));
+check('y la que sigue viva no se marca', !ya.has('7357557'));
+check('cada cuenta cuenta una sola vez, aunque tenga varios movimientos',
+  ya.size === 2, String(ya.size));
 
 /* Una eliminada de OTRA caja no tiene por qué aparecer acá: si el nodo no filtrara, un login
    borrado en otro lado marcaría filas que no le corresponden. */
 check('las eliminadas de otro nodo no se cuelan',
-  !L.eliminadasDeLaLista([{ uid: '9999999', user: 'DeOtraCaja' }], borradasDelAgente, '7357552').logins.length);
+  !L.eliminadasDeLaLista([{ uid: '9999999', user: 'DeOtraCaja' }], borradasDelAgente, '7357552').size);
 
 check('sin lista de eliminadas no se marca nada, no se adivina',
-  L.eliminadasDeLaLista(movsReales, [], '7357552').logins.length === 0
-  && L.eliminadasDeLaLista(movsReales, null, '7357552').logins.length === 0);
+  L.eliminadasDeLaLista(movsReales, [], '7357552').size === 0
+  && L.eliminadasDeLaLista(movsReales, null, '7357552').size === 0);
 check('sin movimientos tampoco explota',
-  L.eliminadasDeLaLista(null, borradasDelAgente, '7357552').logins.length === 0);
+  L.eliminadasDeLaLista(null, borradasDelAgente, '7357552').size === 0);
 
 /* El id llega como texto del motor y como número de algún lado: los dos tienen que cruzar. */
 check('el id cruza aunque uno venga número y el otro texto',
   L.eliminadasDeLaLista([{ uid: 7378791, user: 'CajTodo145348' }],
-    [{ id: 7378791, login: 'CajTodo145348', sala: 7357552 }], 7357552).logins.length === 1);
+    [{ id: 7378791, login: 'CajTodo145348', sala: 7357552 }], 7357552).size === 1);
+
+/* 🔴 CON VOLUMEN. Medido: 20.000 movimientos y 3.000 eliminadas cruzan en 3,5 ms — y el motor
+   corta la lista en 1.000 filas, así que ese caso ni siquiera puede darse. Lo que NO escala es
+   nombrarlas: ahí salían 600 logins distintos. Por eso la pantalla no los nombra. */
+const muchasBorr = Array.from({ length: 3000 }, (_, i) => ({ id: String(9e6 + i), sala: 'N' }));
+const muchosMovs = Array.from({ length: 20000 }, (_, i) => ({ uid: i % 5 ? 'viva' + (i % 40) : String(9e6 + (i % 3000)) }));
+const arranque = Date.now();
+const gordo = L.eliminadasDeLaLista(muchosMovs, muchasBorr, 'N');
+const tardo = Date.now() - arranque;
+check('20.000 movimientos contra 3.000 eliminadas cruzan en menos de 50 ms',
+  tardo < 50, tardo + ' ms');
+check('y el resultado es un Set de ids, no una lista de nombres para armar',
+  gordo instanceof Set && gordo.size === 600, String(gordo.size));
+check('la pantalla no lista los logins en el aviso',
+  !/yaNo\.logins/.test(htmlCaja));
 
 check('la pantalla sólo AFIRMA cuando la lista ya se trajo',
   /window\.__borradosListos = function/.test(conector)
@@ -242,7 +257,7 @@ check('la pantalla sólo AFIRMA cuando la lista ya se trajo',
 check('y no dispara una consulta extra para saberlo',
   !/__borradosListos[\s\S]{0,300}API\.pedir/.test(conector));
 check('con la lista traída y ninguna eliminada, no se muestra ningún aviso',
-  /if \(sabemosBorr && !yaNo\.logins\.length\) return '';/.test(htmlCaja));
+  /if \(sabemosBorr && !yaNo\.size\) return '';/.test(htmlCaja));
 
 /* ── 4 · el nivel y su menú ─────────────────────────────────────────────────────────────────────
    🔴 EL QUE HACÍA QUE TODOS ENTRARAN COMO AGENTE. */

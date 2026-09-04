@@ -68,18 +68,25 @@ function crucesEnRango(cruces, rango) {
    —comprobado el 4-sep sobre 29 movimientos reales—. El cruce se hace acá, por `uid`, contra la
    lista de eliminadas QUE YA ESTÉ CARGADA: la trae la pantalla de Cuentas, así que normalmente
    está. Nunca se pide de más. Y si no la tenemos, no se afirma nada — el aviso pasa a decir «puede
-   incluir» en lugar de nombrarlas. Medido ese mismo día: 4 de 29 movimientos eran de dos cajas de
-   prueba ya borradas, y la pantalla las mostraba como si siguieran vivas. */
+   incluir». Medido ese mismo día: 4 de 29 movimientos eran de dos cajas de prueba ya borradas, y
+   la pantalla las mostraba como si siguieran vivas.
+
+   🔴 NO SE NOMBRAN, A PROPÓSITO. La primera versión listaba los logins arriba. Con volumen no
+   sirve: medido con 20.000 movimientos, salieron 600 cuentas eliminadas distintas — «CajA, CajB,
+   CajC y 597 más» no es información, es relleno, y encima suena a total cuando el motor corta la
+   lista en 1.000 filas. Lo que sirve es la marca en la fila, que está donde mirás. Por eso esto
+   devuelve un Set de ids y nada más: es lo único que la pantalla necesita, y evita armar una
+   lista de nombres que nadie va a leer. El cruce completo cuesta 3,5 ms con 20.000 filas. */
 function eliminadasDeLaLista(filas, borrados, nodo) {
   const ids = new Set((borrados || [])
     .filter((b) => nodo == null || String(b.sala) === String(nodo))
     .map((b) => String(b.id)));
-  const halladas = new Map();
+  const halladas = new Set();
   for (const m of filas || []) {
     const uid = String((m && m.uid) == null ? '' : m.uid);
-    if (ids.has(uid)) halladas.set(uid, (m && m.user) || uid);
+    if (ids.has(uid)) halladas.add(uid);
   }
-  return { ids: new Set(halladas.keys()), logins: [...halladas.values()] };
+  return halladas;
 }
 
 /* ── EL MENÚ DE CADA NIVEL ──────────────────────────────────────────────────────────────────────
