@@ -3535,6 +3535,10 @@ const CIE_STYLE = `<style>
        del fondo. Vale para cualquier celda sticky de acá. */
     .ciet tr.cie-barato td.cie-p{background:#eaf5ec;border-left:3px solid var(--green)}
     .ciet tr.cie-barato td.cie-p input{color:var(--green);font-weight:700;background:transparent}
+    .ciet td.cie-neto{font-weight:700;text-align:center}
+    .ciet td.cie-neto.cero{color:var(--border);font-weight:400}
+    .ciet th .cie-pct{display:block;font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
+    .ciet th .cie-pct.raro{color:#c90}
     .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
     .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
     .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}.cie-x:hover{opacity:1}
@@ -4748,12 +4752,28 @@ async function cieMatriz(){
   const provs=_cieData.proveedores, celdas=_cieData.celdas;
   // Quién es vendedor sale de la ficha del cliente, no de la matriz.
   const fichas = (await api('/api/os/clientes')).clientes||[];
+  /* El % de cada cliente PARA ESTE MES, de la misma fuente que la factura: sin él no se puede
+     mostrar el excedente, que es lo que de verdad se le cobra. */
+  const mesMx = _cieMesCruce();
+  const pctDe = {};
+  ((await api('/api/os/externos?mes=' + encodeURIComponent(mesMx))).clientes || [])
+    .forEach(c => { pctDe[c.cliente] = c.base; });
   const esVend = new Set(fichas.filter(c=>c.es_vendedor).map(c=>String(c.nombre).toLowerCase()));
   // LOS VENDEDORES NO VAN EN LA MATRIZ: pagan siempre el costo real del proveedor, por todos los
   // que usen. No necesitan columna ni les aplica ninguna regla — no son clientes.
   const clis = _cieData.clientes.filter(c=>!esVend.has(String(c.nombre).toLowerCase()));
   const nVend = _cieData.clientes.length - clis.length;
-  const th = (c)=>`<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span><br><input class="cie-d" data-cli="${esc(c.nombre)}" value="${esc(c.descuento==null?'':c.descuento)}" placeholder="desc" onchange="cieDesc(this)" title="1_Cliente: descuento del cliente"></th>`;
+  /* ⚠️ ACÁ HABÍA OTRO NÚMERO: el campo `descuento`, heredado de la planilla, que el cálculo NO
+     usa. Titan decía 7 y se le cobraba 5; Crazy-duck 15 contra 14; y 12 clientes no tenían
+     ninguno aunque igual se les cobra. Dos números que dicen ser lo mismo y no coinciden hacen
+     que no se pueda confiar en la pantalla. Ahora se muestra EL QUE SE COBRA. */
+  const th = (c)=>{
+    const b = pctDe[c.nombre];
+    const viejo = (c.descuento!=null && c.descuento!=='' && String(c.descuento)!==String(b)) ? c.descuento : null;
+    return `<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span>`
+      + `<span class="cie-pct${viejo?' raro':''}" title="${b==null?'sin % cargado para el mes'
+          : 'el % que se le cobra en ' + esc(mesNombre(mesMx)) + (viejo?' — la planilla vieja decía ' + esc(viejo) + '%':'')}">`
+      + (b==null?'—':esc(b)+'%') + '</span></th>'; };
   const head = ['<th class="cie-h0">Proveedor</th>','<th class="cie-hb">% base</th>'].concat(clis.map(th)).join('');
   const nCols = clis.length + 2;
 
@@ -4767,7 +4787,18 @@ async function cieMatriz(){
     const conVal = clis.filter(c=>{const v=row[c.nombre]; return v!=null&&v!=='';});
     const cobran = conVal.filter(c=>Number(row[c.nombre])>0).length;
     if(!conVal.length) sinConfig++; else if(!cobran) sinNadie++;
-    const tds = clis.map(c=>{const v=row[c.nombre];
+    /* En modo EXCEDENTE la tabla se mira, no se edita: muestra celda − % del cliente, que es lo
+       que de verdad se le cobra. «9» no dice nada por sí solo; «+1» sí. */
+    const tds = clis.map(c=>{
+      const v=row[c.nombre];
+      if(_cieNeto){
+        const b = pctDe[c.nombre];
+        const neto = (v==null||v===''||b==null) ? null : Math.round((Number(v)-Number(b))*100)/100;
+        const porQue = (v==null||v==='') ? 'sin cargar'
+          : esc(v)+'% del proveedor − '+esc(b==null?'?':b)+'% de '+esc(c.nombre);
+        return '<td class="cie-neto'+(neto==null||neto<=0?' cero':'')+'" title="'+porQue+'">'
+          + (neto==null?'':(neto>0?'+'+neto:'0')) + '</td>';
+      }
       return `<td><input class="cie-c" data-prov="${esc(p.nombre)}" data-cli="${esc(c.nombre)}" value="${v==null?'':esc(v)}" onchange="cieCell(this)"></td>`;}).join('');
     // Marca cómo está la fila CRUZANDO las dos pantallas. Una fila vacía no es lo mismo si el
     // casino la reporta que si no la reporta nadie: la primera es plata que no se cobra, la
@@ -4801,7 +4832,9 @@ async function cieMatriz(){
         <div class="sub">${provs.length} proveedores × ${clis.length} clientes, agrupados por familia</div>
       </div>
       <div class="acciones">
-        <input id="cie-q" oninput="filtCie()" placeholder="🔎 buscar proveedor" style="width:210px">
+        <input id="cie-q" oninput="filtCie()" placeholder="🔎 buscar proveedor" style="width:190px">
+        <label style="font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;white-space:nowrap;display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" id="cie-neto" onchange="cieVerNeto(this)"> ver el excedente (+1)</label>
         <button class="small outline" onclick="cieFoldAll()">Plegar todo</button>
       </div>
     </div>
@@ -4841,6 +4874,12 @@ async function cieAgregarFaltantes(){ if(!confirm('¿Agregar a la matriz todos l
 async function addCieCli(){ const n=val('cie-nc').trim(); if(!n)return toast('Poné el nombre del cliente'); await api('/api/os/cierre/cliente',{method:'POST',body:JSON.stringify({nombre:n})}); toast('Columna agregada'); cieMatriz(); }
 async function delCieProv(n){ if(!confirm('¿Quitar el proveedor "'+n+'" y sus %?'))return; await api('/api/os/cierre/proveedor/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
 async function delCieCli(n){ if(!confirm('¿Quitar el cliente "'+n+'" y sus %?'))return; await api('/api/os/cierre/cliente/'+encodeURIComponent(n),{method:'DELETE'}); cieMatriz(); }
+/* El excedente es otra lectura de los mismos datos, no otra pantalla: la celda es el precio y el
+   excedente es lo que se cobra. Con el número solo —«9»— no se sabe si es caro o barato para ese
+   cliente; con «+1» sí. */
+let _cieNeto = false;
+function cieVerNeto(el){ _cieNeto = !!el.checked; cieMatriz(); }
+
 function filtCie(){ const q=(val('cie-q')||'').toLowerCase();
   document.querySelectorAll('.ciet tbody tr').forEach(tr=>{
     if(tr.classList.contains('cie-fam')){ tr.style.display = q?'none':''; return; }  // buscando, sin cabeceras

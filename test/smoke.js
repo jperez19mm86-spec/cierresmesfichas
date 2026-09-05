@@ -6559,6 +6559,27 @@ async function main() {
       /ya recibieron su factura de/.test(h13) && /hay que mandarles la corregida/.test(h13));
   }
 
+  /* ── LA MATRIZ MUESTRA LO QUE SE COBRA, NO SÓLO EL PRECIO ───────────────────────────────────
+     La celda dice «9» y eso solo no significa nada: depende del % del cliente. Con el excedente
+     —«+1»— se lee de una. Y el número del encabezado era `descuento`, un campo de la planilla
+     vieja que el cálculo NO usa: decía Titan 7 cuando se le cobraba 5. */
+  {
+    const h14 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const mx = h14.slice(h14.indexOf('async function cieMatriz()'), h14.indexOf('async function cieCell'));
+    check('matriz: el encabezado muestra el % que se cobra, no el campo viejo',
+      /pctDe\[c\.nombre\]/.test(mx) && !/onchange="cieDesc\(this\)"/.test(mx),
+      '`descuento` no lo usa ningún cálculo y estaba desincronizado en 15 clientes');
+    check('matriz: avisa cuando la planilla vieja decía otra cosa',
+      /la planilla vieja decía/.test(mx));
+    check('matriz: se puede ver el excedente en vez de la celda',
+      /ver el excedente \(\+1\)/.test(h14) && /function cieVerNeto\(el\)/.test(h14));
+    check('matriz: el excedente es celda menos el % del cliente',
+      /Math\.round\(\(Number\(v\)-Number\(b\)\)\*100\)\/100/.test(mx));
+    check('matriz: en modo excedente no se edita',
+      /if\(_cieNeto\)\{[\s\S]{0,400}return '<td class="cie-neto/.test(mx),
+      'editar sobre un número calculado escribiría el excedente como si fuera el precio');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por
