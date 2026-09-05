@@ -6434,6 +6434,24 @@ async function main() {
       /c\.factura_a !== c\.id/.test(emi), 'un ciclo mal cargado colgaría la emisión');
   }
 
+  /* ── EL PAPEL DE CADA CLIENTE, DESDE LA LISTA ───────────────────────────────────────────────
+     El botón de PDF vivía sólo abajo de la factura de arriba, y usaba el cliente del selector: si
+     estabas mirando la lista del mes y querías el de Titan, tenías que elegirlo arriba, apretar
+     Calcular, esperar el minuto que tarda y recién ahí bajar hasta el botón. Salía el papel del
+     cliente equivocado sin que nada lo dijera — pasó con AdminFran-D, que no tiene proveedores. */
+  {
+    const h10 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('externos: cada renglón de la lista tiene su papel',
+      /onclick="pdfExternosDe\(/.test(h10) && /<th class="reptd right">Papel<\/th>/.test(h10));
+    check('externos: el papel se arma en un solo lugar',
+      /async function pdfExternos\(d\)\{/.test(h10)
+      && /async function pdfExternosDe\(cliente, mes\)\{/.test(h10)
+      && /return pdfExternos\(d\);/.test(h10),
+      'dos copias del documento se separan el día que se toca una');
+    check('externos: sólo la lista de clientes lo lleva, no la de vendedores',
+      /origen === 'externos'\s*\n\s*\? '<td class="reptd right"><button/.test(h10));
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

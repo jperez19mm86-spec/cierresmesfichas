@@ -4021,10 +4021,17 @@ function todasPintar(origen){
     +   ' <span class="muted" style="font-size:14px">USDT · ' + filas.length + ' ' + quien + (filas.length===1?'':'s') + '</span></div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
     +   '<th class="reptd">' + quien.charAt(0).toUpperCase() + quien.slice(1) + '</th>'
-    +   '<th class="reptd">Código</th><th class="reptd right">USDT</th></tr></thead><tbody>'
+    +   '<th class="reptd">Código</th><th class="reptd right">USDT</th>'
+    +   (origen === 'externos' ? '<th class="reptd right">Papel</th>' : '') + '</tr></thead><tbody>'
     + filas.map(f => '<tr><td class="reptd"><b>' + esc(f.cliente) + '</b></td>'
     +   '<td class="reptd muted">' + esc(f.codigo) + '</td>'
-    +   '<td class="reptd right"><b>' + money(f.monto_usdt,2) + '</b></td></tr>').join('')
+    +   '<td class="reptd right"><b>' + money(f.monto_usdt,2) + '</b></td>'
+    /* El papel de CADA UNO, acá mismo. Antes había que elegir el cliente arriba, apretar Calcular,
+       esperar el minuto que tarda y recién ahí bajar hasta el botón: para los 18 era imposible. */
+    +   (origen === 'externos'
+        ? '<td class="reptd right"><button class="outline small" title="El papel de ' + esc(f.cliente) + ' para mandarle"'
+          + ' onclick="pdfExternosDe(\'' + esc(String(f.cliente).replace(/'/g, "\\'")) + '\',\'' + esc(t.mes) + '\')">🖨 PDF</button></td>'
+        : '') + '</tr>').join('')
     + '</tbody></table></div>';
 }
 
@@ -4457,6 +4464,19 @@ function bajarArchivo(nombre, texto, tipo){
 async function extPDF(){
   const d = _extData;
   if(!d) return toast('Primero apretá Calcular', true);
+  return pdfExternos(d);
+}
+
+/* El mismo papel, para cualquier cliente: desde la factura de arriba o desde la lista del mes.
+   Si no viene el reporte calculado, se lo pide — y avisa, porque puede tardar. */
+async function pdfExternosDe(cliente, mes){
+  toast('Armando el papel de ' + cliente + '…');
+  const r = await api('/api/os/externos/' + encodeURIComponent(cliente) + '?mes=' + encodeURIComponent(mes));
+  if(!r || !r.ok) return toast('No se pudo: ' + ((r&&r.error)||''), true);
+  return pdfExternos(r);
+}
+
+async function pdfExternos(d){
   const cs = (await api('/api/os/clientes')).clientes || [];
   const yo = cs.find(c => String(c.nombre) === String(d.cliente));
   const cuelgan = yo ? cs.filter(c => c.factura_a === yo.id) : [];
