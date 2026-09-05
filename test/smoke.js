@@ -6410,6 +6410,25 @@ async function main() {
       'es el criterio opuesto al resumen de pesos, que va sin nombre');
   }
 
+  /* ── EL DETALLE DE EXTERNOS SE PUEDE BAJAR, Y DE TODOS ──────────────────────────────────────
+     El ⬇ Exportar de la factura de externos baja UN cliente: para tener los 18 había que entrar 18
+     veces. Y bajaba con coma de separador, que en el Excel en castellano parte "1.234,56" en dos
+     columnas — el archivo llegaba roto justo donde están los números. */
+  {
+    const hUi6 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('externos: se puede bajar el detalle de TODOS los clientes de una',
+      /function todasDetalle\(\)/.test(hUi6) && /externos-detalle-/.test(hUi6));
+    check('externos: el que falla no frena a los demás',
+      /fallaron\.push\(f\.cliente/.test(hUi6) && /quedaron afuera o incompletos/.test(hUi6));
+    check('externos: lleva el total de cada cliente y el del mes',
+      /TOTAL DEL CLIENTE/.test(hUi6) && /TOTAL DEL MES/.test(hUi6),
+      'sin los totales hay que rehacer la suma para comprobar que cierra');
+    check('externos: las descargas usan el mismo formato que el resto',
+      /function csvCelda\(x\)\{/.test(hUi6)
+      && /const csv = '\\ufeff' \+ filas\.map\(f => f\.map\(x => csvCelda\(x\)\)\.join\(';'\)\)/.test(hUi6),
+      'con coma de separador el Excel en castellano parte los números en dos columnas');
+  }
+
   /* ── LO QUE VE ELLA NO ES LO QUE SALE ────────────────────────────────────────────────────────
      La primera versión escondía el nombre y el código del cliente TAMBIÉN en la pantalla, y así no
      se puede trabajar: ella necesita saber quién pagó. Lo que no puede llevar nombres es lo que

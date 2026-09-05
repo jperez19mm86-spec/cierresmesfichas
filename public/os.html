@@ -4015,6 +4015,9 @@ function todasPintar(origen){
     +   'Al grupo interno va con nombre — <b>Cuentas Imperium</b> no es un grupo de clientes.</div></div>'
     +   '<div class="acciones">' + señal
     +     '<button class="outline small" onclick="todasCSV(\'' + origen + '\')">⬇ Excel (CSV)</button>'
+    +     (origen === 'externos'
+          ? '<button class="outline small" onclick="todasDetalle()" title="El detalle proveedor por proveedor de los ' + filas.length + ' clientes, en un solo archivo">⬇ Detalle de todos</button>'
+          : '')
     +     '<button class="small" onclick="todasEnviar(\'' + origen + '\')">📣 Mandar a Cuentas Imperium</button>'
     +   '</div></div>'
     + '<div class="reppct" style="font-size:28px;margin:8px 0 4px">' + money(d.total_usdt,2)
@@ -4041,6 +4044,47 @@ function todasCSV(origen){
   a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
   a.download = 'cuentas-' + origen + '-' + t.mes + '.csv';
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ══ EL DETALLE DE TODOS, EN UN ARCHIVO ═══════════════════════════════════════════════════════
+   El ⬇ Exportar de la factura de externos baja UN cliente: para tener los 18 hay que entrar 18
+   veces y esperar el cálculo de cada uno. Esto los recorre solos y arma un único archivo con la
+   misma forma que el de a uno — el que se le manda al cliente.
+
+   Va de a uno y avisando por dónde va: cada cliente puede tardar si su mes no está en la foto y
+   hay que preguntarle al casino. El que falle NO frena a los demás: se anota al final. */
+async function todasDetalle(){
+  const t = _todas.externos; if(!t || !(t.datos.filas||[]).length) return toast('No hay nada emitido este mes');
+  const filas = [['Cliente','Código','Mes','Panel','Nivel','Divisa','Proveedor','Ganancia','% extra','Monto','Tasa','USDT']];
+  const fallaron = []; const totales = [];
+  const cont = document.getElementById(t.cont);
+  const aviso = document.createElement('div');
+  aviso.className = 'card'; cont.prepend(aviso);
+  for(let i=0; i<t.datos.filas.length; i++){
+    const f = t.datos.filas[i];
+    aviso.innerHTML = '<div class="muted">Trayendo el detalle… ' + (i+1) + ' de ' + t.datos.filas.length
+      + ' · <b>' + esc(f.cliente) + '</b></div>';
+    const r = await api('/api/os/externos/' + encodeURIComponent(f.cliente) + '?mes=' + encodeURIComponent(t.mes));
+    if(!r || !r.ok){ fallaron.push(f.cliente + ': ' + ((r&&r.error)||'no se pudo')); continue; }
+    let suma = 0;
+    (r.paneles||[]).forEach(p => (p.items||[]).filter(i2=>i2.cobra).forEach(i2 => {
+      suma += Number(i2.usdt||0);
+      filas.push([f.cliente, f.codigo, t.mes, p.panel, p.nivel, i2.divisa, i2.proveedor,
+        i2.profit, i2.dif, i2.monto, i2.tasa, i2.usdt]);
+    }));
+    totales.push([f.cliente, f.codigo, t.mes, '', '', '', 'TOTAL DEL CLIENTE', '', '', '', '', suma.toFixed(2)]);
+    if(r.incompleto) fallaron.push(f.cliente + ': el reporte salió incompleto — ' + (r.porQueIncompleto||[]).join(' · '));
+  }
+  aviso.remove();
+  filas.push([]); totales.forEach(x=>filas.push(x));
+  filas.push([]); filas.push(['','','','','','','TOTAL DEL MES','','','','', t.datos.total_usdt]);
+  const csv = '\ufeff' + filas.map(f=>f.map(x=>csvCelda(x)).join(';')).join('\r\n');
+  const a2 = document.createElement('a');
+  a2.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a2.download = 'externos-detalle-' + t.mes + '.csv';
+  a2.click(); URL.revokeObjectURL(a2.href);
+  toast(fallaron.length ? ('Bajado, pero ' + fallaron.length + ' con problemas') : 'Listo — el detalle de los ' + t.datos.filas.length);
+  if(fallaron.length) alert('Estos quedaron afuera o incompletos:\n\n' + fallaron.join('\n'));
 }
 
 /* SALE PARA AFUERA: se pregunta siempre, se dice a qué grupo y cuánto suma. No se puede deshacer. */
@@ -4381,6 +4425,15 @@ function extPintar() {
   }).join('');
   b.innerHTML = cab + alerta + paneles;
 }
+/* Una celda de CSV: los números van con coma decimal y sin comillas —así el Excel los suma— y el
+   texto va entre comillas. Estaba escrito distinto en cada descarga. */
+function csvCelda(x){
+  if (x == null || x === '') return '""';
+  if (typeof x === 'number' || /^-?\d+(\.\d+)?$/.test(String(x)))
+    return String(x).replace('.', ',');
+  return '"' + String(x).replace(/"/g, '""') + '"';
+}
+
 function extCSV() {
   const d = _extData; if (!d) return;
   const filas = [['Cliente', 'Mes', 'Panel', 'Nivel', 'Divisa', 'Proveedor', 'Ganancia', '% extra', 'Monto', 'Tasa', 'USDT']];
@@ -4395,7 +4448,9 @@ function extCSV() {
   }));
   Object.keys(porDiv).forEach(k => filas.push(['', '', '', '', k, 'subtotal', '', '', porDiv[k].monto, '', porDiv[k].usdt]));
   filas.push(['', '', '', '', '', '', '', '', '', 'TOTAL USDT', d.totalUsdt]);
-  const csv = filas.map(f => f.map(x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"').join(',')).join('\n');
+  /* Punto y coma y coma decimal, como el resto de las descargas: con coma de separador el Excel en
+     castellano parte "1.234,56" en dos columnas y el archivo llega roto. El BOM es por los acentos. */
+  const csv = '\ufeff' + filas.map(f => f.map(x => csvCelda(x)).join(';')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'externos_' + d.cliente + '_' + d.mes + '.csv';
