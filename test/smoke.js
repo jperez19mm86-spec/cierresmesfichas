@@ -6410,6 +6410,30 @@ async function main() {
       'es el criterio opuesto al resumen de pesos, que va sin nombre');
   }
 
+  /* ── EL QUE CUELGA DE OTRO NO PAGA SU PROPIA CUENTA DE EXTERNOS ─────────────────────────────
+     JJ se le factura a Marcelo y Ariel a Fran: su deuda va a la cuenta del que paga. Con el
+     CONSUMO ya pasaba —lo rutea `factura_a` en pedidos-store— pero los externos se emitían a
+     nombre del chico, así que la cuenta quedaba partida: el consumo en uno y los proveedores en
+     el otro. Y como la deuda lleva un solo renglón por cliente y mes, hay que SUMARLOS. */
+  {
+    const rutasFA = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const emi = rutasFA.slice(rutasFA.indexOf("app.post('/api/os/emision/externos'"),
+      rutasFA.indexOf("app.post('/api/os/emision/vendedores'"));
+    check('externos: la emisión respeta factura_a',
+      /const paga = \(c\.factura_a && c\.factura_a !== c\.id && clientes\.get\(c\.factura_a\)\) \? c\.factura_a : c\.id;/.test(emi),
+      'sin esto la deuda de JJ queda en JJ aunque la pague Marcelo');
+    check('externos: se suman en una sola línea',
+      /ya\.monto_usdt = money\.add\(ya\.monto_usdt, l\.monto_usdt\)/.test(emi),
+      'el índice único deja un renglón por cliente y mes: dos líneas se pisan');
+    check('externos: la nota dice de quiénes está hecha',
+      /incluye \$\{l\.de\.join\(', '\)\}/.test(emi),
+      'si no, el número es mayor que su propio reporte y nadie puede explicarlo');
+    check('externos: se informa qué se ruteó',
+      /ruteadas\.push\(\{ de: c\.nombre, a:/.test(emi) && /fallaron, ruteadas \}/.test(emi));
+    check('externos: no se sigue una cadena sin fin',
+      /c\.factura_a !== c\.id/.test(emi), 'un ciclo mal cargado colgaría la emisión');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

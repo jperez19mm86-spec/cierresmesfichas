@@ -4377,9 +4377,34 @@ function mount(app) {
       if (!money.isPos(r.totalUsdt)) continue;
       lineas.push({ cliente_id: c.id, monto_usdt: r.totalUsdt, base_pct: r.base, notas: `Proveedores externos ${mes} · base ${r.base}%` });
     }
-    const out = emision.emitir({ mes, origen: 'externos', lineas });
+
+    /* ── EL QUE CUELGA DE OTRO NO PAGA SU PROPIA CUENTA ───────────────────────────────────────
+       JJ se le factura a Marcelo, Ariel a Fran: su deuda va a la cuenta del que de verdad paga.
+       Eso ya pasaba con el CONSUMO —lo rutea `factura_a` en pedidos-store— pero los externos se
+       emitían igual a nombre del chico, así que la cuenta quedaba partida en dos: el consumo en
+       uno y los proveedores en el otro.
+       Se suman en UNA línea, porque la deuda tiene un solo renglón por cliente y mes (el índice
+       único de emisión). Y la nota dice de quiénes está hecha, que si no el número aparece más
+       grande que su propio reporte y no hay forma de explicarlo. */
+    const porPagador = new Map(); const ruteadas = [];
+    for (const l of lineas) {
+      const c = clientes.get(l.cliente_id) || {};
+      const paga = (c.factura_a && c.factura_a !== c.id && clientes.get(c.factura_a)) ? c.factura_a : c.id;
+      if (paga !== c.id) ruteadas.push({ de: c.nombre, a: (clientes.get(paga) || {}).nombre, monto: l.monto_usdt });
+      const ya = porPagador.get(paga);
+      if (!ya) { porPagador.set(paga, { ...l, cliente_id: paga, de: paga === c.id ? [] : [c.nombre] }); continue; }
+      ya.monto_usdt = money.add(ya.monto_usdt, l.monto_usdt);
+      if (paga !== c.id) ya.de.push(c.nombre);
+    }
+    const lineasFinales = [...porPagador.values()].map((l) => ({
+      ...l,
+      notas: l.de && l.de.length
+        ? `Proveedores externos ${mes} · base ${l.base_pct}% · incluye ${l.de.join(', ')}`
+        : l.notas,
+    }));
+    const out = emision.emitir({ mes, origen: 'externos', lineas: lineasFinales });
     if (!out.ok) return err(res, 400, out.error);
-    ok(res, { ...out, sinBase, fallaron });
+    ok(res, { ...out, sinBase, fallaron, ruteadas });
   }));
 
   /**
