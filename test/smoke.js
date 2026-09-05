@@ -6448,8 +6448,10 @@ async function main() {
       && /async function pdfExternosDe\(cliente, mes\)\{/.test(h10)
       && /return pdfExternos\(d\);/.test(h10),
       'dos copias del documento se separan el día que se toca una');
-    check('externos: sólo la lista de clientes lo lleva, no la de vendedores',
-      /origen === 'externos'\s*\n\s*\? '<td class="reptd right"><button/.test(h10));
+    /* Y la de VENDEDORES también: su papel dice otra cosa —pagan el costo real, no un %— pero se
+       manda igual. Antes el botón era sólo para clientes; se pidió para los dos. */
+    check('externos: la lista de vendedores también trae su papel',
+      /<th class="reptd right">Papel<\/th>/.test(h10) && !/origen === 'externos' \? '<th class="reptd right">Papel/.test(h10));
   }
 
   /* ── LA FACTURA MUESTRA LO QUE SE LE COBRÓ, INCLUIDO LO DEL QUE CUELGA ───────────────────────
@@ -6469,6 +6471,32 @@ async function main() {
     check('factura: si el reporte del chico no sale, la factura queda marcada incompleta',
       /if \(!rc \|\| !rc\.ok\) \{ r\.incompleto = true; continue; \}/.test(fsv),
       'cobrar de menos en silencio es peor que avisar');
+  }
+
+  /* ── EL VENDEDOR: LO QUE USA ÉL Y LO QUE CUESTA SU RAMA SON DOS NÚMEROS ─────────────────────
+     La pantalla mostraba uno solo —«paga por proveedores»— y era el de lo que usa ÉL. Alexa
+     pagaba 62,69 con 33 clientes que vendieron 408.671, y el número estaba bien: sus 6 paneles
+     propios casi no movieron ese mes (comprobado contra el casino). Lo que faltaba era la otra
+     pregunta: su rama cuesta 5.432,89, que pagan sus clientes en su propia factura. Con una sola
+     columna, el 62,69 parecía un error. */
+  {
+    const h11 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('vendedores: se ve lo que cuesta su rama, no sólo lo que usa él',
+      /<th class="right">Su rama cuesta<\/th>/.test(h11) && /vendedores-reparto\//.test(h11));
+    check('vendedores: se ve lo que debe hoy',
+      /<th class="right">Debe hoy<\/th>/.test(h11) && /\/cuenta'\)/.test(h11));
+    check('vendedores: se explica por qué no se le cobra la rama',
+      /cobrárselo también sería cobrar dos veces/.test(h11),
+      'sin la explicación, las dos columnas juntas confunden más que una');
+    check('vendedores: lo de la CASA se dice aparte',
+      /son de la CASA<\/b> \(IGLatam/.test(h11), 'esa plata no se le cobra a ningún vendedor');
+    // Y el papel de un vendedor no habla de un % base, que no tiene.
+    check('vendedores: su papel dice que paga el costo real, no un %',
+      /paga el <b>costo real<\/b> de los proveedores que usó, no un %/.test(h11));
+    const pdf = h11.slice(h11.indexOf('async function pdfExternos(d)'), h11.indexOf('function csvCelda'));
+    check('vendedores: `esVend` se declara antes de usarse',
+      pdf.indexOf('const esVend') > 0 && pdf.indexOf('const esVend') < pdf.indexOf('esVend ?'),
+      'declararlo después revienta el papel entero por temporal dead zone');
   }
 
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
