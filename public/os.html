@@ -4413,7 +4413,15 @@ function extPintar() {
     const items = (d.paneles || []).reduce((a, p) => a.concat(p.items || []), []);
     const internos = [...new Set(items.filter(i => i.interno).map(i => i.proveedor))];
     const mal = [...new Set(items.filter(i => i.interno && i.pctMatriz).map(i => i.proveedor + ' (' + i.pctMatriz + '%)'))];
-    if (internos.length) avisos.push('<b>' + internos.length + ' proveedores internos</b> (SL · SL2 · XG) '
+    if (d.internosSeCobran) {
+      /* La excepción: este cliente los cobra como a cualquier otro proveedor. Se dice fuerte,
+         porque es al revés de la regla general y si no, el número no se entiende. */
+      const cob = items.filter(i => i.cobra && cieEsInterno(i.proveedor));
+      avisos.push('🟣 <b>A este cliente SÍ se le cobran los internos</b> (SL · SL2 · XG), '
+        + 'como a cualquier otro proveedor: es un acuerdo aparte de la regla general. '
+        + (cob.length ? cob.length + ' de ellos se le están cobrando este mes.' : 'Ninguno le dio ganancia este mes.'));
+    }
+    else if (internos.length) avisos.push('<b>' + internos.length + ' proveedores internos</b> (SL · SL2 · XG) '
       + 'van al ' + esc(d.base) + '% del cliente: extra 0, no se cobran.'
       + (mal.length ? ' <b style="color:var(--red)">' + mal.length + ' tienen la celda cargada más alta</b> — '
           + mal.slice(0, 6).map(esc).join(', ') + (mal.length > 6 ? '…' : '')

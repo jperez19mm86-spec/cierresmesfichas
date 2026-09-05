@@ -59,6 +59,7 @@ function load() {
       externos_modo: r.externos_modo || null,
       vendedor_id: r.vendedor_id || null,
       factura_a: r.factura_a || null,
+      internos_se_cobran: !!r.internos_se_cobran,
       externos_precios_de: r.externos_precios_de || null,
       avisa_pagos: r.avisa_pagos == null ? true : !!r.avisa_pagos,
       saldo_inicial: r.saldo_inicial || null,
@@ -74,11 +75,11 @@ const _saveTx = db.transaction((data) => {
   const ins = db.prepare(`INSERT INTO clientes
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
-     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,avisa_pagos,moneda_cuenta,
+     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,
      acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
-     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@avisa,@mcta,
+     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,
      @accOn,@accU,@accC,@accAt,@accCorte)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
@@ -91,7 +92,7 @@ const _saveTx = db.transaction((data) => {
     dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
     mcta: c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT',
     mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
-    facta: nn(c.factura_a), exprec: nn(c.externos_precios_de),
+    facta: nn(c.factura_a), exprec: nn(c.externos_precios_de), intcob: c.internos_se_cobran ? 1 : 0,
     avisa: (c.avisa_pagos === false) ? 0 : 1,
     accOn: c.acceso_habilitado ? 1 : 0, accU: nn(c.acceso_usuario), accC: nn(c.acceso_clave), accAt: nn(c.acceso_at),
     // Sin esto, guardar cualquier cliente le devolvía la sesión a todos los que se la habías
@@ -169,7 +170,7 @@ function updateComercial(id, patch) {
   // ── v3.0 ficha de cliente ──
   ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor',
     'saldo_inicial', 'saldo_inicial_divisa', 'saldo_inicial_mov_id', 'margen_externos_pct', 'vendedor_id', 'externos_modo',
-    'factura_a', 'externos_precios_de'].forEach((k) => {
+    'factura_a', 'externos_precios_de', 'internos_se_cobran'].forEach((k) => {
     if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
   });
   if (patch.mover_balance !== undefined) c.mover_balance = !!patch.mover_balance;

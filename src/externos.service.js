@@ -437,7 +437,10 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
         /* Para los clientes, la celda es el precio final y se le resta su % base. Salvo los
            INTERNOS: ésos valen la base y punto — ver FAMILIAS_INTERNAS. Lo que diga la matriz
            para ellos no se usa; si dice otra cosa es un error de carga, y acá deja de doler. */
-        const interno = modo !== 'vendedor' && esInterno(nombreMatriz);
+        /* La excepción: hay acuerdos viejos donde los internos SÍ se cobran —Juan y Titan— y a
+           esos no se les puede cambiar el precio de un día para el otro. Con `internos_se_cobran`
+           el cliente los trata como a cualquier otro proveedor: lo que diga su celda. */
+        const interno = modo !== 'vendedor' && esInterno(nombreMatriz) && !cli.internos_se_cobran;
         const pctUsado = interno ? base : pct;
         const dif = modo === 'vendedor' ? costoProv : money.sub(pctUsado, base);
         const cobra = money.cmp(dif, '0') > 0;
@@ -549,6 +552,7 @@ async function reporte({ clienteNombre, mes, basePct = null, refrescar = false, 
     negativos: [...negativos.values()],
     esVendedor: !!cli.es_vendedor,
     margenExtra: cli.margen_externos_pct ?? null,
+    internosSeCobran: !!cli.internos_se_cobran,
     paneles: listaPaneles,
     deCache, delCasino, deLaFoto, consultas: trabajos.length, yaIncluidos: incluidos, sinTiempo,
     /* `incompleto` = falta algo que HARÍA COBRAR MÁS. Cada motivo por separado, para que quien

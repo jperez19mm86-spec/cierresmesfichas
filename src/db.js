@@ -457,6 +457,13 @@ ensureColumns('clientes', {
        proveedores— y por eso JJ conserva los suyos. Se LEEN del otro, no se copian: una copia
        queda vieja el primer mes que se toque un precio. */
   factura_a: 'TEXT', externos_precios_de: 'TEXT',
+  /* ── LA EXCEPCIÓN A LOS INTERNOS ──────────────────────────────────────────────────────────
+     Regla general (4-sep-2026): SL, SL2 y XG no se cobran, van al % base del cliente. Pero hay
+     acuerdos viejos donde SÍ se cobran —Juan y Titan— y a esos no se les puede cambiar el precio
+     de un día para el otro. Con esto en 1, ese cliente los cobra como a cualquier otro proveedor:
+     lo que diga su celda de la matriz. Es por cliente y a propósito: una regla global con una
+     lista de excepciones adentro del código se olvida el día que entra el cuarto. */
+  internos_se_cobran: 'INTEGER DEFAULT 0',
   saldo_inicial: 'TEXT',                  // decimal string: deuda previa al sistema ("saldo anterior")
   saldo_inicial_divisa: 'TEXT',           // divisa en la que se expresa ese saldo
   saldo_inicial_mov_id: 'TEXT',           // id del movimiento 'ajuste' que lo materializa (re-aplicable/reversible)

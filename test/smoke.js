@@ -6499,6 +6499,35 @@ async function main() {
       'declararlo después revienta el papel entero por temporal dead zone');
   }
 
+  /* ── LA REGLA DE LOS INTERNOS TIENE EXCEPCIÓN, Y ES POR CLIENTE ─────────────────────────────
+     SL, SL2 y XG no se cobran: van al % base. Pero Juan y Titan tienen un acuerdo viejo donde SÍ
+     se cobran, y no se les puede cambiar el precio de un día para el otro — a Juan eran ~234 USDT
+     por mes. La excepción va en la ficha del cliente y no en una lista adentro del código: una
+     lista se olvida el día que entra el cuarto. */
+  {
+    const ext2 = fs.readFileSync(path.join(ROOT, 'src', 'externos.service.js'), 'utf8');
+    check('internos: la regla se puede desactivar por cliente',
+      /esInterno\(nombreMatriz\) && !cli\.internos_se_cobran;/.test(ext2));
+    check('internos: al vendedor le sigue sin aplicar',
+      /modo !== 'vendedor' && esInterno/.test(ext2), 'paga el costo real, sea interno o no');
+    check('internos: el reporte dice si el cliente es una excepción',
+      /internosSeCobran: !!cli\.internos_se_cobran/.test(ext2));
+    const cs2 = fs.readFileSync(path.join(ROOT, 'src', 'clientes-store.js'), 'utf8');
+    check('internos: la excepción se guarda y se lee de la ficha',
+      /internos_se_cobran: !!r\.internos_se_cobran/.test(cs2)
+      && /'externos_precios_de', 'internos_se_cobran'\]/.test(cs2)
+      && /intcob: c\.internos_se_cobran \? 1 : 0/.test(cs2),
+      'sin el INSERT, un cliente nuevo lo pierde en silencio');
+    const h12 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('internos: la pantalla avisa cuando el cliente es la excepción',
+      /A este cliente SÍ se le cobran los internos/.test(h12),
+      'es al revés de la regla general: sin decirlo, el número no se entiende');
+    // Y el campo llega a la pantalla desde la ficha.
+    const r2 = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('internos: la excepción viaja en la ficha del cliente',
+      /internos_se_cobran: !!c\.internos_se_cobran/.test(r2));
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

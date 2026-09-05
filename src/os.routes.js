@@ -179,6 +179,7 @@ function mount(app) {
       mover_balance: c.mover_balance, moneda_cuenta: c.moneda_cuenta, margen_externos_pct: c.margen_externos_pct,
       es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, externos_modo: c.externos_modo, saldo_inicial: c.saldo_inicial,
       factura_a: c.factura_a, externos_precios_de: c.externos_precios_de,
+      internos_se_cobran: !!c.internos_se_cobran,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
