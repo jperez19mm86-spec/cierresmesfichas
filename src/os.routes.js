@@ -1955,8 +1955,16 @@ function mount(app) {
     catch (e) { /* sin comprobantes el resumen sale igual */ }
 
     const todos = movs.list({ tipo: 'pago' });
+    /* La lista de meses con lo que entró en cada uno. Sólo el conteo no sirve para decidir a cuál
+       entrar: «54 pagos» no dice si fueron 13 millones o 300 mil. */
     const meses = {};
-    todos.forEach((mv) => { const k = movs.mesDe(mv); if (/^\d{4}-\d{2}$/.test(k)) meses[k] = (meses[k] || 0) + 1; });
+    todos.forEach((mv) => {
+      const k = movs.mesDe(mv); if (!/^\d{4}-\d{2}$/.test(k)) return;
+      const m = meses[k] = meses[k] || { pagos: 0, ars: '0', usdt: '0' };
+      m.pagos += 1;
+      if (mv.monto_ars) m.ars = money.add(m.ars, mv.monto_ars);
+      if (mv.monto_usdt) m.usdt = money.add(m.usdt, mv.monto_usdt);
+    });
 
     const fila = (mv) => {
       const c = nom[mv.cliente_id] || {};
@@ -1983,7 +1991,8 @@ function mount(app) {
     const suma = (arr, k) => arr.reduce((a, x) => money.add(a, x[k] || '0'), '0');
     ok(res, {
       mes,
-      meses: Object.keys(meses).sort().reverse().map((m) => ({ mes: m, pagos: meses[m] })),
+      meses: Object.keys(meses).sort().reverse().map((m) => ({ mes: m, pagos: meses[m].pagos,
+        ars: money.round(meses[m].ars, 2), usdt: money.round(meses[m].usdt, 2) })),
       pesos, usdt,
       totales: {
         pesos_ars: money.round(suma(pesos, 'ars'), 2),

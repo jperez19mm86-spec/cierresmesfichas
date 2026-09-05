@@ -6580,6 +6580,33 @@ async function main() {
       'editar sobre un número calculado escribiría el excedente como si fuera el precio');
   }
 
+  /* ── LOS PAGOS DEL MES SE PUEDEN BUSCAR Y ORDENAR ───────────────────────────────────────────
+     45 pagos en un mes ordenados por fecha: encontrar los de un cliente es a ojo. Ahora se busca
+     por cliente o código y se ordena por cualquier columna. Y lo que se VE es lo que se baja: si
+     el Excel saliera con los 45 mientras la pantalla muestra 23, el archivo diría otra cosa. */
+  {
+    const h15 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('pagos: se puede ordenar por columna',
+      /function pagOrdenar\(moneda, campo\)\{/.test(h15) && /onclick="pagOrdenar\(/.test(h15));
+    check('pagos: apretar la misma columna da vuelta el orden',
+      /\(o\.campo === campo\) \? \{ campo, desc: !o\.desc \}/.test(h15));
+    check('pagos: se puede buscar por cliente o código',
+      /function pagBuscar\(moneda, v\)\{/.test(h15)
+      && /includes\(q\)\s*\n\s*\|\| String\(f\.codigo \|\| ''\)\.toLowerCase\(\)\.includes\(q\)/.test(h15));
+    check('pagos: el buscador no pierde el foco al tipear',
+      /el\.focus\(\); el\.setSelectionRange/.test(h15),
+      'sin esto hay que volver a hacer clic después de cada letra');
+    check('pagos: el Excel baja lo que se ve, no la lista entera',
+      /\(\(window\._pagVista\|\|\{\}\)\[moneda\]\)/.test(h15));
+    check('pagos: el total de arriba también sigue al filtro',
+      /filtrado por «/.test(h15), 'un total que no coincide con la tabla que está abajo es peor que no tenerlo');
+    // Y la lista de meses dice cuánto entró, no sólo cuántos pagos.
+    const rp = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('pagos: cada mes muestra lo que entró en pesos y en USDT',
+      /meses\[k\] = meses\[k\] \|\| \{ pagos: 0, ars: '0', usdt: '0' \}/.test(rp),
+      '«54 pagos» no dice si fueron 13 millones o 300 mil');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

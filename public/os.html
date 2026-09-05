@@ -2817,6 +2817,22 @@ function facturaImprimir() {
 let _pagMes = mesDeCierre();
 function pagIrA(m){ _pagMes = m; VIEWS.pagos(); }
 
+/* Cómo está ordenada y filtrada cada tabla. Vive afuera del render para que no se pierda al
+   repintar: cambiar el orden vuelve a dibujar, y si el estado estuviera adentro se resetearía. */
+let _pagOrden = { ARS: { campo:'fecha', desc:true }, USDT: { campo:'fecha', desc:true } };
+let _pagQ = { ARS: '', USDT: '' };
+function pagOrdenar(moneda, campo){
+  const o = _pagOrden[moneda] || { campo:'fecha', desc:true };
+  // Apretar la misma columna da vuelta el orden; otra columna arranca de mayor a menor.
+  _pagOrden[moneda] = (o.campo === campo) ? { campo, desc: !o.desc } : { campo, desc: true };
+  VIEWS.pagos();
+}
+function pagBuscar(moneda, v){
+  _pagQ[moneda] = v || '';
+  VIEWS.pagos().then(() => { const el = document.getElementById('pag-q-' + moneda);
+    if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+}
+
 VIEWS.pagos = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
@@ -2828,14 +2844,44 @@ VIEWS.pagos = async () => {
   /* ⚠️ EN PANTALLA SE VE TODO — es su panel, necesita saber quién pagó. Lo que se oculta es lo
      que SALE: el Excel (si está tildado) y el resumen que se manda al grupo de comprobantes, que
      concilia contra el banco y no tiene por qué saber quién pagó cuánto. Ver pagCSV y pagEnviar. */
+  /* Buscar y ordenar, por tabla. Con 45 pagos en un mes, encontrar los de un cliente a ojo es
+     imposible y el orden por fecha no ayuda: se busca por cliente y se ordena por lo que importe. */
+  const ordenar = (filas, moneda) => {
+    const o = _pagOrden[moneda] || { campo: 'fecha', desc: true };
+    const q = (_pagQ[moneda] || '').toLowerCase();
+    const val = (f) => o.campo === 'cliente' ? String(f.cliente || '').toLowerCase()
+      : o.campo === 'monto' ? Number((moneda === 'ARS' ? f.ars : f.usdt) || 0)
+      : String(f.fecha || '');
+    return filas
+      .filter((f) => !q || String(f.cliente || '').toLowerCase().includes(q)
+        || String(f.codigo || '').toLowerCase().includes(q))
+      .slice()
+      .sort((a, b) => { const x = val(a), y = val(b);
+        const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y));
+        return o.desc ? -c : c; });
+  };
+  /* Lo que se VE es lo que se baja y lo que suma el total: si filtraste por un cliente y el Excel
+     saliera con los 45 pagos, el archivo diría otra cosa que la pantalla. */
+  const vista = (filas, moneda) => { const v = ordenar(filas, moneda);
+    (window._pagVista = window._pagVista || {})[moneda] = v; return v; };
+  const th = (moneda, campo, txt, extra) => {
+    const o = _pagOrden[moneda] || { campo: 'fecha', desc: true };
+    const flecha = o.campo === campo ? (o.desc ? ' ▾' : ' ▴') : '';
+    return '<th class="reptd' + (extra || '') + '" style="cursor:pointer;user-select:none" '
+      + 'onclick="pagOrdenar(\'' + moneda + '\',\'' + campo + '\')" title="Ordenar por ' + txt.toLowerCase() + '">'
+      + txt + flecha + '</th>'; };
+  const buscador = (moneda) => '<input id="pag-q-' + moneda + '" value="' + esc(_pagQ[moneda] || '') + '" '
+    + 'oninput="pagBuscar(\'' + moneda + '\', this.value)" placeholder="🔎 buscar cliente o código" '
+    + 'style="width:220px;font-size:12px">';
+
   const tabla = (filas, moneda) => { const conCliente = true; return !filas.length
     ? '<div class="muted">Ninguno este mes.</div>'
     : '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
-      + '<th class="reptd">Fecha</th>'
-      + (conCliente ? '<th class="reptd">Cliente</th><th class="reptd">Código</th>' : '')
-      + '<th class="reptd right">Recibido</th>'
+      + th(moneda, 'fecha', 'Fecha')
+      + (conCliente ? th(moneda, 'cliente', 'Cliente') + '<th class="reptd">Código</th>' : '')
+      + th(moneda, 'monto', 'Recibido', ' right')
       + (conCliente ? '<th class="reptd">Referencia</th>' : '') + '</tr></thead><tbody>'
-      + filas.map(f=>'<tr><td class="reptd">'+esc(f.fecha)
+      + vista(filas, moneda).map(f=>'<tr><td class="reptd">'+esc(f.fecha)
           + (f.mes !== f.fecha.slice(0,7) ? ' <span class="muted" style="font-size:11px">(entra en '+esc(f.mes)+')</span>' : '')
           + '</td>'
           + (conCliente ? '<td class="reptd">'+esc(f.cliente)+'</td><td class="reptd muted">'+esc(f.codigo)+'</td>' : '')
@@ -2851,11 +2897,16 @@ VIEWS.pagos = async () => {
     + bannerMes(_pagMes, 'pagIrA')
     + '<div class="muted" style="font-size:13px">Lo que entró de verdad, por el mes al que lo asignaste. '
     + 'El monto es el que se <b>acreditó</b>, no el que declaró el cliente.</div>'
+    /* Con el conteo solo no se decide a qué mes entrar: «54 pagos» no dice si fueron 13 millones
+       o 300 mil. Van los dos totales. */
     + ((r.meses||[]).length ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px">'
-        + '<thead><tr><th class="reptd">Mes</th><th class="reptd right">Pagos</th></tr></thead><tbody>'
+        + '<thead><tr><th class="reptd">Mes</th><th class="reptd right">Pagos</th>'
+        + '<th class="reptd right">En pesos</th><th class="reptd right">En USDT</th></tr></thead><tbody>'
         + r.meses.map(m=>'<tr'+(m.mes===_pagMes?' style="background:var(--bg3)"':'')+'>'
             + '<td class="reptd"><a href="#" onclick="pagIrA(\''+m.mes+'\');return false"><b>'+esc(mesNombre(m.mes))+'</b></a></td>'
-            + '<td class="reptd right">'+m.pagos+'</td></tr>').join('')
+            + '<td class="reptd right">'+m.pagos+'</td>'
+            + '<td class="reptd right">'+(Number(m.ars)?money(m.ars,2):'<span class="muted">—</span>')+'</td>'
+            + '<td class="reptd right">'+(Number(m.usdt)?money(m.usdt,2):'<span class="muted">—</span>')+'</td></tr>').join('')
         + '</tbody></table>' : '')
     + '</div>'
 
@@ -2865,21 +2916,30 @@ VIEWS.pagos = async () => {
     +   '<label style="font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;'
     +     'white-space:nowrap;display:flex;align-items:center;gap:5px;cursor:pointer">'
     +     '<input type="checkbox" id="pag-anon" checked> sin nombre ni código</label>'
+    +   buscador('ARS')
     +   '<button class="outline small" onclick="pagCSV(\'cvu\')">⬇ Excel (CSV)</button>'
     +   '<button class="small" onclick="pagEnviar()">📣 Mandar al grupo</button></div></div>'
     + '<div class="muted" style="font-size:12px;margin-top:2px">Acá lo ves completo. '
     + 'Lo que <b>sale</b> —el Excel con el tilde puesto, y siempre lo que se manda al grupo— '
     + 'va sólo con fecha y monto: ese grupo concilia contra el banco.</div>'
-    + '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(T.pesos_ars,2)
-    + ' <span class="muted" style="font-size:14px">ARS · ' + r.pesos.length + ' pago'+(r.pesos.length===1?'':'s')
-    + ' · ≈ ' + money(T.pesos_usdt,2) + ' USDT</span></div>'
+    + (()=>{ const v = ordenar(r.pesos,'ARS'); const filtrando = !!(_pagQ.ARS||'').trim();
+        const suma = v.reduce((a,f)=>a+Number(f.ars||0),0);
+        const sumaU = v.reduce((a,f)=>a+Number(f.usdt||0),0);
+        return '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(filtrando?suma:T.pesos_ars,2)
+          + ' <span class="muted" style="font-size:14px">ARS · ' + v.length + ' pago'+(v.length===1?'':'s')
+          + ' · ≈ ' + money(filtrando?sumaU:T.pesos_usdt,2) + ' USDT'
+          + (filtrando ? ' · <b>filtrado por «'+esc(_pagQ.ARS)+'»</b> de ' + r.pesos.length : '') + '</span></div>'; })()
     + tabla(r.pesos, 'ARS') + '</div>'
 
     + '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">'
     + '<h2 style="margin:0">₮ Pagos en USDT</h2>'
+    + buscador('USDT')
     + '<button class="outline small" onclick="pagCSV(\'usdt\')">⬇ Excel (CSV)</button></div>'
-    + '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(T.usdt_usdt,2)
-    + ' <span class="muted" style="font-size:14px">USDT · ' + r.usdt.length + ' pago'+(r.usdt.length===1?'':'s')+'</span></div>'
+    + (()=>{ const v = ordenar(r.usdt,'USDT'); const filtrando = !!(_pagQ.USDT||'').trim();
+        const suma = v.reduce((a,f)=>a+Number(f.usdt||0),0);
+        return '<div class="reppct" style="font-size:30px;margin:8px 0 4px">' + money(filtrando?suma:T.usdt_usdt,2)
+          + ' <span class="muted" style="font-size:14px">USDT · ' + v.length + ' pago'+(v.length===1?'':'s')
+          + (filtrando ? ' · <b>filtrado por «'+esc(_pagQ.USDT)+'»</b> de ' + r.usdt.length : '') + '</span></div>'; })()
     + tabla(r.usdt, 'USDT') + '</div>';
 };
 
@@ -2898,7 +2958,8 @@ async function pagEnviar(){
    "1.234,56" se parte en dos columnas y el archivo llega roto. El BOM es por los acentos. */
 function pagCSV(via){
   const r = window._pagDatos; if(!r) return;
-  const filas = via==='cvu' ? r.pesos : r.usdt;
+  const moneda = via==='cvu' ? 'ARS' : 'USDT';
+  const filas = ((window._pagVista||{})[moneda]) || (via==='cvu' ? r.pesos : r.usdt);
   const col = via==='cvu' ? 'ars' : 'usdt';
   const num = (x)=>String(Number(x||0).toFixed(2)).replace('.',',');
   const q = (x)=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"';
