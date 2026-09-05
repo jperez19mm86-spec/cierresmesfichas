@@ -6410,6 +6410,31 @@ async function main() {
       'es el criterio opuesto al resumen de pesos, que va sin nombre');
   }
 
+  /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
+     Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
+     mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por
+     qué. Ahora hay un solo lugar: el <a> entra a la página antes del click, la URL se suelta más
+     tarde, y siempre se dice qué archivo salió. */
+  {
+    const h9 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('descargas: hay un solo lugar que baja archivos',
+      /function bajarArchivo\(nombre, texto, tipo\)\{/.test(h9));
+    check('descargas: el enlace entra a la página antes de apretarlo',
+      /document\.body\.appendChild\(a\);\s*\n\s*a\.click\(\);/.test(h9),
+      'el navegador descarta el click de un elemento que no está en el documento');
+    check('descargas: la URL no se suelta en el mismo instante',
+      /setTimeout\(\(\) => \{ try\{ a\.remove\(\); URL\.revokeObjectURL\(url\); \}catch\(e\)\{\} \}, 4000\)/.test(h9),
+      'soltarla enseguida cancela la bajada en algunos navegadores');
+    check('descargas: siempre avisan qué archivo salió',
+      /toast\('⬇ ' \+ nombre\)/.test(h9), 'sin aviso, "no me deja descargar" no se puede diagnosticar');
+    // Y NINGUNA arma el enlace por su cuenta: si una se escapa, vuelve a fallar en silencio.
+    const sueltas = (h9.match(/document\.createElement\('a'\)/g) || []).length;
+    check('descargas: ninguna se arma el enlace por su cuenta', sueltas === 1,
+      sueltas + ' lugares crean un <a> (tiene que ser sólo bajarArchivo)');
+    check('descargas: las nueve pasan por ahí',
+      (h9.match(/bajarArchivo\(/g) || []).length >= 8);
+  }
+
   /* ── EL DETALLE DE EXTERNOS SE PUEDE BAJAR, Y DE TODOS ──────────────────────────────────────
      El ⬇ Exportar de la factura de externos baja UN cliente: para tener los 18 había que entrar 18
      veces. Y bajaba con coma de separador, que en el Excel en castellano parte "1.234,56" en dos

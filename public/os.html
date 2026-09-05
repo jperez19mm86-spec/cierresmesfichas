@@ -2906,11 +2906,8 @@ function pagCSV(via){
   const suma = num(filas.reduce((a,f)=>a+Number(f[col]||0),0));
   const total = conCliente ? ['','','','TOTAL',suma,''].join(';') : ['','TOTAL',suma].join(';');
   const txt = '\ufeff' + [cab.map(q).join(';'), ...cuerpo, total].join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
-  a.download = 'pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes
-    + (anon ? '-para-el-grupo' : '') + '.csv';
-  a.click(); URL.revokeObjectURL(a.href);
+  bajarArchivo('pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes
+    + (anon ? '-para-el-grupo' : '') + '.csv', txt);
 }
 
 // ───────── 🧾 COMPROBANTES DE PAGO ─────────
@@ -4040,10 +4037,7 @@ function todasCSV(origen){
   const cab = [origen==='externos'?'Cliente':'Vendedor','Código','USDT'];
   const cuerpo = filas.map(f=>[q(f.cliente),q(f.codigo),num(f.monto_usdt)].join(';'));
   const txt = '﻿' + [cab.map(q).join(';'), ...cuerpo, ['','TOTAL',num(t.datos.total_usdt)].join(';')].join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));
-  a.download = 'cuentas-' + origen + '-' + t.mes + '.csv';
-  a.click(); URL.revokeObjectURL(a.href);
+  bajarArchivo('cuentas-' + origen + '-' + t.mes + '.csv', txt);
 }
 
 /* ══ EL DETALLE DE TODOS, EN UN ARCHIVO ═══════════════════════════════════════════════════════
@@ -4079,10 +4073,7 @@ async function todasDetalle(){
   filas.push([]); totales.forEach(x=>filas.push(x));
   filas.push([]); filas.push(['','','','','','','TOTAL DEL MES','','','','', t.datos.total_usdt]);
   const csv = '\ufeff' + filas.map(f=>f.map(x=>csvCelda(x)).join(';')).join('\r\n');
-  const a2 = document.createElement('a');
-  a2.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
-  a2.download = 'externos-detalle-' + t.mes + '.csv';
-  a2.click(); URL.revokeObjectURL(a2.href);
+  bajarArchivo('externos-detalle-' + t.mes + '.csv', csv);
   toast(fallaron.length ? ('Bajado, pero ' + fallaron.length + ' con problemas') : 'Listo — el detalle de los ' + t.datos.filas.length);
   if(fallaron.length) alert('Estos quedaron afuera o incompletos:\n\n' + fallaron.join('\n'));
 }
@@ -4394,7 +4385,9 @@ function extPintar() {
     + '<div><div class="muted">Su celda se lee</div><div>' + (d.modo === 'vendedor' ? 'como el <b>costo real</b>' : d.modo === 'adicional' ? 'como lo que <b>se suma</b>' : 'menos su <b>% base</b>') + '</div></div>'
     + '<div><div class="muted">Paneles / filas</div><div>' + (d.paneles || []).length + ' · ' + d.cobrables + ' de ' + (d.facturables != null ? d.facturables : d.revisados) + ' se cobran'
       + (d.facturables != null && d.revisados > d.facturables ? '<span class="muted"> (' + d.revisados + ' líneas del casino)</span>' : '') + '</div></div>'
-    + '<button class="outline small" style="margin-left:auto" onclick="extCSV()">⬇ Exportar</button></div>';
+    + '<div style="margin-left:auto;display:flex;gap:6px">'
+    +   '<button class="outline small" onclick="extCSV()">⬇ Excel (CSV)</button>'
+    +   '<button class="small" onclick="extPDF()">🖨 PDF para el cliente</button></div></div>';
   const alerta = avisos.length ? '<div class="card" style="border-left:3px solid #c90"><ul style="margin:0;padding-left:18px">' + avisos.map(a => '<li>' + a + '</li>').join('') + '</ul></div>' : '';
   // Un SuperAgente puede tener ganancia en VARIAS monedas: se muestra la divisa en cada fila y
   // se subtotaliza por moneda, porque los montos no son comparables entre sí.
@@ -4425,6 +4418,107 @@ function extPintar() {
   }).join('');
   b.innerHTML = cab + alerta + paneles;
 }
+/* ══ BAJAR UN ARCHIVO ═════════════════════════════════════════════════════════════════════════
+   Las cuatro descargas hacían lo mismo a mano: crear un <a>, apretarlo y soltar la URL enseguida.
+   Funciona casi siempre — y cuando no, no pasa NADA y no hay forma de saber por qué: el navegador
+   descarta el click de un elemento que no está en la página, o bloquea la segunda descarga
+   seguida y lo avisa con un iconito en la barra que nadie mira.
+
+   Acá el <a> se agrega a la página antes de apretarlo y se saca después, la URL se suelta un rato
+   más tarde (soltarla en el mismo instante cancela la bajada en algunos navegadores), y SIEMPRE se
+   dice qué archivo salió. Si el navegador igual lo bloquea, se ofrece abrirlo en una pestaña. */
+function bajarArchivo(nombre, texto, tipo){
+  try{
+    // Acepta texto o un Blob ya armado: hay descargas que lo construyen aparte (el respaldo).
+    const blob = (texto instanceof Blob) ? texto : new Blob([texto], { type: tipo || 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre; a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { try{ a.remove(); URL.revokeObjectURL(url); }catch(e){} }, 4000);
+    toast('⬇ ' + nombre);
+    return true;
+  }catch(e){
+    toast('No se pudo bajar: ' + (e.message||''), true);
+    return false;
+  }
+}
+
+/* ══ EL PDF DE EXTERNOS PARA EL CLIENTE ═══════════════════════════════════════════════════════
+   Es el papel que se le manda: el mismo detalle que ya estaba en Excel, pero legible e impreso —
+   proveedor por proveedor, con la ganancia del mes, el % que se le cobra de más y el resultado en
+   USDT. La forma es la del documento que se venía armando a mano («External 06_2026 Titan»).
+
+   Y SE ARMA JUNTO CON LOS QUE SE LE FACTURAN A ÉL. Ariel se le factura a Fran: su cuenta la paga
+   Fran, así que el papel de Fran tiene que traerla adentro o el total no cierra con lo que se le
+   cobra. Sale de `factura_a`, que es de donde lo saca la deuda — no de una lista aparte, que
+   quedaría vieja el primer mes que se cambie un acuerdo. */
+async function extPDF(){
+  const d = _extData;
+  if(!d) return toast('Primero apretá Calcular', true);
+  const cs = (await api('/api/os/clientes')).clientes || [];
+  const yo = cs.find(c => String(c.nombre) === String(d.cliente));
+  const cuelgan = yo ? cs.filter(c => c.factura_a === yo.id) : [];
+
+  const partes = [{ cliente: d.cliente, rep: d }];
+  for(const c of cuelgan){
+    toast('Trayendo lo de ' + c.nombre + ', que se te factura a vos…');
+    const r = await api('/api/os/externos/' + encodeURIComponent(c.nombre) + '?mes=' + encodeURIComponent(d.mes));
+    if(r && r.ok) partes.push({ cliente: c.nombre, rep: r, deOtro: true });
+    else toast('No se pudo traer ' + c.nombre + ': ' + ((r&&r.error)||''), true);
+  }
+
+  const n = (x, dec) => Number(x||0).toLocaleString('es-AR',
+    { minimumFractionDigits: dec==null?2:dec, maximumFractionDigits: dec==null?2:dec });
+  let totalGeneral = 0;
+  const bloques = partes.map(function(parte){
+    const cliente = parte.cliente, rep = parte.rep;
+    let totalCli = 0;
+    const paneles = (rep.paneles||[]).map(function(p){
+      const filas = (p.items||[]).filter(i => i.cobra);
+      if(!filas.length) return '';
+      const sub = filas.reduce((a,i)=>a+Number(i.usdt||0),0);
+      totalCli += sub;
+      return '<h3>' + esc(p.panel) + ' <span class="gris">· ' + esc(p.divisa) + '</span>'
+        + '<span class="der">' + n(sub) + ' USDT</span></h3>'
+        + '<table><thead><tr><th>Proveedor</th><th class="r">Ganancia</th><th class="r">% extra</th>'
+        + '<th class="r">Monto</th><th class="r">Tasa</th><th class="r">USDT</th></tr></thead><tbody>'
+        + filas.map(i => '<tr><td>' + esc(i.proveedor) + '</td>'
+            + '<td class="r">' + n(i.profit) + '</td><td class="r">' + esc(i.dif) + '%</td>'
+            + '<td class="r">' + n(i.monto) + '</td><td class="r">' + esc(i.tasa||'—') + '</td>'
+            + '<td class="r"><b>' + n(i.usdt) + '</b></td></tr>').join('')
+        + '</tbody></table>';
+    }).join('');
+    totalGeneral += totalCli;
+    return '<div class="bloque">'
+      + '<h2>' + esc(cliente) + (parte.deOtro ? ' <span class="gris">· se factura a ' + esc(d.cliente) + '</span>' : '')
+      + '<span class="der">' + n(totalCli) + ' USDT</span></h2>'
+      + (paneles || '<p class="gris">Sin proveedores que cobrar este mes.</p>') + '</div>';
+  }).join('');
+
+  const doc = '<h1>Proveedores externos — ' + esc(mesNombre(d.mes)) + '</h1>'
+    + '<p class="gris">' + esc(d.cliente) + ' · % base ' + esc(d.base) + '%'
+    + ' · se cobra la diferencia entre el % de cada proveedor y su % base.</p>'
+    + bloques
+    + '<div class="total">TOTAL ' + esc(mesNombre(d.mes)) + '<span class="der">' + n(totalGeneral) + ' USDT</span></div>';
+
+  const w = window.open('', '_blank');
+  if(!w) return toast('El navegador bloqueó la ventana: permitile abrir ventanas a esta página', true);
+  w.document.write('<html><head><title>Externos ' + esc(d.cliente) + ' ' + esc(d.mes) + '</title><style>'
+    + 'body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:26px;color:#111}'
+    + 'h1{font-size:19px;margin:0 0 2px}h2{font-size:15px;margin:18px 0 6px;border-bottom:2px solid #333;padding-bottom:4px}'
+    + 'h3{font-size:13px;margin:12px 0 4px;font-weight:600}'
+    + 'table{width:100%;border-collapse:collapse;margin-bottom:6px}'
+    + 'th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666;text-align:left;border-bottom:1px solid #bbb;padding:4px 6px}'
+    + 'td{font-size:12px;padding:4px 6px;border-bottom:1px solid #eee}'
+    + '.r{text-align:right}.der{float:right}.gris{color:#777;font-weight:400}'
+    + '.total{margin-top:18px;border-top:2px solid #333;padding-top:8px;font-size:16px;font-weight:700}'
+    + '</style></head><body>' + doc + '</body></html>');
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 400);
+}
+
 /* Una celda de CSV: los números van con coma decimal y sin comillas —así el Excel los suma— y el
    texto va entre comillas. Estaba escrito distinto en cada descarga. */
 function csvCelda(x){
@@ -4451,10 +4545,7 @@ function extCSV() {
   /* Punto y coma y coma decimal, como el resto de las descargas: con coma de separador el Excel en
      castellano parte "1.234,56" en dos columnas y el archivo llega roto. El BOM es por los acentos. */
   const csv = '\ufeff' + filas.map(f => f.map(x => csvCelda(x)).join(';')).join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = 'externos_' + d.cliente + '_' + d.mes + '.csv';
-  a.click();
+  bajarArchivo('externos_' + d.cliente + '_' + d.mes + '.csv', csv);
 }
 
 // ── sub-vista MATRIZ % ──
@@ -5525,10 +5616,8 @@ async function impSnapshot(){
   const r=await api('/api/os/import/snapshot');
   if(!r||!r.ok) return toast('✗ no se pudo bajar el respaldo');
   const blob=new Blob([JSON.stringify(r.snapshot,null,1)],{type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='respaldo-os-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json';
-  a.click(); URL.revokeObjectURL(a.href);
-  toast('Respaldo descargado');
+  bajarArchivo('respaldo-os-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json',
+    blob, 'application/json');
 }
 async function impAplicar(){
   if(!_impPlan) return toast('Primero previsualizá');
@@ -9095,7 +9184,7 @@ function descargarProvCSV(){
     (md.filas||[]).forEach(x=>{ const b=view==='superagent'?[cur,x.saLogin,x.provider,x.label,x.vendor,x.profit]:[cur,x.provider,x.label,x.vendor,x.profit]; rows.push(b.map(q).join(',')); });
   }
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='proveedores-'+(val('pr-mes')||'')+'.csv';a.click();
+  bajarArchivo('proveedores-'+(val('pr-mes')||'')+'.csv', blob);
 }
 function renderMatriz(r){
   const sa=r.superagentes||[], dias=r.dias||[]; if(!sa.length) return '<div class="empty">Sin datos en el mes.</div>';
@@ -9120,7 +9209,7 @@ function descargarMatrizCSV(){
   const tot=['TOTAL'];sa.forEach(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};tot.push(t.in,t.out,t.profit);});rows.push(tot.map(q).join(','));
   const rtp=['RTP'];sa.forEach(s=>{const t=r.totales[s.id]||{};rtp.push((t.rtp||0).toFixed(2)+'%','','');});rows.push(rtp.map(q).join(','));
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='reporte-mensual-'+r.mes+'.csv';a.click();
+  bajarArchivo('reporte-mensual-'+r.mes+'.csv', blob);
 }
 // Trae lo guardado (una conexión o TODAS) y lo cachea en _acData; el render/búsqueda es client-side.
 async function verAcumulado(){
@@ -9169,7 +9258,7 @@ function descargarAcumuladoCSV(){
   const tot=['TOTAL'];sa.forEach(s=>{const t=r.totales[s.id]||{in:0,out:0,profit:0};tot.push(t.in,t.out,t.profit);});rows.push(tot.map(q).join(','));
   const rtp=['RTP'];sa.forEach(s=>{const t=r.totales[s.id]||{};rtp.push((t.rtp||0).toFixed(2)+'%','','');});rows.push(rtp.map(q).join(','));
   const blob=new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='acumulado-'+(r.mes||'')+'.csv';a.click();
+  bajarArchivo('acumulado-'+(r.mes||'')+'.csv', blob);
 }
 // Ayer en UTC (el casino corta los días en UTC+0). Día ANTERIOR completo — hoy está en movimiento.
 function ayerUTC(){ const dt=new Date(); dt.setUTCDate(dt.getUTCDate()-1); return dt.toISOString().slice(0,10); }
