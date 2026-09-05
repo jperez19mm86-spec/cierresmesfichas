@@ -4175,8 +4175,12 @@ async function cieExternos() {
     + '</select></div>'
     + '<div style="flex:0 0 190px"><label>Mes</label><input type="month" id="ext-mes" value="' + _extMes + '" onchange="_extMes=this.value;_extData=null;cieExternos()"></div>'
     + '<div style="flex:0 0 auto"><button onclick="extCalcular()">Calcular</button></div>'
-    + '<div style="flex:0 0 auto;margin-left:auto"><button class="grave" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button></div>'
-    + '</div><div id="ext-emi-out"></div>'
+    + '<div style="flex:0 0 auto;margin-left:auto;display:flex;gap:6px">'
+    /* Antes de mover plata, poder ver qué se mueve. Anular y re-emitir cambia la cuenta de todos y
+       la única forma de saberlo era hacerlo: pasó dos veces en un día. */
+    +   '<button class="outline small" onclick="extSimular()">🔍 Qué cambiaría</button>'
+    +   '<button class="grave" onclick="extEmitir()">💸 Emitir TODO el mes a la deuda</button></div>'
+    + '</div><div id="ext-emi-out"></div><div id="ext-simular"></div>'
     + '</div><div id="rep-cartel"></div><div id="ext-todas"></div><div id="ext-body">' + (_extData ? '' : '<div class="muted" style="padding:20px">Elegí cliente y mes y apretá Calcular. Tarda cerca de un minuto: consulta las ganancias de cada panel en el casino.</div>') + '</div>';
   if (_extData) extPintar();
   repCartel();                       // no bloquea el pintado: es una consulta aparte
@@ -4492,6 +4496,61 @@ function bajarArchivo(nombre, texto, tipo){
     toast('No se pudo bajar: ' + (e.message||''), true);
     return false;
   }
+}
+
+/* ══ QUÉ CAMBIARÍA SI RE-EMITO ═══════════════════════════════════════════════════════════════
+   Anular y volver a emitir mueve plata en la cuenta de todos, y hasta ahora la única forma de
+   saber qué iba a pasar era hacerlo. Acá se ve antes: lo emitido contra lo que daría hoy, cliente
+   por cliente, con los que ya recibieron su factura marcados en rojo — ésos no se pueden mover sin
+   avisarles. No escribe nada. */
+async function extSimular(){
+  const cont = document.getElementById('ext-simular');
+  if(!cont) return;
+  cont.innerHTML = '<div class="card"><div class="muted">Calculando qué cambiaría… lee la foto, así que para un mes ya sacado es rápido.</div></div>';
+  const r = await api('/api/os/emision/externos/' + encodeURIComponent(_extMes) + '/simular');
+  if(!r || !r.ok){ cont.innerHTML = '<div class="card"><div class="nota err">No se pudo: '
+    + esc((r&&r.error)||'') + '</div></div>'; return; }
+  const cambian = (r.filas||[]).filter(f => Math.abs(Number(f.dif)) > 0.004);
+  const dif = Number(r.total_ahora) - Number(r.total_emitido);
+  cont.innerHTML = '<div class="card">'
+    + '<div class="tapa"><div><h2>🔍 Qué cambiaría si re-emito ' + esc(mesNombre(r.mes)) + '</h2>'
+    +   '<div class="sub">Lo que está en la deuda contra lo que daría hoy. <b>No toca nada.</b></div></div>'
+    +   '<div class="acciones"><button class="outline small" onclick="extSimular()">↻ Recalcular</button></div></div>'
+    + '<div class="row" style="gap:22px;margin:6px 0 10px;flex-wrap:wrap">'
+    +   '<div><div class="muted">Hoy en la deuda</div><div class="reppct" style="font-size:22px">' + money(r.total_emitido,2) + '</div></div>'
+    +   '<div><div class="muted">Daría ahora</div><div class="reppct" style="font-size:22px">' + money(r.total_ahora,2) + '</div></div>'
+    +   '<div><div class="muted">Diferencia</div><div class="reppct" style="font-size:22px;color:' + (Math.abs(dif)<0.005?'var(--muted)':(dif>0?'var(--green)':'var(--red)')) + '">'
+    +     (dif>0?'+':'') + money(dif,2) + '</div></div>'
+    +   '<div><div class="muted">Clientes que se mueven</div><div class="reppct" style="font-size:22px">' + cambian.length + '</div></div>'
+    + '</div>'
+    + (r.salieron
+        ? '<div class="nota err" style="margin-bottom:8px">⚠ <b>' + r.salieron + ' de esos ya recibieron su factura de ' + esc(mesNombre(r.mes)) + '</b>. '
+          + 'Si re-emitís, su número cambia después de habérselo mandado: hay que mandarles la corregida.</div>'
+        : '')
+    + (cambian.length
+        ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+          + '<th class="reptd">Cliente</th><th class="reptd right">Hoy</th><th class="reptd right">Daría</th>'
+          + '<th class="reptd right">Diferencia</th><th class="reptd">Por qué / avisos</th></tr></thead><tbody>'
+          + cambian.map(f => '<tr' + (f.facturaSalio ? ' style="background:rgba(200,50,50,.07)"' : '') + '>'
+            + '<td class="reptd"><b>' + esc(f.cliente) + '</b>'
+            + (f.facturaSalio ? '<div style="font-size:11px;color:var(--red)">su factura ya salió por ' + esc(f.facturaSalio) + '</div>' : '')
+            + '</td>'
+            + '<td class="reptd right">' + money(f.emitido,2) + '</td>'
+            + '<td class="reptd right"><b>' + money(f.ahora,2) + '</b></td>'
+            + '<td class="reptd right"><b style="color:' + (Number(f.dif)>0?'var(--green)':'var(--red)') + '">'
+            +   (Number(f.dif)>0?'+':'') + money(f.dif,2) + '</b></td>'
+            + '<td class="reptd muted" style="font-size:11px">'
+            +   ((f.incluye||[]).length ? 'incluye ' + f.incluye.map(esc).join(', ') + '. ' : '')
+            +   (f.internosSeCobran ? 'se le cobran los internos. ' : '')
+            +   (f.incompleto ? '<b style="color:var(--red)">el reporte salió incompleto</b>' : '')
+            + '</td></tr>').join('')
+          + '</tbody></table>'
+        : '<div class="empty">Nada cambiaría: la deuda ya está igual a lo que daría hoy.</div>')
+    + ((r.fallaron||[]).length
+        ? '<div class="nota" style="margin-top:8px">' + r.fallaron.length + ' cliente(s) no se pudieron calcular: '
+          + r.fallaron.slice(0,6).map(f=>esc(f.cliente)).join(', ') + '</div>'
+        : '')
+    + '</div>';
 }
 
 /* ══ EL PDF DE EXTERNOS PARA EL CLIENTE ═══════════════════════════════════════════════════════

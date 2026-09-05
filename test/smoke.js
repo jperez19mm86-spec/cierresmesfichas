@@ -6528,6 +6528,37 @@ async function main() {
       /internos_se_cobran: !!c\.internos_se_cobran/.test(r2));
   }
 
+  /* ── VER QUÉ SE MUEVE ANTES DE MOVERLO ──────────────────────────────────────────────────────
+     Anular y re-emitir cambia la cuenta de todos, y la única forma de saber qué iba a pasar era
+     hacerlo. En un día pasó dos veces: los internos movieron 12.970 USDT y la excepción de Titan
+     otros 12.861 en el sentido contrario. Esto lo contesta antes y sin escribir nada. */
+  {
+    let x = await get('/api/os/emision/externos/2026-01/simular');
+    check('simular: contesta sin escribir nada', x.status === 200 && x.data.ok
+      && Array.isArray(x.data.filas) && x.data.total_emitido !== undefined,
+      JSON.stringify(x.data).slice(0, 80));
+    x = await get('/api/os/emision/externos/2026-1/simular');
+    check('simular: un mes mal escrito se rechaza', x.status === 400);
+    const rs = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const sim = rs.slice(rs.indexOf("app.get('/api/os/emision/externos/:mes/simular'"),
+      rs.indexOf("app.get('/api/os/emision/detalle/:mes'"));
+    check('simular: no escribe: ni emite, ni anula, ni guarda',
+      !/emision\.emitir|emision\.anular|movs\.create|facturasGuardadas\.guardar/.test(sim),
+      'una simulación que escribe no es una simulación');
+    check('simular: agrupa por quien paga, igual que la emisión',
+      /const paga = \(c\.factura_a && c\.factura_a !== c\.id/.test(sim),
+      'si no, JJ aparece como que se mueve y en realidad va dentro de Marcelo');
+    check('simular: marca a quién ya le salió la factura',
+      /f\.facturaSalio = g && g\.salio_at/.test(sim),
+      'ésos son los que no se pueden mover sin avisarles');
+    check('simular: también toma a los que hoy darían CERO',
+      /Los que tienen línea emitida y hoy no darían nada/.test(sim),
+      'un cliente que deja de dar también se mueve, y no aparecería recorriendo sólo lo de ahora');
+    const h13 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('simular: la pantalla avisa cuántos ya recibieron su factura',
+      /ya recibieron su factura de/.test(h13) && /hay que mandarles la corregida/.test(h13));
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

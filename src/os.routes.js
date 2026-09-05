@@ -4150,6 +4150,66 @@ function mount(app) {
      Sale de lo EMITIDO, no de recalcular: lo emitido es lo que entró a la deuda del cliente, y es
      instantáneo. Recalcular acá daría un número que puede no ser el que se cobró —cambió un %, un
      precio, el TC— y mandar al grupo algo distinto de lo facturado es peor que no mandarlo. */
+  /* ── QUÉ CAMBIARÍA SI RE-EMITO ───────────────────────────────────────────────────────────────
+     Anular y volver a emitir mueve plata en las cuentas de todos, y hasta ahora la única forma de
+     saber qué iba a pasar era hacerlo. Pasó dos veces en un día: primero con los internos (12.970
+     USDT), después con la excepción de Titan (12.861 en el otro sentido).
+
+     Esto lo contesta ANTES y sin escribir nada: lo emitido contra lo que daría hoy, cliente por
+     cliente, y marca a quiénes ya les mandaste la factura — que son los que no se pueden mover sin
+     avisarles. Lee la foto y el caché, así que para un mes ya calculado es instantáneo. */
+  app.get('/api/os/emision/externos/:mes/simular', wrap(async (req, res) => {
+    const mes = String(req.params.mes || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+
+    const emitido = {};
+    emision.lineas(mes, 'externos').forEach((l) => { emitido[l.cliente_id] = l.monto_usdt; });
+
+    const filas = []; const fallaron = [];
+    for (const c of clientes.list().clientes) {
+      if (c.es_vendedor) continue;
+      let r = null;
+      try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes }); }
+      catch (e) { fallaron.push({ cliente: c.nombre, error: String((e && e.message) || e) }); continue; }
+      if (!r || !r.ok) { fallaron.push({ cliente: c.nombre, error: (r && r.error) || 'no salió' }); continue; }
+      // A quién se le cobra de verdad: el que cuelga de otro no lleva línea propia.
+      const paga = (c.factura_a && c.factura_a !== c.id && clientes.get(c.factura_a)) ? c.factura_a : c.id;
+      const g = filas.find((f) => f.cliente_id === paga);
+      if (g) { g.ahora = money.add(g.ahora, r.totalUsdt); if (paga !== c.id) g.incluye.push(c.nombre); continue; }
+      const dueño = clientes.get(paga) || c;
+      filas.push({ cliente_id: paga, cliente: dueño.nombre, codigo: dueño.codigo || '',
+        ahora: r.totalUsdt, incluye: paga !== c.id ? [c.nombre] : [],
+        base: r.base, incompleto: !!r.incompleto,
+        internosSeCobran: !!dueño.internos_se_cobran });
+    }
+
+    // La factura que YA salió es la que no se puede mover sin avisarle al cliente.
+    filas.forEach((f) => {
+      f.emitido = emitido[f.cliente_id] || '0';
+      f.dif = money.round(money.sub(f.ahora, f.emitido), 2);
+      f.ahora = money.round(f.ahora, 2);
+      const g = facturasGuardadas.get(f.cliente_id, mes);
+      f.facturaSalio = g && g.salio_at ? g.salio_como : null;
+      delete f.cliente_id;
+    });
+    // Los que tienen línea emitida y hoy no darían nada: también se mueven, a cero.
+    Object.entries(emitido).forEach(([cid, monto]) => {
+      if (filas.some((f) => f.cliente === (clientes.get(cid) || {}).nombre)) return;
+      const c = clientes.get(cid) || {};
+      const g = facturasGuardadas.get(cid, mes);
+      filas.push({ cliente: c.nombre || cid, codigo: c.codigo || '', emitido: monto, ahora: '0',
+        dif: money.round(money.sub('0', monto), 2), incluye: [], base: null, incompleto: false,
+        facturaSalio: g && g.salio_at ? g.salio_como : null });
+    });
+
+    filas.sort((a, b) => Math.abs(Number(b.dif)) - Math.abs(Number(a.dif)));
+    const cambian = filas.filter((f) => Math.abs(Number(f.dif)) > 0.004);
+    ok(res, { mes, filas, cambian: cambian.length, fallaron,
+      total_emitido: money.round(money.sum(filas.map((f) => f.emitido)), 2),
+      total_ahora: money.round(money.sum(filas.map((f) => f.ahora)), 2),
+      salieron: cambian.filter((f) => f.facturaSalio).length });
+  }));
+
   app.get('/api/os/emision/detalle/:mes', wrap((req, res) => {
     const mes = String(req.params.mes || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
