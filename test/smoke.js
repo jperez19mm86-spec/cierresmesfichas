@@ -6452,6 +6452,25 @@ async function main() {
       /origen === 'externos'\s*\n\s*\? '<td class="reptd right"><button/.test(h10));
   }
 
+  /* ── LA FACTURA MUESTRA LO QUE SE LE COBRÓ, INCLUIDO LO DEL QUE CUELGA ───────────────────────
+     La emisión ya rutea por `factura_a`: los externos de JJ entran en el movimiento de Marcelo.
+     Pero la factura recalculaba SÓLO el reporte del cliente, así que mostraba 2.854,59 mientras en
+     su cuenta había 4.373,98 — menos de lo que se le cobró, y sin nada que lo explicara. */
+  {
+    const fsv = fs.readFileSync(path.join(ROOT, 'src', 'factura.service.js'), 'utf8');
+    check('factura: trae los externos de los que se le facturan a él',
+      /\.filter\(\(c\) => c\.factura_a === cli\.id && c\.id !== cli\.id\)/.test(fsv),
+      'si no, la factura muestra menos de lo que dice la cuenta');
+    check('factura: los suma al total',
+      /r\.totalUsdt = money\.add\(r\.totalUsdt, rc\.totalUsdt\)/.test(fsv));
+    check('factura: el desglose dice de quién es cada panel',
+      /panel: `\$\{p\.panel\} · \$\{c\.nombre\}`/.test(fsv),
+      'el cliente audita por panel: sin el nombre no puede saber de dónde salió');
+    check('factura: si el reporte del chico no sale, la factura queda marcada incompleta',
+      /if \(!rc \|\| !rc\.ok\) \{ r\.incompleto = true; continue; \}/.test(fsv),
+      'cobrar de menos en silencio es peor que avisar');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

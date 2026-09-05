@@ -128,6 +128,28 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
   if (conExternos) {
     try {
       const r = await externosSvc.reporte({ clienteNombre: cli.nombre, mes: m });
+      /* ── Y LOS QUE SE LE FACTURAN A ÉL ────────────────────────────────────────────────────
+         JJ se le factura a Marcelo y Ariel a Fran: su deuda va a la cuenta del que paga, y desde
+         que la emisión lo respeta, el movimiento de Marcelo ya trae los externos de JJ adentro.
+         La factura tiene que traerlos también o muestra MENOS de lo que se le cobró — el cliente
+         ve 2.854,59 y en su cuenta hay 4.373,98, sin nada que lo explique.
+         Se pegan los paneles del chico con su nombre al lado, para que el desglose por panel siga
+         siendo auditable: el cliente tiene que poder ver de dónde salió cada renglón. */
+      if (r.ok) {
+        const cuelgan = (clientes.list().clientes || [])
+          .filter((c) => c.factura_a === cli.id && c.id !== cli.id);
+        for (const c of cuelgan) {
+          let rc = null;
+          try { rc = await externosSvc.reporte({ clienteNombre: c.nombre, mes: m }); } catch (e) { rc = null; }
+          if (!rc || !rc.ok) { r.incompleto = true; continue; }
+          (rc.paneles || []).forEach((p) => {
+            r.paneles.push({ ...p, panel: `${p.panel} · ${c.nombre}`,
+              items: (p.items || []).map((i) => ({ ...i, panel: `${i.panel} · ${c.nombre}`, deCliente: c.nombre })) });
+          });
+          r.totalUsdt = money.add(r.totalUsdt, rc.totalUsdt);
+          if (rc.incompleto) r.incompleto = true;
+        }
+      }
       if (r.ok) {
         ext = {
           base: r.base,
