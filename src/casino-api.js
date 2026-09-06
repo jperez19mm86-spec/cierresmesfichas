@@ -55,14 +55,21 @@ function extractPhpsessid(setCookie) {
 
 /**
  * Nivel jerárquico de un nodo, leído de `additional.group` del raw de area=users.
- * El casino lo trae como "[Superagente]" | "[Distributor]" | "[Agente]" | ausente (terminal/caja).
+ * El casino lo trae como "[Superagente]" | "[Dealer]" (a veces "[Distributor]") | "[Agente]" |
+ * ausente (terminal/caja).
  */
 function nivelDeGroup(additional) {
   let g = '';
   try { const a = typeof additional === 'string' ? JSON.parse(additional) : (additional || {}); g = String(a.group || ''); } catch (e) { /* noop */ }
   g = g.replace(/^\[+|\]+$/g, '').trim(); // "[Superagente]" -> "Superagente"
   if (/super/i.test(g)) return 'SuperAgente';
-  if (/distrib/i.test(g)) return 'Distribuidor';
+  /* ⚠️ EL CASINO AL DISTRIBUIDOR LE DICE «Dealer». Y en los reportes, «diller». Acá sólo se
+     reconocía «Distributor», así que los 1.988 nodos de ese nivel volvían con el nivel «Dealer»
+     tal cual y NINGUNO entraba al acumulado: el cron filtra por 'Distribuidor' y no encontraba
+     uno solo. Consecuencia: los 65 distribuidores del OS no tenían ni una fila guardada, y la
+     pantalla de divisas les decía que TODAS sus monedas sobraban — a GAF-D, que está en PYG, le
+     pedía sacarle el PYG. Comprobado el 5-sep-2026 contra la conexión Europa. */
+  if (/distrib|dealer|diller/i.test(g)) return 'Distribuidor';
   if (/agent/i.test(g)) return 'Agente';
   // Cualquier OTRO nivel que la cuenta exponga (ej. master/GOD desde la cuenta de Alexa, por
   // encima de TitanGOD) se devuelve tal cual para que el asignador lo ofrezca como filtro.

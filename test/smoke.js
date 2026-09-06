@@ -6663,6 +6663,23 @@ async function main() {
       'sólo en el alta deja que se rompa editando');
   }
 
+  /* ── EL CASINO AL DISTRIBUIDOR LE DICE «Dealer» ─────────────────────────────────────────────
+     El traductor sólo reconocía «Distributor», así que los 1.988 nodos de ese nivel volvían como
+     «Dealer» y el cron del acumulado —que filtra por 'Distribuidor'— no guardaba ni uno. Los 65
+     distribuidores del OS no tenían una sola fila, y la pantalla de divisas les decía que todas
+     sus monedas sobraban: a GAF-D, que está en PYG, le pedía sacarle el PYG.
+     Comprobado contra Europa: GAF-D, GAFPGY-D y GanamosAlexa vuelven con nivel «Dealer». */
+  {
+    const ca = fs.readFileSync(path.join(ROOT, 'src', 'casino-api.js'), 'utf8');
+    check('niveles: «Dealer» y «diller» son Distribuidor',
+      /if \(\/distrib\|dealer\|diller\/i\.test\(g\)\) return 'Distribuidor';/.test(ca));
+    // Y el filtro del acumulado sigue esperando el nombre traducido, no el del casino.
+    const ac = fs.readFileSync(path.join(ROOT, 'src', 'acumulado.service.js'), 'utf8');
+    check('niveles: el acumulado filtra por el nombre ya traducido',
+      /distributor: 'Distribuidor'/.test(ac) && /nodos\.filter\(\(x\) => x\.nivel === nivel\)/.test(ac),
+      'si el traductor devuelve «Dealer», este filtro no encuentra nada');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por
