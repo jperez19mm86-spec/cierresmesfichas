@@ -348,7 +348,17 @@ function cuentas({ mes, cliente_id = null } = {}) {
       // El id viaja con la fila para que el aviso pueda LLEVAR a cargarle los precios: sin él, la
       // pantalla sólo sabe el login y el dueño tiene que buscar la columna a mano en una matriz de
       // 51 sellos por 15 cuentas.
-      const c = porCuenta[id] = porCuenta[id] || { id, cuenta: activos[id].login, monedas: {}, precios: Object.keys(celdas[id] || {}).length };
+      /* `enLaFoto` separa DOS causas que se arreglan de forma opuesta:
+         - la cuenta aparece en el GGR guardado pero su plata cae en sellos que no le pusiste precio
+           → se arregla cargándole precios;
+         - la cuenta NO aparece en NINGÚN grupo de la foto → TBS ya no la devuelve bajo esta
+           conexión, y cargarle precios no cambia nada.
+         El 6-sep-2026 pasó lo segundo con 7 cuentas: dejaron de estar en el árbol de TBS el
+         3-sep (el reporte diario las vio por última vez el 2-sep). En julio se les facturaba
+         normal. Sin esta distinción el aviso manda a cargar precios que no van a cobrar nada. */
+      const enLaFoto = Object.values(ggr).some((pc) => pc[id]);
+      const c = porCuenta[id] = porCuenta[id] || { id, cuenta: activos[id].login, monedas: {},
+        precios: Object.keys(celdas[id] || {}).length, enLaFoto };
       c.monedas[x.moneda] = (c.monedas[x.moneda] || 0) + Number(x.profit || 0);
     });
     Object.values(porCuenta).forEach((c) => {
@@ -360,8 +370,15 @@ function cuentas({ mes, cliente_id = null } = {}) {
   } catch (e) { avisos.push('no se pudo cruzar contra el reporte diario: ' + String((e && e.message) || e)); }
 
   if (movieronSinCobrar.length) {
-    const conPrecio = movieronSinCobrar.filter((c) => c.precios);
-    const sinPrecioNinguno = movieronSinCobrar.filter((c) => !c.precios);
+    const fuera = movieronSinCobrar.filter((c) => !c.enLaFoto);
+    const conPrecio = movieronSinCobrar.filter((c) => c.enLaFoto && c.precios);
+    const sinPrecioNinguno = movieronSinCobrar.filter((c) => c.enLaFoto && !c.precios);
+    if (fuera.length) {
+      avisos.push(`🚨 ${fuera.length} cuenta(s) movieron y TBS ya NO las devuelve bajo esta conexión: `
+        + `${fuera.map((c) => c.cuenta).join(' · ')}. No están en el árbol con ningún rango de fechas, `
+        + 'así que no hay GGR que facturar y cargarles precios NO lo arregla. Lo único que queda de su '
+        + 'movimiento es el reporte diario. Hay que reclamarle el acceso al proveedor.');
+    }
     if (sinPrecioNinguno.length) {
       avisos.push(`⚠️ ${sinPrecioNinguno.length} cuenta(s) MOVIERON este mes y no tienen NINGÚN precio cargado, `
         + `así que no se les factura nada: ${sinPrecioNinguno.map((c) => c.cuenta).join(' · ')}. `
@@ -370,7 +387,7 @@ function cuentas({ mes, cliente_id = null } = {}) {
     if (conPrecio.length) {
       avisos.push(`⚠️ ${conPrecio.length} cuenta(s) MOVIERON este mes, tienen precios cargados y aun así no `
         + `se les factura nada: ${conPrecio.map((c) => `${c.cuenta} (${c.precios} precios)`).join(' · ')}. `
-        + 'Su movimiento cae en sellos que no tienen precio, o TBS no lo devuelve bajo esa cuenta.');
+        + 'Su movimiento cae en sellos que no tienen precio.');
     }
   }
 

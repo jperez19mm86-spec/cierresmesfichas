@@ -8979,12 +8979,14 @@ function apiPintarCuentas(){
     ${(r.movieronSinCobrar||[]).length?`<div class="nota err">
       <span class="tit">⚠️ ${r.movieronSinCobrar.length} cuenta(s) movieron y NO se les factura nada</span>
       Tienen ganancia en el reporte diario de este mes y no aparecen abajo. Si cerrás así, esa plata no se le cobra a nadie.
-      <div style="margin-top:6px"><table><thead><tr><th>Cuenta</th><th>Ganancia del mes</th><th>Precios cargados</th><th></th></tr></thead><tbody>
+      <div style="margin-top:6px"><table><thead><tr><th>Cuenta</th><th>Ganancia del mes</th><th>Por qué no se cobra</th><th></th></tr></thead><tbody>
       ${r.movieronSinCobrar.map(x=>`<tr><td><b>${esc(x.cuenta)}</b></td>
         <td>${Object.entries(x.monedas||{}).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td>
-        <td>${x.precios ? esc(x.precios)+' <span class="muted">(el movimiento cae en sellos sin precio)</span>'
-             : '<b style="color:var(--red)">ninguno</b>'}</td>
-        <td class="right">${x.id?`<button class="small" onclick="apiCompletar('${esc(x.id)}')">✏️ Cargarle los precios</button>`:''}</td></tr>`).join('')}
+        <td>${x.enLaFoto===false ? '<b style="color:var(--red)">TBS ya no la devuelve</b> <span class="muted">(no está en el árbol)</span>'
+             : (x.precios ? esc(x.precios)+' <span class="muted">(el movimiento cae en sellos sin precio)</span>'
+             : '<b style="color:var(--red)">ninguno</b>')}</td>
+        <td class="right">${x.enLaFoto===false ? '<span class="muted">reclamarle el acceso al proveedor</span>'
+          : (x.id?`<button class="small" onclick="apiCompletar('${esc(x.id)}')">✏️ Cargarle los precios</button>`:'')}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}
     ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
     ${(r.aceptados||[]).length?`<div class="nota"><span class="tit">Decisiones tomadas</span>${r.aceptados.map(esc).join('<br>')}</div>`:''}
