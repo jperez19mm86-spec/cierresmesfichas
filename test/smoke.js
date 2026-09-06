@@ -6680,6 +6680,30 @@ async function main() {
       'si el traductor devuelve «Dealer», este filtro no encuentra nada');
   }
 
+  /* ── LA VENTANA PARA ANULAR UNA CARGA ───────────────────────────────────────────────────────
+     Eran 5 minutos y quedaban cortos: entre que el cliente avisa que la carga fue a la caja o a la
+     moneda equivocada y ella entra al panel, se pasaban, y había que retirar las fichas a mano en
+     el casino. El freno de verdad no es el reloj sino el CASINO: anular retira el mismo monto y si
+     el jugador ya lo usó, rechaza por saldo y el pedido no cambia de estado. */
+  {
+    const ix2 = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    check('anular: la ventana es de 60 minutos y se puede mover sin tocar código',
+      /Number\(process\.env\.ANULAR_WINDOW_MIN \|\| 60\)/.test(ix2));
+    check('anular: sin fecha de carga NO se anula',
+      /Sin marca de tiempo de la carga → NO se anula/.test(ix2),
+      'fail-closed: es plata');
+    check('anular: el panel calcula con la hora del SERVIDOR',
+      /anularWindowMs: ANULAR_WINDOW_MS, serverNow/.test(ix2),
+      'con la hora de la PC, un reloj atrasado deja el botón puesto de más');
+    /* Y el grupo se entera: al cliente le llegó «Carga acreditada» cuando se cargó. Si se retiran
+       las fichas y no se dice nada, le queda un mensaje que dejó de ser cierto. */
+    check('anular: se avisa al grupo del cliente',
+      /telegram\.anulacionText\(\{/.test(ix2));
+    check('anular: el aviso sale DESPUÉS de que el casino confirmó',
+      /Va DESPUÉS de que el casino confirmó el retiro/.test(ix2),
+      'avisar una anulación que no se aplicó es peor que no avisar');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

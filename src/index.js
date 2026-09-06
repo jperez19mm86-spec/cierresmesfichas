@@ -1251,10 +1251,19 @@ app.post('/api/pedidos/:id/rechazar', (req, res) => {
   res.json({ ok: true, pedido: upd });
 });
 
-// Ventana durante la cual se puede anular una carga (desde que se cargó). Pasada, el botón
-// desaparece del panel y el endpoint rechaza: anular sirve para deshacer un error reciente.
-// Debe coincidir con la del operativo (fichas-live), que es la fuente de verdad de este flujo.
-const ANULAR_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+/* Ventana durante la cual se puede anular una carga (desde que se cargó). Pasada, el botón
+   desaparece del panel y el endpoint rechaza: anular sirve para deshacer un error reciente.
+
+   Eran 5 minutos y quedaban cortos: entre que el cliente avisa que la carga fue a la caja o a la
+   moneda equivocada y ella entra al panel, se pasaban — y había que retirar las fichas a mano en
+   el casino. Se sube a 60, que es lo que dura darse cuenta.
+
+   Alargarla no es riesgoso: el freno de verdad no es el reloj sino el CASINO. Anular retira el
+   mismo monto, y si el jugador ya lo usó el casino rechaza por saldo y el pedido no cambia de
+   estado. El reloj sólo evita que se deshaga una carga de hace semanas por accidente.
+
+   Se puede mover sin tocar código con ANULAR_WINDOW_MIN. */
+const ANULAR_WINDOW_MS = Math.max(1, Number(process.env.ANULAR_WINDOW_MIN || 60)) * 60 * 1000;
 
 // ANULAR una carga ya hecha (ej. petición a un usuario EQUIVOCADO): RETIRA (operation=out) exactamente
 // el mismo monto que se cargó y deja el pedido en 'anulado'. Solo aplica a un pedido 'cargado'.
