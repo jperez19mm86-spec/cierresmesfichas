@@ -606,12 +606,24 @@ function mount(app) {
   // `clienteDestino` deja mandar la caja a OTRO cliente que el dueño del panel. Pasa de verdad:
   // un panel figura a nombre del vendedor pero las fichas las pide el cliente final, o al revés.
   // Por defecto va al dueño del panel, que es lo que corresponde casi siempre.
+  /* ⚠️ Y SI YA EXISTE, SE ACTUALIZA. Antes sólo creaba: cambiar las divisas de un panel en el OS
+     no llegaba nunca a Fichas, y el cliente seguía pudiendo pedir sólo en las viejas. Pasó con
+     GAF-D — puesto en PYG en el OS y ofreciendo ARS en Fichas — y con otros 68 paneles.
+     Se copia lo que describe a la cuenta (nombre y divisas); los montos rápidos y el grupo son de
+     Fichas y no se tocan. */
   const _espejarCaja = (p, clienteDestino) => {
     if (!p || !p.id_usuario) return false;
     const destino = clienteDestino || p.cliente_id;
     if (!destino) return false;
     const c = clientes.get(destino); if (!c) return false;
-    if ((c.cajas || []).some((k) => String(k.userId) === String(p.id_usuario) && (k.sistema || '') === (p.sistema || ''))) return false;
+    const ya = (c.cajas || []).find((k) => String(k.userId) === String(p.id_usuario) && (k.sistema || '') === (p.sistema || ''));
+    if (ya) {
+      const nom = p.usuario || p.nombre;
+      const mismas = (ya.divisas || []).slice().sort().join(',') === (p.divisas || []).slice().sort().join(',');
+      if (mismas && String(ya.usuario || '') === String(nom || '')) return false;
+      clientes.updateCaja(destino, ya.id, { usuario: nom, divisas: p.divisas });
+      return 'actualizada';
+    }
     clientes.addCaja(destino, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
     return true;
   };
@@ -645,7 +657,10 @@ function mount(app) {
     ok(res, { panel });
   }));
   app.put('/api/os/paneles/:id', wrap((req, res) => {
-    const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); _espejarCaja(p); ok(res, { panel: p });
+    const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado');
+    // Lo que se cambia acá tiene que llegar a Fichas: es la misma cuenta del casino.
+    const caja = _espejarCaja(p);
+    ok(res, { panel: p, caja: caja === 'actualizada' ? 'actualizada' : (caja ? 'creada' : 'sin cambios') });
   }));
   // Qué monedas MUEVE cada panel de verdad, contra las que tiene guardadas.
   app.get('/api/os/paneles/divisas', (req, res) => {
@@ -1149,12 +1164,27 @@ function mount(app) {
     borrado ? ok(res) : err(res, 404, 'no encontrado');
   });
   // Sincroniza TODOS los paneles del OS → cajas operativas (one-shot; puebla lo ya cargado). Idempotente.
-  app.post('/api/os/paneles/sync-cajas', wrap((_req, res) => {
-    let creadas = 0, ya = 0;
+  /* Pasa TODOS los paneles a Fichas: crea las que faltan y corrige las que quedaron con otras
+     divisas. Con `dry:true` sólo cuenta, sin escribir — 69 paneles estaban distintos. */
+  app.post('/api/os/paneles/sync-cajas', wrap((req, res) => {
+    const dry = !!(req.body && req.body.dry);
+    let creadas = 0, actualizadas = 0, ya = 0; const detalle = [];
     for (const c of clientes.list().clientes) {
-      for (const p of paneles.list({ cliente_id: c.id })) { if (!p.id_usuario) continue; _espejarCaja(p) ? creadas++ : ya++; }
+      for (const p of paneles.list({ cliente_id: c.id })) {
+        if (!p.id_usuario) continue;
+        if (dry) {
+          const k = (c.cajas || []).find((x) => String(x.userId) === String(p.id_usuario) && (x.sistema || '') === (p.sistema || ''));
+          if (!k) { creadas++; detalle.push({ panel: p.nombre, que: 'falta la caja' }); continue; }
+          const mismas = (k.divisas || []).slice().sort().join(',') === (p.divisas || []).slice().sort().join(',');
+          if (!mismas) { actualizadas++; detalle.push({ panel: p.nombre, que: 'divisas distintas',
+            os: p.divisas, fichas: k.divisas }); } else ya++;
+          continue;
+        }
+        const r = _espejarCaja(p);
+        if (r === 'actualizada') actualizadas++; else if (r) creadas++; else ya++;
+      }
     }
-    ok(res, { creadas, ya });
+    ok(res, { dry, creadas, actualizadas, ya, detalle: detalle.slice(0, 100) });
   }));
   app.put('/api/os/paneles/:id/precio-base', wrap((req, res) => {
     const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};

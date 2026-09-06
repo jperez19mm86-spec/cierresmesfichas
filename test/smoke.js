@@ -6607,6 +6607,34 @@ async function main() {
       '«54 pagos» no dice si fueron 13 millones o 300 mil');
   }
 
+  /* ── LA CAJA DE FICHAS Y EL PANEL DEL OS SON LA MISMA CUENTA ────────────────────────────────
+     Se guardan en dos lados y no se hablaban. Cambiar las divisas de un panel en el OS no llegaba
+     nunca a Fichas: GAF-D quedó en PYG en el OS ofreciendo ARS en Fichas, y con él otros 68. Y una
+     caja creada en Fichas no aparecía en el OS, así que no entraba ni en la Foto ni en la factura
+     de externos. Se atan por (userId, sistema), que es lo que identifica la cuenta en el casino. */
+  {
+    const ro = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('cajas: cambiar el panel en el OS actualiza la caja, no sólo la crea',
+      /clientes\.updateCaja\(destino, ya\.id, \{ usuario: nom, divisas: p\.divisas \}\)/.test(ro),
+      'antes sólo creaba: si ya existía, el cambio no llegaba a Fichas');
+    check('cajas: guardar un panel dispara el espejo',
+      /const caja = _espejarCaja\(p\);/.test(ro));
+    check('cajas: los montos rápidos y el grupo son de Fichas y no se pisan',
+      /los montos rápidos y el grupo son de\n\s+Fichas y no se tocan/.test(ro));
+    const ix = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    check('cajas: crear o cambiar una caja en Fichas mueve el panel del OS',
+      /function _espejarPanel\(clienteId, caja\)/.test(ix)
+      && /panel: _espejarPanel\(req\.params\.id, k\)/.test(ix));
+    check('cajas: el NIVEL no se inventa desde Fichas',
+      /El NIVEL no se toca desde acá/.test(ix),
+      'un nivel inventado hace que la carga en cascada falle sin decir por qué');
+    check('cajas: si el espejo falla, no rompe el guardado',
+      /catch \(e\) \{ console\.log\('\[cajas\] no se pudo espejar el panel:'/.test(ix),
+      'guardar la caja tiene que funcionar aunque el otro lado falle');
+    check('cajas: el sync masivo puede simular antes de escribir',
+      /const dry = !!\(req\.body && req\.body\.dry\)/.test(ro));
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

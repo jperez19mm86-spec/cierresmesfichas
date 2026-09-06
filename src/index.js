@@ -379,16 +379,41 @@ app.delete('/api/clientes/:id', (req, res) => {
 });
 
 // Cajas (dentro de un cliente)
+/* ── LA CAJA DE FICHAS Y EL PANEL DEL OS SON LA MISMA CUENTA ─────────────────────────────────
+   Se guardan en dos lados —la caja acá, el panel en el OS— y hasta ahora no se hablaban: cambiar
+   las divisas en el OS no llegaba a Fichas (el cliente seguía pudiendo pedir sólo en las viejas) y
+   una caja nueva no aparecía en el OS, así que no entraba en la Foto ni en la factura de externos.
+   Se atan por (userId, sistema), que es lo que identifica a la cuenta en el casino.
+
+   El NIVEL no se toca desde acá: lo resuelve el OS preguntándole al árbol del casino, y un nivel
+   inventado hace que la carga en cascada falle sin decir por qué (pasó con GanamosM01). */
+function _espejarPanel(clienteId, caja) {
+  try {
+    if (!caja || !caja.userId) return null;
+    const p = paneles.list({ cliente_id: clienteId })
+      .find((x) => String(x.id_usuario) === String(caja.userId) && (x.sistema || '') === (caja.sistema || ''));
+    if (p) {
+      const mismas = (p.divisas || []).slice().sort().join(',') === (caja.divisas || []).slice().sort().join(',');
+      if (mismas && String(p.nombre || '') === String(caja.usuario || '')) return 'sin cambios';
+      paneles.update(p.id, { nombre: caja.usuario || p.nombre, divisas: caja.divisas });
+      return 'actualizado';
+    }
+    paneles.create({ cliente_id: clienteId, nombre: caja.usuario, usuario: caja.usuario,
+      sistema: caja.sistema, id_usuario: caja.userId, divisas: caja.divisas });
+    return 'creado';
+  } catch (e) { console.log('[cajas] no se pudo espejar el panel:', e.message); return null; }
+}
+
 app.post('/api/clientes/:id/cajas', (req, res) => {
   const k = clientes.addCaja(req.params.id, req.body || {});
   if (!k) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
-  res.json({ ok: true, caja: k });
+  res.json({ ok: true, caja: k, panel: _espejarPanel(req.params.id, k) });
 });
 
 app.put('/api/clientes/:id/cajas/:cajaId', (req, res) => {
   const k = clientes.updateCaja(req.params.id, req.params.cajaId, req.body || {});
   if (!k) return res.status(404).json({ ok: false, error: 'cliente o caja no encontrada' });
-  res.json({ ok: true, caja: k });
+  res.json({ ok: true, caja: k, panel: _espejarPanel(req.params.id, k) });
 });
 
 app.delete('/api/clientes/:id/cajas/:cajaId', (req, res) => {
