@@ -8976,6 +8976,16 @@ function apiPintarCuentas(){
       <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Queda para la empresa <span class="muted">(Henry incluido)</span></label>
         <div style="font-size:22px;font-weight:800;color:var(--gold)">${money(T.empresa,2)}</div><div class="muted" style="font-size:11px">USDT</div></div>
     </div>
+    ${(r.movieronSinCobrar||[]).length?`<div class="nota err">
+      <span class="tit">⚠️ ${r.movieronSinCobrar.length} cuenta(s) movieron y NO se les factura nada</span>
+      Tienen ganancia en el reporte diario de este mes y no aparecen abajo. Si cerrás así, esa plata no se le cobra a nadie.
+      <div style="margin-top:6px"><table><thead><tr><th>Cuenta</th><th>Ganancia del mes</th><th>Precios cargados</th><th></th></tr></thead><tbody>
+      ${r.movieronSinCobrar.map(x=>`<tr><td><b>${esc(x.cuenta)}</b></td>
+        <td>${Object.entries(x.monedas||{}).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td>
+        <td>${x.precios ? esc(x.precios)+' <span class="muted">(el movimiento cae en sellos sin precio)</span>'
+             : '<b style="color:var(--red)">ninguno</b>'}</td>
+        <td class="right">${x.id?`<button class="small" onclick="apiCompletar('${esc(x.id)}')">✏️ Cargarle los precios</button>`:''}</td></tr>`).join('')}
+      </tbody></table></div></div>`:''}
     ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
     ${(r.aceptados||[]).length?`<div class="nota"><span class="tit">Decisiones tomadas</span>${r.aceptados.map(esc).join('<br>')}</div>`:''}
     ${(r.sinTC||[]).length?`<div class="nota err"><span class="tit">Sin tipo de cambio</span>${r.sinTC.map(esc).join(', ')}</div>`:''}
@@ -8985,9 +8995,10 @@ function apiPintarCuentas(){
       <span class="tit">${r.sinPrecio.length} sello(s) con GGR y SIN precio cargado</span>
       Produjeron ganancia y no se le está cobrando a nadie.
       <div style="max-height:280px;overflow:auto;margin-top:6px">
-      <table><thead><tr><th>Cuenta</th><th>Sello</th><th>GGR</th></tr></thead><tbody>
+      <table><thead><tr><th>Cuenta</th><th>Sello</th><th>GGR</th><th></th></tr></thead><tbody>
       ${r.sinPrecio.map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
-        <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td></tr>`).join('')}
+        <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td>
+        <td class="right">${x.cliente_id?`<button class="small outline" onclick="apiCompletar('${esc(x.cliente_id)}','${esc(String(x.sello_nombre||x.sello)).replace(/'/g,"\\'")}')">✏️ Ponerle precio</button>`:''}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}`;
 }
 /* Guarda lo que UN cliente paga por UN sello.
@@ -8996,13 +9007,16 @@ function apiPintarCuentas(){
    cero a propósito.
    El % del proveedor no se toca acá: sale del costo del sello y la revisión avisa si no coinciden.
    Corregirlo solo sería decidir por el dueño cuál de los dos lados está bien. */
+/* La misma celda se edita desde la matriz y desde la pantalla de una sola cuenta: al cancelar o
+   fallar hay que repintar la que está a la vista, no siempre la matriz. */
+function _apiRepintar(){ return _apiSub==='completar' ? API.completar() : API.matriz(); }
 async function apiPct(inp){
   const cli=inp.dataset.cli, sello=inp.dataset.sello;
   const v=String(inp.value||'').trim().replace(',','.');
-  if(v!=='' && !(Number(v)>=0)){ toast('⚠ "'+inp.value+'" no es un porcentaje'); return API.matriz(); }
+  if(v!=='' && !(Number(v)>=0)){ toast('⚠ "'+inp.value+'" no es un porcentaje'); return _apiRepintar(); }
   let r;
   if(v===''){
-    if(!confirm('¿Borrar el precio de este sello para ese cliente?\n\nDeja de pagarlo: su GGR va a aparecer como "sin precio".')) return API.matriz();
+    if(!confirm('¿Borrar el precio de este sello para ese cliente?\n\nDeja de pagarlo: su GGR va a aparecer como "sin precio".')) return _apiRepintar();
     r=await api('/api/os/api/pct/'+encodeURIComponent(cli)+'/'+encodeURIComponent(sello),{method:'DELETE'});
   } else {
     const m=await api('/api/os/api/matriz');
@@ -9014,7 +9028,7 @@ async function apiPct(inp){
       pct_proveedor: d.pct_proveedor!=null ? d.pct_proveedor : (s.costo!=null?String(s.costo):'0'),
       pts_ib:null, pts_henry:null, origen: d.origen||'planilla'})});
   }
-  if(!r.ok) return API.matriz();
+  if(!r.ok) return _apiRepintar();
   inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350);
   const rv=await api('/api/os/api/revision');
   if((rv.avisos||[]).length) toast('⚠ '+rv.avisos[0].slice(0,150));
@@ -9030,6 +9044,136 @@ async function apiCosto(inp){
   inp.classList.add('cie-ok'); setTimeout(()=>inp.classList.remove('cie-ok'),350);
   const rv=await api('/api/os/api/revision');
   if((rv.avisos||[]).length) toast('⚠ '+rv.avisos[0].slice(0,150));
+}
+/* ── COMPLETARLE LOS PRECIOS A UNA CUENTA ────────────────────────────────────────────────────────
+   El aviso de "movieron y no se les factura nada" decía el problema y ahí terminaba: para
+   arreglarlo había que ir a Precios por cliente, destildar el filtro que esconde las cuentas
+   vacías, buscar la columna entre 15 y bajar 51 filas. Tres pantallas para escribir un número.
+
+   Acá se abre esa cuenta SOLA: sus sellos vacíos primero, el costo de cada uno al lado, y un
+   campo para llenar todos los vacíos de una. Si no tiene ningún precio, además ofrece aplicarle
+   una oferta, que es como se carga un cliente nuevo de verdad — sello por sello son 51 números.
+
+   Se escribe en la MISMA tabla que la matriz (`apiPct`), no en una copia: dos lugares que guardan
+   el mismo precio terminan distintos, y eso ya pasó con las ofertas. */
+let _apiComp=null;   // { id, sello }  — el sello es el que se resalta al entrar, si vino de un aviso
+function apiCompletar(id, sello){ _apiComp={ id:String(id), sello:sello||null }; apiSub('completar'); }
+
+API.completar = async () => {
+  const b=document.getElementById('api-body');
+  if(!_apiComp) return apiSub('cuentas');
+  b.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
+  const [m,lo]=await Promise.all([api('/api/os/api/matriz'),api('/api/os/api/ofertas')]);
+  const cli=(m.clientes||[]).find(c=>String(c.id)===_apiComp.id);
+  if(!cli){ b.innerHTML='<div class="card"><div class="badge err">no encuentro esa cuenta</div></div>'; return; }
+  const mis=(m.celdas||{})[cli.id]||{};
+  // Sólo los sellos mapeados a un grupo de TBS: a los otros no se les puede preguntar el GGR, así
+  // que ponerles precio no cobra nada. Se avisan aparte en "sin grupo".
+  const sellos=(m.sellos||[]).filter(x=>x.grupo_id);
+  const tiene=(x)=>{ const d=mis[x.nombre]; return !!(d && d.pct_cliente!=null); };
+  const vacios=sellos.filter(x=>!tiene(x));
+  const puestos=sellos.filter(tiene);
+
+  // Lo que movió este mes, si se llegó acá desde el aviso. Es el motivo de estar en esta pantalla.
+  const mov=((_apiCta&&_apiCta.movieronSinCobrar)||[]).find(x=>String(x.id)===_apiComp.id);
+
+  const fila=(x)=>{
+    const d=mis[x.nombre]||{};
+    const val=(d.pct_cliente!=null)?d.pct_cliente:'';
+    const foco=_apiComp.sello&&x.nombre===_apiComp.sello;
+    return `<tr class="${val===''?'mx-vacia':''}"${foco?' style="outline:2px solid var(--gold)"':''}>
+      <td><b>${esc(x.corto||x.nombre)}</b>${x.tipo==='postpago'?' <span class="muted" style="font-size:10px">interno</span>':''}
+        ${foco?' <span class="badge warn" style="margin-left:4px">este movió</span>':''}</td>
+      <td class="right muted">${x.costo==null?'—':esc(x.costo)+'%'}</td>
+      <td style="width:120px"><input value="${esc(val)}" placeholder="sin precio"
+        data-cli="${esc(cli.id)}" data-sello="${esc(x.nombre)}" onchange="apiPct(this)"
+        title="${esc(x.corto||x.nombre)}\nVacío = no se le cobra. Escribí un % para cobrárselo."></td>
+      <td class="muted">${val===''?'<span style="color:var(--red)">no se le cobra</span>'
+        :(d.origen==='verificado'?'verificado':'sin verificar')}</td></tr>`;
+  };
+
+  const ofs=(lo.ofertas||[]);
+  b.innerHTML = CIE_STYLE + MX_STYLE + `
+    <div class="card">
+      <div class="row" style="margin:0 0 10px"><button class="small outline" onclick="apiSub('cuentas')">← Volver a las cuentas del mes</button></div>
+      <h2>Precios de ${esc(cli.login)} <span class="muted">(% que paga sobre el GGR)</span></h2>
+      ${mov?`<div class="nota err" style="margin-top:8px"><span class="tit">Por esto estás acá</span>
+        Este mes ganó ${Object.entries(mov.monedas||{}).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}
+        y no se le facturó nada.</div>`:''}
+      <div class="muted" style="margin-top:8px">Cada fila es un <b>sello</b> (un grupo de proveedores de TBS).
+        Vacío = <b>no se le cobra</b> y su ganancia queda sin facturar. Se guarda al salir del campo.</div>
+
+      ${vacios.length?`<div class="mx-filtro" style="margin-top:10px">
+        <b>${vacios.length} sello(s) sin precio.</b>
+        <label style="margin-left:8px">Cobrarle el costo <b>+</b>
+          <input id="comp-mas" style="width:56px" value="2"> puntos</label>
+        <button class="small" onclick="apiCompletarTodos('mas')">Aplicar a los ${vacios.length}</button>
+        <span class="muted">— cada sello queda en <b>lo que cuesta + eso</b>. ${esc(vacios.length?`Ej.: ${vacios[0].corto||vacios[0].nombre} cuesta ${vacios[0].costo==null?'—':vacios[0].costo+'%'}`:'')}</span>
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--bd)">
+          <label>…o el mismo % para todos: <input id="comp-todos" style="width:56px" placeholder="ej. 12"></label>
+          <button class="small outline" onclick="apiCompletarTodos('plano')">Aplicar plano</button>
+          <span class="muted">— sólo si de verdad cobran todos igual: un sello de 1,5% y uno de 15% al mismo % es regalar uno y perder con el otro</span>
+        </div>
+      </div>`:'<div class="nota" style="margin-top:10px">Todos los sellos de esta cuenta tienen precio.</div>'}
+
+      ${(!puestos.length && ofs.length)?`<div class="mx-filtro" style="margin-top:8px">
+        <b>Esta cuenta no tiene ningún precio.</b>
+        <label style="margin-left:8px">Aplicarle una oferta:
+          <select id="comp-of" style="width:auto">${ofs.map(o=>`<option value="${esc(o.id)}">${esc(o.titulo||o.nombre||o.id)}</option>`).join('')}</select></label>
+        <button class="small" onclick="apiCompletarOferta()">Aplicar la oferta</button>
+        <span class="muted">— es como se carga un cliente nuevo: escribe todos los sellos de una</span>
+      </div>`:''}
+
+      <table style="margin-top:12px"><thead><tr>
+        <th>Sello</th><th class="right">Cuesta</th><th>Le cobro</th><th></th>
+      </tr></thead><tbody>
+        ${vacios.length?`<tr class="mx-banda"><td colspan="4"><div><b>Sin precio</b> <span class="mx-n">${vacios.length}</span>
+          <span class="muted">— su ganancia no se le cobra a nadie</span></div></td></tr>`:''}
+        ${vacios.map(fila).join('')}
+        ${puestos.length?`<tr class="mx-banda"><td colspan="4"><div><b>Con precio</b> <span class="mx-n">${puestos.length}</span></div></td></tr>`:''}
+        ${puestos.map(fila).join('')}
+      </tbody></table>
+    </div>`;
+};
+/* Llenar los vacíos de una. Se hace de a uno contra la misma ruta que la matriz —no hay ruta en
+   lote— y se corta al primer error en vez de seguir: la mitad cargada con el resto en el aire es
+   peor que no haber empezado, y el que falla se ve. */
+async function apiCompletarTodos(modo){
+  const v=String(val(modo==='mas'?'comp-mas':'comp-todos')||'').trim().replace(',','.');
+  if(v===''||!(Number(v)>=0)) return toast(modo==='mas'?'⚠ Escribí cuántos puntos sumarle':'⚠ Escribí un % válido');
+  const m=await api('/api/os/api/matriz');
+  const mis=(m.celdas||{})[_apiComp.id]||{};
+  const vacios=(m.sellos||[]).filter(x=>x.grupo_id).filter(x=>{ const d=mis[x.nombre]; return !(d&&d.pct_cliente!=null); });
+  if(!vacios.length) return toast('No quedaba ninguno vacío');
+  // El % de cada sello se calcula ANTES de preguntar, para poder mostrar el rango que se va a
+  // escribir. "51 sellos entre 1,5% y 17%" se puede revisar; "51 sellos" no dice nada.
+  const pct=(x)=> modo==='mas' ? String(Math.round(((Number(x.costo)||0)+Number(v))*100)/100) : v;
+  const ns=vacios.map(x=>Number(pct(x)));
+  if(!confirm((modo==='mas'
+      ? '¿Ponerle a los '+vacios.length+' sellos sin precio lo que cuesta cada uno + '+v+' puntos?\n\n'
+        +'Van a quedar entre '+Math.min(...ns)+'% y '+Math.max(...ns)+'%.'
+      : '¿Ponerle '+v+'% a los '+vacios.length+' sellos sin precio de esta cuenta?\n\n'
+        +'Ojo: es el mismo % para sellos que cuestan entre '
+        +Math.min(...vacios.map(x=>Number(x.costo)||0))+'% y '+Math.max(...vacios.map(x=>Number(x.costo)||0))+'%.')
+    +'\n\nDespués podés corregir uno por uno los que hagan falta.')) return;
+  let n=0;
+  for(const x of vacios){
+    const r=await api('/api/os/api/pct',{method:'POST',body:JSON.stringify({cliente_id:_apiComp.id, sello:x.nombre,
+      pct_cliente:pct(x), pct_proveedor:(x.costo!=null?String(x.costo):'0'), pts_ib:null, pts_henry:null, origen:'planilla'})});
+    if(!r.ok){ toast('⚠ Se cortó en '+(x.corto||x.nombre)+': '+esc(r.error||'error')+' — quedaron '+n+' cargados'); break; }
+    n++;
+  }
+  toast('✔ '+n+' sello(s) cargados'+(modo==='mas'?' (costo + '+v+')':' en '+v+'%'));
+  API.completar();
+}
+async function apiCompletarOferta(){
+  const id=val('comp-of'); if(!id) return;
+  if(!confirm('¿Aplicarle esta oferta a la cuenta?\n\nEscribe los precios de todos los sellos que la oferta incluye.')) return;
+  const r=await api('/api/os/api/ofertas/'+encodeURIComponent(id)+'/aplicar',
+    {method:'POST',body:JSON.stringify({cliente_id:_apiComp.id})});
+  if(!r.ok) return toast('⚠ '+esc(r.error||'no se pudo'));
+  toast('✔ Oferta aplicada');
+  API.completar();
 }
 function apiToggle(id){ _apiAbierta.has(id)?_apiAbierta.delete(id):_apiAbierta.add(id); apiPintarCuentas(); }
 /* La vista general de TBS: lo que el proveedor le factura a la casa. Vive acá y no en la Foto del

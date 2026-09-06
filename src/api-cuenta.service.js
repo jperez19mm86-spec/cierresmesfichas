@@ -302,7 +302,9 @@ function cuentas({ mes, cliente_id = null } = {}) {
       const s = sellos.find((x) => String(x.grupo_id) === String(grupo));
       if (!s || precios[s.nombre]) return;
       const hay = Object.values(mio).some((v) => money.isPos(String(v)));
-      if (hay) sinPrecio.push({ cuenta: cl.login, sello: s.corto, porDivisa: mio });
+      // `cliente_id` y el nombre largo del sello van para que la pantalla pueda abrir esa celda
+      // exacta. `sello` sigue siendo el corto porque es lo que se lee en la tabla.
+      if (hay) sinPrecio.push({ cliente_id: String(cl.id), cuenta: cl.login, sello: s.corto, sello_nombre: s.nombre, porDivisa: mio });
     });
 
     if (!lineas.length) continue;
@@ -325,6 +327,53 @@ function cuentas({ mes, cliente_id = null } = {}) {
   // suyo, con las tres vistas que hacen falta: la caja sola, el resto solo, y el TOTAL de las dos.
   // El `excluye` NO se toca: es lo que hace que las líneas del padre sean el neto (TBS devuelve el
   // subárbol completo). Por eso caja + resto da exactamente el mismo total que antes.
+  /* ── LAS QUE MOVIERON Y NO SE LE COBRAN A NADIE ─────────────────────────────────────────────
+     `sinPrecio` sólo ve los grupos que se le PREGUNTARON a TBS, y sólo se pregunta por los sellos
+     que alguien tiene con precio. Un grupo que ningún cliente tiene cargado no se consulta nunca,
+     así que el movimiento de ahí es invisible para esta pantalla: en agosto había tres cuentas
+     moviendo (FortunaBet, TBSArs2716, TBSRavenbet) y `sinPrecio` daba 0.
+
+     El REPORTE DIARIO sí es completo: trae el profit de cada cuenta, sello por medio o no. Se
+     compara contra lo facturado y se avisa. Facturar API sin ver esto es no cobrarle a nadie y que
+     el total igual dé un número, que es la forma cara de estar mal. */
+  const facturados = new Set(out.map((x) => String(x.cliente_id)));
+  const movieronSinCobrar = [];
+  try {
+    const diario = require('./tbs-diario-store').delMes(m);
+    const activos = {}; clientes.forEach((cl) => { if (cl.activo) activos[String(cl.id)] = cl; });
+    const porCuenta = {};
+    (diario.clientes || []).forEach((x) => {
+      const id = String(x.agente_id);
+      if (!activos[id] || facturados.has(id)) return;
+      // El id viaja con la fila para que el aviso pueda LLEVAR a cargarle los precios: sin él, la
+      // pantalla sólo sabe el login y el dueño tiene que buscar la columna a mano en una matriz de
+      // 51 sellos por 15 cuentas.
+      const c = porCuenta[id] = porCuenta[id] || { id, cuenta: activos[id].login, monedas: {}, precios: Object.keys(celdas[id] || {}).length };
+      c.monedas[x.moneda] = (c.monedas[x.moneda] || 0) + Number(x.profit || 0);
+    });
+    Object.values(porCuenta).forEach((c) => {
+      // Sólo las que ganaron: una cuenta en cero o en pérdida no es plata sin cobrar.
+      if (!Object.values(c.monedas).some((v) => v > 0)) return;
+      movieronSinCobrar.push(c);
+    });
+    movieronSinCobrar.sort((a, b) => Math.max(...Object.values(b.monedas)) - Math.max(...Object.values(a.monedas)));
+  } catch (e) { avisos.push('no se pudo cruzar contra el reporte diario: ' + String((e && e.message) || e)); }
+
+  if (movieronSinCobrar.length) {
+    const conPrecio = movieronSinCobrar.filter((c) => c.precios);
+    const sinPrecioNinguno = movieronSinCobrar.filter((c) => !c.precios);
+    if (sinPrecioNinguno.length) {
+      avisos.push(`⚠️ ${sinPrecioNinguno.length} cuenta(s) MOVIERON este mes y no tienen NINGÚN precio cargado, `
+        + `así que no se les factura nada: ${sinPrecioNinguno.map((c) => c.cuenta).join(' · ')}. `
+        + 'Cargales precios en Precios por cliente antes de cerrar el mes.');
+    }
+    if (conPrecio.length) {
+      avisos.push(`⚠️ ${conPrecio.length} cuenta(s) MOVIERON este mes, tienen precios cargados y aun así no `
+        + `se les factura nada: ${conPrecio.map((c) => `${c.cuenta} (${c.precios} precios)`).join(' · ')}. `
+        + 'Su movimiento cae en sellos que no tienen precio, o TBS no lo devuelve bajo esa cuenta.');
+    }
+  }
+
   const porId = {}; out.forEach((c) => { porId[String(c.cliente_id)] = c; });
   const anidados = [];
   out.forEach((c) => {
@@ -368,6 +417,8 @@ function cuentas({ mes, cliente_id = null } = {}) {
       empresa: money.round(money.sub(totCli, totProv), 2),
     },
     sinPrecio, sinTC: [...sinTC], faltanSellos: sinTraer, desalineados, bajoCosto, aceptados, avisos,
+    // Las que movieron y no se le cobran a nadie: es lo único de acá que es plata que no se cobra.
+    movieronSinCobrar,
   };
 }
 
