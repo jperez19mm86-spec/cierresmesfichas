@@ -1,0 +1,374 @@
+/* Los estilos del panel. Vivían adentro de os.html; salieron cuando /tbs pasó a ser su propio
+   archivo, para no tener la misma hoja escrita dos veces y que se separen con el tiempo. */
+  :root { --bg:#fbf4fa; --bg2:#fff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; --blue:#3b7fe0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; }
+  header { background:var(--bg2); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  header h1 { font-size:16px; margin:0; display:flex; align-items:center; gap:9px; }
+  header h1 small { color:var(--muted); font-weight:400; }
+  /* El logo, no el nombre escrito a mano: así el nombre se escribe de UNA forma sola y el día que
+     lo cambies se cambia en un archivo, no en cinco pantallas. */
+  .hd-logo { height:46px; width:auto; display:block; flex:0 0 auto; margin:-8px 0; }
+  .nav { display:flex; gap:2px; padding:0 12px; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; white-space:nowrap; }
+  .navbtn { background:transparent; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:11px 13px; font-weight:700; cursor:pointer; font-size:13.5px; }
+  .navbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
+
+  /* ── 📸 FOTO DEL MES ──────────────────────────────────────────────────────────────────────
+     El campo del mes venía chico y en monoespaciado, y es el control que más se toca. Chrome sí
+     respeta font-family y font-size en un input[type=month]; lo único que no deja tocar es el
+     iconito del calendario. Sin alto fijo: la fila lo iguala con el cartel de al lado, y sigue
+     igualándolos aunque el cartel diga algo más largo. */
+  .fotofila { display:flex; gap:14px; align-items:stretch; flex-wrap:wrap; margin:14px 0 2px }
+  .fotofila > * { min-height:64px }
+  .fotofila input.mes { font-family:inherit; font-size:19px; font-weight:700; padding:0 14px;
+                        letter-spacing:0; width:100%; max-width:280px; }
+  .fotofila .nota { flex:1; min-width:260px; margin:0; display:flex; flex-direction:column;
+                    justify-content:center; padding:12px 16px }
+  .fcx { border:1px solid var(--border); border-radius:10px; overflow:hidden; flex:1 1 320px; min-width:290px; }
+  .fcx-h { display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;
+           padding:11px 14px; background:var(--bg3); border-bottom:1px solid var(--border); }
+  .fcx-h b { font-size:16px }
+  .fvta { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .fvta:last-child { border-bottom:0 }
+  .fvta .ic { font-size:15px; width:18px; text-align:center }
+  .fvta .nb { flex:1; font-weight:600; background:none; color:inherit; padding:0; font-size:14px }
+  .fvta.ahora { background:rgba(120,200,140,.07) }
+  .fmes { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border) }
+  .fmes:last-child { border-bottom:0 }
+
+  /* ── ✅ REPASO DE % ───────────────────────────────────────────────────────────────────────
+     Un cliente por pantalla y el número grande: se pasan 39 con la mano en Enter, y lo que hay
+     que mirar —el % y si cambió— se lee sin buscarlo. */
+  /* ── 🗓 CERRAR EL MES ─────────────────────────────────────────────────────────────────── */
+  .paso { display:flex; align-items:center; gap:12px; padding:13px 4px; border-bottom:1px solid var(--border) }
+  .paso:last-child { border-bottom:0 }
+  .paso-n { width:22px; height:22px; flex:0 0 22px; border-radius:50%; background:var(--bg3); color:var(--muted);
+            font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center }
+  .paso-ic { font-size:15px; width:20px; text-align:center; flex:0 0 20px }
+  .paso-txt { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px }
+  .paso-txt b { font-size:14.5px }
+  .paso-txt .muted { font-size:12.5px; line-height:1.4 }
+  .paso-toca { background:var(--bg3); border-radius:9px; padding-left:10px; padding-right:10px }
+  .paso-toca .paso-n { background:var(--gold); color:#000 }
+
+  .repbarra { height:6px; background:var(--bg3); border-radius:99px; overflow:hidden; margin:10px 0 0 }
+  .repbarra i { display:block; height:100%; background:var(--gold); transition:width .18s }
+  .repquien { font-size:27px; font-weight:800; letter-spacing:-.5px; line-height:1.15 }
+  .reppct { font-size:64px; font-weight:800; letter-spacing:-2px; line-height:1; margin:22px 0 4px }
+  .reppct small { font-size:26px; font-weight:700; margin-left:3px }
+  .repotro { font-family:inherit; font-size:26px; font-weight:800; width:120px; text-align:center; padding:8px 10px }
+  .repbig { font-size:15px; padding:13px 22px }
+  .repcambio { color:var(--gold); font-weight:700 }
+  .reptd { padding:7px 9px; border-bottom:1px solid var(--border); text-align:left }
+  thead .reptd { font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted) }
+  .reptd.right { text-align:right; font-variant-numeric:tabular-nums }
+  kbd { background:var(--bg3); border:1px solid var(--border); border-bottom-width:2px; border-radius:5px;
+        padding:1px 6px; font-size:11.5px; font-family:inherit }
+  /* La barra en dos filas: arriba los grupos, abajo las pantallas del grupo abierto. La barra
+     de siempre es un flex en fila, y con dos hijos los pondría uno al lado del otro: con dos
+     filas pasa a ser un bloque y cada fila maneja su propio desborde. */
+  .nav.dos { display:block; overflow-x:visible; padding:0; }
+  .navfila { display:flex; gap:2px; padding:0 12px; overflow-x:auto; white-space:nowrap; }
+  .subnav { display:flex; gap:4px; flex-wrap:wrap; padding:7px 12px 8px; border-top:1px solid var(--border); background:var(--bg3); }
+  .subnavbtn { background:transparent; border:1px solid transparent; border-radius:6px; color:var(--muted);
+               padding:5px 10px; font-weight:600; cursor:pointer; font-size:12.5px; }
+  .subnavbtn:hover { border-color:var(--border); }
+  .subnavbtn.active { background:var(--bg2); border-color:var(--gold); color:var(--gold); }
+  .navsep { width:1px; background:var(--border); margin:8px 7px; flex:0 0 auto; }
+  .nb { background:var(--gold); color:#fff; border-radius:20px; padding:0 6px; font-size:11px; margin-left:3px; vertical-align:1px; }
+  /* El de Pendientes es rojo y late: es lo único de la barra que pide que alguien haga algo.
+     La animación es lenta a propósito — algo que parpadea rápido se tapa y se deja de ver. */
+  .nb.urg { background:var(--red); animation:latir 2.4s ease-in-out infinite; }
+  @keyframes latir { 0%,100%{opacity:1} 50%{opacity:.55} }
+  @media (prefers-reduced-motion: reduce){ .nb.urg{ animation:none } }
+  /* Europa y Casino son DOS sistemas distintos, y el mismo panel puede estar en los dos
+     (UPruebaLatam lo está). Sin color se leen como si fueran uno repetido. */
+  :root { --sis-eu:#2f6fd0; --sis-cas:#7c4dd6; }
+  .sis { display:inline-block; padding:1px 7px; border-radius:5px; font-size:10.5px; font-weight:700;
+         letter-spacing:.02em; border:1px solid transparent; }
+  .sis.eu  { background:rgba(47,111,208,.13);  color:var(--sis-eu);  border-color:rgba(47,111,208,.35); }
+  .sis.cas { background:rgba(124,77,214,.13);  color:var(--sis-cas); border-color:rgba(124,77,214,.35); }
+  .sis.na  { background:var(--bg3); color:var(--muted); border-color:var(--border); }
+  main { max-width:1000px; margin:0 auto; padding:18px; }
+  .card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+
+  /* ── LA FORMA NUEVA ──────────────────────────────────────────────────────────────────────────
+     Tres reglas, y valen para toda la aplicación:
+       · texto común  = es un dato, no hay nada detrás
+       · fila o subrayado punteado = SE ABRE (flecha adelante, el fondo cambia al pasar por encima)
+       · botón lleno  = hace algo, y hay UNO solo por tarjeta
+     Antes «cobrar el mes» y «ver una hoja» se veían igual, y «1 caja» era un dato y una puerta al
+     mismo tiempo sin forma de saber cuál. Los avisos van en pastel con el texto bastante más oscuro
+     que el fondo: un pastel sobre pastel queda lindo y no se lee con sol encima del teléfono. */
+  :root{
+    --rosa:#a24d5c; --rosa-bg:#fbeff1;
+    --durazno:#8a5c33; --durazno-bg:#fbf2e9;
+    --verde2:#3f7f60;
+    /* El rosa de la marca es lindo y claro: blanco encima casi no se lee. Para los bloques con
+       texto blanco va esta versión honda del mismo color. */
+    --uva:#8a2f74;
+  }
+  .totalote{ background:var(--uva); color:#fff; border-radius:16px; padding:20px 22px 18px; margin-bottom:14px; }
+  .totalote .k{ font-size:12px; letter-spacing:.1em; text-transform:uppercase; opacity:.72 }
+  .totalote .v{ font-size:31px; font-weight:800; letter-spacing:-.03em; margin-top:4px;
+    font-variant-numeric:tabular-nums; line-height:1.05 }
+  .totalote dl{ margin:15px 0 0; padding-top:13px; border-top:1px solid rgba(255,255,255,.22);
+    display:flex; flex-direction:column; gap:7px }
+  .totalote dl div{ display:flex; align-items:baseline; gap:14px }
+  .totalote dt{ font-size:13px; opacity:.78 }
+  .totalote dd{ margin:0 0 0 auto; font-size:15.5px; font-weight:650;
+    font-variant-numeric:tabular-nums; text-align:right }
+  .totalote .cuantos{ margin:11px 0 0; font-size:12.5px; opacity:.72 }
+
+  .plegable{ background:var(--bg2); border:1px solid var(--border); border-radius:12px; margin-bottom:6px }
+  .plegable[open]{ border-color:#dcc9d8; box-shadow:0 1px 2px rgba(34,27,38,.04),0 10px 26px -20px rgba(34,27,38,.35) }
+  .fila{ display:flex; align-items:center; gap:11px; cursor:pointer; list-style:none;
+    padding:12px 16px; border-radius:12px; flex-wrap:wrap }
+  .fila::-webkit-details-marker{ display:none }
+  .fila:hover{ background:var(--bg) }
+  .fila:focus-visible{ outline:2px solid var(--gold); outline-offset:-2px }
+  .fila .nom{ font-size:15.5px; font-weight:700; letter-spacing:-.01em; min-width:0 }
+  .fila .cifra{ margin-left:auto; display:flex; align-items:baseline; gap:5px; white-space:nowrap }
+  .fila .cifra b{ font-size:17.5px; font-weight:750; font-variant-numeric:tabular-nums; letter-spacing:-.02em }
+  .fila .cifra .u{ font-size:12px; color:var(--muted); font-weight:500 }
+  /* Si no entra, la cifra se va sola al renglón de abajo (`flex-wrap`) en vez de cortarse por la
+     mitad. Sin forzarlo con una medida fija: en un teléfono normal entra en una línea y forzar el
+     salto ahí era gastar un renglón por cliente. */
+  .chev{ width:0; height:0; border-left:6px solid var(--muted); border-top:5px solid transparent;
+    border-bottom:5px solid transparent; transition:transform .15s ease; flex:0 0 auto }
+  details[open] > summary .chev{ transform:rotate(90deg) }
+  @media (prefers-reduced-motion:reduce){ .chev{ transition:none } }
+  .cuerpo{ padding:2px 16px 16px; border-top:1px solid var(--border); margin-top:-1px }
+
+  /* La señal se ve CERRADO: un problema no puede quedar escondido adentro de una tarjeta. */
+  .señal{ font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:20px;
+    letter-spacing:.02em; white-space:nowrap; flex:0 0 auto }
+  .señal.durazno{ background:var(--durazno-bg); color:var(--durazno) }
+  .señal.rosa{ background:var(--rosa-bg); color:var(--rosa) }
+
+  dl.datos{ margin:13px 0 0; display:flex; flex-direction:column; gap:6px }
+  /* Dos columnas, no flex: cuando el número es largo y trae el tipo de cambio abajo, con flex el
+     rótulo se iba solo a un renglón y quedaba huérfano. Así el nombre queda siempre a la izquierda
+     y todo lo demás alineado a la derecha, ocupe uno o tres renglones. */
+  dl.datos div{ display:grid; grid-template-columns:auto minmax(0,1fr); gap:1px 14px; align-items:baseline }
+  dl.datos dt{ font-size:13px; color:var(--muted) }
+  dl.datos dd{ margin:0; font-size:14.5px; font-weight:650;
+    font-variant-numeric:tabular-nums; text-align:right; overflow-wrap:anywhere }
+  dl.datos dd.mal{ color:var(--rosa) } dl.datos dd.cero{ color:var(--muted) }
+  dl.datos dd.bien{ color:var(--verde2) }
+
+  .nota-suave{ margin:12px 0 0; font-size:13px; color:var(--durazno); background:var(--durazno-bg);
+    border-radius:9px; padding:9px 12px; line-height:1.45 }
+  .nota-suave.rosa{ color:var(--rosa); background:var(--rosa-bg) }
+
+  .abrir{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; list-style:none;
+    font-size:13px; color:var(--gold); font-weight:600; padding:5px 2px; border-radius:6px;
+    text-decoration:underline; text-decoration-style:dotted; text-underline-offset:4px }
+  .abrir::-webkit-details-marker{ display:none }
+  .abrir:hover{ text-decoration-style:solid }
+  .abrir:focus-visible{ outline:2px solid var(--gold); outline-offset:3px }
+  .abrir .chev{ border-left-color:currentColor; border-left-width:5px;
+    border-top-width:4px; border-bottom-width:4px }
+  .sublista{ margin-top:11px; display:flex; flex-direction:column; gap:9px }
+  .subcaja{ background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:11px 13px }
+  .subcaja .cn{ font-weight:700; font-size:14px; margin-bottom:8px }
+  .subcaja .cn small{ font-weight:400; font-size:12px; color:var(--muted); margin-left:8px }
+  .subdatos{ display:flex; flex-direction:column; gap:5px }
+  .subdatos > div{ display:grid; grid-template-columns:auto minmax(0,1fr); gap:1px 12px; align-items:baseline }
+  .subdatos .k{ font-size:12.5px; color:var(--muted) }
+  .subdatos .v{ text-align:right; font-size:13.5px; font-weight:600;
+    font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
+  .subdatos .v.fuerte{ font-size:15px; font-weight:750 }
+  .subdatos .tc{ grid-column:2; text-align:right; font-size:12.5px; color:var(--muted) }
+  .subdatos .tc.falta{ color:var(--durazno) }
+  .acciones{ margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+  /* Cabecera de tarjeta: el título a la izquierda, los controles a la derecha. Reemplaza al
+     `float:right` que se metía adentro del <h2> y hacía que el texto de abajo lo esquivara,
+     quedando el párrafo partido alrededor de los botones. */
+  .tapa{ display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap }
+  .tapa h2{ margin:0 }
+  .tapa .sub{ font-size:13px; color:var(--muted); margin-top:3px }
+  .tapa .acciones{ margin-top:0 }
+  /* La tarjeta de un comprobante: plegada muestra quién, cuánto y cuándo —lo que hace falta para
+     saber cuál es— y se abre para resolverlo. Con seis esperando y todos abiertos había que
+     scrollear el buzón entero para llegar al último, atendiendo uno. */
+  details.cmp > summary{ list-style:none; padding:2px 0 }
+  details.cmp > summary::-webkit-details-marker{ display:none }
+  details.cmp > summary:hover{ opacity:.85 }
+  details.cmp[open] > summary{ border-bottom:1px solid var(--border); padding-bottom:11px; margin-bottom:4px }
+  details.cmp.pend:not([open]){ background:var(--durazno-bg) }
+  /* Las fichitas de «qué TC se usa este mes». Eran 23 tarjetas iguales con la palabra «promedio»
+     repetida abajo de cada una: el ojo no tenía dónde apoyarse. Ahora sólo se marca lo que NO es
+     el promedio automático —cargado a mano, o sin cargar— y esas van primero. */
+  .tc-tiles{ display:grid; gap:8px; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)) }
+  .tc-t{ background:var(--bg3); border:1px solid transparent; border-radius:10px; padding:8px 10px }
+  .tc-t .d{ font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--muted) }
+  .tc-t .v{ font-size:17px; font-weight:800; margin-top:1px; font-variant-numeric:tabular-nums;
+    letter-spacing:-.02em }
+  .tc-t .f{ font-size:10.5px; color:var(--muted); margin-top:1px }
+  .tc-t.mano{ background:var(--rosa-bg); border-color:#f0d6e4 }
+  .tc-t.mal .v{ color:var(--rosa); font-size:14px; font-weight:700 }
+  .tc-t.mal{ background:var(--rosa-bg); border-color:#f0d6e4 }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  label { display:block; font-size:11px; color:var(--muted); margin:0 0 3px; text-transform:uppercase; letter-spacing:.03em; }
+  input, select { width:100%; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:8px 10px; font-size:14px; outline:none; }
+  input:focus,select:focus { border-color:var(--gold); }
+  button { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px; font-weight:700; cursor:pointer; font-size:13px; }
+  button.outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  /* Un <a> que tiene que verse como un botón. Lo usa la descarga de la copia de seguridad:
+     tiene que ser un enlace de verdad —el navegador baja el archivo solo, con la cookie de la
+     sesión— y no un fetch, que traería un archivo binario a la memoria para nada. */
+  a.btn { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px;
+    font-weight:700; cursor:pointer; font-size:13px; text-decoration:none; display:inline-block; }
+  button.danger { background:transparent; border:1px solid var(--red); color:var(--red); }
+  /* ── EL BOTÓN QUE SALE PARA AFUERA ────────────────────────────────────────────────────────
+     "los botones no siempre tienen otro color y eso confunde a la vista". Y era peor que eso:
+     «Calcular» y «Emitir a la deuda» eran EL MISMO botón violeta, uno al lado del otro. Uno se
+     puede apretar cien veces sin consecuencia; el otro le manda una factura a todos los clientes.
+     Regla: un solo botón lleno por tarjeta —el de todos los días— y lo que sale para afuera o
+     mueve plata va en durazno. Se ve que es otra cosa antes de leerlo. */
+  /* Durazno lleno quedaba marrón y sucio al lado del violeta: `--durazno` es un color pensado
+     para TEXTO sobre su pastel, no para pintar un fondo. Va al revés —pastel de fondo, texto
+     oscuro y el borde marcado—, que es el mismo idioma que las etiquetas `.señal.durazno` y
+     mantiene los colores suaves. Igual de distinto del violeta, sin gritar. */
+  button.grave { background:var(--durazno-bg); color:var(--durazno); border:1.5px solid var(--durazno); }
+  button.grave:hover { background:#f6e7d6; }
+  button.small { padding:5px 9px; font-size:12px; }
+    /* Marcar más de una wallet para lo mismo: el mantenimiento se cobra por dos redes. */
+    .wsel { display:flex; flex-direction:column; gap:4px; margin-top:5px }
+    /* `width:auto` y `text-transform:none` porque el panel le pone a TODO `label` mayúsculas y a
+       TODO `input` ancho completo: sin esto el casillero se estira media columna y el alias de la
+       wallet —que ella escribió como quiso— sale gritado. */
+    .wopt { display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;
+      white-space:nowrap; text-transform:none; letter-spacing:0; font-weight:500; color:var(--text) }
+    .wopt input { margin:0; width:auto; flex:0 0 auto }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1; min-width:120px; }
+  /* Un selector de mes o fecha no entra en 120px: el campo quedaba más angosto que su propio
+     contenido y el botón de al lado se le montaba encima, tapando el mes y dejándolo sin poder
+     elegirse. Pasaba en las cinco pantallas que tienen uno. */
+  /* ⚠️ El selector de MES y el de FECHA son más anchos que cualquier otro input: el navegador
+     les mete el texto completo ("agosto de 2026") más su ícono de calendario. Los tenía en
+     min-width pero el DIV que los contiene seguía valiendo 120px, así que el input se desbordaba
+     y el botón de al lado le quedaba encima — tapando justo el ícono con el que se abre.
+     La regla va sobre el CONTENEDOR, así aplica en las 8 pantallas que tienen un selector de mes
+     sin que haya que acordarse en cada una. */
+  input[type=month], input[type=date] { min-width:175px; }
+  .row > div:has(> input[type=month]), .row > div:has(> input[type=date]),
+  .row > div:has(> label + input[type=month]), .row > div:has(> label + input[type=date]) {
+    flex:0 0 auto; min-width:190px;
+  }
+  .row > div:has(> input[type=month]) input, .row > div:has(> input[type=date]) input,
+  .row > div:has(> label + input[type=month]) input, .row > div:has(> label + input[type=date]) input {
+    width:100%;
+  }
+  /* Las tablas que quedan: una línea FINA entre filas en vez de una marcada en cada celda, más
+     aire vertical, y el encabezado en gris y liviano. Antes todo pesaba lo mismo y competía por la
+     atención; ahora el ojo va a los números. Los que se alinean en columna llevan tabular-nums. */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:10px 9px; border-bottom:1px solid var(--bg3); }
+  tr:last-child td { border-bottom:none; }
+  th { color:var(--muted); font-size:11px; text-transform:uppercase; font-weight:600;
+    letter-spacing:.05em; border-bottom:1px solid var(--border); padding-bottom:8px; }
+  td.right, th.right { font-variant-numeric:tabular-nums; }
+  /* Las etiquetas, en pastel. Las de aviso pasaron a durazno y rosa viejo: el texto va bastante más
+     oscuro que el fondo porque un pastel sobre pastel queda lindo y no se lee con sol encima. */
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge.ok { background:#e9f3ee; color:var(--verde2); }
+  .badge.warn { background:var(--durazno-bg); color:var(--durazno); }
+  .badge.err { background:var(--rosa-bg); color:var(--rosa); }
+  /* Bloques de aviso. Antes cada uno traía su propio background:rgba(196,86,173,.07); a mano — un marrón oscuro
+     que venía de cuando el panel era oscuro. Con el tema claro quedaba texto oscuro sobre fondo
+     oscuro: ilegible. Ahora es una clase, tintada sobre el fondo claro y con una barra de color
+     al costado, que es lo que hace que se lea de un vistazo cuál es cuál. */
+  .nota { border-radius:8px; padding:10px 12px; margin:10px 0 0; font-size:13px; line-height:1.6;
+          border:1px solid var(--border); border-left:4px solid var(--muted); background:var(--bg3); }
+  .nota b { color:var(--text); }
+  .nota.warn { border-color:rgba(196,86,173,.35); border-left-color:var(--gold); background:rgba(196,86,173,.07); }
+  .nota.err  { border-color:rgba(217,83,79,.35);  border-left-color:var(--red);  background:rgba(217,83,79,.07); }
+  .nota.ok   { border-color:rgba(46,160,67,.35);  border-left-color:var(--green);background:rgba(46,160,67,.07); }
+  .nota .tit { font-weight:800; display:block; margin-bottom:3px; }
+  .nota.warn .tit { color:var(--gold); }
+  .nota.err  .tit { color:var(--red); }
+  .nota.ok   .tit { color:var(--green); }
+  .nota table { margin-top:6px; }
+  .nota table th { font-size:10px; }
+  .nota table td { padding:4px 9px; font-size:12px; }
+  .cie-ok { background:rgba(46,160,67,.28)!important; transition:background .1s; }
+  /* El verde se va solo a los 350ms; el ROJO SE QUEDA. Un campo que no se guardó sigue mostrando
+     el número tipeado, y sin marca no hay forma de saber que no entró — que es justo el problema
+     que estos controles vienen a resolver. */
+  .cie-mal { background:rgba(217,83,79,.3)!important; outline:2px solid var(--red); }
+  /* Cuentas del mes de TBS: un bloque por divisa. El GGR local sólo se suma dentro de su moneda, así que
+     cada bloque es una tabla cerrada con su propio subtotal y su TC en la cabecera. */
+  .apidiv { margin:0 0 12px; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .apidiv-h { display:flex; gap:9px; align-items:baseline; padding:6px 10px; background:var(--bg3);
+              border-bottom:1px solid var(--border); font-size:12px; }
+  .apidiv table { margin:0; }
+  .apidiv tfoot td { background:var(--bg3); border-top:1px solid var(--border); }
+  .apidiv tr.sinver { background:rgba(196,86,173,.07); }
+  .apicaja { margin:0 0 12px; padding-left:12px; border-left:3px solid var(--gold); }
+  .apicaja-h { font-weight:700; font-size:13px; margin:0 0 6px; }
+  .apitres { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 8px; }
+  .apitres > div { flex:1; min-width:130px; padding:7px 11px; background:var(--bg3);
+                   border:1px solid var(--border); border-radius:7px; }
+  .apitres > div.tot { border-color:var(--gold); background:rgba(196,86,173,.07); }
+  .apitres span { display:block; font-size:11px; }
+  .apitres b { font-size:16px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .empty { color:var(--muted); text-align:center; padding:20px; }
+  .right { text-align:right; }
+  .toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; opacity:0; transition:.2s; pointer-events:none; z-index:50; }
+  .toast.show { opacity:1; }
+  .pill { font-variant-numeric:tabular-nums; background:var(--bg); padding:1px 6px; border-radius:5px; }
+  hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
+
+  /* ── Fila desplegada de un cliente (sus paneles) ──────────────────────────
+     Antes el <td> se pintaba con var(--bg), el MISMO tono que el fondo de la
+     página, así que dentro de la tarjeta blanca se leía como un agujero: dos
+     fondos sin relación. Ahora es blanco como la tarjeta —un solo fondo— y lo
+     que marca que está anidado es la barra de acento a la izquierda más la
+     sangría, no un cambio de color. */
+  tr.sub > td { background:var(--bg2); padding:4px 0 16px 0; border-bottom:1px solid var(--border); }
+  /* Antes esto colgaba de una fila de tabla y necesitaba una barra dorada al costado para que se
+     entendiera de quién era. Ahora vive adentro de la ficha del cliente, así que la sangría y la
+     barra sobraban: sólo apretaban la tabla contra el borde. */
+  .subwrap { overflow-x:auto; }
+  .subwrap table { margin:0; border:1px solid var(--border); border-radius:10px; overflow:hidden;
+    min-width:900px; }
+  /* Nombre, sistema y nivel se partían en dos y tres renglones y la fila quedaba el triple de
+     alta de lo necesario. Si no entra, la tabla scrollea de costado — no se apila. */
+  .subwrap tbody td:nth-child(-n+3), .subwrap thead th:nth-child(-n+3) { white-space:nowrap; }
+  .subwrap .badge, .subwrap .pill { white-space:nowrap; }
+  .subwrap thead th { background:var(--bg3); font-size:11px; font-weight:700; letter-spacing:.03em;
+    text-transform:uppercase; color:var(--muted); padding:9px 11px; border-bottom:1px solid var(--border); }
+  .subwrap tbody td { padding:9px 11px; vertical-align:middle; }
+  .subwrap tbody tr:last-child td { border-bottom:none; }
+  .subwrap tbody tr:hover td { background:var(--bg); }
+  /* 11px era ilegible y no se parecía a ningún otro campo del panel. */
+  .subwrap input[type=text], .subwrap input:not([type]), .subwrap select { font-size:13px; }
+  /* Dota.click declara 24 divisas y reventaba el ancho de la columna. */
+  .subwrap td.divs { max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Las filas de cliente se despliegan al hacer clic: que se note que son vivas. */
+  #main tbody tr:not(.sub):hover > td { background:var(--bg); }
+  #car-wrap, [id^="car-"] { display:inline-block; transition:transform .15s ease; }
+
+/* ── Las tres vueltas de la Foto ──────────────────────────────────────────────────────────────
+   Antes esto era un botón relleno de magenta con el detalle adentro en gris: el texto no se leía.
+   Acá el relleno se usa SÓLO para el estado (verde = esa vuelta está), y el texto va siempre
+   oscuro sobre claro. Los fondos son opacos a propósito. */
+.vcx{flex:0 0 auto;min-width:230px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--bg2)}
+.vcx-ok{border-color:var(--green)}
+.vcx-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+       padding:7px 10px;background:#f3edf6;border-bottom:1px solid var(--line)}
+.vcx-ok .vcx-h{background:#eaf5ec}
+table.vtab{width:100%;border-collapse:collapse;margin:0}
+table.vtab td{padding:5px 10px;border-bottom:1px solid #f3e9f1;font-size:12px}
+table.vtab tr:last-child td{border-bottom:none}
+tr.vta-ok td{background:#eaf5ec}
+tr.vta-ok b{color:var(--green)}
+td.vta-i{width:22px;text-align:center}
+td.vta-a{width:1%;white-space:nowrap;padding-right:8px}
+/* la vuelta que el casino tiene puesta AHORA: es la única que se puede sacar en este momento */
+tr.vta-ahora td{background:#fdf3d6}
+tr.vta-ahora.vta-ok td{background:#eaf5ec}

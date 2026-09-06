@@ -7,6 +7,28 @@ const axios = require('axios');
 const ROOT = path.join(__dirname, '..');
 const BASE = 'http://localhost:4699';
 const TESTDB = path.join(ROOT, 'data', 'test-smoke.sqlite');
+
+/* ── DÓNDE VIVE «EL CÓDIGO DE LA PANTALLA» ────────────────────────────────────────────────────
+   Hasta el 6-sep-2026 todo estaba en public/os.html: un archivo de 10.000 líneas que servía el
+   panel, TBS y el chat, y los distinguía con un `if` por la URL. Se separó — os.html ya no lleva
+   TBS adentro — pero los checks que buscan un texto siguen preguntando lo mismo: «¿está escrito
+   esto en la pantalla?». Por eso leen el CONJUNTO en vez de un archivo.
+   Los checks de que algo NO está en un espacio no pueden usar esto: piden la página por HTTP. */
+const FUENTE_PANEL = () => ['os.html', 'estilos.css', 'pantalla-tc.js', 'tbs.html', 'tbs-espacio.js']
+  .map((f) => fs.readFileSync(path.join(ROOT, 'public', f), 'utf8')).join('\n');
+/* La hoja de estilos salió del HTML a /estilos.css. Los checks de CSS miran ésa MÁS los <style>
+   sueltos que quedaron adentro de las pantallas. */
+const FUENTE_CSS = () => fs.readFileSync(path.join(ROOT, 'public', 'estilos.css'), 'utf8')
+  + '\n' + [...FUENTE_PANEL().matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+/* Los duplicados se miran POR PÁGINA: el panel y TBS tienen cada uno su copia de los ayudantes
+   genéricos —diez líneas que no cambian nunca, copiadas a propósito— y eso no es un error. Lo que
+   sí lo es son dos declaraciones en la MISMA página, donde gana la última en silencio. */
+const JS_DE = (...archivos) => archivos
+  .map((f) => fs.readFileSync(path.join(ROOT, 'public', f), 'utf8'))
+  .map((t) => (/\.html$/.test('x' + t.slice(0, 0)) ? t : t))
+  .join('\n')
+  .replace(/<\/?script[^>]*>/g, '\n');
+
 /* CHAT_AVISOS_OFF: el suite hace POST a /chat/aviso de verdad, y sin esto cada uno saldría por
    Telegram al grupo de la matriz. Va en el env del hijo Y en el del proceso del test, porque
    los checks también llaman al store en proceso. */
@@ -409,7 +431,7 @@ async function main() {
   // Se evalúa el trozo REAL que genera la tarjeta, no se busca texto: lo que se mide es la
   // estructura que va a ver la dueña.
   {
-    const html3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html3 = FUENTE_PANEL();
     const ini = html3.indexOf('      + (pend\n');
     // El corte va por la ESTRUCTURA —el `: ` del ternario, a su indentación— y no por el texto de
     // la rama de al lado: ese texto cambia cada vez que se toca la tarjeta resuelta, y entonces el
@@ -472,7 +494,7 @@ async function main() {
     check('comprobantes: el resumen sigue completo aunque se filtre',
       (filtrado.data.porCliente || []).length === (todos.data.porCliente || []).length,
       'sin filtro=' + (todos.data.porCliente || []).length + ' filtrado=' + (filtrado.data.porCliente || []).length);
-    const h7 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h7 = FUENTE_PANEL();
     check('comprobantes: la pantalla manda el filtro al servidor',
       /_cmpCli \? 'codigo=' \+ encodeURIComponent\(_cmpCli\)/.test(h7)
       && /<select id="cmp-cli"/.test(h7));
@@ -483,7 +505,10 @@ async function main() {
 
   // ── LA PANTALLA DEL REPORTE DIARIO DE TBS ────────────────────────────────────────────────────
   {
-    const h12 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    /* El reporte diario de TBS vive en /tbs, que desde el 6-sep-2026 es su propio archivo: la
+       pestaña está en tbs.html y las pantallas en tbs-espacio.js. */
+    const pub12 = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', 'public', f), 'utf8');
+    const h12 = pub12('tbs.html') + '\n' + pub12('tbs-espacio.js');
     check('tbs diario: tiene su pestaña y su vista', /\['tbsdiario','📅 Reporte diario'\]/.test(h12)
       && /VIEWS\.tbsdiario = async/.test(h12));
     // EN SERIE y no en paralelo: son consultas caras contra el panel de un tercero, y dispararle
@@ -871,7 +896,7 @@ async function main() {
       && !/backup/.test(hAuth.slice(hAuth.indexOf('const OPERADOR_PUEDE'), hAuth.indexOf('OPERADOR_PAGINAS'))));
 
     // La pantalla: reclama cuando hace mucho, y avisa que el archivo no se comparte.
-    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const hUi = FUENTE_PANEL();
     check('backup: tiene su lugar propio en Config y reclama si está vieja',
       /\['backup','🛟 Copia de seguridad'\]/.test(hUi) && /CFG\.backup = async/.test(hUi)
       && /const BK_RECLAMA_DIAS = 7/.test(hUi) && /Última copia: \$\{cuando\}/.test(hUi));
@@ -943,7 +968,7 @@ async function main() {
      hasta hoy y esa foto CORTA queda archivada como buena; después el reporte de externos la lee
      y cobra de menos, en silencio y con un total que cuadra. */
   {
-    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const hUi = FUENTE_PANEL();
 
     // Las funciones se sacan del archivo y se corren con fechas de verdad. Si alguna dejara de
     // existir, `armarUi` tira y el check falla: no puede pasar en el vacío.
@@ -1169,7 +1194,7 @@ async function main() {
 
     /* LA PANTALLA TIENE QUE MOSTRARLO. Los seis lugares que guardan un % hacían `if(r.ok)` y en el
        else no hacían NADA: el número quedaba a la vista como si se hubiera guardado. */
-    const hUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const hUi = FUENTE_PANEL();
     check('cierre: un porcentaje rechazado queda marcado en rojo en la pantalla',
       /function _ciePct\(el, r\)\{/.test(hUi) && /\.cie-mal \{/.test(hUi)
       && /el\.classList\.add\('cie-mal'\)/.test(hUi));
@@ -1339,7 +1364,7 @@ async function main() {
   {
     const srcExt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'externos.service.js'), 'utf8');
     const srcRt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
-    const srcUi = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const srcUi = FUENTE_PANEL();
     const srcFac = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'factura-html.js'), 'utf8');
 
     /* La guarda dice, con todas las letras, "un reporte INCOMPLETO no se emite: cobraría de menos
@@ -1506,7 +1531,7 @@ async function main() {
       /arbolSvc\.sincronizar\(\{ soloPanel: panel\.id \}\)\s*\n\s*\.then/.test(srcRt2)
       && /\.catch\(\(e\) => console\.warn\('\[Árbol\] no se pudo resolver'/.test(srcRt2));
 
-    const srcUi2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const srcUi2 = FUENTE_PANEL();
     check('árbol: un panel sin resolver se ve como tal, no como un nivel cualquiera',
       /function nivelPanel\(p\)\{/.test(srcUi2)
       && /if \(p\.arbol_at\) return esc\(p\.nivel_usuario\|\|''\);/.test(srcUi2)
@@ -1700,7 +1725,7 @@ async function main() {
       && /apiStore\.setDeQuien/.test(srcRt4)
       && /app\.delete\('\/api\/os\/api\/clientes\/:id\/nombres-viejos'/.test(srcRt4));
 
-    const srcUi4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const srcUi4 = FUENTE_PANEL();
     check('nombre TBS: la pantalla pide de quién es, y muestra el login como la identidad',
       /function apiNombre\(c\)\{/.test(srcUi4) && /De quién es<\/label>/.test(srcUi4)
       && /En TBS se sigue llamando/.test(srcUi4)
@@ -1826,13 +1851,17 @@ async function main() {
     const srcRt5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('oferta: la ruta del documento frena si detecta un dato interno',
       /el documento traía datos internos: NO se generó/.test(srcRt5));
-    const srcUi5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    /* TBS dejó de vivir adentro de os.html el 6-sep-2026: su barra está en tbs.html y sus
+       pantallas en tbs-espacio.js. Se leen los dos, que es lo que sirve /tbs. */
+    const leerPub = (f) => require('fs').readFileSync(require('path').join(__dirname, '..', 'public', f), 'utf8');
+    const srcTbsHtml = leerPub('tbs.html');
+    const srcUi5 = srcTbsHtml + '\n' + leerPub('tbs-espacio.js');
     /* ⚠️ LA PESTAÑA TIENE QUE ESTAR EN LA BARRA DE TBS, no sólo escrita en algún lado del archivo.
        Este check antes buscaba el texto "💼 Ofertas" y lo encontraba... en `apiHeader`, que es la
        barra del espacio COMERCIAL y en /tbs no se dibuja nunca. Pasaba en verde con la pestaña
        invisible. Ahora se mira la barra de TBS y el registro de la vista, que son las dos cosas que
        de verdad la hacen aparecer. */
-    const navTbs = srcUi5.slice(srcUi5.indexOf('const TABS_TBS = ['), srcUi5.indexOf('const ES_TBS'));
+    const navTbs = srcTbsHtml.slice(srcTbsHtml.indexOf('const TABS = ['), srcTbsHtml.indexOf('let _tab'));
     check('oferta: la pestaña está en la barra de TBS, que es donde se trabaja',
       /\['tbsofertas','💼 Ofertas'\]/.test(navTbs), navTbs.replace(/\s+/g, ' ').slice(0, 120));
     check('oferta: y la vista tbsofertas está registrada',
@@ -2591,7 +2620,7 @@ async function main() {
        cobrado: los 1.050 eran siete mantenimientos de 150, ni un peso del %. */
     check('panel: el cartel del cobro no llama «cobrado» al mantenimiento',
       (() => {
-        const h = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        const h = FUENTE_PANEL();
         const i = h.indexOf('chatCobrar()');
         const trozo = h.slice(i, i + 1800);
         return /El % de este mes <b>todavía no está cobrado/.test(trozo)
@@ -2863,7 +2892,7 @@ async function main() {
     check('reenvío: los avisos ya resueltos se pueden ver y volver a mandar',
       (() => {
         const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
-        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        const o = FUENTE_PANEL();
         return /avisos\/:id\/avisar-proveedor/.test(rt)
           && /avisosResueltos: chat\.avisosResueltos/.test(rt)
           && /chatReenviarProv/.test(o);
@@ -2900,7 +2929,7 @@ async function main() {
       'el día que se despliegue sin cargarlo, los avisos siguen llegando a algún lado');
     check('grupos: y hay dónde cargarlo, con su propio botón',
       (() => {
-        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        const o = FUENTE_PANEL();
         return /id="tg-interno"/.test(o) && /tgGuardarInterno/.test(o);
       })());
 
@@ -3080,7 +3109,7 @@ async function main() {
       'los dos mensajes se leían igual y el segundo parecía el primero repetido');
     check('divisa: tu pantalla tiene una fila de botones por cuenta',
       (() => {
-        const o = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+        const o = FUENTE_PANEL();
         return /chatEnviar\(this\.dataset\.id,this\.dataset\.nom,this\.dataset\.div\)/.test(o)
           && /env\[dv\? g\.cliente_id\+'\|'\+dv : g\.cliente_id\]/.test(o);
       })(),
@@ -3394,7 +3423,7 @@ async function main() {
       check('chat: vaciarla vuelve al nodo del panel',
         String(ch.list().find((x) => x.panel_id === salaPan.panel_id).nodo) === String(salaPan.id_usuario || ''));
     }
-    const uiSala = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const uiSala = FUENTE_PANEL();
     check('panel: hay dónde poner la sala de cada chat',
       /data-campo="sala_id"/.test(uiSala) && /¿De qué sala se lee la ganancia\?/.test(uiSala));
     /* ⚠️ SOBRE LA SALA SE COBRA TODO. Una caja sin ella se mide por su propio nodo, y ahí casi
@@ -3533,7 +3562,7 @@ async function main() {
     check('proveedor: cambiarle la clave corta sus sesiones abiertas',
       /rol === 'proveedor'/.test(authProv) && /proveedorCorte\(\)/.test(authProv)
       && !!ch.proveedorCorte());
-    const uiProv = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const uiProv = FUENTE_PANEL();
     check('panel: el acceso del proveedor se pone desde la pantalla del chat',
       /El acceso del proveedor/.test(uiProv) && /provGenerar\(\)/.test(uiProv)
       && /Anotala ahora, no se puede volver a ver/.test(uiProv));
@@ -3672,7 +3701,7 @@ async function main() {
     check('portal: el cliente también puede elegir de qué es el pago',
       /name="concepto"/.test(portalHtml) && /¿De qué es este pago\?|conc\.titulo/.test(portalHtml)
       && /nombreConcepto/.test(portalHtml));
-    const osHtmlConc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const osHtmlConc = FUENTE_PANEL();
     check('panel: al aprobar un aviso se ve de qué dijo que era',
       /De qué es/.test(osHtmlConc) && /a\.concepto==='mantenimiento'/.test(osHtmlConc)
       && /no lo dijo/.test(osHtmlConc));
@@ -3769,7 +3798,7 @@ async function main() {
     check('chat: una vez cobrado, recién ahí pasa a «falta mandar»',
       !(trasCobro.faltaCobrar || []).some((x) => x.cliente_id === CLI.id)
       && [...(trasCobro.mandar || []), ...(trasCobro.sinGrupo || [])].some((x) => x.cliente_id === CLI.id));
-    const uiCobrar = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const uiCobrar = FUENTE_PANEL();
     check('panel: y el cartel de la pantalla dice lo mismo',
       /todavía no está cobrado/.test(uiCobrar) && /cobralo y después se las mandás/.test(uiCobrar));
     dbCh.prepare('DELETE FROM chat_mov WHERE cliente_id=?').run(CLI.id);
@@ -3793,7 +3822,7 @@ async function main() {
     check('chat: el link del recordatorio lleva el mes, o se manda la cuenta equivocada',
       /\/chat-externo\?mes=2026-08/.test(conLink),
       'del día 11 en adelante la pantalla abre el mes corriente sola');
-    const osFront = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const osFront = FUENTE_PANEL();
     check('panel: y la pantalla respeta ese mes de la URL',
       /_mesDeLaURL/.test(osFront) && /_chatMes = _mesDeLaURL \|\| mesDeCierre\(\)/.test(osFront));
     check('panel: el mes se escribe igual en Telegram y en el cartel de confirmar',
@@ -3856,7 +3885,7 @@ async function main() {
 
     // 1. El botón que acredita un pago estaba MUERTO: JSON.stringify mete comillas dobles adentro
     //    de un atributo con comillas dobles y el onclick se corta a la mitad.
-    const uiRev = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const uiRev = FUENTE_PANEL();
     check('revisión: ningún botón lleva los datos adentro del onclick',
       !/onclick="chat[A-Za-z]*\([^"]*\$\{(esc\(|JSON\.stringify)/.test(uiRev)
       && /data-monto="\$\{esc\(a\.monto\)\}"/.test(uiRev),
@@ -4105,7 +4134,7 @@ async function main() {
       await axios.delete(BASE + '/api/os/clientes/' + c2.id, H());
     }
     // La pantalla existe y hace las cosas de a varios.
-    const uiAcc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const uiAcc = FUENTE_PANEL();
     check('accesos: hay una pantalla propia y las acciones valen para los marcados',
       /\['accesos', '🔐 Accesos'\]/.test(uiAcc) && /VIEWS\.accesos = async/.test(uiAcc)
       && /Dar acceso y generar contraseña/.test(uiAcc) && /accCopiar\(\)/.test(uiAcc));
@@ -4237,11 +4266,11 @@ async function main() {
       rGrande.status === 404, 'HTTP ' + rGrande.status);
 
     // La pestaña va en el espacio COMERCIAL: son clientes de Imperia, no de TBS.
-    const uiCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    const navCom = uiCh.slice(uiCh.indexOf('const TABS_COMERCIAL'), uiCh.indexOf('const TABS_TBS'));
+    const uiCh = FUENTE_PANEL();
+    const navCom = uiCh.slice(uiCh.indexOf('const TABS_COMERCIAL'), uiCh.indexOf('const TABS_CHAT'));
     /* EL CHAT TIENE SU PROPIO ESPACIO, como TBS. Metido como una pestaña más del comercial, sus
        pagos y sus pedidos llegaban al medio de todo lo demás y había que ir a buscarlos. */
-    const navChat = uiCh.slice(uiCh.indexOf('const TABS_CHAT'), uiCh.indexOf('const ES_TBS'));
+    const navChat = uiCh.slice(uiCh.indexOf('const TABS_CHAT'), uiCh.indexOf('const ES_CHAT'));
     check('chat: tiene su propio espacio, con su propia barra',
       /\['chatcuentas','🧾 Cuentas del mes'\]/.test(navChat)
       && /\['chatcajas','🏷 Cajas y clientes'\]/.test(navChat)
@@ -4526,7 +4555,7 @@ async function main() {
     // muestra y lo que se guarda dejan de ser el mismo número. Y el patrón viejo —borrar todos los
     // puntos— no puede quedar en ninguna de las dos, ni siquiera en el camino de mover fichas.
     const ped3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
-    const h11 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h11 = FUENTE_PANEL();
     check('monto: las dos pantallas usan la misma regla',
       /function montoNum/.test(ped3) && /function montoNum/.test(h11)
       && !/replace\(\/\\\.\/g, ''\)\.replace\(',', '\.'\)/.test(ped3));
@@ -4671,7 +4700,7 @@ async function main() {
   // mismo: las listas completas, con las aprobadas y rechazadas adentro. O sea que una de las dos
   // pantallas no servía, y peor: en el buzón había que buscar lo que falta entre lo que ya se hizo.
   {
-    const h10 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h10 = FUENTE_PANEL();
     check('pendientes: las listas saben si son buzón o historial',
       /async function solicitudesCaja\(soloPendientes\)/.test(h10)
       && /async function movimientosPanel\(soloPendientes\)/.test(h10));
@@ -4762,7 +4791,7 @@ async function main() {
     // Vienen del store, así que un pago que espera el TC del mes ya figura valuado y marcado.
     check('perfil: un pago que espera el TC se marca como tal',
       (perf.data.movimientos || []).every((m) => typeof m.tc_pendiente === 'boolean'));
-    const h9 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h9 = FUENTE_PANEL();
     check('perfil: la ficha muestra la cuenta corriente con sus renglones',
       /💳 Cuenta corriente/.test(h9) && /r\.movimientos\.map/.test(h9)
       && /Proveedores externos/.test(h9));
@@ -4805,7 +4834,7 @@ async function main() {
     const rt3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('comprobantes: lo acreditado viene en la moneda del comprobante',
       /const enUsdt = c\.via === 'usdt';[\s\S]{0,200}const propio = enUsdt \? m\.monto_usdt : m\.monto_ars/.test(rt3));
-    const h8 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h8 = FUENTE_PANEL();
     check('comprobantes: la tarjeta marca cuando declarado y acreditado no coinciden',
       /el cliente había declarado/.test(h8)
       && /Math\.abs\(Number\(c\.acreditado\) - Number\(c\.monto\)\) > 0\.009/.test(h8));
@@ -4862,7 +4891,7 @@ async function main() {
       /if \(!b64\) return rej\(new Error\('el archivo llegó vacío/.test(ped2));
 
     // Y el permiso de mover fichas, junto al otro permiso — no enterrado en "datos de referencia".
-    const h6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h6 = FUENTE_PANEL();
     const iAvisa = h6.indexOf('Puede avisar pagos');
     const iMover = h6.indexOf('Puede mover fichas');
     // El TÍTULO de la sección, no la frase suelta: el comentario que explica la mudanza la nombra.
@@ -4955,7 +4984,7 @@ async function main() {
   // pantallas distintas detrás de botones que había que ir a buscar: se atendían cuando el cliente
   // reclamaba. Ahora hay una pestaña con el total, la primera de la barra.
   {
-    const h5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h5 = FUENTE_PANEL();
     check('pendientes: la pestaña existe y es la primera',
       /id: 'pendientes'/.test(h5)
       && h5.indexOf("id: 'pendientes'") < h5.indexOf("id: 'cuentas'"),
@@ -5159,7 +5188,7 @@ async function main() {
     }
 
     // El interruptor en el OS: dar y quitar acceso, y que la clave se muestre UNA vez.
-    const h4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const h4 = FUENTE_PANEL();
     check('cuenta del cliente: el OS tiene el interruptor de acceso',
       /accHabilitar/.test(h4) && /accQuitar/.test(h4) && /Puede ver su cuenta/.test(h4)
       && /no se puede volver a ver/.test(h4));
@@ -5757,7 +5786,7 @@ async function main() {
     check('foto: el modo del casino se traduce por igualdad exacta, no por parecido',
       em.nivelDeModo('agent') === 'agente' && em.nivelDeModo('superagent') === 'superagente'
       && em.nivelDeModo('diller') === 'distribuidor' && em.nivelDeModo('hall') === null);
-    const html = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     const vista = html.slice(html.indexOf('VIEWS.foto ='), html.indexOf('async function fotoSacar'));
     check('foto: la pantalla mapea EXACTAMENTE esos nombres',
       niveles.every((n) => vista.includes(n + ':')), JSON.stringify(niveles.filter((n) => !vista.includes(n + ':'))));
@@ -5799,7 +5828,7 @@ async function main() {
     // Una celda sticky con fondo translúcido deja ver lo que scrollea por debajo: las filas verdes
     // quedaban con los números de otras columnas encimados. Cualquier regla que le ponga fondo a
     // .cie-p tiene que ser opaca.
-    const css = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const css = FUENTE_PANEL();
     // Sólo las reglas que le pegan a la CELDA en sí. Un input adentro puede ser transparente:
     // el que tiene que tapar lo de abajo es el td, no lo que lleva dentro.
     const reglas = (css.match(/\.ciet[^{}]*\.cie-(p|h0)\s*\{[^}]*\}/g) || []);
@@ -6043,7 +6072,7 @@ async function main() {
   // sacar la sección de elegir superagentes hay que sacar TAMBIÉN sus funciones: una función que
   // quedó sin botón no molesta, pero un botón sin función revienta recién cuando alguien lo toca.
   {
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
     check('foto: la pantalla usa capturar-global', /capturar-global/.test(js));
     check('foto: ya no llama a la extracción por panel', !/estadisticas\/capturar['"?]/.test(js));
@@ -6061,7 +6090,7 @@ async function main() {
   // venía vacía y el botón contestaba "No hay conexiones para sacar" — parecía que no había
   // conexiones configuradas cuando el problema era el orden en que se abrieron las pantallas.
   {
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
     const crudo = (js.match(/async function fotoSacar[\s\S]*?\n}\n/) || [''])[0];
     // sin comentarios: el propio comentario que explica por qué NO se usa window._cxs lo nombra,
@@ -6083,7 +6112,7 @@ async function main() {
     // va troceado por divisa: cada tanda tiene que SUMAR, no pisar lo de las anteriores
     check('general: acumula por divisa en vez de pisar', /ganCache\.get\([^)]*_pago_general/.test(src));
 
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     check('general: ya no hay una sección aparte en la pantalla',
       !/fotoGeneral|foto-gen/.test(html));
     // Se mira la ESTRUCTURA, no el título: el texto se reescribió una vez y el test se cayó por
@@ -6195,7 +6224,7 @@ async function main() {
       'sin el corte, agosto arrastraba los 793,29 de septiembre de Marcelo');
     check('factura: los meses posteriores se marcan, no se esconden',
       /posterior: a\.mes > m/.test(svc));
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     check('factura: la pantalla dice "al cierre de", no "Saldo" a secas',
       /Saldo al cierre de/.test(h) && /r\.saldoAlCierre/.test(h));
     check('factura: y sigue mostrando lo que debe HOY, con otro nombre',
@@ -6227,7 +6256,7 @@ async function main() {
      al mes actual: se le mandó a un cliente la factura de septiembre mientras se miraba la de
      agosto. Eso no se puede deshacer. */
   {
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     const env = h.slice(h.indexOf('async function facturaEnviar'), h.indexOf('async function facturaLink'));
     check('factura: enviar usa el mes de la factura en pantalla, no el de otro campo',
       /const mes = _facCtx\.mes/.test(env) && !/val\('fac-mes'\)/.test(env));
@@ -6287,7 +6316,7 @@ async function main() {
     x = await put(url, { valor: '6', vigente_desde: 'siempre', confirmar: true });
     check('% : con confirmar, la corrección entra', x.status === 200 && x.data.desde === 'siempre');
 
-    const hUi4 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const hUi4 = FUENTE_PANEL();
     check('% : la pantalla pregunta desde cuándo, no "tipo de cambio"',
       /Desde cuándo rige/.test(hUi4) && /desde una fecha \(cambió el precio\)/.test(hUi4));
     check('% : y explica qué hace cada una',
@@ -6335,7 +6364,7 @@ async function main() {
     // Y la pantalla tiene que poder mostrar la celda mal cargada, aunque ya no cambie el número.
     check('internos: la fila dice que es interno y con qué celda estaba cargada',
       /interno: !!g\.interno, pctMatriz: g\.pctMatriz \|\| null,/.test(src));
-    const hUi3 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const hUi3 = FUENTE_PANEL();
     check('internos: la pantalla avisa cuáles son y cuáles tienen la celda más alta',
       /proveedores internos<\/b> \(SL · SL2 · XG\)/.test(hUi3)
       && /tienen la celda cargada más alta/.test(hUi3),
@@ -6402,7 +6431,7 @@ async function main() {
     check('envío interno: los nombres se escapan (va como HTML)',
       /telegram\.escapeHtml/.test(envRuta), 'un nombre con & rompe el mensaje entero');
 
-    const hUi2 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const hUi2 = FUENTE_PANEL();
     check('cuentas del mes: la lista está en las dos pantallas',
       /todasCargar\('externos', 'ext-todas'/.test(hUi2) && /todasCargar\('vendedores', 'ven-todas'/.test(hUi2));
     check('cuentas del mes: al grupo interno va CON nombre',
@@ -6440,7 +6469,7 @@ async function main() {
      Calcular, esperar el minuto que tarda y recién ahí bajar hasta el botón. Salía el papel del
      cliente equivocado sin que nada lo dijera — pasó con AdminFran-D, que no tiene proveedores. */
   {
-    const h10 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h10 = FUENTE_PANEL();
     check('externos: cada renglón de la lista tiene su papel',
       /onclick="pdfExternosDe\(/.test(h10) && /<th class="reptd right">Papel<\/th>/.test(h10));
     check('externos: el papel se arma en un solo lugar',
@@ -6480,7 +6509,7 @@ async function main() {
      pregunta: su rama cuesta 5.432,89, que pagan sus clientes en su propia factura. Con una sola
      columna, el 62,69 parecía un error. */
   {
-    const h11 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h11 = FUENTE_PANEL();
     check('vendedores: se ve lo que cuesta su rama, no sólo lo que usa él',
       /<th class="right">Su rama cuesta<\/th>/.test(h11) && /vendedores-reparto\//.test(h11));
     check('vendedores: se ve lo que debe hoy',
@@ -6518,7 +6547,7 @@ async function main() {
       && /'externos_precios_de', 'internos_se_cobran'\]/.test(cs2)
       && /intcob: c\.internos_se_cobran \? 1 : 0/.test(cs2),
       'sin el INSERT, un cliente nuevo lo pierde en silencio');
-    const h12 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h12 = FUENTE_PANEL();
     check('internos: la pantalla avisa cuando el cliente es la excepción',
       /A este cliente SÍ se le cobran los internos/.test(h12),
       'es al revés de la regla general: sin decirlo, el número no se entiende');
@@ -6554,7 +6583,7 @@ async function main() {
     check('simular: también toma a los que hoy darían CERO',
       /Los que tienen línea emitida y hoy no darían nada/.test(sim),
       'un cliente que deja de dar también se mueve, y no aparecería recorriendo sólo lo de ahora');
-    const h13 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h13 = FUENTE_PANEL();
     check('simular: la pantalla avisa cuántos ya recibieron su factura',
       /ya recibieron su factura de/.test(h13) && /hay que mandarles la corregida/.test(h13));
   }
@@ -6564,7 +6593,7 @@ async function main() {
      —«+1»— se lee de una. Y el número del encabezado era `descuento`, un campo de la planilla
      vieja que el cálculo NO usa: decía Titan 7 cuando se le cobraba 5. */
   {
-    const h14 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h14 = FUENTE_PANEL();
     const mx = h14.slice(h14.indexOf('async function cieMatriz()'), h14.indexOf('async function cieCell'));
     check('matriz: el encabezado muestra el % que se cobra, no el campo viejo',
       /pctDe\[c\.nombre\]/.test(mx) && !/onchange="cieDesc\(this\)"/.test(mx),
@@ -6585,7 +6614,7 @@ async function main() {
      por cliente o código y se ordena por cualquier columna. Y lo que se VE es lo que se baja: si
      el Excel saliera con los 45 mientras la pantalla muestra 23, el archivo diría otra cosa. */
   {
-    const h15 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h15 = FUENTE_PANEL();
     check('pagos: se puede ordenar por columna',
       /function pagOrdenar\(moneda, campo\)\{/.test(h15) && /onclick="pagOrdenar\(/.test(h15));
     check('pagos: apretar la misma columna da vuelta el orden',
@@ -6710,7 +6739,7 @@ async function main() {
      qué. Ahora hay un solo lugar: el <a> entra a la página antes del click, la URL se suelta más
      tarde, y siempre se dice qué archivo salió. */
   {
-    const h9 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h9 = FUENTE_PANEL();
     check('descargas: hay un solo lugar que baja archivos',
       /function bajarArchivo\(nombre, texto, tipo\)\{/.test(h9));
     check('descargas: el enlace entra a la página antes de apretarlo',
@@ -6734,7 +6763,7 @@ async function main() {
      veces. Y bajaba con coma de separador, que en el Excel en castellano parte "1.234,56" en dos
      columnas — el archivo llegaba roto justo donde están los números. */
   {
-    const hUi6 = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const hUi6 = FUENTE_PANEL();
     check('externos: se puede bajar el detalle de TODOS los clientes de una',
       /function todasDetalle\(\)/.test(hUi6) && /externos-detalle-/.test(hUi6));
     check('externos: el que falla no frena a los demás',
@@ -6753,7 +6782,7 @@ async function main() {
      se puede trabajar: ella necesita saber quién pagó. Lo que no puede llevar nombres es lo que
      SALE — el Excel y el resumen que va al grupo de comprobantes, que concilia contra el banco. */
   {
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     const vista = h.slice(h.indexOf('VIEWS.pagos = async'), h.indexOf('async function pagEnviar'));
     check('pagos: en pantalla se ve el cliente también en pesos',
       /const conCliente = true;/.test(vista), 'ocultarlo acá le saca la información a ella');
@@ -6786,7 +6815,7 @@ async function main() {
      Esto recorre los identificadores `_algo` que se USAN sueltos y verifica que estén declarados.
      No es un linter: es la red para la clase de error que ya nos costó una pantalla. */
   {
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     /* Sin comentarios: un nombre nombrado en un comentario —«_CIE_BADGE se usaba en…»— no es un uso,
        y contarlo haría que el chequeo grite por algo que no existe. Se pierde alguna cosa rara con
        "//" adentro de un string, y está bien: acá un falso positivo cuesta más que un olvido. */
@@ -6816,7 +6845,7 @@ async function main() {
      una palabra. Pasó con la emisión del consumo, que tardaba ~78s preguntándole el historial a
      los 73 paneles: parecía que el botón no había hecho nada. */
   {
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     const fn = h.slice(h.indexOf('async function api(path'), h.indexOf('async function api(path') + 1400);
     check('api: un corte de conexión vuelve como error, no como promesa rota',
       /catch\(e\)\{/.test(fn) && /seCorto: true/.test(fn));
@@ -6850,7 +6879,7 @@ async function main() {
      No lo agarró ninguna prueba porque yo llamaba a la función desde la consola en vez de HACER
      CLIC — y llamar a la función salta justamente la parte que estaba rota. */
   {
-    const h = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const h = FUENTE_PANEL();
     // Un atributo de evento con comillas dobles adentro: eso no llega vivo al navegador.
     const rotos = [...h.matchAll(/\son(?:click|change|input|keydown)="([^"]*)"/g)]
       .filter((m) => /JSON\.stringify/.test(m[1]))
@@ -6910,8 +6939,8 @@ async function main() {
   // Antes era un botón relleno de magenta con el detalle adentro en gris: el texto no se veía. La
   // regla que quedó es que el relleno marca el estado y el texto va oscuro sobre claro.
   {
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+    const html = FUENTE_PANEL();
+    const css = FUENTE_CSS();
     const reglas = [...css.matchAll(/\.(vcx|vtab|vta)[^{}]*\{[^}]*\}/g)].map((x) => x[0]);
     check('vueltas: hay reglas de estilo para el bloque', reglas.length > 5, String(reglas.length));
     const conAlfa = reglas.filter((r) => /background:\s*rgba\([^)]*0?\.\d+\)/.test(r));
@@ -6972,8 +7001,8 @@ async function main() {
   // el bloque se dibuja igual pero SIN el color, así que un aviso de error se ve como uno común.
   // Es el peor tipo de error de estilo — no falla, sólo deja de avisar.
   {
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+    const html = FUENTE_PANEL();
+    const css = FUENTE_CSS();
     // los modificadores que la hoja de estilos define para .nota
     const definidos = new Set([...css.matchAll(/\.nota\.([a-z0-9-]+)/g)].map((m) => m[1]));
     check('css: la hoja define modificadores de .nota', definidos.size >= 2, [...definidos].join(','));
@@ -7050,7 +7079,7 @@ async function main() {
   // una clave sin darle su casillero en la pantalla la vuelve a dejar sin dónde escribirse.
   {
     const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     const claves = (rutas.match(/const PAGOS_KEYS = \[([\s\S]*?)\];/) || [])[1] || '';
     const lista = [...claves.matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
     check('medios de pago: hay 13 valores', lista.length === 13, String(lista.length));
@@ -7179,7 +7208,7 @@ async function main() {
     // El check no mira dónde está escrito _cmpMoneda: mide lo que importa, que todo lo que usan
     // esos handlers esté declarado donde ellos lo pueden ver.
     {
-      const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      const html = FUENTE_PANEL();
       const cuerpoDe = (nombre) => {
         const i = html.indexOf('function ' + nombre + '(');
         if (i < 0) return '';
@@ -7202,7 +7231,7 @@ async function main() {
     // La lista de clientes es de donde sale si la cuenta va en ARS o en USDT. Si la solapa "Por
     // aprobar" no la carga, todos parecen USDT y se acredita con la etiqueta equivocada.
     {
-      const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      const html = FUENTE_PANEL();
       const i = html.indexOf('async function pintarComprobantes(');
       const j = html.indexOf('const fila = (c) =>', i);
       check('comprobantes: la solapa carga los clientes antes de pintar',
@@ -7297,7 +7326,7 @@ async function main() {
     check('pulso: los apagados se miden contra el MISMO tramo', /activosPrev = sPrev\.filter/.test(src));
     check('pulso: lista los que mueven y no son de nadie', /const sinDueno =/.test(src));
     check('pulso: los sin dueño se detectan por no tener cliente', /!nombre\(x\)\.cliente/.test(src));
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     check('pulso: la pantalla muestra las dos', /Se apagaron/.test(html) && /Mueven y no son de nadie/.test(html));
 
     // El módulo tiene que CARGAR. Este check existe porque una vez declaré dos veces la misma
@@ -7525,7 +7554,7 @@ async function main() {
     check('cuenta: el candado se aplica al guardar la ficha',
       /puedeCambiarMoneda\(req\.params\.id, req\.body\.moneda_cuenta\)/.test(rutas));
 
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     check('cuenta: la ficha tiene el selector', /id="e-moneda"/.test(html));
     check('cuenta: el label de acreditar usa la moneda del cliente', /Acreditar \(' \+ esc\(_cmpMoneda/.test(html));
     // El texto que iba fijo en "USDT" era la forma más fácil de mentir sobre una cifra en pesos.
@@ -7558,7 +7587,7 @@ async function main() {
       /tc_modo: \(porElMes && monedaCargada !== moneda\) \? 'mes' : null/.test(rutas2)
       && /const porElMes = b\.tc_modo === 'mes'/.test(rutas2));
     check('pago: un TC en cero o negativo se rechaza', /el tipo de cambio tiene que ser mayor a cero/.test(rutas2));
-    const html2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html2 = FUENTE_PANEL();
     check('pago: la pantalla pide el tipo de cambio', /cmp-tc-/.test(html2));
     // El equivalente se muestra mientras se escribe: un cero de más en el cambio da un número
     // absurdo, y absurdo se nota. Guardado, no.
@@ -7614,7 +7643,7 @@ async function main() {
       /el bot de Telegram no está configurado/.test(idx) && /no hay grupo cargado para/.test(idx));
     check('comprobante: hay forma de reintentar el aviso', /\/api\/os\/comprobantes\/:id\/reavisar/.test(idx));
 
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     // Un pago avisa a DOS grupos —cobranzas y el del cliente— y fallan por separado. La pantalla
     // tiene que mostrar los dos: con un solo cartel, el que falla queda tapado por el que salió.
     check('comprobante: la pantalla muestra los dos avisos por separado',
@@ -7959,7 +7988,7 @@ async function main() {
       const cli = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
       check('mover: la pantalla del cliente ofrece TODOS sus usuarios como destino',
         /_paneles\.filter\(p => p\.id !== id\)/.test(cli) && !/p\.grupo === _movOrigen\.grupo/.test(cli));
-      const pan = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+      const pan = FUENTE_PANEL();
       check('mover: y la de ella marca cuáles son pases', /↔ PASE/.test(pan) && /sistemaDestino/.test(pan));
     }
     // ── LO QUE MÁS IMPORTA: UN MOVIMIENTO NO PUEDE USAR LA CASCADA DE CARGA ──
@@ -8320,7 +8349,7 @@ async function main() {
     const pp = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'pago-proveedores.service.js'), 'utf8');
     check('rehacer: un mes cerrado exige confirmación explícita',
       /mesCerrado\(m\) && !confirmar/.test(pp) && /requiereConfirmar/.test(pp));
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    const html = FUENTE_PANEL();
     check('rehacer: la pantalla pregunta antes', /¿Rehacer '\+_fotoMes/.test(html));
     check('rehacer: y manda la bandera al server', /rehacer:!!rehacer/.test(html));
 
@@ -8336,19 +8365,28 @@ async function main() {
   // del mes. No da error: JavaScript se queda con la segunda, así que las flechas de una pantalla
   // llaman a la lógica de la otra y las dos dejan de andar, sin nada en la consola.
   {
-    const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
-    const js = (html.match(/<script>([\s\S]*)<\/script>/) || [])[1] || '';
-    const cuenta = {};
-    [...js.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)]
-      .forEach((m) => { cuenta[m[1]] = (cuenta[m[1]] || 0) + 1; });
-    const repetidas = Object.entries(cuenta).filter(([, n]) => n > 1).map(([k, n]) => `${k}×${n}`);
-    check('js: ninguna función declarada dos veces', repetidas.length === 0, repetidas.join(', '));
-    // y lo mismo para const/let en el nivel de arriba
-    const decl = {};
-    [...js.matchAll(/(?:^|\n)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g)]
-      .forEach((m) => { decl[m[1]] = (decl[m[1]] || 0) + 1; });
-    const dobles = Object.entries(decl).filter(([, n]) => n > 1).map(([k, n]) => `${k}×${n}`);
-    check('js: ninguna const/let de arriba declarada dos veces', dobles.length === 0, dobles.join(', '));
+    const PAGINAS = [['/os', ['os.html', 'pantalla-tc.js']],
+      ['/tbs', ['tbs.html', 'tbs-espacio.js', 'pantalla-tc.js']]];
+    const repetidas = [];
+    for (const [pag, archivos] of PAGINAS) {
+      const js = JS_DE(...archivos);
+      const cuenta = {};
+      [...js.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)]
+        .forEach((m) => { cuenta[m[1]] = (cuenta[m[1]] || 0) + 1; });
+      Object.entries(cuenta).filter(([, n]) => n > 1).forEach(([k, n]) => repetidas.push(`${pag} ${k}×${n}`));
+    }
+    check('js: ninguna función declarada dos veces en la misma página', repetidas.length === 0, repetidas.join(', '));
+    // y lo mismo para const/let en el nivel de arriba. Una const declarada dos veces en la misma
+    // página es peor que una función repetida: tira SyntaxError y la pantalla queda en blanco.
+    const dobles = [];
+    for (const [pag, archivos] of PAGINAS) {
+      const js2 = JS_DE(...archivos);
+      const decl = {};
+      [...js2.matchAll(/(?:^|\n)(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/g)]
+        .forEach((m) => { decl[m[1]] = (decl[m[1]] || 0) + 1; });
+      Object.entries(decl).filter(([, n]) => n > 1).forEach(([k, n]) => dobles.push(`${pag} ${k}×${n}`));
+    }
+    check('js: ninguna const/let de arriba declarada dos veces en la misma página', dobles.length === 0, dobles.join(', '));
   }
 
   // ── y que la regla se cumpla DE VERDAD contra el server, no sólo en la función ──
@@ -8942,11 +8980,14 @@ async function main() {
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',
       /<td style="font-family:monospace;font-size:12px;word-break:break-all">\$\{esc\(w\.direccion\)\}/.test(ui));
-    /* Y las tablas que quedan: una línea fina entre filas en vez de una marcada en cada celda. */
+    /* Y las tablas que quedan: una línea fina entre filas en vez de una marcada en cada celda.
+       La hoja ya no viaja adentro del HTML: desde el 6-sep-2026 es /estilos.css, compartida por
+       el panel y TBS. */
+    const cssPanel = FUENTE_CSS();
     check('panel: las tablas tienen una sola línea fina y más aire',
-      /th,td \{ text-align:left; padding:10px 9px; border-bottom:1px solid var\(--bg3\); \}/.test(ui)
-      && /tr:last-child td \{ border-bottom:none; \}/.test(ui)
-      && /td\.right, th\.right \{ font-variant-numeric:tabular-nums; \}/.test(ui));
+      /th,td \{ text-align:left; padding:10px 9px; border-bottom:1px solid var\(--bg3\); \}/.test(cssPanel)
+      && /tr:last-child td \{ border-bottom:none; \}/.test(cssPanel)
+      && /td\.right, th\.right \{ font-variant-numeric:tabular-nums; \}/.test(cssPanel));
   }
 
   check('panel: los espacios se llaman por lo que hacen',
@@ -8972,12 +9013,24 @@ async function main() {
       .filter((x) => cuerpo.split(x).length - 1 > 1);
     check('panel /os: nada declarado dos veces', !dup.length, dup.join(', '));
   }
-  // TBS es su propio espacio: misma página, pero la barra se arma según por dónde se entró.
+  /* TBS es su propio espacio Y SU PROPIO ARCHIVO. Antes era el mismo os.html armado distinto
+     según la URL: un archivo de 10.000 líneas para tres espacios, donde tocar una pantalla del
+     panel podía romper TBS y no se notaba hasta el cierre. */
   r = await axios.get(BASE + '/tbs', H());
-  check('panel /tbs sirve HTML', r.status === 200 && /Latam Games/.test(r.data) && /TABS_TBS/.test(r.data));
-  check('/tbs decide el modo por la URL, no por un flag guardado',
-    /location\.pathname[\s\S]{0,60}\/tbs/.test(r.data), 'ES_TBS sale de location.pathname');
-  check('la pestaña API ya no está en el comercial', !/'api','🔌 API \(TBS\)'/.test(r.data));
+  check('panel /tbs sirve HTML', r.status === 200 && /Latam Games/.test(r.data) && /const TABS = \[/.test(r.data));
+  check('/tbs es su propio archivo, no os.html armado distinto',
+    /tbs-espacio\.js/.test(r.data) && !/TABS_COMERCIAL/.test(r.data),
+    'carga tbs-espacio.js y no trae la barra del comercial');
+  const rOs = await axios.get(BASE + '/os', H());
+  check('y el panel ya no lleva adentro las pantallas de TBS',
+    !/API\.matriz = async/.test(rOs.data) && !/function apiPintarCuentas/.test(rOs.data),
+    'os.html quedó sin el bloque de TBS');
+  /* Lo que SÍ se comparte se comparte de verdad, en un archivo: si Tipos de cambio estuviera
+     copiado en los dos, un arreglo habría que hacerlo dos veces y se separarían. */
+  check('Tipos de cambio es UNA sola pantalla para los dos espacios',
+    /pantalla-tc\.js/.test(r.data) && /pantalla-tc\.js/.test(rOs.data)
+    && !/VIEWS\.tc = async/.test(r.data) && !/VIEWS\.tc = async/.test(rOs.data));
+  check('la pestaña API ya no está en el comercial', !/'api','🔌 API \(TBS\)'/.test(rOs.data));
   // sin sesión no se entra a ninguno de los dos
   const sinCookie = { validateStatus: () => true, maxRedirects: 0 };
   const rt = await axios.get(BASE + '/tbs', sinCookie);

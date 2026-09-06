@@ -158,10 +158,13 @@ function mount(app) {
     res.sendFile(path.join(__dirname, '..', 'public', archivo));
   };
   app.get('/os', (_req, res) => html(res, 'os.html'));
-  // TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
-  // proveedores y otro cierre de mes. Sirve el MISMO archivo — duplicarlo para no compartir los
-  // helpers habría sido peor — y la página se arma distinto según por dónde se entró.
-  app.get('/tbs', (_req, res) => html(res, 'os.html'));
+  /* TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
+     proveedores y otro cierre de mes. Desde el 6-sep-2026 también es su propio ARCHIVO.
+     Antes servía el mismo os.html y se armaba distinto según la URL: 10.000 líneas para tres
+     espacios, donde tocar una pantalla del panel podía romper TBS y nadie se enteraba hasta el
+     cierre. Lo que de verdad se comparte quedó compartido en serio —`/estilos.css` y
+     `/pantalla-tc.js`, que es LA MISMA pantalla de Tipos de cambio— y el resto se separó. */
+  app.get('/tbs', (_req, res) => html(res, 'tbs.html'));
   /* El chat tiene su propio espacio, con la misma pantalla y otra barra. Ojo con el nombre: `/chat`
      es el portal PÚBLICO del cliente y no lleva login; éste es el de adentro y sí. */
   app.get('/chat-externo', (_req, res) => html(res, 'os.html'));

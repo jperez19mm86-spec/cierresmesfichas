@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Latam Games · TBS</title>
+<link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+<header>
+  <h1><img src="/logo.png" alt="Latam Games" class="hd-logo"
+    onerror="this.outerHTML='<span>Latam Games</span>'"> <small id="hd-sub"></small></h1>
+  <div id="hd-nav" style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center"></div>
+</header>
+<nav class="nav" id="nav"></nav>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── /tbs — SU PROPIO ARCHIVO ────────────────────────────────────────────────────────────────
+   TBS es otro negocio: otros clientes, otros proveedores, otro cierre. Vivía adentro de os.html
+   —un archivo de 10.000 líneas que servía tres espacios y los distinguía con un `if` por la URL—
+   y ahí un cambio del panel podía romper TBS sin que nadie lo notara hasta el cierre.
+
+   Lo que se comparte se comparte de verdad, en un archivo:
+     · `/estilos.css`      la hoja de estilos
+     · `/pantalla-tc.js`   Tipos de cambio, que es LA MISMA pantalla en los dos lados
+   Lo que se copia son los ayudantes genéricos de abajo: diez líneas que no cambian nunca.
+   Copiarlos es a propósito — compartirlos deja el hilo por donde volvería a pasar lo mismo. */
+
+const ES_TBS = true, ES_CHAT = false;
+
+/* ── LOS AYUDANTES ───────────────────────────────────────────────────────────────────────── */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+async function api(path, opts={}){
+  let r;
+  try { r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts)); }
+  catch(e){
+    const msg = 'se cortó la conexión con el servidor'
+      + (/abort/i.test(String(e&&e.message)) ? ' (la llamada tardó demasiado)' : '')
+      + '. Lo que ya se había guardado quedó guardado: volvé a intentar.';
+    toast('⚠ '+msg, true);
+    return { ok:false, error: msg, seCorto: true };
+  }
+  if(r.status===401){ location.href='/login'; return {ok:false}; }
+  let b={}; try{ b=await r.json(); }catch(e){
+    // 502/504 del proxy vienen en HTML: sin esto quedaba un {} sin `error` y nadie avisaba nada.
+    if(!r.ok) { const msg = 'el servidor cortó la llamada (' + r.status + '). Suele ser porque tardó '
+      + 'demasiado; lo que se guardó quedó guardado.'; toast('⚠ '+msg, true); return { ok:false, error: msg, seCorto:true }; }
+  }
+  if(!b.ok && b.error) toast('⚠ '+b.error);
+  return b;
+}
+function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
+function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
+
+/* Una sección plegable con su titular a la derecha: el título dice qué es y el número dice si vale
+   la pena abrirla. La usan el Pulso del mes y Tipos de cambio — pantallas de muchas tablas donde
+   casi siempre se mira una sola, y donde antes había que scrollear todo para encontrarla.
+   Lo que quedó abierto sobrevive al repintado, y `abrirSola` sólo manda hasta que la tocás. */
+const _secAb = new Set(), _secTocada = new Set();
+function seccion(id, titulo, resumen, cuerpo, abrirSola){
+  if(!_secTocada.has(id) && abrirSola) _secAb.add(id);
+  return `<details class="plegable" style="margin-bottom:8px"${_secAb.has(id)?' open':''}
+      ontoggle="secEstado('${id}',this.open)">
+    <summary class="fila"><span class="chev" aria-hidden="true"></span>
+      <span class="nom">${titulo}</span>
+      ${resumen?`<span class="cifra">${resumen}</span>`:''}</summary>
+    <div class="cuerpo">${cuerpo}</div></details>`;
+}
+function secEstado(id, abierto){ _secTocada.add(id); if(abierto) _secAb.add(id); else _secAb.delete(id); }
+
+/* La explicación larga, plegada: una línea a la vista y el resto detrás de «Cómo funciona
+   esto», que se acuerda de si lo abriste. */
+function ayuda(id, resumen, detalle){
+  return `<div class="muted" style="margin:6px 0 ${detalle?'8px':'12px'}">${resumen}</div>`
+    + (detalle?`<details class="cajas" style="margin:0 0 12px"${_secAb.has('ayuda.'+id)?' open':''}
+        ontoggle="secEstado('ayuda.${id}',this.open)">
+        <summary class="abrir"><span class="chev" aria-hidden="true"></span>Cómo funciona esto</summary>
+        <div class="muted" style="margin-top:9px">${detalle}</div></details>`:'');
+}
+
+/* ── LOS ESTILOS DE LAS TABLAS ─────────────────────────────────────────────────────────── */
+const MX_STYLE = `<style>
+  .mx-scroll{ overflow:auto; max-height:72vh; border:1px solid var(--border); border-radius:8px }
+  .mx-tabla{ table-layout:fixed; width:auto; border-collapse:separate; border-spacing:0 }
+  .mx-tabla th.cie-h0, .mx-tabla td.cie-p{ width:210px; min-width:210px; max-width:210px }
+  /* Sin mayúsculas: los nombres de las cuentas son nombres propios y en versalitas pierden su
+     forma —"carlosjsanchez" y "CARLOSJSANCHEZ" no se reconocen igual de rápido— y encima ocupan
+     más ancho en una columna de 82px. El resto de la app las usa; acá no sirve. */
+  .mx-tabla thead th{ width:82px; min-width:82px; max-width:82px; height:52px; padding:4px 3px;
+    vertical-align:bottom; font-size:10.5px; line-height:1.15; font-weight:600; white-space:normal;
+    text-transform:none; letter-spacing:0 }
+  .mx-tabla thead th span{ display:block; overflow-wrap:anywhere }
+  .mx-tabla td{ height:34px; padding:0 }
+  .mx-tabla input{ width:100%; height:32px; text-align:center; font-size:12.5px; border:none;
+    background:transparent; color:inherit; font-weight:inherit }
+
+  /* la primera columna: el nombre arriba, el costo abajo y chico */
+  .mx-sello{ font-weight:700; font-size:12.5px; line-height:1.2 }
+  .mx-costo{ font-size:10px; color:var(--muted); font-weight:400; margin-top:1px }
+  .mx-costo input{ width:46px!important; height:16px!important; font-size:10px!important;
+    text-align:right; color:var(--muted); padding:0 2px }
+
+  /* Tintes OPACOS. El número lleva el peso: el fondo dice de dónde salió, el texto dice cuánto. */
+  .mx-tabla td.mx-ver{ background:#dcf0e2 } .mx-tabla td.mx-ver input{ color:#14603a; font-weight:700 }
+  .mx-tabla td.mx-pla{ background:#fbeed0 } .mx-tabla td.mx-pla input{ color:#7a5300; font-weight:600 }
+  .mx-tabla td.mx-vacia{ background:var(--bg) }
+  .mx-tabla td.mx-vacia input::placeholder{ color:var(--border) }
+
+  /* la banda que separa internos de proveedores */
+  .mx-banda td{ background:var(--bg3); text-align:left!important; padding:0!important;
+    font-size:12px; border-top:2px solid var(--border); border-bottom:1px solid var(--border) }
+  .mx-banda td > div{ position:sticky; left:0; width:max-content; max-width:100vw; padding:7px 10px }
+  .mx-banda .mx-n{ font-variant-numeric:tabular-nums; font-size:11px; color:var(--muted);
+    background:var(--bg); border:1px solid var(--border); border-radius:9px; padding:0 6px; margin-left:4px }
+
+  /* Interno: barra al costado en la columna fija, así se sabe aunque la banda quedó arriba. */
+  .mx-tabla tr.mx-int td.cie-p{ border-left:3px solid #8e4fbe }
+  .mx-tabla tr.mx-int td.cie-p .mx-sello{ color:#6f3a97 }
+
+  .mx-leyenda{ display:flex; gap:16px; align-items:center; margin:12px 0 4px; font-size:12px; flex-wrap:wrap }
+  .mx-leyenda .mx-c{ display:inline-block; width:13px; height:13px; border-radius:3px;
+    vertical-align:-2px; margin-right:5px; border:1px solid var(--border) }
+  .mx-leyenda .mx-ver{ background:#dcf0e2 } .mx-leyenda .mx-pla{ background:#fbeed0 }
+  .mx-leyenda .mx-vacia{ background:var(--bg) }
+  .mx-leyenda .mx-int-c{ background:var(--bg3); border-left:3px solid #8e4fbe }
+  .mx-leyenda .mx-sep{ border-left:1px solid var(--border); padding-left:16px }
+  .mx-filtro{ font-size:12px; margin:6px 0 10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  .mx-filtro label{ display:flex; gap:5px; align-items:center; cursor:pointer; text-transform:none; margin:0 }
+  .mx-filtro input{ width:auto }
+
+  /* SIN BLOQUE PARA TEMA OSCURO. El OS es de un solo tema: no hay ni una regla de tema oscuro en
+     las 5.400 líneas de esta página. Yo había puesto uno acá y el resultado, mirado en un navegador
+     en oscuro, era peor que no tenerlo: las celdas se ponían oscuras y TODO lo demás seguía claro.
+     Un tema a medias no es medio tema, es una pantalla rota. */
+</style>`;
+
+const CIE_STYLE = `<style>
+    .ciet{border-collapse:separate;border-spacing:0;font-size:12px}
+    .ciet th,.ciet td{border:1px solid var(--border);padding:2px 4px;text-align:center;background:var(--bg)}
+    .ciet thead th{position:sticky;top:0;z-index:3;background:var(--bg2);white-space:nowrap;vertical-align:top}
+    .ciet td.cie-p,.ciet th.cie-h0{position:sticky;left:0;z-index:2;background:var(--bg2);text-align:left;white-space:nowrap;min-width:170px;font-weight:700}
+    .ciet thead th.cie-h0{z-index:4}
+    .ciet input{width:46px;border:none;background:transparent;color:var(--text);text-align:center;font-size:12px;padding:2px}
+    .ciet input.cie-d{width:52px;color:var(--muted)}
+    .ciet input.cie-lk{width:170px;text-align:left}
+    /* Los sellos que cuestan 1% o menos: se marcan en la primera columna, que es la que queda
+       fija al hacer scroll horizontal. Marcar toda la fila taparía el color de cada celda, que
+       dice otra cosa (verificado / sin verificar).
+       ⚠️ EL FONDO TIENE QUE SER OPACO. Esta celda es sticky: lo que scrollea por debajo se ve a
+       través de cualquier rgba() con alfa < 1, y las filas verdes quedaban con los números de
+       otras columnas encimados. Este #eaf5ec es el mismo verde .10 pero ya mezclado con el blanco
+       del fondo. Vale para cualquier celda sticky de acá. */
+    .ciet tr.cie-barato td.cie-p{background:#eaf5ec;border-left:3px solid var(--green)}
+    .ciet tr.cie-barato td.cie-p input{color:var(--green);font-weight:700;background:transparent}
+    .ciet td.cie-neto{font-weight:700;text-align:center}
+    .ciet td.cie-neto.cero{color:var(--border);font-weight:400}
+    .ciet th .cie-pct{display:block;font-size:14px;font-weight:700;color:var(--text);margin-top:2px}
+    .ciet th .cie-pct.raro{color:#c90}
+    .ciet input:focus{outline:1px solid var(--gold);background:var(--bg2)}
+    .ciet .cie-ok{background:rgba(0,180,80,.25)!important;transition:background .1s}
+    .cie-x{color:var(--danger,#c33);cursor:pointer;font-weight:700;opacity:.55}.cie-x:hover{opacity:1}
+    .cie-badge{font-size:10.5px;padding:1px 6px;border-radius:8px;font-weight:700}
+    .cie-b-ok{background:rgba(0,160,70,.2);color:#0a4}.cie-b-ex{background:rgba(40,110,220,.18);color:#48f}
+    .cie-b-sug{background:rgba(210,160,0,.2);color:#c90}.cie-b-no{background:rgba(140,140,140,.2);color:var(--muted)}
+    /* VENDEDORES: no son clientes, pagan el costo real. Van al final, en otro color, y su celda
+       se marca si NO coincide con el % base (que es lo único que deberían tener). */
+    .cie-fam{background:rgba(140,100,200,.14);cursor:pointer;user-select:none}
+    .cie-fam td{padding:5px 8px;position:sticky;left:0}
+    .cie-fam:hover{background:rgba(140,100,200,.22)}
+    .cie-est{font-size:9px;padding:1px 5px;border-radius:6px;margin-left:5px;vertical-align:middle}
+    .cie-est-ok{background:rgba(0,160,70,.18);color:#0a4}
+    .cie-est-nc{background:rgba(140,140,140,.2);color:var(--muted)}
+    .cie-est-sc{background:rgba(210,160,0,.22);color:#c90}
+    .cie-hv{background:rgba(40,110,220,.14) !important;border-left:2px solid rgba(40,110,220,.5)}
+    .cie-tv{background:rgba(40,110,220,.06)}
+    .cie-tv:first-of-type{border-left:2px solid rgba(40,110,220,.35)}
+    .cie-tag{font-size:9px;background:rgba(40,110,220,.28);color:#48f;padding:1px 4px;border-radius:6px;vertical-align:middle}
+    .cie-raro{background:rgba(210,160,0,.22) !important;outline:1px solid rgba(210,160,0,.55)}
+  </style>`;
+
+/* ── EL ARMAZÓN ──────────────────────────────────────────────────────────────────────────────
+   TBS tiene barra simple: una fila de botones y listo. El panel usa una de dos filas con grupos,
+   y ésa se quedó allá — acá sería código que no se usa. */
+const VIEWS = {}, CFG = {};
+
+const TABS = [
+  ['tbsofertas','💼 Ofertas'], ['tbsmatriz','🎯 Precios por cliente'], ['tbsclientes','👥 Clientes'],
+  '|',
+  ['tbscuentas','🧾 Cuentas del mes'], ['tbsresumen','📊 Cierre del mes'],
+  ['tbsdiario','📅 Reporte diario'],
+  '|',
+  // Tipos de cambio vive acá también porque las cuentas de API se convierten con él: sin esto
+  // habría que saltar al otro espacio para revisar un TC.
+  ['tc','💱 Tipos de cambio'],
+];
+let _tab = 'tbsmatriz';
+/* Las pantallas preguntan si la barra de arriba ya muestra sus subpantallas, para no dibujar dos
+   filas de botones iguales. Acá la barra es simple, así que cada vista dibuja la suya. */
+const _subsArriba = () => false;
+
+function renderHeader(){
+  document.getElementById('hd-sub').textContent = 'TBS — el sistema de API';
+  const otros = [['/','🎰 Fichas'], ['/os','📊 Panel'], ['/chat-externo','💬 Chat']];
+  document.getElementById('hd-nav').innerHTML =
+    otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
+    + '<button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>';
+}
+function renderNav(){
+  renderHeader();
+  const nav = document.getElementById('nav');
+  nav.className = 'nav';
+  nav.innerHTML = TABS.map(t =>
+    t==='|' ? '<span class="navsep"></span>'
+            : `<button class="navbtn ${t[0]===_tab?'active':''}" onclick="go('${t[0]}')">${typeof t[1]==='function'?t[1]():t[1]}</button>`).join('');
+}
+function go(t){ _tab=t; renderNav(); VIEWS[t](); }
+</script>
+<script src="/tbs-espacio.js"></script>
+<script src="/pantalla-tc.js"></script>
+<script>renderNav(); go('tbsmatriz');</script>
+</body>
+</html>
