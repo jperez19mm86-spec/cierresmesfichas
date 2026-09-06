@@ -6635,6 +6635,34 @@ async function main() {
       /const dry = !!\(req\.body && req\.body\.dry\)/.test(ro));
   }
 
+  /* ── LAS DIVISAS DE UN PANEL SE MIRAN EN SU NIVEL ──────────────────────────────────────────
+     «Lo que el panel movió» se buscaba SIEMPRE a nivel superagente. Los 74 paneles que no lo son
+     —65 distribuidores y 9 agentes— no encontraban una sola fila, así que la pantalla decía que
+     TODAS sus monedas sobran: a GAF-D, que está en PYG, le pedía sacarle el PYG. El reporte diario
+     baja los tres niveles todas las noches; sólo había que preguntar por el que corresponde. */
+  {
+    const ps = fs.readFileSync(path.join(ROOT, 'src', 'paneles-store.js'), 'utf8');
+    check('divisas: cada panel se busca en SU nivel',
+      /grp: grpDeNivel\(p\)/.test(ps) && !/grp: 'superagent', sa_id: String\(p\.id_usuario\) \}\)\);\s*\n\s*const usadasDe/.test(ps));
+    check('divisas: los tres niveles del reporte diario',
+      /return 'distributor';/.test(ps) && /return 'agent';/.test(ps) && /return 'superagent';/.test(ps));
+    check('divisas: la fila dice en qué nivel se miró',
+      /nivel: p\.nivel_usuario \|\| null, grp: grpDeNivel\(p\)/.test(ps),
+      'sin eso no se puede saber por qué un panel no tiene datos');
+    /* Regla de la dueña: sólo los SuperAgentes llevan varias monedas. Se frena al GUARDAR, no sólo
+       en la pantalla: si no, la Foto le pregunta al casino por monedas que ese nodo no puede tener
+       y el cliente puede pedir en una que su caja no acepta. */
+    check('divisas: la regla marca las que sobran por nivel',
+      /deMasPorNivel: variasSinPoder/.test(ps));
+    const ro2 = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('divisas: un panel que no es SuperAgente no puede guardar varias',
+      /function _revisarDivisas\(body, actual\)/.test(ro2)
+      && /maneja UNA sola moneda/.test(ro2));
+    check('divisas: la regla se aplica al crear Y al editar',
+      (ro2.match(/_revisarDivisas\(/g) || []).length >= 3,
+      'sólo en el alta deja que se rompa editando');
+  }
+
   /* ── BAJAR UN ARCHIVO NO PUEDE FALLAR EN SILENCIO ───────────────────────────────────────────
      Las descargas creaban un <a>, lo apretaban sin agregarlo a la página y soltaban la URL en el
      mismo instante. Funciona casi siempre; cuando no, no pasa NADA y no hay forma de saber por

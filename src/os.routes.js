@@ -650,13 +650,32 @@ function mount(app) {
       .catch((e) => console.warn('[Árbol] no se pudo resolver', panel.nombre, e.message));
   }
 
+  /* ── SÓLO LOS SUPERAGENTES MANEJAN VARIAS MONEDAS ────────────────────────────────────────────
+     Regla de la dueña (5-sep-2026): un distribuidor —y todo lo que cuelga de él— maneja UNA sola,
+     la suya. Y si un distribuidor está en USD, sus agentes y cajas también.
+     Se frena al guardar y no sólo en la pantalla: una ficha con tres monedas en un distribuidor
+     hace que la Foto le pregunte al casino por monedas que ese nodo no puede tener, y que el
+     cliente pueda pedir en una que su caja no acepta. */
+  function _revisarDivisas(body, actual) {
+    const nivel = String((body && body.nivel_usuario) || (actual && actual.nivel_usuario) || '').toLowerCase();
+    if (nivel.startsWith('superagente')) return null;
+    const d = (body && body.divisas !== undefined) ? body.divisas : (actual && actual.divisas);
+    if (!Array.isArray(d) || d.length <= 1) return null;
+    return `un ${nivel || 'panel que no es SuperAgente'} maneja UNA sola moneda, y vinieron ${d.length}: `
+      + d.join(', ') + '. Sólo los SuperAgentes llevan varias.';
+  }
+
   app.post('/api/os/paneles', wrap((req, res) => {
+    const mal = _revisarDivisas(req.body || {}, null);
+    if (mal) return err(res, 400, mal);
     const panel = paneles.create(req.body || {});
     _espejarCaja(panel);
     _resolverJerarquia(panel);
     ok(res, { panel });
   }));
   app.put('/api/os/paneles/:id', wrap((req, res) => {
+    const mal = _revisarDivisas(req.body || {}, paneles.get(req.params.id));
+    if (mal) return err(res, 400, mal);
     const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado');
     // Lo que se cambia acá tiene que llegar a Fichas: es la misma cuenta del casino.
     const caja = _espejarCaja(p);

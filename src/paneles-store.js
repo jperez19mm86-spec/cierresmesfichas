@@ -139,6 +139,15 @@ function porNombre(nombre) {
     || (p.alias || []).some((a) => String(a).trim().toLowerCase() === k)) || null;
 }
 
+/* Cómo se llama el nivel de un panel en el reporte diario. Son los tres que baja el cron
+   (ver acumulado.service · CRON_GROUPS): superagent, distributor, agent. */
+function grpDeNivel(p) {
+  const n = String((p && p.nivel_usuario) || '').toLowerCase();
+  if (n.startsWith('distribu')) return 'distributor';
+  if (n.startsWith('agent')) return 'agent';
+  return 'superagent';
+}
+
 function divisasUsadas(meses = 6) {
   const rd = require('./reporte-diario-store');
   const hoy = new Date();
@@ -148,7 +157,12 @@ function divisasUsadas(meses = 6) {
     lista.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
   }
   const paneles = list().filter((p) => p.conexion_id && p.id_usuario);
-  const keys = paneles.map((p) => ({ conexion_id: p.conexion_id, grp: 'superagent', sa_id: String(p.id_usuario) }));
+  /* ⚠️ CADA PANEL SE BUSCA EN SU NIVEL. Esto pedía SIEMPRE `superagent`, así que los 74 paneles que
+     no lo son —65 distribuidores y 9 agentes— no encontraban una sola fila: `usadas` quedaba vacío
+     y la pantalla decía que TODAS sus divisas «sobran». GAF-D está en PYG y el aviso pedía sacarle
+     el PYG. El reporte diario baja los tres niveles todas las noches; sólo había que preguntar por
+     el que corresponde. */
+  const keys = paneles.map((p) => ({ conexion_id: p.conexion_id, grp: grpDeNivel(p), sa_id: String(p.id_usuario) }));
   const usadasDe = {};
   for (const mes of lista) {
     for (const f of rd.filasPanelesMes(keys, mes)) {
@@ -161,12 +175,19 @@ function divisasUsadas(meses = 6) {
   }
   return paneles.map((p) => {
     const usadas = [...(usadasDe[`${p.conexion_id}|${p.id_usuario}`] || [])].sort();
+    /* Regla de la dueña (5-sep-2026): sólo los SuperAgentes manejan varias monedas. Un
+       distribuidor y todo lo que cuelga de él manejan UNA sola, la suya. */
+    const variasSinPoder = String(p.nivel_usuario || '').toLowerCase().startsWith('superagente')
+      ? [] : (p.divisas || []).slice(1);
     const guardadas = (p.divisas || []).map((x) => String(x).toUpperCase());
     return {
       panel_id: p.id, nombre: p.nombre, cliente_id: p.cliente_id, id_usuario: p.id_usuario,
+      nivel: p.nivel_usuario || null, grp: grpDeNivel(p),
       guardadas, usadas,
       sobran: guardadas.filter((d) => !usadas.includes(d)),
       faltan: usadas.filter((d) => !guardadas.includes(d)),
+      // Las que tiene de más por la regla: sólo un SuperAgente puede llevar varias.
+      deMasPorNivel: variasSinPoder,
       sinDatos: !usadas.length,
       meses: lista,
     };
