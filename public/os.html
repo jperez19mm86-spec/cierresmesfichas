@@ -3646,7 +3646,8 @@ function venPintar(){
         f.rama==null ? '<span class="muted">—</span>'
         : (propia ? '<span class="muted">' + money(f.rama) + '</span>' : '<b>' + money(f.rama) + '</b>')}</td>
       <td class="right">${f.saldo==null?'<span class="muted">—</span>':('<b>'+money(f.saldo)+'</b>')}</td>
-      <td class="right"><button class="outline small" onclick="pdfExternosDe('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">🖨 PDF</button></td>
+      <td class="right"><button class="outline small" title="Lo que movió toda su línea, proveedor por proveedor"
+        onclick="pdfRamaProveedores('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">🖨 PDF</button></td>
     </tr>`;
   }).join('');
   out.innerHTML = `
@@ -4274,6 +4275,61 @@ async function extPDF(){
 
 /* El mismo papel, para cualquier cliente: desde la factura de arriba o desde la lista del mes.
    Si no viene el reporte calculado, se lo pide — y avisa, porque puede tardar. */
+/* ── EL PAPEL DE UN VENDEDOR: LO QUE MOVIÓ TODA SU LÍNEA ────────────────────────────────────────
+   Pedido así: «lo que movieron todos los de Alexa —no importa si línea directa o árbol— es X en
+   este proveedor, y eso al precio real del proveedor es esto, y por el tipo de cambio de cada
+   divisa del panel es esto en dólares; sumatoria, esto».
+
+   Va por PROVEEDOR y no por panel: un proveedor que aparece en catorce paneles de seis clientes es
+   una fila sola. El servidor ya lo entrega neteado —un panel padre trae adentro lo de sus hijos y
+   sumarlos contaría la misma plata dos veces—. */
+async function pdfRamaProveedores(vendedor, mes){
+  toast('Armando la línea de ' + vendedor + '… (tarda)');
+  const r = await api('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores?mes=' + encodeURIComponent(mes));
+  if(!r || !r.ok) return toast('No se pudo: ' + ((r&&r.error)||''), true);
+  const n = (x, dec) => Number(x||0).toLocaleString('es-AR',
+    { minimumFractionDigits: dec==null?2:dec, maximumFractionDigits: dec==null?2:dec });
+
+  const filas = (r.proveedores||[]).map(function(p){
+    return (p.porDivisa||[]).map(function(d, i){
+      return '<tr>'
+        + '<td>' + (i ? '' : esc(p.proveedor)) + '</td>'
+        + '<td class="r">' + esc(d.divisa) + '</td>'
+        + '<td class="r">' + n(d.movimiento, 0) + '</td>'
+        + '<td class="r">' + (i ? '' : (p.costo==null ? '—' : esc(p.costo) + '%')) + '</td>'
+        + '<td class="r">' + esc(d.tasa||'—') + '</td>'
+        + '<td class="r">' + n(d.usdt) + '</td>'
+        + '<td class="r">' + (i || (p.porDivisa||[]).length===1 ? '' : '<b>' + n(p.usdt) + '</b>') + '</td>'
+        + '</tr>';
+    }).join('');
+  }).join('');
+
+  const doc = '<h1>' + esc(r.vendedor) + ' — ' + esc(mesNombre(r.mes)) + '</h1>'
+    + '<p class="gris">Lo que movió toda su línea · ' + (r.clientes||[]).length + ' cuentas · '
+    + (r.proveedores||[]).length + ' proveedores</p>'
+    + '<table><thead><tr><th>Proveedor</th><th class="r">Divisa</th><th class="r">Movimiento</th>'
+    + '<th class="r">Costo</th><th class="r">TC</th><th class="r">USD</th><th class="r">Total prov.</th>'
+    + '</tr></thead><tbody>' + (filas || '<tr><td colspan="7" class="gris">Sin movimiento este mes.</td></tr>')
+    + '</tbody></table>'
+    + '<div class="total">TOTAL ' + esc(mesNombre(r.mes)) + '<span class="der">' + n(r.totalUsdt) + ' USD</span></div>'
+    + ((r.fallaron||[]).length
+        ? '<p class="gris">No se pudo traer: ' + r.fallaron.map(f=>esc(f.cliente)).join(', ') + '. El total está incompleto.</p>'
+        : '');
+
+  const w = window.open('', '_blank');
+  if(!w) return toast('El navegador bloqueó la ventana: permitile abrir ventanas a esta página', true);
+  w.document.write('<html><head><title>' + esc(r.vendedor) + ' ' + esc(r.mes) + '</title><style>'
+    + 'body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:26px;color:#111}'
+    + 'h1{font-size:19px;margin:0 0 2px}'
+    + 'table{width:100%;border-collapse:collapse;margin-top:10px}'
+    + 'th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666;text-align:left;border-bottom:1px solid #bbb;padding:4px 6px}'
+    + 'td{font-size:12px;padding:4px 6px;border-bottom:1px solid #eee}'
+    + '.r{text-align:right}.der{float:right}.gris{color:#777;font-weight:400}'
+    + '.total{margin-top:18px;border-top:2px solid #333;padding-top:8px;font-size:16px;font-weight:700}'
+    + '</style></head><body>' + doc + '</body></html>');
+  w.document.close(); w.focus();
+  setTimeout(() => w.print(), 400);
+}
 async function pdfExternosDe(cliente, mes){
   toast('Armando el papel de ' + cliente + '…');
   const r = await api('/api/os/externos/' + encodeURIComponent(cliente) + '?mes=' + encodeURIComponent(mes));

@@ -9025,6 +9025,25 @@ async function main() {
       && !/acc\(suyo, 'aCobrar_usdt', f\.neto_usdt\)/.test(srcVen));
     check('vendedores: se informa cuánto se descontó por estar contado dos veces',
       /duplicado_usdt/.test(srcVen) && /duplicado_usdt/.test(FUENTE_PANEL()));
+
+    /* ── EL PAPEL DEL VENDEDOR ES SU LÍNEA ENTERA, POR PROVEEDOR ──────────────────────────────
+       Mostraba sólo sus paneles propios: el de Henry decía 89,84 cuando su línea movía 15.386,48
+       y el de Julian salía en cero teniendo 2.052,92 abajo. Una rebanada que parece el total. */
+    check('vendedores: el papel arma la línea entera, no sólo sus paneles',
+      /async function pdfRamaProveedores\(/.test(uiVen)
+      && /onclick="pdfRamaProveedores\(/.test(uiVen));
+    check('vendedores: y el papel va por PROVEEDOR, con movimiento, costo, TC y dólares',
+      /rama-proveedores/.test(uiVen) && /<th class="r">Movimiento<\/th>/.test(uiVen)
+      && /<th class="r">Costo<\/th>/.test(uiVen) && /<th class="r">TC<\/th>/.test(uiVen));
+    check('vendedores: la línea por proveedor también descuenta lo anidado',
+      /b\.proveedor !== a\.proveedor/.test(srcVen)
+      && /Math\.max\(0, a\.profit - bp\)/.test(srcVen));
+    /* Si el papel de un vendedor se rompe, no se ve hasta que alguien lo abre: el botón sigue ahí
+       y la ventana sale en blanco. */
+    const srcRut = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('vendedores: la ruta de la línea existe y va antes que la de /:id',
+      srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") > 0
+      && srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") < srcRut.indexOf("app.get('/api/os/vendedores/:id'"));
   }
 
   check('panel: los espacios se llaman por lo que hacen',
