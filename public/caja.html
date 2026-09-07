@@ -849,9 +849,26 @@ button{font-family:inherit}
 /* La grilla: cuadrada, legible, y que entre en un teléfono sin desbordar. */
 .matriz-caja{margin-top:8px}
 .matriz{display:grid; gap:3px; margin-bottom:8px; max-width:290px}
-.matriz span{aspect-ratio:1; display:grid; place-items:center; border-radius:6px;
-  background:var(--bg3); color:var(--mut2); font-size:12px; font-weight:700}
-.matriz span.gana{background:var(--ok-soft); color:var(--ok); outline:1.5px solid var(--ok)}
+.matriz span{position:relative; aspect-ratio:1; display:grid; place-items:center; border-radius:6px;
+  background:var(--bg3); color:var(--mut2); font-size:12px; font-weight:700; overflow:hidden}
+.matriz span img{width:100%; height:100%; object-fit:contain; grid-area:1/1}
+/* 🔑 `z-index` no sobra: la capa verde de una celda ganadora se dibuja encima y, sin ella, el
+   número quedaba tapado — la celda se veía como un cuadrado verde vacío. */
+.matriz span i{grid-area:1/1; font-style:normal; position:relative; z-index:1}
+/* Con figura, el número se corre a la esquina: sigue estando, sin taparla. */
+.matriz.configuras span i{align-self:end; justify-self:end; font-size:9px; line-height:1;
+  padding:1px 2px; border-radius:4px; background:rgba(0,0,0,.45); color:#fff}
+/* 🔴 CON FIGURA, EL VERDE NO SE VE. La imagen tapa el fondo y el `outline` queda comido por el
+   `overflow:hidden` de la celda. El marco va por dentro con `inset`, y encima una capa verde
+   suave para que la posición ganadora salte igual con figura o sin ella. */
+.matriz span.gana{background:var(--ok-soft); color:var(--ok);
+  box-shadow:inset 0 0 0 2.5px var(--ok)}
+.matriz span.gana::after{content:''; position:absolute; inset:0; background:var(--ok);
+  opacity:.22; pointer-events:none}
+/* La pastilla sólo cuando hay figura: ahí el número es una ayuda al costado. Sin figura, el
+   número ES la celda y se lee mejor sin recuadro. */
+.matriz.configuras span.gana i{background:var(--ok); color:#06301c}
+.matriz:not(.configuras) span.gana i{color:#06301c}
 .linea-gana{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px;
   padding:5px 0; color:var(--mut)}
 .linea-gana + .linea-gana{border-top:1px dashed var(--bor)}
@@ -3401,10 +3418,18 @@ function dibujarMatriz(j){
       || '<div class="piepie">El casino no mandó la grilla de esta ronda.</div>'}</div>`;
   }
   const ancho = Math.max(...j.matriz.map(f => f.length));
+  /* 🔑 LAS FIGURAS LAS DA EL MOTOR, NO SE ADIVINAN. `figuras` es la dirección base que él mismo
+     manda; el archivo es el número del símbolo. Si esa imagen no carga —porque el juego no las
+     publica— queda el número, que es lo que deja seguir la línea igual. Por eso el número va
+     SIEMPRE debajo: no se pierde nada si la figura falla. */
+  const conFiguras = !!j.figuras;
   return `<div class="matriz-caja">
-    <div class="matriz" style="grid-template-columns:repeat(${ancho}, minmax(0, 1fr))">
+    <div class="matriz ${conFiguras ? 'configuras' : ''}"
+      style="grid-template-columns:repeat(${ancho}, minmax(0, 1fr))">
       ${j.matriz.map((fila, f) => fila.map((simbolo, c) =>
-        `<span class="${esCeldaGanadora(marcadas, f, c) ? 'gana' : ''}">${simbolo}</span>`
+        `<span class="${esCeldaGanadora(marcadas, f, c) ? 'gana' : ''}">${conFiguras
+          ? `<img src="${j.figuras}${encodeURIComponent(simbolo)}.png" alt="${simbolo}"
+               onerror="this.remove()">` : ''}<i>${simbolo}</i></span>`
       ).join('')).join('')}
     </div>
     ${resumen}

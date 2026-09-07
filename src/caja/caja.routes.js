@@ -209,27 +209,43 @@ function mount(app) {
     /* Sin `session` válido el motor contesta sin `history`: no es un error, es «no hay detalle». */
     if (!d.data.history) return ok(res, { rondas: [], sinDetalle: true });
 
+    /* 🔴 EL MOTOR MANDA ESTO DE DOS FORMAS, SEGÚN EL PROVEEDOR. Medido el 7-sep-2026 sobre la
+       misma instalación, comparando dos juegos:
+         · un PRAGMATIC devolvió `matrix` como OBJETO y las líneas en `winLines`
+         · un RUBYPLAY (XG) devolvió `matrix` como TEXTO con JSON adentro y las líneas en
+           `win_lines`, con los símbolos como texto en vez de número
+       Leíamos sólo la primera, así que de los juegos XG —los que SÍ traen las figuras— no
+       mostrábamos nada, y el panel del casino sí las dibuja. Se aceptan las dos. */
     const comoJson = (t) => {
       if (t == null || t === '') return null;
       if (typeof t === 'object') return t;
       try { return JSON.parse(t); } catch (e) { return null; }
     };
     ok(res, {
-      rondas: (d.data.history || []).map((f) => ({
-        id: String(f.id), estado: f.status, cuando: f.dateTime,
-        antes: f.before, apostó: f.bet, ganó: f.win,
+      rondas: (d.data.history || []).map((f) => {
+        const mat = comoJson(f.matrix) || {};
+        const grilla = Array.isArray(mat.matrix) && mat.matrix.length ? mat.matrix : null;
+        return {
+        id: String(f.id), estado: f.status,
+        cuando: f.dateTime || f.date_time || f.datetime,
+        antes: f.before != null ? f.before : (f.cash_before != null ? f.cash_before : f.balance_before),
+        apostó: f.bet, ganó: f.win,
         juego: f.gameName, proveedor: f.gameProvider,
         /* 🔴 NO TODAS LAS RONDAS SE VEN IGUAL. Señalado por el dueño el 4-sep-2026: «no siempre
            se ve igual, no todos llevan imágenes». El motor declara una `class` por proveedor
            —`slot` es la que medimos— y hay rondas sin grilla ninguna (una apuesta sin premio, o
            un juego que no la manda). Se pasa la grilla SI VIENE y se pasa la forma que el motor
            declaró, para que la pantalla dibuje lo que hay en vez de suponer. */
-        matriz: (f.matrix && Array.isArray(f.matrix.matrix) && f.matrix.matrix.length)
-          ? f.matrix.matrix : null,
-        forma: (f.matrix && f.matrix.class) || null,
-        lineas: comoJson(f.winLines) || [],
+        matriz: grilla,
+        forma: mat.class || null,
+        /* 🔑 La dirección de las figuras la da el propio motor: `imgUrl` + el símbolo + `.png`.
+           Comprobado el 7-sep-2026 mirando qué pide el panel del casino mientras dibuja:
+           …/xgames/history/rubyplay/blazingtiger/1.png Ese link se pasa tal cual; adivinarlo fue
+           lo que falló antes —seis formas probadas, las seis en 404—. */
+        figuras: grilla && mat.imgUrl ? String(mat.imgUrl) : null,
+        lineas: comoJson(f.winLines) || comoJson(f.win_lines) || [],
         info: comoJson(f.info),
-      })),
+      }; }),
       paginas: d.data.pageCount || 1,
     });
   }));

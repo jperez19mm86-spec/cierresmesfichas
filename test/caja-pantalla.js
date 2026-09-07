@@ -592,6 +592,28 @@ check('y cada fila lleva las tres cifras alineadas',
 check('sin premio se muestra una raya, no un cero que parece un dato',
   /\$\{x\.win \? fmt\(x\.win\) : '—'\}/.test(htmlCaja));
 
+/* ── 13 · la matriz llega de dos formas ─────────────────────────────────────────────────────────
+   🔴 Medido el 7-sep-2026 comparando dos juegos de la MISMA instalación: un PRAGMATIC devolvió
+   `matrix` como objeto y las líneas en `winLines`; un RUBYPLAY (XG) devolvió `matrix` como TEXTO
+   con JSON adentro, las líneas en `win_lines` y los símbolos como texto. Leíamos sólo la primera,
+   así que justo los juegos que SÍ traen las figuras no mostraban nada. */
+{
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  check('la matriz se parsea venga como objeto o como texto',
+    /const mat = comoJson\(f\.matrix\) \|\| \{\};/.test(rutas));
+  check('y las líneas se leen con los dos nombres',
+    /comoJson\(f\.winLines\) \|\| comoJson\(f\.win_lines\)/.test(rutas));
+  check('la dirección de las figuras la manda el motor, no se arma acá',
+    /figuras: grilla && mat\.imgUrl \? String\(mat\.imgUrl\) : null/.test(rutas));
+  check('la pantalla dibuja la figura y deja el número igual',
+    /<img src="\$\{j\.figuras\}\$\{encodeURIComponent\(simbolo\)\}\.png"/.test(htmlCaja)
+    && /onerror="this\.remove\(\)"/.test(htmlCaja)
+    /* Sin `lazy`: la matriz se abre con un gesto deliberado y son pocas imágenes; diferirlas deja
+       la grilla en blanco hasta que alguien la desplaza. */
+    && !/loading="lazy"[\s\S]{0,80}onerror="this\.remove\(\)"/.test(htmlCaja)
+    && /<i>\$\{simbolo\}<\/i>/.test(htmlCaja));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
