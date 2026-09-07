@@ -126,7 +126,115 @@ function lista() {
     .sort((a, b) => b.clientes - a.clientes);
 }
 
-module.exports = { repartoCosto, cuenta, lista, clientesDe };
+
+/**
+ * LO QUE MOVIÓ TODA LA LÍNEA DE UN VENDEDOR, PROVEEDOR POR PROVEEDOR.
+ *
+ * La pregunta, tal como la hizo la dueña: «lo que movieron todos los de Alexa —no importa si línea
+ * directa o árbol— es X en este proveedor, y eso al precio real del proveedor es esto, y por el
+ * tipo de cambio de cada divisa del panel es esto en dólares; sumatoria, esto».
+ *
+ * Tres cosas que la hacen distinta de `cuenta`:
+ *
+ *  1. Es TODA la rama, no sus paneles propios. El papel de Henry decía 89,84 cuando su línea movía
+ *     15.386,48: mostraba una rebanada y parecía el total.
+ *  2. Va por PROVEEDOR, no por panel ni por cliente. Un proveedor que aparece en catorce paneles de
+ *     seis clientes es una línea sola, con su movimiento sumado por divisa.
+ *  3. SIN CONTAR DOS VECES. En el casino un panel padre ya trae adentro lo de sus hijos, así que
+ *     sumar los dos cuenta la misma plata dos veces — el mismo error que inflaba el total del
+ *     reparto en 2.057,97 sobre 19.372,56. Acá la resta se hace por (nodo, divisa, PROVEEDOR), que
+ *     es el grano fino: restar el total del panel no serviría para armar la fila de cada proveedor.
+ *     Con piso en cero, por la misma razón de siempre: cada nivel del casino es una consulta aparte
+ *     con su filtro `profit > 0` y los hijos pueden dar más que el padre.
+ */
+async function ramaPorProveedor(vendedorNombre, mes) {
+  const m = String(mes || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido (se espera YYYY-MM)' };
+  const todos = clientes.list().clientes;
+  const pans = paneles.list();
+  const byId = {}; todos.forEach((c) => { byId[c.id] = c; });
+
+  const grupoDe = (clienteId) => {
+    let c = byId[clienteId]; let n = 0;
+    while (c && n++ < 8) {
+      if (c.es_vendedor && !esLaCasa(c)) return c.nombre;
+      if (c.vendedor_id) { c = byId[c.vendedor_id]; continue; }
+      return CASA;
+    }
+    return CASA;
+  };
+  const objetivo = K(vendedorNombre);
+  const mios = todos.filter((c) => K(grupoDe(c.id)) === objetivo);
+  if (!mios.length) return { ok: false, error: `no encuentro clientes en la línea de "${vendedorNombre}"` };
+
+  /* Se le pide a cada cliente su reporte EN MODO VENDEDOR: ahí el número de cada proveedor es su
+     COSTO REAL, no el diferencial que paga el cliente. Es la misma cuenta que ya hace el reparto,
+     no un motor nuevo. */
+  const bruto = {};          // nodo|divisa|proveedor → { profit, usdt, costo, tasa, panel, cliente }
+  const fallaron = [];
+  for (const c of mios) {
+    let r;
+    try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes: m, forzarModo: 'vendedor' }); }
+    catch (e) { fallaron.push({ cliente: c.nombre, error: String((e && e.message) || e) }); continue; }
+    if (!r || !r.ok) { if (r && r.error) fallaron.push({ cliente: c.nombre, error: r.error }); continue; }
+    (r.paneles || []).forEach((p) => {
+      const pan = pans.find((x) => x.nombre === p.panel && x.cliente_id === c.id);
+      if (!pan || !pan.id_usuario) return;         // sin nodo no se puede saber qué contiene a qué
+      (p.items || []).forEach((it) => {
+        const k = `${pan.id_usuario}|${it.divisa}|${it.proveedor}`;
+        const a = bruto[k] || (bruto[k] = { nodo: String(pan.id_usuario), panelObj: pan, divisa: it.divisa,
+          proveedor: it.proveedor, profit: 0, usdt: 0, costo: it.costo, tasa: it.tasa,
+          panel: p.panel, cliente: c.nombre });
+        a.profit += Number(it.profit || 0);
+        a.usdt += Number(it.usdt || 0);
+        if (a.costo == null) a.costo = it.costo;
+        if (a.tasa == null) a.tasa = it.tasa;
+      });
+    });
+  }
+
+  const esDescendiente = (hijo, ancestroNodo) =>
+    (hijo.escala || []).some((x) => String(x.id) === String(ancestroNodo));
+  const neto = [];
+  for (const a of Object.values(bruto)) {
+    let bp = 0; let bu = 0;
+    for (const b of Object.values(bruto)) {
+      if (b === a || b.divisa !== a.divisa || b.proveedor !== a.proveedor) continue;
+      if (!esDescendiente(b.panelObj, a.nodo)) continue;
+      bp += b.profit; bu += b.usdt;
+    }
+    neto.push({ ...a, profit: Math.max(0, a.profit - bp), usdt: Math.max(0, a.usdt - bu) });
+  }
+
+  const porProv = {};
+  neto.forEach((f) => {
+    if (!(f.usdt > 0) && !(f.profit > 0)) return;
+    const p = porProv[f.proveedor] || (porProv[f.proveedor] = {
+      proveedor: f.proveedor, costo: f.costo, usdt: '0', divisas: {} });
+    if (p.costo == null) p.costo = f.costo;
+    const d = p.divisas[f.divisa] || (p.divisas[f.divisa] = {
+      divisa: f.divisa, movimiento: '0', tasa: f.tasa, usdt: '0' });
+    d.movimiento = money.add(d.movimiento, String(f.profit));
+    d.usdt = money.add(d.usdt, String(f.usdt));
+    p.usdt = money.add(p.usdt, String(f.usdt));
+  });
+
+  const proveedores = Object.values(porProv).map((p) => ({
+    proveedor: p.proveedor,
+    costo: p.costo == null ? null : String(p.costo),
+    porDivisa: Object.values(p.divisas).map((d) => ({ ...d,
+      movimiento: money.round(d.movimiento, 2), usdt: money.round(d.usdt, 2) }))
+      .sort((a, b) => Number(b.usdt) - Number(a.usdt)),
+    usdt: money.round(p.usdt, 2),
+  })).sort((a, b) => Number(b.usdt) - Number(a.usdt));
+
+  const totalUsdt = proveedores.reduce((a, p) => money.add(a, p.usdt), '0');
+  return { ok: true, vendedor: vendedorNombre, mes: m, proveedores,
+    clientes: mios.map((c) => c.nombre).sort(),
+    totalUsdt: money.round(totalUsdt, 2), fallaron };
+}
+
+module.exports = { repartoCosto, cuenta, lista, clientesDe, ramaPorProveedor };
 
 /* ══ EL REPARTO DEL COSTO DE PROVEEDORES ═══════════════════════════════════════════════════════
  *

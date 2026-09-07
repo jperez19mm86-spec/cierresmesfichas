@@ -4794,6 +4794,14 @@ function mount(app) {
     const r = await vendedoresSvc.repartoCosto(req.params.mes);
     r.ok ? ok(res, r) : err(res, 502, r.error);
   }));
+  /* Lo que movió TODA la línea de un vendedor, proveedor por proveedor: el movimiento por divisa,
+     el costo real de ese proveedor, y el equivalente en dólares con el TC de cada divisa. Es lo que
+     lleva el papel del vendedor — su cuenta propia (`/:id`) es sólo la rebanada de sus paneles. */
+  app.get('/api/os/vendedores/:nombre/rama-proveedores', wrap(async (req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
+    r.ok ? ok(res, r) : err(res, 404, r.error);
+  }));
   app.get('/api/os/vendedores/:id', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     // la facturación se calcula UNA vez y se reparte: el vendedor y sus clientes salen de ahí
