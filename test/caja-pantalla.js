@@ -470,6 +470,12 @@ check('y no depende de que la página esté pintando',
   /setTimeout\(\(\) => \{\n\s*document\.querySelectorAll\('\.periodos'\)/.test(htmlCaja)
   && !/requestAnimationFrame\(\(\) => \{\n\s*document\.querySelectorAll\('\.periodos'\)/.test(htmlCaja));
 
+/* 🔴 LA FILA Y SU GRILLA TIENEN QUE CONTAR IGUAL. El 7-sep agregué una flecha a la fila sin
+   agregarle su columna: el cuarto elemento se fue al renglón de abajo y la fila quedó rota. */
+check('la fila lleva su flecha y la grilla le hace lugar',
+  /<span class="fl" aria-hidden="true">›<\/span>\n\s*<button class="bal"/.test(htmlCaja)
+  && /grid-template-columns:auto 1fr auto 190px/.test(htmlCaja));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

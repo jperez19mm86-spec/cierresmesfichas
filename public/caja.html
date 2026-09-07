@@ -467,8 +467,12 @@
    cifras largas sin que el recuadro tenga que crecer.
    Se aplica sólo a las filas que TIENEN monto: las otras listas que usan `.fila-b` —los
    sub-agentes, las eliminadas— siguen en flex, que es lo que les corresponde. */
+/* 🔴 LA GRILLA TIENE QUE CONTAR TODAS LAS COLUMNAS. Eran tres —punto, nombre, monto— y el
+   7-sep-2026 agregué una flechita a la fila sin tocar esta línea: el cuarto elemento se cayó al
+   renglón de abajo, el nombre quedó centrado y recortado en «TSo…» y el monto colgando solo. Se
+   veía roto, y era mío. Si mañana se le agrega algo más a la fila, esto se toca también. */
 :root:root .fila-b:has(.bal){
-  display:grid; grid-template-columns:auto 1fr 190px; align-items:center;
+  display:grid; grid-template-columns:auto 1fr auto 190px; align-items:center;
 }
 :root:root .fila-b .bal{
   background:var(--bg3); border:1px solid var(--bor); border-radius:14px;
