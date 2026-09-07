@@ -1,3 +1,9 @@
+<!-- 🔴 EL TELÉFONO CONVERTÍA LOS IDs EN DIRECCIONES. Reportado el 7-sep-2026: tocando
+     «CSophi ID 7382837» el iPad abría Google Maps preguntando por esa dirección. iOS y Chrome
+     detectan solos lo que les parece un teléfono, una fecha o una dirección y lo vuelven un link
+     — y un ID de siete cifras al lado de un nombre les parece una. Acá no hay ninguna dirección ni
+     teléfono que valga la pena detectar, así que se apagan los cuatro. -->
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
 <title>Mi Caja</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -639,6 +645,13 @@ button{font-family:inherit}
 .saldo .periodos button[aria-pressed="true"]{background:var(--lg-tx); color:var(--lg-ink)}
 /* De quién son estas fichas: primero el login, después los números. */
 .dequien{padding-bottom:12px; margin-bottom:14px; border-bottom:1px solid var(--bor)}
+.dequien.tocable{display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  background:none; border:none; border-bottom:1px solid rgba(255,255,255,.16); padding:0 0 12px;
+  font:inherit; color:inherit; cursor:pointer}
+.dequien.tocable .quien{flex:1; min-width:0}
+.dequien.tocable .fl{font-size:20px; opacity:.55; flex:none}
+.dequien.tocable:hover .fl{opacity:1}
+.fila-b .fl{font-size:17px; color:var(--mut); flex:none; margin-left:2px}
 .dequien b{display:block; font-size:16.5px; font-weight:700; letter-spacing:-.01em; line-height:1.25}
 .dequien span{display:block; font-size:11.5px; color:var(--mut); margin-top:3px}
 
@@ -2426,10 +2439,12 @@ function pintarUsuarios(){
     ${migas}
     ${yo().hide_hall_balance ? '' : `
     <div class="saldo">
-      ${DENTRO ? `<div class="dequien">
-        <b class="mono">${b.login}</b>
-        <span>ID ${b.id} · ${h.length} ${h.length === 1 ? 'jugador' : 'jugadores'}</span>
-      </div>` : ''}
+      ${DENTRO ? `<button class="dequien tocable" onclick="abrirNodo('${b.id}')"
+          aria-label="Abrir la ficha de ${b.login}">
+        <span class="quien"><b class="mono">${b.login}</b>
+          <span>ID ${b.id} · ${h.length} ${h.length === 1 ? 'jugador' : 'jugadores'}</span></span>
+        <span class="fl" aria-hidden="true">›</span>
+      </button>` : ''}
       <div class="saldo-cab">
         <svg class="saldo-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg>
         <div>
@@ -2562,6 +2577,12 @@ function pintarFilas(){
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirNodo('${x.id}')}">
       <span class="punto ${punto}" aria-hidden="true"></span>
       <span class="id"><b class="mono">${x.login}</b><span>${sub}</span></span>
+      ${/* 🔴 NO SE VEÍA QUE LA FILA SE ABRE. El renglón entero abre la ficha —historial,
+           contraseña, credenciales, eliminar— desde siempre, pero nada lo decía: al lado hay un
+           botón de fichas que sí parece botón, y el resto se leía como texto. El 7-sep alguien
+           quedó trabado buscando «algún botón u opción» que estaba en el renglón que tenía
+           delante. Una flechita alcanza. */''
+      }<span class="fl" aria-hidden="true">›</span>
       <button class="bal" onclick="event.stopPropagation(); moverDe('${x.id}')"
         aria-label="Cargar o retirar fichas de ${x.login}">
         <span class="cifras"><small>${yo().currency}</small><b class="num">${fmt(x.balance)}</b></span>
@@ -3809,8 +3830,15 @@ function cerrarHoja(){
 
 /* El menú de acciones NO lo decide el skin: lo devuelve area=buttons&id=<nodo>. */
 function abrirNodo(id){
-  ACTUAL = hijos().find(x => x.id === id);
-  const esSala = viendoSalas();
+  /* 🔴 SE BUSCA EN LAS DOS LISTAS. Antes salía sólo de `hijos()`, o sea de lo que se está mirando:
+     parado ADENTRO de una caja, `hijos()` son sus jugadores y la caja misma no está — así que no
+     había forma de abrir la ficha de la caja sin volver a «Mis cajeros». Reportado el 7-sep-2026:
+     «no tengo ningún botón u opción para hacerlo». */
+  const entreLosHijos = hijos().find(x => x.id === id);
+  const entreLasCajas = SALAS.find(s => s.id === id);
+  ACTUAL = entreLosHijos || entreLasCajas;
+  if (!ACTUAL) return;
+  const esSala = entreLosHijos ? viendoSalas() : !!entreLasCajas;
   /* La lista que se dibuja y la que se ejecuta tienen que ser LA MISMA: si se filtra
      una y no la otra, los índices se corren y tocar una acción ejecuta otra. */
   ACCIONES_ACTUALES = esSala ? ACCIONES_SALA : ACCIONES_TERMINAL;
