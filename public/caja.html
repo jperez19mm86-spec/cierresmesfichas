@@ -3398,6 +3398,12 @@ function abrirSesion(jugadorId, sesionId){
   const crudas = JUGADAS[sesionId] || [];
   const js = agruparJugadas(crudas);
   const partidas = crudas.length > js.length;
+  /* 🔴 NO PROMETER UNA MATRIZ QUE ESTE JUEGO NO MANDA. Medido el 7-sep-2026 sobre la instalación
+     del cliente: ni RUBYPLAY ni PRAGMATIC devuelven grilla ahí —no llega ni el objeto—, y el panel
+     del casino tampoco la dibuja: su columna «Matriz» trae premio, líneas y estado. El aviso decía
+     «tocá una jugada para ver su matriz» igual, así que el operador tocaba y no pasaba nada.
+     Se ofrece sólo cuando ALGUNA ronda de esta sesión la trae de verdad. */
+  const hayMatriz = js.some(x => x.matriz || (x.lineas && x.lineas.length));
   abrirHoja(`
     <h3 id="hojaTit">${s.game}</h3>
     <div class="sub">${s.labeltitle} · ${s.providertitle} · sesión ${s.session}</div>
@@ -3435,14 +3441,21 @@ function abrirSesion(jugadorId, sesionId){
       <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
     ${/* 🔑 El texto le habla a quien está atendiendo, no a quien programó: para qué le sirve, y
          qué hacer cuando no aparece. Sin nombres de campos ni explicaciones del motor. */''}
-    ${notaInfo('matriz',
-      'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
-      'Sirve para responder <b>«¿por qué se le pagó eso?»</b>: se ve el símbolo que hizo la línea, '
-      + 'cuántas posiciones entraron y cuánto pagó. <b>No todos los juegos la muestran.</b> Si '
-      + 'tenés dudas con alguna que no aparece, escribinos a soporte y la miramos con vos.')}
+    ${hayMatriz
+      ? notaInfo('matriz',
+        'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
+        'Sirve para responder <b>«¿por qué se le pagó eso?»</b>: se ve el símbolo que hizo la '
+        + 'línea, cuántas posiciones entraron y cuánto pagó. <b>No todos los juegos la muestran.</b> '
+        + 'Si tenés dudas con alguna que no aparece, escribinos a soporte y la miramos con vos.')
+      : notaInfo('sinmatriz',
+        '<b>Este juego no manda la matriz.</b> Abajo está cada jugada, con lo que apostó, lo que '
+        + 'ganó y cómo le quedó el saldo.',
+        'La grilla la manda el proveedor del juego, y no todos lo hacen — no es algo que se pueda '
+        + 'encender desde acá. Con lo que sí llega alcanza para seguir la plata jugada por jugada: '
+        + 'cuánto puso, cuánto se llevó y cómo quedó después de cada una. Si necesitás el detalle '
+        + 'de una en particular, escribinos a soporte y la miramos con vos.')}
     <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
-    <span class="mono">round_id</span>. Lo que llega es siempre lo mismo: los importes y los
-    horarios de la ronda, nunca su desarrollo.</div>
+    <span class="mono">round_id</span>.</div>
     <div class="acciones"><button class="btn sec" onclick="abrirHistoria('${jugadorId}')">Volver</button></div>`);
 }
 

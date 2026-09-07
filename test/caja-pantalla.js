@@ -526,6 +526,15 @@ check('la fila lleva su flecha y la grilla le hace lugar',
     .map(([clave]) => clave);
   check('ninguna nota le cuenta al cliente la historia del arreglo',
     sucias.length === 0, sucias.length ? sucias.join(', ') : `${visibles.length} notas limpias`);
+  /* 🔴 El aviso invitaba a tocar una jugada aunque el juego no mandara nada: se tocaba y no pasaba
+     nada. Ahora hay dos textos y se elige por lo que de verdad llegó. */
+  check('sólo se ofrece la matriz cuando alguna jugada la trae',
+    /const hayMatriz = js\.some\(x => x\.matriz \|\| \(x\.lineas && x\.lineas\.length\)\);/.test(htmlCaja)
+    && /\$\{hayMatriz\n\s*\? notaInfo\('matriz'/.test(htmlCaja));
+  check('y si no la trae, se dice y se ofrece soporte',
+    /notaInfo\('sinmatriz'/.test(htmlCaja)
+    && /Este juego no manda la matriz/.test(htmlCaja)
+    && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
   check('y la de la matriz explica para qué sirve y qué hacer si no aparece',
     /responder <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
     && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
