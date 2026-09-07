@@ -526,8 +526,9 @@ check('la fila lleva su flecha y la grilla le hace lugar',
     .map(([clave]) => clave);
   check('ninguna nota le cuenta al cliente la historia del arreglo',
     sucias.length === 0, sucias.length ? sucias.join(', ') : `${visibles.length} notas limpias`);
-  check('y la de la matriz explica para qué sirve',
-    /responder «¿por qué se le pagó eso\?»/.test(htmlCaja));
+  check('y la de la matriz explica para qué sirve y qué hacer si no aparece',
+    /responder <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
+    && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
 }
 
 /* 🔴 EL CALLBACK QUE NO RECIBÍA NADA. `pedirUnaVez` guarda la respuesta y llama al callback SIN
