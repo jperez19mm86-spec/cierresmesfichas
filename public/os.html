@@ -3647,7 +3647,9 @@ function venPintar(){
         : (propia ? '<span class="muted">' + money(f.rama) + '</span>' : '<b>' + money(f.rama) + '</b>')}</td>
       <td class="right">${f.saldo==null?'<span class="muted">—</span>':('<b>'+money(f.saldo)+'</b>')}</td>
       <td class="right"><button class="outline small" title="Lo que movió toda su línea, proveedor por proveedor"
-        onclick="pdfRamaProveedores('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">🖨 PDF</button></td>
+        onclick="pdfRamaProveedores('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">🖨 PDF</button>
+        <button class="small" style="margin-left:4px" title="Mandarla a Cuentas Imperium por Telegram"
+        onclick="venEnviarLinea('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">📤</button></td>
     </tr>`;
   }).join('');
   out.innerHTML = `
@@ -4283,6 +4285,19 @@ async function extPDF(){
    Va por PROVEEDOR y no por panel: un proveedor que aparece en catorce paneles de seis clientes es
    una fila sola. El servidor ya lo entrega neteado —un panel padre trae adentro lo de sus hijos y
    sumarlos contaría la misma plata dos veces—. */
+/* SALE PARA AFUERA: se pregunta siempre y se dice a dónde. Va al grupo INTERNO
+   («Cuentas Imperium»), que no es el de la matriz donde van las cuentas de TBS ni el de los avisos
+   del chat — son tres, y mandar la cuenta de un vendedor al equivocado no se puede deshacer. */
+async function venEnviarLinea(vendedor, mes){
+  if(!confirm('¿Mandar la línea de ' + vendedor + ' de ' + mes + ' a Cuentas Imperium?\n\n'
+    + 'Va con el detalle por proveedor y divisa. Es el grupo interno, no el de ningún cliente.')) return;
+  toast('Armando la línea de ' + vendedor + '… (tarda)');
+  const r = await api('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores/enviar',
+    { method:'POST', body: JSON.stringify({ mes }) });
+  if(!r || !r.ok) return toast('No salió: ' + ((r&&r.error)||''), true);
+  toast('✔ ' + vendedor + ' · ' + money(r.total_usdt) + ' USD · ' + r.proveedores + ' proveedores · '
+    + r.partes + ' mensaje(s)');
+}
 async function pdfRamaProveedores(vendedor, mes){
   toast('Armando la línea de ' + vendedor + '… (tarda)');
   const r = await api('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores?mes=' + encodeURIComponent(mes));

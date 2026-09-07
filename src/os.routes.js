@@ -4802,6 +4802,43 @@ function mount(app) {
     const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
     r.ok ? ok(res, r) : err(res, 404, r.error);
   }));
+  /* Y mandarla al grupo interno, igual que las cuentas de TBS. Va a «Cuentas Imperium»
+     (`tgChatInterno`), que NO es el grupo de la matriz —donde van las de TBS— ni el de los avisos
+     del chat: son tres grupos distintos y confundirlos manda la cuenta de un vendedor a donde no
+     va. El detalle por proveedor viaja en el mensaje: son muchas líneas, pero `partir` las corta
+     en varios mensajes y así no hace falta abrir nada para verlo. */
+  app.post('/api/os/vendedores/:nombre/rama-proveedores/enviar', wrap(async (req, res) => {
+    const mes = String((req.body || {}).mes || req.query.mes || mesTZ()).slice(0, 7);
+    const chat = String(configStore.getCfg('tgChatInterno') || '').trim();
+    const tok = configStore.getTelegramToken();
+    if (!tok) return err(res, 400, 'el bot de Telegram no está configurado');
+    if (!chat) return err(res, 400, 'no hay grupo interno cargado en Config → Medios de pago (Cuentas Imperium)');
+    const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
+    if (!r.ok) return err(res, 404, r.error);
+    if (!(r.proveedores || []).length) return err(res, 400, `${r.vendedor} no movió nada en ${mes}: no hay nada que mandar`);
+
+    const fmt = (x, d) => Number(x || 0).toLocaleString('es-AR',
+      { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d });
+    const E = telegram.escapeHtml;
+    const lineas = [];
+    r.proveedores.forEach((p) => {
+      lineas.push(`<b>${E(p.proveedor)}</b>${p.costo == null ? '' : `  <i>${E(p.costo)}%</i>`}   ${fmt(p.usdt)}`);
+      p.porDivisa.forEach((d) => lineas.push(`   ${E(d.divisa)} ${fmt(d.movimiento, 0)}  ·  TC ${E(d.tasa || '—')}  ·  ${fmt(d.usdt)}`));
+    });
+    const texto = [`🤝 <b>Cuenta de vendedor — ${E(mesCierreLbl(mes).replace('_', ' '))}</b>`,
+      `<b>${E(r.vendedor)}</b>`, '',
+      `💵 <b>Total: ${fmt(r.totalUsdt)} USD</b>`, '',
+      `<i>${r.proveedores.length} proveedores · ${(r.clientes || []).length} cuentas en su línea</i>`, '']
+      .concat(lineas).join('\n');
+    const partes = facturaSvc.partir(texto);
+    for (const parte of partes) {
+      const x = await telegram.sendMessage(tok, chat, parte);
+      if (!x.ok) return err(res, 502, x.error || 'Telegram no aceptó el mensaje');
+    }
+    console.log(`[vendedores] línea de ${r.vendedor} (${mes}) → Cuentas Imperium: ${partes.length} mensaje(s)`);
+    ok(res, { enviado: true, vendedor: r.vendedor, mes, chat, partes: partes.length,
+      proveedores: r.proveedores.length, total_usdt: r.totalUsdt });
+  }));
   app.get('/api/os/vendedores/:id', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     // la facturación se calcula UNA vez y se reparte: el vendedor y sus clientes salen de ahí

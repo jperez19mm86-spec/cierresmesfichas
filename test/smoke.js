@@ -9041,6 +9041,16 @@ async function main() {
     /* Si el papel de un vendedor se rompe, no se ve hasta que alguien lo abre: el botón sigue ahí
        y la ventana sale en blanco. */
     const srcRut = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    /* ── TRES GRUPOS DE TELEGRAM, Y NO SON EL MISMO ──────────────────────────────────────────
+       `apiGrupoMatriz` recibe las cuentas de TBS · `grupoInterno` los avisos del chat ·
+       `tgChatInterno` es «Cuentas Imperium», donde van las de externos y las de vendedores.
+       Mandar la cuenta de un vendedor al grupo equivocado no se deshace. */
+    check('vendedores: la línea se manda al grupo de Cuentas Imperium, no al de TBS',
+      /rama-proveedores\/enviar/.test(srcRut)
+      && /tgChatInterno[\s\S]{0,600}?ramaPorProveedor/.test(srcRut));
+    check('vendedores: y el envío se pregunta antes, diciendo a dónde va',
+      /venEnviarLinea/.test(uiVen) && /Cuentas Imperium/.test(uiVen)
+      && /confirm\('\u00bfMandar la l\u00ednea de/.test(uiVen));
     check('vendedores: la ruta de la línea existe y va antes que la de /:id',
       srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") > 0
       && srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") < srcRut.indexOf("app.get('/api/os/vendedores/:id'"));
