@@ -3433,13 +3433,13 @@ function abrirSesion(jugadorId, sesionId){
     ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
       para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por
       <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
+    ${/* 🔑 El texto le habla a quien está atendiendo, no a quien programó: para qué le sirve, y
+         qué hacer cuando no aparece. Sin nombres de campos ni explicaciones del motor. */''}
     ${notaInfo('matriz',
       'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
-      'Sirve para responder «¿por qué se le pagó eso?»: se ve el símbolo que hizo la línea, cuántas '
-      + 'posiciones entraron y cuánto pagó. <b>No todos los juegos la mandan</b> — cuando el '
-      + 'proveedor no la manda, se muestra lo que sí llega y no se dibuja una grilla inventada. '
-      + 'Los números son los símbolos del juego: el casino no publica las figuritas, así que va el '
-      + 'número, que es lo que permite seguir la línea.')}
+      'Sirve para responder <b>«¿por qué se le pagó eso?»</b>: se ve el símbolo que hizo la línea, '
+      + 'cuántas posiciones entraron y cuánto pagó. <b>No todos los juegos la muestran.</b> Si '
+      + 'tenés dudas con alguna que no aparece, escribinos a soporte y la miramos con vos.')}
     <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
     <span class="mono">round_id</span>. Lo que llega es siempre lo mismo: los importes y los
     horarios de la ronda, nunca su desarrollo.</div>
