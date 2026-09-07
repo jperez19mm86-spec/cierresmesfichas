@@ -180,8 +180,26 @@
 
   /* ══════ 1 · ENTRAR: la identidad la manda el casino ══════ */
 
+  /* 🔴 SIN ESTO, «SE VENCIÓ LA SESIÓN» DEJABA LA PANTALLA SIN DÓNDE ESCRIBIR LA CLAVE. Al entrar,
+     el campo de contraseña se QUITA del documento —es lo único que calla el «¿querés guardar la
+     contraseña?» de Chrome— y se repone al salir. Pero al vencerse la sesión nadie lo reponía: se
+     volvía al login, el cartel decía «entrá de nuevo» y el campo no existía. La única salida era
+     recargar la página, y nadie tiene por qué saber eso.
+     Visto en producción el 7-sep-2026 con la sesión del dueño: `document.getElementById('p')`
+     devolvía null en la pantalla de entrar.
+     🔑 Y el usuario se vuelve a poner: está guardado desde que entró, pero el campo se limpia al
+     apagarlo. Que lo tenga que escribir de nuevo cada vez que el servidor se reinicia es la queja
+     de «me lo pide cada vez». */
   function volverAlLogin(aviso) {
     try { clearInterval(latido); window.__caja_sesion = null; mostrar('login'); } catch (e) {}
+    try { apagarLogin(false); } catch (e) { /* si no se puede reponer, al menos se avisa */ }
+    try {
+      const u = document.getElementById('u');
+      const ultimo = localStorage.getItem(ULTIMO);
+      if (u && !u.value && ultimo) u.value = ultimo;
+      const p = document.getElementById('p');
+      if (p) p.focus();
+    } catch (e) { /* el aviso importa más */ }
     if (aviso) avisarEnLogin(aviso);
   }
 

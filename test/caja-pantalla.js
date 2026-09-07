@@ -557,6 +557,20 @@ check('el detalle de la ronda se lee de la caché, no de un argumento que no lle
   /\}\), \(\) => \{[\s\S]{0,600}?const d = cache\.get\(clave\);/.test(conector)
   && !/\}\), \(d\) => \{\n\s*cache\.set\(clave, d\);/.test(conector));
 
+/* ── 12 · volver al login tiene que dejar entrar ────────────────────────────────────────────────
+   🔴 EL QUE DEJABA LA PANTALLA SIN CAMPO DE CONTRASEÑA. Al entrar, ese campo se QUITA del
+   documento —es lo único que calla el «¿querés guardar la contraseña?» de Chrome— y se reponía
+   sólo al tocar «Salir». Cuando la sesión vencía, se volvía al login con el cartel «entrá de
+   nuevo» y sin campo donde escribir: la única salida era recargar la página.
+   Visto en producción el 7-sep-2026 con la sesión del dueño. */
+check('al vencerse la sesión se repone el campo de la contraseña',
+  /function volverAlLogin\(aviso\) \{[\s\S]{0,400}?apagarLogin\(false\);/.test(conector));
+check('y se vuelve a poner el usuario que ya estaba guardado',
+  /if \(u && !u\.value && ultimo\) u\.value = ultimo;/.test(conector));
+check('el campo se quita al entrar y se guarda para reponerlo, no se destruye',
+  /campoClaveGuardado = \{ el: p, donde: p\.parentNode, antes: p\.nextSibling \}/.test(conector)
+  && /donde\.insertBefore\(el, antes\)/.test(conector));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
