@@ -1,3 +1,5 @@
+/* Se envuelve en una función async: una verificación necesita esperar una promesa. */
+(async () => {
 /* ══════ LOS TESTS DE LA PANTALLA ══════
 
    `test/caja.js` cubre el servidor. Esto cubre lo que la pantalla PIENSA: los números que lee, los
@@ -510,9 +512,54 @@ check('la fila lleva su flecha y la grilla le hace lugar',
   void JUGADAS;
 }
 
+/* ── 11 · lo que lee el cliente no es el diario de obra ─────────────────────────────────────────
+   🔴 Se le mostró a un cajero, adentro de una «i», un texto que decía «el 4-sep dije que el casino
+   no la daba, estaba equivocado… el dueño lo mostró abriendo el [LOG]». Eso es mi cambio de
+   opinión, no información para quien está trabajando. Las notas explican CÓMO USAR la pantalla y
+   qué límites tiene; el porqué histórico va en los comentarios del código, que el cliente no ve. */
+{
+  const visibles = [...htmlCaja.matchAll(/notaInfo\(\s*'([^']+)'\s*,([\s\S]{0,1600}?)\)\}/g)];
+  const prohibidas = /(dije que|equivocad|el dueño|reportad|medido el|\d-sep-20\d\d|\[LOG\])/i;
+  const sucias = visibles
+    .map(([, clave, cuerpo]) => [clave, cuerpo.replace(/\/\*[\s\S]*?\*\//g, '')])
+    .filter(([, cuerpo]) => prohibidas.test(cuerpo))
+    .map(([clave]) => clave);
+  check('ninguna nota le cuenta al cliente la historia del arreglo',
+    sucias.length === 0, sucias.length ? sucias.join(', ') : `${visibles.length} notas limpias`);
+  check('y la de la matriz explica para qué sirve',
+    /responder «¿por qué se le pagó eso\?»/.test(htmlCaja));
+}
+
+/* 🔴 EL CALLBACK QUE NO RECIBÍA NADA. `pedirUnaVez` guarda la respuesta y llama al callback SIN
+   argumentos. Escrito como `(d) => …`, `d` llegaba `undefined` y las rondas no se cargaban nunca:
+   la matriz no abría aunque el servidor la devolviera bien. */
+/* Y se EJECUTA el `pedirUnaVez` de verdad, recortado del conector, para probar el contrato: si
+   alguna vez pasara la respuesta como argumento, este test lo diría en vez de fallar en pantalla. */
+{
+  const desde = conector.indexOf('function pedirUnaVez(');
+  const codigo = conector.slice(desde, conector.indexOf('\n  }', desde) + 4);
+  const cache = new Map(); const yaPedido = new Set();
+  // eslint-disable-next-line no-new-func
+  const hacer = new Function('cache', 'yaPedido', codigo + '; return pedirUnaVez;')(cache, yaPedido);
+  let argumentos = null; let listo;
+  const esperar = new Promise((r) => { listo = r; });
+  hacer('k', () => Promise.resolve({ ok: true, rondas: [{ id: '1' }] }),
+    function (...args) { argumentos = args; listo(); });
+  await esperar;
+  check('pedirUnaVez llama al callback SIN argumentos',
+    argumentos && argumentos.length === 0, `recibió ${argumentos ? argumentos.length : '?'}`);
+  check('y deja la respuesta en la caché, que es de donde hay que leerla',
+    cache.get('k') && cache.get('k').rondas.length === 1);
+}
+
+check('el detalle de la ronda se lee de la caché, no de un argumento que no llega',
+  /\}\), \(\) => \{[\s\S]{0,600}?const d = cache\.get\(clave\);/.test(conector)
+  && !/\}\), \(d\) => \{\n\s*cache\.set\(clave, d\);/.test(conector));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
   console.log('Fallaron:\n' + fallaron.map((v) => '  · ' + v.nombre).join('\n'));
   process.exit(1);
 }
+})();

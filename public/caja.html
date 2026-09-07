@@ -3435,12 +3435,11 @@ function abrirSesion(jugadorId, sesionId){
       <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
     ${notaInfo('matriz',
       'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
-      'El 4-sep-2026 dije que el casino no la daba. Estaba equivocado: la lista de sesiones no la '
-      + 'trae, pero la consulta de UNA sesión sí — es la misma dirección con un parámetro más. '
-      + 'El dueño lo mostró abriendo el <b>[LOG]</b> del panel del casino, y de ahí salió. '
-      + '<b>No todas se ven igual</b>: hay proveedores que no mandan grilla, y entonces se muestra '
-      + 'lo que sí llega. Los dibujitos de los símbolos el motor no los sirve, así que va el número '
-      + 'de cada símbolo.')}
+      'Sirve para responder «¿por qué se le pagó eso?»: se ve el símbolo que hizo la línea, cuántas '
+      + 'posiciones entraron y cuánto pagó. <b>No todos los juegos la mandan</b> — cuando el '
+      + 'proveedor no la manda, se muestra lo que sí llega y no se dibuja una grilla inventada. '
+      + 'Los números son los símbolos del juego: el casino no publica las figuritas, así que va el '
+      + 'número, que es lo que permite seguir la línea.')}
     <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
     <span class="mono">round_id</span>. Lo que llega es siempre lo mismo: los importes y los
     horarios de la ronda, nunca su desarrollo.</div>

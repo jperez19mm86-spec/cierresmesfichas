@@ -1562,8 +1562,13 @@
       desde: (ses.datetime_open || '').slice(0, 10),
       hasta: (ses.datetime_last || ses.datetime_open || '').slice(0, 10),
       limite: 200,
-    }), (d) => {
-      cache.set(clave, d);
+    }), () => {
+      /* 🔴 `pedirUnaVez` LLAMA A ESTE CALLBACK SIN ARGUMENTOS: él mismo guarda la respuesta en la
+         caché. Yo lo escribí como `(d) => …` esperando recibirla, así que `d` llegaba `undefined`,
+         el bloque no se ejecutaba nunca y las rondas no se cargaban — o sea que la matriz no se
+         abría ni tocando la jugada, aunque el servidor la devolviera perfecta.
+         Reportado el 7-sep-2026. La respuesta se lee de donde de verdad quedó. */
+      const d = cache.get(clave);
       if (d && d.ok && (d.rondas || []).length) {
         JUGADAS[sesionId] = d.rondas.map((r) => ({
           round_id: String(r.id), dateTime: r.cuando,
