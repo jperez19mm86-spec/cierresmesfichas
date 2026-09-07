@@ -8990,6 +8990,22 @@ async function main() {
       && /td\.right, th\.right \{ font-variant-numeric:tabular-nums; \}/.test(cssPanel));
   }
 
+  /* ── LAS DOS COLUMNAS DE VENDEDORES SE BUSCAN CON LA CLAVE CORRECTA ────────────────────────
+     «Su rama cuesta» y «Debe hoy» salían en «—» para TODOS y nadie se enteraba: el reparto se
+     indexa por el NOMBRE del vendedor y se buscaba por su id, y la cuenta del cliente devuelve
+     `total` y se leía `saldo`. Los dos fallos son silenciosos —una columna vacía no rompe nada—
+     y son justo el número que explica por qué un vendedor con 33 clientes paga 62,69. */
+  {
+    const uiVen = FUENTE_PANEL();
+    check('vendedores: la rama se busca por nombre, que es como la indexa el reparto',
+      /porGrupo\[f\.v\.nombre\]/.test(uiVen) && !/porGrupo\[f\.v\.id\]/.test(uiVen));
+    check('vendedores: «Debe hoy» lee `total`, que es el campo que manda el servidor',
+      /cuenta \|\| \{\}\)\.total/.test(uiVen) && !/cuenta \|\| \{\}\)\.saldo/.test(uiVen));
+    const srcVen = fs.readFileSync(path.join(ROOT, 'src', 'vendedores.service.js'), 'utf8');
+    check('vendedores: y el servicio sigue devolviendo el grupo por nombre',
+      /return c\.nombre;/.test(srcVen) && /rama_usdt/.test(srcVen));
+  }
+
   check('panel: los espacios se llaman por lo que hacen',
     /\['\/','🎰 Fichas'\]/.test(r.data) && /\['\/os','📊 Panel'\]/.test(r.data)
     && /\['\/chat-externo','💬 Chat'\]/.test(r.data));

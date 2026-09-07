@@ -3604,15 +3604,22 @@ async function venCalcular(){
   try {
     const rep = await api('/api/os/vendedores-reparto/' + encodeURIComponent(_venMes));
     if (rep && rep.ok) {
+      /* El reparto viene indexado por el NOMBRE del vendedor (`grupo`), no por su id: `grupoDe`
+         del servicio devuelve `c.nombre`. Buscarlo por `f.v.id` no encontraba nunca nada y las dos
+         columnas quedaban en «—» para todos, en silencio — que es justo lo que hace falta para
+         entender por qué Alexa paga 62,69 con 33 clientes. El pie de la CASA sí andaba porque ahí
+         se busca por `porGrupo.CASA`, que es un nombre. */
       const porGrupo = {}; (rep.grupos || []).forEach(g => { porGrupo[g.grupo] = g; });
-      filas.forEach(f => { const g = porGrupo[f.v.id]; if (g) { f.rama = g.rama_usdt; f.aCobrar = g.aCobrar_usdt; } });
+      filas.forEach(f => { const g = porGrupo[f.v.nombre]; if (g) { f.rama = g.rama_usdt; f.aCobrar = g.aCobrar_usdt; } });
       _venCasa = porGrupo.CASA || null;
     }
   } catch (e) { /* si no sale, se muestra lo de siempre: es información de más, no menos */ }
   out.innerHTML = '<div class="empty">Leyendo lo que debe cada uno…</div>';
   for (const f of filas) {
+    /* La cuenta del cliente devuelve `total`, no `saldo`: ese campo no existe y «Debe hoy» salía
+       vacía siempre. Julian debe 139,30 y David 979,15 — se veían los dos como «—». */
     try { const c = await api('/api/os/clientes/' + f.v.id + '/cuenta');
-      f.saldo = ((c || {}).cuenta || {}).saldo ?? null; } catch (e) { f.saldo = null; }
+      f.saldo = ((c || {}).cuenta || {}).total ?? null; } catch (e) { f.saldo = null; }
   }
   _venData = filas;
   venPintar();
