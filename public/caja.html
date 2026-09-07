@@ -2882,7 +2882,9 @@ function pintarMovs(){
 function ultimoMovimientoDe(jugadorId){
   const jug = TERMINALES.find(t => t.id === jugadorId);
   if (!jug) return null;
-  const suyos = (MOVS.cajero['usual:players'] || []).filter(m => m.user === jug.login);
+  /* 🔑 Cinturón además del arreglo de arriba: si algún día `MOVS.cajero` vuelve a faltar, acá se
+     pierde una fecha, no se cae la ficha entera de un jugador. */
+  const suyos = ((MOVS.cajero || {})['usual:players'] || []).filter(m => m.user === jug.login);
   if (!suyos.length) return null;
   const m = suyos.reduce((a, b) => a.datetime > b.datetime ? a : b);
   return { cuando: m.datetime, tipo: m.operation, monto: m.cash };

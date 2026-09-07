@@ -481,6 +481,35 @@ check('la fila lleva su flecha y la grilla le hace lugar',
   /<span class="fl" aria-hidden="true">›<\/span>\n\s*<button class="bal"/.test(htmlCaja)
   && /grid-template-columns:auto minmax\(80px, 1fr\) auto minmax\(0, 190px\)/.test(htmlCaja));
 
+/* ── 10 · vaciar los ejemplos no puede romper la estructura ──────────────────────────────────────
+   🔴 EL QUE IMPEDÍA ABRIR CUALQUIER JUGADOR. Al entrar se tiran los datos de ejemplo; el barrido
+   borraba TODAS las claves de `MOVS`, incluidas `agente` y `cajero`, que no son ejemplo sino los
+   cajones. Después, la ficha de un jugador lee `MOVS.cajero['usual:players']` sobre `undefined` y
+   revienta: no abría ni el historial, ni las credenciales, ni el cambio de contraseña.
+   Visto en producción con la sesión real el 7-sep-2026. */
+{
+  /* Se ejecuta el barrido de verdad, sobre un MOVS con la misma forma que el de la pantalla. */
+  const MOVS = { agente: { 'usual:to': [1, 2] }, cajero: { 'usual:players': [3] } };
+  const JUGADAS = { '595': [1] };
+  /* Se corta justo ANTES del `} catch` para que el trozo quede balanceado: el `try` que lo abre
+     está fuera del recorte. */
+  const desde = conector.indexOf('const m = window.MOVS');
+  const barrido = conector.slice(desde, conector.indexOf('} catch (e) { /* si no existe', desde));
+  // eslint-disable-next-line no-new-func
+  new Function('MOVS', barrido.replace("window.MOVS || eval('MOVS')", 'MOVS'))(MOVS);
+  check('quedan los cajones de MOVS después de tirar los ejemplos',
+    MOVS.cajero && typeof MOVS.cajero === 'object' && MOVS.agente && typeof MOVS.agente === 'object',
+    JSON.stringify(Object.keys(MOVS)));
+  check('pero adentro no queda ningún movimiento de ejemplo',
+    Object.keys(MOVS.cajero).length === 0 && Object.keys(MOVS.agente).length === 0);
+  check('y leer las jugadas de un jugador no puede tirar la ficha',
+    (() => { try { return (((MOVS.cajero || {})['usual:players'] || []).length) === 0; }
+             catch (e) { return false; } })());
+  check('la pantalla además lee a la defensiva',
+    /\(\(MOVS\.cajero \|\| \{\}\)\['usual:players'\] \|\| \[\]\)/.test(htmlCaja));
+  void JUGADAS;
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

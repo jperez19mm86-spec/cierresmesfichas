@@ -248,7 +248,25 @@
       try { const l = window[nombre] || eval(nombre); if (Array.isArray(l)) l.length = 0; }
       catch (e) { /* si esa lista no existe en esta versión, no hay nada que vaciar */ }
     }
-    for (const nombre of ['MOVS', 'JUGADAS', 'CONTACTOS']) {
+    /* 🔴 `MOVS` NO SE VACÍA IGUAL QUE LOS OTROS, Y ESTO TIRABA MEDIA APP. Sus claves de primer
+       nivel —`agente`, `cajero`— NO son datos de ejemplo: son la estructura. Borrándolas,
+       `MOVS.cajero['usual:players']` pasa a leer una propiedad de `undefined` y revienta. Y esa
+       línea vive en la ficha de un jugador, así que ABRIR CUALQUIER JUGADOR tiraba la pantalla
+       entera: ni historial, ni credenciales, ni cambiar la contraseña, ni eliminar.
+       Reportado el 7-sep-2026 —«ni tocando el usuario, ni con la flecha»— y visto en producción
+       con la sesión real: `TypeError: Cannot read properties of undefined (reading
+       'usual:players')`. Se vacían los movimientos de adentro y los cajones quedan. */
+    try {
+      const m = window.MOVS || eval('MOVS');
+      if (m && typeof m === 'object') {
+        Object.keys(m).forEach((rol) => {
+          if (m[rol] && typeof m[rol] === 'object') {
+            Object.keys(m[rol]).forEach((tipo) => { delete m[rol][tipo]; });
+          } else { delete m[rol]; }
+        });
+      }
+    } catch (e) { /* si no existe en esta versión, no hay nada que vaciar */ }
+    for (const nombre of ['JUGADAS', 'CONTACTOS']) {
       try {
         const o = window[nombre] || eval(nombre);
         if (o && typeof o === 'object') Object.keys(o).forEach((k) => { delete o[k]; });
