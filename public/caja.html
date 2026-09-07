@@ -826,6 +826,26 @@ button{font-family:inherit}
 .mov .qu span{font-size:11.5px; color:var(--mut)}
 .titulopant{margin:12px 0 2px; font-size:19px; font-weight:800; letter-spacing:-.01em}
 .bajotitulo{margin:0 0 12px; font-size:12px; color:var(--mut); line-height:1.45}
+/* Las jugadas de una sesión: los rótulos una vez arriba, las cifras en columna. Se lee para abajo
+   —cuánto puso, cuánto sacó, cómo quedó— sin repetir una palabra en cada renglón. */
+.jug-cab, .jug{display:grid; grid-template-columns:46px 1fr 1fr minmax(64px, auto);
+  align-items:center; gap:10px}
+.jug-cab{padding:2px 2px 6px; font-size:10.5px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--mut)}
+.jug-cab span:first-child{text-align:left}
+.jug-cab span:not(:first-child), .jug .num{text-align:right}
+.jug{padding:9px 2px; border-top:1px solid var(--bor); font-size:14px}
+.jug .hora{font-size:11.5px; color:var(--mut)}
+.jug .apo{color:var(--txt)}
+.jug .gan.nada{color:var(--mut2)}
+.jug .net{font-weight:700}
+.jug .net.mas{color:var(--ok)} .jug .net.menos{color:var(--no)}
+.jug .jug-mas{grid-column:1 / -1; display:none; font-size:11.5px; color:var(--mut); padding-top:6px}
+.jug.abierta .jug-mas{display:block}
+.jug-toca{cursor:pointer; border-radius:10px; margin:0 -6px; padding-left:6px; padding-right:6px}
+.jug-toca:hover{background:var(--bg3)}
+.jug-toca:focus-visible{outline:2px solid var(--g); outline-offset:-2px}
+
 /* La grilla: cuadrada, legible, y que entre en un teléfono sin desbordar. */
 .matriz-caja{margin-top:8px}
 .matriz{display:grid; gap:3px; margin-bottom:8px; max-width:290px}
@@ -3419,22 +3439,23 @@ function abrirSesion(jugadorId, sesionId){
            es para no tener que adivinarlo. */''}
     ${resumen([['Jugadas', js.length], ['Saldo al empezar', fmt(s.balance_before)],
                 ['Le quedó al jugador', (s.profit>=0?'+':'') + fmt(s.profit), s.profit>=0?'ok':'no']])}
+    ${/* 🔴 LOS RÓTULOS OCUPABAN MÁS QUE LOS NÚMEROS. Cada renglón decía «Apostó 260 · ganó 172»:
+         la misma palabra repetida en cada jugada, más ancha que el dato que se viene a mirar.
+         Señalado el 7-sep-2026 — «el cliente quiere ver 260, 172, rojo, fin». Los rótulos van UNA
+         vez arriba y abajo quedan las cifras alineadas en columna: se lee para abajo y se comparan
+         de un vistazo, en vez de rastrear el número entre palabras. */''}
+    <div class="jug-cab"><span>Hora</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
     ${js.map(x => {
       const neto = x.win - x.bet;
-      /* Misma forma que las otras dos listas: la hora a la izquierda como columna y el saldo de
-         antes guardado hasta que se toca. Acá el «neto» sí se queda a la vista: es el resultado
-         de la jugada, o sea lo que se viene a mirar. */
-      return `<div class="mov" role="button" tabindex="0"
+      const hayDetalle = !!(x.matriz || (x.lineas && x.lineas.length));
+      return `<div class="jug ${hayDetalle ? 'jug-toca' : ''}"${hayDetalle ? ` role="button" tabindex="0"
         onclick="this.classList.toggle('abierta')"
-        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('abierta')}">
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('abierta')}"` : ''}>
       <span class="hora">${x.dateTime.slice(11, 16)}</span>
-      <span class="sig ${neto >= 0 ? '' : 'menos'}">${neto >= 0 ? '↑' : '↓'}</span>
-      <span class="qu">
-        <b>Apostó <span class="num">${fmt(x.bet)}</span>${
-          x.win ? ` · ganó <span class="num t-ok">${fmt(x.win)}</span>` : ' · sin premio'}</b></span>
-      <span class="mn num ${neto >= 0 ? 'mas' : 'menos'}">${neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
-      <span class="antes">saldo antes <b>${fmt(x.before)}</b> · el neto de la jugada es lo que
-        muestra la fila${(x.matriz || (x.lineas && x.lineas.length)) ? dibujarMatriz(x) : ''}</span>
+      <span class="num apo">${fmt(x.bet)}</span>
+      <span class="num gan ${x.win ? 't-ok' : 'nada'}">${x.win ? fmt(x.win) : '—'}</span>
+      <span class="num net ${neto >= 0 ? 'mas' : 'menos'}">${neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
+      <span class="jug-mas">saldo antes <b>${fmt(x.before)}</b>${hayDetalle ? dibujarMatriz(x) : ''}</span>
     </div>`; }).join('')}
     ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
       para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por

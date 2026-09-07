@@ -580,6 +580,18 @@ check('el campo se quita al entrar y se guarda para reponerlo, no se destruye',
   /campoClaveGuardado = \{ el: p, donde: p\.parentNode, antes: p\.nextSibling \}/.test(conector)
   && /donde\.insertBefore\(el, antes\)/.test(conector));
 
+/* 🔴 LOS RÓTULOS OCUPABAN MÁS QUE LOS NÚMEROS. Cada renglón repetía «Apostó … · ganó …», más
+   ancho que el dato. Ahora los rótulos van una vez, como encabezado, y las cifras en columna. */
+check('las jugadas se leen en columnas, con el rótulo una sola vez',
+  /<div class="jug-cab"><span>Hora<\/span><span>Apostó<\/span><span>Ganó<\/span><span>Neto<\/span><\/div>/.test(htmlCaja)
+  && !/<b>Apostó <span class="num">/.test(htmlCaja));
+check('y cada fila lleva las tres cifras alineadas',
+  /<span class="num apo">/.test(htmlCaja)
+  && /<span class="num gan /.test(htmlCaja)
+  && /<span class="num net /.test(htmlCaja));
+check('sin premio se muestra una raya, no un cero que parece un dato',
+  /\$\{x\.win \? fmt\(x\.win\) : '—'\}/.test(htmlCaja));
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
