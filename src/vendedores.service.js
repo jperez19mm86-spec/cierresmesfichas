@@ -200,20 +200,42 @@ async function repartoCosto(mes) {
   todos.filter((c) => c.es_vendedor && !esLaCasa(c)).forEach((v) => {
     paneles.filter((p) => p.cliente_id === v.id).forEach((p) => { esDeVendedor[String(p.id_usuario)] = v.id; });
   });
+  /* ── Y ADEMÁS, LO NETO: CUÁNTO GENERA ESA RAMA ──────────────────────────────────────────────
+     La dueña lo dijo así: «por cada vendedor, jalás sus paneles, ves lo que generan y lo ponés al
+     precio real — eso te dice cuánto genera. El único error está en la casa, porque pide balance
+     para todos esos paneles».
+
+     Y es exactamente lo que pasa: en julio 2026 los paneles de IGLatam declaraban 1.019,74 que
+     ya estaban contados abajo —`GanamosBot-SA` son 954,48 que son Fran y Ariel, clientes de
+     Julian—. Sumar todo daba 21.430,53 cuando lo real son 19.372,56: un 5,1% de más.
+
+     `neto_usdt` resta TODO lo que cuelga con costo, no sólo los otros vendedores, y va con PISO
+     EN CERO. El piso es lo que hace que se pueda: sin él da negativo, porque cada nivel del
+     casino es una consulta aparte con su propio filtro `profit > 0` y los hijos suman más que el
+     padre (GanamosBot-SA: 954,48 arriba, 964,58 abajo). Un cero de más es no cobrar por plata que
+     ya se contó abajo; un negativo es inventar plata.
+
+     ⚠️ `neto_usdt` es para MEDIR, no para cobrar. Cobrar sigue saliendo de `propio_usdt`, que
+     resta sólo entre vendedores: hay clientes sin ninguna factura —Lucía, Yamila, Pablo bajo
+     Alexa— cuyo costo NO lo paga nadie, y restarlos de la cuenta del vendedor haría desaparecer
+     esa plata. Cuál de los dos se cobra es una decisión del negocio, no de este archivo. */
   const filas = [];
   for (const [k, v] of Object.entries(costo)) {
     const [nodo, divisa] = k.split('|');
-    let ajeno = 0;
+    let ajeno = 0; let abajo = 0;
     for (const [k2, v2] of Object.entries(costo)) {
       if (k2 === k) continue;
       const [n2, d2] = k2.split('|');
       if (d2 !== divisa) continue;
+      if (!esDescendiente(v2.panel, nodo)) continue;
+      abajo += v2.usdt;                                                       // cualquiera
       if (!esDeVendedor[n2] || esDeVendedor[n2] === v.cliente_id) continue;   // sólo otro vendedor
-      if (esDescendiente(v2.panel, nodo)) ajeno += v2.usdt;
+      ajeno += v2.usdt;
     }
     filas.push({ nodo, divisa, panel: v.panel.nombre, cliente_id: v.cliente_id,
       rama_usdt: money.round(String(v.usdt), 2),
       propio_usdt: money.round(String(v.usdt - ajeno), 2),
+      neto_usdt: money.round(String(Math.max(0, v.usdt - abajo)), 2),
       yaArriba_usdt: money.round(String(ajeno), 2),
       grupo: grupoDe(v.cliente_id) });
   }
@@ -226,23 +248,29 @@ async function repartoCosto(mes) {
      Sumar la rama y cobrarla le cargaría a Henry el costo de Titan, que Titan ya paga aparte. */
   const dueno = {}; todos.forEach((c) => { dueno[c.id] = c; });
   const porGrupo = {};
-  const acc = (clave, campo, f) => {
-    const g = porGrupo[clave] = porGrupo[clave] || { grupo: clave, aCobrar_usdt: '0', rama_usdt: '0', paneles: [] };
-    g[campo] = money.add(g[campo], f.propio_usdt);
+  const acc = (clave, campo, monto) => {
+    const g = porGrupo[clave] = porGrupo[clave] || { grupo: clave, aCobrar_usdt: '0', rama_usdt: '0',
+      rama_bruta_usdt: '0', paneles: [] };
+    g[campo] = money.add(g[campo], monto);
   };
   filas.forEach((f) => {
     const d = dueno[f.cliente_id] || {};
     // a cobrar: sólo si el panel es DE un vendedor (y la casa no se cobra)
     const suyo = d.es_vendedor && !esLaCasa(d) ? d.nombre : (esLaCasa(d) || !d.es_vendedor ? null : null);
-    acc(f.grupo, 'rama_usdt', f);
-    if (suyo) acc(suyo, 'aCobrar_usdt', f);
-    else if (esLaCasa(d) || f.grupo === CASA) acc(CASA, 'aCobrar_usdt', f);
-    const g = porGrupo[f.grupo]; if (Number(f.propio_usdt)) g.paneles.push(f);
+    // La rama va con el NETO: es «cuánto genera», y sumar padre e hijo cuenta la misma plata dos
+    // veces. `rama_bruta_usdt` queda al lado para poder ver cuánto se estaba duplicando.
+    acc(f.grupo, 'rama_usdt', f.neto_usdt);
+    acc(f.grupo, 'rama_bruta_usdt', f.propio_usdt);
+    if (suyo) acc(suyo, 'aCobrar_usdt', f.propio_usdt);
+    else if (esLaCasa(d) || f.grupo === CASA) acc(CASA, 'aCobrar_usdt', f.propio_usdt);
+    const g = porGrupo[f.grupo]; if (Number(f.propio_usdt) || Number(f.neto_usdt)) g.paneles.push(f);
   });
   const lista = Object.values(porGrupo)
-    .map((g) => ({ ...g, aCobrar_usdt: money.round(g.aCobrar_usdt, 2), rama_usdt: money.round(g.rama_usdt, 2) }))
+    .map((g) => ({ ...g, aCobrar_usdt: money.round(g.aCobrar_usdt, 2), rama_usdt: money.round(g.rama_usdt, 2),
+      rama_bruta_usdt: money.round(g.rama_bruta_usdt, 2) }))
     .sort((a, b) => Number(b.rama_usdt) - Number(a.rama_usdt));
-  const total = filas.reduce((a, f) => money.add(a, f.propio_usdt), '0');
+  const total = filas.reduce((a, f) => money.add(a, f.neto_usdt), '0');
+  const totalBruto = filas.reduce((a, f) => money.add(a, f.propio_usdt), '0');
   const casa = (lista.find((g) => g.grupo === CASA) || {}).aCobrar_usdt || '0';
   const aCobrar = lista.filter((g) => g.grupo !== CASA).reduce((a, g) => money.add(a, g.aCobrar_usdt), '0');
   /* ⚠️ EL RESIDUO NEGATIVO ES REAL Y SE INFORMA. Cada nivel del casino es una consulta aparte con
@@ -253,6 +281,9 @@ async function repartoCosto(mes) {
     .map((f) => ({ panel: f.panel, divisa: f.divisa, propio_usdt: f.propio_usdt }));
   return { ok: true, mes: m, grupos: lista, fallaron, negativos,
     total_usdt: money.round(total, 2),
+    // Lo que daba antes de descontar lo anidado, para poder ver de cuánto era el error.
+    total_bruto_usdt: money.round(totalBruto, 2),
+    duplicado_usdt: money.round(money.sub(totalBruto, total), 2),
     casa_usdt: money.round(casa, 2),
     aCobrar_usdt: money.round(aCobrar, 2) };
 }

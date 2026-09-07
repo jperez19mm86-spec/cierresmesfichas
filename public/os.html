@@ -3557,7 +3557,7 @@ function pagoCSV(){ window.open('/api/os/pago-proveedores/planilla.csv?mes='+enc
    Esta cuenta se calculaba en el backend desde el 2-ago, pero no la mostraba ninguna pantalla
    y la emisión de externos los salteaba (`if (c.es_vendedor) continue`). Resultado: los 8
    vendedores tenían deuda 0 y esa plata no se cobraba salvo que alguien la sacara a mano. */
-let _venMes = mesDeCierre(), _venData = null, _venCasa = null;
+let _venMes = mesDeCierre(), _venData = null, _venCasa = null, _venDup = null;
 async function cieVendedores(){
   const b = document.getElementById('cie-body');
   b.innerHTML = `
@@ -3612,6 +3612,7 @@ async function venCalcular(){
       const porGrupo = {}; (rep.grupos || []).forEach(g => { porGrupo[g.grupo] = g; });
       filas.forEach(f => { const g = porGrupo[f.v.nombre]; if (g) { f.rama = g.rama_usdt; f.aCobrar = g.aCobrar_usdt; } });
       _venCasa = porGrupo.CASA || null;
+      _venDup = rep.duplicado_usdt || null;   // cuánto estaba contado dos veces antes de netear
     }
   } catch (e) { /* si no sale, se muestra lo de siempre: es información de más, no menos */ }
   out.innerHTML = '<div class="empty">Leyendo lo que debe cada uno…</div>';
@@ -3659,6 +3660,9 @@ function venPintar(){
       no se le cobra —lo paga cada uno en su factura— y cobrárselo también sería cobrar dos veces.
       Cuando las dos columnas dan igual es que no tiene clientes.
       ${_venCasa ? '<div style="margin-top:5px">De ese total, <b>' + money(_venCasa.rama_usdt) + ' USDT son de la CASA</b> (IGLatam y los que no cuelgan de nadie): no se le cobran a ningún vendedor.</div>' : ''}
+      ${Number(_venDup) > 0 ? '<div style="margin-top:5px">La rama es lo que generan sus paneles <b>al precio real</b>, sin contar dos veces: '
+        + 'un panel que tiene otro adentro ya lo incluye. Descontado por eso: <b>' + money(_venDup) + ' USDT</b> '
+        + '—casi todo de la CASA, cuyos paneles están arriba de todos los demás.</div>' : ''}
     </div>`;
 }
 async function venEmitir(dry){

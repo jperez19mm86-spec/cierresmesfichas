@@ -9004,6 +9004,27 @@ async function main() {
     const srcVen = fs.readFileSync(path.join(ROOT, 'src', 'vendedores.service.js'), 'utf8');
     check('vendedores: y el servicio sigue devolviendo el grupo por nombre',
       /return c\.nombre;/.test(srcVen) && /rama_usdt/.test(srcVen));
+
+    /* ── LA RAMA ES LO QUE GENERA, SIN CONTARLO DOS VECES ────────────────────────────────────
+       Un panel que tiene otro adentro ya lo incluye: sumar padre e hijo cuenta la misma plata
+       dos veces. En julio 2026 eso inflaba el total en 2.057,97 sobre 19.372,56 —casi todo de
+       la CASA, cuyos paneles están arriba de todos—. `neto_usdt` lo descuenta.
+
+       El PISO EN CERO no es cosmético: cada nivel del casino es una consulta aparte con su
+       propio filtro `profit > 0`, así que los hijos pueden sumar más que el padre
+       (GanamosBot-SA: 954,48 arriba, 964,58 abajo). Sin piso da negativo, que es inventar plata.
+
+       Y cobrar sigue saliendo de `propio_usdt`: hay clientes sin ninguna factura cuyo costo no
+       paga nadie, y netearlos de la cuenta del vendedor haría desaparecer esa plata. */
+    check('vendedores: la rama descuenta lo que ya está contado abajo',
+      /neto_usdt/.test(srcVen) && /acc\(f\.grupo, 'rama_usdt', f\.neto_usdt\)/.test(srcVen));
+    check('vendedores: y lo hace con piso en cero, nunca negativo',
+      /Math\.max\(0, v\.usdt - abajo\)/.test(srcVen));
+    check('vendedores: lo que se COBRA sigue saliendo de propio_usdt, no del neto',
+      /acc\(suyo, 'aCobrar_usdt', f\.propio_usdt\)/.test(srcVen)
+      && !/acc\(suyo, 'aCobrar_usdt', f\.neto_usdt\)/.test(srcVen));
+    check('vendedores: se informa cuánto se descontó por estar contado dos veces',
+      /duplicado_usdt/.test(srcVen) && /duplicado_usdt/.test(FUENTE_PANEL()));
   }
 
   check('panel: los espacios se llaman por lo que hacen',
