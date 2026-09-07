@@ -9048,6 +9048,17 @@ async function main() {
     check('vendedores: la línea se manda al grupo de Cuentas Imperium, no al de TBS',
       /rama-proveedores\/enviar/.test(srcRut)
       && /tgChatInterno[\s\S]{0,600}?ramaPorProveedor/.test(srcRut));
+    /* Llega como LINK, no como 150 líneas adentro del mensaje: Telegram no puede mostrar una tabla
+       con el movimiento de cada divisa y su TC, que es justo lo que hay que mirar. */
+    check('vendedores: la línea llega como link, igual que la cuenta de TBS',
+      /vendedorLineaDoc\.crearLink/.test(srcRut) && /\/linea\/\$\{l\.token\}/.test(srcRut)
+      && /Ver el detalle por proveedor y divisa/.test(srcRut));
+    /* Y la página abre SIN login: quien la abre desde el grupo no tiene sesión del OS. */
+    const srcAuth = fs.readFileSync(path.join(ROOT, 'src', 'auth.js'), 'utf8');
+    check('vendedores: la página del link no cae en el login',
+      /\^\\\/linea\\\/\[A-Za-z0-9_-\]\+/.test(srcAuth));
+    check('vendedores: y el token de una línea no abre la cuenta de un cliente',
+      /startsWith\(PREFIJO\)/.test(fs.readFileSync(path.join(ROOT, 'src', 'vendedor-linea-doc.js'), 'utf8')));
     check('vendedores: y el envío se pregunta antes, diciendo a dónde va',
       /venEnviarLinea/.test(uiVen) && /Cuentas Imperium/.test(uiVen)
       && /confirm\('\u00bfMandar la l\u00ednea de/.test(uiVen));

@@ -26,6 +26,7 @@ const { parseMonto } = require('./lib/monto');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
+const vendedorLineaDoc = require('./vendedor-linea-doc');
 const pagoProvHtml = require('./pago-proveedores-html');
 const documentos = require('./documentos');
 const { rolDe } = require('./auth');
@@ -4820,23 +4821,24 @@ function mount(app) {
     const fmt = (x, d) => Number(x || 0).toLocaleString('es-AR',
       { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d });
     const E = telegram.escapeHtml;
-    const lineas = [];
-    r.proveedores.forEach((p) => {
-      lineas.push(`<b>${E(p.proveedor)}</b>${p.costo == null ? '' : `  <i>${E(p.costo)}%</i>`}   ${fmt(p.usdt)}`);
-      p.porDivisa.forEach((d) => lineas.push(`   ${E(d.divisa)} ${fmt(d.movimiento, 0)}  ·  TC ${E(d.tasa || '—')}  ·  ${fmt(d.usdt)}`));
-    });
-    const texto = [`🤝 <b>Cuenta de vendedor — ${E(mesCierreLbl(mes).replace('_', ' '))}</b>`,
+
+    /* UN MENSAJE CORTO Y UN LINK, como la cuenta de TBS. La primera versión mandaba las ~150 líneas
+       del detalle adentro del mensaje, cortadas en varios: llega, pero se lee mal y ensucia el
+       grupo. Telegram no puede mostrar una tabla con el movimiento de cada divisa y su tipo de
+       cambio, que es justo lo que hay que mirar. */
+    const mesNom = mesCierreLbl(mes).replace('_', ' ');
+    const l = vendedorLineaDoc.crearLink({ ok: true, vendedor: r.vendedor, mes, mesNombre: mesNom,
+      proveedores: r.proveedores, clientes: r.clientes, totalUsdt: r.totalUsdt });
+    const url = `${_urlPublica(req)}/linea/${l.token}`;
+    const texto = [`🤝 <b>Cuenta de vendedor ${E(mesNom)}</b>`,
       `<b>${E(r.vendedor)}</b>`, '',
       `💵 <b>Total: ${fmt(r.totalUsdt)} USD</b>`, '',
-      `<i>${r.proveedores.length} proveedores · ${(r.clientes || []).length} cuentas en su línea</i>`, '']
-      .concat(lineas).join('\n');
-    const partes = facturaSvc.partir(texto);
-    for (const parte of partes) {
-      const x = await telegram.sendMessage(tok, chat, parte);
-      if (!x.ok) return err(res, 502, x.error || 'Telegram no aceptó el mensaje');
-    }
-    console.log(`[vendedores] línea de ${r.vendedor} (${mes}) → Cuentas Imperium: ${partes.length} mensaje(s)`);
-    ok(res, { enviado: true, vendedor: r.vendedor, mes, chat, partes: partes.length,
+      `<i>${r.proveedores.length} proveedores · ${(r.clientes || []).length} cuentas en su línea</i>`, '',
+      `📄 <a href="${E(url)}">Ver el detalle por proveedor y divisa</a>`].join('\n');
+    const x = await telegram.sendMessage(tok, chat, texto);
+    if (!x.ok) return err(res, 502, x.error || 'Telegram no aceptó el mensaje');
+    console.log(`[vendedores] línea de ${r.vendedor} (${mes}) → Cuentas Imperium: ${url}`);
+    ok(res, { enviado: true, vendedor: r.vendedor, mes, chat, link: url,
       proveedores: r.proveedores.length, total_usdt: r.totalUsdt });
   }));
   app.get('/api/os/vendedores/:id', wrap(async (req, res) => {

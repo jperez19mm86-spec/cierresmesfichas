@@ -71,6 +71,12 @@ const PUBLIC = [
   // de llave: el token es al azar y largo, abre UNA cuenta de UN mes, y no lleva a ningún listado.
   // Sin esto el link que se le manda al cliente cae en el login — y el cliente no tiene usuario.
   /^\/cuenta\/[A-Za-z0-9_-]+\/?$/,
+  /* La LÍNEA de un vendedor, que se manda al grupo interno («Cuentas Imperium»). Misma forma de
+     llave: token al azar y largo, abre UNA línea de UN mes y no lleva a ningún listado.
+     ⚠️ OJO CON ESTE: a diferencia de la cuenta del cliente —que va proyectada y no puede llevar lo
+     que se le paga al proveedor— acá el COSTO REAL de cada proveedor es justamente el contenido.
+     Es para adentro: el link no se le manda a un cliente. */
+  /^\/linea\/[A-Za-z0-9_-]+\/?$/,
   /* Y lo mismo para la hoja del CHAT EXTERNO, con una diferencia: además de leerla, el cliente
      puede avisar que pagó (…/pague). Sólo puede CREAR el aviso, que no mueve el saldo — acreditarlo
      exige estar adentro del panel, igual que con los comprobantes de fichas. El token es al azar y

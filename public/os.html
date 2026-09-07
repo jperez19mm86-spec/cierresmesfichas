@@ -4295,8 +4295,9 @@ async function venEnviarLinea(vendedor, mes){
   const r = await api('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores/enviar',
     { method:'POST', body: JSON.stringify({ mes }) });
   if(!r || !r.ok) return toast('No salió: ' + ((r&&r.error)||''), true);
-  toast('✔ ' + vendedor + ' · ' + money(r.total_usdt) + ' USD · ' + r.proveedores + ' proveedores · '
-    + r.partes + ' mensaje(s)');
+  toast('✔ ' + vendedor + ' · ' + money(r.total_usdt) + ' USD · ' + r.proveedores + ' proveedores');
+  // El link queda a mano por si hay que reenviarlo o mirarlo sin abrir Telegram.
+  if(r.link) console.log('línea de ' + vendedor + ': ' + r.link);
 }
 async function pdfRamaProveedores(vendedor, mes){
   toast('Armando la línea de ' + vendedor + '… (tarda)');

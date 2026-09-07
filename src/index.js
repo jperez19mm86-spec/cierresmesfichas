@@ -1393,6 +1393,20 @@ app.get('/cuenta/:token', (req, res) => {
   res.send(html.pagina(r.doc, { nota: cuando ? 'Emitida el ' + cuando : null }));
 });
 
+/* La línea de un vendedor, por link. Es lo que va por Telegram: un mensaje corto y el detalle acá,
+   porque Telegram no puede mostrar una tabla con el movimiento de cada divisa y su tipo de cambio.
+   Va ANTES del comodín para no chocar con nada, y el token lleva su propio prefijo. */
+app.get('/linea/:token', (req, res) => {
+  const vd = require('./vendedor-linea-doc');
+  const r = vd.porToken(req.params.token);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, private');
+  if (!r) return res.status(404).send(vd.paginaError('No encontramos esa línea'));
+  if (r.revocado) return res.status(410).send(vd.paginaError('Este link ya no está disponible'));
+  const cuando = String(r.actualizado_at || r.creado_at || '').slice(0, 16).replace('T', ' ');
+  res.send(vd.pagina(r.doc, { nota: cuando ? 'Armada el ' + cuando : null }));
+});
+
 /* La hoja del Chat Externo, por link. Pública a propósito: el cliente la abre sin usuario ni
    contraseña. Lo que está guardado en el link es el documento YA PROYECTADO, así que acá no hay
    forma de que se escape lo que le pagás al proveedor: ese número nunca entró al link. */
