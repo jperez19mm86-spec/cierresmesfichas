@@ -9038,6 +9038,13 @@ async function main() {
     check('vendedores: la línea por proveedor también descuenta lo anidado',
       /b\.proveedor !== a\.proveedor/.test(srcVen)
       && /Math\.max\(0, a\.profit - bp\)/.test(srcVen));
+    /* Y para restar lo de abajo hay que MIRAR lo de abajo, aunque sea de otro vendedor:
+       `GanamosAlexa` es de Alexa y adentro tiene los de Fran y Ariel, que son de Julian. Mirando
+       sólo la línea de Alexa esos hijos no existen y su papel daba 380 de más — el panel entero
+       contado dos veces. */
+    check('vendedores: para armar la línea se recorren TODOS los clientes, no sólo los suyos',
+      /for \(const c of todos\) \{[\s\S]{0,900}?forzarModo: 'vendedor'/.test(srcVen)
+      && /if \(!esMio\[f\.cliente_id\]\) return;/.test(srcVen));
     /* Si el papel de un vendedor se rompe, no se ve hasta que alguien lo abre: el botón sigue ahí
        y la ventana sale en blanco. */
     const srcRut = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');

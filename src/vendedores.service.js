@@ -166,13 +166,21 @@ async function ramaPorProveedor(vendedorNombre, mes) {
   const objetivo = K(vendedorNombre);
   const mios = todos.filter((c) => K(grupoDe(c.id)) === objetivo);
   if (!mios.length) return { ok: false, error: `no encuentro clientes en la línea de "${vendedorNombre}"` };
+  const esMio = {}; mios.forEach((c) => { esMio[c.id] = true; });
 
   /* Se le pide a cada cliente su reporte EN MODO VENDEDOR: ahí el número de cada proveedor es su
      COSTO REAL, no el diferencial que paga el cliente. Es la misma cuenta que ya hace el reparto,
-     no un motor nuevo. */
+     no un motor nuevo.
+
+     ⚠️ SE RECORREN TODOS LOS CLIENTES, NO SÓLO LOS DE ESTA LÍNEA. Parece de más y es lo único que
+     hace que el número cierre: para restar lo que ya está contado abajo hay que VER lo de abajo, y
+     un panel de un vendedor puede tener colgados los de OTRO. `GanamosAlexa` es de Alexa y adentro
+     tiene los de Fran y Ariel, que son de Julian: mirando sólo la línea de Alexa, esos hijos no
+     existen, no se resta nada y su papel daba 2.183,80 cuando su rama son 1.803,65 — 380 de más,
+     que es el panel entero contado dos veces. */
   const bruto = {};          // nodo|divisa|proveedor → { profit, usdt, costo, tasa, panel, cliente }
   const fallaron = [];
-  for (const c of mios) {
+  for (const c of todos) {
     let r;
     try { r = await externosSvc.reporte({ clienteNombre: c.nombre, mes: m, forzarModo: 'vendedor' }); }
     catch (e) { fallaron.push({ cliente: c.nombre, error: String((e && e.message) || e) }); continue; }
@@ -184,7 +192,7 @@ async function ramaPorProveedor(vendedorNombre, mes) {
         const k = `${pan.id_usuario}|${it.divisa}|${it.proveedor}`;
         const a = bruto[k] || (bruto[k] = { nodo: String(pan.id_usuario), panelObj: pan, divisa: it.divisa,
           proveedor: it.proveedor, profit: 0, usdt: 0, costo: it.costo, tasa: it.tasa,
-          panel: p.panel, cliente: c.nombre });
+          panel: p.panel, cliente: c.nombre, cliente_id: c.id });
         a.profit += Number(it.profit || 0);
         a.usdt += Number(it.usdt || 0);
         if (a.costo == null) a.costo = it.costo;
@@ -208,6 +216,7 @@ async function ramaPorProveedor(vendedorNombre, mes) {
 
   const porProv = {};
   neto.forEach((f) => {
+    if (!esMio[f.cliente_id]) return;          // se miró todo para restar; se suma sólo lo suyo
     if (!(f.usdt > 0) && !(f.profit > 0)) return;
     const p = porProv[f.proveedor] || (porProv[f.proveedor] = {
       proveedor: f.proveedor, costo: f.costo, usdt: '0', divisas: {} });
