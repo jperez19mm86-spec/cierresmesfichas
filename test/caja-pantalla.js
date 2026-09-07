@@ -531,10 +531,20 @@ check('la fila lleva su flecha y la grilla le hace lugar',
   check('sólo se ofrece la matriz cuando alguna jugada la trae',
     /const hayMatriz = js\.some\(x => x\.matriz \|\| \(x\.lineas && x\.lineas\.length\)\);/.test(htmlCaja)
     && /\$\{hayMatriz\n\s*\? notaInfo\('matriz'/.test(htmlCaja));
-  check('y si no la trae, se dice y se ofrece soporte',
+  check('y si no la trae, se dice y se ofrece el número para soporte',
     /notaInfo\('sinmatriz'/.test(htmlCaja)
-    && /Este juego no manda la matriz/.test(htmlCaja)
-    && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
+    && /Este juego no muestra las figuras/.test(htmlCaja)
+    /* El texto está partido en dos líneas del código: se buscan las dos mitades. */
+    && /adentro está su número, /.test(htmlCaja)
+    && /listo para copiar y mandarnos/.test(htmlCaja));
+
+  /* 🔴 Antes sólo se abrían las jugadas con grilla, así que en los juegos que no la mandan no
+     había nada para tocar. Adentro siempre hay algo: el desglose y el número para soporte. */
+  check('toda jugada se puede abrir, traiga grilla o no',
+    /<div class="jug jug-toca" role="button" tabindex="0"/.test(htmlCaja)
+    && !/jug \$\{hayDetalle \? 'jug-toca' : ''\}/.test(htmlCaja));
+  check('y adentro va el número de la jugada, copiable',
+    /filaCred\('Número de esta jugada', x\.idSoporte, true\)/.test(htmlCaja));
   check('y la de la matriz explica para qué sirve y qué hacer si no aparece',
     /responder <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
     && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
@@ -612,6 +622,15 @@ check('sin premio se muestra una raya, no un cero que parece un dato',
        la grilla en blanco hasta que alguien la desplaza. */
     && !/loading="lazy"[\s\S]{0,80}onerror="this\.remove\(\)"/.test(htmlCaja)
     && /<i>\$\{simbolo\}<\/i>/.test(htmlCaja));
+}
+
+/* 🔴 EL NÚMERO PARA SOPORTE SE ELIGE, NO SE INVENTA. El motor manda hasta tres identificadores
+   según el proveedor; se usa el más específico que haya y, si no vino ninguno, no se muestra
+   nada — un número inventado hace perder más tiempo que no tener ninguno. */
+{
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  check('se prefiere la transacción, después la ronda del proveedor, después la del motor',
+    /idSoporte: String\(f\.trade_id \|\| \(comoJson\(f\.info\) \|\| \{\}\)\.round_id \|\| f\.id \|\| ''\) \|\| null/.test(rutas));
 }
 
 const fallaron = verificaciones.filter((v) => !v.ok);

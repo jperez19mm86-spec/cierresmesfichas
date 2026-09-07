@@ -1593,6 +1593,7 @@
           before: plata(r.antes), bet: plata(r.apostó), win: plata(r.ganó),
           status: Number(r.estado) || 0,
           matriz: r.matriz, lineas: r.lineas || [], forma: r.forma, figuras: r.figuras,
+          idSoporte: r.idSoporte,
         }));
         abrirSesionOriginal.call(window, jugadorId, sesionId);
       }

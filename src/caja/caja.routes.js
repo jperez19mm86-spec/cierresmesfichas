@@ -245,6 +245,14 @@ function mount(app) {
         figuras: grilla && mat.imgUrl ? String(mat.imgUrl) : null,
         lineas: comoJson(f.winLines) || comoJson(f.win_lines) || [],
         info: comoJson(f.info),
+        /* 🔴 UN ID PARA MANDARLE A SOPORTE. Pedido del dueño el 7-sep-2026: los juegos que no
+           traen figuras igual muestran un identificador y el desglose, y hace falta poder
+           copiarlo. Se manda el más específico que haya, en este orden:
+             `trade_id`  — identifica la operación de punta a punta (lo que mira soporte)
+             `info.round_id` — el número de ronda del proveedor, cuando el motor lo pasa
+             `id`        — el de la ronda en el motor, que siempre está
+           No se inventa ninguno: si no vino, no va. */
+        idSoporte: String(f.trade_id || (comoJson(f.info) || {}).round_id || f.id || '') || null,
       }; }),
       paginas: d.data.pageCount || 1,
     });

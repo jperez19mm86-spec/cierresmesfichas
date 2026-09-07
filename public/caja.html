@@ -841,6 +841,8 @@ button{font-family:inherit}
 .jug .net{font-weight:700}
 .jug .net.mas{color:var(--ok)} .jug .net.menos{color:var(--no)}
 .jug .jug-mas{grid-column:1 / -1; display:none; font-size:11.5px; color:var(--mut); padding-top:6px}
+.jug .jug-dato{display:block; margin-bottom:6px}
+.jug .jug-mas .cred{margin-top:8px}
 .jug.abierta .jug-mas{display:block}
 .jug-toca{cursor:pointer; border-radius:10px; margin:0 -6px; padding-left:6px; padding-right:6px}
 .jug-toca:hover{background:var(--bg3)}
@@ -3470,17 +3472,26 @@ function abrirSesion(jugadorId, sesionId){
          vez arriba y abajo quedan las cifras alineadas en columna: se lee para abajo y se comparan
          de un vistazo, en vez de rastrear el número entre palabras. */''}
     <div class="jug-cab"><span>Hora</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
+    ${/* 🔴 AHORA TODA JUGADA SE ABRE. Antes sólo las que traían grilla, y los juegos que no la
+         traen —la mayoría— quedaban sin nada para tocar. Pero adentro SIEMPRE hay algo que sirve:
+         el saldo de antes y, sobre todo, el identificador para mandarle a soporte. Pedido del
+         dueño el 7-sep-2026: «que sea copiable, para enviar a soporte si tienen alguna duda». */''}
     ${js.map(x => {
       const neto = x.win - x.bet;
       const hayDetalle = !!(x.matriz || (x.lineas && x.lineas.length));
-      return `<div class="jug ${hayDetalle ? 'jug-toca' : ''}"${hayDetalle ? ` role="button" tabindex="0"
+      return `<div class="jug jug-toca" role="button" tabindex="0"
         onclick="this.classList.toggle('abierta')"
-        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('abierta')}"` : ''}>
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('abierta')}">
       <span class="hora">${x.dateTime.slice(11, 16)}</span>
       <span class="num apo">${fmt(x.bet)}</span>
       <span class="num gan ${x.win ? 't-ok' : 'nada'}">${x.win ? fmt(x.win) : '—'}</span>
       <span class="num net ${neto >= 0 ? 'mas' : 'menos'}">${neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
-      <span class="jug-mas">saldo antes <b>${fmt(x.before)}</b>${hayDetalle ? dibujarMatriz(x) : ''}</span>
+      <span class="jug-mas">
+        <span class="jug-dato">saldo antes <b>${fmt(x.before)}</b> · apostó <b>${fmt(x.bet)}</b>
+          · ganó <b>${x.win ? fmt(x.win) : '0'}</b></span>
+        ${hayDetalle ? dibujarMatriz(x) : ''}
+        ${x.idSoporte ? filaCred('Número de esta jugada', x.idSoporte, true) : ''}
+      </span>
     </div>`; }).join('')}
     ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
       para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por
@@ -3494,12 +3505,12 @@ function abrirSesion(jugadorId, sesionId){
         + 'línea, cuántas posiciones entraron y cuánto pagó. <b>No todos los juegos la muestran.</b> '
         + 'Si tenés dudas con alguna que no aparece, escribinos a soporte y la miramos con vos.')
       : notaInfo('sinmatriz',
-        '<b>Este juego no manda la matriz.</b> Abajo está cada jugada, con lo que apostó, lo que '
-        + 'ganó y cómo le quedó el saldo.',
-        'La grilla la manda el proveedor del juego, y no todos lo hacen — no es algo que se pueda '
-        + 'encender desde acá. Con lo que sí llega alcanza para seguir la plata jugada por jugada: '
-        + 'cuánto puso, cuánto se llevó y cómo quedó después de cada una. Si necesitás el detalle '
-        + 'de una en particular, escribinos a soporte y la miramos con vos.')}
+        '<b>Este juego no muestra las figuras.</b> Tocá una jugada igual: adentro está su número, '
+        + 'listo para copiar y mandarnos.',
+        'Las figuras las manda el proveedor del juego y no todos lo hacen — no es algo que se '
+        + 'pueda encender desde acá. Lo que sí tenés de cada jugada es cuánto puso, cuánto se '
+        + 'llevó, cómo quedó su saldo y <b>su número</b>. Con ese número escribinos a soporte y la '
+        + 'buscamos exacta, sin que tengas que explicar cuál era.')}
     <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
     <span class="mono">round_id</span>.</div>
     <div class="acciones"><button class="btn sec" onclick="abrirHistoria('${jugadorId}')">Volver</button></div>`);
