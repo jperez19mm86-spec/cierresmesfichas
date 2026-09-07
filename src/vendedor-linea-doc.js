@@ -54,6 +54,7 @@ const CSS = `
   body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:26px;color:#2b2230;
        max-width:900px;margin:auto;background:#fff}
   h1{font-size:20px;margin:0 0 2px}
+  h2{font-size:15px;margin:30px 0 2px}
   .sub{color:#8c7e89;font-size:13px;margin:0 0 18px}
   table{width:100%;border-collapse:collapse}
   th{text-align:left;font-size:11px;text-transform:uppercase;color:#8c7e89;border-bottom:1px solid #ead6e6;padding:6px 8px}
@@ -89,8 +90,28 @@ function pagina(doc, { nota = null } = {}) {
       <th class="r">TC</th><th class="r">USD</th></tr></thead>
       <tbody>${filas || '<tr><td colspan="5">Sin movimiento este mes.</td></tr>'}</tbody></table>
     <div class="tot"><span>Total</span><span>${n(doc.totalUsdt)} USD</span></div>
+    ${bloqueClientes(doc)}
     ${nota ? `<div class="pie">${esc(nota)}</div>` : ''}
     </body></html>`;
+}
+
+/* EL MISMO TOTAL, CORTADO POR CLIENTE. La factura lista los paneles en SU moneda —162.511.765 ARS
+   al lado de 26.302 UYU— y así no se pueden ni comparar ni sumar. Acá cada panel ya viene en USDT
+   con el TC de su divisa, así que un cliente con paneles en tres monedas es un solo número. */
+function bloqueClientes(doc) {
+  const cs = doc.porCliente || [];
+  if (!cs.length) return '';
+  const filas = cs.map((c) => {
+    const cab = `<tr class="prov"><td>${esc(c.cliente)}</td><td></td>`
+      + `<td class="r">${n(c.usdt)}</td></tr>`;
+    const pans = (c.paneles || []).map((p) => `<tr class="div"><td>${esc(p.panel)}</td>`
+      + `<td class="r">${esc(p.divisa)}</td><td class="r">${n(p.usdt)}</td></tr>`).join('');
+    return cab + pans;
+  }).join('');
+  return `<h2>Por cliente</h2>
+    <p class="sub">Sus paneles sumados en USDT, con el tipo de cambio de cada divisa.</p>
+    <table><thead><tr><th>Cliente / panel</th><th class="r">Divisa</th><th class="r">USDT</th></tr></thead>
+      <tbody>${filas}</tbody></table>`;
 }
 
 function paginaError(msg) {

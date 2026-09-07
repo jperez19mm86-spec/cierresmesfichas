@@ -4828,7 +4828,7 @@ function mount(app) {
        cambio, que es justo lo que hay que mirar. */
     const mesNom = mesCierreLbl(mes).replace('_', ' ');
     const l = vendedorLineaDoc.crearLink({ ok: true, vendedor: r.vendedor, mes, mesNombre: mesNom,
-      proveedores: r.proveedores, clientes: r.clientes, totalUsdt: r.totalUsdt });
+      proveedores: r.proveedores, porCliente: r.porCliente, clientes: r.clientes, totalUsdt: r.totalUsdt });
     const url = `${_urlPublica(req)}/linea/${l.token}`;
     const texto = [`🤝 <b>Cuenta de vendedor ${E(mesNom)}</b>`,
       `<b>${E(r.vendedor)}</b>`, '',

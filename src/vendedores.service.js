@@ -237,8 +237,29 @@ async function ramaPorProveedor(vendedorNombre, mes) {
     usdt: money.round(p.usdt, 2),
   })).sort((a, b) => Number(b.usdt) - Number(a.usdt));
 
+  /* El MISMO número cortado por cliente, en USDT. La otra vista —la de la factura— lista los
+     paneles en su moneda: 162.511.765 ARS al lado de 26.302 UYU no se pueden ni comparar ni sumar.
+     Acá cada panel ya viene convertido con el TC de SU divisa, así que un cliente con paneles en
+     tres monedas es un solo número que se puede leer. */
+  const porCli = {};
+  neto.forEach((f) => {
+    if (!esMio[f.cliente_id] || !(f.usdt > 0)) return;
+    const c = porCli[f.cliente_id] || (porCli[f.cliente_id] = {
+      cliente: f.cliente, cliente_id: f.cliente_id, usdt: '0', paneles: {} });
+    c.usdt = money.add(c.usdt, String(f.usdt));
+    const k = `${f.panel}|${f.divisa}`;
+    const pa = c.paneles[k] || (c.paneles[k] = { panel: f.panel, divisa: f.divisa, usdt: '0' });
+    pa.usdt = money.add(pa.usdt, String(f.usdt));
+  });
+  const clientesDetalle = Object.values(porCli).map((c) => ({
+    cliente: c.cliente, cliente_id: c.cliente_id, usdt: money.round(c.usdt, 2),
+    paneles: Object.values(c.paneles).map((x) => ({ ...x, usdt: money.round(x.usdt, 2) }))
+      .sort((a, b) => Number(b.usdt) - Number(a.usdt)),
+  })).sort((a, b) => Number(b.usdt) - Number(a.usdt));
+
   const totalUsdt = proveedores.reduce((a, p) => money.add(a, p.usdt), '0');
   return { ok: true, vendedor: vendedorNombre, mes: m, proveedores,
+    porCliente: clientesDetalle,
     clientes: mios.map((c) => c.nombre).sort(),
     totalUsdt: money.round(totalUsdt, 2), fallaron };
 }

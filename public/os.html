@@ -4328,6 +4328,21 @@ async function pdfRamaProveedores(vendedor, mes){
     + '</tr></thead><tbody>' + (filas || '<tr><td colspan="7" class="gris">Sin movimiento este mes.</td></tr>')
     + '</tbody></table>'
     + '<div class="total">TOTAL ' + esc(mesNombre(r.mes)) + '<span class="der">' + n(r.totalUsdt) + ' USD</span></div>'
+    /* El mismo total cortado por cliente. La factura los lista en SU moneda —162.511.765 ARS al
+       lado de 26.302 UYU— y así no se pueden ni comparar ni sumar; acá cada panel ya viene en USDT
+       con el TC de su divisa. */
+    + ((r.porCliente||[]).length
+        ? '<h2 style="margin-top:26px">Por cliente</h2>'
+          + '<p class="gris">Sus paneles sumados en USDT, con el tipo de cambio de cada divisa.</p>'
+          + '<table><thead><tr><th>Cliente / panel</th><th class="r">Divisa</th><th class="r">USDT</th></tr></thead><tbody>'
+          + r.porCliente.map(function(c){
+              return '<tr><td><b>' + esc(c.cliente) + '</b></td><td></td><td class="r"><b>' + n(c.usdt) + '</b></td></tr>'
+                + (c.paneles||[]).map(p => '<tr><td style="padding-left:18px" class="gris">' + esc(p.panel) + '</td>'
+                    + '<td class="r gris">' + esc(p.divisa) + '</td>'
+                    + '<td class="r gris">' + n(p.usdt) + '</td></tr>').join('');
+            }).join('')
+          + '</tbody></table>'
+        : '')
     + ((r.fallaron||[]).length
         ? '<p class="gris">No se pudo traer: ' + r.fallaron.map(f=>esc(f.cliente)).join(', ') + '. El total está incompleto.</p>'
         : '');
@@ -4336,7 +4351,7 @@ async function pdfRamaProveedores(vendedor, mes){
   if(!w) return toast('El navegador bloqueó la ventana: permitile abrir ventanas a esta página', true);
   w.document.write('<html><head><title>' + esc(r.vendedor) + ' ' + esc(r.mes) + '</title><style>'
     + 'body{font-family:-apple-system,Segoe UI,Arial,sans-serif;padding:26px;color:#111}'
-    + 'h1{font-size:19px;margin:0 0 2px}'
+    + 'h1{font-size:19px;margin:0 0 2px}h2{font-size:15px;margin:26px 0 2px}'
     + 'table{width:100%;border-collapse:collapse;margin-top:10px}'
     + 'th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666;text-align:left;border-bottom:1px solid #bbb;padding:4px 6px}'
     + 'td{font-size:12px;padding:4px 6px;border-bottom:1px solid #eee}'

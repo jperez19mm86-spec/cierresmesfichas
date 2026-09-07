@@ -9042,12 +9042,19 @@ async function main() {
        `GanamosAlexa` es de Alexa y adentro tiene los de Fran y Ariel, que son de Julian. Mirando
        sólo la línea de Alexa esos hijos no existen y su papel daba 380 de más — el panel entero
        contado dos veces. */
+    /* El mismo total cortado por cliente y EN USDT. La factura lista los paneles en su moneda
+       —162.511.765 ARS al lado de 26.302 UYU— y así no se comparan ni se suman. */
+    check('vendedores: la línea también se corta por cliente, en USDT',
+      /porCliente/.test(srcVen) && /porCliente/.test(uiVen)
+      && /porCliente/.test(fs.readFileSync(path.join(ROOT, 'src', 'vendedor-linea-doc.js'), 'utf8')));
     check('vendedores: para armar la línea se recorren TODOS los clientes, no sólo los suyos',
       /for \(const c of todos\) \{[\s\S]{0,900}?forzarModo: 'vendedor'/.test(srcVen)
       && /if \(!esMio\[f\.cliente_id\]\) return;/.test(srcVen));
     /* Si el papel de un vendedor se rompe, no se ve hasta que alguien lo abre: el botón sigue ahí
        y la ventana sale en blanco. */
     const srcRut = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('vendedores: y el corte por cliente viaja también en el link',
+      /porCliente: r\.porCliente/.test(srcRut));
     /* ── TRES GRUPOS DE TELEGRAM, Y NO SON EL MISMO ──────────────────────────────────────────
        `apiGrupoMatriz` recibe las cuentas de TBS · `grupoInterno` los avisos del chat ·
        `tgChatInterno` es «Cuentas Imperium», donde van las de externos y las de vendedores.
