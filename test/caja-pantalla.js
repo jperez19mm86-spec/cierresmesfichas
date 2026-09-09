@@ -154,6 +154,17 @@ check('sin separadores también', L.aNumero('250') === 250);
 check('lo que no es un número da cero, no NaN', L.aNumero('hola') === 0 && L.aNumero(null) === 0 && L.aNumero('') === 0);
 check('un negativo se conserva', L.aNumero('-1.500') === -1500, String(L.aNumero('-1.500')));
 
+/* 🔴 EL MOTOR TAMBIÉN ESCRIBE EN INGLÉS. Una apuesta deportiva devolvió «4,671.10»: con la regla
+   argentina se leía 4,67 — casi mil veces menos, en la pantalla donde se decide cuánto cargar. */
+check('«4,671.10» son cuatro mil, no cuatro con sesenta y siete',
+  L.aNumero('4,671.10') === 4671.10, String(L.aNumero('4,671.10')));
+check('y «7.028,6» sigue siendo siete mil', L.aNumero('7.028,6') === 7028.6);
+check('con un solo separador manda la regla de acá',
+  L.aNumero('1.234') === 1234 && L.aNumero('1,5') === 1.5,
+  `${L.aNumero('1.234')} y ${L.aNumero('1,5')}`);
+check('y el inglés con miles y sin decimales también',
+  L.aNumero('1,200,000') === 1200000, String(L.aNumero('1,200,000')));
+
 /* ── 2 · limpiar un login ───────────────────────────────────────────────────────────────────── */
 check('el login no acepta espacios, ni antes ni al medio ni después',
   L.limpiarTextoLogin('  Juan  Perez ') === 'JuanPerez', L.limpiarTextoLogin('  Juan  Perez '));
@@ -615,13 +626,15 @@ check('sin premio se muestra una raya, no un cero que parece un dato',
     /comoJson\(f\.winLines\) \|\| comoJson\(f\.win_lines\)/.test(rutas));
   check('la dirección de las figuras la manda el motor, no se arma acá',
     /figuras: grilla && mat\.imgUrl \? String\(mat\.imgUrl\) : null/.test(rutas));
-  check('la pantalla dibuja la figura y deja el número igual',
-    /<img src="\$\{j\.figuras\}\$\{encodeURIComponent\(simbolo\)\}\.png"/.test(htmlCaja)
+  check('la pantalla dibuja la figura y deja el símbolo igual',
+    /<img src="\$\{j\.figuras\}\$\{encodeURIComponent\(sim\)\}\.png"/.test(htmlCaja)
     && /onerror="this\.remove\(\)"/.test(htmlCaja)
     /* Sin `lazy`: la matriz se abre con un gesto deliberado y son pocas imágenes; diferirlas deja
        la grilla en blanco hasta que alguien la desplaza. */
     && !/loading="lazy"[\s\S]{0,80}onerror="this\.remove\(\)"/.test(htmlCaja)
-    && /<i>\$\{simbolo\}<\/i>/.test(htmlCaja));
+    && /<i>\$\{sim\}<\/i>/.test(htmlCaja)
+    /* Y el multiplicador de una celda, que en 3OAKS explica el pago. */
+    && /mult \? `<em>×\$\{mult\}<\/em>` : ''/.test(htmlCaja));
 }
 
 /* 🔴 EL NÚMERO PARA SOPORTE SE ELIGE, NO SE INVENTA. El motor manda hasta tres identificadores
@@ -629,9 +642,90 @@ check('sin premio se muestra una raya, no un cero que parece un dato',
    nada — un número inventado hace perder más tiempo que no tener ninguno. */
 {
   const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
-  check('se prefiere la transacción, después la ronda del proveedor, después la del motor',
-    /idSoporte: String\(f\.trade_id \|\| \(comoJson\(f\.info\) \|\| \{\}\)\.round_id \|\| f\.id \|\| ''\) \|\| null/.test(rutas));
+  check('se prefiere el ticket, después la transacción, después la ronda, después el id del motor',
+    /idSoporte: String\(f\.bet_id \|\| f\.trade_id \|\| \(comoJson\(f\.info\) \|\| \{\}\)\.round_id \|\| f\.id \|\| ''\) \|\| null/.test(rutas));
+  /* 🔴 Una apuesta deportiva no tiene grilla y no le hace falta: lo que explica el pago es el
+     cupón —qué partido, qué evento, a qué cuota—, y el motor lo manda en `info`. */
+  check('una apuesta deportiva pasa su cupón, no una grilla vacía',
+    /Array\.isArray\(i\) && i\.length && i\[0\] && i\[0\]\.GameName \? i : null/.test(rutas));
+  check('y la pantalla lo dibuja como cupón',
+    /function dibujarApuesta\(j\)\{/.test(htmlCaja)
+    && /x\.apuestas \? dibujarApuesta\(x\)/.test(htmlCaja));
 }
+
+/* ── 14 · cada sello manda la matriz a su manera ────────────────────────────────────────────────
+   Muestras REALES, sacadas el 8-sep-2026 jugando una ronda con cada proveedor y leyendo la
+   respuesta cruda del motor. No son inventadas: si el motor cambia, estos datos quedan viejos y
+   hay que volver a sacarlos igual. */
+const MUESTRAS = {
+  egt: {  // SL · números, `winLines`, celdas [a,b]
+    matriz: [[2,8,0,1,0],[2,8,2,6,5],[0,8,2,4,1]],
+    lineas: [{ line:1, symbol:2, count:3, side:'left', cash:5, xWin:1, elements:[[1,2],[2,2],[3,2]] }],
+  },
+  oaks: { // SL2 · símbolos OBJETO mezclados con números, claves cortas
+    matriz: [[{image:'10',value:30},2,7],[{image:'10',value:30},2,3],[7,2,6],[1,12,6],[4,4,6]],
+    lineas: [{ s:'12', c:3, w:60, e:[[0,0],[0,1],[1,3]] }],
+  },
+  ruby: { // XG · textos, `win_lines`, celdas [a,b,bandera]
+    matriz: [['2','0','5','5','5'],['8','8','7','5','5'],['5','3','5','5','5']],
+    lineas: [{ line:19, symbol:'5', count:5, cash:800, xWin:16,
+      elements:[[0,2,1],[1,0,1],[2,2,1],[3,0,1],[4,2,1],[0,0,0]] }],
+  },
+  ains: { // XG · textos con letras, líneas como OBJETO indexado
+    matriz: [['Tn','Jk','Dr','Qn','Sr'],['Cn','Ty','Dr','Cn','Ae'],['Ae','Ae','Dr','Ht','Ht']],
+    lineas: { '2': { line:3, symbol:'Ae', count:3, cash:250, xWin:5,
+      elements:[[0,2,1],[1,2,1],[2,2,1],[3,2,0],[4,2,0]] } },
+  },
+};
+
+/* 🔴 UN SÍMBOLO QUE ES OBJETO SE DIBUJABA «[object Object]». */
+check('un símbolo objeto muestra su figura, no «[object Object]»',
+  L.simboloDeCelda({ image: '10', value: 30 }) === '10'
+  && L.simboloDeCelda(7) === '7' && L.simboloDeCelda('Ae') === 'Ae',
+  L.simboloDeCelda({ image: '10', value: 30 }));
+check('y su multiplicador se puede mostrar aparte',
+  L.multiplicadorDeCelda({ image: '10', value: 30 }) === 30
+  && L.multiplicadorDeCelda(7) === null);
+
+/* 🔴 UNA LISTA DE LÍNEAS QUE ES OBJETO NO SE PODÍA RECORRER. */
+check('las líneas se leen vengan como lista o como objeto indexado',
+  L.normalizarLineas(MUESTRAS.ruby.lineas).length === 1
+  && L.normalizarLineas(MUESTRAS.ains.lineas).length === 1,
+  `${L.normalizarLineas(MUESTRAS.ains.lineas).length} de AINSWORTH`);
+check('y con nombres cortos o largos dan lo mismo',
+  (() => { const a = L.normalizarLineas(MUESTRAS.oaks.lineas)[0];
+    return a.simbolo === '12' && a.cuantos === 3 && a.pago === 60 && a.celdas.length === 3; })());
+
+/* 🔴 SÓLO SE MARCA LO QUE SE PUEDE PROBAR. */
+{
+  const m = (k) => L.celdasGanadoras(L.normalizarLineas(MUESTRAS[k].lineas), MUESTRAS[k].matriz);
+  const contiene = (set, matriz, simbolo) => [...set].every((k) => {
+    const [f, c] = k.split(':').map(Number);
+    return L.simboloDeCelda(matriz[f][c]) === simbolo;
+  });
+  const ruby = m('ruby');
+  check('RUBYPLAY: marca las celdas que de verdad tienen el símbolo que pagó',
+    ruby.size === 4 && contiene(ruby, MUESTRAS.ruby.matriz, '5'), `${ruby.size} celdas`);
+  const ains = m('ains');
+  check('AINSWORTH: idem, con símbolos de letras',
+    ains.size === 2 && contiene(ains, MUESTRAS.ains.matriz, 'Ae'), `${ains.size} celdas`);
+  const oaks = m('oaks');
+  check('3OAKS: marca el símbolo real y no los comodines que lo completan',
+    oaks.size === 1 && contiene(oaks, MUESTRAS.oaks.matriz, '12'), `${oaks.size} celdas`);
+  /* Yo esperaba que EGT no cerrara con ninguna lectura. Me equivoqué: cierra con [columna,fila]
+     base 1, y marca las DOS celdas que tienen el 2. La tercera de la línea es un comodín que la
+     completa sin ser el símbolo, y queda sin marcar — que es exactamente lo que se busca. */
+  const egt = m('egt');
+  check('EGT: marca las dos celdas con el símbolo y deja el comodín sin marcar',
+    egt.size === 2 && contiene(egt, MUESTRAS.egt.matriz, '2'), `${egt.size} celdas`);
+  check('nunca se marca una celda que no tenga el símbolo',
+    [['ruby','5'],['ains','Ae'],['oaks','12'],['egt','2']]
+      .every(([k, sim]) => contiene(m(k), MUESTRAS[k].matriz, sim)));
+}
+
+check('sin grilla no se marca nada, en vez de romper',
+  L.celdasGanadoras(MUESTRAS.ruby.lineas, null).size === 0
+  && L.celdasGanadoras(null, MUESTRAS.ruby.matriz).size === 0);
 
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);

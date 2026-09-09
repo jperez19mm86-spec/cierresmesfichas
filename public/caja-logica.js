@@ -16,10 +16,26 @@
    decimal: la caja tenía 7.028,6 y el formulario ofrecía 70.286. Con dos decimales habría sido
    cien veces. Formato argentino: el punto separa miles, la coma es el decimal. */
 function aNumero(txt) {
-  const limpio = String(txt == null ? '' : txt)
-    .replace(/[^\d.,-]/g, '')   // fuera letras, símbolos y espacios
-    .replace(/\./g, '')          // los puntos son separador de miles
-    .replace(',', '.');          // la coma es el decimal
+  const crudo = String(txt == null ? '' : txt).replace(/[^\d.,-]/g, '');
+  /* 🔴 EL MOTOR TAMBIÉN ESCRIBE EN FORMATO INGLÉS. Medido el 8-sep-2026: una apuesta deportiva
+     devolvió el saldo como «4,671.10». Con la regla argentina —punto = miles, coma = decimal— eso
+     se leía 4,67: casi mil veces menos, y en la misma pantalla donde se decide cuánto cargar.
+     Cuando vienen LOS DOS separadores, el último es el decimal, sea cual sea. Con uno solo se
+     mantiene la regla de acá, porque «1.234» tecleado por un cajero son mil doscientos treinta y
+     cuatro, no uno con coma dos tres cuatro. */
+  const ultimaComa = crudo.lastIndexOf(',');
+  const ultimoPunto = crudo.lastIndexOf('.');
+  let limpio;
+  if (ultimaComa >= 0 && ultimoPunto >= 0) {
+    const decimal = ultimaComa > ultimoPunto ? ',' : '.';
+    const miles = decimal === ',' ? '.' : ',';
+    limpio = crudo.split(miles).join('').replace(decimal, '.');
+  } else if ((crudo.match(/,/g) || []).length > 1) {
+    /* Una coma repetida sin puntos sólo puede ser separador de miles: «1,200,000». */
+    limpio = crudo.split(',').join('');
+  } else {
+    limpio = crudo.replace(/\./g, '').replace(',', '.');
+  }
   const n = Number(limpio);
   return Number.isFinite(n) ? n : 0;
 }
@@ -115,19 +131,86 @@ function desplazarHastaElegido(boton, tira) {
    siete posiciones —(5,4) (5,5) (6,5) (7,5) (7,4) (6,6) (5,6)— caen exactamente sobre un 6 leyendo
    [columna, fila] con base 1. Leído al revés, o con base 0, marcaría celdas equivocadas y la
    pantalla mostraría un premio pintado donde no está. */
-function celdasGanadoras(lineas) {
-  const marcadas = new Set();
-  for (const l of lineas || []) {
-    for (const e of (l && l.elements) || []) {
-      if (Array.isArray(e) && e.length >= 2) marcadas.add(`${e[0]}:${e[1]}`);
+/* 🔴 CADA SELLO MANDA ESTO A SU MANERA. Medido el 8-sep-2026 jugando una ronda con cada uno y
+   comparando las respuestas crudas:
+
+     sello            símbolos              líneas         celdas
+     SL  · EGT        números               `winLines`     [a,b]
+     SL2 · 3OAKS      OBJETOS y números     claves `s c w e`  [a,b]
+     XG  · RUBYPLAY   textos «5»            `win_lines`    [a,b,bandera]
+     XG  · AINSWORTH  textos «Ae»           OBJETO indexado [a,b,bandera]
+     SZ / OP          no mandan grilla      —              —
+
+   Dos de esas formas rompían la pantalla: un símbolo que es objeto se dibujaba «[object Object]»,
+   y una lista de líneas que es objeto no se podía recorrer. */
+
+function simboloDeCelda(c) {
+  if (c && typeof c === 'object') return String(c.image != null ? c.image : (c.value != null ? c.value : '?'));
+  return String(c == null ? '' : c);
+}
+
+/* 3OAKS manda algunas celdas como `{image:'10', value:30}`: el `value` es el multiplicador de esa
+   posición, y es justo el dato que explica un pago grande. */
+function multiplicadorDeCelda(c) {
+  return (c && typeof c === 'object' && c.value != null) ? c.value : null;
+}
+
+/* Las líneas llegan como lista o como objeto indexado, y con nombres largos o cortos. */
+function normalizarLineas(w) {
+  const lista = Array.isArray(w) ? w : (w && typeof w === 'object' ? Object.values(w) : []);
+  return lista.filter(Boolean).map((l) => ({
+    simbolo: simboloDeCelda(l.symbol != null ? l.symbol : l.s),
+    cuantos: l.count != null ? l.count : l.c,
+    pago: Number(l.cash != null ? l.cash : l.w) || 0,
+    linea: l.line != null ? l.line : null,
+    xWin: l.xWin != null ? l.xWin : null,
+    celdas: Array.isArray(l.elements) ? l.elements : (Array.isArray(l.e) ? l.e : []),
+  }));
+}
+
+/* 🔴 SÓLO SE PINTA LO QUE SE PUEDE PROBAR. Las coordenadas vienen en cuatro formas —[columna,fila]
+   o [fila,columna], empezando en 0 o en 1— y ni siquiera son iguales dentro del mismo proveedor:
+   un RUBYPLAY medido el 4-sep venía en base 1 y otro el 8-sep en base 0. Adivinar mal significa
+   pintar el premio en una celda que no pagó, que es peor que no pintar nada.
+   Así que se prueban las cuatro lecturas y se elige la que hace coincidir MÁS celdas con el
+   símbolo que pagó; sólo se marcan las que de verdad lo contienen. Si ninguna coincide —pasa con
+   EGT, y con los comodines que completan una línea sin ser el símbolo— no se marca nada y queda
+   el resumen, que sale del motor y no se interpreta. */
+const LECTURAS = [
+  { nombre: 'col,fila base 0', fila: (e) => e[1], col: (e) => e[0] },
+  { nombre: 'col,fila base 1', fila: (e) => e[1] - 1, col: (e) => e[0] - 1 },
+  { nombre: 'fila,col base 0', fila: (e) => e[0], col: (e) => e[1] },
+  { nombre: 'fila,col base 1', fila: (e) => e[0] - 1, col: (e) => e[1] - 1 },
+];
+
+function celdasGanadoras(lineas, matriz) {
+  const normal = Array.isArray(lineas) && lineas.length && lineas[0].celdas
+    ? lineas : normalizarLineas(lineas);
+  if (!matriz || !matriz.length || !normal.length) return new Set();
+
+  let mejor = new Set();
+  for (const lectura of LECTURAS) {
+    const marcadas = new Set();
+    for (const l of normal) {
+      for (const e of l.celdas) {
+        if (!Array.isArray(e) || e.length < 2) continue;
+        /* El tercer número de RUBYPLAY y AINSWORTH es una bandera: 0 = esa celda no entró. */
+        if (e.length > 2 && Number(e[2]) === 0) continue;
+        const f = lectura.fila(e);
+        const c = lectura.col(e);
+        const celda = matriz[f] && matriz[f][c];
+        if (celda === undefined) continue;
+        if (simboloDeCelda(celda) === l.simbolo) marcadas.add(`${f}:${c}`);
+      }
     }
+    if (marcadas.size > mejor.size) mejor = marcadas;
   }
-  return marcadas;
+  return mejor;
 }
 
 /* `fila` y `columna` en base 0, que es como se recorre la grilla al dibujarla. */
 function esCeldaGanadora(marcadas, fila, columna) {
-  return !!marcadas && marcadas.has(`${columna + 1}:${fila + 1}`);
+  return !!marcadas && marcadas.has(`${fila}:${columna}`);
 }
 
 /* ── EL MENÚ DE CADA NIVEL ──────────────────────────────────────────────────────────────────────
@@ -194,6 +277,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango, eliminadasDeLaLista,
     desplazarHastaElegido, celdasGanadoras, esCeldaGanadora,
+    simboloDeCelda, multiplicadorDeCelda, normalizarLineas,
     MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }

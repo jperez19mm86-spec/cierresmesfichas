@@ -227,7 +227,7 @@ function mount(app) {
         const grilla = Array.isArray(mat.matrix) && mat.matrix.length ? mat.matrix : null;
         return {
         id: String(f.id), estado: f.status,
-        cuando: f.dateTime || f.date_time || f.datetime,
+        cuando: f.dateTime || f.date_time || f.datetime || f.datetime_bet,
         antes: f.before != null ? f.before : (f.cash_before != null ? f.cash_before : f.balance_before),
         apostó: f.bet, ganó: f.win,
         juego: f.gameName, proveedor: f.gameProvider,
@@ -252,7 +252,15 @@ function mount(app) {
              `info.round_id` — el número de ronda del proveedor, cuando el motor lo pasa
              `id`        — el de la ronda en el motor, que siempre está
            No se inventa ninguno: si no vino, no va. */
-        idSoporte: String(f.trade_id || (comoJson(f.info) || {}).round_id || f.id || '') || null,
+        idSoporte: String(f.bet_id || f.trade_id || (comoJson(f.info) || {}).round_id || f.id || '') || null,
+        /* 🔴 UNA APUESTA DEPORTIVA NO ES UNA TIRADA. Medido el 8-sep-2026: ImperiumBet no manda
+           grilla ninguna —no tiene— pero manda el CUPÓN en `info`: qué partido, qué evento, a qué
+           cuota, en vivo o no y con qué resultado. Eso es lo que responde «¿por qué se le pagó
+           eso?» para deportes, igual que la matriz lo responde para un slot. */
+        apuestas: (() => {
+          const i = comoJson(f.info);
+          return Array.isArray(i) && i.length && i[0] && i[0].GameName ? i : null;
+        })(),
       }; }),
       paginas: d.data.pageCount || 1,
     });

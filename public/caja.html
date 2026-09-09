@@ -860,6 +860,10 @@ button{font-family:inherit}
 /* Con figura, el número se corre a la esquina: sigue estando, sin taparla. */
 .matriz.configuras span i{align-self:end; justify-self:end; font-size:9px; line-height:1;
   padding:1px 2px; border-radius:4px; background:rgba(0,0,0,.45); color:#fff}
+/* El multiplicador de una celda va arriba a la izquierda, para no chocar con el símbolo. */
+.matriz span em{grid-area:1/1; align-self:start; justify-self:start; z-index:2; font-style:normal;
+  font-size:9px; font-weight:800; line-height:1; padding:1px 3px; border-radius:4px;
+  background:var(--oro, #d4a017); color:#20160a}
 /* 🔴 CON FIGURA, EL VERDE NO SE VE. La imagen tapa el fondo y el `outline` queda comido por el
    `overflow:hidden` de la celda. El marco va por dentro con `inset`, y encima una capa verde
    suave para que la posición ganadora salte igual con figura o sin ella. */
@@ -875,6 +879,13 @@ button{font-family:inherit}
   padding:5px 0; color:var(--mut)}
 .linea-gana + .linea-gana{border-top:1px dashed var(--bor)}
 .linea-gana .num{margin-left:auto}
+/* El cupón de una apuesta deportiva: el partido manda, el resto es contexto. */
+.cupon{padding:8px 0; font-size:12px; color:var(--mut)}
+.cupon + .cupon{border-top:1px dashed var(--bor)}
+.cupon > b{display:block; font-size:13px; color:var(--txt); line-height:1.35; margin-bottom:2px}
+.cupon-datos{display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:5px}
+.cupon-datos b{color:var(--txt)}
+.cupon .envivo{color:var(--no); font-weight:700}
 
 .mov .qu .yano{display:inline-block; margin-top:3px; padding:1px 6px; border-radius:6px;
   font-size:10.5px; font-weight:700; color:var(--no); background:var(--no-soft)}
@@ -3408,34 +3419,57 @@ function abrirHistoria(id){
    Las imágenes de los símbolos no se pueden usar: el motor manda un `imgUrl` y ninguna dirección
    armada con él resuelve —seis variantes probadas, todas 404—. Se dibuja el número del símbolo,
    que es lo que deja seguir la línea; inventar un dibujo sería peor que mostrar el dato. */
+/* 🔴 UNA APUESTA DEPORTIVA NO TIENE GRILLA, Y NO LE HACE FALTA. Lo que responde «¿por qué se le
+   pagó eso?» ahí es el cupón: qué partido, qué evento, a qué cuota. El motor lo manda en `info`
+   con nombres en inglés; se traducen los cinco que importan y el resto no se muestra. */
+function dibujarApuesta(j){
+  return `<div class="matriz-caja">${j.apuestas.map(a => `
+    <div class="cupon">
+      <b>${(a.GameName || '').replace(/</g, '&lt;')}</b>
+      <span>${[a.SportName, a.ChampName].filter(Boolean).join(' · ')}</span>
+      <span class="cupon-datos">
+        ${a.Event ? `<span>apostó a <b>${a.Event}</b></span>` : ''}
+        ${a.Coef ? `<span>cuota <b>${Number(a.Coef).toFixed(2)}</b></span>` : ''}
+        ${a.CouponType ? `<span>${a.CouponType === 'Single' ? 'simple' : a.CouponType}</span>` : ''}
+        ${a.IsLive ? '<span class="envivo">en vivo</span>' : ''}
+        ${a.Score ? `<span>resultado <b>${a.Score}</b></span>` : ''}
+      </span>
+    </div>`).join('')}</div>`;
+}
+
 function dibujarMatriz(j){
-  const lineas = j.lineas || [];
-  const marcadas = celdasGanadoras(lineas);
+  const lineas = normalizarLineas(j.lineas);
+  const marcadas = celdasGanadoras(lineas, j.matriz);
   const resumen = lineas.map(l => `<div class="linea-gana">
-      <b>Símbolo ${l.symbol}</b> × ${l.count}${l.line != null ? ` · línea ${l.line}` : ''}${
+      <b>Símbolo ${l.simbolo}</b>${l.cuantos ? ` × ${l.cuantos}` : ''}${
+        l.linea != null ? ` · línea ${l.linea}` : ''}${
         Number(l.xWin) > 1 ? ` · ×${l.xWin}` : ''}
-      <b class="num t-ok">${fmt(Number(l.cash) || 0)}</b></div>`).join('');
+      <b class="num t-ok">${fmt(l.pago)}</b></div>`).join('');
   if (!j.matriz) {
     return `<div class="matriz-caja">${resumen
       || '<div class="piepie">El casino no mandó la grilla de esta ronda.</div>'}</div>`;
   }
-  const ancho = Math.max(...j.matriz.map(f => f.length));
   /* 🔑 LAS FIGURAS LAS DA EL MOTOR, NO SE ADIVINAN. `figuras` es la dirección base que él mismo
-     manda; el archivo es el número del símbolo. Si esa imagen no carga —porque el juego no las
-     publica— queda el número, que es lo que deja seguir la línea igual. Por eso el número va
-     SIEMPRE debajo: no se pierde nada si la figura falla. */
+     manda; el archivo es el símbolo. Si no carga —hay juegos que no las publican— queda el
+     símbolo escrito, que es lo que deja seguir la línea igual. */
   const conFiguras = !!j.figuras;
+  const ancho = Math.max(...j.matriz.map(f => f.length));
   return `<div class="matriz-caja">
     <div class="matriz ${conFiguras ? 'configuras' : ''}"
       style="grid-template-columns:repeat(${ancho}, minmax(0, 1fr))">
-      ${j.matriz.map((fila, f) => fila.map((simbolo, c) =>
-        `<span class="${esCeldaGanadora(marcadas, f, c) ? 'gana' : ''}">${conFiguras
-          ? `<img src="${j.figuras}${encodeURIComponent(simbolo)}.png" alt="${simbolo}"
-               onerror="this.remove()">` : ''}<i>${simbolo}</i></span>`
-      ).join('')).join('')}
+      ${j.matriz.map((fila, f) => fila.map((celda, c) => {
+        const sim = simboloDeCelda(celda);
+        const mult = multiplicadorDeCelda(celda);
+        return `<span class="${esCeldaGanadora(marcadas, f, c) ? 'gana' : ''}">${conFiguras
+          ? `<img src="${j.figuras}${encodeURIComponent(sim)}.png" alt="${sim}"
+               onerror="this.remove()">` : ''}<i>${sim}</i>${
+          /* 🔑 3OAKS manda celdas como `{image:'10', value:30}`: ese `value` es el multiplicador de
+             esa posición, y muchas veces es lo único que explica un pago grande. */
+          mult ? `<em>×${mult}</em>` : ''}</span>`;
+      }).join('')).join('')}
     </div>
     ${resumen}
-    <div class="piepie">Cada número es un símbolo del juego; en verde, las posiciones que pagaron.</div>
+    <div class="piepie">En verde, las posiciones donde salió el símbolo que pagó.</div>
   </div>`;
 }
 
@@ -3478,7 +3512,7 @@ function abrirSesion(jugadorId, sesionId){
          dueño el 7-sep-2026: «que sea copiable, para enviar a soporte si tienen alguna duda». */''}
     ${js.map(x => {
       const neto = x.win - x.bet;
-      const hayDetalle = !!(x.matriz || (x.lineas && x.lineas.length));
+      const hayDetalle = !!(x.matriz || (x.lineas && x.lineas.length) || x.apuestas);
       return `<div class="jug jug-toca" role="button" tabindex="0"
         onclick="this.classList.toggle('abierta')"
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.classList.toggle('abierta')}">
@@ -3489,7 +3523,7 @@ function abrirSesion(jugadorId, sesionId){
       <span class="jug-mas">
         <span class="jug-dato">saldo antes <b>${fmt(x.before)}</b> · apostó <b>${fmt(x.bet)}</b>
           · ganó <b>${x.win ? fmt(x.win) : '0'}</b></span>
-        ${hayDetalle ? dibujarMatriz(x) : ''}
+        ${x.apuestas ? dibujarApuesta(x) : (hayDetalle ? dibujarMatriz(x) : '')}
         ${x.idSoporte ? filaCred('Número de esta jugada', x.idSoporte, true) : ''}
       </span>
     </div>`; }).join('')}
