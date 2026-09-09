@@ -9249,6 +9249,16 @@ async function main() {
     check('carga: con la divisa sin habilitar no deja crear el pedido, ofrece habilitarla',
       /habilitadaEnLaCaja === false/.test(uiCg) && /cgSincronizar\(\)/.test(uiCg)
       && /sincronizar-caja/.test(rutCg));
+    /* Y se dice UNA vez, no en cada opción. Marcar nueve de diez con «·no en la caja» es ruido, y
+       encima el campo se llama «caja / panel»: negar de algo que el panel SÍ tiene se lee como una
+       contradicción. Son dos cosas con nombres parecidos —el panel acepta la divisa, la caja es
+       por dónde entra el pedido— y así se nombran. */
+    // Se busca el TEMPLATE de la opción, no el texto: el comentario que explica esto lo nombra.
+    check('carga: la divisa sin habilitar no se marca opción por opción',
+      !/·no en la caja'\}<\/option>/.test(uiCg));
+    check('carga: se dice una vez, con las palabras que distinguen panel de pedido',
+      /El panel acepta ' \+ ds\.length \+ ', pero para pedir sólo está/.test(uiCg)
+      && /acepta \$\{dCaja\}, pero para PEDIR todavía no está habilitada/.test(rutCg));
     // Y el TC bien a la vista, con su fuente: es lo primero que pregunta el cliente.
     check('carga: el tipo de cambio se muestra entero, con de dónde salió',
       /1 \$\{esc\(r\.pide\.divisa\)\} = \$\{M\(r\.tc\.valor\)\}/.test(uiCg)

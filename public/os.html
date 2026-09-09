@@ -3197,11 +3197,27 @@ function cgCaja(){
   const sc = document.getElementById('cg-carga-div');
   if (sc) {
     const antes = sc.value;
-    sc.innerHTML = ds.map(d => `<option value="${esc(d)}">${esc(d)}${(k&&(k.divisas||[]).map(x=>String(x).toUpperCase()).includes(d)) ? '' : ' ·no en la caja'}</option>`).join('');
+    sc.innerHTML = ds.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
     sc.value = ds.includes(antes) ? antes : ds[0];
   }
+  /* ── UNA SOLA LÍNEA, NO UNA MARCA EN CADA OPCIÓN ────────────────────────────────────────────
+     Antes cada divisa que el panel tiene y la caja no llevaba «·no en la caja»: nueve de diez
+     marcadas es ruido, y encima el campo se llama «caja / panel», así que decir «no en la caja»
+     de algo que el panel SÍ tiene se lee como una contradicción.
+
+     Son dos cosas distintas con nombres parecidos: el PANEL es el nodo del casino y acepta esas
+     divisas; la CAJA es por dónde entran los pedidos, y quedó con una sola cargada. Se dice así,
+     y con el botón al lado para emparejarlas de una vez. */
+  const enCaja = (k && (k.divisas||[]).map(x => String(x).toUpperCase())) || [];
+  const faltan = ds.filter(d => !enCaja.includes(d));
   const nota = document.getElementById('cg-divs');
-  if (nota) nota.textContent = ds.length > 1 ? ds.length + ' divisas: ' + ds.join(', ') : '';
+  if (nota) {
+    nota.innerHTML = !faltan.length
+      ? (ds.length > 1 ? ds.length + ' divisas habilitadas' : '')
+      : '<span style="color:var(--gold)">El panel acepta ' + ds.length + ', pero para pedir sólo está'
+        + (enCaja.length === 1 ? '' : 'n') + ' <b>' + esc(enCaja.join(', ') || '—') + '</b></span>'
+        + ' <button class="outline small" style="margin-left:4px;padding:2px 7px" onclick="cgSincronizar()">habilitar las ' + ds.length + '</button>';
+  }
   cgPaga();
   cgCalcular();
 }
@@ -3281,8 +3297,8 @@ async function cgCalcular(){
       <div class="row" style="margin-top:12px">
         <button class="outline" onclick="cgCopiar()">📋 Copiar el monto</button>
         ${r.caja.habilitadaEnLaCaja === false
-          ? '<button class="grave" onclick="cgSincronizar()">🔄 Habilitar ' + esc(r.caja.divisa) + ' en la caja</button>'
-            + '<span class="muted" style="align-self:center">sin eso, el pedido se guardaría en ' + esc((r.caja.divisas||['ARS'])[0]) + '</span>'
+          ? '<button class="grave" onclick="cgSincronizar()">🔄 Habilitar ' + esc(r.caja.divisa) + ' para pedir</button>'
+            + '<span class="muted" style="align-self:center">El panel la acepta, pero el pedido todavía no: se guardaría en ' + esc((r.caja.divisas||['ARS'])[0]) + '</span>'
           : (preguntar
             ? '<span class="muted" style="align-self:center">Confirmá el % arriba para poder crear el pedido</span>'
             : '<button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>')}
@@ -3313,9 +3329,10 @@ async function cgBase(pct){
    guardaba como ARS. */
 async function cgSincronizar(){
   const r = _cgRes; if(!r) return;
-  if(!confirm('¿Habilitar en la caja ' + r.caja.usuario + ' las divisas que tiene el panel?\n\n'
-    + 'Ahora: ' + ((r.caja.divisas||[]).join(', ') || '—') + '\n'
-    + 'Pasa a: ' + ((r.caja.divisasPanel||[]).join(', ') || '—'))) return;
+  if(!confirm('¿Habilitar en ' + r.caja.usuario + ' todas las divisas que acepta el panel?\n\n'
+    + 'Se puede pedir hoy: ' + ((r.caja.divisas||[]).join(', ') || '—') + '\n'
+    + 'Pasa a: ' + ((r.caja.divisasPanel||[]).join(', ') || '—') + '\n\n'
+    + 'Es lo mismo que ya hace el sync de paneles, para esta sola.')) return;
   const x = await api('/api/os/carga/sincronizar-caja', { method:'POST', body: JSON.stringify({
     cliente_id: r.cliente.id, caja_id: r.caja.id }) });
   if(!x || !x.ok) return toast('No se pudo: ' + ((x&&x.error)||''), true);

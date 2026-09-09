@@ -4863,8 +4863,8 @@ function mount(app) {
     const avisos = [];
     const enLaCaja = delaCaja.includes(dCaja);
     if (!enLaCaja) {
-      avisos.push(`La caja ${caja.usuario} todavía no tiene ${dCaja} habilitada (el panel sí). `
-        + 'Si creás el pedido así, se guardaría en ' + (delaCaja[0] || 'ARS') + '. Sincronizá la caja con el panel primero.');
+      avisos.push(`El panel ${caja.usuario} acepta ${dCaja}, pero para PEDIR todavía no está habilitada. `
+        + `Si se creara el pedido así, se guardaría en ${delaCaja[0] || 'ARS'}.`);
     }
 
     /* ── EL TIPO DE CAMBIO: EL DE AHORA, Y SI NO EL ÚLTIMO QUE HAY ─────────────────────────────
