@@ -2285,36 +2285,49 @@ async function verFactura(clienteId, conCruce) {
         if (r.porPanel.some(p => p.tc == null && p.usdt == null)) {
           const tcs = {};
           ((r.consumo && r.consumo.porDivisa) || []).forEach(d => { if (d && d.divisa && d.tc) tcs[String(d.divisa).toUpperCase()] = d.tc; });
+          const bse = (r.consumo && r.consumo.base) != null ? Number(r.consumo.base) : null;
           r.porPanel = r.porPanel.map(p => {
             if (p.tc != null || p.usdt != null) return p;
             const t = tcs[String(p.divisa||'').toUpperCase()] || null;
-            return { ...p, tc: t, usdt: t ? (Number(p.monto) / Number(t)) : null };
+            return { ...p, tc: t, usdt: t ? (Number(p.monto)/Number(t)) : null,
+              paga: (t && bse != null) ? (Number(p.monto)*bse/100/Number(t)) : null };
           }).sort((a,b) => Number(b.usdt||0) - Number(a.usdt||0));
         }
         const vecesPanel = {};
         r.porPanel.forEach(p => { vecesPanel[p.panel] = (vecesPanel[p.panel]||0) + 1; });
         const grupos = {};
         r.porPanel.forEach(p => { (grupos[p.panel] = grupos[p.panel] || []).push(p); });
-        const totalPanel = (ps) => ps.reduce((a,p) => a + Number(p.usdt||0), 0);
-        const orden = Object.keys(grupos).sort((a,b) => totalPanel(grupos[b]) - totalPanel(grupos[a]));
-        const totalGeneral = r.porPanel.reduce((a,p) => a + Number(p.usdt||0), 0);
+        const totalPanel = (ps,c) => ps.reduce((a,p) => a + Number(p[c]||0), 0);
+        const orden = Object.keys(grupos).sort((a,b) => totalPanel(grupos[b],'usdt') - totalPanel(grupos[a],'usdt'));
+        const totalGeneral = totalPanel(r.porPanel,'usdt');
+        const totalPaga = totalPanel(r.porPanel,'paga');
+        const hayPaga = r.porPanel.some(p => p.paga != null);
         const sinTC = r.porPanel.filter(p => p.usdt == null);
+        const bs = (r.consumo && r.consumo.base) != null ? r.consumo.base : '';
         return '<div class="card" style="margin:8px 0"><b>Por panel</b>'
-          + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th><th class="right">TC</th><th class="right">USDT</th></tr></thead><tbody>'
+          + (hayPaga ? '<div class="muted" style="margin-top:2px">«Paga» es su ' + esc(bs) + '% sobre lo cargado, con el TC de cada divisa: suma la comisión del mes.</div>' : '')
+          + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th><th class="right">TC</th><th class="right">En USDT</th>'
+          + (hayPaga ? '<th class="right">Paga</th>' : '') + '</tr></thead><tbody>'
           + orden.map(nom => {
               const ps = grupos[nom];
               return ps.map(p => '<tr><td>' + esc(p.panel) + '</td><td>' + esc(p.divisa) + '</td>'
                   + '<td class="right">' + p.cargas + '</td><td class="right">' + money(p.monto,2) + '</td>'
                   + '<td class="right muted">' + (p.tc ? money(p.tc,2) : '—') + '</td>'
-                  + '<td class="right">' + (p.usdt != null ? '<b>' + money(p.usdt,2) + '</b>' : '<span class="muted">sin TC</span>') + '</td></tr>').join('')
+                  + '<td class="right muted">' + (p.usdt != null ? money(p.usdt,2) : 'sin TC') + '</td>'
+                  + (hayPaga ? '<td class="right">' + (p.paga != null ? '<b style="color:var(--gold)">' + money(p.paga,2) + '</b>' : '<span class="muted">—</span>') + '</td>' : '')
+                  + '</tr>').join('')
                 // Sólo si movió en más de una moneda: con una sola, repetiría la línea de arriba.
                 + (vecesPanel[nom] > 1
                     ? '<tr><td colspan="5" class="right muted">Total ' + esc(nom) + '</td>'
-                      + '<td class="right"><b>' + money(totalPanel(ps),2) + '</b></td></tr>'
+                      + '<td class="right muted">' + money(totalPanel(ps,'usdt'),2) + '</td>'
+                      + (hayPaga ? '<td class="right"><b style="color:var(--gold)">' + money(totalPanel(ps,'paga'),2) + '</b></td>' : '')
+                      + '</tr>'
                     : '');
             }).join('')
-          + '</tbody><tfoot><tr><td colspan="5" class="right"><b>Total en USDT</b></td>'
-          + '<td class="right"><b>' + money(totalGeneral,2) + '</b></td></tr></tfoot></table>'
+          + '</tbody><tfoot><tr><td colspan="5" class="right"><b>Total</b></td>'
+          + '<td class="right muted">' + money(totalGeneral,2) + '</td>'
+          + (hayPaga ? '<td class="right"><b style="color:var(--gold)">' + money(totalPaga,2) + '</b></td>' : '')
+          + '</tr></tfoot></table>'
           /* Las MONEDAS, no las filas: con ocho paneles en pesos el aviso decía
              «ARS, ARS, ARS, ARS, ARS, ARS, ARS, ARS, UYU, USD». */
           + (sinTC.length ? (() => {

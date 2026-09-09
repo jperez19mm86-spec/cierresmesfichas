@@ -94,11 +94,18 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
           if (!(D in _tc)) { const t = tcUnico.tcDelMes(D, m); _tc[D] = t && t.valor ? String(t.valor) : null; }
           return _tc[D];
         };
+        /* Y sobre todo, LO QUE PAGA por ese panel: el volumen en USDT dice cuánto se movió, pero
+           la pregunta del cliente es «¿cuánto me sale cash365?». Es su base sobre el monto, con el
+           TC de su divisa — la misma cuenta que el total de arriba, cortada por panel, así que la
+           columna suma exactamente la comisión del mes. */
+        const baseCli = (consumo && consumo.base) != null ? String(consumo.base) : null;
         porPanel = Object.values(acc)
           .map((a) => {
             const t = tcDe(a.divisa);
-            return { ...a, monto: money.round(String(a.monto), 2), tc: t,
-              usdt: t ? money.round(money.div(String(a.monto), t), 2) : null };
+            const m = money.round(String(a.monto), 2);
+            return { ...a, monto: m, tc: t,
+              usdt: t ? money.round(money.div(m, t), 2) : null,
+              paga: (t && baseCli != null) ? money.round(money.div(money.pct(m, baseCli), t), 2) : null };
           })
           .sort((a, b) => Number(b.usdt || 0) - Number(a.usdt || 0) || Number(b.monto) - Number(a.monto));
 
@@ -395,10 +402,13 @@ function conUsdtPorPanel(f) {
   ((f.consumo && f.consumo.porDivisa) || []).forEach((d) => {
     if (d && d.divisa && d.tc) tcs[String(d.divisa).toUpperCase()] = String(d.tc);
   });
+  const baseCli = (f.consumo && f.consumo.base) != null ? String(f.consumo.base) : null;
   const porPanel = f.porPanel.map((p) => {
     if (p.tc != null || p.usdt != null) return p;
     const t = tcs[String(p.divisa || '').toUpperCase()] || null;
-    return { ...p, tc: t, usdt: t ? money.round(money.div(String(p.monto), t), 2) : null };
+    return { ...p, tc: t,
+      usdt: t ? money.round(money.div(String(p.monto), t), 2) : null,
+      paga: (t && baseCli != null) ? money.round(money.div(money.pct(String(p.monto), baseCli), t), 2) : null };
   }).sort((a, b) => Number(b.usdt || 0) - Number(a.usdt || 0) || Number(b.monto) - Number(a.monto));
   return { ...f, porPanel };
 }
@@ -443,7 +453,8 @@ function aTexto(f0, { detalle = false } = {}) {
     // Con el USDT al lado: en el mensaje se ven monedas distintas una debajo de la otra y sin eso
     // no hay forma de saber cuál pesa más.
     f.porPanel.forEach((p) => L.push(`  ${tg.cuenta(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`
-      + (p.usdt != null ? ` → <b>${$(p.usdt)} USDT</b>` : ' <i>(sin TC)</i>')));
+      + (p.paga != null ? ` → paga <b>${$(p.paga)} USDT</b>`
+        : (p.usdt != null ? ` → <b>${$(p.usdt)} USDT</b>` : ' <i>(sin TC)</i>'))));
     L.push('');
   }
 

@@ -9135,7 +9135,7 @@ async function main() {
      contra el total de arriba. Lo guardado no se toca: es lo que el cliente ya recibió. */
   {
     const svcF = require(path.join(ROOT, 'src', 'factura.service.js'));
-    const base = { consumo: { porDivisa: [
+    const base = { consumo: { base: '6', porDivisa: [
       { divisa: 'ARS', tc: '1584.5271' }, { divisa: 'UYU', tc: '39.992632' }] },
       porPanel: [{ panel: 'cash365.vip', divisa: 'ARS', monto: '162511765' },
         { panel: 'Ahora463.com', divisa: 'UYU', monto: '26302' },
@@ -9145,7 +9145,19 @@ async function main() {
     check('factura guardada: el USDT de cada panel se deriva del TC de esa factura',
       p1.usdt === '102561.68' && p1.tc === '1584.5271', `${p1 && p1.usdt}`);
     check('factura guardada: una divisa sin TC queda en null, no en cero',
-      c.porPanel.find((x) => x.divisa === 'BRL').usdt === null);
+      c.porPanel.find((x) => x.divisa === 'BRL').usdt === null
+      && c.porPanel.find((x) => x.divisa === 'BRL').paga === null);
+    /* Y lo que de verdad se pregunta el cliente: «¿cuánto me sale cash365?». Es su base sobre lo
+       cargado, con el TC de esa divisa — la misma cuenta del total, cortada por panel, así que la
+       columna suma EXACTAMENTE la comisión del mes. */
+    // Se compara por VALOR: `money.round` no deja el cero de atrás («6153.7»); el formato de dos
+    // decimales lo pone la pantalla al mostrarlo.
+    check('factura: cada panel dice lo que el cliente PAGA, no sólo el volumen',
+      Number(p1.paga) === 6153.70, `${p1 && p1.paga}`);
+    check('factura: y lo que paga por cada panel suma la comisión del mes',
+      Math.abs(c.porPanel.reduce((a, x) => a + Number(x.paga || 0), 0)
+        - Number(p1.usdt) * 0.06 - Number(c.porPanel[1].usdt) * 0.06) < 0.02,
+      'si no suman, la columna y el total de arriba dicen cosas distintas');
     // Y no pisa lo que ya venía calculado: una factura nueva trae sus propios números.
     const ya = svcF.conUsdtPorPanel({ ...base,
       porPanel: [{ panel: 'X', divisa: 'ARS', monto: '100', tc: '2', usdt: '50' }] });

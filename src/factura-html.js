@@ -45,18 +45,23 @@ function pagina({ factura: f0, actualizado_at, token }) {
      cada panel. Un panel que movió en dos monedas lleva su total sumado en una línea aparte. */
   const veces = {}; (f.porPanel || []).forEach((p) => { veces[p.panel] = (veces[p.panel] || 0) + 1; });
   const gruposP = {}; (f.porPanel || []).forEach((p) => { (gruposP[p.panel] = gruposP[p.panel] || []).push(p); });
-  const totP = (ps) => ps.reduce((a, p) => money.add(a, String(p.usdt || 0)), '0');
+  const totP = (ps, c) => ps.reduce((a, p) => money.add(a, String(p[c] || 0)), '0');
+  const hayPaga = (f.porPanel || []).some((p) => p.paga != null);
   const porPanel = Object.keys(gruposP)
-    .sort((a, b) => Number(totP(gruposP[b])) - Number(totP(gruposP[a])))
+    .sort((a, b) => Number(totP(gruposP[b], 'usdt')) - Number(totP(gruposP[a], 'usdt')))
     .map((nom) => gruposP[nom]
       .map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td>`
         + `<td class="r">${$(p.monto)}</td><td class="r m">${p.tc ? $(p.tc) : '—'}</td>`
-        + `<td class="r">${p.usdt != null ? `<b>${$(p.usdt)}</b>` : '<span class="m">sin TC</span>'}</td></tr>`).join('')
+        + `<td class="r m">${p.usdt != null ? $(p.usdt) : 'sin TC'}</td>`
+        + (hayPaga ? `<td class="r">${p.paga != null ? `<b>${$(p.paga)}</b>` : '<span class="m">—</span>'}</td>` : '')
+        + '</tr>').join('')
       + (veces[nom] > 1
-        ? `<tr><td colspan="5" class="r m">Total ${esc(nom)}</td><td class="r"><b>${$(totP(gruposP[nom]))}</b></td></tr>`
+        ? `<tr><td colspan="5" class="r m">Total ${esc(nom)}</td><td class="r m">${$(totP(gruposP[nom], 'usdt'))}</td>`
+          + (hayPaga ? `<td class="r"><b>${$(totP(gruposP[nom], 'paga'))}</b></td>` : '') + '</tr>'
         : ''))
     .join('');
-  const porPanelTotal = totP(f.porPanel || []);
+  const porPanelTotal = totP(f.porPanel || [], 'usdt');
+  const porPanelPaga = totP(f.porPanel || [], 'paga');
   const porPanelSinTC = (f.porPanel || []).filter((p) => p.usdt == null);
 
   // El detalle ya viene ordenado por panel y numerado dentro de cada uno: se respeta ese orden,
@@ -230,9 +235,10 @@ function pagina({ factura: f0, actualizado_at, token }) {
    </div>` : ''}
 
  ${porPanel ? `<div class="card"><h2>Por panel</h2>
-   <div class="scroll"><table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Cargas</th><th class="r">Monto</th><th class="r">TC</th><th class="r">USDT</th></tr></thead>
+   ${hayPaga ? `<p class="m">«Paga» es tu ${esc((f.consumo || {}).base)}% sobre lo cargado, con el tipo de cambio de cada moneda: suma la comisión del mes.</p>` : ''}
+   <div class="scroll"><table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Cargas</th><th class="r">Monto</th><th class="r">TC</th><th class="r">En USDT</th>${hayPaga ? '<th class="r">Paga</th>' : ''}</tr></thead>
      <tbody>${porPanel}</tbody>
-     <tfoot><tr><td colspan="5" class="r"><b>Total en USDT</b></td><td class="r"><b>${$(porPanelTotal)}</b></td></tr></tfoot></table></div>
+     <tfoot><tr><td colspan="5" class="r"><b>Total</b></td><td class="r m">${$(porPanelTotal)}</td>${hayPaga ? `<td class="r"><b>${$(porPanelPaga)}</b></td>` : ''}</tr></tfoot></table></div>
    ${porPanelSinTC.length ? (() => {
        // Las MONEDAS, no las filas: con ocho paneles en pesos decía «ARS, ARS, ARS, …».
        const ms = [...new Set(porPanelSinTC.map((p) => p.divisa))];
