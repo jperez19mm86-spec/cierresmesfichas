@@ -604,7 +604,19 @@ body{margin:0; background:var(--bg); color:var(--txt);
   letter-spacing:0; font-variant-numeric:normal}
 button{font-family:inherit}
 
-.marco{max-width:440px; margin:0 auto; min-height:100vh; background:var(--bg);
+/* ══════ EL ANCHO SE DECIDE EN UN SOLO LUGAR ══════
+   🔴 440px estaba escrito TRES veces —el marco, la hoja y la barra de acción— y las tres tenían
+   que coincidir o la hoja quedaba despegada de la columna. Ahora es una variable: si mañana hay
+   un cuarto elemento anclado, hereda el mismo ancho sin que nadie se acuerde de copiarlo.
+   Tres escalones, no un continuo: el teléfono como está, la tablet con aire, y el escritorio con
+   una columna cómoda de leer. Más ancho que eso no ayuda —una fila de importes de 1200px obliga a
+   barrer la pantalla con la vista de una punta a la otra para juntar el nombre con su número—. */
+:root{ --ancho:440px; }
+@media (min-width:720px){ :root{ --ancho:620px } }
+@media (min-width:1100px){ :root{ --ancho:780px } }
+
+.marco{max-width:var(--ancho); margin:0 auto; min-height:100vh; min-height:100dvh;
+  background:var(--bg);
   border-left:1px solid var(--bor); border-right:1px solid var(--bor);
   display:flex; flex-direction:column; position:relative; overflow:hidden}
 @media (max-width:480px){ .marco{border:none} }
@@ -726,7 +738,7 @@ button{font-family:inherit}
 .fila-b .bal .pm{font-size:15px; font-weight:700; color:var(--g); line-height:1}
 .vacio{text-align:center; color:var(--mut); font-size:13.5px; padding:26px 10px}
 
-.fab{position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:440px;
+.fab{position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:var(--ancho);
   padding:12px 14px calc(14px + env(safe-area-inset-bottom));
   background:linear-gradient(to top, var(--bg) 62%, transparent); z-index:15}
 .btn{width:100%; background:var(--marca-accion); color:#fff; border:none; border-radius:14px;
@@ -1046,13 +1058,28 @@ button{font-family:inherit}
 .fondo{position:fixed; inset:0; background:rgba(20,14,26,.5); backdrop-filter:blur(2px);
   z-index:30; opacity:0; pointer-events:none; transition:opacity .18s}
 .fondo.abierto{opacity:1; pointer-events:auto}
-.hoja{position:fixed; left:50%; bottom:0; width:100%; max-width:440px; z-index:31;
+.hoja{position:fixed; left:50%; bottom:0; width:100%; max-width:var(--ancho); z-index:31;
   background:var(--bg2);
   border-top:1px solid var(--bor2); border-radius:20px 20px 0 0; box-shadow:var(--sheet);
   padding:8px 16px calc(18px + env(safe-area-inset-bottom));
-  transform:translateX(-50%) translateY(102%); transition:transform .24s cubic-bezier(.32,.72,0,1);
+  transform:translateX(-50%) translateY(102%);
+  transition:transform .24s cubic-bezier(.32,.72,0,1), opacity .18s ease;
   max-height:88vh; max-height:88dvh; overflow-y:auto}
 .hoja.abierta{transform:translateX(-50%) translateY(0)}
+
+/* ══════ EN PANTALLA GRANDE LA HOJA DEJA DE SER UNA HOJA ══════
+   🔴 Una hoja que sube desde abajo es el gesto del teléfono: el pulgar está ahí. En una notebook
+   el contenido aparecía pegado al borde inferior, con media pantalla vacía arriba y el ojo yendo
+   hasta abajo de todo a buscarlo. Desde 760px se centra: es un cuadro, no un cajón. Entra y sale
+   desvaneciéndose y subiendo un poco, no deslizándose desde el borde, porque ya no viene de ahí. */
+@media (min-height:640px) and (min-width:760px){
+  .hoja{bottom:auto; top:50%; border-radius:20px; border:1px solid var(--bor2);
+    max-height:82vh; max-height:82dvh;
+    padding-bottom:18px;
+    transform:translate(-50%, -46%); opacity:0; pointer-events:none}
+  .hoja.abierta{transform:translate(-50%, -50%); opacity:1; pointer-events:auto}
+}
+@media (prefers-reduced-motion:reduce){ .hoja{transition:opacity .01s} }
 /* En claro la sombra separa la hoja del fondo y las tarjetas de la hoja. En oscuro la
    sombra no se ve, así que la separación tiene que hacerla el tono y el borde. */
 /* La tarjeta de fichas lleva el morado también adentro de la hoja: si acá se pinta gris,
