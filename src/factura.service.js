@@ -82,9 +82,25 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
           const a = acc[k] = acc[k] || { panel: x.panel, divisa: x.divisa, cargas: 0, monto: 0 };
           a.cargas++; a.monto += x.monto;
         }
+        /* CADA PANEL TAMBIÉN EN USDT. La tabla decía «cash365.vip · ARS · 38 cargas ·
+           162.511.765» y al lado «Ahora463.com · UYU · 1 · 26.302»: dos números en dos monedas que
+           no se pueden ni comparar ni sumar, así que no se sabe cuánto pesa cada panel de verdad.
+           Con el TC del mes de SU divisa —el mismo que usa el total de arriba— pasan a ser
+           comparables, y un panel que movió en dos monedas suma en una sola línea.
+           Sin TC cargado queda en null y la pantalla lo dice, en vez de inventar un número. */
+        const _tc = {};
+        const tcDe = (d) => {
+          const D = String(d || 'ARS').toUpperCase();
+          if (!(D in _tc)) { const t = tcUnico.tcDelMes(D, m); _tc[D] = t && t.valor ? String(t.valor) : null; }
+          return _tc[D];
+        };
         porPanel = Object.values(acc)
-          .map((a) => ({ ...a, monto: money.round(String(a.monto), 2) }))
-          .sort((a, b) => Number(b.monto) - Number(a.monto));
+          .map((a) => {
+            const t = tcDe(a.divisa);
+            return { ...a, monto: money.round(String(a.monto), 2), tc: t,
+              usdt: t ? money.round(money.div(String(a.monto), t), 2) : null };
+          })
+          .sort((a, b) => Number(b.usdt || 0) - Number(a.usdt || 0) || Number(b.monto) - Number(a.monto));
 
         // El cliente audita POR PANEL, no por orden cronológico global: quiere ver las cargas de
         // un panel juntas y numeradas. Así que se ordena por panel (el de más volumen primero) y
@@ -396,7 +412,10 @@ function aTexto(f, { detalle = false } = {}) {
   // Por panel: es el corte que el cliente entiende, porque son SUS cuentas.
   if ((f.porPanel || []).length) {
     L.push('<b>Por panel</b>');
-    f.porPanel.forEach((p) => L.push(`  ${tg.cuenta(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`));
+    // Con el USDT al lado: en el mensaje se ven monedas distintas una debajo de la otra y sin eso
+    // no hay forma de saber cuál pesa más.
+    f.porPanel.forEach((p) => L.push(`  ${tg.cuenta(p.panel)} (${esc(p.divisa)}): ${p.cargas} carga(s) · ${$(p.monto)}`
+      + (p.usdt != null ? ` → <b>${$(p.usdt)} USDT</b>` : ' <i>(sin TC)</i>')));
     L.push('');
   }
 

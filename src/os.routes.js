@@ -4318,7 +4318,13 @@ function mount(app) {
       }))
       .concat(['', `<b>Total: ${fmt(total)} USDT</b>`, `<i>${filas.length} cuenta(s)</i>`])
       .join('\n');
-    const r = await telegram.sendMessage(tok, chat, texto);
+    const cuerpo = (req.body && req.body.texto != null && String(req.body.texto).trim())
+      ? String(req.body.texto) : texto;
+    if (req.body && req.body.soloTexto) {
+      return ok(res, { previsualizacion: true, texto: cuerpo, chat, destino: 'Cuentas Imperium',
+        cuentas: filas.length, total });
+    }
+    const r = await telegram.sendMessage(tok, chat, cuerpo);
     if (!r.ok) return err(res, 502, r.error || 'Telegram no aceptó el mensaje');
     const marca = enviosStore.marcar({ mes, que: origen, chat, cantidad: filas.length, total_usdt: total,
       quien: (req.usuario && req.usuario.usuario) || 'admin' });
@@ -4754,6 +4760,17 @@ function mount(app) {
       const l = facturaSvc.crearLink(f);
       texto += `\n\n📄 <a href="${_urlPublica(req)}/factura/${l.token}">Ver el detalle completo</a>`;
     }
+    /* ── VERLO Y PODER TOCARLO ANTES DE QUE SALGA ──────────────────────────────────────────────
+       Con `soloTexto` se arma TODO —incluido el link, que se crea igual— y se devuelve sin mandar
+       nada. La pantalla lo muestra tal cual va a salir y deja editarlo; después vuelve con `texto`
+       y se manda eso. Antes lo único que se podía hacer era aceptar a ciegas, y estos mensajes se
+       volvieron largos: aceptar sin leer es cómo sale algo mal a un grupo de un cliente. */
+    if (req.body.texto != null && String(req.body.texto).trim()) texto = String(req.body.texto);
+    if (req.body.soloTexto) {
+      return ok(res, { previsualizacion: true, texto, chat,
+        destino: dest.heredado ? `el grupo de ${dest.de}` : (cli.nombre || cli.codigo),
+        partes: facturaSvc.partir(texto).length });
+    }
     const partes = facturaSvc.partir(texto);
     const enviados = [];
     for (const p of partes) {
@@ -4835,7 +4852,13 @@ function mount(app) {
       `💵 <b>Total: ${fmt(r.totalUsdt)} USD</b>`, '',
       `<i>${r.proveedores.length} proveedores · ${(r.clientes || []).length} cuentas en su línea</i>`, '',
       `📄 <a href="${E(url)}">Ver el detalle por proveedor y divisa</a>`].join('\n');
-    const x = await telegram.sendMessage(tok, chat, texto);
+    const cuerpo = (req.body && req.body.texto != null && String(req.body.texto).trim())
+      ? String(req.body.texto) : texto;
+    if (req.body && req.body.soloTexto) {
+      return ok(res, { previsualizacion: true, texto: cuerpo, chat, destino: 'Cuentas Imperium',
+        link: url, proveedores: r.proveedores.length, total_usdt: r.totalUsdt });
+    }
+    const x = await telegram.sendMessage(tok, chat, cuerpo);
     if (!x.ok) return err(res, 502, x.error || 'Telegram no aceptó el mensaje');
     console.log(`[vendedores] línea de ${r.vendedor} (${mes}) → Cuentas Imperium: ${url}`);
     ok(res, { enviado: true, vendedor: r.vendedor, mes, chat, link: url,

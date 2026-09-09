@@ -2272,11 +2272,41 @@ async function verFactura(clienteId, conCruce) {
        : (ex && ex.error ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: ' + esc(ex.error) + '</span></div>' : ''));
   // Por panel + carga por carga: es lo que hace que el cliente pueda AUDITAR la factura en vez
   // de tener que creernos el total.
+  /* CADA PANEL TAMBIÉN EN USDT. La tabla decía «cash365.vip · ARS · 162.511.765» y al lado
+     «Ahora463.com · UYU · 26.302»: dos números en dos monedas que no se comparan ni se suman, así
+     que no se sabe cuánto pesa cada panel. Con el TC de su divisa sí, y un panel que movió en dos
+     monedas lleva su total sumado en una línea aparte. */
   const porPanel = (r.porPanel||[]).length
-    ? ('<div class="card" style="margin:8px 0"><b>Por panel</b>'
-       + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th></tr></thead><tbody>'
-       + r.porPanel.map(p => '<tr><td>' + esc(p.panel) + '</td><td>' + esc(p.divisa) + '</td><td class="right">' + p.cargas + '</td><td class="right">' + money(p.monto,2) + '</td></tr>').join('')
-       + '</tbody></table></div>') : '';
+    ? (() => {
+        const vecesPanel = {};
+        r.porPanel.forEach(p => { vecesPanel[p.panel] = (vecesPanel[p.panel]||0) + 1; });
+        const grupos = {};
+        r.porPanel.forEach(p => { (grupos[p.panel] = grupos[p.panel] || []).push(p); });
+        const totalPanel = (ps) => ps.reduce((a,p) => a + Number(p.usdt||0), 0);
+        const orden = Object.keys(grupos).sort((a,b) => totalPanel(grupos[b]) - totalPanel(grupos[a]));
+        const totalGeneral = r.porPanel.reduce((a,p) => a + Number(p.usdt||0), 0);
+        const sinTC = r.porPanel.filter(p => p.usdt == null);
+        return '<div class="card" style="margin:8px 0"><b>Por panel</b>'
+          + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th><th class="right">TC</th><th class="right">USDT</th></tr></thead><tbody>'
+          + orden.map(nom => {
+              const ps = grupos[nom];
+              return ps.map(p => '<tr><td>' + esc(p.panel) + '</td><td>' + esc(p.divisa) + '</td>'
+                  + '<td class="right">' + p.cargas + '</td><td class="right">' + money(p.monto,2) + '</td>'
+                  + '<td class="right muted">' + (p.tc ? money(p.tc,2) : '—') + '</td>'
+                  + '<td class="right">' + (p.usdt != null ? '<b>' + money(p.usdt,2) + '</b>' : '<span class="muted">sin TC</span>') + '</td></tr>').join('')
+                // Sólo si movió en más de una moneda: con una sola, repetiría la línea de arriba.
+                + (vecesPanel[nom] > 1
+                    ? '<tr><td colspan="5" class="right muted">Total ' + esc(nom) + '</td>'
+                      + '<td class="right"><b>' + money(totalPanel(ps),2) + '</b></td></tr>'
+                    : '');
+            }).join('')
+          + '</tbody><tfoot><tr><td colspan="5" class="right"><b>Total en USDT</b></td>'
+          + '<td class="right"><b>' + money(totalGeneral,2) + '</b></td></tr></tfoot></table>'
+          + (sinTC.length ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ '
+              + sinTC.map(p => esc(p.divisa)).join(', ') + ' sin tipo de cambio del mes: '
+              + (sinTC.length===1?'esa moneda no está':'esas monedas no están') + ' en el total en USDT.</div>' : '')
+          + '</div>';
+      })() : '';
   const det = (r.detalle||[]).length
     ? ('<div class="card" style="margin:8px 0"><b>Detalle de las cargas</b> <span class="muted">(' + r.detalle.length + ')</span>'
        + '<div style="max-height:340px;overflow:auto;margin-top:6px"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Panel</th><th>Moneda</th><th class="right">Monto</th></tr></thead><tbody>'
@@ -2385,6 +2415,68 @@ async function verFactura(clienteId, conCruce) {
   document.getElementById('main').innerHTML = '<div class="card"><button class="outline small" onclick="facVolver()">← volver</button></div>' + html;
 }
 
+/* ── VER Y PODER TOCAR EL MENSAJE ANTES DE QUE SALGA ────────────────────────────────────────────
+   Antes lo único que se podía hacer era aceptar a ciegas: un confirm que decía a qué grupo iba y
+   nada más. Estos mensajes se volvieron largos —la factura con el detalle son varios mensajes
+   seguidos— y aceptar sin leer es cómo termina saliendo algo mal al grupo de un cliente.
+
+   Se le pide al servidor el texto EXACTO (`soloTexto`), que lo arma igual que al mandarlo —link
+   incluido, el link se crea igual— y no manda nada. Acá se muestra tal cual va a salir, se puede
+   editar, y al confirmar vuelve con `texto` y se manda eso.
+
+   El destino lo dice el servidor, no la pantalla: si el cliente no tiene grupo propio hereda el de
+   su vendedor, y eso hay que verlo ANTES, no después. */
+async function enviarConPrevia(ruta, cuerpo, { titulo, aviso } = {}) {
+  toast('Armando el mensaje…');
+  const p = await api(ruta, { method:'POST', body: JSON.stringify({ ...cuerpo, soloTexto:true }) });
+  if (!p || !p.ok) { toast('No se pudo armar: ' + ((p&&p.error)||''), true); return null; }
+
+  const id = 'prev-' + Math.random().toString(36).slice(2, 8);
+  const cap = document.createElement('div');
+  cap.style = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;'
+    + 'align-items:center;justify-content:center;padding:18px';
+  cap.innerHTML =
+    '<div class="card" style="max-width:760px;width:100%;max-height:88vh;overflow:auto;margin:0">'
+    + '<h2 style="margin:0 0 2px">' + esc(titulo || 'Revisá el mensaje antes de mandarlo') + '</h2>'
+    + '<div class="muted">Va a <b>' + esc(p.destino || 'el grupo') + '</b>'
+    + (p.chat ? ' <span style="font-family:ui-monospace,monospace">' + esc(p.chat) + '</span>' : '')
+    + (p.partes > 1 ? ' · sale en <b>' + p.partes + ' mensajes</b>' : '') + '</div>'
+    + (aviso ? '<div class="muted" style="margin-top:4px;color:var(--gold)">' + aviso + '</div>' : '')
+    + '<div class="muted" style="margin-top:8px;font-size:11.5px">Se puede editar. Las etiquetas '
+    + '<b>&lt;b&gt;</b> e <b>&lt;i&gt;</b> y los links andan; si rompés una, Telegram rechaza el mensaje y te lo digo.</div>'
+    + '<textarea id="' + id + '" style="width:100%;height:44vh;margin-top:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
+    + 'font-size:12.5px;line-height:1.55"></textarea>'
+    + '<div class="row" style="margin-top:10px">'
+    + '<button class="grave" data-ok>📤 Mandar</button>'
+    + '<button class="outline" data-no>Cancelar</button>'
+    + '<span style="flex:1"></span>'
+    + '<button class="outline small" data-reset>↺ Volver al original</button>'
+    + '</div></div>';
+  document.body.appendChild(cap);
+  // El texto se pone por `value` y NO en el HTML: con innerHTML, un `</textarea>` adentro del
+  // mensaje cerraría el campo y el resto se interpretaría como marcado.
+  const ta = cap.querySelector('#' + id); ta.value = p.texto || '';
+  ta.focus();
+
+  const salida = await new Promise((resolve) => {
+    cap.querySelector('[data-no]').onclick = () => resolve(null);
+    cap.querySelector('[data-reset]').onclick = () => { ta.value = p.texto || ''; };
+    cap.querySelector('[data-ok]').onclick = () => resolve(ta.value);
+    cap.onclick = (e) => { if (e.target === cap) resolve(null); };
+    document.addEventListener('keydown', function esc2(e){
+      if (e.key === 'Escape') { document.removeEventListener('keydown', esc2); resolve(null); }
+    });
+  });
+  cap.remove();
+  if (salida == null) { toast('No se mandó nada'); return null; }
+  if (!String(salida).trim()) { toast('El mensaje quedó vacío: no se mandó', true); return null; }
+
+  toast('Enviando…');
+  const r = await api(ruta, { method:'POST', body: JSON.stringify({ ...cuerpo, texto: salida }) });
+  if (!r || !r.ok) { toast('No se envió: ' + ((r&&r.error)||''), true); return null; }
+  return r;
+}
+
 // Manda la factura al grupo de Telegram DEL CLIENTE. Sale para afuera: se pregunta siempre, y
 // se avisa si el cliente no tiene grupo cargado en vez de fallar callado.
 async function facturaEnviar(clienteId) {
@@ -2393,11 +2485,11 @@ async function facturaEnviar(clienteId) {
   const mes = _facCtx.mes;
   if (!mes) return toast('No sé de qué mes es esta factura — volvé a abrirla', true);
   const conDetalle = confirm('¿Incluir el detalle carga por carga?\n\nAceptar = con detalle (para que pueda auditarlo).\nCancelar = solo el resumen.');
-  if (!confirm('Se le va a MANDAR la factura de ' + mesNombre(mes) + ' al grupo de Telegram del cliente. ¿Confirmás?')) return;
-  toast('Enviando…');
-  const r = await api('/api/os/factura/' + clienteId + '/enviar', { method: 'POST', body: JSON.stringify({ mes, detalle: conDetalle }) });
-  if (!r.ok) return toast('No se envió: ' + (r.error || ''));
-  toast('✅ Enviada · ' + r.partes + ' mensaje(s) · total ' + money(r.total_usdt,2) + ' USDT');
+  // Ya no hay confirm a ciegas: se ve el mensaje entero, se puede editar, y ahí se decide.
+  const r = await enviarConPrevia('/api/os/factura/' + clienteId + '/enviar', { mes, detalle: conDetalle },
+    { titulo: 'Factura de ' + mesNombre(mes) + ' — revisala antes de mandarla',
+      aviso: 'Sale al grupo del CLIENTE. No se puede deshacer.' });
+  if (r) toast('✅ Enviada · ' + r.partes + ' mensaje(s) · total ' + money(r.total_usdt,2) + ' USDT');
 }
 
 // Crea el link con el que el cliente ve el desglose completo. Guarda una FOTO: si despues entran
@@ -3845,11 +3937,11 @@ async function todasDetalle(){
 async function todasEnviar(origen){
   const t = _todas[origen]; if(!t || !(t.datos.filas||[]).length) return toast('No hay nada emitido este mes');
   const q = origen==='externos' ? 'EXTERNOS de los clientes' : 'los VENDEDORES';
-  if(!confirm('¿Mandar la cuenta de ' + q + ' de ' + mesNombre(t.mes) + ' a Cuentas Imperium?\n\n'
-    + t.datos.filas.length + ' cuenta(s) · ' + money(t.datos.total_usdt,2) + ' USDT\n\n'
-    + 'Va con el nombre de cada uno: es el grupo interno.')) return;
-  const r = await api('/api/os/emision/' + origen + '/' + encodeURIComponent(t.mes) + '/enviar', { method:'POST' });
-  if(!r.ok) return toast('Error: ' + (r.error||''));
+  // El confirm a ciegas se fue: ahora se ve el mensaje entero y se puede editar antes de que salga.
+  const r = await enviarConPrevia('/api/os/emision/' + origen + '/' + encodeURIComponent(t.mes) + '/enviar', {},
+    { titulo: 'Cuenta de ' + q + ' — ' + mesNombre(t.mes),
+      aviso: 'Va al grupo INTERNO (Cuentas Imperium), con el nombre de cada uno.' });
+  if (!r) return;
   toast('Mandado — ' + r.enviado + ' cuenta(s) · ' + money(r.total,2) + ' USDT');
   todasCargar(origen, t.cont, t.mes);          // para que la señal diga que ya salió
 }
@@ -4304,12 +4396,10 @@ async function extPDF(){
    («Cuentas Imperium»), que no es el de la matriz donde van las cuentas de TBS ni el de los avisos
    del chat — son tres, y mandar la cuenta de un vendedor al equivocado no se puede deshacer. */
 async function venEnviarLinea(vendedor, mes){
-  if(!confirm('¿Mandar la línea de ' + vendedor + ' de ' + mes + ' a Cuentas Imperium?\n\n'
-    + 'Va con el detalle por proveedor y divisa. Es el grupo interno, no el de ningún cliente.')) return;
-  toast('Armando la línea de ' + vendedor + '… (tarda)');
-  const r = await api('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores/enviar',
-    { method:'POST', body: JSON.stringify({ mes }) });
-  if(!r || !r.ok) return toast('No salió: ' + ((r&&r.error)||''), true);
+  const r = await enviarConPrevia('/api/os/vendedores/' + encodeURIComponent(vendedor) + '/rama-proveedores/enviar',
+    { mes }, { titulo: 'Línea de ' + vendedor + ' — ' + mes,
+      aviso: 'Va al grupo INTERNO (Cuentas Imperium), no al de ningún cliente. Tarda en armarse.' });
+  if(!r) return;
   toast('✔ ' + vendedor + ' · ' + money(r.total_usdt) + ' USD · ' + r.proveedores + ' proveedores');
   // El link queda a mano por si hay que reenviarlo o mirarlo sin abrir Telegram.
   if(r.link) console.log('línea de ' + vendedor + ': ' + r.link);

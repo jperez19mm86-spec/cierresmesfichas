@@ -37,9 +37,24 @@ function pagina({ factura: f, actualizado_at, token }) {
       + '</tbody></table>'
     : '';
 
-  const porPanel = (f.porPanel || [])
-    .map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td><td class="r">${$(p.monto)}</td></tr>`)
+  /* CADA PANEL TAMBIÉN EN USDT: «cash365.vip · ARS · 162.511.765» al lado de «Ahora463.com ·
+     UYU · 26.302» son dos números que no se comparan ni se suman, así que no se ve cuánto pesa
+     cada panel. Un panel que movió en dos monedas lleva su total sumado en una línea aparte. */
+  const veces = {}; (f.porPanel || []).forEach((p) => { veces[p.panel] = (veces[p.panel] || 0) + 1; });
+  const gruposP = {}; (f.porPanel || []).forEach((p) => { (gruposP[p.panel] = gruposP[p.panel] || []).push(p); });
+  const totP = (ps) => ps.reduce((a, p) => money.add(a, String(p.usdt || 0)), '0');
+  const porPanel = Object.keys(gruposP)
+    .sort((a, b) => Number(totP(gruposP[b])) - Number(totP(gruposP[a])))
+    .map((nom) => gruposP[nom]
+      .map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td>`
+        + `<td class="r">${$(p.monto)}</td><td class="r m">${p.tc ? $(p.tc) : '—'}</td>`
+        + `<td class="r">${p.usdt != null ? `<b>${$(p.usdt)}</b>` : '<span class="m">sin TC</span>'}</td></tr>`).join('')
+      + (veces[nom] > 1
+        ? `<tr><td colspan="5" class="r m">Total ${esc(nom)}</td><td class="r"><b>${$(totP(gruposP[nom]))}</b></td></tr>`
+        : ''))
     .join('');
+  const porPanelTotal = totP(f.porPanel || []);
+  const porPanelSinTC = (f.porPanel || []).filter((p) => p.usdt == null);
 
   // El detalle ya viene ordenado por panel y numerado dentro de cada uno: se respeta ese orden,
   // que es como el cliente audita.
@@ -212,7 +227,10 @@ function pagina({ factura: f, actualizado_at, token }) {
    </div>` : ''}
 
  ${porPanel ? `<div class="card"><h2>Por panel</h2>
-   <table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Cargas</th><th class="r">Monto</th></tr></thead><tbody>${porPanel}</tbody></table>
+   <div class="scroll"><table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Cargas</th><th class="r">Monto</th><th class="r">TC</th><th class="r">USDT</th></tr></thead>
+     <tbody>${porPanel}</tbody>
+     <tfoot><tr><td colspan="5" class="r"><b>Total en USDT</b></td><td class="r"><b>${$(porPanelTotal)}</b></td></tr></tfoot></table></div>
+   ${porPanelSinTC.length ? `<p class="m" style="color:#b3261e">${porPanelSinTC.map((p) => esc(p.divisa)).join(', ')} sin tipo de cambio del mes: ${porPanelSinTC.length === 1 ? 'esa moneda no está' : 'esas monedas no están'} en el total en USDT.</p>` : ''}
    </div>` : ''}
 
  ${extHtml}

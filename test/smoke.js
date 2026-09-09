@@ -8989,8 +8989,13 @@ async function main() {
     /* El octavo es el ID DE LA SALA del chat: un número que ella copia de la pantalla del casino y
        después compara contra ella dígito por dígito. Es el caso canónico de esta regla, no una
        excepción: poner el id equivocado hace que esa caja facture sobre otro nodo. */
+    /* El noveno es la VISTA PREVIA de lo que sale por Telegram: es el mismo caso que el séptimo.
+       Ahí se lee el mensaje tal cual va a salir —con sus <b> y sus links— para decidir si se manda;
+       en ancho fijo se ve dónde empieza y termina cada etiqueta, que es justo lo que hay que
+       revisar. Y el id del grupo al lado es un número que se compara dígito por dígito contra el
+       de Telegram: mandarle la cuenta de un cliente al grupo de otro no se deshace. */
     check('panel: la letra de máquina queda sólo donde se copia carácter por carácter',
-      mono <= 8, `${mono} lugares`);
+      mono <= 9, `${mono} lugares`);
     check('panel: la contraseña generada SÍ la conserva',
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',
@@ -9088,12 +9093,39 @@ async function main() {
       /\^\\\/linea\\\/\[A-Za-z0-9_-\]\+/.test(srcAuth));
     check('vendedores: y el token de una línea no abre la cuenta de un cliente',
       /startsWith\(PREFIJO\)/.test(fs.readFileSync(path.join(ROOT, 'src', 'vendedor-linea-doc.js'), 'utf8')));
-    check('vendedores: y el envío se pregunta antes, diciendo a dónde va',
+    /* El confirm a ciegas se cambió por la vista previa (7-sep-2026): se ve el mensaje entero, se
+       puede editar, y el cartel sigue diciendo que va al grupo interno y no al de un cliente. */
+    check('vendedores: y el envío se ve antes, diciendo a dónde va',
       /venEnviarLinea/.test(uiVen) && /Cuentas Imperium/.test(uiVen)
-      && /confirm\('\u00bfMandar la l\u00ednea de/.test(uiVen));
+      && /enviarConPrevia\('\/api\/os\/vendedores\//.test(uiVen));
     check('vendedores: la ruta de la línea existe y va antes que la de /:id',
       srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") > 0
       && srcRut.indexOf("/api/os/vendedores/:nombre/rama-proveedores") < srcRut.indexOf("app.get('/api/os/vendedores/:id'"));
+  }
+
+  /* ── LO QUE SALE PARA AFUERA SE VE ANTES ──────────────────────────────────────────────────
+     El único control era un confirm que decía a qué grupo iba. Estos mensajes se volvieron largos
+     —la factura con detalle sale en varios— y aceptar sin leer es cómo termina saliendo algo mal
+     al grupo de un cliente. Ahora se pide el texto EXACTO con `soloTexto`, se muestra editable, y
+     al confirmar se manda lo que quedó (`texto`). */
+  {
+    const uiPrev = FUENTE_PANEL();
+    const rutPrev = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('envíos: se puede ver el mensaje antes de mandarlo, y editarlo',
+      /async function enviarConPrevia/.test(uiPrev) && /soloTexto:true/.test(uiPrev));
+    check('envíos: y los tres que salen para afuera pasan por ahí',
+      (uiPrev.match(/enviarConPrevia\(/g) || []).length >= 4,
+      'factura del cliente, cuentas a Imperium y línea del vendedor');
+    check('envíos: el servidor arma el texto sin mandar nada cuando se lo piden',
+      (rutPrev.match(/req\.body\.soloTexto|req\.body && req\.body\.soloTexto/g) || []).length >= 3
+      && (rutPrev.match(/previsualizacion: true/g) || []).length >= 3);
+    /* El texto va por `value`, no por innerHTML: un `</textarea>` adentro del mensaje cerraría el
+       campo y el resto se leería como marcado. */
+    check('envíos: el mensaje se carga en el campo por value, no como HTML',
+      /ta\.value = p\.texto/.test(uiPrev));
+    // Y el destino lo dice el SERVIDOR: si el cliente no tiene grupo, hereda el del vendedor.
+    check('envíos: el destino que se muestra sale del servidor, no de la pantalla',
+      /destino: dest\.heredado \? `el grupo de \$\{dest\.de\}`/.test(rutPrev));
   }
 
   check('panel: los espacios se llaman por lo que hacen',
