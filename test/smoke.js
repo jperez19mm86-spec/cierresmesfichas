@@ -9235,6 +9235,13 @@ async function main() {
        poder habilitarla en la caja antes de crear el pedido, y mientras tanto no dejar crearlo. */
     check('carga: las divisas salen del panel, no sólo de la caja',
       /\[\.\.\.new Set\(\[\.\.\.delaCaja, \.\.\.delPanel\]\)\]/.test(rutCg));
+    /* Y también en la PANTALLA, antes de calcular: el selector de cajas decía «463.life · ARS»
+       —la divisa vieja de la caja— y «Cargar en» aparecía vacío hasta que hubiera un monto, así
+       que parecía que no había más divisas que pesos. */
+    check('carga: el selector de cajas etiqueta con lo que puede el panel',
+      /function cgDivisasDe\(k\)/.test(uiCg) && /_cgPaneles\[String\(k\.userId\)\]/.test(uiCg));
+    check('carga: y las divisas se llenan al elegir la caja, sin esperar el cálculo',
+      /function cgCaja\(\)/.test(uiCg) && /onchange="cgCaja\(\)"/.test(uiCg));
     const idx = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
     check('carga: y esto importa porque /api/pedir cambia la divisa en silencio',
       /cajaDivisas\.includes\(divisa\) \? divisa : cajaDivisas\[0\]/.test(idx),

@@ -3109,12 +3109,18 @@ async function refrescarTodoPendiente() {
    La cuenta la hace el SERVIDOR con las mismas funciones que la carga de verdad. Acá no se
    multiplica nada: si esta pantalla hiciera su propia cuenta, diría un número y el sistema
    anotaría otro, y el que ya lo vio es el cliente. */
-let _cgCli = null, _cgCajas = [], _cgRes = null, _cgTimer = null, _cgUsar = null;
+let _cgCli = null, _cgCajas = [], _cgRes = null, _cgTimer = null, _cgUsar = null, _cgPaneles = {};
 
 VIEWS.carga = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando clientes…</div></div>';
-  const cs = ((await api('/api/clientes')).clientes || []).filter(c => (c.cajas||[]).length);
+  /* Las divisas salen del PANEL, no de la caja: la caja de 463.life dice ARS y el panel tiene
+     diez. Se traen una vez acá para poder etiquetar el selector y llenar «Cargar en» sin esperar
+     a que se calcule. */
+  const [cli0, pan0] = await Promise.all([api('/api/clientes'), api('/api/os/paneles')]);
+  _cgPaneles = {};
+  ((pan0 && pan0.paneles) || []).forEach(p => { if (p.id_usuario) _cgPaneles[String(p.id_usuario)] = (p.divisas||[]).map(x => String(x).toUpperCase()); });
+  const cs = ((cli0.clientes || [])).filter(c => (c.cajas||[]).length);
   cs.sort((a,b) => String(a.nombre||a.nombreVisible||'').localeCompare(String(b.nombre||b.nombreVisible||''), 'es'));
   main.innerHTML = `
     <div class="card">
@@ -3126,13 +3132,16 @@ VIEWS.carga = async () => {
         + '<b>La carga no es deuda.</b> Lo que el cliente queda debiendo es la <b>comisión</b>: su % base '
         + 'sobre lo cargado. Las fichas se pagan aparte.')}
       <div class="row" style="align-items:flex-end;margin-top:8px">
-        <div style="flex:1 1 220px"><label>Cliente</label>
+        <div style="flex:1 1 240px"><label>Cliente</label>
           <select id="cg-cli" onchange="cgCliente()">
             <option value="">— elegir —</option>
             ${cs.map(c => `<option value="${esc(c.id)}">${esc(c.nombre||c.nombreVisible)} · ${esc(c.codigo)}</option>`).join('')}
           </select></div>
-        <div style="flex:1 1 220px"><label>Caja / panel</label>
-          <select id="cg-caja" onchange="cgCalcular()"><option value="">— elegí un cliente —</option></select></div>
+        <div style="flex:1 1 260px"><label>Caja / panel</label>
+          <select id="cg-caja" onchange="cgCaja()"><option value="">— elegí un cliente —</option></select></div>
+        <div style="flex:0 0 170px"><label>Cargar en</label>
+          <select id="cg-carga-div" onchange="cgPaga();cgCalcular()"><option value="">—</option></select>
+          <div class="muted" id="cg-divs" style="font-size:11px;margin-top:2px"></div></div>
       </div>
       <div class="row" style="align-items:flex-end;margin-top:6px">
         <div style="flex:0 0 200px"><label>Ese monto es…</label>
@@ -3142,10 +3151,8 @@ VIEWS.carga = async () => {
           </select></div>
         <div style="flex:1 1 160px"><label>Monto</label>
           <input id="cg-monto" inputmode="decimal" placeholder="10000" oninput="cgLuego()"></div>
-        <div style="flex:0 0 120px"><label>En</label>
+        <div style="flex:0 0 120px"><label>Que paga en</label>
           <select id="cg-div" onchange="cgCalcular()"><option value="USD">USD</option></select></div>
-        <div style="flex:0 0 150px"><label>Cargar en</label>
-          <select id="cg-carga-div" onchange="cgCalcular()"><option value="">—</option></select></div>
         <div style="flex:0 0 150px"><label>Mes</label>
           <input type="month" id="cg-mes" value="${esc(new Date().toISOString().slice(0,7))}" onchange="cgCalcular()"></div>
         <div style="flex:0"><button onclick="cgCalcular()">Calcular</button></div>
@@ -3162,15 +3169,53 @@ function cgCliente(){
     _cgCajas = c ? (c.cajas||[]) : [];
     const sel = document.getElementById('cg-caja'); if(!sel) return;
     sel.innerHTML = _cgCajas.length
-      ? _cgCajas.map(k => `<option value="${esc(k.id)}">${esc(k.usuario)} · ${esc((k.divisas||['ARS'])[0])}${k.sistema?' · '+esc(k.sistema):''}</option>`).join('')
+      ? _cgCajas.map(k => {
+          const ds = cgDivisasDe(k);
+          return `<option value="${esc(k.id)}">${esc(k.usuario)}${k.sistema?' · '+esc(k.sistema):''} · ${esc(ds.slice(0,3).join('/'))}${ds.length>3?' +'+(ds.length-3):''}</option>`;
+        }).join('')
       : '<option value="">este cliente no tiene cajas</option>';
     // Los selectores de divisa los arma el servidor al contestar: junta las de la caja con las
     // del panel, que es lo que dice el casino. Al cambiar de caja se limpian para no arrastrar
     // la divisa de la anterior.
-    const sc = document.getElementById('cg-carga-div'); if(sc) { sc.dataset.para = ''; sc.innerHTML = '<option value="">—</option>'; }
-    cgCalcular();
+    cgCaja();
   });
 }
+/* Las divisas de una caja: las del PANEL —lo que dice el casino— más las que la caja tenga
+   cargadas. La caja sola miente: la de 463.life dice ARS y el panel tiene diez. */
+function cgDivisasDe(k){
+  if(!k) return ['ARS'];
+  const dp = _cgPaneles[String(k.userId)] || [];
+  const dc = (k.divisas||[]).map(x => String(x).toUpperCase());
+  const t = [...new Set([...dc, ...dp])];
+  return t.length ? t : ['ARS'];
+}
+/* Al elegir la caja se llenan «Cargar en» y «Que paga en» EN EL ACTO, sin esperar a calcular:
+   antes el selector aparecía vacío hasta que había un monto, y parecía que no había más divisas. */
+function cgCaja(){
+  const k = _cgCajas.find(x => String(x.id) === val('cg-caja'));
+  const ds = cgDivisasDe(k);
+  const sc = document.getElementById('cg-carga-div');
+  if (sc) {
+    const antes = sc.value;
+    sc.innerHTML = ds.map(d => `<option value="${esc(d)}">${esc(d)}${(k&&(k.divisas||[]).map(x=>String(x).toUpperCase()).includes(d)) ? '' : ' ·no en la caja'}</option>`).join('');
+    sc.value = ds.includes(antes) ? antes : ds[0];
+  }
+  const nota = document.getElementById('cg-divs');
+  if (nota) nota.textContent = ds.length > 1 ? ds.length + ' divisas: ' + ds.join(', ') : '';
+  cgPaga();
+  cgCalcular();
+}
+/* En qué puede pagar: dólares, o la misma moneda de la carga. Otra combinación pasa por dólares y
+   el servidor la rechaza, así que no se ofrece. */
+function cgPaga(){
+  const d = val('cg-carga-div') || 'ARS';
+  const sd = document.getElementById('cg-div'); if(!sd) return;
+  const ops = (d === 'USD' || d === 'USDT') ? ['USD'] : ['USD', d];
+  const antes = sd.value;
+  sd.innerHTML = ops.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  sd.value = ops.includes(antes) ? antes : 'USD';
+}
+
 // Al escribir se espera un momento: una consulta por tecla le pega al TC vivo en cada dígito.
 function cgLuego(){ clearTimeout(_cgTimer); _cgTimer = setTimeout(cgCalcular, 450); }
 
@@ -3185,27 +3230,6 @@ async function cgCalcular(){
     + (val('cg-carga-div') ? '&cargar_en=' + encodeURIComponent(val('cg-carga-div')) : ''));
   if(!r || !r.ok){ out.innerHTML = '<div class="card"><div class="badge err">' + esc((r&&r.error)||'no se pudo') + '</div></div>'; _cgRes = null; return; }
   _cgRes = r;
-  /* Las divisas salen del SERVIDOR, que las junta de la caja y del panel. El panel es lo que dice
-     el casino: 463.life tiene diez y la caja tenía una sola. */
-  (function(){
-    const sel = document.getElementById('cg-carga-div'); if(!sel) return;
-    const ops = r.caja.disponibles || [r.caja.divisa];
-    if (sel.dataset.para !== r.caja.id + '|' + ops.join(',')) {
-      sel.dataset.para = r.caja.id + '|' + ops.join(',');
-      sel.innerHTML = ops.map(d => `<option value="${esc(d)}"${d === r.caja.divisa ? ' selected' : ''}>${esc(d)}${(r.caja.divisas||[]).includes(d) ? '' : ' ·no en la caja'}</option>`).join('');
-    }
-    sel.value = r.caja.divisa;
-    // Se puede pedir en dólares o en la misma moneda de la carga; otra combinación pasa por dólares
-    // y el servidor la rechaza, así que no se ofrece.
-    const sd = document.getElementById('cg-div'); if(!sd) return;
-    const es = (r.caja.divisa === 'USD' || r.caja.divisa === 'USDT') ? ['USD'] : ['USD', r.caja.divisa];
-    const antes = sd.value;
-    if (sd.dataset.para !== es.join(',')) {
-      sd.dataset.para = es.join(',');
-      sd.innerHTML = es.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
-      if (es.includes(antes)) sd.value = antes;
-    }
-  })();
   const M = (x, d) => money(x, d == null ? 2 : d);
   const modo = val('cg-modo') || 'pago';
   const A = modo === 'pago' ? r.comoPago : r.comoFichas;   // la lectura elegida
