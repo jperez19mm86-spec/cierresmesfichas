@@ -3129,8 +3129,9 @@ VIEWS.carga = async () => {
         'La cuenta la hace el servidor con las mismas funciones que usa la carga de verdad, así que '
         + 'lo que dice acá es exactamente lo que se va a anotar. El tipo de cambio es el <b>vivo</b>; '
         + 'si no contesta, se usa el del mes y se avisa.<br><br>'
-        + '<b>La carga no es deuda.</b> Lo que el cliente queda debiendo es la <b>comisión</b>: su % base '
-        + 'sobre lo cargado. Las fichas se pagan aparte.')}
+        + '<b>Qué significa el %.</b> No es un recargo sobre lo que carga: es lo que <b>paga por cada 100 '
+        + 'de fichas</b>. Al 7%, quien pone 7 recibe 100 — o sea <b>fichas = lo que paga ÷ % × 100</b>.<br><br>'
+        + 'Lo que paga <b>es</b> la comisión: es exactamente lo que le queda anotado como deuda del mes.')}
       <div class="row" style="align-items:flex-end;margin-top:8px">
         <div style="flex:1 1 240px"><label>Cliente</label>
           <select id="cg-cli" onchange="cgCliente()">
@@ -3276,8 +3277,8 @@ async function cgCalcular(){
       <div style="font-size:34px;font-weight:800;color:var(--gold);line-height:1.15">${M(A.cargar)} <span style="font-size:18px">${D}</span></div>
       <div class="muted" style="margin-top:2px">
         ${modo === 'pago'
-          ? 'de los ' + P + ' que te paga' + (A.comision != null ? ', ' + M(A.comision_usdt != null ? A.comision_usdt : A.comision) + ' ' + esc(A.comision_usdt != null ? 'USDT' : A.divisa) + ' son tu comisión' : '')
-          : P + ' en fichas · la comisión se le suma aparte'}
+          ? 'porque te paga ' + P + (r.base ? ' y trabaja al ' + esc(r.base.pct) + '%: por cada ' + esc(r.base.pct) + ' que pone, recibe 100' : '')
+          : 'te tiene que pagar ' + (A.paga != null ? '<b>' + M(A.paga) + ' ' + D + '</b>' + (A.paga_usdt != null && D !== 'USDT' && D !== 'USD' ? ' (' + M(A.paga_usdt) + ' USDT)' : '') : '—')}
       </div>
       ${r.tc ? `<div style="margin-top:8px;padding:8px 11px;background:var(--bg2);border-radius:8px;display:inline-block">
         <span class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">Tipo de cambio</span>
@@ -3285,12 +3286,12 @@ async function cgCalcular(){
         <div class="muted" style="font-size:11.5px${r.tc.vivo ? '' : ';color:var(--gold)'}">${esc(r.tc.fuente)}${r.tc.vivo ? ' · cotización de ahora' : ''}</div>
       </div>` : ''}
       <div class="row" style="margin-top:12px;gap:22px">
-        <div><label>${modo === 'pago' ? 'Tu comisión, ya adentro' : 'Le genera de comisión, aparte'}</label>
-          <div style="font-size:22px;font-weight:800">${A.comision_usdt != null ? M(A.comision_usdt) + ' USDT' : (A.comision != null ? M(A.comision) + ' ' + D : '<span class="muted">sin % base</span>')}</div>
-          ${r.base ? '<div class="muted" style="font-size:11.5px">' + esc(r.base.pct) + '%' + (r.base.de === 'panel' ? ' (precio propio del panel)' : '')
-            + (A.comision != null && D !== 'USDT' && D !== 'USD' ? ' · ' + M(A.comision) + ' ' + D : '') + '</div>' : ''}
+        <div><label>${modo === 'pago' ? 'Lo que te queda a vos' : 'Lo que te tiene que pagar'}</label>
+          <div style="font-size:22px;font-weight:800">${A.paga_usdt != null ? M(A.paga_usdt) + ' USDT' : (A.paga != null ? M(A.paga) + ' ' + D : '<span class="muted">sin % base</span>')}</div>
+          ${r.base ? '<div class="muted" style="font-size:11.5px">su ' + esc(r.base.pct) + '%' + (r.base.de === 'panel' ? ' (precio propio del panel)' : '')
+            + (A.paga != null && D !== 'USDT' && D !== 'USD' ? ' · ' + M(A.paga) + ' ' + D : '') + '</div>' : ''}
         </div>
-        ${B && B.cargar != null ? `<div><label>${modo === 'pago' ? 'Si los ' + M(r.pide.monto,0) + ' fueran sólo fichas' : 'Si los ' + M(r.pide.monto,0) + ' fueran lo que te paga'}</label>
+        ${B && B.cargar != null ? `<div><label>${modo === 'pago' ? 'Si los ' + M(r.pide.monto,0) + ' fueran las FICHAS' : 'Si los ' + M(r.pide.monto,0) + ' fueran lo que te paga'}</label>
           <div style="font-size:18px;font-weight:700;opacity:.75">cargar ${M(B.cargar)} ${esc(B.divisa)}</div></div>` : ''}
       </div>
       ${(r.avisos||[]).length ? '<div class="muted" style="margin-top:10px;color:var(--gold)">⚠ ' + r.avisos.map(esc).join('<br>⚠ ') + '</div>' : ''}

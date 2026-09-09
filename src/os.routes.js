@@ -4915,8 +4915,8 @@ function mount(app) {
       if (!tc) return err(res, 400, `no hay tipo de cambio para ${otra}: cargalo en 💱 Tipos de cambio`);
     }
 
-    // Lo que hay que poner en el panel, en la moneda de la caja.
-    const cargar = tc
+    // El monto, llevado a la moneda en la que se carga. Recién después entra el %.
+    const enCarga = tc
       ? (String(dPide) === 'USD' || String(dPide) === 'USDT'
         ? money.round(money.mul(monto, tc), 2)          // dólares → moneda de la caja
         : money.round(money.div(monto, tc), 2))         // moneda de la caja → dólares
@@ -4943,22 +4943,27 @@ function mount(app) {
         + `Si el ${base}% rige desde ${mes}, guardalo con esa fecha para que la carga lo tome.`);
     }
 
-    const comisionEnCaja = base != null ? money.round(money.pct(cargar, base), 2) : null;
-    // En dólares: si la caja ya está en dólares no hay nada que convertir.
-    const enUsd = (dCaja === 'USD' || dCaja === 'USDT');
-    const comisionUsdt = comisionEnCaja == null ? null
-      : (enUsd ? comisionEnCaja : (tc ? money.round(money.div(comisionEnCaja, tc), 2) : null));
+    /* ── QUÉ SIGNIFICA EL % ────────────────────────────────────────────────────────────────────
+       NO es un recargo sobre lo que carga: es lo que PAGA por cada 100 de fichas. Al 7%, quien
+       pone 7 recibe 100. La fórmula es `fichas = paga ÷ % × 100`.
 
-    /* ── LAS DOS LECTURAS DE «10.000», QUE SE DICEN IGUAL ──────────────────────────────────────
-       · ME PAGA 10.000  → de ahí sale la comisión: se cargan fichas por 10.000 menos su %.
-         Es el caso de todos los días («el cliente me pagará 10.000, cuánto cargo»).
-       · QUIERE 10.000 DE FICHAS → se cargan 10.000 y la comisión se le suma aparte.
-       Se contestan las dos, con nombre, y la pantalla elige cuál muestra primero. Devolver una
-       sola obliga a aclarar de cuál se trata cada vez, y ahí es donde se carga de más. */
-    const b100 = (base != null && money.isPos(String(base))) ? money.add('100', String(base)) : null;
-    const pagoFichas = b100 ? money.round(money.div(money.mul(cargar, '100'), b100), 2) : cargar;
-    const pagoComision = b100 ? money.round(money.sub(cargar, pagoFichas), 2) : null;
+       Está comprobado contra la factura de Marcelo de agosto: pagó 23.491.277,28 ARS de comisión
+       al 6% y sus cargas del mes son 391.521.288 ARS — y 23.491.277,28 ÷ 6 × 100 da exactamente
+       eso. El motor de deuda dice lo mismo al revés: `deuda = % × lo cargado`, o sea que lo que
+       paga ES la comisión, no una parte de ella.
+
+       La primera versión de esta pantalla lo trató como un recargo (`fichas = paga ÷ 1,06`) y daba
+       17 veces menos. Un error así no se ve mirando el número: se ve comparándolo contra una
+       factura de verdad. */
+    const enUsd = (dCaja === 'USD' || dCaja === 'USDT');
     const enUsdDe = (x) => (x == null ? null : (enUsd ? x : (tc ? money.round(money.div(x, tc), 2) : null)));
+    const puedeBase = base != null && money.isPos(String(base));
+
+    // ME PAGA ese monto → cuántas fichas recibe.
+    const fichasPorPago = puedeBase
+      ? money.round(money.div(money.mul(enCarga, '100'), String(base)), 2) : null;
+    // QUIERE ese monto EN FICHAS → cuánto tiene que pagar.
+    const pagoPorFichas = puedeBase ? money.round(money.pct(enCarga, String(base)), 2) : null;
 
     ok(res, {
       cliente: { id: cli.id, nombre: cli.nombre || cli.nombreVisible, codigo: cli.codigo },
@@ -4977,12 +4982,12 @@ function mount(app) {
         confirmada: !!(confirmada && confirmada.base_pct != null && confirmada.base_pct !== ''),
         hoy: baseHoy == null ? null : String(baseHoy),
       },
-      // Te paga ese monto: la comisión sale de adentro.
-      comoPago: { cargar: pagoFichas, divisa: dCaja,
-        comision: pagoComision, comision_usdt: enUsdDe(pagoComision) },
-      // Quiere ese monto EN FICHAS: la comisión se le suma aparte.
-      comoFichas: { cargar, divisa: dCaja,
-        comision: comisionEnCaja, comision_usdt: comisionUsdt },
+      // Te paga ese monto → esas son las fichas que recibe. Lo que paga ES la comisión.
+      comoPago: { cargar: fichasPorPago, divisa: dCaja,
+        paga: enCarga, paga_usdt: enUsdDe(enCarga) },
+      // Quiere ese monto EN FICHAS → esto es lo que tiene que pagar.
+      comoFichas: { cargar: enCarga, divisa: dCaja,
+        paga: pagoPorFichas, paga_usdt: enUsdDe(pagoPorFichas) },
       avisos,
     });
   }));

@@ -9192,10 +9192,28 @@ async function main() {
       && /deudaCargaSvc\.baseDe\(cli, panel\)/.test(rutCg)
       && /deudaCargaSvc\.tcDelDia/.test(rutCg),
       'si la pantalla hiciera su propia cuenta, diría un número y el sistema anotaría otro');
-    /* Las dos lecturas de «10.000» se dicen igual y dan distinto: si te PAGA 10.000 la comisión
-       sale de adentro; si quiere 10.000 EN FICHAS, se le suma aparte. */
+    /* ── QUÉ SIGNIFICA EL % ─────────────────────────────────────────────────────────────────
+       NO es un recargo sobre lo cargado: es lo que PAGA por cada 100 de fichas. Al 7%, quien pone
+       7 recibe 100 → `fichas = paga ÷ % × 100`.
+
+       Comprobado contra la factura de Marcelo de agosto: pagó 23.491.277,28 ARS al 6% y sus cargas
+       son 391.521.288 — y 23.491.277,28 ÷ 6 × 100 da exactamente eso. El motor de deuda dice lo
+       mismo al revés (`deuda = % × lo cargado`), o sea que lo que paga ES la comisión.
+
+       La primera versión lo trató como recargo (`÷ 1,06`) y daba 17 VECES MENOS. Un error así no
+       se ve mirando el número: se ve comparándolo contra una factura de verdad. Por eso el test
+       usa los números de esa factura y no un ejemplo inventado. */
+    const PAGA = 23491277.28, FICHAS = 391521288, BASE = 6;
+    check('carga: fichas = lo que paga ÷ % × 100, como la factura real',
+      Math.abs((PAGA / BASE) * 100 - FICHAS) < 1,
+      'si esto falla, cambió el modelo del negocio, no el código');
+    check('carga: y NO es un recargo sobre lo cargado',
+      Math.abs(PAGA / 1.06 - FICHAS) > 1000, 'el recargo daba 17× menos');
+    check('carga: el servidor usa esa fórmula',
+      /money\.div\(money\.mul\(enCarga, '100'\), String\(base\)\)/.test(rutCg)
+      && /money\.pct\(enCarga, String\(base\)\)/.test(rutCg));
     check('carga: contesta las dos lecturas, con nombre',
-      /comoPago: \{ cargar: pagoFichas/.test(rutCg) && /comoFichas: \{ cargar,/.test(rutCg));
+      /comoPago: \{ cargar: fichasPorPago/.test(rutCg) && /comoFichas: \{ cargar: enCarga,/.test(rutCg));
     check('carga: y la pantalla arranca por «lo que me paga», que es el caso de todos los días',
       /<option value="pago">lo que ME PAGA<\/option>/.test(uiCg)
       && /const modo = val\('cg-modo'\) \|\| 'pago'/.test(uiCg));
