@@ -5020,7 +5020,10 @@ function mount(app) {
     const mes = String(b.mes || mesTZ()).slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
     const pct = String(b.pct == null ? '' : b.pct).trim().replace(',', '.');
-    if (!(Number(pct) >= 0)) return err(res, 400, `"${b.pct}" no es un porcentaje`);
+    // `Number('') === 0` y `0 >= 0` es true: sin preguntar por el vacío aparte, se colaba hasta
+    // `setValor`, que lo rechaza con un mensaje que no dice qué hacer. Un 0 sí es un % válido.
+    if (pct === '') return err(res, 400, 'falta el %: escribilo antes de guardar');
+    if (!Number.isFinite(Number(pct)) || Number(pct) < 0) return err(res, 400, `"${b.pct}" no es un porcentaje`);
 
     const antes = deudaCargaSvc.baseDe(cli, null);
     let vigencia = null;

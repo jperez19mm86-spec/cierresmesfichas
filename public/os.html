@@ -3312,7 +3312,11 @@ async function cgCalcular(){
 async function cgBase(pct){
   const r = _cgRes; if(!r) return;
   const v = String(pct != null ? pct : val('cg-otro')).trim().replace(',', '.');
-  if(!(Number(v) >= 0)) return toast('Escribí un % válido', true);
+  /* ⚠️ `Number('') === 0`, y `0 >= 0` es true: con el campo vacío la validación pasaba y el vacío
+     llegaba al servidor, que contestaba «setValor: valor vacío para precio_base_pct». Hay que
+     preguntar por el vacío APARTE — un 0 sí es un % válido. */
+  if (v === '') return toast('Escribí el % en el campo de al lado', true);
+  if (!Number.isFinite(Number(v)) || Number(v) < 0) return toast('"' + v + '" no es un porcentaje', true);
   if(pct == null && !confirm('¿' + r.cliente.nombre + ' pasa a trabajar al ' + v + '% desde el 1 de '
     + mesNombre(r.mes) + '?\n\nLos meses anteriores quedan como estaban.')) return;
   const x = await api('/api/os/carga/base', { method:'POST', body: JSON.stringify({

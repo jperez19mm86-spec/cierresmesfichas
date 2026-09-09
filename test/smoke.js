@@ -9256,6 +9256,14 @@ async function main() {
     // Se busca el TEMPLATE de la opción, no el texto: el comentario que explica esto lo nombra.
     check('carga: la divisa sin habilitar no se marca opción por opción',
       !/·no en la caja'\}<\/option>/.test(uiCg));
+    /* `Number('') === 0` y `0 >= 0` es true: con el campo vacío la validación pasaba y el vacío
+       llegaba hasta `setValor`, que contesta «valor vacío para precio_base_pct» — un mensaje que
+       no dice qué hacer. Hay que preguntar por el vacío APARTE, porque un 0 sí es un % válido. */
+    check('carga: el % vacío se frena antes, en la pantalla y en el servidor',
+      /if \(v === ''\) return toast\('Escribí el % en el campo de al lado'/.test(uiCg)
+      && /if \(pct === ''\) return err\(res, 400, 'falta el %/.test(rutCg));
+    check('carga: y un 0 sigue siendo un % válido',
+      /Number\(pct\) < 0/.test(rutCg) && !/!\(Number\(pct\) >= 0\)/.test(rutCg));
     check('carga: se dice una vez, con las palabras que distinguen panel de pedido',
       /El panel acepta ' \+ ds\.length \+ ', pero para pedir sólo está/.test(uiCg)
       && /acepta \$\{dCaja\}, pero para PEDIR todavía no está habilitada/.test(rutCg));
