@@ -1430,16 +1430,10 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
       </div>
       <button class="btn" onclick="entrar()">Entrar</button>
     </div>
-    <div class="demo">
-      <div class="rot">Solo en el prototipo: qué cuenta simular</div>
-      <div class="par">
-        <button id="bAgente" aria-pressed="true" onclick="setRol('agente')">Agente<br><span class="mono" style="font-size:10px;opacity:.7">group 3</span></button>
-        <button id="bCajero" aria-pressed="false" onclick="setRol('cajero')">Cajero<br><span class="mono" style="font-size:10px;opacity:.7">group 4</span></button>
-        <button id="bSub" aria-pressed="false" onclick="setRol('subcajero')">Sub-cajero<br><span class="mono" style="font-size:10px;opacity:.7">group 8</span></button>
-      </div>
-      <div class="nota motor" style="margin-top:10px">En la app real no se elige: <b>area=info</b> devuelve
-      <b>main.group</b> y el menú se arma con lo que autoriza <b>area=buttons</b>.</div>
-    </div>
+    <!-- 🔴 ACÁ VIVÍA EL SELECTOR DE «QUÉ CUENTA SIMULAR» DEL PROTOTIPO. Se borra en vez de
+         esconderse: escondido seguía siendo una cosa que se podía asomar sola —ya pasó una vez— y
+         que alguien podía volver a encender sin querer. En la app real el nivel lo dice el casino
+         y no se elige. `setRol` queda porque lo usan los tests de la lógica de menús. -->
   </div>
 
   <!-- ══════ HUB ══════ -->
@@ -3036,11 +3030,7 @@ function pintarTablero(){
       </div>
       <div class="tj"><svg class="tj-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3.5L21 5"/><path d="M15 5h6v6" opacity=".55"/></svg><div class="et">Jugaron en el período</div><div class="vl num">${totalPanel(t.active_players)}</div>${grafico(t.active_players, 'jug')}</div>
       ${caja ? '' : `<div class="tj"><div class="et">Cajeros que movieron fichas</div><div class="vl num">${totalPanel(t.active_halls)}</div>${grafico(t.active_halls, 'caj')}</div>`}
-    </div>
-    <div class="nota motor">Los cinco paneles salen de <b>una sola llamada</b> a
-    <span class="mono">area=dashboardinfo</span> — y los parámetros van <b>en la URL</b>, con el
-    cuerpo vacío: mandados en el POST el motor los ignora y devuelve todo en cero.
-    <span class="mono">profit = deposit − withdraw</span>, y puede quedar en rojo.</div>`;
+    </div>`;
 }
 function setPeriodo(p){
   if (p === 'custom_range') return elegirRango('tab');
@@ -3162,10 +3152,7 @@ function pintarMovs(){
       <b>sólo cuando lo hizo otro</b>.</div>` : ''}
     ${filas.length && puedeVerNumeros(ROL, yo()) ? `<button class="masmenos" style="margin-top:4px" onclick="irSec('reports')">
       Ver estadísticas ampliadas ›
-    </button>` : ''}
-    <div class="nota motor">Los tipos los da el propio motor en <b>balanceTypes</b>. Se llaman <span class="mono">usual:to</span>,
-    <span class="mono">usual:from</span> y <span class="mono">usual:players</span>; el motor los
-    rotula con "usuario" genérico porque no sabe a quién estás mirando.</div>`;
+    </button>` : ''}`;
 }
 /* 🔴 El motor NO da «último ingreso»: el campo `last` de area=users viene vacío en el 100% de los
    jugadores medidos, igual que `ips` y `game`. Lo único real ahí es `online`.
@@ -3361,15 +3348,6 @@ function pintarEstadisticas(){
       'La cuenta y el promedio dicen lo que el total esconde.',
       '50.000 en una sola carga y 50.000 en veinte cargas de 2.500 dan el mismo total, y son '
       + '<b>dos jugadores distintos</b>.')}` : ''}
-    <div class="nota motor">Los dos ejes salen del motor: <b>statistic_type</b>
-    (<span class="mono">on_money</span> / <span class="mono">on_bets</span>) y <b>userGroup</b>
-    (<span class="mono">child_users</span> / <span class="mono">terminal</span>). Hay 20 campos
-    disponibles; sin usar todavía quedan <span class="mono">balance</span>,
-    <span class="mono">open_games</span>, <span class="mono">phone</span> y siete más.<br><br>
-    Dos cosas que resuelve el sistema y el cliente no ve: las fechas se mandan siempre con hora
-    (<span class="mono">00:00:00</span> a <span class="mono">23:59:59</span>), porque sin hora el
-    motor las ignora y devuelve el día de hoy; y la consulta va <b>sin plantilla</b>, porque una
-    plantilla seleccionada pisa la agrupación que se pida. Acá no hay plantillas.</div>
 `;
 }
 function setPerEst(p){ setEst('per', p); }
@@ -3453,9 +3431,7 @@ function pintarSub(){
         </span>
         <span class="fl" style="color:var(--mut)">›</span>
       </div>`; }).join('')}
-    </div>
-    <div class="nota motor">Sale de <span class="mono">useredit&tab=editable_users</span>: una
-    casilla por caja, con el campo <span class="mono">editable_users/&lt;id&gt;</span>.</div>`;
+    </div>`;
 }
 
 /* Qué cajas ve este sub-agente. Es la única configuración que importa de él. */
@@ -3673,9 +3649,6 @@ function abrirHistoria(id){
       : `<div class="vacio">No jugó nada ${
           ({hoy:'hoy', ayer:'ayer', semana:'esta semana', mes:'este mes', mesant:'el mes pasado',
             custom:'en esas fechas'})[HIST_PER]}.<br><br>Probá con un período más largo.</div>`}
-    <div class="nota motor">El motor devuelve <b>sesiones</b>, no jugadas sueltas — tocá una para
-    ver las de adentro. El total sale de <span class="mono">total.ARS</span> y es del período
-    entero. <b>Sin rango devuelve sólo el día</b>, por eso el filtro de arriba.</div>
     <div class="acciones"><button class="btn sec" onclick="abrirNodo('${id}')">Volver</button></div>`);
 }
 
@@ -4302,10 +4275,7 @@ function abrirNodo(id){
           <span class="tx">${a.sinNota ? a.title : a.title + (a.mueve?'<small>mueve fichas</small>':a.link?'<small>solo lectura</small>':'')}</span>
           <span class="fl">›</span>
         </button>`).join('')}
-    </div>
-    <div class="nota motor">Estas ${acciones.length} acciones son las que devuelve
-    <b>area=buttons</b> para este nodo <b>y para quien pregunta</b>: el mismo jugador le muestra
-    un menú al cajero y otro al agente. Si cambiás permisos en el panel, esta lista cambia sola.</div>`);
+    </div>`);
 }
 
 /* Dos herramientas para cuando algo no cierra: qué se tocó, y quién comparte IP con quién. */
