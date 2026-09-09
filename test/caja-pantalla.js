@@ -986,6 +986,31 @@ check('sin grilla no se marca nada, en vez de romper',
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
     /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
     && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+  /* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px está pensado para leer un teléfono a treinta
+     centímetros; la misma medida en una notebook a sesenta se lee chica. Cada tamaño de la hoja
+     pasa por `--esc`, así que la proporción entre títulos, datos y notas se mantiene: no se
+     agranda una cosa y se deja la otra. Si alguien escribe un `font-size` fijo, esto lo dice. */
+  {
+    const hoja = htmlCaja.slice(htmlCaja.indexOf('<style>'), htmlCaja.indexOf('</style>'));
+    const sinComentarios = hoja.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    const fijos = (sinComentarios.match(/font-size:\s*\d/g) || []).length;
+    const escalados = (sinComentarios.match(/font-size:calc\([\d.]+px \* var\(--esc\)\)/g) || []).length;
+    check('todos los tamaños de letra pasan por la escala',
+      fijos === 0 && escalados > 100, `${escalados} escalados, ${fijos} fijos`);
+    check('y la escala tiene un valor por pantalla',
+      /--esc:1;/.test(htmlCaja) && /--esc:1\.03/.test(htmlCaja) && /--esc:1\.07/.test(htmlCaja));
+  }
+
+  /* 🔴 EL PROTOTIPO SE ASOMABA AL CARGAR. El selector de rol y las notas rosas los saca el
+     conector, que es el último guion de la página: entre que el navegador pinta la pantalla de
+     acceso y ese código corre, el bloque aparecía. Fotografiado el 9-sep-2026 en pleno destello.
+     Apagarlo desde la hoja de estilos lo mata en el PRIMER pintado. */
+  check('el prototipo está apagado desde la hoja de estilos, no sólo por el conector',
+    /\.demo, \.nota\.motor\{display:none\}/.test(htmlCaja));
+  check('y el cartel de arriba ya nace diciendo lo cierto',
+    /<div class="aviso"><b>En pruebas<\/b>/.test(htmlCaja)
+    && !/<div class="aviso"><b>Prototipo<\/b>/.test(htmlCaja));
+
   /* Y la hoja deja de subir desde abajo, que es el gesto del pulgar. */
   check('y la hoja se centra en vez de subir desde el borde',
     /@media \(min-height:640px\) and \(min-width:760px\)/.test(htmlCaja)

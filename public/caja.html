@@ -326,7 +326,7 @@
 :root:root .masinfo{
   flex:none; width:23px; height:23px; border-radius:99px; cursor:pointer;
   border:1.5px solid var(--g); background:none; color:var(--g);
-  font-family:'Outfit',sans-serif; font-size:13px; font-weight:700; font-style:italic;
+  font-family:'Outfit',sans-serif; font-size:calc(13px * var(--esc)); font-weight:700; font-style:italic;
   line-height:1; display:grid; place-items:center; padding:0;
   transition:background .13s, color .13s;
 }
@@ -334,7 +334,7 @@
 :root:root .masinfo[aria-expanded="true"]{background:var(--g-fill); border-color:var(--g-fill); color:#fff}
 :root:root .detalle-info{
   margin-top:10px; padding-top:10px; border-top:1px solid var(--bor2);
-  font-size:13px; color:var(--mut2);
+  font-size:calc(13px * var(--esc)); color:var(--mut2);
 }
 
 :root:root .mk{display:inline-grid; place-items:center; flex:none}
@@ -360,10 +360,10 @@
   background:linear-gradient(90deg,rgba(145,70,168,.42),rgba(67,32,79,.18) 82%);
 }
 :root:root .acc button{gap:14px; padding-top:13px; padding-bottom:13px; border-radius:14px}
-:root:root .acc .tx{font-family:'Outfit',sans-serif; font-size:17px; font-weight:600;
+:root:root .acc .tx{font-family:'Outfit',sans-serif; font-size:calc(17px * var(--esc)); font-weight:600;
   letter-spacing:-.2px}
 :root:root .acc .tx small{display:block; font-family:'Public Sans','Instrument Sans',sans-serif;
-  font-size:13px; font-weight:400; color:var(--mut); letter-spacing:0; margin-top:1px}
+  font-size:calc(13px * var(--esc)); font-weight:400; color:var(--mut); letter-spacing:0; margin-top:1px}
 
 /* ── EL BOTÓN DE VOLVER ────────────────────────────────────────────────────────
    Era un contorno finito sobre un fondo casi del mismo color: se perdía. Ahora tiene
@@ -397,10 +397,10 @@
   justify-content:flex-end;
 }
 :root:root .fila-b .bal .cifras small{
-  display:inline; font-size:11.5px; color:var(--mut); letter-spacing:.06em; font-weight:500;
+  display:inline; font-size:calc(11.5px * var(--esc)); color:var(--mut); letter-spacing:.06em; font-weight:500;
 }
 :root:root .fila-b .bal .cifras b{
-  display:inline; font-family:'Outfit',sans-serif; font-size:21px; font-weight:600;
+  display:inline; font-family:'Outfit',sans-serif; font-size:calc(21px * var(--esc)); font-weight:600;
   letter-spacing:-.4px; line-height:1.1;
 }
 /* Sin ID, la mayoría de las filas no tiene bajada: que el login quede centrado y no
@@ -433,15 +433,15 @@
 :root:root .mov:focus-visible{outline:2px solid var(--g); outline-offset:-2px}
 :root:root .mov .hora{
   font-family:'Outfit',sans-serif; font-variant-numeric:tabular-nums;
-  font-size:13px; font-weight:600; color:var(--mut2); letter-spacing:-.2px;
+  font-size:calc(13px * var(--esc)); font-weight:600; color:var(--mut2); letter-spacing:-.2px;
 }
-:root:root .mov .qu b{font-size:14.5px}
+:root:root .mov .qu b{font-size:calc(14.5px * var(--esc))}
 :root:root .mov .mn{
   font-family:'Outfit',sans-serif; font-variant-numeric:tabular-nums;
-  font-size:18px; font-weight:600; letter-spacing:-.3px;
+  font-size:calc(18px * var(--esc)); font-weight:600; letter-spacing:-.3px;
 }
 :root:root .mov .antes{
-  display:none; grid-column:1 / -1; font-size:12.5px; color:var(--mut2);
+  display:none; grid-column:1 / -1; font-size:calc(12.5px * var(--esc)); color:var(--mut2);
   background:var(--bg3); border-radius:9px; padding:7px 10px; margin-top:3px;
 }
 :root:root .mov .antes b{color:var(--txt); font-weight:600}
@@ -450,7 +450,7 @@
 
 :root:root .diahead{
   top:87px; z-index:3;
-  color:#fff; font-size:12px; letter-spacing:.07em;
+  color:#fff; font-size:calc(12px * var(--esc)); letter-spacing:.07em;
   background:linear-gradient(90deg, rgba(145,70,168,.30), rgba(29,12,41,.96) 60%);
   border-bottom:1px solid var(--bor2);
   border-left:3px solid var(--acento, #d616d6);
@@ -460,10 +460,10 @@
 
 :root:root .fila-b .meta{
   display:inline-flex; align-items:center; gap:4px; margin-right:11px;
-  font-size:12.5px; color:var(--mut2); font-variant-numeric:tabular-nums;
+  font-size:calc(12.5px * var(--esc)); color:var(--mut2); font-variant-numeric:tabular-nums;
 }
 :root:root .fila-b .meta svg{width:13px; height:13px; opacity:.75}
-:root:root .fila-b .id b{font-size:15.5px; font-family:'Outfit',sans-serif; font-weight:600}
+:root:root .fila-b .id b{font-size:calc(15.5px * var(--esc)); font-family:'Outfit',sans-serif; font-weight:600}
 
 /* El saldo y el ± : el número manda, la moneda se corre abajo chiquita y el ±
    queda como pastilla magenta, que es lo que se aprieta. */
@@ -501,11 +501,11 @@
 }
 /* Y adentro, lo mismo: el bloque de la cifra tiene que poder achicarse. */
 :root:root .fila-b .bal .cifras{min-width:0}
-:root:root .fila-b .bal .cifras b{font-size:19px}
+:root:root .fila-b .bal .cifras b{font-size:calc(19px * var(--esc))}
 :root:root .fila-b .bal b{
-  font-family:'Outfit',sans-serif; font-size:18px; font-weight:600; letter-spacing:-.3px;
+  font-family:'Outfit',sans-serif; font-size:calc(18px * var(--esc)); font-weight:600; letter-spacing:-.3px;
 }
-:root:root .fila-b .bal small{font-size:10.5px; color:var(--mut); letter-spacing:.06em}
+:root:root .fila-b .bal small{font-size:calc(10.5px * var(--esc)); color:var(--mut); letter-spacing:.06em}
 /* El botón de cargar/retirar: cuadrado redondeado y no un círculo, para que se lea como
    parte del recuadro del monto y no como una pastilla suelta pegada al costado. */
 :root:root .fila-b .bal .pm{
@@ -533,10 +533,10 @@
   color:#fff; flex:none;
   filter:drop-shadow(0 0 9px rgba(255,255,255,.55)) drop-shadow(0 0 22px rgba(240,150,255,.45));
 }
-:root:root .op .tx b{font-family:'Outfit',sans-serif; font-size:20px; font-weight:600;
+:root:root .op .tx b{font-family:'Outfit',sans-serif; font-size:calc(20px * var(--esc)); font-weight:600;
   letter-spacing:-.3px}
-:root:root .op .tx span{color:rgba(255,255,255,.82); font-size:13.5px; margin-top:2px}
-:root:root .op .fl{color:rgba(255,255,255,.6); font-size:22px}
+:root:root .op .tx span{color:rgba(255,255,255,.82); font-size:calc(13.5px * var(--esc)); margin-top:2px}
+:root:root .op .fl{color:rgba(255,255,255,.6); font-size:calc(22px * var(--esc))}
 :root:root .opciones{gap:13px}
 
 :root:root .tj{
@@ -550,9 +550,9 @@
   width:30px; height:30px; color:#fff; opacity:.92; stroke-width:1.8;
 }
 :root:root .tj .vl{grid-column:2; grid-row:1; font-family:'Outfit',sans-serif;
-  font-weight:600; font-size:26px; letter-spacing:-.6px; margin-top:0}
+  font-weight:600; font-size:calc(26px * var(--esc)); letter-spacing:-.6px; margin-top:0}
 :root:root .tj .et{grid-column:2; grid-row:2; color:rgba(255,255,255,.85);
-  text-transform:none; letter-spacing:0; font-size:13.5px; font-weight:400}
+  text-transform:none; letter-spacing:0; font-size:calc(13.5px * var(--esc)); font-weight:400}
 :root:root .tj > *:not(.tj-ico):not(.et):not(.vl){grid-column:1 / -1; margin-top:10px}
 
 :root:root .marca-ganamos{
@@ -571,11 +571,11 @@
 :root:root .saldo-cab{display:flex; align-items:center; gap:15px}
 :root:root .saldo-cab > div{margin-left:auto; text-align:right}
 :root:root .saldo-ico{width:38px; height:38px; flex:none; color:#fff; opacity:.95; stroke-width:1.7}
-:root:root .saldo .monto{margin-top:0; font-family:'Outfit',sans-serif; font-size:34px;
+:root:root .saldo .monto{margin-top:0; font-family:'Outfit',sans-serif; font-size:calc(34px * var(--esc));
   font-weight:600; letter-spacing:-1px}
-:root:root .saldo .monto small{font-family:'Outfit',sans-serif; font-weight:500; font-size:16px;
+:root:root .saldo .monto small{font-family:'Outfit',sans-serif; font-weight:500; font-size:calc(16px * var(--esc));
   vertical-align:1px; margin-right:6px}
-:root:root .saldo-que{font-size:14.5px; color:var(--lg-tx2); margin-top:1px}
+:root:root .saldo-que{font-size:calc(14.5px * var(--esc)); color:var(--lg-tx2); margin-top:1px}
 :root:root .monto,
 :root:root h1, :root:root h2, :root:root .tit h2,
 :root:root .btn{font-family:'Outfit','Instrument Sans',sans-serif}
@@ -600,7 +600,7 @@
 [hidden]{display:none !important}
 body{margin:0; background:var(--bg); color:var(--txt);
   font-family:"Instrument Sans",-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:15px; line-height:1.45}
+  font-size:calc(15px * var(--esc)); line-height:1.45}
 .num{font-variant-numeric:tabular-nums}
 /* Los nombres se leen, no se tipean: van en la fuente de la casa, que es más amable en una lista
    larga. El `letter-spacing` mínimo y los números tabulares conservan lo bueno de la monoespaciada
@@ -622,8 +622,14 @@ button{font-family:inherit}
 /* `--ancho` es todo el marco. `--hoja` es el cuadro que se abre encima, que NO crece igual: un
    diálogo de 1000px se lee peor que uno de 660. Y `--riel` es la columna de secciones, que en
    teléfono y tablet vale cero porque ahí las secciones siguen arriba. */
-:root{ --ancho:440px; --hoja:440px; --riel:0px; }
-@media (min-width:720px){ :root{ --ancho:620px; --hoja:620px } }
+/* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px es una medida pensada para leer un teléfono a
+   treinta centímetros de la cara; la misma medida en una notebook a sesenta centímetros se lee
+   chica. Pedido del dueño el 9-sep-2026. Cada `font-size` de esta hoja se multiplica por `--esc`,
+   así que la proporción entre títulos, datos y notas al pie se mantiene igual: no se agranda una
+   cosa y se deja otra. Los espacios NO se tocan, y por eso la escala es prudente: con 1,12 el
+   texto empieza a apretar contra los bordes de las fichas y las tarjetas. */
+:root{ --ancho:440px; --hoja:440px; --riel:0px; --esc:1; }
+@media (min-width:720px){ :root{ --ancho:620px; --hoja:620px; --esc:1.03 } }
 /* 🔴 EL CORTE ESTABA EN 1100 Y EL IPAD ACOSTADO MIDE 1024: caía en la rama de tablet y quedaba una
    columna de 620 en el medio de una pantalla de 1024, con dos franjas vacías a los costados. El
    corte va en 1000, que deja del lado grande a la tablet acostada y a cualquier notebook. */
@@ -633,7 +639,7 @@ button{font-family:inherit}
    bordes —el riel, la barra de arriba y el fondo—, y lo que NO se estira es el texto: los
    renglones se quedan en `--lectura` y se centran en su columna. Estirar los renglones hasta
    1500px devolvería el lago entre el nombre y el número que acabamos de sacar. */
-@media (min-width:1000px){ :root{ --ancho:none; --hoja:660px; --riel:236px; --lectura:820px } }
+@media (min-width:1000px){ :root{ --ancho:none; --hoja:660px; --riel:236px; --lectura:820px; --esc:1.07 } }
 
 .marco{max-width:var(--ancho); margin:0 auto; min-height:100vh; min-height:100dvh;
   background:var(--bg);
@@ -641,7 +647,7 @@ button{font-family:inherit}
   display:flex; flex-direction:column; position:relative; overflow:hidden}
 @media (max-width:480px){ .marco{border:none} }
 
-.aviso{background:var(--warn-soft); color:var(--warn); font-size:11.5px; text-align:center;
+.aviso{background:var(--warn-soft); color:var(--warn); font-size:calc(11.5px * var(--esc)); text-align:center;
   padding:7px 12px; border-bottom:1px solid var(--bor)}
 .aviso b{font-weight:700}
 
@@ -660,10 +666,10 @@ button{font-family:inherit}
   cursor:pointer; color:inherit; font:inherit; border-radius:10px}
 .marca:hover{background:var(--bg3)}
 .marca:focus-visible{outline:2px solid var(--g); outline-offset:2px}
-.marca b{font-size:14px; font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.marca span{display:block; font-size:11px; color:var(--mut); line-height:1.25}
+.marca b{font-size:calc(14px * var(--esc)); font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.marca span{display:block; font-size:calc(11px * var(--esc)); color:var(--mut); line-height:1.25}
 .icobtn{background:var(--bg3); border:1px solid var(--bor2); color:var(--mut2); border-radius:10px;
-  padding:6px 10px; font-size:12px; font-weight:600; cursor:pointer; flex:none}
+  padding:6px 10px; font-size:calc(12px * var(--esc)); font-weight:600; cursor:pointer; flex:none}
 .icobtn:hover{border-color:var(--bor2); color:var(--txt)}
 
 /* barra de secciones — sale de area=buttons */
@@ -671,7 +677,7 @@ button{font-family:inherit}
   padding:0 10px; position:sticky; top:49px; z-index:19; scrollbar-width:none}
 .secs::-webkit-scrollbar{display:none}
 .secs button{background:none; border:none; border-bottom:2px solid transparent; color:var(--mut);
-  padding:11px 9px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap}
+  padding:11px 9px; font-size:calc(13px * var(--esc)); font-weight:600; cursor:pointer; white-space:nowrap}
 .secs button[aria-current="true"]{color:var(--g); border-bottom-color:var(--g)}
 
 .scroll{flex:1; overflow-y:auto; padding:14px 14px 96px}
@@ -710,7 +716,7 @@ button{font-family:inherit}
     border-bottom:none; border-right:1px solid var(--bor);
     top:49px; align-self:stretch; max-height:calc(100dvh - 49px)}
   .secs button{width:100%; text-align:left; border-bottom:none; border-radius:10px;
-    padding:10px 12px; font-size:13.5px}
+    padding:10px 12px; font-size:calc(13.5px * var(--esc))}
   .secs button:hover{background:var(--bg3); color:var(--txt)}
   /* Abierta: fondo en vez de subrayado. Un subrayado abajo de un botón vertical no dice nada. */
   .secs button[aria-current="true"]{background:var(--bg3); color:var(--g)}
@@ -754,17 +760,17 @@ button{font-family:inherit}
   background:none; border:none; border-bottom:1px solid rgba(255,255,255,.16); padding:0 0 12px;
   font:inherit; color:inherit; cursor:pointer}
 .dequien.tocable .quien{flex:1; min-width:0}
-.dequien.tocable .fl{font-size:20px; opacity:.55; flex:none}
+.dequien.tocable .fl{font-size:calc(20px * var(--esc)); opacity:.55; flex:none}
 .dequien.tocable:hover .fl{opacity:1}
-.fila-b .fl{font-size:17px; color:var(--mut); flex:none; margin-left:2px}
-.dequien b{display:block; font-size:16.5px; font-weight:700; letter-spacing:-.01em; line-height:1.25}
-.dequien span{display:block; font-size:11.5px; color:var(--mut); margin-top:3px}
+.fila-b .fl{font-size:calc(17px * var(--esc)); color:var(--mut); flex:none; margin-left:2px}
+.dequien b{display:block; font-size:calc(16.5px * var(--esc)); font-weight:700; letter-spacing:-.01em; line-height:1.25}
+.dequien span{display:block; font-size:calc(11.5px * var(--esc)); color:var(--mut); margin-top:3px}
 
 /* Rótulo a un costado y monto al otro: un solo dato no necesita dos renglones,
    y en el teléfono el alto es lo que escasea. */
 .unalinea{display:flex; align-items:center; justify-content:space-between; gap:14px}
 .unalinea .rot{margin:0}
-.unalinea .monto{margin:0; font-size:27px}
+.unalinea .monto{margin:0; font-size:calc(27px * var(--esc))}
 .saldo.unalinea{padding:14px 16px}
 
 /* Los cuatro números, con separadores finos en vez de otra caja apilada. */
@@ -773,24 +779,24 @@ button{font-family:inherit}
 .cuadro div{padding:10px 4px; text-align:center}
 .cuadro div:nth-child(odd){border-right:1px solid var(--bor)}
 .cuadro div:nth-child(-n+2){border-bottom:1px solid var(--bor)}
-.cuadro span{display:block; font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+.cuadro span{display:block; font-size:calc(10px * var(--esc)); text-transform:uppercase; letter-spacing:.06em;
   color:var(--mut); font-weight:600; margin-bottom:3px}
-.cuadro b{font-size:17px; font-weight:700}
+.cuadro b{font-size:calc(17px * var(--esc)); font-weight:700}
 
-.rot{font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--mut); font-weight:600}
-.monto{font-size:30px; font-weight:700; letter-spacing:-.02em; line-height:1.1; margin-top:6px}
-.monto small{font-size:11.5px; font-weight:700; color:var(--mut); margin-right:6px;
+.rot{font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.07em; color:var(--mut); font-weight:600}
+.monto{font-size:calc(30px * var(--esc)); font-weight:700; letter-spacing:-.02em; line-height:1.1; margin-top:6px}
+.monto small{font-size:calc(11.5px * var(--esc)); font-weight:700; color:var(--mut); margin-right:6px;
   letter-spacing:.03em; vertical-align:2px}
-.pie{font-size:11.5px; color:var(--mut); margin-top:9px}
+.pie{font-size:calc(11.5px * var(--esc)); color:var(--mut); margin-top:9px}
 
 .busca{position:relative; margin-bottom:10px}
 .busca input{width:100%; background:var(--bg2); border:1px solid var(--bor); border-radius:10px;
-  padding:11px 12px 11px 34px; font:inherit; font-size:15px; color:var(--txt); outline:none}
+  padding:11px 12px 11px 34px; font:inherit; font-size:calc(15px * var(--esc)); color:var(--txt); outline:none}
 .busca input:focus{border-color:var(--g); box-shadow:0 0 0 3px var(--g-soft)}
 .busca svg{position:absolute; left:11px; top:12px; opacity:.45}
 .tit{display:flex; align-items:baseline; justify-content:space-between; margin:16px 2px 8px}
-.tit h2{font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0; font-weight:600}
-.tit em{font-style:normal; font-size:12px; color:var(--mut)}
+.tit h2{font-size:calc(12.5px * var(--esc)); text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0; font-weight:600}
+.tit em{font-style:normal; font-size:calc(12px * var(--esc)); color:var(--mut)}
 .lista{display:flex; flex-direction:column; gap:7px}
 .fila-b{display:flex; align-items:center; gap:11px; width:100%; text-align:left;
   background:var(--bg2); border:1px solid var(--bor); border-radius:14px; padding:10px 11px;
@@ -802,8 +808,8 @@ button{font-family:inherit}
 .punto.on{background:var(--ok); box-shadow:0 0 0 3px var(--ok-soft)}
 .punto.jugando{background:var(--oro); box-shadow:0 0 0 3px var(--oro-soft)}
 .fila-b .id{flex:1; min-width:0}
-.fila-b .id b{display:block; font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.fila-b .id span{font-size:11.5px; color:var(--mut)}
+.fila-b .id b{display:block; font-size:calc(14.5px * var(--esc)); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.fila-b .id span{font-size:calc(11.5px * var(--esc)); color:var(--mut)}
 /* El saldo es un botón aparte: tocarlo va derecho a cargar o retirar. */
 /* Ancho fijo: un saldo de 0 y uno de 12.400 tienen que ocupar lo mismo,
    si no la lista queda con los recuadros bailando. */
@@ -814,17 +820,17 @@ button{font-family:inherit}
 .fila-b .bal:hover{border-color:var(--g); background:var(--g-soft)}
 .fila-b .bal:focus-visible{outline:2px solid var(--g); outline-offset:2px}
 .fila-b .bal .cifras{text-align:right; flex:1}
-.fila-b .bal b{display:block; font-size:14.5px; font-weight:600; line-height:1.2}
-.fila-b .bal small{display:block; font-size:11px; color:var(--mut)}
-.fila-b .bal .pm{font-size:15px; font-weight:700; color:var(--g); line-height:1}
-.vacio{text-align:center; color:var(--mut); font-size:13.5px; padding:26px 10px}
+.fila-b .bal b{display:block; font-size:calc(14.5px * var(--esc)); font-weight:600; line-height:1.2}
+.fila-b .bal small{display:block; font-size:calc(11px * var(--esc)); color:var(--mut)}
+.fila-b .bal .pm{font-size:calc(15px * var(--esc)); font-weight:700; color:var(--g); line-height:1}
+.vacio{text-align:center; color:var(--mut); font-size:calc(13.5px * var(--esc)); padding:26px 10px}
 
 .fab{position:fixed; left:calc(50% + var(--riel) / 2); transform:translateX(-50%); bottom:0;
   width:100%; max-width:calc(var(--ancho) - var(--riel));
   padding:12px 14px calc(14px + env(safe-area-inset-bottom));
   background:linear-gradient(to top, var(--bg) 62%, transparent); z-index:15}
 .btn{width:100%; background:var(--marca-accion); color:#fff; border:none; border-radius:14px;
-  padding:14px; font:inherit; font-size:15px; font-weight:700; cursor:pointer;
+  padding:14px; font:inherit; font-size:calc(15px * var(--esc)); font-weight:700; cursor:pointer;
   box-shadow:0 10px 24px -16px rgba(42,11,77,.72)}
 .btn:hover{filter:brightness(1.08)}
 .btn:active{transform:scale(.99)}
@@ -836,8 +842,8 @@ button{font-family:inherit}
 /* HUB */
 .hub{flex:1; overflow-y:auto; padding:20px 16px calc(24px + env(safe-area-inset-bottom))}
 .hub .saludo{margin:2px 0 18px}
-.hub .saludo h1{font-size:22px; font-weight:700; letter-spacing:-.025em; margin:0 0 3px; text-wrap:balance}
-.hub .saludo p{margin:0; color:var(--mut); font-size:13.5px}
+.hub .saludo h1{font-size:calc(22px * var(--esc)); font-weight:700; letter-spacing:-.025em; margin:0 0 3px; text-wrap:balance}
+.hub .saludo p{margin:0; color:var(--mut); font-size:calc(13.5px * var(--esc))}
 .opciones{display:flex; flex-direction:column; gap:9px}
 .op{display:flex; align-items:center; gap:13px; width:100%; text-align:left; cursor:pointer;
   background:var(--bg2); border:1px solid var(--bor); border-radius:14px; padding:15px 14px;
@@ -847,8 +853,8 @@ button{font-family:inherit}
 .op .ic{width:38px; height:38px; border-radius:10px; flex:none; display:grid; place-items:center;
   background:var(--g-soft); color:var(--g-ink)}
 .op .tx{flex:1; min-width:0}
-.op .tx b{display:block; font-size:15.5px; font-weight:700}
-.op .tx span{display:block; font-size:12.5px; color:var(--mut); line-height:1.35}
+.op .tx b{display:block; font-size:calc(15.5px * var(--esc)); font-weight:700}
+.op .tx span{display:block; font-size:calc(12.5px * var(--esc)); color:var(--mut); line-height:1.35}
 .op .fl{color:var(--mut); flex:none}
 .op{border-radius:20px}
 .op.principal{background:var(--marca-accion); border-color:transparent; color:var(--lg-tx);
@@ -857,7 +863,7 @@ button{font-family:inherit}
 .op.principal .tx span{color:var(--lg-tx2)}
 .op.principal .fl{color:var(--lg-tx2)}
 .op.principal:hover{border-color:transparent; filter:brightness(1.08)}
-.grupo{font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--mut);
+.grupo{font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.07em; color:var(--mut);
   font-weight:600; margin:20px 2px 9px}
 
 /* DASHBOARD */
@@ -867,13 +873,13 @@ button{font-family:inherit}
 .tj{background:var(--bg2); border:1px solid var(--bor); border-radius:14px; padding:14px 12px;
   box-shadow:var(--sombra); text-align:center}
 .tj.ancha{grid-column:1 / -1}
-.tj .et{font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); font-weight:600}
-.tj .vl{font-size:23px; font-weight:700; letter-spacing:-.02em; margin-top:3px}
-.tj .vl.chico{font-size:18px}
+.tj .et{font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.06em; color:var(--mut); font-weight:600}
+.tj .vl{font-size:calc(23px * var(--esc)); font-weight:700; letter-spacing:-.02em; margin-top:3px}
+.tj .vl.chico{font-size:calc(18px * var(--esc))}
 .cuatro{display:grid; grid-template-columns:1fr 1fr; gap:14px 12px; margin-top:12px}
 .cuatro div{text-align:center}
-.cuatro div span{display:block; font-size:11px; color:var(--mut); margin-bottom:2px}
-.cuatro div b{font-size:17px; font-weight:700}
+.cuatro div span{display:block; font-size:calc(11px * var(--esc)); color:var(--mut); margin-bottom:2px}
+.cuatro div b{font-size:calc(17px * var(--esc)); font-weight:700}
 .cuatro b.mas{color:var(--ok)} .cuatro b.menos{color:var(--no)}
 .spark{display:flex; align-items:flex-end; gap:3px; height:44px; margin-top:11px}
 .spark i{flex:1; background:var(--g-soft); border-radius:2px 2px 0 0; min-height:3px}
@@ -881,7 +887,7 @@ button{font-family:inherit}
 .periodos{display:flex; gap:5px; margin-bottom:12px; overflow-x:auto; scrollbar-width:none}
 .periodos::-webkit-scrollbar{display:none}
 .periodos button{background:var(--bg2); border:1px solid var(--bor); color:var(--mut2); border-radius:999px;
-  padding:5px 12px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap}
+  padding:5px 12px; font-size:calc(12px * var(--esc)); font-weight:600; cursor:pointer; white-space:nowrap}
 .periodos button[aria-pressed="true"]{background:var(--g-fill); border-color:var(--g); color:var(--sobre-g)}
 :root[data-theme="dark"] .periodos button[aria-pressed="true"]{color:#170f1f}
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .periodos button[aria-pressed="true"]{color:#170f1f}
@@ -895,10 +901,10 @@ button{font-family:inherit}
    de 372px en una columna de 678, mucho más chica que las tarjetas de arriba. Con `min-width:100%`
    ocupa lo que hay y, cuando de verdad no entra, sigue desbordando para que el marco la deslice
    de costado, que es lo que pasa en el teléfono con muchas columnas. */
-.tabla{border-collapse:separate; border-spacing:0; font-size:13.5px; margin-top:4px;
+.tabla{border-collapse:separate; border-spacing:0; font-size:calc(13.5px * var(--esc)); margin-top:4px;
   white-space:nowrap; min-width:100%}
 .tabla th, .tabla td{padding:10px 14px; border-bottom:1px solid var(--bor); text-align:right}
-.tabla th{font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut);
+.tabla th{font-size:calc(10px * var(--esc)); text-transform:uppercase; letter-spacing:.06em; color:var(--mut);
   font-weight:600; vertical-align:bottom; line-height:1.35; padding-bottom:7px}
 .tabla tbody tr:last-child td{border-bottom:none}
 .tabla th:first-child, .tabla td:first-child{
@@ -916,31 +922,31 @@ button{font-family:inherit}
 .mov-toca{cursor:pointer; border-radius:10px; margin:0 -8px; padding-left:8px; padding-right:8px}
 .mov-toca:hover{background:var(--bg3)}
 .mov-toca:focus-visible{outline:2px solid var(--g); outline-offset:-2px}
-.mov .qu .detalle{display:block; font-size:11.5px; color:var(--g-ink); background:var(--g-soft);
+.mov .qu .detalle{display:block; font-size:calc(11.5px * var(--esc)); color:var(--g-ink); background:var(--g-soft);
   border-radius:10px; padding:6px 9px; margin-top:6px}
 .mov .sig{width:28px; height:28px; border-radius:10px; flex:none; display:grid; place-items:center;
-  font-size:15px; font-weight:700; background:var(--ok-soft); color:var(--ok)}
+  font-size:calc(15px * var(--esc)); font-weight:700; background:var(--ok-soft); color:var(--ok)}
 .mov .sig.menos{background:var(--no-soft); color:var(--no)}
 .mov .qu{flex:1; min-width:0}
-.mov .qu b{display:block; font-weight:600; font-size:13.5px}
-.mov .qu span{font-size:11.5px; color:var(--mut)}
-.titulopant{margin:12px 0 2px; font-size:19px; font-weight:800; letter-spacing:-.01em}
-.bajotitulo{margin:0 0 12px; font-size:12px; color:var(--mut); line-height:1.45}
+.mov .qu b{display:block; font-weight:600; font-size:calc(13.5px * var(--esc))}
+.mov .qu span{font-size:calc(11.5px * var(--esc)); color:var(--mut)}
+.titulopant{margin:12px 0 2px; font-size:calc(19px * var(--esc)); font-weight:800; letter-spacing:-.01em}
+.bajotitulo{margin:0 0 12px; font-size:calc(12px * var(--esc)); color:var(--mut); line-height:1.45}
 /* Las jugadas de una sesión: los rótulos una vez arriba, las cifras en columna. Se lee para abajo
    —cuánto puso, cuánto sacó, cómo quedó— sin repetir una palabra en cada renglón. */
 .jug-cab, .jug{display:grid; grid-template-columns:46px 1fr 1fr minmax(64px, auto);
   align-items:center; gap:10px}
-.jug-cab{padding:2px 2px 6px; font-size:10.5px; font-weight:700; letter-spacing:.06em;
+.jug-cab{padding:2px 2px 6px; font-size:calc(10.5px * var(--esc)); font-weight:700; letter-spacing:.06em;
   text-transform:uppercase; color:var(--mut)}
 .jug-cab span:first-child{text-align:left}
 .jug-cab span:not(:first-child), .jug .num{text-align:right}
-.jug{padding:9px 2px; border-top:1px solid var(--bor); font-size:14px}
-.jug .hora{font-size:11.5px; color:var(--mut)}
+.jug{padding:9px 2px; border-top:1px solid var(--bor); font-size:calc(14px * var(--esc))}
+.jug .hora{font-size:calc(11.5px * var(--esc)); color:var(--mut)}
 .jug .apo{color:var(--txt)}
 .jug .gan.nada{color:var(--mut2)}
 .jug .net{font-weight:700}
 .jug .net.mas{color:var(--ok)} .jug .net.menos{color:var(--no)}
-.jug .jug-mas{grid-column:1 / -1; display:none; font-size:11.5px; color:var(--mut); padding-top:6px}
+.jug .jug-mas{grid-column:1 / -1; display:none; font-size:calc(11.5px * var(--esc)); color:var(--mut); padding-top:6px}
 .jug .jug-dato{display:block; margin-bottom:6px}
 .jug .jug-dato.devuelta{color:var(--warn); line-height:1.45}
 .jug .jug-mas .cred{margin-top:8px}
@@ -962,7 +968,7 @@ button{font-family:inherit}
    sus propias columnas, que es justo lo que se venía a corregir. */
 .jug-cab.ses{padding-left:0; padding-right:0}
 .jug.ses .nom{font-weight:700; overflow-wrap:anywhere}
-.jug.ses .pie{grid-column:1 / -1; font-size:11.5px; color:var(--mut); margin-top:3px}
+.jug.ses .pie{grid-column:1 / -1; font-size:calc(11.5px * var(--esc)); color:var(--mut); margin-top:3px}
 .jug.ses .pie .permiso{display:inline-block; margin-left:6px; vertical-align:1px}
 .jug .num.nada{color:var(--mut2)}
 
@@ -970,17 +976,17 @@ button{font-family:inherit}
 .matriz-caja{margin-top:8px}
 .matriz{display:grid; gap:3px; margin-bottom:8px; max-width:290px}
 .matriz span{position:relative; aspect-ratio:1; display:grid; place-items:center; border-radius:6px;
-  background:var(--bg3); color:var(--mut2); font-size:12px; font-weight:700; overflow:hidden}
+  background:var(--bg3); color:var(--mut2); font-size:calc(12px * var(--esc)); font-weight:700; overflow:hidden}
 .matriz span img{width:100%; height:100%; object-fit:contain; grid-area:1/1}
 /* 🔑 `z-index` no sobra: la capa verde de una celda ganadora se dibuja encima y, sin ella, el
    número quedaba tapado — la celda se veía como un cuadrado verde vacío. */
 .matriz span i{grid-area:1/1; font-style:normal; position:relative; z-index:1}
 /* Con figura, el número se corre a la esquina: sigue estando, sin taparla. */
-.matriz.configuras span i{align-self:end; justify-self:end; font-size:9px; line-height:1;
+.matriz.configuras span i{align-self:end; justify-self:end; font-size:calc(9px * var(--esc)); line-height:1;
   padding:1px 2px; border-radius:4px; background:rgba(0,0,0,.45); color:#fff}
 /* El multiplicador de una celda va arriba a la izquierda, para no chocar con el símbolo. */
 .matriz span em{grid-area:1/1; align-self:start; justify-self:start; z-index:2; font-style:normal;
-  font-size:9px; font-weight:800; line-height:1; padding:1px 3px; border-radius:4px;
+  font-size:calc(9px * var(--esc)); font-weight:800; line-height:1; padding:1px 3px; border-radius:4px;
   background:var(--oro, #d4a017); color:#20160a}
 /* 🔴 CON FIGURA, EL VERDE NO SE VE. La imagen tapa el fondo y el `outline` queda comido por el
    `overflow:hidden` de la celda. El marco va por dentro con `inset`, y encima una capa verde
@@ -993,29 +999,29 @@ button{font-family:inherit}
    número ES la celda y se lee mejor sin recuadro. */
 .matriz.configuras span.gana i{background:var(--ok); color:#06301c}
 .matriz:not(.configuras) span.gana i{color:#06301c}
-.linea-gana{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px;
+.linea-gana{display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:calc(12px * var(--esc));
   padding:5px 0; color:var(--mut)}
 .linea-gana + .linea-gana{border-top:1px dashed var(--bor)}
 .linea-gana .num{margin-left:auto}
 /* El cupón de una apuesta deportiva: el partido manda, el resto es contexto. */
-.cupon{padding:8px 0; font-size:12px; color:var(--mut)}
+.cupon{padding:8px 0; font-size:calc(12px * var(--esc)); color:var(--mut)}
 .cupon + .cupon{border-top:1px dashed var(--bor)}
-.cupon > b{display:block; font-size:13px; color:var(--txt); line-height:1.35; margin-bottom:2px}
+.cupon > b{display:block; font-size:calc(13px * var(--esc)); color:var(--txt); line-height:1.35; margin-bottom:2px}
 .cupon-datos{display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:5px}
 .cupon-datos b{color:var(--txt)}
 .cupon .envivo{color:var(--no); font-weight:700}
 
 .mov .qu .yano{display:inline-block; margin-top:3px; padding:1px 6px; border-radius:6px;
-  font-size:10.5px; font-weight:700; color:var(--no); background:var(--no-soft)}
+  font-size:calc(10.5px * var(--esc)); font-weight:700; color:var(--no); background:var(--no-soft)}
 .mov .mn{font-weight:700; text-align:right; flex:none}
 .mov .mn.menos{color:var(--no)} .mov .mn.mas{color:var(--ok)}
-.mov .mn small{display:block; font-size:10.5px; color:var(--mut); font-weight:500}
-.deslizar{font-size:11px; color:var(--mut); text-align:right; margin:-4px 2px 6px}
+.mov .mn small{display:block; font-size:calc(10.5px * var(--esc)); color:var(--mut); font-weight:500}
+.deslizar{font-size:calc(11px * var(--esc)); color:var(--mut); text-align:right; margin:-4px 2px 6px}
 
 .switch{display:flex; align-items:center; justify-content:space-between; gap:14px; padding:13px 0}
 .switch + .switch{border-top:1px solid var(--bor)}
-.switch .tx b{display:block; font-size:14.5px; font-weight:600}
-.switch .tx span{font-size:12px; color:var(--mut); line-height:1.4}
+.switch .tx b{display:block; font-size:calc(14.5px * var(--esc)); font-weight:600}
+.switch .tx span{font-size:calc(12px * var(--esc)); color:var(--mut); line-height:1.4}
 .palanca{width:48px; height:28px; border-radius:999px; background:var(--bor2); border:none;
   position:relative; cursor:pointer; flex:none; transition:background .16s}
 .palanca::after{content:''; position:absolute; top:3px; left:3px; width:22px; height:22px;
@@ -1026,7 +1032,7 @@ button{font-family:inherit}
 @media (prefers-reduced-motion:reduce){ .palanca, .palanca::after{transition:none} }
 
 .permisos{display:flex; gap:6px; flex-wrap:wrap; margin-top:6px}
-.permiso{font-size:11px; font-weight:600; padding:3px 8px; border-radius:999px;
+.permiso{font-size:calc(11px * var(--esc)); font-weight:600; padding:3px 8px; border-radius:999px;
   background:var(--bg3); color:var(--mut); border:1px solid var(--bor)}
 /* Una restricción no es un logro: va en ámbar, el tono de «mirá esto» de la casa. En morado
    parecía una etiqueta de categoría más. */
@@ -1035,14 +1041,14 @@ button{font-family:inherit}
   padding:12px 13px; margin-bottom:9px}
 .cruce.mirar{border-color:var(--g); background:var(--g-soft)}
 .cruce .cabeza{display:flex; align-items:center; justify-content:space-between; gap:10px}
-.cruce .cabeza b{font-size:14px; font-weight:700}
-.cruce .cuantas{font-size:11.5px; color:var(--mut); font-weight:600}
+.cruce .cabeza b{font-size:calc(14px * var(--esc)); font-weight:700}
+.cruce .cuantas{font-size:calc(11.5px * var(--esc)); color:var(--mut); font-weight:600}
 /* Cada cuenta en su propia píldora: pegados se leen como un solo login larguísimo. */
 .cruce .quienes{display:flex; flex-wrap:wrap; gap:7px; margin-top:11px}
 .cruce .quienes .pastilla{display:inline-flex; align-items:baseline; gap:6px; cursor:pointer;
   background:var(--bg2); border:1px solid var(--bor); border-radius:999px;
-  padding:5px 11px; font:inherit; font-size:11.5px; color:var(--mut)}
-.cruce .quienes .pastilla b{font-size:12px; font-weight:400; color:var(--txt)}
+  padding:5px 11px; font:inherit; font-size:calc(11.5px * var(--esc)); color:var(--mut)}
+.cruce .quienes .pastilla b{font-size:calc(12px * var(--esc)); font-weight:400; color:var(--txt)}
 .cruce.mirar .quienes .pastilla b{color:var(--g-ink)}
 .cruce .quienes .pastilla:hover{border-color:var(--g)}
 .cruce .quienes .pastilla:focus-visible{outline:2px solid var(--g); outline-offset:2px}
@@ -1050,12 +1056,12 @@ button{font-family:inherit}
 .cruce .quienes .pastilla.abierta b{color:var(--sobre-g); font-weight:600}
 .horarios{margin-top:11px; background:var(--bg2); border:1px solid var(--bor);
   border-radius:10px; padding:11px 12px}
-.unahora{display:flex; justify-content:space-between; gap:12px; padding:6px 0; font-size:13px}
+.unahora{display:flex; justify-content:space-between; gap:12px; padding:6px 0; font-size:calc(13px * var(--esc))}
 .unahora + .unahora{border-top:1px solid var(--bor)}
-.unahora span{color:var(--mut); font-size:12px}
+.unahora span{color:var(--mut); font-size:calc(12px * var(--esc))}
 .cruce.mirar .quienes span{color:var(--g-ink)}
 .cruce.mirar .cabeza b{color:var(--g-ink)}
-.cruce .destacado{font-size:11.5px; font-weight:700; color:var(--sobre-g); background:var(--g-fill);
+.cruce .destacado{font-size:calc(11.5px * var(--esc)); font-weight:700; color:var(--sobre-g); background:var(--g-fill);
   padding:3px 9px; border-radius:999px}
 
 .permiso.jugando{background:var(--oro-soft); color:var(--oro); border-color:transparent}
@@ -1066,7 +1072,7 @@ button{font-family:inherit}
 .campo-clave{position:relative}
 .campo-clave input{padding-right:74px}
 .ojo{position:absolute; right:7px; top:50%; transform:translateY(-50%); background:var(--bg2);
-  border:1px solid var(--bor); color:var(--mut2); cursor:pointer; font:inherit; font-size:12px;
+  border:1px solid var(--bor); color:var(--mut2); cursor:pointer; font:inherit; font-size:calc(12px * var(--esc));
   font-weight:600; padding:7px 11px; border-radius:10px}
 .ojo:hover{color:var(--g); border-color:var(--g)}
 .ojo:focus-visible{outline:2px solid var(--g); outline-offset:2px}
@@ -1077,7 +1083,7 @@ button{font-family:inherit}
 .parbotones .btn.sec{flex:none; width:auto; padding-left:18px; padding-right:18px}
 
 .verborrados{display:block; width:100%; margin-top:10px; background:none; border:none;
-  color:var(--mut); font:inherit; font-size:12.5px; cursor:pointer; padding:8px; text-align:center;
+  color:var(--mut); font:inherit; font-size:calc(12.5px * var(--esc)); cursor:pointer; padding:8px; text-align:center;
   border-radius:10px}
 .verborrados:hover{background:var(--bg3); color:var(--txt)}
 /* ⚠️ El modificador NO puede llamarse `ojo`: esa clase ya es el botón «Ver» de las contraseñas,
@@ -1086,18 +1092,18 @@ button{font-family:inherit}
 .verborrados b{font-weight:700}
 
 .masmenos{width:100%; background:var(--bg3); border:1px dashed var(--bor2); color:var(--mut2);
-  border-radius:10px; padding:10px; font:inherit; font-size:13px; font-weight:600;
+  border-radius:10px; padding:10px; font:inherit; font-size:calc(13px * var(--esc)); font-weight:600;
   cursor:pointer; margin-bottom:10px}
 .masmenos:hover{border-color:var(--g); color:var(--g)}
 
 .filtros-dice{background:var(--bg3); border-radius:10px; padding:10px 12px; margin-bottom:12px;
-  font-size:12.5px; color:var(--mut2); line-height:1.5}
+  font-size:calc(12.5px * var(--esc)); color:var(--mut2); line-height:1.5}
 .filtros-dice b{color:var(--txt); font-weight:700}
 
 .rango{display:flex; align-items:baseline; justify-content:space-between; gap:10px;
-  margin:0 2px 10px; font-size:12.5px}
-.rango b{font-size:14px; font-weight:700; text-transform:capitalize}
-.rango span{color:var(--mut); font-size:11.5px}
+  margin:0 2px 10px; font-size:calc(12.5px * var(--esc))}
+.rango b{font-size:calc(14px * var(--esc)); font-weight:700; text-transform:capitalize}
+.rango span{color:var(--mut); font-size:calc(11.5px * var(--esc))}
 
 .resumen{display:flex; gap:12px; background:var(--bg3); border-radius:14px; padding:13px; margin-bottom:12px}
 .resumen div{flex:1; text-align:center}
@@ -1105,7 +1111,7 @@ button{font-family:inherit}
 .resumen.cuatro-col div{flex:1 1 calc(50% - 6px); min-width:calc(50% - 6px)}
 .filtrillo{display:flex; align-items:center; justify-content:space-between; gap:10px;
   background:var(--bg3); border-radius:10px; padding:9px 12px; margin-bottom:10px;
-  font-size:12px; color:var(--mut2); line-height:1.4}
+  font-size:calc(12px * var(--esc)); color:var(--mut2); line-height:1.4}
 .filtrillo b{color:var(--tx); font-weight:600}
 .filtrillo button{flex:none; background:var(--bg2); border:1px solid var(--bor); color:var(--g);
   font:inherit; font-weight:600; border-radius:10px; padding:5px 10px; cursor:pointer}
@@ -1113,25 +1119,25 @@ button{font-family:inherit}
   cursor:pointer; white-space:nowrap}
 .tabla th.ord{color:var(--g)}
 .permiso.todo{background:var(--bg3); color:var(--mut); font-weight:500}
-.diahead{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+.diahead{font-size:calc(11px * var(--esc)); font-weight:700; text-transform:uppercase; letter-spacing:.05em;
   color:var(--mut); padding:14px 2px 6px; position:sticky; top:0; background:var(--bg);
   z-index:2; border-bottom:1px solid var(--bor); margin-bottom:2px}
-.var{display:block; font-size:10.5px; font-weight:600; margin-top:3px; letter-spacing:0}
-.var small{font-weight:500; color:var(--mut); font-size:10px}
+.var{display:block; font-size:calc(10.5px * var(--esc)); font-weight:600; margin-top:3px; letter-spacing:0}
+.var small{font-weight:500; color:var(--mut); font-size:calc(10px * var(--esc))}
 .var.sube{color:var(--ok)} .var.baja{color:var(--no)}
 .gráf{width:100%; height:76px; display:block; margin:8px 0 2px; overflow:visible}
 .leyenda{display:flex; flex-wrap:wrap; gap:6px; margin-top:12px}
 .leyenda button{display:inline-flex; align-items:center; gap:5px; background:var(--bg3);
-  border:1px solid var(--bor); border-radius:999px; padding:4px 9px; font:inherit; font-size:11px;
+  border:1px solid var(--bor); border-radius:999px; padding:4px 9px; font:inherit; font-size:calc(11px * var(--esc));
   font-weight:600; color:var(--tx); cursor:pointer}
 .leyenda button.off{opacity:.42}
 .leyenda button.off i{background:var(--mut) !important}
 .leyenda i{width:9px; height:9px; border-radius:3px; flex:none}
-.piepie{font-size:10.5px; color:var(--mut); margin-top:6px; line-height:1.4}
+.piepie{font-size:calc(10.5px * var(--esc)); color:var(--mut); margin-top:6px; line-height:1.4}
 .piepie b{color:var(--mut2); font-weight:600}
-.resumen span{display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em;
+.resumen span{display:block; font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.05em;
   color:var(--mut); font-weight:600; margin-bottom:3px}
-.resumen b{font-size:17px; font-weight:700}
+.resumen b{font-size:calc(17px * var(--esc)); font-weight:700}
 /* Los cuatro tonos de la casa, y su versión sobre el morado de la marca. */
 .t-ok{color:var(--ok)} .t-no{color:var(--no)} .t-warn{color:var(--warn)} .t-dato{color:var(--dato)}
 .saldo .t-ok, .tarjeta .t-ok{color:var(--ok-m)}
@@ -1180,12 +1186,12 @@ button{font-family:inherit}
 .hoja .cred, .hoja .horarios{background:var(--bg3)}
 .hoja .resumen{background:var(--bg4)}
 .tirador{width:38px; height:4px; border-radius:999px; background:var(--bor2); margin:6px auto 12px}
-.hoja h3{margin:0 0 2px; font-size:18px; font-weight:700; letter-spacing:-.015em; text-wrap:balance}
-.hoja .sub{color:var(--mut); font-size:12.5px; margin-bottom:14px}
+.hoja h3{margin:0 0 2px; font-size:calc(18px * var(--esc)); font-weight:700; letter-spacing:-.015em; text-wrap:balance}
+.hoja .sub{color:var(--mut); font-size:calc(12.5px * var(--esc)); margin-bottom:14px}
 
 .tabs{display:flex; gap:4px; background:var(--bg3); padding:4px; border-radius:10px; margin-bottom:14px}
 .tabs button{flex:1; background:none; border:none; border-radius:10px; padding:9px 4px; font:inherit;
-  font-size:13px; font-weight:600; color:var(--mut2); cursor:pointer}
+  font-size:calc(13px * var(--esc)); font-weight:600; color:var(--mut2); cursor:pointer}
 /* En claro la sombra separa la pestaña activa. En oscuro la sombra no se ve, así que
    la separa un borde en el color de marca. */
 .tabs button[aria-selected="true"]{background:var(--bg2); color:var(--txt);
@@ -1196,36 +1202,36 @@ button{font-family:inherit}
 /* menú de acciones — lo dibuja area=buttons */
 .acc{display:flex; flex-direction:column; gap:2px; margin:0 -4px}
 .acc button{display:flex; align-items:center; gap:11px; background:none; border:none; width:100%;
-  text-align:left; padding:11px 8px; border-radius:10px; cursor:pointer; color:var(--txt); font:inherit; font-size:14.5px}
+  text-align:left; padding:11px 8px; border-radius:10px; cursor:pointer; color:var(--txt); font:inherit; font-size:calc(14.5px * var(--esc))}
 .acc button:hover{background:var(--bg3)}
 .acc button:focus-visible{outline:2px solid var(--g); outline-offset:-2px}
 .acc .mk{width:30px; height:30px; border-radius:10px; flex:none; display:grid; place-items:center;
-  background:var(--bg3); color:var(--mut2); font-size:14px}
+  background:var(--bg3); color:var(--mut2); font-size:calc(14px * var(--esc))}
 .acc button.destaca .mk{background:var(--g-soft); color:var(--g-ink)}
 .acc button.rojo{color:var(--no)}
 .acc button.rojo .mk{background:var(--no-soft); color:var(--no)}
 .acc .tx{flex:1}
-.acc .tx small{display:block; font-size:11.5px; color:var(--mut); font-weight:400}
-.acc .fl{color:var(--mut); font-size:15px}
+.acc .tx small{display:block; font-size:calc(11.5px * var(--esc)); color:var(--mut); font-weight:400}
+.acc .fl{color:var(--mut); font-size:calc(15px * var(--esc))}
 
-label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:uppercase; letter-spacing:.06em;
   color:var(--mut); font-weight:600; margin:0 0 6px}
 .entrada{width:100%; background:var(--bg3); border:1px solid var(--bor); border-radius:10px;
-  padding:13px 14px; font:inherit; font-size:17px; color:var(--txt); outline:none}
+  padding:13px 14px; font:inherit; font-size:calc(17px * var(--esc)); color:var(--txt); outline:none}
 .entrada:focus{border-color:var(--g); box-shadow:0 0 0 3px var(--g-soft)}
-.entrada.grande{font-size:26px; font-weight:700; letter-spacing:-.02em}
+.entrada.grande{font-size:calc(26px * var(--esc)); font-weight:700; letter-spacing:-.02em}
 .entrada.mal{border-color:var(--no); box-shadow:0 0 0 3px var(--no-soft)}
 .rapidos{display:flex; gap:6px; margin:9px 0 4px; flex-wrap:wrap}
 .rapidos button{flex:1; min-width:62px; background:var(--bg3); border:1px solid var(--bor);
-  border-radius:10px; padding:8px 4px; font:inherit; font-size:12.5px; font-weight:600; color:var(--mut2); cursor:pointer}
+  border-radius:10px; padding:8px 4px; font:inherit; font-size:calc(12.5px * var(--esc)); font-weight:600; color:var(--mut2); cursor:pointer}
 .rapidos button:hover{border-color:var(--bor2); color:var(--txt)}
-.tope{font-size:12px; color:var(--mut); margin-top:8px; display:flex; justify-content:space-between; gap:8px}
+.tope{font-size:calc(12px * var(--esc)); color:var(--mut); margin-top:8px; display:flex; justify-content:space-between; gap:8px}
 .tope.mal{color:var(--no); font-weight:600}
 .acciones{display:flex; gap:8px; margin-top:16px}
 .acciones .btn{flex:1}
 
 .confirmar{background:var(--bg3); border:1px solid var(--bor); border-radius:14px; padding:14px; margin-bottom:14px}
-.fila{display:flex; justify-content:space-between; gap:12px; padding:7px 0; font-size:14px}
+.fila{display:flex; justify-content:space-between; gap:12px; padding:7px 0; font-size:calc(14px * var(--esc))}
 .fila + .fila{border-top:1px dashed var(--bor)}
 .fila span{color:var(--mut)}
 .fila b{font-weight:600; text-align:right}
@@ -1236,24 +1242,24 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
    ⚠️ NO llamarlo `.ojo`: esa clase ya es el botón «Ver» de las contraseñas, y una regla con el
    mismo nombre acá abajo le pisa el fondo, el padding y el color en la pantalla de entrar. */
 .avisotodo{margin-top:9px; padding:10px 11px; border-radius:11px; background:var(--warn-soft);
-  color:var(--txt); font-size:12.5px; line-height:1.5}
+  color:var(--txt); font-size:calc(12.5px * var(--esc)); line-height:1.5}
 .avisotodo b{font-weight:700}
 
 .resultado{text-align:center; padding:6px 0 4px}
 /* 🔴 EL NÚMERO DE CASO. Discreto a propósito: no es para el operador, es para poder decirlo.
    «Me salió E-347» y del otro lado se ve quién fue, qué apretó y qué contestó el casino, sin que
    nadie tenga que describir nada. Se puede tocar para copiarlo. */
-.caso{margin-top:14px; font-size:11.5px; letter-spacing:.04em; color:var(--mut2); opacity:.75}
+.caso{margin-top:14px; font-size:calc(11.5px * var(--esc)); letter-spacing:.04em; color:var(--mut2); opacity:.75}
 .caso b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mut); font-weight:600;
   background:var(--bg2); border:1px solid var(--bor); border-radius:6px; padding:2px 7px; cursor:pointer}
 .sello{width:56px; height:56px; border-radius:50%; margin:0 auto 12px; display:grid; place-items:center;
-  background:var(--ok-soft); color:var(--ok); font-size:26px; font-weight:700}
+  background:var(--ok-soft); color:var(--ok); font-size:calc(26px * var(--esc)); font-weight:700}
 .sello.malo{background:var(--no-soft); color:var(--no)}
 
 .pasos{display:flex; flex-direction:column; gap:9px; margin:4px 0 14px}
-.paso{display:flex; align-items:flex-start; gap:10px; font-size:13.5px; color:var(--mut)}
+.paso{display:flex; align-items:flex-start; gap:10px; font-size:calc(13.5px * var(--esc)); color:var(--mut)}
 .paso .mk{width:19px; height:19px; border-radius:50%; flex:none; display:grid; place-items:center;
-  font-size:11px; font-weight:700; background:var(--bg3); color:var(--mut); border:1px solid var(--bor); margin-top:1px}
+  font-size:calc(11px * var(--esc)); font-weight:700; background:var(--bg3); color:var(--mut); border:1px solid var(--bor); margin-top:1px}
 .paso.hecho{color:var(--txt)} .paso.hecho .mk{background:var(--ok-soft); color:var(--ok); border-color:transparent}
 .paso.mal{color:var(--txt)} .paso.mal .mk{background:var(--no-soft); color:var(--no); border-color:transparent}
 .paso.curso{color:var(--txt)} .paso.curso .mk{background:var(--g-soft); color:var(--g-ink); border-color:transparent; animation:late 1s ease-in-out infinite}
@@ -1262,13 +1268,13 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 
 /* Bloque, NO flex: con flex cada <b> se volvía una columna y el texto salía troceado. */
 .nota{display:block; background:var(--warn-soft); color:var(--warn);
-  border-radius:14px; padding:12px 14px; font-size:12.5px; line-height:1.55; margin-top:12px}
+  border-radius:14px; padding:12px 14px; font-size:calc(12.5px * var(--esc)); line-height:1.55; margin-top:12px}
 .nota b{font-weight:700}
 .nota.neutra{background:var(--bg3); color:var(--mut2)}
 /* SOLO PROTOTIPO: explican cómo funciona el motor por dentro. Van en rosa, un color que no
    se usa en ninguna otra parte, para que su ausencia se note cuando se borren. */
 .nota.motor{background:var(--demo-soft); color:var(--demo); padding-top:8px}
-.nota.motor::before{content:'Nota del prototipo'; display:block; font-size:9.5px; font-weight:700;
+.nota.motor::before{content:'Nota del prototipo'; display:block; font-size:calc(9.5px * var(--esc)); font-weight:700;
   text-transform:uppercase; letter-spacing:.09em; opacity:.6; margin-bottom:5px}
 /* Informa algo importante sin gritar: no es una alarma, es un matiz que hay que leer. */
 .filaDom{display:flex; gap:8px; align-items:center; margin-top:10px}
@@ -1276,10 +1282,10 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .nota.aviso{background:var(--info-soft); color:var(--info)}
 .nota b{font-weight:700}
 .ticket{background:var(--bg3); border:1px dashed var(--bor2); border-radius:10px; padding:11px 12px;
-  font-size:12px; word-break:break-all; color:var(--mut2); margin-top:10px}
+  font-size:calc(12px * var(--esc)); word-break:break-all; color:var(--mut2); margin-top:10px}
 
 /* fila copiable: el dato a la izquierda, el botón que lo copia a la derecha */
-.explica{font-size:13.5px; color:var(--mut2); line-height:1.5; margin:0 2px 14px}
+.explica{font-size:calc(13.5px * var(--esc)); color:var(--mut2); line-height:1.5; margin:0 2px 14px}
 .envio{display:block; width:100%; text-align:left; background:var(--g-soft); cursor:pointer;
   border:1px solid var(--g); border-radius:14px; padding:12px 14px 13px; margin-bottom:10px;
   font:inherit; color:var(--txt); transition:transform .1s, box-shadow .12s}
@@ -1287,12 +1293,12 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .envio:active{transform:scale(.993)}
 .envio:focus-visible{outline:2px solid var(--g); outline-offset:2px}
 .envio .cab{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:7px}
-.envio .et{font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+.envio .et{font-size:calc(11px * var(--esc)); text-transform:uppercase; letter-spacing:.06em;
   color:var(--g-ink); font-weight:700}
-.envio .gesto{font-size:10.5px; font-weight:700; color:var(--sobre-g); background:var(--g-fill);
+.envio .gesto{font-size:calc(10.5px * var(--esc)); font-weight:700; color:var(--sobre-g); background:var(--g-fill);
   padding:3px 9px; border-radius:999px; white-space:nowrap}
-.envio .vl{display:block; font-size:12.5px; word-break:break-all; line-height:1.45; color:var(--txt)}
-.envio .dt{display:block; font-size:12px; color:var(--mut2); margin-top:7px}
+.envio .vl{display:block; font-size:calc(12.5px * var(--esc)); word-break:break-all; line-height:1.45; color:var(--txt)}
+.envio .dt{display:block; font-size:calc(12px * var(--esc)); color:var(--mut2); margin-top:7px}
 .envio.copiado{background:var(--ok-soft); border-color:var(--ok)}
 .envio.copiado .et{color:var(--ok)}
 .envio.copiado .gesto{background:var(--ok)}
@@ -1300,11 +1306,11 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .cred{display:flex; align-items:center; gap:10px; background:var(--bg3); border:1px solid var(--bor);
   border-radius:14px; padding:11px 12px; margin-top:9px}
 .cred .dt{flex:1; min-width:0}
-.cred .dt span{display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em;
+.cred .dt span{display:block; font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.05em;
   color:var(--mut); font-weight:600; margin-bottom:2px}
-.cred .dt b{display:block; font-size:13.5px; font-weight:600; word-break:break-all; line-height:1.35}
+.cred .dt b{display:block; font-size:calc(13.5px * var(--esc)); font-weight:600; word-break:break-all; line-height:1.35}
 .cred .cp{flex:none; background:var(--bg2); border:1px solid var(--bor2); color:var(--txt);
-  border-radius:10px; padding:9px 12px; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer}
+  border-radius:10px; padding:9px 12px; font:inherit; font-size:calc(12.5px * var(--esc)); font-weight:600; cursor:pointer}
 .cred .cp:hover{border-color:var(--g); color:var(--g)}
 .cred .cp.ok{background:var(--ok-soft); border-color:transparent; color:var(--ok)}
 .cred .cp:focus-visible{outline:2px solid var(--g); outline-offset:2px}
@@ -1323,11 +1329,11 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
   background:radial-gradient(circle at 50% 47%, rgba(255,255,255,.17) 0%, var(--lg-halo) 38%, transparent 70%)}
 .login .ficha{width:108px; height:108px;
   filter:drop-shadow(0 8px 18px rgba(0,0,0,.45)) drop-shadow(0 0 22px var(--lg-halo))}
-.login h1{font-size:26px; font-weight:800; letter-spacing:.005em; margin:0; color:var(--lg-tx);
+.login h1{font-size:calc(26px * var(--esc)); font-weight:800; letter-spacing:.005em; margin:0; color:var(--lg-tx);
   display:flex; align-items:center; justify-content:center; gap:9px; flex-wrap:wrap}
-.login h1 i{font-style:normal; font-weight:400; font-size:20px; color:var(--lg-tx2)}
+.login h1 i{font-style:normal; font-weight:400; font-size:calc(20px * var(--esc)); color:var(--lg-tx2)}
 .login h1 em{font-style:normal; font-weight:600}
-.login p{color:var(--lg-tx2); font-size:13.5px; margin:9px 0 0}
+.login p{color:var(--lg-tx2); font-size:calc(13.5px * var(--esc)); margin:9px 0 0}
 .login .cmp{display:flex; flex-direction:column; gap:6px}
 .login .campo{color:var(--lg-tx2)}
 /* Los campos viven sobre el morado, así que no usan los tokens de superficie del panel. */
@@ -1357,15 +1363,27 @@ label.campo{display:block; font-size:11px; text-transform:uppercase; letter-spac
 .tarjeta .btn{background:var(--lg-tx); color:var(--lg-ink); border:none; font-weight:700}
 .tarjeta .btn:hover{background:#fff}
 .tarjeta .btn:focus-visible{outline:2px solid var(--lg-tx); outline-offset:3px}
+/* 🔴 ESTO SE ASOMABA AL CARGAR. El selector de rol y las notas rosas son del prototipo, y el
+   conector los saca cuando la app arranca — pero el conector es el último guion de la página,
+   así que entre que el navegador pinta la pantalla de acceso y ese código corre, el bloque
+   aparecía. Fotografiado por el dueño el 9-sep-2026 en pleno destello: abajo del «Entrar» se veían
+   los tres botones de simular cuenta y una nota nombrando `area=info` y `area=buttons`.
+   Esconderlo desde la hoja de estilos lo apaga en el PRIMER pintado, antes de que exista la
+   oportunidad de verlo. El conector igual lo sigue borrando del documento, que es lo correcto:
+   apagado y además afuera. */
+.demo, .nota.motor{display:none}
 .demo{border-top:1px dashed var(--bor); margin-top:4px; padding-top:12px}
 .demo .par{display:flex; gap:7px; margin-top:8px}
 .demo .par button{flex:1; background:var(--bg3); border:1px solid var(--bor); border-radius:10px;
-  padding:9px 6px; font-size:12.5px; font-weight:600; color:var(--mut2); cursor:pointer}
+  padding:9px 6px; font-size:calc(12.5px * var(--esc)); font-weight:600; color:var(--mut2); cursor:pointer}
 .demo .par button[aria-pressed="true"]{border-color:var(--g); background:var(--g-soft); color:var(--g-ink)}
 </style>
 
 <div class="marco">
-  <div class="aviso"><b>Prototipo</b> · estructura real del motor, números de ejemplo</div>
+  <!-- 🔴 Mismo destello que el bloque de arriba: acá decía «Prototipo · números de ejemplo» hasta
+       que el conector lo reemplazaba, así que al cargar se leía un cartel que no es cierto. El
+       texto de verdad va escrito de entrada; el conector lo pisa con el mismo y no se nota nada. -->
+  <div class="aviso"><b>En pruebas</b> · si algo falla, pasá el número de caso que sale en el error</div>
 
   <!-- ══════ LOGIN ══════ -->
   <div class="login" id="pLogin">
@@ -4061,7 +4079,7 @@ function verLink(tipo){
   $('linkPrevio').classList.toggle('mal', !!v && !!err);
   $('linkPrevio').innerHTML = err
     ? `<span>${v ? '<b>' + err + '</b>' : err}</span>`
-    : `<span>Tus jugadores entran a</span><b class="mono" style="font-size:11.5px">${linkDe(tipo, v)}</b>`;
+    : `<span>Tus jugadores entran a</span><b class="mono" style="font-size:calc(11.5px * var(--esc))">${linkDe(tipo, v)}</b>`;
 }
 function volverContactos(cajaId){ cajaId === yo().id ? misContactos() : abrirContactos(cajaId); }
 function volverAConfig(id){ ACTUAL = SALAS.find(s => s.id === id) || ACTUAL; editarCaja(id); }
