@@ -9,124 +9,99 @@
 <link rel="apple-touch-icon" href="/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Latam Games" />
+<!-- LA MISMA HOJA QUE EL PANEL. Fichas tenía la suya, copiada y evolucionada aparte: mismos
+     colores, otros radios, otros tamaños, y dos pantallas del mismo sistema que no se parecían.
+     Acá viene la base y los componentes (tarjeta, fila plegable, señales, cifra), y abajo queda
+     SÓLO lo que es de este panel: pedidos, historial y cajas. -->
+<link rel="stylesheet" href="/estilos.css" />
 <style>
-  :root {
-    --bg: #fbf4fa; --bg2: #ffffff; --bg3: #f6e9f4; --border: #ead6e6;
-    --text: #2b2230; --muted: #8c7e89; --gold: #c456ad; --green: #2e9e63; --red: #d9534f; --blue: #3b7fe0;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
-  header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 14px 22px; display: flex; align-items: center; justify-content: space-between; }
-  header h1 { font-size: 17px; margin: 0; }
+  /* El subtítulo del encabezado. */
   header h1 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
-  main { max-width: 940px; margin: 0 auto; padding: 22px; }
-  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
-  .card h2 { font-size: 15px; margin: 0 0 12px; }
-  label { display: block; font-size: 11px; color: var(--muted); margin: 0 0 4px; text-transform: uppercase; letter-spacing: .03em; }
-  input, select { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 11px; font-size: 14px; outline: none; }
-  input:focus, select:focus { border-color: var(--gold); }
-  button { background: var(--gold); color: #ffffff; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 700; cursor: pointer; font-size: 13px; }
-  button:hover { filter: brightness(1.08); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  button.outline { background: transparent; border: 1px solid var(--border); color: var(--text); font-weight: 600; }
-  button.outline:hover { border-color: var(--gold); }
-  button.danger { background: transparent; border: 1px solid var(--red); color: var(--red); font-weight: 600; }
-  button.small { padding: 6px 10px; font-size: 12px; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .meta { color: var(--muted); font-size: 12px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
-  .badge.active { background: rgba(46,160,67,.15); color: var(--green); border: 1px solid rgba(46,160,67,.4); }
-  .badge.ok { background: rgba(46,160,67,.15); color: var(--green); }
-  .badge.err { background: rgba(217,83,79,.15); color: var(--red); }
-  .badge.warn { background: rgba(196,86,173,.14); color: var(--gold); }
-  .sys { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; background: var(--bg3); }
-  .sys.is-active { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(196,86,173,.25); }
-  .sys-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .sys-head .name-input { font-size: 16px; font-weight: 700; flex: 1; background: transparent; border: 1px solid transparent; }
-  .sys-head .name-input:hover, .sys-head .name-input:focus { background: var(--bg2); border-color: var(--border); }
-  .grid3 { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-  .actions .spacer { flex: 1; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
   .status { font-size: 12px; }
-  .empty { color: var(--muted); text-align: center; padding: 24px; }
+  .mono { font-family: var(--mono); font-variant-ligatures: none; }
+  /* El nombre de una caja —463.live, Celuapuestas-SA— NO va en letra de máquina: se lee de un
+     vistazo, no se compara carácter por carácter contra otra pantalla. Con el fondito alcanza para
+     que se note que es un dato para copiar, y la fila deja de parecer dos tipografías peleadas. */
+  code { font-family: inherit; background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: .95em; }
+
+  /* ── LA COLA DE PEDIDOS ─────────────────────────────────────────────────────────────────────
+     Misma tarjeta que una fila del panel, con el monto adelante: es lo primero que se mira para
+     saber si el pedido es el que se está esperando. */
+  .pedbadge { display:inline-block; background:var(--red); color:#fff; border-radius:20px; padding:0 7px;
+              font-size:11px; font-weight:800; margin-left:4px; vertical-align:middle; }
+  .ped { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:13px 16px;
+         margin-bottom:6px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .ped .montobig { font-size:19px; font-weight:800; color:var(--gold); letter-spacing:-.02em;
+                   font-variant-numeric:tabular-nums; }
+  .ped .who { flex:1; min-width:160px; }
+  .ped .who b { font-size:15px; }
+
   /* La franja que dice qué está esperando en el OS. Ámbar y arriba de todo: es trabajo pendiente
      que esta pantalla no puede resolver, así que lo único útil es que se vea y lleve al lugar. */
-  .aviso-otras{background:#fdf4e6;border-left:3px solid #c88a2e;border-radius:8px;
+  .aviso-otras{background:var(--durazno-bg);border-left:3px solid var(--durazno);border-radius:9px;
                padding:10px 13px;margin:0 0 12px;font-size:14px}
   .aviso-otras a{margin-left:8px;font-weight:700;white-space:nowrap}
   .aviso-otras .meta{margin-top:2px}
-  /* ── LA LETRA DE ANCHO FIJO, UNA SOLA VEZ ────────────────────────────────────────────────────
-     Un código de caja, un usuario o una dirección se leen carácter por carácter, y para eso la
-     letra de ancho fijo ayuda. Lo que no ayudaba era pedir `monospace` a secas: cada navegador
-     elige la suya (en Chrome de Mac, Menlo; en otros, Courier), así que la misma pantalla se veía
-     distinta en cada máquina. Y estaba clavada en 12px al lado de un texto de 14: parecía un
-     pedazo de otra pantalla pegado ahí.
-     Acá se elige la fuente —la del sistema, la misma que usa el editor— y el tamaño va en `em`,
-     así acompaña al texto que la rodea en vez de pelearse con él. */
-  code, .chip, .cli-code, .mono { font-family: var(--mono); font-variant-ligatures: none; }
-  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  @media (max-width: 680px) { .grid3 { grid-template-columns: 1fr; } }
-  /* nav */
-  .nav { display: flex; gap: 4px; padding: 0 22px; background: var(--bg2); border-bottom: 1px solid var(--border); }
-  .navbtn { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--muted); border-radius: 0; padding: 12px 16px; font-weight: 700; cursor: pointer; font-size: 14px; }
-  .navbtn:hover { color: var(--text); }
-  .navbtn.active { color: var(--gold); border-bottom-color: var(--gold); }
-  .pedbadge { display:inline-block; background:var(--red); color:#fff; border-radius:20px; padding:0 7px; font-size:11px; font-weight:800; margin-left:4px; vertical-align:middle; }
-  .ped { border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:var(--bg3); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-  .ped .montobig { font-size:20px; font-weight:800; color:var(--gold); }
-  .ped .who { flex:1; min-width:160px; }
-  .ped .who b { font-size:15px; }
-  table.hist { width:100%; border-collapse:collapse; font-size:13px; }
-  table.hist th, table.hist td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
-  table.hist th { color:var(--muted); font-size:11px; text-transform:uppercase; }
+
+  /* ── EL HISTORIAL ───────────────────────────────────────────────────────────────────────── */
+  table.hist { width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.hist th, table.hist td { text-align:left; padding:10px 9px; border-bottom:1px solid var(--bg3); }
+  table.hist th { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; }
+  table.hist tr:last-child td { border-bottom:0; }
   /* Una fecha, un código de caja y un importe no se parten al medio: «Celuapuestas-» en un renglón
-     y «SA» en el otro no es un nombre, y «226.542.857,14» cortado se lee mal y se copia peor.
-     El resto de la fila sí puede acomodarse. */
+     y «SA» en el otro no es un nombre, y «226.542.857,14» cortado se lee mal y se copia peor. */
   table.hist td[data-label="Fecha"],
   table.hist td[data-label="Caja"],
   table.hist td[data-label="Monto"] { white-space: nowrap; }
+  table.hist td[data-label="Monto"] { font-variant-numeric: tabular-nums; }
   .estado-cargado { color:var(--green); font-weight:700; }
   .estado-rechazado { color:var(--red); font-weight:700; }
-  .estado-anulado { color:var(--gold,#c90); font-weight:700; }
-  textarea { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 11px; font-size: 13px; outline: none; resize: vertical; }
-  textarea:focus { border-color: var(--gold); }
-  /* clientes */
-  .chip { display: inline-block; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: .86em; }
-  .chip.money { color: var(--gold); border-color: rgba(196,86,173,.35); }
-  .cli { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--bg3); overflow: hidden; }
-  .cli.open { border-color: var(--gold); }
-  .cli-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; }
-  .cli-head:hover { background: var(--bg2); }
-  .cli-code { font-weight: 700; color: var(--gold); background: var(--bg); padding: 2px 8px; border-radius: 5px; }
-  .cli-name { font-weight: 700; }
-  .cli-body { padding: 12px 14px; border-top: 1px solid var(--border); }
-  .caja-row { display: grid; grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 1.5fr auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .estado-anulado { color:var(--gold); font-weight:700; }
+  /* Anular saca fichas de verdad, así que no compite con nada hasta que la buscás: sin fondo ni
+     borde, del color del texto apagado, y roja sólo bajo el mouse. */
+  .anular-sutil { background:none; border:none; padding:2px 4px; margin-left:6px; cursor:pointer;
+                  color:var(--muted); font-size:11.5px; font-weight:600; border-radius:5px; }
+  .anular-sutil:hover, .anular-sutil:focus-visible { color:var(--red); background:rgba(217,83,79,.09); }
+
+  /* ── UN CLIENTE ─────────────────────────────────────────────────────────────────────────────
+     Usa los componentes del panel (.plegable, .fila, .chev, .nom, .señal, .cifra, .cuerpo). Lo
+     único propio es que acá la flecha la mueve el javascript y no un <details>: la fila tiene DOS
+     cosas que se abren —sus cajas y su gente— y un <details> sólo sabe abrir una. */
+  .plegable.abierto > .fila .chev { transform: rotate(90deg); }
+  .fila .chev { cursor: pointer; }
+  /* "N cajas" es lo que se aprieta para verlas. En un vendedor la flecha abre a SU GENTE, así que
+     sin esto no había forma visible de llegar a las cajas: había que adivinar que el nombre era
+     clickeable. */
+  .ver-cajas{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  .ver-cajas:hover{color:var(--gold)}
+  .fila .acciones { margin:0; margin-left:auto; }
+  body.solo-despacho .fila .acciones { display:none !important; }
+
+  /* ── LAS CAJAS DE UN CLIENTE ───────────────────────────────────────────────────────────────── */
+  .caja-row { display: grid; grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 1.5fr auto; gap: 8px;
+              align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); }
   .caja-row input, .caja-row select { padding: 6px 8px; font-size: 12px; }
   .caja-head { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  /* Al operador se le muestran las cajas como texto: editarlas no le corresponde y el server se lo
+     negaría igual. Un formulario que al guardar da 403 es peor que no tenerlo. */
+  .caja-row-ro{padding:7px 2px;border-bottom:1px solid var(--bg3);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .caja-row-ro:last-child{border-bottom:none}
   @media (max-width: 820px) { .caja-row { grid-template-columns: 1fr 1fr; } }
 
   /* ───────── MOBILE / celular ───────── */
   @media (max-width: 680px) {
-    header { padding: 10px 14px; flex-wrap: wrap; gap: 4px 8px; }
-    header h1 { font-size: 15px; }
+    header { padding: 10px 14px; }
     header h1 .sub { display: none; }
     #activeBanner { flex-basis: 100%; font-size: 11px; }
-    /* nav: achico y, si no entra, scroll horizontal (no se corta ningún tab) */
-    .nav { padding: 0 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
-    .navbtn { padding: 11px 9px; font-size: 13px; flex: 0 0 auto; }
     main { padding: 14px 12px; }
-    .card { padding: 14px; }
-    .card h2 { font-size: 15px; }
     /* 16px evita el auto-zoom de iOS al enfocar inputs */
     input, select, textarea { font-size: 16px; }
-    button { padding: 10px 14px; }
     button.small { padding: 8px 11px; font-size: 13px; }
     /* cajas: 1 columna con etiquetas visibles */
     .caja-row { grid-template-columns: 1fr !important; gap: 7px; }
     .caja-head { display: block !important; }
-    /* agregar cliente / filas flex: que apilen full-width */
     .row > div { flex-basis: 100% !important; }
     /* pedidos: apilado, botones grandes y tocables */
     .ped { gap: 8px; }
@@ -136,21 +111,12 @@
     /* historial: la tabla se transforma en tarjetas */
     table.hist thead { display: none; }
     table.hist, table.hist tbody, table.hist tr, table.hist td { display: block; width: 100%; }
-    table.hist tr { border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); padding: 8px 12px; margin-bottom: 8px; }
+    table.hist tr { border: 1px solid var(--border); border-radius: 10px; background: var(--bg2);
+                    padding: 9px 13px; margin-bottom: 8px; }
     table.hist td { border: none; padding: 3px 0; }
-    table.hist td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 11px; text-transform: uppercase; margin-right: 6px; }
+    table.hist td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 11px;
+                            text-transform: uppercase; margin-right: 6px; }
   }
-
-  /* "N cajas" es lo que se aprieta para verlas. En un vendedor la flecha abre a SU GENTE, así que
-     sin esto no había forma visible de llegar a las cajas: había que adivinar que el nombre era
-     clickeable. */
-  .ver-cajas{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
-  .ver-cajas:hover{color:var(--gold)}
-  /* Al operador se le muestran las cajas como texto: editarlas no le corresponde y el server se lo
-     negaría igual. Un formulario que al guardar da 403 es peor que no tenerlo. */
-  .caja-row-ro{padding:6px 8px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
-  .caja-row-ro:last-child{border-bottom:none}
-  body.solo-despacho .cli-head > button{display:none !important}
 </style>
 </head>
 <body>
@@ -180,8 +146,13 @@
 
 <div id="view-clientes" style="display:none">
   <div class="card">
-    <h2>Clientes <span class="meta" id="clientesCount"></span></h2>
-    <input id="cliSearch" placeholder="🔍 buscar por código, nombre, usuario o user_id…" oninput="renderClientes()" style="margin-bottom:12px" />
+    <div class="tapa">
+      <div><h2>Clientes</h2><div class="sub" id="clientesCount"></div></div>
+      <div class="acciones"><button class="outline small" id="btnPlegar" onclick="plegarTodo()">▸ Plegar todo</button></div>
+    </div>
+    <input id="cliSearch" type="search" name="q-cliente" autocomplete="off" autocorrect="off"
+           autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other"
+           placeholder="🔍 buscar por código, nombre, usuario o user_id…" oninput="renderClientes()" style="margin-bottom:12px" />
     <div id="clientesList"><div class="empty">Cargando…</div></div>
   </div>
 
@@ -219,7 +190,10 @@
   </div>
 
   <div class="card">
-    <h2>📋 Solicitudes enviadas</h2>
+    <div class="tapa">
+      <div><h2>📋 Solicitudes enviadas</h2></div>
+      <div class="acciones"><button class="outline small" onclick="solCargar()" title="Volver a leer">↻</button></div>
+    </div>
     <div id="sol-lista"><div class="empty">Cargando…</div></div>
   </div>
 </div><!-- /view-solicitud -->
@@ -244,7 +218,9 @@
     </p>
     <label>Token del bot de Telegram</label>
     <div style="display:flex; gap:8px">
-      <input id="cfgToken" type="password" placeholder="123456789:ABCdef..." autocomplete="off" />
+      <input id="cfgToken" type="password" name="bot-fichas" autocomplete="new-password" autocorrect="off"
+             autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other"
+             placeholder="123456789:ABCdef..." />
       <button onclick="saveConfig()" style="flex:0 0 auto">Guardar bot</button>
     </div>
     <div class="meta" style="margin-top:8px; font-size:11px">
@@ -255,9 +231,10 @@
 
 <div id="view-pedidos">
   <div class="card">
-    <h2>📥 Pedidos pendientes <span class="meta" id="pedCount"></span>
-      <button class="outline small" onclick="loadPedidos()" style="margin-left:8px">↻ Refrescar</button>
-    </h2>
+    <div class="tapa">
+      <div><h2>📥 Pedidos pendientes</h2><div class="sub" id="pedCount"></div></div>
+      <div class="acciones"><button class="outline small" onclick="loadPedidos()">↻ Refrescar</button></div>
+    </div>
     <div id="otrasColas"></div>
     <div id="pedidosList"><div class="empty">Cargando…</div></div>
   </div>
@@ -267,12 +244,15 @@
 
 <div id="view-historial" style="display:none">
   <div class="card">
-    <h2>📜 Historial <span class="meta" id="histCount"></span>
-      <button class="outline small" onclick="loadHistorial()" style="margin-left:8px">↻</button>
-    </h2>
+    <div class="tapa">
+      <div><h2>📜 Historial</h2><div class="sub" id="histCount"></div></div>
+      <div class="acciones"><button class="outline small" onclick="loadHistorial()" title="Volver a leer">↻</button></div>
+    </div>
     <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap">
       <input id="histMes" type="month" style="flex:0 0 175px" onchange="loadHistorial()" title="Por defecto muestra el mes en curso" />
-      <input id="histFiltro" placeholder="filtrar por código (ej: L210)…" style="flex:1; min-width:200px" onkeydown="if(event.key==='Enter')loadHistorial()" />
+      <input id="histFiltro" type="search" name="q-hist" autocomplete="off" autocorrect="off"
+             autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other"
+             placeholder="filtrar por código (ej: L210)…" style="flex:1; min-width:200px" onkeydown="if(event.key==='Enter')loadHistorial()" />
       <button class="outline" onclick="loadHistorial()">Filtrar</button>
       <button class="outline" onclick="document.getElementById('histFiltro').value='';document.getElementById('histMes').value='';loadHistorial()">Todo el historial</button>
     </div>
@@ -304,6 +284,16 @@
      el de acá quedó vacío hace rato. El resultado era que el desplegable para elegir el sistema de
      una caja nueva no tenía UNA sola opción, así que no se podía abrir una caja desde este panel.
      Se pide una vez al entrar y cada vez que se abre Clientes o Configuración. */
+  /* ── POR QUÉ TODOS LOS CAMPOS LLEVAN ESTO ────────────────────────────────────────────────────
+     Al buscar un cliente, Chrome abría su gestor de contraseñas y ofrecía «Alexa / Admin / admin»
+     con los puntitos: creía que ese campo era el usuario de un login. Y no es un capricho suyo —
+     en esta pantalla conviven, escondidos pero presentes en el HTML, el campo del token del bot
+     (que es `type=password`) y varios que se llaman «usuario». Con eso alcanza para que el
+     navegador arme un login que no existe y le ofrezca a cualquiera las claves guardadas.
+     `data-lpignore` y `data-1p-ignore` son lo mismo para 1Password y LastPass. */
+  const NOFILL = 'autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"'
+    + ' data-lpignore="true" data-1p-ignore data-form-type="other"';
+
   let _sistemas = [];
 
   async function loadSistemas() {
@@ -513,7 +503,7 @@
   function renderClientes() {
     const q = (document.getElementById('cliSearch').value || '').toLowerCase().trim();
     const totalCajas = _clientes.reduce((a, c) => a + ((c.cajas && c.cajas.length) || 0), 0);
-    document.getElementById('clientesCount').textContent = `· ${_clientes.length} clientes, ${totalCajas} cajas`;
+    document.getElementById('clientesCount').textContent = `${_clientes.length} clientes · ${totalCajas} cajas`;
 
     let list = _clientes;
     if (q) list = _clientes.filter(c =>
@@ -530,28 +520,35 @@
       const n = (c.cajas || []).length;
       const sub = _clientes.filter(x => x.vendedor_id === c.id).length;
       const plegado = _cerrIni().has(c.id);
+      /* El nombre primero y el código atrás, chico: el nombre es por lo que se lo busca, y el
+         código repetido en grande hacía que 47 filas empezaran todas igual. Mismos componentes que
+         el panel para que las dos pantallas del mismo sistema se parezcan. */
+      const abierta = sub ? !plegado : open;
       return `
-      <div class="cli ${open ? 'open' : ''}" style="margin-left:${prof * 20}px">
-        <div class="cli-head">
-          <span style="width:12px;cursor:pointer" onclick="${sub ? `toggleVend('${c.id}')` : `toggleCli('${c.id}')`}">${sub ? (plegado ? '▸' : '▾') : (open ? '▾' : '▸')}</span>
-          <span class="cli-code" onclick="toggleCli('${c.id}')" style="cursor:pointer">${esc(String(c.codigo).toUpperCase())}</span>
-          <span class="cli-name" onclick="toggleCli('${c.id}')" style="cursor:pointer">${esc(c.nombreVisible || '')}</span>
-          ${c.es_vendedor ? '<span class="chip">vendedor</span>' : ''}
+      <div class="plegable ${abierta ? 'abierto' : ''}" style="margin-left:${prof * 20}px">
+        <div class="fila">
+          <span class="chev" onclick="${sub ? `toggleVend('${c.id}')` : `toggleCli('${c.id}')`}"></span>
+          <span class="nom" onclick="toggleCli('${c.id}')" style="cursor:pointer">${esc(c.nombreVisible || String(c.codigo).toUpperCase())}</span>
+          <span class="pill" style="font-size:10px;opacity:.7" onclick="toggleCli('${c.id}')">${esc(String(c.codigo).toUpperCase())}</span>
+          ${c.es_vendedor ? '<span class="señal" style="background:var(--bg3);color:var(--gold)">vendedor</span>' : ''}
           <span class="meta">${n
-            ? `<span class="ver-cajas" onclick="toggleCli('${c.id}')" title="Ver las cajas a las que se le carga">· ${open ? '▾' : '▸'} ${n} caja${n === 1 ? '' : 's'}</span>`
-            : '· sin cajas'}${sub ? ` · ${sub} a cargo` : ''}</span>
-          <span style="flex:1"></span>
-          <button class="outline small" onclick="editCliente(event,'${c.id}')">✏️</button>
-          <button class="danger small" onclick="deleteCliente(event,'${c.id}')">🗑</button>
+            ? `<span class="ver-cajas" onclick="toggleCli('${c.id}')" title="Ver las cajas a las que se le carga">${open ? '▾' : '▸'} ${n} caja${n === 1 ? '' : 's'}</span>`
+            : 'sin cajas'}${sub ? ` · ${sub} a cargo` : ''}</span>
+          <span class="acciones">
+            <button class="outline small" onclick="editCliente(event,'${c.id}')">✏️</button>
+            <button class="outline small danger" onclick="deleteCliente(event,'${c.id}')">🗑</button>
+          </span>
         </div>
         ${open ? renderCajas(c) : ''}
       </div>`;
     };
     if (q) { box.innerHTML = list.map(c => fila(c, 0)).join(''); return; }
     const pinta = (n, prof) => fila(n.c, prof) + (_cerrIni().has(n.c.id) ? '' : n.subs.map(x => pinta(x, prof + 1)).join(''));
-    box.innerHTML = `<div style="text-align:right;margin-bottom:6px"><button class="outline small" onclick="plegarTodo()">${
-      (_vendCerrados && _vendCerrados.size) ? '▾ Abrir todo' : '▸ Plegar todo'}</button></div>`
-      + _arbolCli(list).map(n => pinta(n, 0)).join('');
+    // El botón de plegar vive en la tapa de la tarjeta, no arriba de la lista: es un control de la
+    // pantalla, y flotando sobre las filas parecía pertenecer al primer cliente.
+    const bp = document.getElementById('btnPlegar');
+    if (bp) bp.textContent = (_vendCerrados && _vendCerrados.size) ? '▾ Abrir todo' : '▸ Plegar todo';
+    box.innerHTML = _arbolCli(list).map(n => pinta(n, 0)).join('');
   }
 
   function renderCajas(c) {
@@ -563,25 +560,25 @@
           <b>${esc(k.usuario)}</b>
           <span class="meta">${esc(k.sistema || '')} · id ${esc(k.userId || '—')} · ${esc((k.divisas || []).join(', ') || 'ARS')}</span>
         </div>`).join('');
-      return `<div class="cli-body">${filas || '<div class="meta">Sin cajas.</div>'}</div>`;
+      return `<div class="cuerpo">${filas || '<div class="meta">Sin cajas.</div>'}</div>`;
     }
     const rows = (c.cajas || []).map(k => `
       <div class="caja-row" id="caja-${k.id}">
-        <div><div class="caja-head">usuario</div><input id="cj-usuario-${k.id}" value="${esc(k.usuario)}" /></div>
+        <div><div class="caja-head">usuario</div><input id="cj-usuario-${k.id}" ${NOFILL} value="${esc(k.usuario)}" /></div>
         <div><div class="caja-head">sistema</div><select id="cj-sistema-${k.id}">${sistemaOptions(k.sistema)}</select></div>
-        <div><div class="caja-head">user_id (ID casino)</div><input id="cj-userid-${k.id}" value="${esc(k.userId)}" /></div>
-        <div><div class="caja-head">divisas</div><input id="cj-divisas-${k.id}" value="${esc((k.divisas || []).join(','))}" /></div>
-        <div><div class="caja-head">montos rápidos (botones)</div><input id="cj-montos-${k.id}" value="${esc((k.montosRapidos || []).join(','))}" /></div>
+        <div><div class="caja-head">user_id (ID casino)</div><input id="cj-userid-${k.id}" ${NOFILL} value="${esc(k.userId)}" /></div>
+        <div><div class="caja-head">divisas</div><input id="cj-divisas-${k.id}" ${NOFILL} value="${esc((k.divisas || []).join(','))}" /></div>
+        <div><div class="caja-head">montos rápidos (botones)</div><input id="cj-montos-${k.id}" ${NOFILL} value="${esc((k.montosRapidos || []).join(','))}" /></div>
         <div style="display:flex;gap:4px;align-items:flex-end"><button class="small" onclick="saveCaja('${c.id}','${k.id}')">💾</button><button class="danger small" onclick="deleteCaja('${c.id}','${k.id}')">🗑</button></div>
       </div>
       <div style="padding:3px 0 8px">${(k.montosRapidos || []).map(m => `<span class="chip money">${money(m)}</span>`).join('') || '<span class="meta">sin montos rápidos</span>'}</div>`).join('');
 
     const tg = c.telegram || { chatId: '', enabled: false };
-    return `<div class="cli-body">
+    return `<div class="cuerpo">
       <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--border)">
         <div class="caja-head" style="margin-bottom:6px">📣 Grupo Telegram (aviso automático al cargar)</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-          <input id="tg-chat-${c.id}" value="${esc(tg.chatId || '')}" placeholder="chatId del grupo (ej: -1001234567890)" style="flex:1; min-width:200px" />
+          <input id="tg-chat-${c.id}" ${NOFILL} value="${esc(tg.chatId || '')}" placeholder="chatId del grupo (ej: -1001234567890)" style="flex:1; min-width:200px" />
           <label style="display:flex; gap:5px; align-items:center; font-size:12px; color:var(--muted); white-space:nowrap"><input type="checkbox" id="tg-en-${c.id}" ${tg.enabled ? 'checked' : ''} style="width:auto" /> avisar</label>
           <button class="small" onclick="saveTelegram('${c.id}')">💾</button>
           <button class="outline small" onclick="testTelegram('${c.id}')">🔔 Probar</button>
@@ -592,11 +589,11 @@
       <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
         <div class="caja-head" style="margin-bottom:6px">➕ agregar caja</div>
         <div class="caja-row">
-          <input id="nc-usuario-${c.id}" placeholder="usuario (login casino)" />
+          <input id="nc-usuario-${c.id}" ${NOFILL} placeholder="usuario (login casino)" />
           <select id="nc-sistema-${c.id}">${sistemaOptions('')}</select>
-          <input id="nc-userid-${c.id}" placeholder="user_id" />
-          <input id="nc-divisas-${c.id}" placeholder="ARS" />
-          <input id="nc-montos-${c.id}" placeholder="500000,1000000,3000000" />
+          <input id="nc-userid-${c.id}" ${NOFILL} placeholder="user_id" />
+          <input id="nc-divisas-${c.id}" ${NOFILL} placeholder="ARS" />
+          <input id="nc-montos-${c.id}" ${NOFILL} placeholder="500000,1000000,3000000" />
           <button class="small" onclick="addCaja('${c.id}')">Agregar</button>
         </div>
       </div>
@@ -743,7 +740,9 @@
     document.querySelectorAll('button[data-anular-hasta]').forEach((b) => {
       const quedan = Number(b.dataset.anularHasta) - now;
       if (quedan <= 0) { b.remove(); return; }
-      if (!b.disabled) b.textContent = '↩ Anular (' + mmss(quedan) + ')';
+      // El mismo texto que dibuja la fila: si acá dijera otra cosa, el botón cambiaría de aspecto
+      // solo, un segundo después de pintarse.
+      if (!b.disabled) b.textContent = '↩ anular ' + mmss(quedan);
     });
   }
   setInterval(_tickAnular, 1000);
@@ -800,14 +799,14 @@
        rechazados, 13 anulados— que no cambian nada de lo que sigue: para mirar eso está el
        historial. Y con la cola vacía no se muestra ningún número: abajo ya dice que no hay nada. */
     document.getElementById('pedCount').textContent = c.pendientes
-      ? `· ${c.pendientes} pendiente${c.pendientes === 1 ? '' : 's'}` : '';
+      ? `${c.pendientes} pendiente${c.pendientes === 1 ? '' : 's'}` : '';
     refreshPedBadge();
     if (!_pedidos.length) { box.innerHTML = '<div class="empty">No hay pedidos pendientes. 🎉</div>'; return; }
     box.innerHTML = _pedidos.map((p) => `
       <div class="ped" id="ped-${p.id}">
-        <div class="montobig">${esc(p.divisa)} $ ${money(p.monto)}</div>
+        <div class="montobig">${esc(p.divisa)} ${money(p.monto)}</div>
         <div class="who">
-          <b>${esc(p.clienteNombre)}</b> <span class="meta">(${esc(String(p.codigo || '').toUpperCase())})</span><br/>
+          <b>${esc(p.clienteNombre)}</b> <span class="pill" style="font-size:10px;opacity:.7">${esc(String(p.codigo || '').toUpperCase())}</span><br/>
           <span class="meta">→ caja <code>${esc(p.cajaUsuario)}</code> · ${esc(p.sistema)} · id ${esc(p.userId) || '?'} · ${esc(p.divisa)}</span><br/>
           <span class="meta" style="font-size:11px">${fmtDate(p.createdAt)}</span>
         </div>
@@ -872,7 +871,7 @@
     if (body.serverNow) { const t = Date.parse(body.serverNow); if (Number.isFinite(t)) _skewMs = Date.now() - t; }
     const todos = body.pedidos;
     const list = mes ? todos.filter(p => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes) : todos;
-    document.getElementById('histCount').textContent = '· ' + list.length + ' movimiento' + (list.length === 1 ? '' : 's')
+    document.getElementById('histCount').textContent = list.length + ' movimiento' + (list.length === 1 ? '' : 's')
       + (mes ? (' de ' + mes) : ' (todo el historial)') + (f ? (' · ' + f) : '')
       + (mes && todos.length > list.length ? ' — hay ' + todos.length + ' en total' : '');
     if (!list.length) { box.innerHTML = '<div class="empty">'
@@ -924,7 +923,11 @@
           const tCarga = Date.parse(p.resueltoAt || '');
           const vence = Number.isFinite(tCarga) ? tCarga + _anularWindowMs : 0;
           const quedan = vence - srvNow();
-          if (quedan > 0) anular = ` <button class="danger small" data-anular-hasta="${vence}" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado. Solo durante los primeros ${Math.round(_anularWindowMs / 60000)} min.">↩ Anular (${mmss(quedan)})</button>`;
+          /* Discreto A PROPÓSITO. Dibujado como botón rojo, en cada fila cargada del mes, era lo
+             más llamativo de la pantalla — y lo que hace es sacarle fichas de verdad a un jugador.
+             Ahora es un texto chico y apagado que recién se pone rojo cuando el mouse está encima.
+             El confirm sigue estando: esto es la primera traba, no la única. */
+          if (quedan > 0) anular = ` <button class="anular-sutil" data-anular-hasta="${vence}" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado. Solo durante los primeros ${Math.round(_anularWindowMs / 60000)} min.">↩ anular ${mmss(quedan)}</button>`;
         }
         /* El CÓDIGO del cliente no se muestra: con el nombre alcanza para saber de quién es la
            carga, y repetir TITAN86 en cada fila no agrega nada. El buscador de arriba lo sigue

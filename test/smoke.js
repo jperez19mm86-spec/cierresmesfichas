@@ -8737,7 +8737,7 @@ async function main() {
     // el operador las ve pero no las edita: un formulario que al guardar da 403 es peor que no tenerlo
     check('cajas: el operador las ve como texto', /if \(_soyOperador\)/.test(html) && /caja-row-ro/.test(html));
     check('cajas: y no le aparecen los botones de editar el cliente',
-      /solo-despacho \.cli-head > button\{display:none/.test(html));
+      /solo-despacho \.fila \.acciones \{ display:none/.test(html));
     // la flecha del vendedor sigue abriendo su gente: son dos cosas distintas y cada una su control
     check('cajas: la flecha del vendedor sigue siendo del árbol', /sub \? `toggleVend/.test(html));
   }
@@ -9551,7 +9551,7 @@ async function main() {
   {
     const fiL = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
     check('panel limpio: la cola sólo cuenta lo pendiente',
-      /`· \$\{c\.pendientes\} pendiente/.test(fiL)
+      /`\$\{c\.pendientes\} pendiente/.test(fiL)
       && !/\$\{c\.cargados\} cargados/.test(fiL));
     // Y con la cola vacía tampoco muestra un cero: abajo ya dice que no hay nada.
     check('panel limpio: con la cola vacía no muestra un cero al lado del título',
@@ -9592,19 +9592,98 @@ async function main() {
     check('historial: la caja y el importe no se cortan en dos renglones',
       /table\.hist td\[data-label="Caja"\]/.test(fiH2) && /white-space: nowrap/.test(fiH2));
 
-    /* ── LA LETRA DE ANCHO FIJO, UNA SOLA VEZ ──────────────────────────────────────────────────
-       `monospace` a secas la elige cada navegador, así que la misma pantalla se veía distinta en
-       cada máquina; y estaba clavada en 12px al lado de un texto de 14. */
+    /* ── LA LETRA DE ANCHO FIJO ────────────────────────────────────────────────────────────────
+       Dos cosas distintas. Una: donde se usa, se pide UNA vez y es la misma en todas las máquinas
+       (`monospace` a secas la elige cada navegador). La otra: el nombre de una caja no es de las
+       que se usan — 463.live se lee de un vistazo, no se compara carácter por carácter. */
     const css = fs.readFileSync(path.join(ROOT, 'public', 'estilos.css'), 'utf8');
-    check('mono: los dos paneles definen la MISMA fuente de ancho fijo',
-      /--mono:\s*ui-monospace/.test(css) && /--mono:\s*ui-monospace/.test(fiH2));
-    check('mono: y el tamaño va en em, para que acompañe al texto que la rodea',
-      /code \{[^}]*font-size:\s*\.92em/.test(fiH2));
+    /* Y ahora Fichas NO tiene su propia definición: usa la hoja del panel. Tenerla escrita dos
+       veces era lo que hacía que las dos pantallas del mismo sistema se fueran separando. */
+    check('mono: la fuente de ancho fijo se define UNA vez, en la hoja compartida',
+      /--mono:\s*ui-monospace/.test(css) && /<link rel="stylesheet" href="\/estilos\.css"/.test(fiH2)
+      && !/--mono:\s*ui-monospace/.test(fiH2));
+    check('mono: la caja NO va en letra de máquina',
+      /code \{ font-family: inherit;/.test(fiH2),
+      'queda el fondito, que ya dice que es un dato para copiar');
+    check('mono: y el tamaño acompaña al texto que la rodea, no está clavado en px',
+      /code \{[^}]*font-size:\s*\.95em/.test(fiH2));
     // Nadie vuelve a pedir `monospace` por su cuenta: si alguien lo hace, se separan solas.
+    /* ── ANULAR NO COMPITE CON NADA ────────────────────────────────────────────────────────────
+       Dibujado como botón rojo, en cada fila cargada del mes, era lo más llamativo de la pantalla.
+       Y lo que hace es sacarle fichas de verdad a un jugador. */
+    check('anular: es un texto apagado, no un botón rojo en cada fila',
+      /class="anular-sutil"/.test(fiH2) && !/anular = ` <button class="danger small"/.test(fiH2));
+    check('anular: se pone rojo sólo cuando lo vas a apretar',
+      /\.anular-sutil:hover[^{]*\{[^}]*var\(--red\)/.test(fiH2));
+    // Y sigue preguntando antes: lo de arriba es la primera traba, no la única.
+    check('anular: la pregunta antes de sacar fichas sigue estando',
+      /¿ANULAR esta carga\?/.test(fiH2) && /Se sacan fichas REALES/.test(fiH2));
+
+    /* ── CHROME CREÍA QUE EL BUSCADOR ERA UN LOGIN ─────────────────────────────────────────────
+       Al buscar un cliente abría su gestor de contraseñas y ofrecía las claves guardadas. En esta
+       pantalla conviven, escondidos pero presentes en el HTML, un campo `type=password` y varios
+       que se llaman «usuario»: con eso el navegador arma un login que no existe. */
+    const inputs = [...fiH2.matchAll(/<input\b[^>]*>/g)].map((m) => m[0])
+      .filter((t) => !/type="(checkbox|month)"/.test(t));
+    const sinProteger = inputs.filter((t) => !/autocomplete=|\$\{NOFILL\}/.test(t));
+    check('autofill: ningún campo del panel queda a merced del gestor de contraseñas',
+      !sinProteger.length, sinProteger.join(' | ').slice(0, 300));
+    check('autofill: y el token del bot le dice que es nuevo, para que no ofrezca uno viejo',
+      /id="cfgToken"[\s\S]{0,200}autocomplete="new-password"/.test(fiH2));
+
     const sueltos = ['public/index.html', 'public/os.html', 'public/estilos.css', 'public/piel.css',
       'public/caja.html', 'public/tbs.html', 'public/tbs-espacio.js', 'public/caja-conexion.js']
       .filter((f) => /font-family:\s*(ui-)?monospace/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
     check('mono: ninguna pantalla la pide por su cuenta', !sueltos.length, sueltos.join(', '));
+  }
+
+  /* ── LAS DOS PANTALLAS DEL MISMO SISTEMA SE PARECEN ──────────────────────────────────────────
+     Fichas tenía su propia hoja de estilos, copiada del panel hace tiempo y evolucionada aparte:
+     los mismos colores con otros radios, otros tamaños y otros componentes. Abrir una y después la
+     otra era pasar por dos productos. Ahora la base y los componentes salen de /estilos.css y en
+     Fichas queda sólo lo suyo: pedidos, historial y cajas. */
+  {
+    const fiE = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('estilo: Fichas usa la hoja del panel',
+      /<link rel="stylesheet" href="\/estilos\.css"/.test(fiE));
+    /* Lo que importa no es que la cargue, sino que NO tenga su propia copia de lo mismo: con las
+       dos escritas, la de abajo gana y el cambio en la compartida no se ve. */
+    let propio = (fiE.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+    /* Fuera los @media: ahí `main { padding }` no es volver a definir nada, es el ajuste para el
+       teléfono. Se sacan contando llaves porque adentro hay reglas con las suyas. */
+    for (let i = propio.indexOf('@media'); i >= 0; i = propio.indexOf('@media')) {
+      let n = 0, j = propio.indexOf('{', i);
+      const desde = j;
+      for (; j < propio.length; j++) {
+        if (propio[j] === '{') n += 1;
+        else if (propio[j] === '}' && (n -= 1) === 0) break;
+      }
+      propio = propio.slice(0, i) + propio.slice(desde === -1 ? propio.length : j + 1);
+    }
+    /* Al principio del renglón: `.ped > button {` NO es volver a definir el botón, es dar forma
+       al que va adentro de un pedido. Sin anclarlo, ese contaba como repetido. */
+    const repetidos = [/^\s*\.card \{/m, /^\s*body \{/m, /^\s*\.navbtn \{/m, /^\s*button \{/m,
+      /^\s*input, select \{/m, /^\s*\.badge \{/m, /^\s*main \{/m, /^\s*header \{/m]
+      .filter((re) => re.test(propio)).map((re) => String(re));
+    check('estilo: y no vuelve a escribir lo que ya está en la compartida',
+      !repetidos.length, repetidos.join(', '));
+    // Y usa sus componentes, no unos propios que se parecen.
+    check('estilo: un cliente se dibuja con los componentes del panel',
+      /class="plegable \$\{abierta \? 'abierto' : ''\}"/.test(fiE)
+      && /<div class="fila">/.test(fiE) && /<span class="chev"/.test(fiE)
+      && /<span class="nom"/.test(fiE));
+    check('estilo: el código del cliente va chico y atrás del nombre, como en el panel',
+      /<span class="pill" style="font-size:10px;opacity:\.7"/.test(fiE)
+      && !/class="cli-code"/.test(fiE));
+    check('estilo: las tarjetas llevan el título y sus botones en la tapa',
+      (fiE.match(/<div class="tapa">/g) || []).length >= 4);
+    /* La flecha la mueve el javascript y no un <details>: la fila de un vendedor tiene DOS cosas
+       que se abren —sus cajas y su gente— y un <details> sólo sabe abrir una. */
+    check('estilo: la flecha del cliente la maneja el panel, no un <details>',
+      /\.plegable\.abierto > \.fila \.chev \{ transform: rotate\(90deg\); \}/.test(fiE));
+    // El monto de un pedido, con la misma regla que el historial: sin el signo de más.
+    check('estilo: el monto del pedido va sin el signo de peso',
+      /<div class="montobig">\$\{esc\(p\.divisa\)\} \$\{money\(p\.monto\)\}<\/div>/.test(fiE));
   }
 
   const fail = asserts.filter((a) => !a.ok);
