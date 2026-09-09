@@ -76,10 +76,17 @@ function nivelDeGroup(additional) {
  *     credenciales) → cookie PHPSESSID, reusada en los headers. Re-login automático si expira.
  * Si hay token, gana el token; si no, usa user/pass.
  */
-function makeClient({ url, token, user, password } = {}) {
+/* 🔑 `cookie` ES PARA REVIVIR UNA SESIÓN YA ABIERTA, SIN LA CONTRASEÑA. Mi Caja guarda las
+   sesiones para que un despliegue no eche a todos los cajeros, y lo único que guarda del casino es
+   este PHPSESSID —nunca la contraseña—. Un cliente armado así trabaja igual mientras el casino
+   acepte la cookie; cuando la vence NO puede volver a entrar solo, porque no tiene con qué, y
+   contesta «sesión expirada» para que el panel mande al login. Eso es exactamente lo que se
+   quiere: la comodidad se guarda, la credencial no. */
+function makeClient({ url, token, user, password, cookie } = {}) {
   const base = normUrl(url);
-  const useSession = !token && !!(user && password);
-  let sessionCookie = '';
+  const useSession = !token && !!((user && password) || cookie);
+  const puedeReloguear = !!(user && password);
+  let sessionCookie = cookie || '';
 
   /** Login 2-pasos (igual que casino-client.js del repo). Devuelve {ok, cookie?|error}. */
   async function login() {
@@ -103,7 +110,11 @@ function makeClient({ url, token, user, password } = {}) {
     sessionCookie = cookie;
     return { ok: true, cookie };
   }
-  async function ensureSession() { return sessionCookie ? { ok: true } : login(); }
+  async function ensureSession() {
+    if (sessionCookie) return { ok: true };
+    if (!puedeReloguear) return { ok: false, error: 'sesión expirada / login inválido' };
+    return login();
+  }
 
   async function apiCall(area, body = {}, query = {}, _retry = true) {
     if (!base) return { ok: false, error: 'URL del casino no configurada' };
@@ -126,7 +137,7 @@ function makeClient({ url, token, user, password } = {}) {
       const data = r.data;
       if (data && typeof data === 'object') {
         if (data.noMain || data.redirect === 'login') {
-          if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return apiCall(area, body, query, false); }
+          if (useSession && puedeReloguear && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return apiCall(area, body, query, false); }
           return { ok: false, status: r.status, error: useSession ? 'sesión expirada / login inválido' : 'api_token inválido o expirado', data };
         }
         if (data.error) return { ok: false, status: r.status, error: String(data.error), data };
@@ -338,7 +349,7 @@ function makeClient({ url, token, user, password } = {}) {
     const rsUrl = allRs.find((u) => /response=js/.test(u)) || allRs[0];
     if (!rsUrl) {
       // La página de reports volvió sin la tabla → suele ser la sesión caída (login redirect). Re-login y 1 reintento.
-      if (useSession && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, opts, false); }
+      if (useSession && puedeReloguear && _retry) { sessionCookie = ''; const s = await login(); if (s.ok) return _runReport(append, opts, false); }
       return { ok: false, error: 'no se encontró la tabla de datos (¿sesión inválida?)', debug: { pageSnippet: html.slice(0, 300).replace(/\s+/g, ' ') } };
     }
     let path = '/index.php?act=admin&' + rsUrl.replace(/&amp;/g, '&');
@@ -833,7 +844,10 @@ function makeClient({ url, token, user, password } = {}) {
     return { ok: true, login: (r.data.editUser && r.data.editUser.login) || main.login || '', balances: main.balances || {} };
   }
 
-  return { apiCall, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, gananciaDeNodo, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
+  /* La cookie viva, para que quien administre sesiones pueda guardarla y revivirla después. */
+  const cookieActual = () => sessionCookie;
+
+  return { apiCall, cookieActual, divisasDeNodo, nodos, superagentes, totalNodo, buscar, gameHistory, profitPorProveedor, catalogoProveedores, reporte, gananciaDeNodo, reporteProveedores, reporteProveedoresNodo, reporteProveedoresMonedas, plantillas, camposDeReportes, sondaReporte, sondaCruda, test };
 }
 
 module.exports = { makeClient, normUrl, CURRENCIES_ACTIVAS, CURRENCIES_BASE };

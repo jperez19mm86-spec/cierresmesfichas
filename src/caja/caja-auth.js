@@ -27,6 +27,98 @@ const SECRETO = process.env.SESSION_SECRET || 'dev-insecure-secret-cambiar-en-pr
    PHPSESSID adentro— para no volver a loguear en cada llamada. */
 const vivas = new Map();
 
+/* ══════ Y ADEMÁS, EN DISCO ══════════════════════════════════════════════════════════════════
+   🔴 CADA DESPLIEGUE ECHABA A TODO EL MUNDO. Las sesiones vivían sólo en este `Map`, así que
+   levantar una versión nueva —cosa que pasó veinte veces en una semana— dejaba a los cajeros en
+   la pantalla de acceso, a veces en mitad de una carga. Se guardan en la base, sobre el volumen
+   del servicio, y al primer pedido después de un reinicio se reviven solas.
+
+   🔒 QUÉ SE GUARDA Y QUÉ NO. Se guarda el PHPSESSID del casino y, si la cuenta lo tiene, su
+   api_token. La CONTRASEÑA no se guarda nunca, ni cifrada: quien la escribió fue la persona y
+   ahí se queda. La consecuencia está aceptada: cuando el casino vence esa cookie, la sesión
+   revivida no puede volver a entrar sola y el panel manda al login, en vez de reloguear por
+   detrás como hace la sesión recién creada.
+
+   Todo va cifrado con AES-256-GCM (`crypto-util`), que toma su clave de CRED_KEY o SESSION_SECRET.
+   ⚠️ Si esa clave cambia, las sesiones guardadas dejan de poder abrirse: no se rompe nada, todos
+   entran de nuevo una vez. */
+const { encrypt, decrypt } = require('../crypto-util');
+
+let db = null;
+try {
+  db = require('../db').db;
+  db.exec(`CREATE TABLE IF NOT EXISTS caja_sesiones (
+    sid TEXT PRIMARY KEY,
+    vence INTEGER NOT NULL,
+    datos TEXT NOT NULL
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS caja_sesiones_vence ON caja_sesiones(vence)');
+} catch (e) {
+  /* Igual que el diario: si la base no abre, esto sigue andando en memoria como antes. Guardar
+     sesiones no puede tumbar el panel que las usa. */
+  console.warn('[caja] las sesiones no pudieron abrir la base, quedan sólo en memoria:', e.message);
+  db = null;
+}
+
+/* Lo que se escribe: los datos, nunca los clientes armados —esos se rehacen al revivir. */
+function guardarEnDisco(s) {
+  if (!db) return;
+  try {
+    const plano = JSON.stringify({
+      login: s.login, id: s.id, group: s.group, rol: s.rol, moneda: s.moneda, url: s.url,
+      caja: s.caja || null,
+      hide_hall_balance: s.hide_hall_balance === true,
+      disable_statistic: s.disable_statistic === true,
+      token: s.token || null,
+      cookie: (s.conSesion && s.conSesion.cookieActual && s.conSesion.cookieActual()) || '',
+    });
+    db.prepare('INSERT OR REPLACE INTO caja_sesiones (sid, vence, datos) VALUES (?, ?, ?)')
+      .run(s.sid, s.vence, encrypt(plano));
+  } catch (e) { console.warn('[caja] no se pudo guardar la sesión:', e.message); }
+}
+
+function borrarDelDisco(sid) {
+  if (!db) return;
+  try { db.prepare('DELETE FROM caja_sesiones WHERE sid = ?').run(sid); } catch (e) { /* da igual */ }
+}
+
+/* Y lo que se lee: se rehacen los dos clientes y la sesión vuelve a estar viva. */
+function revivir(sid) {
+  if (!db) return null;
+  let fila;
+  try { fila = db.prepare('SELECT vence, datos FROM caja_sesiones WHERE sid = ?').get(sid); }
+  catch (e) { return null; }
+  if (!fila || fila.vence <= Date.now()) { if (fila) borrarDelDisco(sid); return null; }
+  let d;
+  try { d = JSON.parse(decrypt(fila.datos)); } catch (e) {
+    /* Cambió la clave, o la fila está rota: se tira y esa persona entra de nuevo. */
+    borrarDelDisco(sid);
+    return null;
+  }
+  const s = {
+    sid, vence: fila.vence, balanceInicial: 0,
+    login: d.login, id: d.id, group: d.group, rol: d.rol, moneda: d.moneda, url: d.url,
+    caja: d.caja || null,
+    hide_hall_balance: d.hide_hall_balance === true,
+    disable_statistic: d.disable_statistic === true,
+    token: d.token || null,
+    tokenGenerado: false,
+    conSesion: d.cookie ? makeClient({ url: d.url, cookie: d.cookie }) : null,
+    conToken: d.token ? makeClient({ url: d.url, token: d.token }) : null,
+    revivida: true,
+  };
+  /* Sin ninguno de los dos no hay con qué hablarle al casino: mejor al login que a un error. */
+  if (!s.conSesion && !s.conToken) { borrarDelDisco(sid); return null; }
+  vivas.set(sid, s);
+  return s;
+}
+
+function limpiarDelDisco() {
+  if (!db) return;
+  try { db.prepare('DELETE FROM caja_sesiones WHERE vence <= ?').run(Date.now()); }
+  catch (e) { /* da igual */ }
+}
+
 const firma = (v) => crypto.createHmac('sha256', SECRETO).update(v).digest('base64url');
 const armar = (sid) => `${sid}.${firma(sid)}`;
 function abrir(valor) {
@@ -117,6 +209,8 @@ async function entrar({ url, user, password, token, raiz = null, generar = true 
     /* Y el de token, para todo lo demás. Si la cuenta no tiene token, se usa la sesión igual:
        anda, sólo que caduca. */
     conToken: tokenPropio ? makeClient({ url, token: tokenPropio }) : null,
+    /* El token en crudo, para poder rearmar ese cliente después de un reinicio. */
+    token: tokenPropio || null,
     tokenGenerado,
     /* 🔴 DE QUÉ CAJA CUELGA UN SUB-CAJERO. Se pregunta acá, una sola vez, y queda en la sesión.
        Antes el panel no lo recibía y usaba el valor ESCRITO A MANO de la maqueta —la caja
@@ -158,7 +252,9 @@ async function entrar({ url, user, password, token, raiz = null, generar = true 
   console.log('[caja/entrar] %s · login+info %s ms · token %s ms · TOTAL %s ms',
     user, tInfo, Date.now() - t1, Date.now() - t0);
   vivas.set(sid, sesion);
+  guardarEnDisco(sesion);
   limpiarVencidas();
+  limpiarDelDisco();
   return { ok: true, sesion };
 }
 
@@ -172,12 +268,15 @@ function clienteDe(sesion, { auditoria = false } = {}) {
 function requerida(req, res, next) {
   const bruto = leerCookie(req, COOKIE);
   const sid = bruto && abrir(bruto);
-  const s = sid && vivas.get(sid);
+  /* 🔑 Y si no está en memoria, se busca en disco ANTES de rechazarla: eso es lo que hace que un
+     despliegue ya no eche a nadie. La cookie del navegador sigue siendo la misma y válida. */
+  const s = sid && (vivas.get(sid) || revivir(sid));
   if (!s || s.vence <= Date.now()) {
-    if (s) vivas.delete(sid);
+    if (s) { vivas.delete(sid); borrarDelDisco(sid); }
     return res.status(401).json({ ok: false, error: 'sesión vencida', relogin: true });
   }
   s.vence = Date.now() + VIDA_MS;               // se renueva mientras trabaja
+  guardarEnDisco(s);
   req.caja = s;
   next();
 }
@@ -196,7 +295,7 @@ function borrarCookie(res) {
 function salir(req) {
   const bruto = leerCookie(req, COOKIE);
   const sid = bruto && abrir(bruto);
-  if (sid) vivas.delete(sid);
+  if (sid) { vivas.delete(sid); borrarDelDisco(sid); }
 }
 
 /** Lo que se le puede contar al navegador: nunca la url, el token ni el cliente. */

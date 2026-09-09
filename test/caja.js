@@ -437,6 +437,36 @@ async function main() {
     /cuenta: \{ \.\.\.creada, balance: quedo \}/.test(rutas));
 }
 
+/* ── las sesiones sobreviven a un despliegue ────────────────────────────────────────────────────
+   🔴 VIVÍAN SÓLO EN UN `Map`, así que cada versión nueva dejaba a los cajeros en la pantalla de
+   acceso, a veces en mitad de una carga. Se prueba con DOS procesos de verdad —uno guarda, otro
+   arranca de cero y revive— porque vaciar un Map no prueba nada: lo que hay que probar es
+   justamente que sobreviva a que el proceso se muera. */
+{
+  const { execFileSync } = require('child_process');
+  const guion = require('path').join(__dirname, 'sesion-sobrevive.js');
+  const uno = JSON.parse(execFileSync(process.execPath, [guion, 'guardar'], { encoding: 'utf8' }).trim().split('\n').pop());
+  check('la sesión se guarda cifrada, sin nada legible en el disco',
+    uno.cifrado === true && uno.claroEnDisco === false);
+  const dos = JSON.parse(execFileSync(process.execPath, [guion, 'revivir', uno.sid], { encoding: 'utf8' }).trim().split('\n').pop());
+  check('y un proceso nuevo la acepta con la misma cookie del navegador',
+    dos.entro === true && dos.revivida === true, dos.error || `entró como ${dos.login}`);
+  check('con su cliente del casino ya rearmado',
+    dos.tieneClienteDeSesion === true);
+
+  /* 🔒 Lo que NO se guarda es tan importante como lo que sí: la contraseña del cajero no toca el
+     disco ni cifrada. La consecuencia está aceptada y escrita: cuando el casino vence la cookie,
+     la sesión revivida no puede reloguear sola y el panel manda al login. */
+  const auth = require('fs').readFileSync(__dirname + '/../src/caja/caja-auth.js', 'utf8');
+  const guardado = (auth.match(/const plano = JSON\.stringify\(\{[\s\S]*?\}\);/) || [''])[0];
+  check('la contraseña del cajero nunca se guarda',
+    !!guardado && !/password|clave/i.test(guardado), guardado ? 'sólo cookie y token' : 'no se encontró qué se guarda');
+  const api = require('fs').readFileSync(__dirname + '/../src/casino-api.js', 'utf8');
+  check('y una sesión revivida no intenta un login que no puede hacer',
+    /const puedeReloguear = !!\(user && password\);/.test(api)
+    && /if \(!puedeReloguear\) return \{ ok: false, error: 'sesión expirada/.test(api));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
   console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
   if (fallaron.length) {
