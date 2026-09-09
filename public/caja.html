@@ -679,8 +679,15 @@ button{font-family:inherit}
    El marco pasa a grilla: la franja de pruebas y la barra de arriba cruzan entera, y abajo quedan
    dos columnas. Login y hub también cruzan enteros, porque cuando se ven no hay secciones. */
 @media (min-width:1000px){
+  /* 🔴 EN PANTALLA GRANDE NO HAY UN PANEL QUE SE DESLIZA ADENTRO: SE DESLIZA LA PÁGINA. En el
+     teléfono el cuerpo es su propia ventanita con barra propia, y el botón de acción va clavado
+     abajo porque ahí está el pulgar. En una notebook eso deja al botón a media pantalla de lo
+     último que leíste: medido en la ventana del dueño, 1791x1032, con dos renglones de contenido
+     el «+ Crear» quedaba unos 470px más abajo, solo, con el vacío en el medio.
+     Acá el cuerpo crece con su contenido, el botón va INMEDIATAMENTE debajo del último renglón, y
+     lo que sobra abajo es fondo de página, no un hueco enmarcado. */
   .marco{display:grid; grid-template-columns:var(--riel) minmax(0, 1fr);
-    grid-template-rows:auto auto minmax(0, 1fr); align-content:start}
+    grid-template-rows:auto auto auto minmax(0, 1fr); overflow:visible}
   .marco > .aviso, .marco > .top{grid-column:1 / -1}
   /* Login y hub se ven cuando NO hay secciones, así que se quedan con las dos columnas y con las
      dos filas de abajo: si sólo tomaran la fila automática quedaban pegados arriba, con la mitad
@@ -690,10 +697,12 @@ button{font-family:inherit}
      peor y no entra en ninguna idea de formulario. */
   .login .tarjeta{max-width:420px; width:100%; margin-inline:auto}
   .hub{max-width:620px; margin-inline:auto; width:100%}
-  .secs{grid-column:1; grid-row:3; flex-direction:column; gap:2px;
+  /* El riel toma las dos filas de abajo: si tomara sólo la del cuerpo, su borde y su fondo
+     terminarían donde termina el contenido, y con una lista corta quedaría un tabique a medias. */
+  .secs{grid-column:1; grid-row:3 / -1; flex-direction:column; gap:2px;
     overflow-x:visible; overflow-y:auto; padding:12px 10px;
     border-bottom:none; border-right:1px solid var(--bor);
-    top:0; align-self:stretch}
+    top:49px; align-self:stretch; max-height:calc(100dvh - 49px)}
   .secs button{width:100%; text-align:left; border-bottom:none; border-radius:10px;
     padding:10px 12px; font-size:13.5px}
   .secs button:hover{background:var(--bg3); color:var(--txt)}
@@ -705,8 +714,16 @@ button{font-family:inherit}
      9-sep-2026: fila de 762px, celda del nombre de 499.
      La cura no es estirar otra columna —el lago se mudaría de lugar— sino que el renglón no crezca
      tanto. El ancho de más se va a los costados, que se lee como aire, no como un hueco. */
-  .scroll{grid-column:2; grid-row:3; padding:20px 62px 96px}
-  .fab{padding-left:62px; padding-right:62px}
+  .scroll{grid-column:2; grid-row:3; overflow:visible; flex:none; padding:20px 62px 0}
+  /* El botón deja de estar clavado a la ventana y pasa a ser el renglón siguiente de la lista.
+     🔴 Va como `.marco > .fab` y no como `.fab` a secas por una razón concreta: la regla original
+     de `.fab` está MÁS ABAJO en esta misma hoja, así que con el mismo peso ganaba ella y el botón
+     seguía clavado al pie. Con el padre adelante pesa más y no depende del orden. */
+  /* `transform` hay que apagarlo A MANO: el `translateX(-50%)` que centraba el botón cuando
+     estaba clavado a la ventana SIGUE aplicándose con `position:static` —no depende de la
+     posición— y lo corría media pantalla a la izquierda, fuera del marco. */
+  .marco > .fab{position:static; grid-column:2; grid-row:4; align-self:start; transform:none;
+    width:auto; max-width:none; background:none; padding:16px 62px 40px}
 }
 
 .saldo{background:var(--marca-grad); border:none; border-radius:20px; padding:17px;

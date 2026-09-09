@@ -977,8 +977,15 @@ check('sin grilla no se marca nada, en vez de romper',
     && /@media \(min-width:1000px\)\{ :root/.test(htmlCaja));
   /* En escritorio la tira de secciones deja de ser una tira: se para de costado. */
   check('en escritorio las secciones van al costado',
-    /@media \(min-width:1000px\)\{\n\s*\.marco\{display:grid/.test(htmlCaja)
-    && /\.secs\{grid-column:1; grid-row:3; flex-direction:column/.test(htmlCaja));
+    /@media \(min-width:1000px\)\{[\s\S]{0,900}?\.marco\{display:grid/.test(htmlCaja)
+    && /\.secs\{grid-column:1; grid-row:3 \/ -1; flex-direction:column/.test(htmlCaja));
+  /* 🔴 Y el botón de acción deja de estar clavado al pie de la ventana: en el teléfono va ahí
+     porque ahí está el pulgar, en una notebook queda a media pantalla de lo último que leíste.
+     Medido en la ventana del dueño, 1791x1032: con dos renglones de contenido quedaba unos 470px
+     más abajo, solo. Pasa a ser el renglón siguiente de la lista. */
+  check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
+    /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
+    && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
   /* Y la hoja deja de subir desde abajo, que es el gesto del pulgar. */
   check('y la hoja se centra en vez de subir desde el borde',
     /@media \(min-height:640px\) and \(min-width:760px\)/.test(htmlCaja)
