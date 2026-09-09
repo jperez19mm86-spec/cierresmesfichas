@@ -401,7 +401,7 @@ check('la pantalla ya no dice que el casino no manda el detalle',
   !/algunos traen la grilla del/.test(htmlCaja)
   && !/no manda el detalle de cada tirada/.test(htmlCaja));
 check('y ahora ofrece ver la matriz de cada jugada',
-  /Tocá una jugada para ver <b>la grilla<\/b> que salió/.test(htmlCaja)
+  /Tocá una jugada para ver <b>su grilla<\/b> o <b>su ID<\/b>/.test(htmlCaja)
   && /function dibujarMatriz\(j\)\{/.test(htmlCaja));
 check('el detalle se pide con el id del motor, no con el hash de la sesión',
   /sesion: String\(ses\.idMotor\)/.test(conector) && /idMotor: String\(f\.id \|\| ''\)/.test(conector));
@@ -541,9 +541,9 @@ check('la fila lleva su flecha y la grilla le hace lugar',
      nada. Ahora hay dos textos y se elige por lo que de verdad llegó. */
   check('sólo se ofrece la matriz cuando alguna jugada la trae',
     /const hayMatriz = js\.some\(x => x\.matriz \|\| \(x\.lineas && x\.lineas\.length\)\);/.test(htmlCaja)
-    && /hayMatriz\n\s*\? 'Tocá una jugada para ver <b>la grilla<\/b>/.test(htmlCaja));
-  check('y si no la trae, se ofrece el número para soporte',
-    /: 'Tocá una jugada para copiar <b>su número<\/b> y mandárnoslo\.'/.test(htmlCaja));
+    && /hayMatriz\n\s*\? 'Tocá una jugada para ver <b>su grilla<\/b>/.test(htmlCaja));
+  check('y si no la trae, se ofrece igual el ID para soporte',
+    /: 'Tocá una jugada para ver <b>su ID<\/b>\.'/.test(htmlCaja));
 
   /* 🔴 TRES CAJAS DE TEXTO DEBAJO DE UN RENGLÓN DE DATOS. La pantalla explicaba cómo manda los
      datos el casino —que parte la jugada en dos registros, que hay movimientos de mesa, por qué
@@ -579,8 +579,12 @@ check('la fila lleva su flecha y la grilla le hace lugar',
   check('toda jugada se puede abrir, traiga grilla o no',
     /<div class="jug jug-toca" role="button" tabindex="0"/.test(htmlCaja)
     && !/jug \$\{hayDetalle \? 'jug-toca' : ''\}/.test(htmlCaja));
-  check('y adentro va el número de la jugada, copiable',
-    /filaCred\('Número de esta jugada', x\.idSoporte, true\)/.test(htmlCaja));
+  check('y adentro va el ID de la jugada, copiable',
+    /filaCred\('ID de la jugada', x\.idSoporte, true\)/.test(htmlCaja));
+  /* El aviso y el recuadro tienen que llamarlo IGUAL: si uno dice «número» y el otro «ID», el
+     cajero termina buscando dos cosas distintas. «ID» es la palabra con la que soporte lo pide. */
+  check('y el aviso lo llama igual que el recuadro',
+    /ver <b>su ID<\/b>/.test(htmlCaja) && !/su número<\/b>/.test(htmlCaja));
   check('y detrás de la (i) sigue estando el para qué y el qué hacer',
     /responde <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
     && /escribinos a soporte y la buscamos exacta/.test(htmlCaja));

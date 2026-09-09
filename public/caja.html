@@ -851,7 +851,16 @@ button{font-family:inherit}
 /* La lista de sesiones se lee igual que la de jugadas: los rótulos UNA vez arriba y las cifras
    alineadas en columna. Sólo cambia la primera columna —acá va el nombre del juego, no la hora— y
    el renglón de abajo, que lleva el proveedor y el horario sin robarle lugar a los números. */
+/* La lista manda las columnas y cada fila las hereda con `subgrid`: así «150,50» y «420» caen en
+   el mismo lugar aunque midan distinto. La primera declaración es la red de seguridad —un
+   navegador sin `subgrid` la conserva y cada fila vuelve a medirse sola, que es como estaba. */
+.ses-lista{display:grid; grid-template-columns:minmax(0, 1fr) auto auto auto}
+.ses-lista > *{grid-column:1 / -1}
 .jug-cab.ses, .jug.ses{grid-template-columns:minmax(0, 1fr) auto auto auto}
+.jug-cab.ses, .jug.ses{grid-template-columns:subgrid}
+/* El encabezado tiene 2px de padding y las filas no: sin esto los rótulos quedan 2px adentro de
+   sus propias columnas, que es justo lo que se venía a corregir. */
+.jug-cab.ses{padding-left:0; padding-right:0}
 .jug.ses .nom{font-weight:700; overflow-wrap:anywhere}
 .jug.ses .pie{grid-column:1 / -1; font-size:11.5px; color:var(--mut); margin-top:3px}
 .jug.ses .pie .permiso{display:inline-block; margin-left:6px; vertical-align:1px}
@@ -3441,11 +3450,17 @@ function abrirHistoria(id){
            van una vez arriba y abajo quedan sólo las cifras, alineadas para comparar de un vistazo.
            Y ahora se muestra también lo GANADO, que antes no estaba en la lista y era la mitad de
            la pregunta que trae el jugador. */''}
+      ${/* 🔴 CADA FILA SE MEDÍA SOLA. Con una grilla por renglón, el ancho de las columnas lo
+           decidía el contenido de ESE renglón: «150,50 · 130 · −20,50» y «420 · 294 · −126»
+           quedaban corridos uno respecto del otro y la vista no podía bajar en línea recta.
+           Señalado el 9-sep-2026. Ahora las columnas las define la lista entera y cada fila las
+           hereda, así que todas las cifras caen en el mismo lugar. */''}
+      <div class="ses-lista">
       <div class="jug-cab ses"><span>Juego</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
       ${ses.map(s => {
         /* 🔴 UN «+0» VERDE NO ES UNA GANANCIA. Una sesión donde entró a la mesa y no llegó a
            apostar volvía con bet y win en cero, y el panel la pintaba «+0» en verde al lado de
-           las que sí movieron plata. No se inventa nada: se dice que no movió fichas. */
+           las que sí movieron plata. No se inventa nada: se dice que no hubo apuestas. */
         const movio = s.bet || s.win;
         return `<div class="jug ses jug-toca" role="button" tabindex="0"
           onclick="abrirSesion('${id}','${s.session}')"
@@ -3455,9 +3470,13 @@ function abrirHistoria(id){
           <span class="num gan ${s.win ? 't-ok' : 'nada'}">${s.win ? fmt(s.win) : '—'}</span>
           <span class="num net ${!movio || !s.profit ? 'nada' : (s.profit > 0 ? 'mas' : 'menos')}">${movio
             ? (s.profit >= 0 ? '+' : '−') + fmt(Math.abs(s.profit)) : '—'}</span>
-          <span class="pie">${s.labeltitle} · ${horarioSesion(s)}${movio ? '' : ' · no movió fichas'}${
+          ${/* Hay sellos donde el juego y el proveedor se llaman igual —«SPORT BETTING · SPORT
+               BETTING»—: escribirlo dos veces no agrega nada. */''}
+          <span class="pie">${s.labeltitle && s.labeltitle !== s.game
+            ? s.labeltitle + ' · ' : ''}${horarioSesion(s)}${movio ? '' : ' · sin apuestas'}${
             !s.datetime_close ? '<span class="permiso jugando">● jugando ahora</span>' : ''}</span>
-        </div>`; }).join('')}`
+        </div>`; }).join('')}
+      </div>`
       : `<div class="vacio">No jugó nada ${
           ({hoy:'hoy', ayer:'ayer', semana:'esta semana', mes:'este mes', mesant:'el mes pasado',
             custom:'en esas fechas'})[HIST_PER]}.<br><br>Probá con un período más largo.</div>`}
@@ -3596,7 +3615,7 @@ function abrirSesion(jugadorId, sesionId){
           <b>devuelta</b>: la mesa la anuló y las fichas volvieron. El neto de arriba es el que
           manda el casino, no el resultado final.</span>` : ''}
         ${x.apuestas ? dibujarApuesta(x) : (hayDetalle ? dibujarMatriz(x) : '')}
-        ${x.idSoporte ? filaCred('Número de esta jugada', x.idSoporte, true) : ''}
+        ${x.idSoporte ? filaCred('ID de la jugada', x.idSoporte, true) : ''}
       </span>
     </div>`; }).join('')}`}
     ${/* 🔴 TRES CAJAS DE TEXTO PARA UN RENGLÓN DE DATOS. Debajo de una sesión con UNA jugada
@@ -3609,11 +3628,10 @@ function abrirSesion(jugadorId, sesionId){
          detrás de la (i): quien lo necesite lo abre, el resto no lo ve. */''}
     ${!js.length ? '' : notaInfo('jugadas',
       hayMatriz
-        ? 'Tocá una jugada para ver <b>la grilla</b> que salió y copiar su número.'
-        : 'Tocá una jugada para copiar <b>su número</b> y mandárnoslo.',
-      'Adentro de cada jugada está cuánto puso, cuánto se llevó, cómo quedó su saldo y '
-      + '<b>su número</b>. Con ese número escribinos a soporte y la buscamos exacta, sin que tengas '
-      + 'que explicar cuál era.'
+        ? 'Tocá una jugada para ver <b>su grilla</b> o <b>su ID</b>.'
+        : 'Tocá una jugada para ver <b>su ID</b>.',
+      'Adentro está cuánto puso, cuánto se llevó, cómo quedó su saldo y <b>su ID</b>. Con ese ID '
+      + 'escribinos a soporte y la buscamos exacta, sin que tengas que explicar cuál era.'
       + (hayMatriz ? ' La grilla responde <b>«¿por qué se le pagó eso?»</b>: el símbolo que hizo la '
         + 'línea, cuántas posiciones entraron y cuánto pagó.'
         : ' Las figuras las manda el proveedor del juego y no todos lo hacen; no es algo que se '
