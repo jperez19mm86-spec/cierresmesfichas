@@ -1,6 +1,17 @@
 /* Los estilos del panel. Vivían adentro de os.html; salieron cuando /tbs pasó a ser su propio
    archivo, para no tener la misma hoja escrita dos veces y que se separen con el tiempo. */
-  :root { --bg:#fbf4fa; --bg2:#fff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; --blue:#3b7fe0; }
+  :root { --bg:#fbf4fa; --bg2:#fff; --bg3:#f6e9f4; --border:#ead6e6; --text:#2b2230; --muted:#8c7e89; --gold:#c456ad; --green:#2e9e63; --red:#d9534f; --blue:#3b7fe0;
+          --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace; }
+  /* ── LA LETRA DE ANCHO FIJO, UNA SOLA VEZ ────────────────────────────────────────────────────
+     Un código de caja, un usuario o una dirección se leen carácter por carácter, y para eso la
+     letra de ancho fijo ayuda. Lo que no ayudaba era pedir `monospace` a secas: cada navegador
+     elige la suya (en Chrome de Mac, Menlo; en otros, Courier), así que la misma pantalla se veía
+     distinta en cada máquina. Y estaba clavada en 12px al lado de un texto de 14: parecía un
+     pedazo de otra pantalla pegado ahí.
+     Acá se elige la fuente —la del sistema, la misma que usa el editor— y el tamaño va en `em`,
+     así acompaña al texto que la rodea en vez de pelearse con él. */
+  code, .mono, textarea.mono { font-family:var(--mono); font-variant-ligatures:none; }
+  code { background:var(--bg); padding:1px 5px; border-radius:4px; font-size:.92em; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; }
   header { background:var(--bg2); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }

@@ -12,6 +12,8 @@
    ───────────────────────────────────────────────────────────────────────── */
 :root{
   --bg:#faf7fd; --bg2:#ffffff; --bg3:#f3ecfa; --bg4:#eae0f5;
+  /* La letra de ancho fijo, una sola vez y la misma que en los paneles. */
+  --mono:"JetBrains Mono",ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
   --bor:#e5dcf0; --bor2:#d3c4e4;
   --txt:#241b2e; --mut:#7d7189; --mut2:#615670;
   --g:var(--m1); --g-soft:#f1e8fc; --g-ink:#4c1d95;
@@ -117,7 +119,7 @@ body{margin:0; background:var(--bg); color:var(--txt);
 .mono{letter-spacing:.005em; font-variant-numeric:tabular-nums}
 /* 🔑 La monoespaciada QUEDA donde hay que leer carácter por carácter para tipear o dictar: una
    contraseña, un link, un token. Ahí `l` y `1` tienen que verse distinto, y vale la dureza. */
-.exacto{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+.exacto{font-family:var(--mono);
   letter-spacing:0; font-variant-numeric:normal}
 button{font-family:inherit}
 

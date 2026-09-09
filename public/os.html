@@ -1633,7 +1633,7 @@ async function accHabilitar(id){
   const cod = ((_clientes.find(x=>x.id===id)||{}).codigo)||r.usuario;
   if(cont) cont.innerHTML = '<div class="nota" style="margin-top:8px;border-left:3px solid var(--gold)">'
     + '<span class="tit">Anotá esto ahora — no se puede volver a ver</span>'
-    + 'Contraseña: <b style="font-family:ui-monospace,monospace;font-size:16px">'+esc(r.clave)+'</b>'
+    + 'Contraseña: <b style="font-family:var(--mono);font-size:16px">'+esc(r.clave)+'</b>'
     + '<div class="muted" style="margin-top:6px">Entra donde pide fichas — <b>'+location.origin+'/pedir</b> — '
     + 'pone su código <b>'+esc(cod)+'</b> y toca <b>💳 Ver mi cuenta</b>. Ahí le pide esta contraseña.</div>'
     + '<div class="muted" style="margin-top:2px;font-size:11px">Si la pierde, se le genera otra: la clave no se guarda, se guarda su huella.</div></div>';
@@ -1958,7 +1958,7 @@ async function fotoSacar(cxId, nivel, rehacer){
   const pintar=(t)=>{ cont.innerHTML='<div class="nota"><b>'+esc(t)+'</b>'
     +' <span class="muted">'+ok+' divisas · '+money(filas,0)+' filas · '+ceros+' en cero'
     +(errores?' · <span style="color:var(--red)">'+errores+' con error</span>':'')+'</span>'
-    +'<div style="margin-top:6px;font-size:11px;font-family:monospace;max-height:260px;overflow:auto">'
+    +'<div style="margin-top:6px;font-size:11px;font-family:var(--mono);max-height:260px;overflow:auto">'
     +lineas.slice(-40).join('<br>')+'</div>'
     +'<button class="outline small" style="margin-top:6px" onclick="_fotoCancelar=true">Parar</button></div>'; };
   pintar('Arrancando…');
@@ -2491,12 +2491,12 @@ async function enviarConPrevia(ruta, cuerpo, { titulo, aviso } = {}) {
     '<div class="card" style="max-width:760px;width:100%;max-height:88vh;overflow:auto;margin:0">'
     + '<h2 style="margin:0 0 2px">' + esc(titulo || 'Revisá el mensaje antes de mandarlo') + '</h2>'
     + '<div class="muted">Va a <b>' + esc(p.destino || 'el grupo') + '</b>'
-    + (p.chat ? ' <span style="font-family:ui-monospace,monospace">' + esc(p.chat) + '</span>' : '')
+    + (p.chat ? ' <span style="font-family:var(--mono)">' + esc(p.chat) + '</span>' : '')
     + (p.partes > 1 ? ' · sale en <b>' + p.partes + ' mensajes</b>' : '') + '</div>'
     + (aviso ? '<div class="muted" style="margin-top:4px;color:var(--gold)">' + aviso + '</div>' : '')
     + '<div class="muted" style="margin-top:8px;font-size:11.5px">Se puede editar. Las etiquetas '
     + '<b>&lt;b&gt;</b> e <b>&lt;i&gt;</b> y los links andan; si rompés una, Telegram rechaza el mensaje y te lo digo.</div>'
-    + '<textarea id="' + id + '" style="width:100%;height:44vh;margin-top:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;'
+    + '<textarea id="' + id + '" style="width:100%;height:44vh;margin-top:8px;font-family:var(--mono);'
     + 'font-size:12.5px;line-height:1.55"></textarea>'
     + '<div class="row" style="margin-top:10px">'
     + '<button class="grave" data-ok>📤 Mandar</button>'
@@ -5760,7 +5760,7 @@ CFG.telegram = async () => {
         <div class="muted" style="margin:6px 0">Una línea por cliente, el nombre y el chatId separados por lo que sea
           — un espacio, un tab, una coma. Sirve pegar directo de una planilla. Los que no se reconozcan se listan y no se tocan.</div>
         <textarea id="tg-pegar" rows="5" placeholder="Eli        -1001234567890&#10;Titan      -1009876543210&#10;Crazy-duck -1005555555555"
-          style="width:100%;font-family:monospace;font-size:12px"></textarea>
+          style="width:100%;font-family:var(--mono);font-size:12px"></textarea>
         <div class="row" style="margin-top:6px"><div style="flex:0"><button onclick="tgPegar()">Cargar los que reconozca</button></div>
           <div class="muted" style="flex:1;align-self:center">No manda ningún mensaje: sólo guarda los grupos.</div></div>
         <div id="tg-pegar-res"></div>
@@ -6138,7 +6138,7 @@ VIEWS.chat = async () => {
       </tr></thead><tbody>
         ${ws.map(w=>`<tr${w.activa?'':' style="opacity:.5"'}>
           <td><b>${esc(w.alias)}</b></td><td>${esc(w.red)}</td>
-          <td style="font-family:monospace;font-size:12px;word-break:break-all">${esc(w.direccion)}</td>
+          <td style="font-family:var(--mono);font-size:12px;word-break:break-all">${esc(w.direccion)}</td>
           <td class="right"><input type="checkbox" ${w.activa?'checked':''}
             onchange="chatWalletActiva('${w.id}',this.checked)" title="Apagada deja de ofrecerse"></td>
           <td class="right"><button class="outline small" data-id="${esc(w.id)}" data-nom="${esc(w.alias)}"
@@ -6151,7 +6151,7 @@ VIEWS.chat = async () => {
         <div style="flex:0 0 100px"><label>Red</label>
           <input id="chat-w-red" name="wal-r" ${NOFILL} placeholder="TRC20" style="width:100%;text-align:center;text-transform:uppercase"></div>
         <div style="flex:1;min-width:240px"><label>Dirección</label>
-          <input id="chat-w-dir" name="wal-d" ${NOFILL} placeholder="TQn9Y2kh…" style="width:100%;font-family:monospace"></div>
+          <input id="chat-w-dir" name="wal-d" ${NOFILL} placeholder="TQn9Y2kh…" style="width:100%;font-family:var(--mono)"></div>
         <div style="flex:0"><button onclick="chatWalletNueva()">+ Agregar</button></div>
       </div>
       <div class="row" style="align-items:flex-end;gap:14px;margin-top:12px">
@@ -6286,7 +6286,7 @@ VIEWS.chat = async () => {
                 <input value="${esc(p.sala_id||'')}" placeholder="${esc(p.id_usuario||'—')}"
                   data-caja="${p.panel_id}" data-campo="sala_id" ${NOFILL} oninput="chatTocar('${p.panel_id}')"
                   title="El número que ves en el casino. Vacío = esta misma caja."
-                  style="width:100%;text-align:center;font-family:monospace"></div>
+                  style="width:100%;text-align:center;font-family:var(--mono)"></div>
               <div style="flex:1;min-width:170px"><label>Cómo se llama <span class="muted">(sólo para vos)</span></label>
                 <input value="${esc(p.sala_login||'')}" placeholder="fortunareal1py"
                   data-caja="${p.panel_id}" data-campo="sala_login" ${NOFILL} oninput="chatTocar('${p.panel_id}')"
@@ -7179,7 +7179,7 @@ VIEWS.accesos = async () => {
         <table style="margin-top:8px"><tbody>
           ${_accClaves.map(k=>`<tr><td><b>${esc(k.cliente)}</b></td>
             <td>${esc(k.usuario)}</td>
-            <td style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace"
+            <td style="font-family:var(--mono)"
               title="Se copia carácter por carácter: acá la letra de máquina sirve, distingue la O del 0"><b>${esc(k.clave)}</b></td></tr>`).join('')}
         </tbody></table>
         <div class="row" style="gap:8px;margin-top:10px">

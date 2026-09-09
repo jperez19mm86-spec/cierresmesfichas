@@ -13,6 +13,7 @@
   :root {
     --bg: #fbf4fa; --bg2: #ffffff; --bg3: #f6e9f4; --border: #ead6e6;
     --text: #2b2230; --muted: #8c7e89; --gold: #c456ad; --green: #2e9e63; --red: #d9534f; --blue: #3b7fe0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
@@ -55,7 +56,16 @@
                padding:10px 13px;margin:0 0 12px;font-size:14px}
   .aviso-otras a{margin-left:8px;font-weight:700;white-space:nowrap}
   .aviso-otras .meta{margin-top:2px}
-  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  /* ── LA LETRA DE ANCHO FIJO, UNA SOLA VEZ ────────────────────────────────────────────────────
+     Un código de caja, un usuario o una dirección se leen carácter por carácter, y para eso la
+     letra de ancho fijo ayuda. Lo que no ayudaba era pedir `monospace` a secas: cada navegador
+     elige la suya (en Chrome de Mac, Menlo; en otros, Courier), así que la misma pantalla se veía
+     distinta en cada máquina. Y estaba clavada en 12px al lado de un texto de 14: parecía un
+     pedazo de otra pantalla pegado ahí.
+     Acá se elige la fuente —la del sistema, la misma que usa el editor— y el tamaño va en `em`,
+     así acompaña al texto que la rodea en vez de pelearse con él. */
+  code, .chip, .cli-code, .mono { font-family: var(--mono); font-variant-ligatures: none; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
   .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
   @media (max-width: 680px) { .grid3 { grid-template-columns: 1fr; } }
   /* nav */
@@ -71,19 +81,25 @@
   table.hist { width:100%; border-collapse:collapse; font-size:13px; }
   table.hist th, table.hist td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
   table.hist th { color:var(--muted); font-size:11px; text-transform:uppercase; }
+  /* Una fecha, un código de caja y un importe no se parten al medio: «Celuapuestas-» en un renglón
+     y «SA» en el otro no es un nombre, y «226.542.857,14» cortado se lee mal y se copia peor.
+     El resto de la fila sí puede acomodarse. */
+  table.hist td[data-label="Fecha"],
+  table.hist td[data-label="Caja"],
+  table.hist td[data-label="Monto"] { white-space: nowrap; }
   .estado-cargado { color:var(--green); font-weight:700; }
   .estado-rechazado { color:var(--red); font-weight:700; }
   .estado-anulado { color:var(--gold,#c90); font-weight:700; }
   textarea { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 11px; font-size: 13px; outline: none; resize: vertical; }
   textarea:focus { border-color: var(--gold); }
   /* clientes */
-  .chip { display: inline-block; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; font-family: monospace; }
+  .chip { display: inline-block; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: .86em; }
   .chip.money { color: var(--gold); border-color: rgba(196,86,173,.35); }
   .cli { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--bg3); overflow: hidden; }
   .cli.open { border-color: var(--gold); }
   .cli-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; }
   .cli-head:hover { background: var(--bg2); }
-  .cli-code { font-family: monospace; font-weight: 700; color: var(--gold); background: var(--bg); padding: 2px 8px; border-radius: 5px; }
+  .cli-code { font-weight: 700; color: var(--gold); background: var(--bg); padding: 2px 8px; border-radius: 5px; }
   .cli-name { font-weight: 700; }
   .cli-body { padding: 12px 14px; border-top: 1px solid var(--border); }
   .caja-row { display: grid; grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 1.5fr auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); }
@@ -863,7 +879,7 @@
       + (mes ? ('Sin movimientos en ' + esc(mes) + (f ? (' para "' + esc(f) + '"') : '') + '. Vaciá el mes para ver todo.')
              : (f ? ('Sin movimientos para "' + esc(f) + '".') : 'Sin historial todavía.')) + '</div>'; return; }
     _hist = list;
-    box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Quién</th><th>Detalle</th></tr></thead><tbody>' +
+    box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Quién</th></tr></thead><tbody>' +
       list.map((p) => {
         /* 'cargando' caía en el `else` y se dibujaba "✗ rechazado": una mentira sobre un pedido
            cuyas fichas pueden estar cargadas de verdad. Ahora dice lo que es, y si lleva rato
@@ -872,20 +888,23 @@
           : (p.estado === 'anulado' ? '↩ anulado'
           : (p.estado === 'anulando' ? '⏳ anulando…'
           : (p.estado === 'cargando' ? '<span style="color:#b26a00">⏳ cargando…</span>' : '✗ rechazado')));
-        let det;
-        if (p.estado === 'cargado') det = (p.newBalance != null ? ('bal: ' + esc(String(p.newBalance))) : '');
-        else if (p.estado === 'anulado') det = 'fichas retiradas' + (p.newBalance != null ? (' · bal: ' + esc(String(p.newBalance))) : '');
-        else if (p.estado === 'anulando') det = 'retirando fichas…';
-        else if (p.estado === 'cargando') {
+        /* ── LA COLUMNA "DETALLE" SE FUE, PERO NO LO QUE HABÍA QUE HACER ──────────────────────
+           Ahí iba el balance del casino después de la carga —"bal: 314562957.14"— que no cambia
+           nada de lo que sigue. Pero también vivían ahí el botón para ANULAR y el aviso de una
+           carga trabada, que sí. Eso baja al estado: una fila dice qué pasó y, si hay algo para
+           hacer, lo ofrece ahí mismo. Lo que se fue es el número que nadie iba a mirar. */
+        let nota = '';
+        if (p.estado === 'cargando') {
           const hechos = (p.cascada || []).filter((x) => x.estado === 'ok').length;
           const min = p.tomadoAt ? Math.floor((Date.now() - Date.parse(p.tomadoAt)) / 60000) : null;
-          det = (min != null && min >= 5)
-            ? `<span style="color:#b26a00">trabado hace ${min} min</span>`
+          if (min != null && min >= 5) {
+            nota = `<div class="meta" style="color:#b26a00">trabado hace ${min} min`
               + (hechos ? ` · ya salieron ${hechos} eslabón/es` : ' · no se movió nada')
-              + ` <button class="small" onclick="destrabarPedido('${esc(p.id)}')">↩ devolver a la cola</button>`
-            : 'la carga está en curso…';
+              + `</div><button class="small" onclick="destrabarPedido('${esc(p.id)}')">↩ devolver a la cola</button>`;
+          }
+        } else if (p.estado === 'rechazado' && p.error) {
+          nota = '<div class="meta">' + esc(p.error) + '</div>';
         }
-        else det = esc(p.error || '');
         /* ── QUIÉN LA DESPACHÓ ────────────────────────────────────────────────────────────────
            Sale de lo GUARDADO en el pedido, nunca de quién está mirando la pantalla. Los pedidos
            de antes de que esto existiera no lo tienen: van con una raya, que es la verdad. No se
@@ -907,15 +926,18 @@
           const quedan = vence - srvNow();
           if (quedan > 0) anular = ` <button class="danger small" data-anular-hasta="${vence}" onclick="anularPedido('${p.id}')" title="Retira las fichas del casino — para deshacer una carga a un usuario equivocado. Solo durante los primeros ${Math.round(_anularWindowMs / 60000)} min.">↩ Anular (${mmss(quedan)})</button>`;
         }
+        /* El CÓDIGO del cliente no se muestra: con el nombre alcanza para saber de quién es la
+           carga, y repetir TITAN86 en cada fila no agrega nada. El buscador de arriba lo sigue
+           aceptando. Se cae al código sólo si el pedido no trae nombre, para que la fila nunca
+           quede sin decir de quién es. */
         return `<tr>
         <td data-label="Fecha">${fmtDate(p.resueltoAt || p.createdAt)}</td>
-        <td data-label="Cliente"><b>${esc(p.clienteNombre)}</b> <span class="meta">${esc(String(p.codigo || '').toUpperCase())}</span></td>
+        <td data-label="Cliente"><b>${esc(p.clienteNombre || String(p.codigo || '').toUpperCase())}</b></td>
         <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code></td>
         <td data-label="Sistema">${esc(p.sistema)}</td>
-        <td data-label="Monto"><strong>${esc(p.divisa)}</strong> $ ${money(p.monto)}</td>
-        <td data-label="Estado" class="estado-${p.estado}">${estLbl}</td>
+        <td data-label="Monto"><strong>${esc(p.divisa)}</strong> ${money(p.monto)}</td>
+        <td data-label="Estado" class="estado-${p.estado}">${estLbl}${nota}${anular}</td>
         <td data-label="Quién">${quien}</td>
-        <td data-label="Detalle" class="meta">${det}${anular}</td>
       </tr>`; }).join('') + '</tbody></table>';
   }
   async function anularPedido(id) {

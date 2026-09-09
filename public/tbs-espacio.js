@@ -1654,7 +1654,7 @@ async function tdCompPintar(){
   window._tdCompPlano = r.plano;
   out.innerHTML =
     '<div style="background:var(--bg3);border-radius:10px;padding:12px 14px;white-space:pre-wrap;'
-    + 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;'
+    + 'font-family:var(--mono);font-size:12.5px;line-height:1.55;'
     + 'max-height:46vh;overflow:auto">'+esc(r.plano)+'</div>'
     + '<div class="acciones"><button class="outline small" onclick="tdCompCopiar()">📋 Copiar</button>'
     + '<button class="grave small" onclick="tdCompEnviar()">📨 Mandar al grupo</button>'

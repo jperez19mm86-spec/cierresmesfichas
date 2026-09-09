@@ -21,6 +21,9 @@
   --card-b:rgba(255,255,255,.13);
   --plano:#2a1339;
   --magenta:#e81fc4; --magenta2:#ff44d6;
+  /* La misma letra de ancho fijo que los paneles: pedir `monospace` a secas la deja a elección
+     del navegador, y la misma pantalla se ve distinta en cada máquina. */
+  --mono:ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
   --verde:#3ddc97; --coral:#ff6b7a; --oro:#f0b429;
   --txt:#fff; --txt2:rgba(255,255,255,.62); --txt3:rgba(255,255,255,.40);
   --linea:rgba(255,255,255,.12); --linea2:rgba(255,255,255,.20);
@@ -166,7 +169,7 @@ tr.sigue td{ border-top:0; padding-top:0 }
 .r{ text-align:right }
 .tenue{ color:rgba(255,255,255,.75); font-size:13px }
 .tenue2{ color:rgba(255,255,255,.58); font-size:12.5px }
-.mono, .mon{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px;
+.mono, .mon{ font-family:var(--mono); font-size:12.5px;
   word-break:break-all }
 .tc{ color:rgba(255,255,255,.62); font-size:12.5px }
 .desplaza{ overflow-x:auto }
@@ -224,7 +227,7 @@ tr.sigue td{ border-top:0; padding-top:0 }
   font-weight:800; margin-bottom:7px }
 .paga .red{ font-size:13px; color:rgba(255,255,255,.78); margin-bottom:8px }
 .paga .red b{ color:#fff }
-.paga .dir, .dir{ word-break:break-all; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+.paga .dir, .dir{ word-break:break-all; font-family:var(--mono);
   font-size:13.5px; background:rgba(0,0,0,.28); border:1px solid rgba(255,255,255,.18);
   border-radius:11px; padding:12px 13px; line-height:1.45; color:#fff }
 /* Adentro de una tarjeta morada un botón morado desaparece: éste va blanco, igual que el

@@ -8983,7 +8983,10 @@ async function main() {
      en columna usan tabular-nums, que hace lo mismo sin cambiar la letra. */
   {
     const ui = r.data;
-    const mono = (ui.match(/font-family:(ui-)?monospace|font-family:ui-monospace/g) || []).length;
+    /* Desde el 9-sep-2026 la fuente se pide UNA vez, con `var(--mono)`: pedir `monospace` a secas
+       la dejaba a elección del navegador y la misma pantalla se veía distinta en cada máquina. Lo
+       que cuenta este check no cambió: cuántos LUGARES la usan. */
+    const mono = (ui.match(/font-family:var\(--mono\)/g) || []).length;
     /* El séptimo es la VISTA PREVIA de la comparativa de TBS. Ahí no endurece la lectura: el
        mensaje sale con los números en <code>, que Telegram muestra en ancho fijo para que los dos
        meses queden alineados. Mostrar la vista previa en otra letra sería mostrar una cosa y
@@ -9001,7 +9004,7 @@ async function main() {
     check('panel: la contraseña generada SÍ la conserva',
       /title="Se copia carácter por carácter/.test(ui));
     check('panel: la dirección de la wallet también',
-      /<td style="font-family:monospace;font-size:12px;word-break:break-all">\$\{esc\(w\.direccion\)\}/.test(ui));
+      /<td style="font-family:var\(--mono\);font-size:12px;word-break:break-all">\$\{esc\(w\.direccion\)\}/.test(ui));
     /* Y las tablas que quedan: una línea fina entre filas en vez de una marcada en cada celda.
        La hoja ya no viaja adentro del HTML: desde el 6-sep-2026 es /estilos.css, compartida por
        el panel y TBS. */
@@ -9561,6 +9564,47 @@ async function main() {
        piden, y dónde va el chatId del grupo. Eso es una regla del negocio, no un instructivo. */
     check('panel limpio: se queda lo que dice una regla, no lo que narra un botón',
       /el alta la\s*\n?\s*hace Alexa/.test(fiL) && /grupo \(chatId\)/.test(fiL));
+  }
+
+  /* ── EL HISTORIAL, MÁS CORTO ─────────────────────────────────────────────────────────────────
+     Cada fila repetía el código del cliente (TITAN86 al lado de Titan, en las 91 filas del mes),
+     escribía "ARS $ 226.542.857,14" con un signo de más, y arrastraba una columna Detalle cuyo
+     contenido era el balance del casino después de la carga. Nada de eso cambia lo que se hace. */
+  {
+    const fiH2 = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('historial: el cliente va por su nombre, sin repetir el código',
+      /<td data-label="Cliente"><b>\$\{esc\(p\.clienteNombre \|\| String\(p\.codigo/.test(fiH2));
+    // Pero una fila nunca queda sin decir de quién es: sin nombre, cae al código.
+    check('historial: sin nombre cae al código en vez de quedar vacía',
+      /p\.clienteNombre \|\| String\(p\.codigo \|\| ''\)\.toUpperCase\(\)/.test(fiH2));
+    check('historial: el monto va sin el signo de peso',
+      /<strong>\$\{esc\(p\.divisa\)\}<\/strong> \$\{money\(p\.monto\)\}/.test(fiH2));
+    check('historial: sin la columna Detalle',
+      !/<th>Quién<\/th><th>Detalle<\/th>/.test(fiH2) && !/data-label="Detalle"/.test(fiH2));
+    /* ⚠️ LO QUE NO SE PUEDE IR CON ELLA. En Detalle vivían el botón de ANULAR y el aviso de una
+       carga trabada. Sacar la columna sin mudarlos deja una carga mal hecha sin forma de
+       deshacerla desde el panel. */
+    check('historial: el botón de anular sobrevivió a la columna, al lado del estado',
+      /<td data-label="Estado" class="estado-\$\{p\.estado\}">\$\{estLbl\}\$\{nota\}\$\{anular\}<\/td>/.test(fiH2));
+    check('historial: y el aviso de una carga trabada también',
+      /trabado hace \$\{min\} min/.test(fiH2) && /devolver a la cola/.test(fiH2));
+    // La fecha, la caja y el importe no se parten al medio.
+    check('historial: la caja y el importe no se cortan en dos renglones',
+      /table\.hist td\[data-label="Caja"\]/.test(fiH2) && /white-space: nowrap/.test(fiH2));
+
+    /* ── LA LETRA DE ANCHO FIJO, UNA SOLA VEZ ──────────────────────────────────────────────────
+       `monospace` a secas la elige cada navegador, así que la misma pantalla se veía distinta en
+       cada máquina; y estaba clavada en 12px al lado de un texto de 14. */
+    const css = fs.readFileSync(path.join(ROOT, 'public', 'estilos.css'), 'utf8');
+    check('mono: los dos paneles definen la MISMA fuente de ancho fijo',
+      /--mono:\s*ui-monospace/.test(css) && /--mono:\s*ui-monospace/.test(fiH2));
+    check('mono: y el tamaño va en em, para que acompañe al texto que la rodea',
+      /code \{[^}]*font-size:\s*\.92em/.test(fiH2));
+    // Nadie vuelve a pedir `monospace` por su cuenta: si alguien lo hace, se separan solas.
+    const sueltos = ['public/index.html', 'public/os.html', 'public/estilos.css', 'public/piel.css',
+      'public/caja.html', 'public/tbs.html', 'public/tbs-espacio.js', 'public/caja-conexion.js']
+      .filter((f) => /font-family:\s*(ui-)?monospace/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+    check('mono: ninguna pantalla la pide por su cuenta', !sueltos.length, sueltos.join(', '));
   }
 
   const fail = asserts.filter((a) => !a.ok);

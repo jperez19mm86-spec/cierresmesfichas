@@ -184,7 +184,7 @@
      te sirve pero a quien tenga que arreglarlo sí. */
   function avisarConDetalle(texto, detalle) {
     avisarEnLogin(detalle
-      ? `${texto}<div style="margin-top:8px; font-size:11px; opacity:.75; font-family:ui-monospace,monospace">${detalle}</div>`
+      ? `${texto}<div style="margin-top:8px; font-size:11px; opacity:.75; font-family:var(--mono)">${detalle}</div>`
       : texto);
   }
 
