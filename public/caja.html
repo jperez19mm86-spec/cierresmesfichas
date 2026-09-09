@@ -627,7 +627,13 @@ button{font-family:inherit}
 /* 🔴 EL CORTE ESTABA EN 1100 Y EL IPAD ACOSTADO MIDE 1024: caía en la rama de tablet y quedaba una
    columna de 620 en el medio de una pantalla de 1024, con dos franjas vacías a los costados. El
    corte va en 1000, que deja del lado grande a la tablet acostada y a cualquier notebook. */
-@media (min-width:1000px){ :root{ --ancho:1040px; --hoja:660px; --riel:236px } }
+/* 🔴 EN ESCRITORIO EL MARCO NO SE CENTRA: OCUPA TODO. Con 1040 fijos en una ventana de 1791
+   quedaban 375px de fondo muerto a cada lado y el panel se leía como una tira pegada en el medio.
+   Pedido del dueño el 9-sep-2026: «tiene que llegar al fin todo». Así que el marco llega a los
+   bordes —el riel, la barra de arriba y el fondo—, y lo que NO se estira es el texto: los
+   renglones se quedan en `--lectura` y se centran en su columna. Estirar los renglones hasta
+   1500px devolvería el lago entre el nombre y el número que acabamos de sacar. */
+@media (min-width:1000px){ :root{ --ancho:none; --hoja:660px; --riel:236px; --lectura:820px } }
 
 .marco{max-width:var(--ancho); margin:0 auto; min-height:100vh; min-height:100dvh;
   background:var(--bg);
@@ -714,7 +720,11 @@ button{font-family:inherit}
      9-sep-2026: fila de 762px, celda del nombre de 499.
      La cura no es estirar otra columna —el lago se mudaría de lugar— sino que el renglón no crezca
      tanto. El ancho de más se va a los costados, que se lee como aire, no como un hueco. */
-  .scroll{grid-column:2; grid-row:3; overflow:visible; flex:none; padding:20px 62px 0}
+  .marco{max-width:none; border-left:none; border-right:none}
+  /* `max()`: en una notebook justa manda el margen mínimo; en una pantalla ancha manda el ancho
+     de lectura y el resto se reparte a los costados. Un solo cálculo para los dos casos. */
+  .scroll{grid-column:2; grid-row:3; overflow:visible; flex:none;
+    padding:20px max(40px, calc((100% - var(--lectura)) / 2)) 0}
   /* El botón deja de estar clavado a la ventana y pasa a ser el renglón siguiente de la lista.
      🔴 Va como `.marco > .fab` y no como `.fab` a secas por una razón concreta: la regla original
      de `.fab` está MÁS ABAJO en esta misma hoja, así que con el mismo peso ganaba ella y el botón
@@ -723,7 +733,8 @@ button{font-family:inherit}
      estaba clavado a la ventana SIGUE aplicándose con `position:static` —no depende de la
      posición— y lo corría media pantalla a la izquierda, fuera del marco. */
   .marco > .fab{position:static; grid-column:2; grid-row:4; align-self:start; transform:none;
-    width:auto; max-width:none; background:none; padding:16px 62px 40px}
+    width:auto; max-width:none; background:none;
+    padding:16px max(40px, calc((100% - var(--lectura)) / 2)) 40px}
 }
 
 .saldo{background:var(--marca-grad); border:none; border-radius:20px; padding:17px;
