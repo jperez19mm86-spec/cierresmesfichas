@@ -4170,8 +4170,8 @@ function filaLink(link){
   if (link) return filaCred('Link de acceso directo', link, true);
   return `<div class="nota">${window.SIN_LINK
     /* La maqueta corre sin conector: ahí no existe el texto de verdad y hace falta uno. */
-    || 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino, así que no hay link para '
-       + 'dar. Con el usuario y la contraseña se entra igual.'}</div>`;
+    || 'Se puede habilitar un <b>link</b> para que tus jugadores entren directo. Pedíselo a '
+       + 'soporte y te lo habilitan.'}</div>`;
 }
 
 function filaCred(rotulo, valor, exacto){
@@ -4307,7 +4307,12 @@ function pintarEnvio(copiado){
   abrirHoja(`
     <h3 id="hojaTit">Credenciales del jugador</h3>
     <div class="sub"><span class="mono">${c.login}</span></div>
-    <p class="explica">Escogé si mandarle su login y contraseña, o el link para que entre directo.</p>
+    ${/* 🔴 NO SE OFRECE ELEGIR CUANDO NO HAY ENTRE QUÉ. «Escogé si mandarle su login y contraseña,
+         o el link» salía igual en las cajas sin link, arriba de una sola tarjeta: manda a elegir
+         entre una cosa. Mismo criterio que la tarjeta del link, que ya se dibuja sólo si existe. */''}
+    <p class="explica">${e.link
+      ? 'Escogé si mandarle su login y contraseña, o el link para que entre directo.'
+      : 'Mandale su login y contraseña para que entre.'}</p>
     ${tarjeta('clave', 'Su login y contraseña', 'Entra escribiéndolos en la página', e.clave)}
     ${/* 🔴 SIN LINK NO SE OFRECE EL LINK. Reportado el 4-sep-2026: la tarjeta «Link para entrar
          directo» salía igual cuando la caja no tiene su dirección cargada — vacía, pero diciendo

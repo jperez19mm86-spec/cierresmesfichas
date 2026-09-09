@@ -348,10 +348,16 @@ check('el aviso de credenciales se adapta a si hay link o no',
 check('y dice lo único que importa: que con eso se entra',
   /Con eso se entra a la cuenta/.test(conector)
   && /Cualquiera de las dos cosas abre la cuenta/.test(conector));
-check('el aviso de «sin link» distingue el dominio del casino del de la caja',
-  /Se configura \\n?\s*\+ 'caja por caja/.test(conector) || /caja por caja/.test(conector));
-check('y aclara que con el usuario se entra igual',
-  /con el usuario y la contraseña se entra igual/.test(conector));
+/* 🔴 EL AVISO DE «SIN LINK» ERA UNA FALTA, Y AHORA ES UNA PUERTA. Explicaba que se configura caja
+   por caja y que tener dominios habilitados en el casino no alcanza: cierto, y nada que quien lo
+   lee pueda hacer. Reescrito con el dueño el 9-sep-2026 con sus palabras. Que mientras tanto se
+   entra con usuario y contraseña tampoco hace falta: están arriba, en el mismo recuadro. */
+check('el aviso de «sin link» ofrece el link, no explica cómo se configura',
+  /Se puede habilitar un <b>link<\/b>/.test(conector)
+  && !/caja por caja: que el casino/.test(conector)
+  && !/dominios habilitados no alcanza/.test(conector));
+check('y dice a quién pedírselo',
+  /Ped\u00edselo a soporte y te lo habilitan/.test(conector));
 
 /* 🔴 UNA CLASE NUEVA QUE PISABA UNA VIEJA. `.ojo` ya era el botón «Ver» de las contraseñas;
    agregar otra regla `.ojo` más abajo le cambiaba fondo, padding y color en la pantalla de entrar.
@@ -435,11 +441,20 @@ check('y si no hay, se explica en vez de dejar un hueco',
 check('nunca se comparte un texto vacío',
   /if \(!texto\) return;[\s\S]{0,200}navigator\.share/.test(htmlCaja));
 
-/* Un solo texto para «no hay link»: el conector lo expone, la pantalla lo usa. Dos copias del
-   mismo mensaje terminan con una vieja. */
-check('el texto de «sin link» está escrito una sola vez',
-  /window\.SIN_LINK = SIN_LINK;/.test(conector)
-  && (htmlCaja.match(/no tiene cargado <b>su<\/b> link de acceso/g) || []).length <= 1);
+/* Un solo texto para «no hay link»: el conector lo expone y la pantalla lo usa. La pantalla
+   igual guarda una copia para la maqueta, que corre sin conector — y ésa es la que se queda
+   vieja. Así que no se cuentan copias: se comparan LETRA POR LETRA. */
+{
+  const soloTexto = (f) => (f.match(/'(?:[^'\\]|\\.)*'/g) || [])
+    .map((t) => t.slice(1, -1)).join('').replace(/\s+/g, ' ').trim();
+  const delConector = soloTexto((conector.match(/const SIN_LINK = [\s\S]*?;\n/) || [''])[0]);
+  const deLaPantalla = soloTexto((htmlCaja.match(/\|\| 'Se puede[\s\S]*?\}<\/div>/) || [''])[0]
+    .replace(/\}<\/div>/, ''));
+  check('el conector expone el texto de «sin link»',
+    /window\.SIN_LINK = SIN_LINK;/.test(conector) && delConector.length > 30, delConector);
+  check('y la copia de la maqueta dice exactamente lo mismo',
+    deLaPantalla === delConector, deLaPantalla || 'no se encontró la copia');
+}
 
 /* ── 9 · la tira de períodos ────────────────────────────────────────────────────────────────────
    🔴 «Otro rango…» es el último de seis botones y la tira se desplaza de costado: en un teléfono

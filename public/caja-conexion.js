@@ -1173,9 +1173,13 @@
   /* 🔑 Va a `window` porque la pantalla también lo necesita: `pintarEnvio` tiene que explicar lo
      mismo cuando no hay link, y este archivo es una función cerrada. Si no se expone, el texto
      termina escrito dos veces y uno de los dos se queda viejo. */
-  const SIN_LINK = 'Esta caja no tiene cargado <b>su</b> link de acceso en el casino. Se configura '
-    + 'caja por caja: que el casino tenga dominios habilitados no alcanza. Pedíselo a soporte — '
-    + 'mientras tanto, con el usuario y la contraseña se entra igual.';
+  /* 🔴 Y DESPUÉS SOBRÓ TODO LO DEMÁS. El texto explicaba que se configura caja por caja y que
+     tener dominios habilitados en el casino no alcanza: cierto, y nada de eso lo puede hacer quien
+     lo está leyendo. Reescrito con el dueño el 9-sep-2026 con sus palabras. Ahora es una puerta
+     abierta, no una falta: se puede tener, y así se pide. Que mientras tanto se entra con usuario
+     y contraseña no hace falta decirlo — están arriba, en el mismo recuadro. */
+  const SIN_LINK = 'Se puede habilitar un <b>link</b> para que tus jugadores entren directo. '
+    + 'Pedíselo a soporte y te lo habilitan.';
 
   /* 🔴 «LAS DOS COSAS VALEN LO MISMO QUE LA CONTRASEÑA» NO SE ENTENDÍA. Reportado el mismo día.
      Decía «las dos» aunque muchas veces hay una sola —cuando la caja no tiene link—, y «valen lo
