@@ -9128,6 +9128,38 @@ async function main() {
       /destino: dest\.heredado \? `el grupo de \$\{dest\.de\}`/.test(rutPrev));
   }
 
+  /* ── LAS FACTURAS YA GUARDADAS TAMBIÉN TIENEN QUE MOSTRAR EL USDT ─────────────────────────
+     Se guardaron sin `tc` ni `usdt` en `porPanel`, así que al agregar la columna salían TODAS en
+     «sin TC» —la de Marcelo de agosto entre ellas—. Se deriva al vuelo del TC de la propia
+     factura (`consumo.porDivisa`), que es el que usó para sus totales: así la columna cierra
+     contra el total de arriba. Lo guardado no se toca: es lo que el cliente ya recibió. */
+  {
+    const svcF = require(path.join(ROOT, 'src', 'factura.service.js'));
+    const base = { consumo: { porDivisa: [
+      { divisa: 'ARS', tc: '1584.5271' }, { divisa: 'UYU', tc: '39.992632' }] },
+      porPanel: [{ panel: 'cash365.vip', divisa: 'ARS', monto: '162511765' },
+        { panel: 'Ahora463.com', divisa: 'UYU', monto: '26302' },
+        { panel: 'Raro', divisa: 'BRL', monto: '500' }] };
+    const c = svcF.conUsdtPorPanel(base);
+    const p1 = c.porPanel.find((x) => x.panel === 'cash365.vip');
+    check('factura guardada: el USDT de cada panel se deriva del TC de esa factura',
+      p1.usdt === '102561.68' && p1.tc === '1584.5271', `${p1 && p1.usdt}`);
+    check('factura guardada: una divisa sin TC queda en null, no en cero',
+      c.porPanel.find((x) => x.divisa === 'BRL').usdt === null);
+    // Y no pisa lo que ya venía calculado: una factura nueva trae sus propios números.
+    const ya = svcF.conUsdtPorPanel({ ...base,
+      porPanel: [{ panel: 'X', divisa: 'ARS', monto: '100', tc: '2', usdt: '50' }] });
+    check('factura guardada: no toca los paneles que ya traían su TC',
+      ya.porPanel[0].usdt === '50' && ya.porPanel[0].tc === '2');
+    // El aviso lista MONEDAS, no filas: con ocho paneles en pesos decía «ARS, ARS, ARS, …».
+    // `FUENTE_PANEL` es la pantalla; el link del cliente lo arma factura-html.js, que va aparte.
+    const uiF = FUENTE_PANEL();
+    const linkF = fs.readFileSync(path.join(ROOT, 'src', 'factura-html.js'), 'utf8');
+    check('factura: el aviso de monedas sin TC no repite la misma moneda',
+      /new Set\(sinTC\.map\(p => p\.divisa\)\)/.test(uiF)
+      && /new Set\(porPanelSinTC\.map\(\(p\) => p\.divisa\)\)/.test(linkF));
+  }
+
   check('panel: los espacios se llaman por lo que hacen',
     /\['\/','🎰 Fichas'\]/.test(r.data) && /\['\/os','📊 Panel'\]/.test(r.data)
     && /\['\/chat-externo','💬 Chat'\]/.test(r.data));

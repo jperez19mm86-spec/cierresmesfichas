@@ -2278,6 +2278,19 @@ async function verFactura(clienteId, conCruce) {
      monedas lleva su total sumado en una línea aparte. */
   const porPanel = (r.porPanel||[]).length
     ? (() => {
+        /* Red de seguridad: si llegara un porPanel sin TC —una factura guardada vieja servida por
+           una ruta que no lo complete— se deriva del TC de la propia factura, que está en
+           `consumo.porDivisa`. Mostrar la columna en «sin TC» teniendo el dato es peor que no
+           tenerla. */
+        if (r.porPanel.some(p => p.tc == null && p.usdt == null)) {
+          const tcs = {};
+          ((r.consumo && r.consumo.porDivisa) || []).forEach(d => { if (d && d.divisa && d.tc) tcs[String(d.divisa).toUpperCase()] = d.tc; });
+          r.porPanel = r.porPanel.map(p => {
+            if (p.tc != null || p.usdt != null) return p;
+            const t = tcs[String(p.divisa||'').toUpperCase()] || null;
+            return { ...p, tc: t, usdt: t ? (Number(p.monto) / Number(t)) : null };
+          }).sort((a,b) => Number(b.usdt||0) - Number(a.usdt||0));
+        }
         const vecesPanel = {};
         r.porPanel.forEach(p => { vecesPanel[p.panel] = (vecesPanel[p.panel]||0) + 1; });
         const grupos = {};
@@ -2302,9 +2315,14 @@ async function verFactura(clienteId, conCruce) {
             }).join('')
           + '</tbody><tfoot><tr><td colspan="5" class="right"><b>Total en USDT</b></td>'
           + '<td class="right"><b>' + money(totalGeneral,2) + '</b></td></tr></tfoot></table>'
-          + (sinTC.length ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ '
-              + sinTC.map(p => esc(p.divisa)).join(', ') + ' sin tipo de cambio del mes: '
-              + (sinTC.length===1?'esa moneda no está':'esas monedas no están') + ' en el total en USDT.</div>' : '')
+          /* Las MONEDAS, no las filas: con ocho paneles en pesos el aviso decía
+             «ARS, ARS, ARS, ARS, ARS, ARS, ARS, ARS, UYU, USD». */
+          + (sinTC.length ? (() => {
+              const ms = [...new Set(sinTC.map(p => p.divisa))];
+              return '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ '
+                + ms.map(esc).join(', ') + ' sin tipo de cambio del mes: '
+                + (ms.length===1?'esa moneda no está':'esas monedas no están') + ' en el total en USDT.</div>';
+            })() : '')
           + '</div>';
       })() : '';
   const det = (r.detalle||[]).length

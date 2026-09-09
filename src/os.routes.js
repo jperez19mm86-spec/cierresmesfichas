@@ -4678,10 +4678,14 @@ function mount(app) {
     if (req.query.vivo !== '1') {
       const g = facturasGuardadas.get(req.params.clienteId, mes);
       if (g && g.datos) {
-        return ok(res, { ...g.datos, guardada: {
+        /* Las guardadas de antes del 8-sep-2026 no tienen el USDT de cada panel y salían todas
+           «sin TC». Se deriva al vuelo del TC de la propia factura; lo guardado no se toca, que es
+           lo que el cliente ya recibió. */
+        const datos = facturaSvc.conUsdtPorPanel(g.datos);
+        return ok(res, { ...datos, guardada: {
           generada_at: g.generada_at, generada_por: g.generada_por, veces: g.veces,
           actualizada_at: g.actualizada_at, salio_at: g.salio_at, salio_como: g.salio_como,
-        }, texto: facturaSvc.aTexto(g.datos), textoConDetalle: facturaSvc.aTexto(g.datos, { detalle: true }) });
+        }, texto: facturaSvc.aTexto(datos), textoConDetalle: facturaSvc.aTexto(datos, { detalle: true }) });
       }
     }
     // la línea de consumo sale de la MISMA función que la pantalla de Factura de consumo

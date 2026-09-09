@@ -15,7 +15,10 @@ const esc = (x) => String(x == null ? '' : x)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const $ = (x) => money.fmt(x, 2);
 
-function pagina({ factura: f, actualizado_at, token }) {
+function pagina({ factura: f0, actualizado_at, token }) {
+  /* Los links ya mandados guardan la foto vieja, sin el USDT de cada panel: se deriva del TC de la
+     propia factura para que un link viejo no salga con la columna en «sin TC». */
+  const f = require('./factura.service').conUsdtPorPanel(f0);
   /* Una moneda sin tipo de cambio NO entra en el total, y el renglón lo decía con un guioncito.
      Para el cliente eso se lee como "cero" o como un detalle de formato; en realidad es plata
      suya que este total NO incluye, y tiene que poder verlo sin preguntar. */
@@ -230,7 +233,11 @@ function pagina({ factura: f, actualizado_at, token }) {
    <div class="scroll"><table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Cargas</th><th class="r">Monto</th><th class="r">TC</th><th class="r">USDT</th></tr></thead>
      <tbody>${porPanel}</tbody>
      <tfoot><tr><td colspan="5" class="r"><b>Total en USDT</b></td><td class="r"><b>${$(porPanelTotal)}</b></td></tr></tfoot></table></div>
-   ${porPanelSinTC.length ? `<p class="m" style="color:#b3261e">${porPanelSinTC.map((p) => esc(p.divisa)).join(', ')} sin tipo de cambio del mes: ${porPanelSinTC.length === 1 ? 'esa moneda no está' : 'esas monedas no están'} en el total en USDT.</p>` : ''}
+   ${porPanelSinTC.length ? (() => {
+       // Las MONEDAS, no las filas: con ocho paneles en pesos decía «ARS, ARS, ARS, …».
+       const ms = [...new Set(porPanelSinTC.map((p) => p.divisa))];
+       return `<p class="m" style="color:#b3261e">${ms.map(esc).join(', ')} sin tipo de cambio del mes: ${ms.length === 1 ? 'esa moneda no está' : 'esas monedas no están'} en el total en USDT.</p>`;
+     })() : ''}
    </div>` : ''}
 
  ${extHtml}

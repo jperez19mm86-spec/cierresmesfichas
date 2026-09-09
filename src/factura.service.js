@@ -377,6 +377,33 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
 }
 
 /**
+ * CADA PANEL TAMBIÉN EN USDT, con el tipo de cambio de SU divisa.
+ *
+ * El TC sale de `consumo.porDivisa`, que es el de ESTA factura — no el de hoy ni el del mes en
+ * curso. Es lo que hace que la columna cierre contra el total de arriba: son el mismo número
+ * dividido por la misma tasa. Sacarlo de `tcUnico` daría bien casi siempre y mal el día que un
+ * mes se refacture con otra tasa, que es justo el día que alguien mira.
+ *
+ * Se aplica al VUELO y no se guarda: las facturas ya generadas —la de Marcelo de agosto entre
+ * ellas— se guardaron sin estos campos, y salían todas «sin TC». Derivarlo acá las arregla a todas
+ * sin tocar lo guardado, que es lo que el cliente ya recibió y no se puede reescribir.
+ */
+function conUsdtPorPanel(f) {
+  if (!f || !(f.porPanel || []).length) return f;
+  if (f.porPanel.every((p) => p.tc != null || p.usdt != null)) return f;
+  const tcs = {};
+  ((f.consumo && f.consumo.porDivisa) || []).forEach((d) => {
+    if (d && d.divisa && d.tc) tcs[String(d.divisa).toUpperCase()] = String(d.tc);
+  });
+  const porPanel = f.porPanel.map((p) => {
+    if (p.tc != null || p.usdt != null) return p;
+    const t = tcs[String(p.divisa || '').toUpperCase()] || null;
+    return { ...p, tc: t, usdt: t ? money.round(money.div(String(p.monto), t), 2) : null };
+  }).sort((a, b) => Number(b.usdt || 0) - Number(a.usdt || 0) || Number(b.monto) - Number(a.monto));
+  return { ...f, porPanel };
+}
+
+/**
  * La misma factura, lista para mandar por Telegram.
  *
  * Va en HTML porque es lo que usa el bot (`parse_mode: 'HTML'`); con asteriscos de Markdown
@@ -384,7 +411,8 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
  *
  * @param opciones.detalle  incluir la lista carga por carga (para auditoría)
  */
-function aTexto(f, { detalle = false } = {}) {
+function aTexto(f0, { detalle = false } = {}) {
+  const f = conUsdtPorPanel(f0);
   const L = [];
   const $ = (x) => money.fmt(x, 2);
   const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -541,4 +569,4 @@ function revocar(token) {
   return true;
 }
 
-module.exports = { armar, aTexto, partir, crearLink, porToken, linksDe, revocar, nombreMes };
+module.exports = { armar, aTexto, partir, crearLink, porToken, linksDe, revocar, nombreMes, conUsdtPorPanel };
