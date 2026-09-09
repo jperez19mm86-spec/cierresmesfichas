@@ -165,10 +165,6 @@
 <div id="view-clientes" style="display:none">
   <div class="card">
     <h2>Clientes <span class="meta" id="clientesCount"></span></h2>
-    <p class="meta" style="margin-top:0">
-      Cada cliente (<strong>código + nombre</strong>) tiene sus <strong>cajas</strong> en los distintos sistemas.
-      Los <strong>montos rápidos</strong> son los botones de carga que se muestran al operar.
-    </p>
     <input id="cliSearch" placeholder="🔍 buscar por código, nombre, usuario o user_id…" oninput="renderClientes()" style="margin-bottom:12px" />
     <div id="clientesList"><div class="empty">Cargando…</div></div>
   </div>
@@ -246,10 +242,6 @@
     <h2>📥 Pedidos pendientes <span class="meta" id="pedCount"></span>
       <button class="outline small" onclick="loadPedidos()" style="margin-left:8px">↻ Refrescar</button>
     </h2>
-    <p class="meta" style="margin-top:0">
-      Al apretar <strong>Cargar</strong>, el sistema entra a la página de la caja (usuario/contraseña → sesión) y
-      carga las fichas pedidas. <strong>Rechazar</strong> descarta el pedido. Ambos quedan en el historial.
-    </p>
     <div id="otrasColas"></div>
     <div id="pedidosList"><div class="empty">Cargando…</div></div>
   </div>
@@ -788,7 +780,11 @@
     if (!body || !body.ok) { box.innerHTML = '<div class="empty">Error cargando pedidos</div>'; return; }
     _pedidos = body.pedidos;
     const c = body.counts;
-    document.getElementById('pedCount').textContent = `· ${c.pendientes} pendientes · ${c.cargados} cargados · ${c.rechazados} rechazados${c.anulados ? ' · ' + c.anulados + ' anulados' : ''}`;
+    /* SÓLO LO QUE HAY PARA HACER. Al lado iban los totales de siempre —1153 cargados, 38
+       rechazados, 13 anulados— que no cambian nada de lo que sigue: para mirar eso está el
+       historial. Y con la cola vacía no se muestra ningún número: abajo ya dice que no hay nada. */
+    document.getElementById('pedCount').textContent = c.pendientes
+      ? `· ${c.pendientes} pendiente${c.pendientes === 1 ? '' : 's'}` : '';
     refreshPedBadge();
     if (!_pedidos.length) { box.innerHTML = '<div class="empty">No hay pedidos pendientes. 🎉</div>'; return; }
     box.innerHTML = _pedidos.map((p) => `

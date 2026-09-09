@@ -9541,6 +9541,28 @@ async function main() {
       && !/await api\('\/api\/systems'\)/.test(fiS));
   }
 
+  /* ── EL PANEL DICE LO QUE HAY QUE HACER, NO LO QUE YA SE HIZO ────────────────────────────────
+     Arriba de la cola iban los totales de siempre (1153 cargados, 38 rechazados, 13 anulados) y un
+     párrafo explicando qué hace el botón Cargar. Ninguna de las dos cosas cambia lo que sigue: los
+     totales se miran en el historial, y quién despacha ya sabe qué hace el botón. */
+  {
+    const fiL = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('panel limpio: la cola sólo cuenta lo pendiente',
+      /`· \$\{c\.pendientes\} pendiente/.test(fiL)
+      && !/\$\{c\.cargados\} cargados/.test(fiL));
+    // Y con la cola vacía tampoco muestra un cero: abajo ya dice que no hay nada.
+    check('panel limpio: con la cola vacía no muestra un cero al lado del título',
+      /document\.getElementById\('pedCount'\)\.textContent = c\.pendientes/.test(fiL));
+    check('panel limpio: sin el instructivo del botón Cargar',
+      !/el sistema entra a la página de la caja/.test(fiL));
+    check('panel limpio: sin el instructivo de Clientes',
+      !/Los <strong>montos rápidos<\/strong> son los botones de carga/.test(fiL));
+    /* Lo que se queda es lo que NO es obvio: quién da de alta una caja y por qué las divisas no se
+       piden, y dónde va el chatId del grupo. Eso es una regla del negocio, no un instructivo. */
+    check('panel limpio: se queda lo que dice una regla, no lo que narra un botón',
+      /el alta la\s*\n?\s*hace Alexa/.test(fiL) && /grupo \(chatId\)/.test(fiL));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
