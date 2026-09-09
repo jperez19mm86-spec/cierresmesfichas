@@ -2518,9 +2518,9 @@ function irCuenta(){
 
 function alOtroLado(que){
   abrirHoja(`<h3 id="hojaTit">${que}</h3>
+    ${/* El subtítulo ya dice dónde se hace. La nota lo repetía palabra por palabra y agregaba
+         por qué los dos sistemas están separados, que es cosa nuestra, no suya. */''}
     <div class="sub">Esto vive en el sistema de cuentas, no en el panel.</div>
-    <div class="nota neutra">Esto se maneja desde el sistema de cuentas, no desde acá. Están
-    separados a propósito: un cambio o una caída de un lado no toca al otro.</div>
     <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
 }
 
@@ -2536,9 +2536,11 @@ function pintar(){
      técnico para lo poco que aportaba, y con una sola opción el menú de en medio sobra.
      `changes` se manda acá también, por si quedó guardado en algún estado viejo. */
   if (SEC === 'seguridad' || SEC === 'changes') return pintarCruces();
-  $('cuerpo').innerHTML = `<div class="vacio">La sección <b>${NOMBRE_SEC[SEC]}</b> todavía no está
-    mapeada del motor.<br><br>Cuando se mapee, aparece acá sola: el menú se arma con lo que
-    devuelve <span class="mono">area=buttons</span>.</div>`;
+  /* 🔴 ACÁ DECÍA «todavía no está mapeada del motor» y nombraba `area=buttons`. El cajero no sabe
+     qué es mapear ni qué es un area, y tampoco puede hacer nada con eso. Lo único que le sirve es
+     saber dónde sí puede hacerlo mientras tanto. */
+  $('cuerpo').innerHTML = `<div class="vacio"><b>${NOMBRE_SEC[SEC]}</b> todavía no está en Mi Caja.
+    <br><br>Por ahora se hace desde el panel de siempre.</div>`;
 }
 
 function pintarUsuarios(){
@@ -2901,12 +2903,16 @@ function pintarMovs(){
            · sabemos y hay      → se nombran y se marcan en la lista
            · sabemos y no hay   → no se dice nada; un aviso de que no pasa nada es ruido
            · no sabemos         → «puede incluir», sin marcar ninguna                             */
+      /* Y sin una sola fila abajo no hay nada que aclarar: el aviso quedaba flotando arriba de
+         «Sin movimientos hoy». */
+      if (!filas.length) return '';
       if (sabemosBorr && !yaNo.size) return '';
-      const detalle = 'El historial no se borra cuando se borra la cuenta, y no debería: esos '
-        + 'movimientos son plata que entró y salió de verdad, y si desaparecieran los totales del '
-        + 'período dejarían de cuadrar. <b>El casino no marca las filas</b> — manda el login y '
-        + 'nada más — así que la marca la pone este panel cruzando contra tus cuentas eliminadas. '
-        + 'Las eliminadas y sus fichas se ven desde <b>Cuentas</b>.';
+      /* 🔴 La (i) contaba por qué no se borra el historial y cómo hace este panel para marcar las
+         filas. Lo primero es una decisión nuestra y lo segundo, plomería. Queda lo que le sirve:
+         que esos movimientos son plata de verdad, y dónde encontrar la cuenta. */
+      const detalle = 'Esos movimientos son plata que entró y salió de verdad, así que quedan en la '
+        + 'lista aunque la cuenta ya no exista. Las eliminadas y sus fichas se ven desde '
+        + '<b>Cuentas</b>.';
       /* 🔴 NO SE NOMBRAN. Con 20.000 movimientos salen 600 cuentas eliminadas distintas: una
          lista de logins arriba es relleno, y encima suena a total cuando el motor corta en 1.000
          filas. La marca va en la fila, que es donde estás mirando. */
@@ -2918,7 +2924,7 @@ function pintarMovs(){
             'Esta lista <b>puede incluir cuentas que hoy están eliminadas</b>, con el login que '
             + 'tenían. Las que este panel ya reconoce van marcadas.', detalle);
     })()}
-    ${resumen([['Cargas', fmt(suma.in), 'ok'], ['Retiros', fmt(suma.out), 'no'],
+    ${!filas.length ? '' : resumen([['Cargas', fmt(suma.in), 'ok'], ['Retiros', fmt(suma.out), 'no'],
                 ['Ganancia', fmt(suma.in - suma.out)]])}
     ${/* 🔴 `sum` del motor suma SÓLO las filas devueltas, y el tope por página es 1000
           —pedir más cae en silencio a 50—. Con más de una página el subtotal es parcial y
@@ -2962,10 +2968,13 @@ function pintarMovs(){
       return html + (faltan > 0 ? `<button class="masmenos" onclick="masMovs()">
         Ver ${Math.min(faltan, PASO_MOV)} más · quedan ${faltan}</button>` : '');
     })()}
-    ${filas.length && quienMasMueve(filas) ? `${notaInfo('quienmueve',
-      `Casi todos los movimientos los hizo <b class="mono">${quienMasMueve(filas)}</b>.`,
-      'Por eso sólo se aclara quién fue <b>cuando lo hizo otro</b>: si en cada línea dijera el '
-      + 'mismo nombre, lo distinto dejaría de saltar a la vista, que es justo lo que hay que mirar.')}` : ''}
+    ${/* 🔴 La (i) explicaba por qué la pantalla está hecha así —«si en cada línea dijera el mismo
+         nombre, lo distinto dejaría de saltar a la vista»—. Eso es una decisión de diseño nuestra,
+         no algo que el cajero pueda usar. Queda el dato solo, que sí sirve: quién movió casi todo,
+         para que en la lista sólo tenga que buscar los que hizo otro. */''}
+    ${filas.length && quienMasMueve(filas) ? `<div class="nota neutra">Casi todos los movimientos
+      los hizo <b class="mono">${quienMasMueve(filas)}</b>. En la lista se aclara el nombre
+      <b>sólo cuando lo hizo otro</b>.</div>` : ''}
     ${filas.length && puedeVerNumeros(ROL, yo()) ? `<button class="masmenos" style="margin-top:4px" onclick="irSec('reports')">
       Ver estadísticas ampliadas ›
     </button>` : ''}
@@ -3141,9 +3150,8 @@ function pintarEstadisticas(){
       ${filas.length > 1 ? `<br>Ordenado por <b>${(cols.find(([c]) => c === EST_ORDEN) || [,EST_ORDEN])[1].toLowerCase()}</b>,
         de ${EST_ASC ? 'menor a mayor' : 'mayor a menor'} — tocá cualquier título para cambiarlo.` : ''}</div>
 
-    ${base.sinCajas ? `<div class="vacio">No se pudieron leer tus cajas, y sin ellas esta
-      tabla no se puede armar: los jugadores cuelgan de cada caja, no de vos.<br><br>
-      Probá de nuevo en un momento. Si sigue igual, pasá el número de caso.</div>` : `
+    ${base.sinCajas ? `<div class="vacio">No se pudieron leer tus cajas, y sin ellas esta tabla
+      no se arma.<br><br>Probá de nuevo en un momento. Si sigue igual, pasá el número de caso.</div>` : `
     ${resumen(suma.map(([n, v, t]) => [n, v, t === 'rtp' ? 'g' : t]))}
     ${perdedores.length ? `<div class="filtrillo">
       <span><b>${perdedores.length} ${perdedores.length === 1 ? 'jugador dejó' : 'jugadores dejaron'} pérdida</b>
@@ -3521,7 +3529,7 @@ function dibujarMatriz(j){
       <b class="num t-ok">${fmt(l.pago)}</b></div>`).join('');
   if (!j.matriz) {
     return `<div class="matriz-caja">${resumen
-      || '<div class="piepie">El casino no mandó la grilla de esta ronda.</div>'}</div>`;
+      || '<div class="piepie">Este juego no muestra la grilla.</div>'}</div>`;
   }
   /* 🔑 LAS FIGURAS LAS DA EL MOTOR, NO SE ADIVINAN. `figuras` es la dirección base que él mismo
      manda; el archivo es el símbolo. Si no carga —hay juegos que no las publican— queda el
@@ -3555,9 +3563,7 @@ function abrirSesion(jugadorId, sesionId){
      de 9 renglones eran movimientos de mesa —entrar, salir, mirar— todos en cero. Mezclados con
      las jugadas hacen parecer que jugó nueve veces y esconden la única que movió plata. */
   const jugables = crudas.filter(x => x.esJugada !== false);
-  const deMesa = crudas.length - jugables.length;
   const js = agruparJugadas(jugables);
-  const partidas = jugables.length > js.length;
   /* 🔴 NO PROMETER UNA MATRIZ QUE ESTE JUEGO NO MANDA. Medido el 7-sep-2026 sobre la instalación
      del cliente: ni RUBYPLAY ni PRAGMATIC devuelven grilla ahí —no llega ni el objeto—, y el panel
      del casino tampoco la dibuja: su columna «Matriz» trae premio, líneas y estado. El aviso decía
@@ -3568,7 +3574,7 @@ function abrirSesion(jugadorId, sesionId){
     <h3 id="hojaTit">${s.game}</h3>
     <div class="sub">${s.labeltitle} · ${s.providertitle} · sesión ${s.session}</div>
     ${!s.datetime_close
-      ? `<div class="nota">● <b>La sesión sigue abierta</b> — está jugando ahora. Abrió a las
+      ? `<div class="nota">● <b>Está jugando ahora.</b> Abrió a las
          ${s.datetime_open.slice(11,16)}, última jugada ${s.datetime_last.slice(11,16)}.</div>`
       : `<div class="nota neutra">Abrió ${s.datetime_open.slice(5,16)} · cerró
          ${s.datetime_close.slice(11,16)} · última jugada ${s.datetime_last.slice(11,16)}.</div>`}
@@ -3591,7 +3597,7 @@ function abrirSesion(jugadorId, sesionId){
     ${/* 🔴 UNA SESIÓN PUEDE NO TENER NINGUNA JUGADA. En casino en vivo se entra a la mesa, se
          mira y se sale: el casino manda la sesión igual, con todo en cero. Antes quedaba el
          encabezado de columnas solo, sin un renglón debajo, como si algo se hubiera roto. */''}
-    ${!js.length ? '<div class="vacio">Entró a la mesa y no llegó a apostar.<br><br>No movió fichas.</div>' : `
+    ${!js.length ? '<div class="vacio">Entró a la mesa y no llegó a apostar.</div>' : `
     <div class="jug-cab"><span>Hora</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
     ${/* 🔴 AHORA TODA JUGADA SE ABRE. Antes sólo las que traían grilla, y los juegos que no la
          traen —la mayoría— quedaban sin nada para tocar. Pero adentro SIEMPRE hay algo que sirve:
@@ -3630,17 +3636,15 @@ function abrirSesion(jugadorId, sesionId){
       hayMatriz
         ? 'Tocá una jugada para ver <b>su grilla</b> o <b>su ID</b>.'
         : 'Tocá una jugada para ver <b>su ID</b>.',
-      'Adentro está cuánto puso, cuánto se llevó, cómo quedó su saldo y <b>su ID</b>. Con ese ID '
-      + 'escribinos a soporte y la buscamos exacta, sin que tengas que explicar cuál era.'
-      + (hayMatriz ? ' La grilla responde <b>«¿por qué se le pagó eso?»</b>: el símbolo que hizo la '
-        + 'línea, cuántas posiciones entraron y cuánto pagó.'
-        : ' Las figuras las manda el proveedor del juego y no todos lo hacen; no es algo que se '
-        + 'pueda encender desde acá.')
-      + (partidas ? ` En este juego la apuesta y el pago vienen separados: ${jugables.length}
-        registros del casino son las ${js.length} jugadas de arriba, ya juntas.` : '')
-      + (deMesa ? ` Además se ${deMesa === 1 ? 'dejó' : 'dejaron'} afuera ${deMesa}
-        ${deMesa === 1 ? 'movimiento' : 'movimientos'} de mesa —entrar, salir o mirar—: no mueven
-        fichas.` : ''))}
+      /* 🔴 Y ACÁ ADENTRO TAMBIÉN SOBRABA. Se habían mudado a la (i) dos párrafos sobre cómo manda
+         los datos el casino —cuántos registros son cuántas jugadas, cuántos movimientos de mesa
+         quedaron afuera—. Estar escondido no los vuelve útiles: el cajero no puede hacer nada con
+         eso. Detrás de la (i) queda sólo lo que le sirve para atender. */
+      hayMatriz
+        ? 'Adentro está cuánto puso, cuánto se llevó y <b>su ID</b>. La grilla te dice <b>por qué '
+          + 'se le pagó eso</b>: qué símbolo hizo la línea y cuánto pagó.'
+        : 'Adentro está cuánto puso, cuánto se llevó y <b>su ID</b>. Con ese ID escribinos a '
+          + 'soporte y buscamos la jugada exacta.')}
     <div class="acciones"><button class="btn sec" onclick="abrirHistoria('${jugadorId}')">Volver</button></div>`);
 }
 
@@ -4807,8 +4811,8 @@ function crear(){
           <h3>Ese nombre ya está usado</h3>
           <div class="sub"><b class="mono">${login}</b> existe en el sistema, aunque no lo veas
           en tu panel. Probá con otro.</div></div>
-        <div class="nota neutra">El motor contesta <b>“El usuario existe”</b>, y los logins son
-        únicos en todo el sistema — no sólo en tu sala.</div>
+        <div class="nota neutra">Los logins son únicos en <b>todo el sistema</b>, no sólo en tu
+        sala. Puede estar en uso en otra, o haber quedado tomado por una cuenta eliminada.</div>
         <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cerrar</button>
           <button class="btn" onclick="altaFormulario('${grupo}')">Probar otro nombre</button></div>`), 600);
     }

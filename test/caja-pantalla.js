@@ -586,8 +586,8 @@ check('la fila lleva su flecha y la grilla le hace lugar',
   check('y el aviso lo llama igual que el recuadro',
     /ver <b>su ID<\/b>/.test(htmlCaja) && !/su número<\/b>/.test(htmlCaja));
   check('y detrás de la (i) sigue estando el para qué y el qué hacer',
-    /responde <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
-    && /escribinos a soporte y la buscamos exacta/.test(htmlCaja));
+    /te dice <b>por qué '\s*\+ 'se le pagó eso<\/b>/.test(htmlCaja)
+    && /escribinos a '\s*\+ 'soporte y buscamos la jugada exacta/.test(htmlCaja));
 }
 
 /* 🔴 EL CALLBACK QUE NO RECIBÍA NADA. `pedirUnaVez` guarda la respuesta y llama al callback SIN
@@ -898,6 +898,39 @@ check('sin grilla no se marca nada, en vez de romper',
     && r.TVBet.devuelta === null && r.Jacktop.devuelta === null);
   check('y todas quedan marcadas como jugada, porque movieron fichas',
     Object.values(r).every((x) => x.esJugada === true));
+}
+
+/* ── 17 · el panel no le habla al programador ───────────────────────────────────────────────────
+   🔴 Repasado entero con el dueño el 9-sep-2026: «notas sencillas, amigables, directas, sólo las
+   útiles». Aparecieron dos que le contaban al cajero cómo funciona el motor —una decía «todavía no
+   está mapeada del motor» y nombraba `area=buttons`, la otra citaba lo que contesta el motor— y
+   varias que explicaban decisiones de diseño nuestras. Nada de eso lo puede usar quien atiende. */
+{
+  /* Las notas rosas SÍ hablan del motor, a propósito: son del prototipo y el conector las esconde
+     en cuanto la app se enchufa. Lo mismo con la franja de arriba, que pasa a «En pruebas». Si
+     alguna de esas dos cosas se rompe, la jerga aparece en la pantalla de un cajero. */
+  check('el conector sigue escondiendo las notas del prototipo',
+    /\.nota\.motor\{display:none !important\}/.test(conector));
+  check('y sigue reemplazando la franja de arriba',
+    /aviso\.innerHTML = '<b>En pruebas<\/b>/.test(conector));
+
+  /* Y en todo lo demás no puede quedar jerga. Se sacan comentarios, estilos y las notas rosas, y
+     se marca sólo lo que además tiene prosa en castellano: así un `round_id:` de una estructura de
+     datos no cuenta, pero «se juntan por round_id» escrito para leer, sí. */
+  const visible = htmlCaja
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<style>[\s\S]*?<\/style>/g, ' ')
+    .replace(/<div class="nota motor"[^>]*>[\s\S]*?<\/div>/g, ' ')
+    .replace(/<div class="aviso">[\s\S]*?<\/div>/g, ' ');
+  const jerga = /(\bel motor\b|\bdel motor\b|\barea=|round_id|balanceTypes|statistic_type|dashboardinfo|main\.group|total\.ARS|winLines|imgUrl|mapead|\bendpoint\b|\bparámetro\b)/i;
+  const prosa = / (el|la|los|las|de|que|se|con|para|una|un) /i;
+  const sucias = visible.split('\n')
+    .map((l, i) => [i + 1, l])
+    .filter(([, l]) => jerga.test(l) && prosa.test(l))
+    .map(([n, l]) => `línea ${n}: ${l.trim().slice(0, 70)}`);
+  check('ninguna frase que lea el cajero nombra el motor por dentro',
+    sucias.length === 0, sucias.length ? sucias.join(' | ') : 'ninguna');
 }
 
 const fallaron = verificaciones.filter((v) => !v.ok);
