@@ -666,7 +666,12 @@ button{font-family:inherit}
   cursor:pointer; color:inherit; font:inherit; border-radius:10px}
 .marca:hover{background:var(--bg3)}
 .marca:focus-visible{outline:2px solid var(--g); outline-offset:2px}
+.marca .nomb{display:flex; align-items:center; gap:6px; min-width:0}
 .marca b{font-size:calc(14px * var(--esc)); font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+/* El engranaje es una seña, no un botón aparte: apagado hasta que el nombre se toca o se pasa
+   por encima. Si gritara lo mismo que el nombre, competirían dos cosas por el mismo clic. */
+.marca .tuerca{width:15px; height:15px; flex:none; color:var(--lg-tx2); opacity:.75; transition:opacity .12s}
+.marca:hover .tuerca, .marca:focus-visible .tuerca{opacity:1}
 .marca span{display:block; font-size:calc(11px * var(--esc)); color:var(--mut); line-height:1.25}
 .icobtn{background:var(--bg3); border:1px solid var(--bor2); color:var(--mut2); border-radius:10px;
   padding:6px 10px; font-size:calc(12px * var(--esc)); font-weight:600; cursor:pointer; flex:none}
@@ -707,7 +712,9 @@ button{font-family:inherit}
   .marco > .login, .marco > .hub{grid-column:1 / -1; grid-row:2 / -1}
   /* Y la tarjeta de acceso no se estira: son dos campos, un formulario de 1000px de ancho se lee
      peor y no entra en ninguna idea de formulario. */
-  .login .tarjeta{max-width:420px; width:100%; margin-inline:auto}
+  /* 420px es el ancho de un teléfono: en una pantalla de 1791 la tarjeta de acceso quedaba
+     chiquita en el medio. Con 500 sigue siendo un formulario y deja de parecer una miniatura. */
+  .login .tarjeta{max-width:500px; width:100%; margin-inline:auto}
 
   /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
      columna angosta arriba de todo, con la pantalla entera vacía debajo, se lee como una app de
@@ -1461,8 +1468,16 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   <div class="top" id="barra" hidden>
     <button class="icobtn" id="volverHub" onclick="irHub()" hidden>‹</button>
     <div class="ficha"></div>
-    <button class="marca" onclick="miCuenta()" aria-label="Mi cuenta">
-      <b class="mono" id="quien">GanamosxLatam</b>
+    <!-- 🔴 EL NOMBRE YA ERA UN BOTÓN Y NADIE LO SABÍA. Tocarlo abre «Mi cuenta» —cambiar la
+         contraseña, ver los datos— pero se veía igual que un rótulo, así que nadie lo tocaba.
+         Pedido del dueño el 9-sep-2026: un engranaje al lado, para que se entienda que ahí se
+         configura la cuenta. El icono va AFUERA de `#quien` porque a ese nodo se le escribe el
+         login con `textContent`, que borraría cualquier cosa que tenga adentro. -->
+    <button class="marca" onclick="miCuenta()" aria-label="Mi cuenta y configuración">
+      <span class="nomb"><b class="mono" id="quien">GanamosxLatam</b>
+        <svg class="tuerca" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/>
+          <path d="M12 2.6l1.5 2.2 2.6-.5.6 2.6 2.4 1.1-1.1 2.4 1.1 2.4-2.4 1.1-.6 2.6-2.6-.5L12 21.4l-1.5-2.2-2.6.5-.6-2.6-2.4-1.1 1.1-2.4-1.1-2.4 2.4-1.1.6-2.6 2.6.5z"/></svg></span>
       <span id="quienNivel">Agente</span>
     </button>
     <button class="icobtn" onclick="salir()">Salir</button>

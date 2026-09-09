@@ -986,6 +986,17 @@ check('sin grilla no se marca nada, en vez de romper',
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
     /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
     && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+  /* 🔴 EL NOMBRE YA ERA UN BOTÓN Y NADIE LO SABÍA. Tocarlo abre «Mi cuenta», pero se veía igual
+     que un rótulo. Un engranaje al lado lo dice sin agregar texto. Va AFUERA de `#quien`: a ese
+     nodo se le escribe el login con `textContent`, que borraría cualquier cosa de adentro. */
+  check('el nombre de arriba muestra que se puede tocar para configurar',
+    /<button class="marca" onclick="miCuenta\(\)"/.test(htmlCaja)
+    && /<svg class="tuerca"/.test(htmlCaja)
+    && /<span class="nomb"><b class="mono" id="quien">/.test(htmlCaja));
+  check('y el engranaje no vive adentro del nodo que se reescribe',
+    !/id="quien"[^>]*>[^<]*<svg/.test(htmlCaja)
+    && /\$\('quien'\)\.textContent/.test(htmlCaja));
+
   /* 🔴 «ESTO VIVE EN EL SISTEMA DE CUENTAS» ERA UNA PUERTA CERRADA SIN PICAPORTE: le contaba al
      cliente cómo están repartidos nuestros sistemas y lo dejaba sin nada para hacer. Mismo criterio
      que el aviso del link: se puede tener, y así se pide. */
