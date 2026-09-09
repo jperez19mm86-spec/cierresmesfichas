@@ -948,6 +948,43 @@ check('sin grilla no se marca nada, en vez de romper',
     sucias.length === 0, sucias.length ? sucias.join(' | ') : 'ninguna');
 }
 
+/* ── 18 · que la pantalla se adapte a la pantalla ───────────────────────────────────────────────
+   🔴 FALTABA LA LÍNEA QUE HACE QUE TODO LO DEMÁS SIRVA. Sin `viewport`, un teléfono arma la página
+   como si midiera 980px y después la achica entera: se ve chica y, peor, NINGUNA regla por tamaño
+   de pantalla se cumple, porque el teléfono se cree ancho. Medido el 9-sep-2026 emulando 375px:
+   `innerWidth` contestaba 980 y el panel entraba por la rama de tablet. */
+{
+  const meta = (htmlCaja.match(/<meta name="viewport"[^>]*>/) || [''])[0];
+  check('la página le dice al teléfono que use el ancho del teléfono',
+    /width=device-width/.test(meta) && /initial-scale=1/.test(meta), meta || 'no está');
+  /* El diseño ya usaba `env(safe-area-inset-bottom)` para no meter los botones abajo de la barra
+     del iPhone, y ese valor da CERO si no se pide `viewport-fit=cover`. */
+  check('y pide el borde completo, que es de donde sale el margen de la barra del iPhone',
+    /viewport-fit=cover/.test(meta) && /env\(safe-area-inset-bottom\)/.test(htmlCaja));
+
+  /* Un solo ancho para el marco, la hoja y la barra de acción. Estaban los tres escritos a mano
+     y tenían que coincidir; el día que uno cambiaba, la hoja quedaba despegada de la columna. */
+  check('el ancho se decide en un solo lugar',
+    /--ancho:440px/.test(htmlCaja)
+    && /\.marco\{max-width:var\(--ancho\)/.test(htmlCaja)
+    && /\.hoja\{[^}]*max-width:var\(--hoja\)/.test(htmlCaja)
+    && /max-width:calc\(var\(--ancho\) - var\(--riel\)\)/.test(htmlCaja));
+  const anchosSueltos = (htmlCaja.match(/max-width:\s*440px/g) || []).length;
+  check('y ya no hay un 440 suelto por ahí', anchosSueltos === 0, `${anchosSueltos} sueltos`);
+
+  check('hay tres escalones: teléfono, tablet y escritorio',
+    /@media \(min-width:720px\)\{ :root/.test(htmlCaja)
+    && /@media \(min-width:1100px\)\{ :root/.test(htmlCaja));
+  /* En escritorio la tira de secciones deja de ser una tira: se para de costado. */
+  check('en escritorio las secciones van al costado',
+    /@media \(min-width:1100px\)\{\n\s*\.marco\{display:grid/.test(htmlCaja)
+    && /\.secs\{grid-column:1; grid-row:3; flex-direction:column/.test(htmlCaja));
+  /* Y la hoja deja de subir desde abajo, que es el gesto del pulgar. */
+  check('y la hoja se centra en vez de subir desde el borde',
+    /@media \(min-height:640px\) and \(min-width:760px\)/.test(htmlCaja)
+    && /\.hoja\{bottom:auto; top:50%/.test(htmlCaja));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

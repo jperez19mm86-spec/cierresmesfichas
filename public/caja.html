@@ -4,6 +4,14 @@
      — y un ID de siete cifras al lado de un nombre les parece una. Acá no hay ninguna dirección ni
      teléfono que valga la pena detectar, así que se apagan los cuatro. -->
 <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
+<!-- 🔴 ESTA LÍNEA NO ESTABA, Y SIN ELLA NADA DE LO DE ABAJO FUNCIONA. Un teléfono que no recibe
+     esta instrucción no dibuja la página al ancho de su pantalla: la arma como si midiera 980px y
+     después la achica entera para que entre. Todo se ve chico, y sobre todo NINGUNA regla por
+     tamaño de pantalla se cumple: el teléfono se cree de 980px, así que entraba por la rama de
+     tablet. Medido el 9-sep-2026 con la pantalla emulada en 375px: `innerWidth` contestaba 980.
+     `viewport-fit=cover` va porque el diseño ya usaba `env(safe-area-inset-bottom)` para no
+     meter los botones abajo de la barra del iPhone, y ese valor da cero sin esto. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mi Caja</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -611,9 +619,12 @@ button{font-family:inherit}
    Tres escalones, no un continuo: el teléfono como está, la tablet con aire, y el escritorio con
    una columna cómoda de leer. Más ancho que eso no ayuda —una fila de importes de 1200px obliga a
    barrer la pantalla con la vista de una punta a la otra para juntar el nombre con su número—. */
-:root{ --ancho:440px; }
-@media (min-width:720px){ :root{ --ancho:620px } }
-@media (min-width:1100px){ :root{ --ancho:780px } }
+/* `--ancho` es todo el marco. `--hoja` es el cuadro que se abre encima, que NO crece igual: un
+   diálogo de 1000px se lee peor que uno de 660. Y `--riel` es la columna de secciones, que en
+   teléfono y tablet vale cero porque ahí las secciones siguen arriba. */
+:root{ --ancho:440px; --hoja:440px; --riel:0px; }
+@media (min-width:720px){ :root{ --ancho:620px; --hoja:620px } }
+@media (min-width:1100px){ :root{ --ancho:1040px; --hoja:660px; --riel:236px } }
 
 .marco{max-width:var(--ancho); margin:0 auto; min-height:100vh; min-height:100dvh;
   background:var(--bg);
@@ -655,6 +666,38 @@ button{font-family:inherit}
 .secs button[aria-current="true"]{color:var(--g); border-bottom-color:var(--g)}
 
 .scroll{flex:1; overflow-y:auto; padding:14px 14px 96px}
+
+/* ══════ EN ESCRITORIO LAS SECCIONES VAN AL COSTADO ══════
+   🔴 La tira de secciones arriba es de teléfono: ahí el ancho es lo escaso y la altura sobra. En
+   una notebook es al revés —sobra ancho y falta alto—, y una tira horizontal gasta un renglón
+   entero de altura para cinco palabras, además de esconder las últimas detrás de un desplazamiento
+   lateral que en un mouse casi nadie descubre. Al costado se ven TODAS de una y se lee cuál está
+   abierta sin buscar el subrayado.
+   El marco pasa a grilla: la franja de pruebas y la barra de arriba cruzan entera, y abajo quedan
+   dos columnas. Login y hub también cruzan enteros, porque cuando se ven no hay secciones. */
+@media (min-width:1100px){
+  .marco{display:grid; grid-template-columns:var(--riel) minmax(0, 1fr);
+    grid-template-rows:auto auto minmax(0, 1fr); align-content:start}
+  .marco > .aviso, .marco > .top{grid-column:1 / -1}
+  /* Login y hub se ven cuando NO hay secciones, así que se quedan con las dos columnas y con las
+     dos filas de abajo: si sólo tomaran la fila automática quedaban pegados arriba, con la mitad
+     de la pantalla vacía debajo. */
+  .marco > .login, .marco > .hub{grid-column:1 / -1; grid-row:2 / -1}
+  /* Y la tarjeta de acceso no se estira: son dos campos, un formulario de 1000px de ancho se lee
+     peor y no entra en ninguna idea de formulario. */
+  .login .tarjeta{max-width:420px; width:100%; margin-inline:auto}
+  .hub{max-width:620px; margin-inline:auto; width:100%}
+  .secs{grid-column:1; grid-row:3; flex-direction:column; gap:2px;
+    overflow-x:visible; overflow-y:auto; padding:12px 10px;
+    border-bottom:none; border-right:1px solid var(--bor);
+    top:0; align-self:stretch}
+  .secs button{width:100%; text-align:left; border-bottom:none; border-radius:10px;
+    padding:10px 12px; font-size:13.5px}
+  .secs button:hover{background:var(--bg3); color:var(--txt)}
+  /* Abierta: fondo en vez de subrayado. Un subrayado abajo de un botón vertical no dice nada. */
+  .secs button[aria-current="true"]{background:var(--bg3); color:var(--g)}
+  .scroll{grid-column:2; grid-row:3; padding:18px 20px 96px}
+}
 
 .saldo{background:var(--marca-grad); border:none; border-radius:20px; padding:17px;
   box-shadow:0 12px 30px -18px rgba(42,11,77,.72); margin-bottom:14px; color:var(--lg-tx)}
@@ -738,7 +781,8 @@ button{font-family:inherit}
 .fila-b .bal .pm{font-size:15px; font-weight:700; color:var(--g); line-height:1}
 .vacio{text-align:center; color:var(--mut); font-size:13.5px; padding:26px 10px}
 
-.fab{position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:var(--ancho);
+.fab{position:fixed; left:calc(50% + var(--riel) / 2); transform:translateX(-50%); bottom:0;
+  width:100%; max-width:calc(var(--ancho) - var(--riel));
   padding:12px 14px calc(14px + env(safe-area-inset-bottom));
   background:linear-gradient(to top, var(--bg) 62%, transparent); z-index:15}
 .btn{width:100%; background:var(--marca-accion); color:#fff; border:none; border-radius:14px;
@@ -1058,7 +1102,7 @@ button{font-family:inherit}
 .fondo{position:fixed; inset:0; background:rgba(20,14,26,.5); backdrop-filter:blur(2px);
   z-index:30; opacity:0; pointer-events:none; transition:opacity .18s}
 .fondo.abierto{opacity:1; pointer-events:auto}
-.hoja{position:fixed; left:50%; bottom:0; width:100%; max-width:var(--ancho); z-index:31;
+.hoja{position:fixed; left:50%; bottom:0; width:100%; max-width:var(--hoja); z-index:31;
   background:var(--bg2);
   border-top:1px solid var(--bor2); border-radius:20px 20px 0 0; box-shadow:var(--sheet);
   padding:8px 16px calc(18px + env(safe-area-inset-bottom));
