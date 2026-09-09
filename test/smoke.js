@@ -9492,6 +9492,55 @@ async function main() {
       !/os\/carga/.test(rutasOp.split('const OPERADOR_PUEDE')[1].split('];')[0]));
   }
 
+  /* ── "SISTEMAS" ERA UN SEGUNDO LUGAR PARA LO MISMO ───────────────────────────────────────────
+     Este panel tenía su propia tabla de Sistemas, con su URL, su usuario y su contraseña del
+     casino. Pero cargar fichas usa las CONEXIONES del OS, las marcadas con «carga fichas de X».
+     La tabla de acá quedó vacía, y con ella vacía el desplegable para elegir el sistema de una caja
+     nueva no ofrecía UNA sola opción: no se podía abrir una caja desde este panel. */
+  {
+    /* Se crea POR HTTP y no llamando al store: el server corre en OTRO proceso, con su propia
+       base de prueba. Escribir en la de este proceso no la ve, y el check pasaría o fallaría por
+       el motivo equivocado. */
+    const nueva = await post('/api/os/casino/conexiones',
+      { nombre: 'Casino_Fichas_ZZ', url: 'admin.zz.test', usuario: 'zz', password: 'x', motor: '463' });
+    const cxId = nueva.data.conexion.id;
+    await put('/api/os/casino/conexiones/' + cxId, { carga_de: 'CasinoZZ' });
+
+    const r1 = await get('/api/despacho/sistemas');
+    const nombres = (r1.data.systems || []).map((x) => x.name);
+    check('sistemas: la lista sale de las conexiones del casino, no de la tabla vieja',
+      r1.data.ok === true && nombres.includes('CasinoZZ'), nombres.join(', '));
+    const fila = (r1.data.systems || []).find((x) => x.name === 'CasinoZZ');
+    check('sistemas: y dice con qué conexión carga cada uno', fila && fila.conexion === 'Casino_Fichas_ZZ',
+      JSON.stringify(fila));
+    /* Es lo MISMO que mira el servidor al mover fichas. Se comprueba pidiéndole que cargue: si la
+       lista y la carga se separaran, la pantalla ofrecería sistemas en los que después no se puede
+       cargar. Falla por no poder entrar al casino de mentira, no por no encontrar el sistema. */
+    const intento = await post('/api/pedidos/no-existe/cargar', {});
+    check('sistemas: lo que se ofrece es lo que después puede cargar de verdad',
+      !/No hay con qué cargar en "CasinoZZ"/.test(JSON.stringify(intento.data)));
+    // Nunca la URL ni la contraseña: esta ruta la pide también el operador.
+    check('sistemas: no viaja con qué credenciales se entra al casino',
+      !/admin\.zz\.test/.test(JSON.stringify(r1.data)));
+
+    // Una conexión apagada no se ofrece: cargar ahí falla.
+    await put('/api/os/casino/conexiones/' + cxId, { activa: false });
+    const r2 = await get('/api/despacho/sistemas');
+    check('sistemas: una conexión apagada no se ofrece',
+      !(r2.data.systems || []).some((x) => x.name === 'CasinoZZ'));
+    await axios.delete(BASE + '/api/os/casino/conexiones/' + cxId, H());
+
+    // Y la pantalla ya no tiene el formulario que creaba el segundo lugar.
+    const fiS = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('sistemas: el panel ya no puede dar de alta uno por su cuenta',
+      !/function addSystem/.test(fiS) && !/id="newPass"/.test(fiS) && !/Agregar página \/ sistema/.test(fiS));
+    check('sistemas: y en su lugar dice dónde se configuran de verdad',
+      /Dónde se cargan las fichas/.test(fiS) && /Panel<\/a>\s*→\s*<strong>Casino/.test(fiS));
+    check('sistemas: el desplegable de la caja se llena desde la ruta de despacho',
+      /api\('\/api\/despacho\/sistemas'\)/.test(fiS)
+      && !/await api\('\/api\/systems'\)/.test(fiS));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();

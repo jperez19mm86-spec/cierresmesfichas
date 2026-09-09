@@ -297,11 +297,37 @@ app.get('/api/despacho/clientes', (_req, res) => {
   res.json({ ok: true, clientes: cs });
 });
 
-/** Los paneles, sin la URL ni el usuario con el que el OS entra al casino. */
+/**
+ * ── LOS SISTEMAS EN LOS QUE SE PUEDE CARGAR ──────────────────────────────────────────────────
+ *
+ * Salen de las conexiones del casino marcadas con «carga fichas de X», que es EXACTAMENTE lo que
+ * mira `sistemaParaCargar` cuando llega el momento de mover las fichas. Antes esta lista salía de
+ * la tabla vieja de Sistemas —la que tenía este panel con su propia URL y su propia contraseña— y
+ * eso eran dos lugares para lo mismo, con el de acá vacío desde hace rato: el desplegable para
+ * elegir el sistema de una caja nueva no ofrecía UNA sola opción, así que no se podía abrir una
+ * caja desde este panel.
+ *
+ * Se le suma lo que quede en la tabla vieja porque `sistemaParaCargar` la sigue usando de respaldo:
+ * si algún día hay algo ahí, tiene que poder elegirse. Va marcado, para que se note de dónde viene.
+ *
+ * Nunca la URL ni el usuario con el que el OS entra al casino: esto lo pide también el operador.
+ */
+function sistemasQueCargan() {
+  const out = [];
+  const meter = (name, conexion) => {
+    const n = String(name || '').trim();
+    if (n && !out.some((x) => x.name.toLowerCase() === n.toLowerCase())) out.push({ name: n, conexion });
+  };
+  for (const c of casinoConexStore.list()) {
+    if (c.activa === false || (c.motor || '463') !== '463') continue;
+    meter(c.carga_de, c.nombre);
+  }
+  for (const s of store.list().systems) meter(s.name, null);
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
 app.get('/api/despacho/sistemas', (_req, res) => {
-  const data = store.list();
-  res.json({ ok: true, activeId: data.activeId,
-    systems: data.systems.map((x) => ({ id: x.id, name: x.name })) });
+  res.json({ ok: true, systems: sistemasQueCargan() });
 });
 
 /** Quién soy: la pantalla necesita saber el rol para no ofrecer lo que el server va a rechazar. */

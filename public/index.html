@@ -214,46 +214,16 @@
 
 <div id="view-config" style="display:none">
   <div class="card">
-    <h2>Sistemas (páginas de agente)</h2>
+    <h2>🎰 Dónde se cargan las fichas</h2>
     <p class="meta" style="margin-top:0">
-      Cada sistema es una página de admin distinta (con sus propias cajas). Se entra por
-      <strong>usuario y contraseña</strong>. Poné un nombre para reconocerlo (ej. <code>Casino</code>, <code>Europa</code>)
-      y elegí cuál es el <strong>activo</strong> para operar.
+      Las páginas de admin del casino —con su URL, su usuario y su contraseña— se configuran
+      <strong>una sola vez</strong> en <a href="/os">📊 Panel</a> → <strong>Casino</strong>, marcando
+      en cada conexión de qué sistema <strong>carga fichas</strong>. Acá sólo se muestran, para
+      saber con qué se está trabajando.
     </p>
-    <div id="systemsList"><div class="empty">Cargando…</div></div>
+    <div id="sistemasList"><div class="empty">Cargando…</div></div>
   </div>
 
-  <!-- Agregar sistema -->
-  <div class="card">
-    <h2>➕ Agregar página / sistema</h2>
-    <div class="grid3">
-      <div>
-        <label>Nombre (editable)</label>
-        <input id="newName" placeholder="Casino" autocomplete="off" />
-      </div>
-      <div>
-        <label>URL del admin</label>
-        <input id="newUrl" placeholder="admin.463.life" autocomplete="off" />
-      </div>
-      <div></div>
-    </div>
-    <div class="grid3" style="margin-top:10px">
-      <div>
-        <label>Usuario</label>
-        <input id="newUser" placeholder="463.life" autocomplete="off" />
-      </div>
-      <div>
-        <label>Contraseña</label>
-        <input id="newPass" type="password" placeholder="••••••••" autocomplete="new-password" />
-      </div>
-      <div style="display:flex; align-items:flex-end; gap:8px">
-        <button class="outline" onclick="testNewCreds()" style="flex:1">🔌 Probar</button>
-        <button onclick="addSystem()" style="flex:1">Agregar</button>
-      </div>
-    </div>
-    <div id="newResult" class="status" style="margin-top:10px"></div>
-    <div class="hint">Sin <code>https://</code> está OK — se agrega solo. La contraseña se guarda solo en tu máquina (carpeta <code>data/</code>, no se sube a GitHub).</div>
-  </div>
   <div class="card">
     <h2>📣 Avisos por Telegram <span class="meta" id="cfgStatus"></span></h2>
     <p class="meta" style="margin-top:0">
@@ -304,7 +274,6 @@
 </main>
 
 <script>
-  let _data = { activeId: '', systems: [] };
 
   function esc(s) {
     return String(s == null ? '' : s)
@@ -320,136 +289,46 @@
     return { status: r.status, body };
   }
 
-  async function loadSystems() {
-    const { body } = await api('/api/systems');
-    _data = body && body.ok ? body : { activeId: '', systems: [] };
-    renderSystems();
+  /* ── DE DÓNDE SALEN "Casino" Y "Europa" ──────────────────────────────────────────────────────
+     De las conexiones del OS marcadas con «carga fichas de X», que es exactamente lo que mira el
+     servidor cuando llega el momento de mover las fichas. Antes salían de una tabla de Sistemas
+     propia de este panel, con su propia URL y su propia contraseña: dos lugares para lo mismo, y
+     el de acá quedó vacío hace rato. El resultado era que el desplegable para elegir el sistema de
+     una caja nueva no tenía UNA sola opción, así que no se podía abrir una caja desde este panel.
+     Se pide una vez al entrar y cada vez que se abre Clientes o Configuración. */
+  let _sistemas = [];
+
+  async function loadSistemas() {
+    try {
+      const { body } = await api('/api/despacho/sistemas');
+      _sistemas = body && body.ok ? body.systems : [];
+    } catch (e) { _sistemas = []; }
+    _systemNames = _sistemas.map((s) => s.name);
+    pintarSistemas();
   }
 
-  function renderSystems() {
-    const list = document.getElementById('systemsList');
+  function pintarSistemas() {
     const banner = document.getElementById('activeBanner');
-    const active = _data.systems.find(s => s.id === _data.activeId);
-    banner.innerHTML = active
-      ? `Sistema activo: <strong style="color:var(--gold)">${esc(active.name)}</strong> <span class="meta">(${esc(active.url)})</span>`
-      : '<span class="meta">Ningún sistema activo</span>';
-
-    if (!_data.systems.length) {
-      list.innerHTML = '<div class="empty">No hay sistemas todavía. Agregá el primero abajo. 👇</div>';
+    if (banner) {
+      banner.innerHTML = _systemNames.length
+        ? 'Carga fichas en: <strong style="color:var(--gold)">' + _systemNames.map(esc).join(' · ') + '</strong>'
+        : '<span class="badge warn">sin sistemas</span> <span class="meta">ninguna conexión dice de qué sistema carga fichas</span>';
+    }
+    const list = document.getElementById('sistemasList');
+    if (!list) return;
+    if (!_sistemas.length) {
+      /* No es "todavía no cargaste nada": es que ninguna conexión tiene marcado el sistema del que
+         carga. Se dice dónde se arregla, porque no se arregla en esta pantalla. */
+      list.innerHTML = '<div class="empty">Ninguna conexión del casino tiene marcado «carga fichas de…».'
+        + '<br>Se marca en <a href="/os">📊 Panel</a> → Casino. Sin eso no se puede cargar ni abrir una caja.</div>';
       return;
     }
-
-    list.innerHTML = _data.systems.map(s => {
-      const isActive = s.id === _data.activeId;
-      const last = s.lastLoginAt
-        ? `<span class="badge ${s.lastLoginOk ? 'ok' : 'err'}">${s.lastLoginOk ? '✓ conectó' : '✗ falló'}</span> <span class="meta">${new Date(s.lastLoginAt).toLocaleString()}</span>`
-        : '<span class="meta">sin probar</span>';
-      return `
-      <div class="sys ${isActive ? 'is-active' : ''}" id="sys-${s.id}">
-        <div class="sys-head">
-          <input class="name-input" id="name-${s.id}" value="${esc(s.name)}" title="Nombre (editable)" />
-          ${isActive ? '<span class="badge active">★ activo</span>' : ''}
-        </div>
-        <div class="grid3">
-          <div>
-            <label>URL del admin</label>
-            <input id="url-${s.id}" value="${esc(s.url)}" />
-          </div>
-          <div>
-            <label>Usuario</label>
-            <input id="user-${s.id}" value="${esc(s.user)}" />
-          </div>
-          <div>
-            <label>Contraseña ${s.hasPassword ? '<span class="meta">(guardada)</span>' : '<span class="badge warn">falta</span>'}</label>
-            <input id="pass-${s.id}" type="password" placeholder="${s.hasPassword ? '•••••• (sin cambios)' : 'escribí la contraseña'}" autocomplete="new-password" />
-          </div>
-        </div>
-        <div class="actions">
-          ${isActive ? '' : `<button class="outline small" onclick="activateSystem('${s.id}')">★ Usar este</button>`}
-          <button class="outline small" onclick="testSystem('${s.id}')">🔌 Probar conexión</button>
-          <span class="status" id="status-${s.id}">${last}</span>
-          <span class="spacer"></span>
-          <button class="small" onclick="saveSystem('${s.id}')">💾 Guardar</button>
-          <button class="danger small" onclick="deleteSystem('${s.id}')">🗑 Eliminar</button>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  async function addSystem() {
-    const name = document.getElementById('newName').value.trim();
-    const url = document.getElementById('newUrl').value.trim();
-    const user = document.getElementById('newUser').value.trim();
-    const password = document.getElementById('newPass').value;
-    const out = document.getElementById('newResult');
-    if (!url || !user) { out.innerHTML = '<span class="badge err">Faltan datos</span> URL y usuario son obligatorios.'; return; }
-    out.innerHTML = '<span class="meta">⏳ guardando…</span>';
-    const { body } = await api('/api/systems', { method: 'POST', body: JSON.stringify({ name, url, user, password }) });
-    if (body && body.ok) {
-      out.innerHTML = '<span class="badge ok">✓ agregado</span>';
-      ['newName', 'newUrl', 'newUser', 'newPass'].forEach(id => document.getElementById(id).value = '');
-      await loadSystems();
-      setTimeout(() => { out.innerHTML = ''; }, 2500);
-    } else {
-      out.innerHTML = `<span class="badge err">Error</span> ${esc(body && body.error || 'desconocido')}`;
-    }
-  }
-
-  async function saveSystem(id) {
-    const patch = {
-      name: document.getElementById(`name-${id}`).value,
-      url: document.getElementById(`url-${id}`).value,
-      user: document.getElementById(`user-${id}`).value,
-      password: document.getElementById(`pass-${id}`).value, // vacío = mantener
-    };
-    const st = document.getElementById(`status-${id}`);
-    st.innerHTML = '<span class="meta">⏳ guardando…</span>';
-    const { body } = await api(`/api/systems/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
-    if (body && body.ok) { st.innerHTML = '<span class="badge ok">✓ guardado</span>'; await loadSystems(); }
-    else st.innerHTML = `<span class="badge err">Error</span> ${esc(body && body.error || '')}`;
-  }
-
-  async function deleteSystem(id) {
-    const s = _data.systems.find(x => x.id === id);
-    if (!confirm(`¿Eliminar el sistema "${s ? s.name : id}"? Esto borra su URL/usuario/contraseña guardados.`)) return;
-    const { body } = await api(`/api/systems/${id}`, { method: 'DELETE' });
-    if (body && body.ok) await loadSystems();
-    else alert('No se pudo eliminar: ' + (body && body.error || ''));
-  }
-
-  async function activateSystem(id) {
-    const { body } = await api(`/api/systems/${id}/activate`, { method: 'POST' });
-    if (body && body.ok) await loadSystems();
-  }
-
-  async function testSystem(id) {
-    const st = document.getElementById(`status-${id}`);
-    st.innerHTML = '<span class="meta">⏳ conectando…</span>';
-    const { body } = await api(`/api/systems/${id}/test`, { method: 'POST' });
-    st.innerHTML = renderTestResult(body);
-    // refrescar lastLogin sin perder lo escrito en los inputs de contraseña
-    const { body: fresh } = await api('/api/systems');
-    if (fresh && fresh.ok) { _data = fresh; }
-  }
-
-  async function testNewCreds() {
-    const url = document.getElementById('newUrl').value.trim();
-    const user = document.getElementById('newUser').value.trim();
-    const password = document.getElementById('newPass').value;
-    const out = document.getElementById('newResult');
-    if (!url || !user || !password) { out.innerHTML = '<span class="badge err">Faltan datos</span> Completá URL, usuario y contraseña para probar.'; return; }
-    out.innerHTML = '<span class="meta">⏳ conectando…</span>';
-    const { body } = await api('/api/test-credentials', { method: 'POST', body: JSON.stringify({ url, user, password }) });
-    out.innerHTML = renderTestResult(body);
-  }
-
-  function renderTestResult(body) {
-    if (!body) return '<span class="badge err">Sin respuesta</span>';
-    if (body.ok) {
-      const v = body.verified ? ' · <span class="meta">sesión verificada</span>' : '';
-      return `<span class="badge ok">✓ Conectó</span>${v}`;
-    }
-    return `<span class="badge err">✗ No conectó</span> <span class="meta">${esc(body.detail || body.error || ('HTTP ' + (body.status || '?')))}</span>`;
+    list.innerHTML = '<table class="hist"><thead><tr><th>Sistema</th><th>Con qué conexión carga</th></tr></thead><tbody>'
+      + _sistemas.map((s) => '<tr><td data-label="Sistema"><b>' + esc(s.name) + '</b></td>'
+        + '<td data-label="Con qué conexión carga">' + (s.conexion
+          ? '<code>' + esc(s.conexion) + '</code>'
+          : '<span class="badge warn">de la tabla vieja de Sistemas</span>') + '</td></tr>').join('')
+      + '</tbody></table>';
   }
 
   // ═══════════ NAVEGACIÓN ═══════════
@@ -458,8 +337,8 @@
       document.getElementById('view-' + v).style.display = name === v ? '' : 'none';
       document.getElementById('nav-' + v).classList.toggle('active', name === v);
     }
-    if (name === 'clientes') { loadSystemNames().then(loadClientes); }
-    if (name === 'config') { loadConfig(); loadSystems(); }
+    if (name === 'clientes') { loadSistemas().then(loadClientes); }
+    if (name === 'config') { loadConfig(); loadSistemas(); }
     if (name === 'solicitud') solCargar();
     if (name === 'pedidos') loadPedidos();
     if (name === 'historial') loadHistorial();
@@ -494,13 +373,6 @@
   let _clientes = [];
   let _systemNames = [];
   const _expanded = new Set();
-
-  async function loadSystemNames() {
-    try {
-      const { body } = await api('/api/systems');
-      _systemNames = body && body.ok ? body.systems.map(s => s.name) : [];
-    } catch { _systemNames = []; }
-  }
 
   /* El operador no puede pedir /api/clientes — ese trae margen_externos_pct, tc_proveedor y la
      config de Telegram. Tiene su propia ruta con lo justo para despachar: código, nombre, estado
@@ -1136,7 +1008,7 @@
   }
 
   // init
-  loadSystems();          // datos de sistemas + banner del header
+  loadSistemas();         // qué sistemas cargan fichas + banner del header
   // Primero quién soy: si es el operador hay que esconder Configuración ANTES de pintar nada.
   quienSoy().then(() => switchView('pedidos'));
   refreshPedBadge();
