@@ -782,6 +782,69 @@ check('sin grilla no se marca nada, en vez de romper',
     js[0].dateTime === '2026-09-08 22:54:12', js[0].dateTime);
 }
 
+/* ── 16 · las seis formas, contra el mapeo de verdad ────────────────────────────────────────────
+   Se recorta el mapeo REAL de `/api/caja/ronda` y se le pasan rondas tal cual las devolvió el
+   casino, una por sello. Si mañana alguien cambia ese mapeo pensando en un solo proveedor, esto
+   dice cuál rompió. Las muestras salieron de jugar una ronda con cada uno, el 7 y 8-sep-2026. */
+{
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  const desde = rutas.indexOf('rondas: (d.data.history || []).map((f) => {');
+  const ini = rutas.indexOf('return {', desde);
+  const objeto = rutas.slice(ini + 'return '.length, rutas.indexOf('}; }),', ini) + 1);
+  const comoJson = (t) => {
+    if (t == null || t === '') return null;
+    if (typeof t === 'object') return t;
+    try { return JSON.parse(t); } catch (e) { return null; }
+  };
+  // eslint-disable-next-line no-new-func
+  const mapear = new Function('f', 'comoJson',
+    'const mat = comoJson(f.matrix) || {}; '
+    + 'const grilla = Array.isArray(mat.matrix) && mat.matrix.length ? mat.matrix : null; '
+    + 'return ' + objeto + ';');
+
+  const REALES = {
+    'XG · RUBYPLAY': { id:'1935954461', bet:10, win:0, balance_before:609400,
+      matrix:'{"matrix":[["1","4"],["6","7"]],"imgUrl":"https://cdn/x/","imgSize":69.6}',
+      win_lines:[], date_time:'2026-09-04 15:41:57', trade_id:'7382837_TSoph_810033_178853' },
+    'SL2 · 3OAKS': { id:'19757513207', bet:'20.00', win:'60.00', before:'6222.00',
+      matrix:{ matrix:[[{ image:'10', value:30 }, 2]], imgUrl:'https://cdn/3oaks/', class:'slot' },
+      winLines:[{ s:'12', c:3, w:60, e:[[0,0]] }], dateTime:'2026-09-07 09:35:00',
+      info:'{"round_id":"1370639797"}' },
+    'OP · RED TIGER': { id:'19672131407', bet:'70.00', win:'8.00', before:'6084.00',
+      matrix:{}, winLines:[], dateTime:'2026-09-04 12:50:00', info:'{"round_id":36699859848}' },
+    'ImperiumBet': { id:'3371000', balance_before:'4,671.10', bet:'100.00', win:'0.00',
+      bet_id:'86827689699', datetime_bet:'2026-09-07 10:03:55',
+      info:'[{"ChampName":"China Championship U20","Coef":3.62,"CouponType":"Single","Event":"W1",'
+        + '"GameName":"Wuhan - Guangdong","IsLive":true,"Score":"0:0","SportName":"Football"}]' },
+    'Jacktop': { id:'2190741708', balance_before:'4,471.10', bet:'100.00', win:'0.00',
+      datetime_bet:'2026-09-08 22:29:00', refund:'no' },
+    'TVBet': { id:'3832110124', balance_before:'4,471.10', bet:'500.00', win:'0.00',
+      datetime_bet:'2026-09-08 23:00:52', refund:'no' },
+  };
+  const r = Object.fromEntries(Object.entries(REALES).map(([k, f]) => [k, mapear(f, comoJson)]));
+
+  check('todas las formas dan una fecha y un número para soporte',
+    Object.values(r).every((x) => x.cuando && x.idSoporte),
+    Object.entries(r).filter(([, x]) => !x.cuando || !x.idSoporte).map(([k]) => k).join(',') || 'las seis');
+  check('sólo los sellos con grilla traen matriz',
+    !!r['XG · RUBYPLAY'].matriz && !!r['SL2 · 3OAKS'].matriz
+    && !r['OP · RED TIGER'].matriz && !r.Jacktop.matriz && !r.TVBet.matriz);
+  check('el número para soporte es el más específico de cada uno',
+    r['XG · RUBYPLAY'].idSoporte.startsWith('7382837_')      // trade_id
+    && r['SL2 · 3OAKS'].idSoporte === '1370639797'           // info.round_id
+    && r.ImperiumBet.idSoporte === '86827689699'             // bet_id, el ticket
+    && r.TVBet.idSoporte === '3832110124',                   // el id, que siempre está
+    r.TVBet.idSoporte);
+  check('la apuesta deportiva pasa su cupón y las demás no',
+    !!r.ImperiumBet.apuestas && r.ImperiumBet.apuestas[0].SportName === 'Football'
+    && !r.Jacktop.apuestas && !r['XG · RUBYPLAY'].apuestas);
+  check('TVBet y Jacktop comparten forma: mismo mapeo, mismos campos',
+    JSON.stringify(Object.keys(r.TVBet)) === JSON.stringify(Object.keys(r.Jacktop))
+    && r.TVBet.devuelta === null && r.Jacktop.devuelta === null);
+  check('y todas quedan marcadas como jugada, porque movieron fichas',
+    Object.values(r).every((x) => x.esJugada === true));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
