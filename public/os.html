@@ -3144,6 +3144,8 @@ VIEWS.carga = async () => {
           <input id="cg-monto" inputmode="decimal" placeholder="10000" oninput="cgLuego()"></div>
         <div style="flex:0 0 120px"><label>En</label>
           <select id="cg-div" onchange="cgCalcular()"><option value="USD">USD</option></select></div>
+        <div style="flex:0 0 150px"><label>Mes</label>
+          <input type="month" id="cg-mes" value="${esc(new Date().toISOString().slice(0,7))}" onchange="cgCalcular()"></div>
         <div style="flex:0"><button onclick="cgCalcular()">Calcular</button></div>
       </div>
     </div>
@@ -3187,7 +3189,7 @@ async function cgCalcular(){
   out.innerHTML = '<div class="card"><div class="muted">Calculando…</div></div>';
   const r = await api('/api/os/carga/calcular?cliente_id=' + encodeURIComponent(cli)
     + '&caja_id=' + encodeURIComponent(caja) + '&monto=' + encodeURIComponent(monto)
-    + '&divisa=' + encodeURIComponent(val('cg-div')));
+    + '&divisa=' + encodeURIComponent(val('cg-div')) + '&mes=' + encodeURIComponent(val('cg-mes')));
   if(!r || !r.ok){ out.innerHTML = '<div class="card"><div class="badge err">' + esc((r&&r.error)||'no se pudo') + '</div></div>'; _cgRes = null; return; }
   _cgRes = r;
   const M = (x, d) => money(x, d == null ? 2 : d);
@@ -3196,8 +3198,26 @@ async function cgCalcular(){
   const B = modo === 'pago' ? r.comoFichas : r.comoPago;   // la otra, abajo y en chico
   _cgUsar = A;
   const D = esc(A.divisa), P = M(r.pide.monto) + ' ' + esc(r.pide.divisa);
-  out.innerHTML = `
-    <div class="card" style="background:var(--bg3)">
+  /* ── SE PREGUNTA UNA VEZ POR MES Y POR CLIENTE ────────────────────────────────────────────
+     El % no es fijo: es una serie con fechas, y el momento en que alguien SABE si cambió es justo
+     antes de la primera carga del mes. Titan estuvo al 5 y desde septiembre va al 7 — sin esta
+     pregunta, la primera carga de septiembre se anotaba al 5 y nadie se enteraba hasta el cierre. */
+  const preguntar = r.base && !r.base.confirmada;
+  const cab = preguntar ? `
+    <div class="card" style="margin:8px 0;border-left:3px solid var(--gold)">
+      <b>¿${esc(r.cliente.nombre)} trabaja al ${esc(r.base.pct)}% en ${esc(mesNombre(r.mes))}?</b>
+      <div class="muted" style="margin-top:2px">Sale de ${esc(r.base.fuente)}. Se pregunta una sola vez por mes.</div>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:0"><button onclick="cgBase('${esc(r.base.pct)}')">Sí, ${esc(r.base.pct)}%</button></div>
+        <div style="flex:0 0 120px"><label>No, es otro</label><input id="cg-otro" inputmode="decimal" placeholder="7"></div>
+        <div style="flex:0"><button class="outline" onclick="cgBase()">Guardar</button></div>
+        <div class="muted" style="flex:1 1 220px;align-self:center;font-size:11.5px">
+          Si es otro, se guarda como vigente <b>desde el 1 de ${esc(mesNombre(r.mes))}</b>: los meses
+          anteriores quedan como estaban y la carga de verdad lo va a tomar.</div>
+      </div>
+    </div>` : '';
+  out.innerHTML = cab + `
+    <div class="card" style="background:var(--bg3)${preguntar ? ';opacity:.55' : ''}">
       <label>Cargar en ${esc(r.caja.usuario)}</label>
       <div style="font-size:34px;font-weight:800;color:var(--gold);line-height:1.15">${M(A.cargar)} <span style="font-size:18px">${D}</span></div>
       <div class="muted" style="margin-top:2px">
@@ -3218,9 +3238,29 @@ async function cgCalcular(){
       ${(r.avisos||[]).length ? '<div class="muted" style="margin-top:10px;color:var(--gold)">⚠ ' + r.avisos.map(esc).join('<br>⚠ ') + '</div>' : ''}
       <div class="row" style="margin-top:12px">
         <button class="outline" onclick="cgCopiar()">📋 Copiar el monto</button>
-        <button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>
+        ${preguntar
+          ? '<span class="muted" style="align-self:center">Confirmá el % arriba para poder crear el pedido</span>'
+          : '<button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>'}
       </div>
     </div>`;
+}
+
+/* Contesta la pregunta del %. Con el mismo número sólo anota la confirmación; con otro además lo
+   guarda como VIGENCIA desde el 1 de ese mes —no como corrección— así los meses anteriores quedan
+   como estaban y la carga real, que lee el vigente de hoy, lo toma. */
+async function cgBase(pct){
+  const r = _cgRes; if(!r) return;
+  const v = String(pct != null ? pct : val('cg-otro')).trim().replace(',', '.');
+  if(!(Number(v) >= 0)) return toast('Escribí un % válido', true);
+  if(pct == null && !confirm('¿' + r.cliente.nombre + ' pasa a trabajar al ' + v + '% desde el 1 de '
+    + mesNombre(r.mes) + '?\n\nLos meses anteriores quedan como estaban.')) return;
+  const x = await api('/api/os/carga/base', { method:'POST', body: JSON.stringify({
+    cliente_id: r.cliente.id, mes: r.mes, pct: v }) });
+  if(!x || !x.ok) return toast('No se guardó: ' + ((x&&x.error)||''), true);
+  toast(x.cambio ? ('✔ ' + r.cliente.nombre + ' al ' + v + '% desde ' + mesNombre(r.mes)
+                    + (x.antes != null ? ' (antes ' + x.antes + '%)' : ''))
+                 : ('✔ Confirmado al ' + v + '%'));
+  cgCalcular();
 }
 
 function cgCopiar(){

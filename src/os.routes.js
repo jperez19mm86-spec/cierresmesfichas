@@ -4874,8 +4874,25 @@ function mount(app) {
 
     const panel = paneles.list().find((p) => String(p.id_usuario) === String(caja.userId)
       || (p.nombre === caja.usuario && p.cliente_id === cli.id)) || null;
-    const base = deudaCargaSvc.baseDe(cli, panel);
+
+    /* ── EL % DE ESE MES, Y SI YA SE CONFIRMÓ ──────────────────────────────────────────────────
+       El % no es un número fijo del cliente: es una serie con fechas. Titan estuvo al 5 y desde
+       septiembre va al 7. `baseDelMes` mira primero el CONFIRMADO de ese mes y después el vigente
+       al cierre — la misma función que usa la facturación, para que no puedan decir distinto.
+
+       ⚠️ Y se compara contra el que usaría la carga DE VERDAD, que toma el vigente de HOY. Si dan
+       distinto se avisa: significa que el % de ese mes no está escrito como vigencia y la carga
+       va a anotar otra cosa que la que dice esta pantalla. */
+    const mes = String(q.mes || mesTZ()).slice(0, 7);
+    const bm = externosSvc.baseDelMes(cli, mes, panel);
+    const confirmada = externosSvc.baseGuardada(cli.nombre, mes);
+    const base = bm.valor;
+    const baseHoy = deudaCargaSvc.baseDe(cli, panel);
     if (base == null) avisos.push(`${cli.nombre || cli.codigo} no tiene % base cargado: la carga no va a generar deuda`);
+    else if (baseHoy != null && String(baseHoy) !== String(base)) {
+      avisos.push(`Ojo: para ${mes} figura ${base}%, pero una carga hecha hoy se anotaría al ${baseHoy}%. `
+        + `Si el ${base}% rige desde ${mes}, guardalo con esa fecha para que la carga lo tome.`);
+    }
 
     const comisionEnCaja = base != null ? money.round(money.pct(cargar, base), 2) : null;
     // En dólares: si la caja ya está en dólares no hay nada que convertir.
@@ -4899,7 +4916,15 @@ function mount(app) {
       caja: { id: caja.id, usuario: caja.usuario, sistema: caja.sistema, divisa: dCaja },
       pide: { monto: money.round(monto, 2), divisa: dPide },
       tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo } : null,
-      base: base == null ? null : { pct: String(base), de: (panel && panel.usa_config_cliente === false) ? 'panel' : 'cliente' },
+      mes,
+      base: base == null ? null : {
+        pct: String(base),
+        de: (panel && panel.usa_config_cliente === false) ? 'panel' : 'cliente',
+        fuente: bm.fuente,
+        // `confirmada` es lo que hace que se pregunte UNA vez por mes y por cliente, no siempre.
+        confirmada: !!(confirmada && confirmada.base_pct != null && confirmada.base_pct !== ''),
+        hoy: baseHoy == null ? null : String(baseHoy),
+      },
       // Te paga ese monto: la comisión sale de adentro.
       comoPago: { cargar: pagoFichas, divisa: dCaja,
         comision: pagoComision, comision_usdt: enUsdDe(pagoComision) },
@@ -4908,6 +4933,35 @@ function mount(app) {
         comision: comisionEnCaja, comision_usdt: comisionUsdt },
       avisos,
     });
+  }));
+
+  /* CONFIRMAR EL % DE UN CLIENTE PARA UN MES. Se pregunta UNA vez por mes y por cliente, antes de
+     la primera carga: es el momento en que alguien sabe si cambió.
+
+     Si es el MISMO, sólo se anota la confirmación y no se vuelve a preguntar.
+     Si es OTRO, además se guarda como VIGENCIA desde el día 1 de ese mes — no como corrección.
+     Es lo que hace que la carga real lo tome: ella lee el vigente de hoy, no la confirmación del
+     mes. Guardarlo sólo como confirmación dejaría la pantalla diciendo 7 y la carga anotando 5.
+     Y una corrección («siempre») pisaría los meses anteriores: Titan estuvo al 5 de verdad. */
+  app.post('/api/os/carga/base', wrap((req, res) => {
+    const b = req.body || {};
+    const cli = clientes.get(b.cliente_id) || clientes.getByCodigo(b.cliente_id);
+    if (!cli) return err(res, 404, 'no encuentro ese cliente');
+    const mes = String(b.mes || mesTZ()).slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
+    const pct = String(b.pct == null ? '' : b.pct).trim().replace(',', '.');
+    if (!(Number(pct) >= 0)) return err(res, 400, `"${b.pct}" no es un porcentaje`);
+
+    const antes = deudaCargaSvc.baseDe(cli, null);
+    let vigencia = null;
+    if (antes == null || String(antes) !== pct) {
+      vigencia = historial.setValor('cliente', cli.id, 'precio_base_pct', {
+        valor: pct, tipo_cambio: 'vigencia', vigente_desde: `${mes}-01`,
+        notas: `confirmado al calcular una carga de ${mes}`,
+      });
+    }
+    const g = externosSvc.confirmarBase(cli.nombre, mes, pct);
+    ok(res, { mes, pct, cambio: !!vigencia, antes: antes == null ? null : String(antes), confirmada: g });
   }));
 
   app.get('/api/os/vendedores/:nombre/rama-proveedores', wrap(async (req, res) => {

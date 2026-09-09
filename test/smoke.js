@@ -9204,6 +9204,27 @@ async function main() {
       /api\('\/api\/pedir'/.test(uiCg) && /monto: Number\(u\.cargar\)/.test(uiCg));
     check('carga: y se pregunta antes, que después aparece en la cola de otro',
       /confirm\('¿Crear el pedido a nombre de/.test(uiCg));
+
+    /* ── EL % SE PREGUNTA UNA VEZ POR MES Y POR CLIENTE ─────────────────────────────────────
+       No es un número fijo del cliente: es una serie con fechas. Titan estuvo al 5 y desde
+       septiembre va al 7 — sin la pregunta, la primera carga de septiembre se anotaba al 5 y no
+       se notaba hasta el cierre. */
+    check('carga: el % del mes sale de la misma función que la facturación',
+      /externosSvc\.baseDelMes\(cli, mes, panel\)/.test(rutCg)
+      && /externosSvc\.baseGuardada\(cli\.nombre, mes\)/.test(rutCg));
+    check('carga: se pregunta sólo si ese mes no está confirmado',
+      /const preguntar = r\.base && !r\.base\.confirmada/.test(uiCg));
+    /* Y un % distinto se guarda como VIGENCIA desde el 1 de ese mes, no como corrección: una
+       corrección pisaría los meses anteriores, y Titan estuvo al 5 de verdad. Además es lo que
+       hace que la CARGA lo tome — ella lee el vigente de hoy, no la confirmación del mes. */
+    check('carga: un % distinto se guarda con fecha, no pisando hacia atrás',
+      /tipo_cambio: 'vigencia', vigente_desde: `\$\{mes\}-01`/.test(rutCg)
+      && !/tipo_cambio: 'correccion'[\s\S]{0,200}carga/.test(rutCg));
+    // Y si el % del mes no coincide con el que usaría la carga hoy, se avisa en vez de callarlo.
+    check('carga: avisa si la carga de hoy se anotaría con otro %',
+      /se anotaría al \$\{baseHoy\}%/.test(rutCg));
+    check('carga: sin confirmar no se puede crear el pedido',
+      /Confirmá el % arriba para poder crear el pedido/.test(uiCg));
   }
 
   check('panel: los espacios se llaman por lo que hacen',
