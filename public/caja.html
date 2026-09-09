@@ -2651,7 +2651,10 @@ function volverARaiz(){ DENTRO = null; irSec('users'); }
 function irCuenta(){
   abrirHoja(`
     <h3 id="hojaTit">Fichas y pagos</h3>
-    <div class="sub">Tu cuenta con nosotros — es otro sistema, con su propia dirección.</div>
+    ${/* Acá se aclaraba que es otro sistema y que tiene su propia dirección. Cómo tenemos
+         repartidos los sistemas no le cambia nada al cliente, y encima insinuaba un lugar al que
+         ir justo cuando las tres opciones contestan que el acceso se le pide a soporte. */''}
+    <div class="sub">Tu cuenta con nosotros.</div>
     <div class="acc">
       <button onclick="alOtroLado('Pedir fichas')">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg></span>
@@ -2670,10 +2673,14 @@ function irCuenta(){
 }
 
 function alOtroLado(que){
+  /* 🔴 «ESTO VIVE EN EL SISTEMA DE CUENTAS» ERA UNA PUERTA CERRADA SIN PICAPORTE. Le contaba al
+     cliente cómo están repartidos nuestros sistemas —cosa nuestra— y lo dejaba sin nada para
+     hacer: leía, tocaba «Entendido» y quedaba igual que antes. Reescrito con el dueño el
+     9-sep-2026, con la misma forma que el aviso del link de acceso: se puede tener, y así se pide.
+     El título ya dice cuál de las tres opciones es, así que acá no hace falta repetirlo. */
   abrirHoja(`<h3 id="hojaTit">${que}</h3>
-    ${/* El subtítulo ya dice dónde se hace. La nota lo repetía palabra por palabra y agregaba
-         por qué los dos sistemas están separados, que es cosa nuestra, no suya. */''}
-    <div class="sub">Esto vive en el sistema de cuentas, no en el panel.</div>
+    <div class="sub">Todavía no lo tenés habilitado en tu panel.</div>
+    <div class="nota neutra">Pedíselo a soporte y te lo habilitan.</div>
     <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
 }
 

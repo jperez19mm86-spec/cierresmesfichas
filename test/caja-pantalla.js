@@ -986,6 +986,15 @@ check('sin grilla no se marca nada, en vez de romper',
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
     /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
     && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+  /* 🔴 «ESTO VIVE EN EL SISTEMA DE CUENTAS» ERA UNA PUERTA CERRADA SIN PICAPORTE: le contaba al
+     cliente cómo están repartidos nuestros sistemas y lo dejaba sin nada para hacer. Mismo criterio
+     que el aviso del link: se puede tener, y así se pide. */
+  check('lo que todavía no está habilitado se dice como algo que se pide',
+    /Todavía no lo tenés habilitado en tu panel\./.test(htmlCaja)
+    && /Pedíselo a soporte y te lo habilitan\./.test(htmlCaja)
+    && !/Esto vive en el sistema de cuentas/.test(htmlCaja)
+    && !/es otro sistema, con su propia dirección/.test(htmlCaja));
+
   /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
      columna angosta arriba de todo, con la pantalla entera vacía debajo. Acá no hay lista que
      crezca ni nada que se desplace, es una decisión de dos caminos: se centra en la pantalla y las
