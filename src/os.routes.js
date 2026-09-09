@@ -4867,26 +4867,52 @@ function mount(app) {
         + 'Si creás el pedido así, se guardaría en ' + (delaCaja[0] || 'ARS') + '. Sincronizá la caja con el panel primero.');
     }
 
-    /* EL TIPO DE CAMBIO. Se pide el VIVO, que es con el que se va a anotar la carga si se hace
-       ahora; si no contesta se cae al del mes y se dice, en vez de dar un número de ayer como si
-       fuera de hoy. */
-    let tc = null; let tcFuente = null; let tcVivo = false;
+    /* ── EL TIPO DE CAMBIO: EL DE AHORA, Y SI NO EL ÚLTIMO QUE HAY ─────────────────────────────
+       Para cargar fichas el promedio del mes no sirve: incluye días viejos y no es el precio al
+       que se compra hoy. El orden es cotización VIVA → última foto guardada (de hoy, de ayer o de
+       cuando sea, y se dice de cuándo) → recién al final el promedio del mes.
+
+       El peso va por `tcAhora` (Binance) y el resto por `fetchTasas`, que es la misma fuente que
+       usa el snapshot diario. Las dos pueden no contestar, y ahí es cuando importa tener la última
+       foto con su fecha en vez de un promedio sin cara. */
+    let tc = null; let tcFuente = null; let tcVivo = false; let tcFecha = null;
     if (dPide !== dCaja) {
       const esUsd = (d) => d === 'USD' || d === 'USDT';
       const otra = esUsd(dPide) ? dCaja : dPide;
       if (!esUsd(dPide) && !esUsd(dCaja)) {
         return err(res, 400, `no sé convertir ${dPide} a ${dCaja}: la conversión pasa por dólares`);
       }
+      const hoy = new Date().toISOString().slice(0, 10);
       if (otra === 'ARS') {
         const a = await tcSvc.tcAhora().catch(() => null);
-        if (a && a.vivo && money.isPos(String(a.tc))) { tc = String(a.tc); tcFuente = a.fuente; tcVivo = true; }
+        if (a && a.vivo && money.isPos(String(a.tc))) { tc = String(a.tc); tcFuente = a.fuente; tcVivo = true; tcFecha = hoy; }
+      } else {
+        const viva = await tcDivisas.fetchTasas().catch(() => null);
+        const v = viva && viva.ok && viva.tasas ? viva.tasas[otra] : null;
+        if (v && money.isPos(String(v))) { tc = String(v); tcFuente = viva.fuente || 'cotización en vivo'; tcVivo = true; tcFecha = hoy; }
+      }
+      if (!tc) {
+        // La última foto que haya, sin importar de qué día: es un precio real de un día real.
+        const u = otra === 'ARS'
+          ? (() => { const t = tcStore.ultimoTC(); return t && money.isPos(String(t)) ? { tasa: String(t), fecha: null, fuente: 'último snapshot' } : null; })()
+          : tcDivisas.ultimo(otra, hoy);
+        if (u && money.isPos(String(u.tasa))) {
+          tc = String(u.tasa); tcFecha = u.fecha || null;
+          const dias = tcFecha ? Math.round((Date.parse(hoy) - Date.parse(tcFecha)) / 86400000) : null;
+          tcFuente = (u.fuente || 'snapshot') + (tcFecha
+            ? ` · ${dias === 0 ? 'de hoy' : dias === 1 ? 'de ayer' : 'del ' + tcFecha}`
+            : '');
+          if (dias != null && dias > 1) avisos.push(`El tipo de cambio de ${otra} es del ${tcFecha} (${dias} días): no hay uno más nuevo guardado.`);
+        }
       }
       if (!tc) {
         const d = deudaCargaSvc.tcDelDia(new Date().toISOString(), otra);
-        if (d && money.isPos(String(d))) { tc = String(d); tcFuente = 'del mes'; }
+        if (d && money.isPos(String(d))) {
+          tc = String(d); tcFuente = 'promedio del mes';
+          avisos.push(`No hay cotización ni foto diaria de ${otra}: se usa el PROMEDIO DEL MES, que no es el precio de hoy.`);
+        }
       }
       if (!tc) return err(res, 400, `no hay tipo de cambio para ${otra}: cargalo en 💱 Tipos de cambio`);
-      if (!tcVivo) avisos.push('sin cotización del momento: se usa el tipo de cambio del mes, y al cargar de verdad puede dar distinto');
     }
 
     // Lo que hay que poner en el panel, en la moneda de la caja.
@@ -4941,7 +4967,7 @@ function mount(app) {
         // hace que un pedido se guarde en otra moneda sin avisar.
         divisas: delaCaja, divisasPanel: delPanel, disponibles, habilitadaEnLaCaja: enLaCaja },
       pide: { monto: money.round(monto, 2), divisa: dPide },
-      tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo } : null,
+      tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo, fecha: tcFecha } : null,
       mes,
       base: base == null ? null : {
         pct: String(base),

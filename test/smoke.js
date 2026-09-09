@@ -9245,7 +9245,23 @@ async function main() {
     // Y el TC bien a la vista, con su fuente: es lo primero que pregunta el cliente.
     check('carga: el tipo de cambio se muestra entero, con de dónde salió',
       /1 \$\{esc\(r\.pide\.divisa\)\} = \$\{M\(r\.tc\.valor\)\}/.test(uiCg)
-      && /cotización de ahora/.test(uiCg) && /NO es la de ahora/.test(uiCg));
+      && /cotización de ahora/.test(uiCg));
+    /* ── PARA CARGAR NO SIRVE EL PROMEDIO DEL MES ────────────────────────────────────────────
+       Incluye días viejos y no es el precio al que se compra hoy. El orden es: cotización VIVA →
+       última foto guardada (de hoy, de ayer o de cuando sea, y se dice de cuándo) → recién al
+       final el promedio, y avisando que no es el precio de hoy.
+       El peso va por Binance (`tcAhora`) y el resto por `fetchTasas`, la misma fuente del snapshot
+       diario; `tcDelDia` no alcanzaba porque pide el día EXACTO y un domingo cae al promedio. */
+    check('carga: el TC intenta primero la cotización viva, también fuera del peso',
+      /tcDivisas\.fetchTasas\(\)/.test(rutCg) && /tcSvc\.tcAhora\(\)/.test(rutCg));
+    check('carga: si no hay viva, usa la última foto guardada y dice de cuándo es',
+      /tcDivisas\.ultimo\(otra, hoy\)/.test(rutCg)
+      && /'de hoy' : dias === 1 \? 'de ayer'/.test(rutCg));
+    check('carga: y el promedio del mes queda de último recurso, avisado',
+      /se usa el PROMEDIO DEL MES, que no es el precio de hoy/.test(rutCg));
+    const srcDv = fs.readFileSync(path.join(ROOT, 'src', 'tc-divisas.service.js'), 'utf8');
+    check('carga: `ultimo` busca hacia atrás sin quedarse en el mes',
+      /WHERE divisa=\? AND fecha<=\? ORDER BY fecha DESC LIMIT 1/.test(srcDv));
   }
 
   check('panel: los espacios se llaman por lo que hacen',

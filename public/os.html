@@ -3242,7 +3242,7 @@ async function cgCalcular(){
       ${r.tc ? `<div style="margin-top:8px;padding:8px 11px;background:var(--bg2);border-radius:8px;display:inline-block">
         <span class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">Tipo de cambio</span>
         <div style="font-size:17px;font-weight:800">1 ${esc(r.pide.divisa)} = ${M(r.tc.valor)} ${D}</div>
-        <div class="muted" style="font-size:11.5px">${esc(r.tc.fuente)}${r.tc.vivo ? ' · cotización de ahora' : ' · NO es la de ahora'}</div>
+        <div class="muted" style="font-size:11.5px${r.tc.vivo ? '' : ';color:var(--gold)'}">${esc(r.tc.fuente)}${r.tc.vivo ? ' · cotización de ahora' : ''}</div>
       </div>` : ''}
       <div class="row" style="margin-top:12px;gap:22px">
         <div><label>${modo === 'pago' ? 'Tu comisión, ya adentro' : 'Le genera de comisión, aparte'}</label>

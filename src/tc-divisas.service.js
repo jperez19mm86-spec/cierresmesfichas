@@ -128,6 +128,21 @@ function listDias(mes, divisa) {
   return db.prepare("SELECT * FROM tc_divisa_snapshots WHERE substr(fecha,1,7)=? ORDER BY fecha DESC, divisa ASC").all(mes);
 }
 
+/**
+ * La ÚLTIMA foto de una divisa hasta una fecha, sea de hoy, de ayer o de la semana pasada.
+ *
+ * `listDias` es por mes y hay que pedirle el día exacto; si ese día no está —un domingo, o el
+ * scheduler no corrió— quien preguntaba caía al PROMEDIO DEL MES. Para cargar fichas eso está mal:
+ * el promedio de septiembre incluye días viejos y no es el precio al que se compra hoy.
+ * Acá se busca hacia atrás sin límite de mes, y se devuelve CUÁNDO es, para poder decirlo.
+ */
+function ultimo(divisa, hasta) {
+  const D = String(divisa || '').toUpperCase();
+  const f = String(hasta || new Date().toISOString()).slice(0, 10);
+  return db.prepare("SELECT fecha, tasa, fuente FROM tc_divisa_snapshots WHERE divisa=? AND fecha<=? ORDER BY fecha DESC LIMIT 1")
+    .get(D, f) || null;
+}
+
 /** ¿Ya se guardó el día? Se pregunta a la BASE: en memoria, cada redeploy volvía a pedir la API. */
 function hayDia(fecha) {
   return !!db.prepare('SELECT 1 FROM tc_divisa_snapshots WHERE fecha=? LIMIT 1').get(fecha);
@@ -185,4 +200,4 @@ function startScheduler() {
   console.log(`[TC divisas] scheduler activo (snapshot diario ${HOUR}:00 ART)`);
 }
 
-module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, startScheduler, purgarArsViejo, purgarNoSeguidas, seguidas, ALIAS, IGNORAR, BASE_SEGUIDAS };
+module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, ultimo, startScheduler, purgarArsViejo, purgarNoSeguidas, seguidas, ALIAS, IGNORAR, BASE_SEGUIDAS };
