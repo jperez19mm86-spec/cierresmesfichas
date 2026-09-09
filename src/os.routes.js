@@ -4819,6 +4819,89 @@ function mount(app) {
   /* Lo que movió TODA la línea de un vendedor, proveedor por proveedor: el movimiento por divisa,
      el costo real de ese proveedor, y el equivalente en dólares con el TC de cada divisa. Es lo que
      lleva el papel del vendedor — su cuenta propia (`/:id`) es sólo la rebanada de sus paneles. */
+  /* ── CUÁNTO CARGARLE, ANTES DE CARGARLO ────────────────────────────────────────────────────
+     «Titan pide 10.000 dólares en 463.life»: la caja está en pesos, así que hay que convertir, y
+     además hay que saber qué comisión le genera eso. Se hacía a mano con la calculadora del
+     teléfono y el TC de algún lado.
+
+     ⚠️ USA LAS MISMAS FUNCIONES QUE LA CARGA DE VERDAD (`baseDe`, `tcDelDia`). Recalcularlo acá
+     con su propia cuenta es cómo la pantalla termina diciendo un número y el sistema anotando
+     otro — y el que queda mal es el sistema, porque el cliente ya vio el primero.
+
+     La carga NO es deuda: la deuda es la comisión (`base% × lo cargado`). Por eso se contesta
+     `cargar` y `comision` por separado, y no un total que mezcla dos cosas distintas. */
+  app.get('/api/os/carga/calcular', wrap(async (req, res) => {
+    const q = req.query || {};
+    const cli = clientes.get(q.cliente_id) || clientes.getByCodigo(q.cliente_id);
+    if (!cli) return err(res, 404, 'no encuentro ese cliente');
+    const caja = (cli.cajas || []).find((k) => String(k.id) === String(q.caja_id));
+    if (!caja) return err(res, 400, `${cli.nombre || cli.codigo} no tiene esa caja`);
+    const monto = String(q.monto || '').trim().replace(',', '.');
+    if (!money.isPos(monto)) return err(res, 400, 'el monto tiene que ser mayor que cero');
+
+    const dCaja = String((caja.divisas && caja.divisas[0]) || 'ARS').toUpperCase();
+    const dPide = String(q.divisa || dCaja).toUpperCase();
+    const avisos = [];
+
+    /* EL TIPO DE CAMBIO. Se pide el VIVO, que es con el que se va a anotar la carga si se hace
+       ahora; si no contesta se cae al del mes y se dice, en vez de dar un número de ayer como si
+       fuera de hoy. */
+    let tc = null; let tcFuente = null; let tcVivo = false;
+    if (dPide !== dCaja) {
+      const esUsd = (d) => d === 'USD' || d === 'USDT';
+      const otra = esUsd(dPide) ? dCaja : dPide;
+      if (!esUsd(dPide) && !esUsd(dCaja)) {
+        return err(res, 400, `no sé convertir ${dPide} a ${dCaja}: la conversión pasa por dólares`);
+      }
+      if (otra === 'ARS') {
+        const a = await tcSvc.tcAhora().catch(() => null);
+        if (a && a.vivo && money.isPos(String(a.tc))) { tc = String(a.tc); tcFuente = a.fuente; tcVivo = true; }
+      }
+      if (!tc) {
+        const d = deudaCargaSvc.tcDelDia(new Date().toISOString(), otra);
+        if (d && money.isPos(String(d))) { tc = String(d); tcFuente = 'del mes'; }
+      }
+      if (!tc) return err(res, 400, `no hay tipo de cambio para ${otra}: cargalo en 💱 Tipos de cambio`);
+      if (!tcVivo) avisos.push('sin cotización del momento: se usa el tipo de cambio del mes, y al cargar de verdad puede dar distinto');
+    }
+
+    // Lo que hay que poner en el panel, en la moneda de la caja.
+    const cargar = tc
+      ? (String(dPide) === 'USD' || String(dPide) === 'USDT'
+        ? money.round(money.mul(monto, tc), 2)          // dólares → moneda de la caja
+        : money.round(money.div(monto, tc), 2))         // moneda de la caja → dólares
+      : money.round(monto, 2);
+
+    const panel = paneles.list().find((p) => String(p.id_usuario) === String(caja.userId)
+      || (p.nombre === caja.usuario && p.cliente_id === cli.id)) || null;
+    const base = deudaCargaSvc.baseDe(cli, panel);
+    if (base == null) avisos.push(`${cli.nombre || cli.codigo} no tiene % base cargado: la carga no va a generar deuda`);
+
+    const comisionEnCaja = base != null ? money.round(money.pct(cargar, base), 2) : null;
+    // En dólares: si la caja ya está en dólares no hay nada que convertir.
+    const enUsd = (dCaja === 'USD' || dCaja === 'USDT');
+    const comisionUsdt = comisionEnCaja == null ? null
+      : (enUsd ? comisionEnCaja : (tc ? money.round(money.div(comisionEnCaja, tc), 2) : null));
+
+    /* LA OTRA LECTURA, porque las dos se dicen igual: «pide 10.000» puede ser «quiere 10.000 de
+       fichas» o «va a poner 10.000 en total». Se contestan las dos y nadie tiene que aclararlo. */
+    const conComision = (base != null && money.isPos(String(base)))
+      ? money.round(money.div(money.mul(cargar, '100'), money.add('100', String(base))), 2)
+      : null;
+
+    ok(res, {
+      cliente: { id: cli.id, nombre: cli.nombre || cli.nombreVisible, codigo: cli.codigo },
+      caja: { id: caja.id, usuario: caja.usuario, sistema: caja.sistema, divisa: dCaja },
+      pide: { monto: money.round(monto, 2), divisa: dPide },
+      cargar: { monto: cargar, divisa: dCaja },
+      tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo } : null,
+      base: base == null ? null : { pct: String(base), de: (panel && panel.usa_config_cliente === false) ? 'panel' : 'cliente' },
+      comision: { enCaja: comisionEnCaja, divisa: dCaja, usdt: comisionUsdt },
+      siIncluyeComision: conComision == null ? null : { cargar: conComision, divisa: dCaja },
+      avisos,
+    });
+  }));
+
   app.get('/api/os/vendedores/:nombre/rama-proveedores', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
