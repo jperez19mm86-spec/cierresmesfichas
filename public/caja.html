@@ -624,7 +624,10 @@ button{font-family:inherit}
    teléfono y tablet vale cero porque ahí las secciones siguen arriba. */
 :root{ --ancho:440px; --hoja:440px; --riel:0px; }
 @media (min-width:720px){ :root{ --ancho:620px; --hoja:620px } }
-@media (min-width:1100px){ :root{ --ancho:1040px; --hoja:660px; --riel:236px } }
+/* 🔴 EL CORTE ESTABA EN 1100 Y EL IPAD ACOSTADO MIDE 1024: caía en la rama de tablet y quedaba una
+   columna de 620 en el medio de una pantalla de 1024, con dos franjas vacías a los costados. El
+   corte va en 1000, que deja del lado grande a la tablet acostada y a cualquier notebook. */
+@media (min-width:1000px){ :root{ --ancho:1040px; --hoja:660px; --riel:236px } }
 
 .marco{max-width:var(--ancho); margin:0 auto; min-height:100vh; min-height:100dvh;
   background:var(--bg);
@@ -675,7 +678,7 @@ button{font-family:inherit}
    abierta sin buscar el subrayado.
    El marco pasa a grilla: la franja de pruebas y la barra de arriba cruzan entera, y abajo quedan
    dos columnas. Login y hub también cruzan enteros, porque cuando se ven no hay secciones. */
-@media (min-width:1100px){
+@media (min-width:1000px){
   .marco{display:grid; grid-template-columns:var(--riel) minmax(0, 1fr);
     grid-template-rows:auto auto minmax(0, 1fr); align-content:start}
   .marco > .aviso, .marco > .top{grid-column:1 / -1}
@@ -696,7 +699,14 @@ button{font-family:inherit}
   .secs button:hover{background:var(--bg3); color:var(--txt)}
   /* Abierta: fondo en vez de subrayado. Un subrayado abajo de un botón vertical no dice nada. */
   .secs button[aria-current="true"]{background:var(--bg3); color:var(--g)}
-  .scroll{grid-column:2; grid-row:3; padding:18px 20px 96px}
+  /* 🔴 EL RENGLÓN SE ESTIRABA Y DEJABA UN LAGO EN EL MEDIO. La columna del nombre es la elástica,
+     así que con 800px de ancho se quedaba con 500 para un nombre de 150: el saldo se iba al borde
+     derecho y el ojo tenía que cruzar la pantalla para juntar la persona con su número. Medido el
+     9-sep-2026: fila de 762px, celda del nombre de 499.
+     La cura no es estirar otra columna —el lago se mudaría de lugar— sino que el renglón no crezca
+     tanto. El ancho de más se va a los costados, que se lee como aire, no como un hueco. */
+  .scroll{grid-column:2; grid-row:3; padding:20px 62px 96px}
+  .fab{padding-left:62px; padding-right:62px}
 }
 
 .saldo{background:var(--marca-grad); border:none; border-radius:20px; padding:17px;
@@ -852,7 +862,13 @@ button{font-family:inherit}
 /* tabla de visitantes */
 /* Tabla ancha: mejor que se recorra a que se apelmace.
    La primera columna queda fija al desplazar — si no, uno scrollea y ya no sabe de quién es la fila. */
-.tabla{border-collapse:separate; border-spacing:0; font-size:13.5px; margin-top:4px; white-space:nowrap}
+/* 🔴 LA TABLA NO CRECÍA CON LA PANTALLA. Sin ancho propio, una tabla mide lo que miden sus
+   columnas: en el teléfono llenaba la pantalla de casualidad, y en una notebook quedaba una isla
+   de 372px en una columna de 678, mucho más chica que las tarjetas de arriba. Con `min-width:100%`
+   ocupa lo que hay y, cuando de verdad no entra, sigue desbordando para que el marco la deslice
+   de costado, que es lo que pasa en el teléfono con muchas columnas. */
+.tabla{border-collapse:separate; border-spacing:0; font-size:13.5px; margin-top:4px;
+  white-space:nowrap; min-width:100%}
 .tabla th, .tabla td{padding:10px 14px; border-bottom:1px solid var(--bor); text-align:right}
 .tabla th{font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut);
   font-weight:600; vertical-align:bottom; line-height:1.35; padding-bottom:7px}
@@ -1122,6 +1138,11 @@ button{font-family:inherit}
     padding-bottom:18px;
     transform:translate(-50%, -46%); opacity:0; pointer-events:none}
   .hoja.abierta{transform:translate(-50%, -50%); opacity:1; pointer-events:auto}
+  /* El tirador es la seña de «arrastrame para cerrar», que sólo existe con un dedo. Sobre un
+     cuadro centrado que se cierra con el botón o tocando afuera, es un adorno que promete un
+     gesto que no hay. */
+  .hoja .tirador{display:none}
+  .hoja{padding-top:18px}
 }
 @media (prefers-reduced-motion:reduce){ .hoja{transition:opacity .01s} }
 /* En claro la sombra separa la hoja del fondo y las tarjetas de la hoja. En oscuro la

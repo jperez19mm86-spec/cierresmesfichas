@@ -974,10 +974,10 @@ check('sin grilla no se marca nada, en vez de romper',
 
   check('hay tres escalones: teléfono, tablet y escritorio',
     /@media \(min-width:720px\)\{ :root/.test(htmlCaja)
-    && /@media \(min-width:1100px\)\{ :root/.test(htmlCaja));
+    && /@media \(min-width:1000px\)\{ :root/.test(htmlCaja));
   /* En escritorio la tira de secciones deja de ser una tira: se para de costado. */
   check('en escritorio las secciones van al costado',
-    /@media \(min-width:1100px\)\{\n\s*\.marco\{display:grid/.test(htmlCaja)
+    /@media \(min-width:1000px\)\{\n\s*\.marco\{display:grid/.test(htmlCaja)
     && /\.secs\{grid-column:1; grid-row:3; flex-direction:column/.test(htmlCaja));
   /* Y la hoja deja de subir desde abajo, que es el gesto del pulgar. */
   check('y la hoja se centra en vez de subir desde el borde',
