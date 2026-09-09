@@ -20,7 +20,11 @@ const { makeClient } = require('../casino-api');
 const { asegurarToken } = require('./caja-token');
 
 const COOKIE = 'caja_sid';
-const VIDA_MS = 1000 * 60 * 60 * 12;          // 12 h: un turno largo, no una semana
+const VIDA_MS = 1000 * 60 * 60 * 12;          // 12 h SIN USARLA: se renueva en cada pedido
+/* 🔴 Y UN TOPE QUE NO SE RENUEVA. `VIDA_MS` sola no vence nunca mientras la sesión se use, así que
+   una cookie robada servía para siempre. Este es el techo duro: pasado esto, hay que entrar de
+   nuevo aunque se haya estado trabajando todo el tiempo. Un día cubre el turno más largo. */
+const VIDA_TOTAL_MS = 1000 * 60 * 60 * 24;
 /* 🔴 SIN CLAVE PROPIA, LA COOKIE SE FIRMA CON UN TEXTO QUE ESTÁ EN ESTE ARCHIVO. Cualquiera que
    lea el código puede fabricar una cookie válida. Y encima esa misma clave cifra las sesiones
    guardadas en disco, así que también quedarían cifradas con algo público.
@@ -83,6 +87,7 @@ function guardarEnDisco(s) {
       caja: s.caja || null,
       hide_hall_balance: s.hide_hall_balance === true,
       disable_statistic: s.disable_statistic === true,
+      nacio: s.nacio || Date.now(),
       token: s.token || null,
       cookie: (s.conSesion && s.conSesion.cookieActual && s.conSesion.cookieActual()) || '',
     });
@@ -113,6 +118,7 @@ function revivir(sid) {
     sid, vence: fila.vence, balanceInicial: 0,
     login: d.login, id: d.id, group: d.group, rol: d.rol, moneda: d.moneda, url: d.url,
     caja: d.caja || null,
+    nacio: d.nacio || Date.now(),
     hide_hall_balance: d.hide_hall_balance === true,
     disable_statistic: d.disable_statistic === true,
     token: d.token || null,
@@ -233,6 +239,7 @@ async function entrar({ url, user, password, token, raiz = null, generar = true 
        «2 eliminados · saldo ARS 100» de una caja que no era la suya.
        `null` es una respuesta honesta: significa «no lo sabemos». */
     caja: null,
+    nacio: Date.now(),
     vence: Date.now() + VIDA_MS,
   };
 
@@ -287,6 +294,13 @@ function requerida(req, res, next) {
   const s = sid && (vivas.get(sid) || revivir(sid));
   if (!s || s.vence <= Date.now()) {
     if (s) { vivas.delete(sid); borrarDelDisco(sid); }
+    return res.status(401).json({ ok: false, error: 'sesión vencida', relogin: true });
+  }
+  /* El techo duro: ni la actividad lo corre. Una sesión revivida de disco quizá no tiene `nacio`
+     (las guardadas antes de este cambio); en ese caso se le pone ahora y se le da su día. */
+  if (s.nacio == null) s.nacio = Date.now();
+  if (Date.now() - s.nacio > VIDA_TOTAL_MS) {
+    vivas.delete(sid); borrarDelDisco(sid);
     return res.status(401).json({ ok: false, error: 'sesión vencida', relogin: true });
   }
   s.vence = Date.now() + VIDA_MS;               // se renueva mientras trabaja

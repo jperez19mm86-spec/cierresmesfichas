@@ -128,7 +128,21 @@ if (SOLO_CAJA) {
     return res.status(404).json({ ok: false, error: 'esta ruta no existe en Mi Caja' });
   });
 }
-app.use(cors({ origin: true }));
+/* 🔴 `origin: true` ACEPTABA CUALQUIER SITIO. Hoy no explota —la cookie no viaja entre sitios y
+   todo pide sesión— pero un panel que mueve fichas no tiene por qué contestarle a cualquiera. El
+   panel y su API viven en el mismo origen, así que una petición cruzada legítima no existe: se
+   permite sólo la lista blanca (por si algún día hay un front aparte) y, si no hay lista, nada.
+   Una petición sin `Origin` —abrir la página, un `curl`— pasa: CORS es cosa del navegador entre
+   sitios, no una barrera de acceso; ésa es la sesión. */
+const ORIGENES_OK = String(process.env.CORS_ORIGENES || '')
+  .split(',').map((x) => x.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);                 // misma página, apps, curl
+    return cb(null, ORIGENES_OK.includes(origin));      // cruzado: sólo la lista
+  },
+  credentials: true,
+}));
 
 // ── EL COMPROBANTE VIENE EN EL CUERPO, Y UNA FOTO NO ENTRA EN 1 MB ───────────────────────────
 //

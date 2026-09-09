@@ -475,6 +475,33 @@ async function main() {
     && /if \(!puedeReloguear\) return \{ ok: false, error: 'sesión expirada/.test(api));
 }
 
+/* ── el endurecimiento previo al dominio propio ─────────────────────────────────────────────────
+   Auditoría OWASP del 9-sep-2026. Cada uno cierra un agujero concreto; se leen del código porque
+   no se pueden ejercitar sin dejar correr el reloj o cambiar de máquina. */
+{
+  const auth = require('fs').readFileSync(__dirname + '/../src/caja/caja-auth.js', 'utf8');
+  const idx = require('fs').readFileSync(__dirname + '/../src/index.js', 'utf8');
+
+  /* 🔴 La sesión se renovaba en cada pedido, así que no vencía nunca: una cookie robada servía
+     para siempre. Ahora hay un techo que ni la actividad corre. */
+  check('la sesión tiene un tope absoluto además del de inactividad',
+    /VIDA_TOTAL_MS = 1000 \* 60 \* 60 \* 24/.test(auth)
+    && /Date\.now\(\) - s\.nacio > VIDA_TOTAL_MS/.test(auth)
+    && /nacio: Date\.now\(\)/.test(auth));
+  check('y el momento de nacer se guarda y revive con la sesión',
+    /nacio: s\.nacio \|\| Date\.now\(\)/.test(auth) && /nacio: d\.nacio \|\| Date\.now\(\)/.test(auth));
+
+  /* 🔴 CORS aceptaba cualquier sitio. Ahora sólo la lista, y sin lista, nada cruzado. */
+  check('CORS ya no acepta cualquier origen',
+    !/cors\(\{ origin: true \}\)/.test(idx)
+    && /ORIGENES_OK\.includes\(origin\)/.test(idx));
+
+  /* 🔴 express arrastraba una qs con tres CVE de denegación de servicio. */
+  const lock = JSON.parse(require('fs').readFileSync(__dirname + '/../package.json', 'utf8'));
+  check('qs está forzada a una versión sin vulnerabilidades conocidas',
+    lock.overrides && lock.overrides.qs === '6.16.0');
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
   console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
   if (fallaron.length) {
