@@ -2308,21 +2308,35 @@ async function verFactura(clienteId, conCruce) {
           + (hayPaga ? '<div class="muted" style="margin-top:2px">«Paga» es su ' + esc(bs) + '% sobre lo cargado, con el TC de cada divisa: suma la comisión del mes.</div>' : '')
           + '<table style="margin-top:6px"><thead><tr><th>Panel</th><th>Moneda</th><th class="right">Cargas</th><th class="right">Monto</th><th class="right">TC</th><th class="right">En USDT</th>'
           + (hayPaga ? '<th class="right">Paga</th>' : '') + '</tr></thead><tbody>'
+          /* UN PANEL, UNA FILA. Con varias monedas antes salían tres líneas —ARS, UYU y un
+             «Total Ahora463.com»— y eso se lee como si el panel estuviera cobrado dos veces. Ahora
+             el panel figura UNA vez con su total, y las monedas cuelgan abajo indentadas y en
+             gris: se ve que son el desglose de esa fila y no cobros aparte. */
           + orden.map(nom => {
               const ps = grupos[nom];
-              return ps.map(p => '<tr><td>' + esc(p.panel) + '</td><td>' + esc(p.divisa) + '</td>'
+              if (ps.length === 1) {
+                const p = ps[0];
+                return '<tr><td><b>' + esc(p.panel) + '</b></td><td>' + esc(p.divisa) + '</td>'
                   + '<td class="right">' + p.cargas + '</td><td class="right">' + money(p.monto,2) + '</td>'
                   + '<td class="right muted">' + (p.tc ? money(p.tc,2) : '—') + '</td>'
                   + '<td class="right muted">' + (p.usdt != null ? money(p.usdt,2) : 'sin TC') + '</td>'
                   + (hayPaga ? '<td class="right">' + (p.paga != null ? '<b style="color:var(--gold)">' + money(p.paga,2) + '</b>' : '<span class="muted">—</span>') + '</td>' : '')
-                  + '</tr>').join('')
-                // Sólo si movió en más de una moneda: con una sola, repetiría la línea de arriba.
-                + (vecesPanel[nom] > 1
-                    ? '<tr><td colspan="5" class="right muted">Total ' + esc(nom) + '</td>'
-                      + '<td class="right muted">' + money(totalPanel(ps,'usdt'),2) + '</td>'
-                      + (hayPaga ? '<td class="right"><b style="color:var(--gold)">' + money(totalPanel(ps,'paga'),2) + '</b></td>' : '')
-                      + '</tr>'
-                    : '');
+                  + '</tr>';
+              }
+              const cargas = ps.reduce((a,p) => a + Number(p.cargas||0), 0);
+              return '<tr><td><b>' + esc(nom) + '</b></td>'
+                + '<td class="muted">' + ps.map(p => esc(p.divisa)).join(' + ') + '</td>'
+                + '<td class="right">' + cargas + '</td><td class="right muted">—</td><td></td>'
+                + '<td class="right muted">' + money(totalPanel(ps,'usdt'),2) + '</td>'
+                + (hayPaga ? '<td class="right"><b style="color:var(--gold)">' + money(totalPanel(ps,'paga'),2) + '</b></td>' : '')
+                + '</tr>'
+                + ps.map(p => '<tr><td class="muted" style="padding-left:22px;font-size:12.5px">↳ ' + esc(p.divisa) + '</td>'
+                    + '<td></td><td class="right muted" style="font-size:12.5px">' + p.cargas + '</td>'
+                    + '<td class="right muted" style="font-size:12.5px">' + money(p.monto,2) + '</td>'
+                    + '<td class="right muted" style="font-size:12.5px">' + (p.tc ? money(p.tc,2) : '—') + '</td>'
+                    + '<td class="right muted" style="font-size:12.5px">' + (p.usdt != null ? money(p.usdt,2) : 'sin TC') + '</td>'
+                    + (hayPaga ? '<td class="right muted" style="font-size:12.5px">' + (p.paga != null ? money(p.paga,2) : '—') + '</td>' : '')
+                    + '</tr>').join('');
             }).join('')
           + '</tbody><tfoot><tr><td colspan="5" class="right"><b>Total</b></td>'
           + '<td class="right muted">' + money(totalGeneral,2) + '</td>'

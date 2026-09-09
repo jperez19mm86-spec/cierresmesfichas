@@ -47,18 +47,32 @@ function pagina({ factura: f0, actualizado_at, token }) {
   const gruposP = {}; (f.porPanel || []).forEach((p) => { (gruposP[p.panel] = gruposP[p.panel] || []).push(p); });
   const totP = (ps, c) => ps.reduce((a, p) => money.add(a, String(p[c] || 0)), '0');
   const hayPaga = (f.porPanel || []).some((p) => p.paga != null);
+  /* UN PANEL, UNA FILA. Con varias monedas salían tres líneas —ARS, UYU y un «Total Ahora463.com»—
+     y eso se lee como si el panel se cobrara dos veces. El panel figura UNA vez con su total y las
+     monedas cuelgan abajo, indentadas: se ve que son el desglose y no cobros aparte. */
   const porPanel = Object.keys(gruposP)
     .sort((a, b) => Number(totP(gruposP[b], 'usdt')) - Number(totP(gruposP[a], 'usdt')))
-    .map((nom) => gruposP[nom]
-      .map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td>`
-        + `<td class="r">${$(p.monto)}</td><td class="r m">${p.tc ? $(p.tc) : '—'}</td>`
-        + `<td class="r m">${p.usdt != null ? $(p.usdt) : 'sin TC'}</td>`
-        + (hayPaga ? `<td class="r">${p.paga != null ? `<b>${$(p.paga)}</b>` : '<span class="m">—</span>'}</td>` : '')
-        + '</tr>').join('')
-      + (veces[nom] > 1
-        ? `<tr><td colspan="5" class="r m">Total ${esc(nom)}</td><td class="r m">${$(totP(gruposP[nom], 'usdt'))}</td>`
-          + (hayPaga ? `<td class="r"><b>${$(totP(gruposP[nom], 'paga'))}</b></td>` : '') + '</tr>'
-        : ''))
+    .map((nom) => {
+      const ps = gruposP[nom];
+      if (ps.length === 1) {
+        const p = ps[0];
+        return `<tr><td><b>${esc(p.panel)}</b></td><td>${esc(p.divisa)}</td><td class="r">${p.cargas}</td>`
+          + `<td class="r">${$(p.monto)}</td><td class="r m">${p.tc ? $(p.tc) : '—'}</td>`
+          + `<td class="r m">${p.usdt != null ? $(p.usdt) : 'sin TC'}</td>`
+          + (hayPaga ? `<td class="r">${p.paga != null ? `<b>${$(p.paga)}</b>` : '<span class="m">—</span>'}</td>` : '')
+          + '</tr>';
+      }
+      const cargas = ps.reduce((a, p) => a + Number(p.cargas || 0), 0);
+      return `<tr><td><b>${esc(nom)}</b></td><td class="m">${ps.map((p) => esc(p.divisa)).join(' + ')}</td>`
+        + `<td class="r">${cargas}</td><td class="r m">—</td><td></td>`
+        + `<td class="r m">${$(totP(ps, 'usdt'))}</td>`
+        + (hayPaga ? `<td class="r"><b>${$(totP(ps, 'paga'))}</b></td>` : '') + '</tr>'
+        + ps.map((p) => `<tr><td class="m" style="padding-left:22px">↳ ${esc(p.divisa)}</td><td></td>`
+          + `<td class="r m">${p.cargas}</td><td class="r m">${$(p.monto)}</td>`
+          + `<td class="r m">${p.tc ? $(p.tc) : '—'}</td>`
+          + `<td class="r m">${p.usdt != null ? $(p.usdt) : 'sin TC'}</td>`
+          + (hayPaga ? `<td class="r m">${p.paga != null ? $(p.paga) : '—'}</td>` : '') + '</tr>').join('');
+    })
     .join('');
   const porPanelTotal = totP(f.porPanel || [], 'usdt');
   const porPanelPaga = totP(f.porPanel || [], 'paga');

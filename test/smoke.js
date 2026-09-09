@@ -9167,6 +9167,15 @@ async function main() {
     // `FUENTE_PANEL` es la pantalla; el link del cliente lo arma factura-html.js, que va aparte.
     const uiF = FUENTE_PANEL();
     const linkF = fs.readFileSync(path.join(ROOT, 'src', 'factura-html.js'), 'utf8');
+    /* UN PANEL, UNA FILA. Con varias monedas salían TRES líneas —ARS, UYU y «Total Ahora463.com»—
+       y eso se lee como si el panel estuviera cobrado dos veces. El panel va una vez con su total
+       y las monedas cuelgan indentadas: se ve que son el desglose, no cobros aparte. */
+    check('factura: un panel con varias monedas no parece cobrado dos veces',
+      !/Total ' \+ esc\(nom\)/.test(uiF) && !/Total \$\{esc\(nom\)\}/.test(linkF)
+      && /↳ ' \+ esc\(p\.divisa\)/.test(uiF) && /↳ \$\{esc\(p\.divisa\)\}/.test(linkF));
+    check('factura: y el panel muestra sus monedas juntas en una sola fila',
+      /ps\.map\(p => esc\(p\.divisa\)\)\.join\(' \+ '\)/.test(uiF)
+      && /ps\.map\(\(p\) => esc\(p\.divisa\)\)\.join\(' \+ '\)/.test(linkF));
     check('factura: el aviso de monedas sin TC no repite la misma moneda',
       /new Set\(sinTC\.map\(p => p\.divisa\)\)/.test(uiF)
       && /new Set\(porPanelSinTC\.map\(\(p\) => p\.divisa\)\)/.test(linkF));
