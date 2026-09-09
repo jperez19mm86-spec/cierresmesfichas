@@ -3144,6 +3144,8 @@ VIEWS.carga = async () => {
           <input id="cg-monto" inputmode="decimal" placeholder="10000" oninput="cgLuego()"></div>
         <div style="flex:0 0 120px"><label>En</label>
           <select id="cg-div" onchange="cgCalcular()"><option value="USD">USD</option></select></div>
+        <div style="flex:0 0 150px"><label>Cargar en</label>
+          <select id="cg-carga-div" onchange="cgCalcular()"><option value="">—</option></select></div>
         <div style="flex:0 0 150px"><label>Mes</label>
           <input type="month" id="cg-mes" value="${esc(new Date().toISOString().slice(0,7))}" onchange="cgCalcular()"></div>
         <div style="flex:0"><button onclick="cgCalcular()">Calcular</button></div>
@@ -3162,36 +3164,48 @@ function cgCliente(){
     sel.innerHTML = _cgCajas.length
       ? _cgCajas.map(k => `<option value="${esc(k.id)}">${esc(k.usuario)} · ${esc((k.divisas||['ARS'])[0])}${k.sistema?' · '+esc(k.sistema):''}</option>`).join('')
       : '<option value="">este cliente no tiene cajas</option>';
-    cgDivisas();
+    // Los selectores de divisa los arma el servidor al contestar: junta las de la caja con las
+    // del panel, que es lo que dice el casino. Al cambiar de caja se limpian para no arrastrar
+    // la divisa de la anterior.
+    const sc = document.getElementById('cg-carga-div'); if(sc) { sc.dataset.para = ''; sc.innerHTML = '<option value="">—</option>'; }
     cgCalcular();
   });
-}
-/* Las divisas que se pueden pedir: dólares —que es como se pide casi siempre— y la de la caja,
-   por si el pedido ya viene en pesos. Otra combinación no se ofrece porque la conversión pasa por
-   dólares y el servidor la rechaza; mejor no ofrecer lo que no se puede. */
-function cgDivisas(){
-  const k = _cgCajas.find(x => String(x.id) === val('cg-caja'));
-  const d = (k && (k.divisas||[])[0]) || 'ARS';
-  const sel = document.getElementById('cg-div'); if(!sel) return;
-  const antes = sel.value;
-  const ops = (d === 'USD' || d === 'USDT') ? ['USD'] : ['USD', d];
-  sel.innerHTML = ops.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
-  if (ops.includes(antes)) sel.value = antes;
 }
 // Al escribir se espera un momento: una consulta por tecla le pega al TC vivo en cada dígito.
 function cgLuego(){ clearTimeout(_cgTimer); _cgTimer = setTimeout(cgCalcular, 450); }
 
 async function cgCalcular(){
-  cgDivisas();
   const out = document.getElementById('cg-out'); if(!out) return;
   const cli = val('cg-cli'), caja = val('cg-caja'), monto = val('cg-monto').replace(',', '.');
   if(!cli || !caja || !(Number(monto) > 0)) { out.innerHTML = ''; _cgRes = null; return; }
   out.innerHTML = '<div class="card"><div class="muted">Calculando…</div></div>';
   const r = await api('/api/os/carga/calcular?cliente_id=' + encodeURIComponent(cli)
     + '&caja_id=' + encodeURIComponent(caja) + '&monto=' + encodeURIComponent(monto)
-    + '&divisa=' + encodeURIComponent(val('cg-div')) + '&mes=' + encodeURIComponent(val('cg-mes')));
+    + '&divisa=' + encodeURIComponent(val('cg-div')) + '&mes=' + encodeURIComponent(val('cg-mes'))
+    + (val('cg-carga-div') ? '&cargar_en=' + encodeURIComponent(val('cg-carga-div')) : ''));
   if(!r || !r.ok){ out.innerHTML = '<div class="card"><div class="badge err">' + esc((r&&r.error)||'no se pudo') + '</div></div>'; _cgRes = null; return; }
   _cgRes = r;
+  /* Las divisas salen del SERVIDOR, que las junta de la caja y del panel. El panel es lo que dice
+     el casino: 463.life tiene diez y la caja tenía una sola. */
+  (function(){
+    const sel = document.getElementById('cg-carga-div'); if(!sel) return;
+    const ops = r.caja.disponibles || [r.caja.divisa];
+    if (sel.dataset.para !== r.caja.id + '|' + ops.join(',')) {
+      sel.dataset.para = r.caja.id + '|' + ops.join(',');
+      sel.innerHTML = ops.map(d => `<option value="${esc(d)}"${d === r.caja.divisa ? ' selected' : ''}>${esc(d)}${(r.caja.divisas||[]).includes(d) ? '' : ' ·no en la caja'}</option>`).join('');
+    }
+    sel.value = r.caja.divisa;
+    // Se puede pedir en dólares o en la misma moneda de la carga; otra combinación pasa por dólares
+    // y el servidor la rechaza, así que no se ofrece.
+    const sd = document.getElementById('cg-div'); if(!sd) return;
+    const es = (r.caja.divisa === 'USD' || r.caja.divisa === 'USDT') ? ['USD'] : ['USD', r.caja.divisa];
+    const antes = sd.value;
+    if (sd.dataset.para !== es.join(',')) {
+      sd.dataset.para = es.join(',');
+      sd.innerHTML = es.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+      if (es.includes(antes)) sd.value = antes;
+    }
+  })();
   const M = (x, d) => money(x, d == null ? 2 : d);
   const modo = val('cg-modo') || 'pago';
   const A = modo === 'pago' ? r.comoPago : r.comoFichas;   // la lectura elegida
@@ -3224,8 +3238,12 @@ async function cgCalcular(){
         ${modo === 'pago'
           ? 'de los ' + P + ' que te paga' + (A.comision != null ? ', ' + M(A.comision_usdt != null ? A.comision_usdt : A.comision) + ' ' + esc(A.comision_usdt != null ? 'USDT' : A.divisa) + ' son tu comisión' : '')
           : P + ' en fichas · la comisión se le suma aparte'}
-        ${r.tc ? ' · TC ' + M(r.tc.valor) + ' <span style="opacity:.75">(' + esc(r.tc.fuente) + (r.tc.vivo ? ', ahora' : '') + ')</span>' : ''}
       </div>
+      ${r.tc ? `<div style="margin-top:8px;padding:8px 11px;background:var(--bg2);border-radius:8px;display:inline-block">
+        <span class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">Tipo de cambio</span>
+        <div style="font-size:17px;font-weight:800">1 ${esc(r.pide.divisa)} = ${M(r.tc.valor)} ${D}</div>
+        <div class="muted" style="font-size:11.5px">${esc(r.tc.fuente)}${r.tc.vivo ? ' · cotización de ahora' : ' · NO es la de ahora'}</div>
+      </div>` : ''}
       <div class="row" style="margin-top:12px;gap:22px">
         <div><label>${modo === 'pago' ? 'Tu comisión, ya adentro' : 'Le genera de comisión, aparte'}</label>
           <div style="font-size:22px;font-weight:800">${A.comision_usdt != null ? M(A.comision_usdt) + ' USDT' : (A.comision != null ? M(A.comision) + ' ' + D : '<span class="muted">sin % base</span>')}</div>
@@ -3238,9 +3256,12 @@ async function cgCalcular(){
       ${(r.avisos||[]).length ? '<div class="muted" style="margin-top:10px;color:var(--gold)">⚠ ' + r.avisos.map(esc).join('<br>⚠ ') + '</div>' : ''}
       <div class="row" style="margin-top:12px">
         <button class="outline" onclick="cgCopiar()">📋 Copiar el monto</button>
-        ${preguntar
-          ? '<span class="muted" style="align-self:center">Confirmá el % arriba para poder crear el pedido</span>'
-          : '<button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>'}
+        ${r.caja.habilitadaEnLaCaja === false
+          ? '<button class="grave" onclick="cgSincronizar()">🔄 Habilitar ' + esc(r.caja.divisa) + ' en la caja</button>'
+            + '<span class="muted" style="align-self:center">sin eso, el pedido se guardaría en ' + esc((r.caja.divisas||['ARS'])[0]) + '</span>'
+          : (preguntar
+            ? '<span class="muted" style="align-self:center">Confirmá el % arriba para poder crear el pedido</span>'
+            : '<button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>')}
       </div>
     </div>`;
 }
@@ -3261,6 +3282,21 @@ async function cgBase(pct){
                     + (x.antes != null ? ' (antes ' + x.antes + '%)' : ''))
                  : ('✔ Confirmado al ' + v + '%'));
   cgCalcular();
+}
+
+/* Pone al día las divisas de la caja desde su panel. Hace falta porque `/api/pedir` valida contra
+   la caja y, si la divisa no está, la CAMBIA en silencio por la primera: un pedido en UYU se
+   guardaba como ARS. */
+async function cgSincronizar(){
+  const r = _cgRes; if(!r) return;
+  if(!confirm('¿Habilitar en la caja ' + r.caja.usuario + ' las divisas que tiene el panel?\n\n'
+    + 'Ahora: ' + ((r.caja.divisas||[]).join(', ') || '—') + '\n'
+    + 'Pasa a: ' + ((r.caja.divisasPanel||[]).join(', ') || '—'))) return;
+  const x = await api('/api/os/carga/sincronizar-caja', { method:'POST', body: JSON.stringify({
+    cliente_id: r.cliente.id, caja_id: r.caja.id }) });
+  if(!x || !x.ok) return toast('No se pudo: ' + ((x&&x.error)||''), true);
+  toast('✔ ' + r.caja.usuario + ': ' + (x.ahora||[]).join(', '));
+  cgCliente();   // se relee el cliente para que el selector traiga las divisas nuevas
 }
 
 function cgCopiar(){

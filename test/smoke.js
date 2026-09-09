@@ -9225,6 +9225,27 @@ async function main() {
       /se anotaría al \$\{baseHoy\}%/.test(rutCg));
     check('carga: sin confirmar no se puede crear el pedido',
       /Confirmá el % arriba para poder crear el pedido/.test(uiCg));
+
+    /* ── SE PUEDE CARGAR EN CUALQUIER DIVISA DEL PANEL, NO SÓLO EN LA DE LA CAJA ──────────────
+       La caja de 463.life decía ARS; el panel, que es lo que dice el casino, tiene diez —ARS, BRL,
+       CLP, DOP, EUR, MXN, PEN, USD, UYU, VEF—. El selector ofrecía pesos y nada más.
+
+       ⚠️ Y `/api/pedir` valida contra la CAJA: si la divisa no está, la CAMBIA por la primera sin
+       avisar. Un pedido en UYU se guardaba como ARS. Por eso no alcanza con ofrecerla: hay que
+       poder habilitarla en la caja antes de crear el pedido, y mientras tanto no dejar crearlo. */
+    check('carga: las divisas salen del panel, no sólo de la caja',
+      /\[\.\.\.new Set\(\[\.\.\.delaCaja, \.\.\.delPanel\]\)\]/.test(rutCg));
+    const idx = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    check('carga: y esto importa porque /api/pedir cambia la divisa en silencio',
+      /cajaDivisas\.includes\(divisa\) \? divisa : cajaDivisas\[0\]/.test(idx),
+      'si no está en la caja, el pedido se guarda en la primera y nadie se entera');
+    check('carga: con la divisa sin habilitar no deja crear el pedido, ofrece habilitarla',
+      /habilitadaEnLaCaja === false/.test(uiCg) && /cgSincronizar\(\)/.test(uiCg)
+      && /sincronizar-caja/.test(rutCg));
+    // Y el TC bien a la vista, con su fuente: es lo primero que pregunta el cliente.
+    check('carga: el tipo de cambio se muestra entero, con de dónde salió',
+      /1 \$\{esc\(r\.pide\.divisa\)\} = \$\{M\(r\.tc\.valor\)\}/.test(uiCg)
+      && /cotización de ahora/.test(uiCg) && /NO es la de ahora/.test(uiCg));
   }
 
   check('panel: los espacios se llaman por lo que hacen',

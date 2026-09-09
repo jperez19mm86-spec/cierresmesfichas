@@ -4839,9 +4839,33 @@ function mount(app) {
     const monto = String(q.monto || '').trim().replace(',', '.');
     if (!money.isPos(monto)) return err(res, 400, 'el monto tiene que ser mayor que cero');
 
-    const dCaja = String((caja.divisas && caja.divisas[0]) || 'ARS').toUpperCase();
+    /* ── EN QUÉ DIVISA SE PUEDE CARGAR ─────────────────────────────────────────────────────────
+       La CAJA suele tener una sola («463.life: ARS») pero el PANEL, que es lo que dice el casino,
+       tiene diez: ARS, BRL, CLP, DOP, EUR, MXN, PEN, USD, UYU, VEF. La caja se quedó vieja, y con
+       ella el selector ofrecía sólo pesos cuando el cliente puede pedir en uruguayos.
+
+       ⚠️ Y hay una trampa: `/api/pedir` valida contra la CAJA y si la divisa no está la CAMBIA en
+       silencio por la primera. Un pedido en UYU se guardaba como ARS y nadie se enteraba. Por eso
+       se avisa cuándo la caja no la tiene, y se ofrece espejarla desde el panel. */
+    const panelPre = paneles.list().find((p) => String(p.id_usuario) === String(caja.userId)
+      || (p.nombre === caja.usuario && p.cliente_id === cli.id)) || null;
+    const dCaja0 = String((caja.divisas && caja.divisas[0]) || 'ARS').toUpperCase();
+    const delPanel = ((panelPre && panelPre.divisas) || []).map((x) => String(x).toUpperCase());
+    const delaCaja = ((caja.divisas) || []).map((x) => String(x).toUpperCase());
+    const disponibles = [...new Set([...delaCaja, ...delPanel])];
+    if (!disponibles.length) disponibles.push('ARS');
+
+    const dCaja = String(q.cargar_en || dCaja0).toUpperCase();
+    if (!disponibles.includes(dCaja)) {
+      return err(res, 400, `${caja.usuario} no maneja ${dCaja}. Puede: ${disponibles.join(', ')}`);
+    }
     const dPide = String(q.divisa || dCaja).toUpperCase();
     const avisos = [];
+    const enLaCaja = delaCaja.includes(dCaja);
+    if (!enLaCaja) {
+      avisos.push(`La caja ${caja.usuario} todavía no tiene ${dCaja} habilitada (el panel sí). `
+        + 'Si creás el pedido así, se guardaría en ' + (delaCaja[0] || 'ARS') + '. Sincronizá la caja con el panel primero.');
+    }
 
     /* EL TIPO DE CAMBIO. Se pide el VIVO, que es con el que se va a anotar la carga si se hace
        ahora; si no contesta se cae al del mes y se dice, en vez de dar un número de ayer como si
@@ -4872,8 +4896,7 @@ function mount(app) {
         : money.round(money.div(monto, tc), 2))         // moneda de la caja → dólares
       : money.round(monto, 2);
 
-    const panel = paneles.list().find((p) => String(p.id_usuario) === String(caja.userId)
-      || (p.nombre === caja.usuario && p.cliente_id === cli.id)) || null;
+    const panel = panelPre;
 
     /* ── EL % DE ESE MES, Y SI YA SE CONFIRMÓ ──────────────────────────────────────────────────
        El % no es un número fijo del cliente: es una serie con fechas. Titan estuvo al 5 y desde
@@ -4913,7 +4936,10 @@ function mount(app) {
 
     ok(res, {
       cliente: { id: cli.id, nombre: cli.nombre || cli.nombreVisible, codigo: cli.codigo },
-      caja: { id: caja.id, usuario: caja.usuario, sistema: caja.sistema, divisa: dCaja },
+      caja: { id: caja.id, usuario: caja.usuario, sistema: caja.sistema, divisa: dCaja,
+        // Lo que la caja tiene hoy vs lo que el casino dice del panel: la diferencia es lo que
+        // hace que un pedido se guarde en otra moneda sin avisar.
+        divisas: delaCaja, divisasPanel: delPanel, disponibles, habilitadaEnLaCaja: enLaCaja },
       pide: { monto: money.round(monto, 2), divisa: dPide },
       tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo } : null,
       mes,
@@ -4943,6 +4969,24 @@ function mount(app) {
      Es lo que hace que la carga real lo tome: ella lee el vigente de hoy, no la confirmación del
      mes. Guardarlo sólo como confirmación dejaría la pantalla diciendo 7 y la carga anotando 5.
      Y una corrección («siempre») pisaría los meses anteriores: Titan estuvo al 5 de verdad. */
+  /* Poner al día las divisas de UNA caja desde su panel. `/api/pedir` valida contra la caja y si
+     la divisa no está la cambia en silencio por la primera: un pedido en UYU se guardaba como ARS.
+     Antes había que correr el sync de TODAS o editarla a mano. */
+  app.post('/api/os/carga/sincronizar-caja', wrap((req, res) => {
+    const b = req.body || {};
+    const cli = clientes.get(b.cliente_id) || clientes.getByCodigo(b.cliente_id);
+    if (!cli) return err(res, 404, 'no encuentro ese cliente');
+    const caja = (cli.cajas || []).find((k) => String(k.id) === String(b.caja_id));
+    if (!caja) return err(res, 400, 'no encuentro esa caja');
+    const panel = paneles.list().find((p) => String(p.id_usuario) === String(caja.userId)
+      || (p.nombre === caja.usuario && p.cliente_id === cli.id));
+    if (!panel) return err(res, 400, `no encuentro el panel de ${caja.usuario}: sin él no sé qué divisas tiene`);
+    const antes = (caja.divisas || []).slice();
+    const r = _espejarCaja(panel);
+    const dsp = ((clientes.get(cli.id).cajas || []).find((k) => String(k.id) === String(caja.id)) || {}).divisas || [];
+    ok(res, { resultado: r || 'sin cambios', antes, ahora: dsp, panel: panel.nombre });
+  }));
+
   app.post('/api/os/carga/base', wrap((req, res) => {
     const b = req.body || {};
     const cli = clientes.get(b.cliente_id) || clientes.getByCodigo(b.cliente_id);
