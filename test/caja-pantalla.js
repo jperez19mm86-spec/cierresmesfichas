@@ -741,6 +741,47 @@ check('sin grilla no se marca nada, en vez de romper',
     && /El neto de arriba es el que/.test(htmlCaja));
 }
 
+/* ── 15 · el casino en vivo parte la jugada en dos ──────────────────────────────────────────────
+   🔴 Señalado por el dueño el 8-sep-2026: «si vuelve 0 no significa que no pagó, la ganancia
+   aparece en otra línea». Datos REALES de una sesión de Absolute Live Gaming: 9 renglones, de los
+   cuales 7 son movimientos de mesa (todo en cero, sin `round_id`) y los otros 2 son la MISMA
+   jugada — la apuesta a las 22:54:12 y el pago a las 22:54:43. */
+{
+  const crudas = [
+    { round_id:'19800857786', esJugada:false, dateTime:'2026-09-08 22:56:34', before:4971.10, bet:0, win:0 },
+    { round_id:'19800848792', esJugada:false, dateTime:'2026-09-08 22:55:40', before:4971.10, bet:0, win:0 },
+    { round_id:'19800840372', esJugada:false, dateTime:'2026-09-08 22:54:48', before:4971.10, bet:0, win:0 },
+    { round_id:'18202600295801', esJugada:true, dateTime:'2026-09-08 22:54:43', before:4971.10, bet:0, win:720 },
+    { round_id:'18202600295801', esJugada:true, dateTime:'2026-09-08 22:54:12', before:4251.10, bet:20, win:0 },
+    { round_id:'19800831789', esJugada:false, dateTime:'2026-09-08 22:53:56', before:4271.10, bet:0, win:0 },
+    { round_id:'19800831788', esJugada:false, dateTime:'2026-09-08 22:53:51', before:4271.10, bet:0, win:0 },
+    { round_id:'19800831787', esJugada:false, dateTime:'2026-09-08 22:53:43', before:4271.10, bet:0, win:0 },
+    { round_id:'19800831786', esJugada:false, dateTime:'2026-09-08 22:53:41', before:4271.10, bet:0, win:0 },
+  ];
+  const jugables = crudas.filter((x) => x.esJugada !== false);
+  check('los movimientos de mesa quedan afuera',
+    jugables.length === 2 && crudas.length - jugables.length === 7,
+    `${jugables.length} jugadas de ${crudas.length} renglones`);
+
+  /* Se ejecuta el `agruparJugadas` de verdad, recortado de la pantalla. */
+  const desde = htmlCaja.indexOf('function agruparJugadas(filas){');
+  const codigo = htmlCaja.slice(desde, htmlCaja.indexOf('\n}', desde) + 2);
+  // eslint-disable-next-line no-new-func
+  const agrupar = new Function(codigo + '; return agruparJugadas;')();
+  const js = agrupar(jugables);
+  check('la apuesta y su pago se juntan en UNA jugada',
+    js.length === 1, `${js.length} jugadas`);
+  check('y esa jugada dice lo que de verdad puso y se llevó',
+    js[0].bet === 20 && js[0].win === 720 && js[0].win - js[0].bet === 700,
+    `apostó ${js[0].bet}, ganó ${js[0].win}, neto ${js[0].win - js[0].bet}`);
+  /* 🔴 El saldo de antes es el de la primera línea, no el mayor: acá el máximo daría 4.971,10,
+     que es el saldo DESPUÉS de cobrar los 720. */
+  check('el saldo de antes es el de antes de apostar, no el de después de cobrar',
+    js[0].before === 4251.10, String(js[0].before));
+  check('y la hora es la de la apuesta, no la del pago',
+    js[0].dateTime === '2026-09-08 22:54:12', js[0].dateTime);
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

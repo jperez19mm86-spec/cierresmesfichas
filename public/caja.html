@@ -2101,8 +2101,11 @@ function agruparJugadas(filas){
     if (!porRonda[k]) { porRonda[k] = { ...f, bet:0, win:0, lineas:0 }; orden.push(k); }
     const r = porRonda[k];
     r.bet += f.bet; r.win += f.win; r.lineas++;
-    if (f.dateTime < r.dateTime) r.dateTime = f.dateTime;   // la hora de la primera línea
-    r.before = Math.max(r.before, f.before);
+    /* 🔴 EL SALDO DE ANTES ES EL DE LA PRIMERA LÍNEA, NO EL MAYOR. Antes se tomaba el máximo, que
+       funcionaba con los proveedores que parten la jugada dejando el saldo alto adelante. En el
+       casino en vivo es al revés: la línea de la apuesta trae 4.251,10 y la del pago 4.971,10, así
+       que el máximo mostraba el saldo DESPUÉS de cobrar como si fuera el de antes de apostar. */
+    if (f.dateTime < r.dateTime) { r.dateTime = f.dateTime; r.before = f.before; }
   });
   return orden.map(k => porRonda[k]);
 }
@@ -3478,8 +3481,13 @@ function dibujarMatriz(j){
 function abrirSesion(jugadorId, sesionId){
   const s = (SESIONES[jugadorId] || []).find(x => x.session === sesionId);
   const crudas = JUGADAS[sesionId] || [];
-  const js = agruparJugadas(crudas);
-  const partidas = crudas.length > js.length;
+  /* 🔴 LO QUE NO ES UNA JUGADA NO VA EN LA LISTA DE JUGADAS. En una sesión de casino en vivo, 7
+     de 9 renglones eran movimientos de mesa —entrar, salir, mirar— todos en cero. Mezclados con
+     las jugadas hacen parecer que jugó nueve veces y esconden la única que movió plata. */
+  const jugables = crudas.filter(x => x.esJugada !== false);
+  const deMesa = crudas.length - jugables.length;
+  const js = agruparJugadas(jugables);
+  const partidas = jugables.length > js.length;
   /* 🔴 NO PROMETER UNA MATRIZ QUE ESTE JUEGO NO MANDA. Medido el 7-sep-2026 sobre la instalación
      del cliente: ni RUBYPLAY ni PRAGMATIC devuelven grilla ahí —no llega ni el objeto—, y el panel
      del casino tampoco la dibuja: su columna «Matriz» trae premio, líneas y estado. El aviso decía
@@ -3531,9 +3539,13 @@ function abrirSesion(jugadorId, sesionId){
         ${x.idSoporte ? filaCred('Número de esta jugada', x.idSoporte, true) : ''}
       </span>
     </div>`; }).join('')}
-    ${partidas ? `<div class="nota neutra">Este proveedor manda <b>${crudas.length} líneas</b>
-      para <b>${js.length} jugadas</b>: parte cada una en dos. Se juntan por
-      <span class="mono">round_id</span>, si no se verían apuestas en cero.</div>` : ''}
+    ${partidas ? `<div class="nota neutra">Este proveedor <b>parte cada jugada en varios
+      renglones</b> —la apuesta por un lado y el pago por otro—: ${jugables.length} renglones para
+      <b>${js.length} ${js.length === 1 ? 'jugada' : 'jugadas'}</b>. Acá se juntan, así que lo que
+      ves es lo que de verdad puso y se llevó.</div>` : ''}
+    ${deMesa ? `<div class="nota neutra">Se dejaron afuera <b>${deMesa} ${deMesa === 1
+      ? 'movimiento de mesa' : 'movimientos de mesa'}</b>: entrar, salir o mirar sin apostar. No
+      mueven fichas.</div>` : ''}
     ${/* 🔑 El texto le habla a quien está atendiendo, no a quien programó: para qué le sirve, y
          qué hacer cuando no aparece. Sin nombres de campos ni explicaciones del motor. */''}
     ${hayMatriz

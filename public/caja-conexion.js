@@ -1589,7 +1589,9 @@
       const d = cache.get(clave);
       if (d && d.ok && (d.rondas || []).length) {
         JUGADAS[sesionId] = d.rondas.map((r) => ({
-          round_id: String(r.id), dateTime: r.cuando,
+          /* 🔑 La clave de agrupado es la RONDA, no el renglón: en el casino en vivo la apuesta y
+             el pago vienen en dos renglones distintos de la misma ronda. */
+          round_id: r.agrupa || String(r.id), esJugada: r.esJugada, dateTime: r.cuando,
           before: plata(r.antes), bet: plata(r.apostó), win: plata(r.ganó),
           status: Number(r.estado) || 0,
           matriz: r.matriz, lineas: r.lineas || [], forma: r.forma, figuras: r.figuras,

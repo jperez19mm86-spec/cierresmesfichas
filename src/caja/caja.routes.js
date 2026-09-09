@@ -253,6 +253,18 @@ function mount(app) {
              `id`        — el de la ronda en el motor, que siempre está
            No se inventa ninguno: si no vino, no va. */
         idSoporte: String(f.bet_id || f.trade_id || (comoJson(f.info) || {}).round_id || f.id || '') || null,
+        /* 🔴 LA APUESTA Y EL PAGO SON DOS RENGLONES. Señalado por el dueño el 8-sep-2026: «si
+           vuelve 0 no significa que no pagó, la ganancia aparece en otra línea». Medido en
+           Absolute Live Gaming: a las 22:54:12 sale «apostó 20, ganó 0» y a las 22:54:43 «apostó
+           0, ganó 720» — la misma ronda, partida en dos. Leído renglón por renglón, la primera
+           parece una pérdida de 20 y la segunda un regalo de 720.
+           Lo que las une es `info.round_id`, igual en las dos. Se manda como clave de agrupado
+           para que la pantalla las junte en una sola jugada: apostó 20, ganó 720. */
+        agrupa: String((comoJson(f.info) || {}).round_id || f.id || ''),
+        /* 🔑 Y hay renglones que NO son jugadas: en esa misma sesión, 7 de 9 vinieron en cero, sin
+           `round_id` y sin `actionId` — son movimientos de mesa (entrar, salir, mirar). Mostrarlos
+           como jugadas llena la lista de ruido y hace parecer que jugó nueve veces. */
+        esJugada: !!(Number(f.bet) || Number(f.win) || (comoJson(f.info) || {}).round_id),
         /* 🔴 UNA APUESTA DEPORTIVA NO ES UNA TIRADA. Medido el 8-sep-2026: ImperiumBet no manda
            grilla ninguna —no tiene— pero manda el CUPÓN en `info`: qué partido, qué evento, a qué
            cuota, en vivo o no y con qué resultado. Eso es lo que responde «¿por qué se le pagó
