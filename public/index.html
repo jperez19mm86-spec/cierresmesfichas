@@ -573,8 +573,14 @@
       _soyOperador = !!(body && body.rol === 'operador');
     } catch (e) { _soyOperador = false; }
     if (_soyOperador) {
-      const cfg = document.getElementById('nav-config');
-      if (cfg) cfg.style.display = 'none';
+      /* Configuración: son las llaves del negocio.
+         ⚡ Calcular carga: muestra el % al que trabaja cada cliente, que es margen — la misma
+         razón por la que el operador no ve precios ni deudas. Además su API vive en /api/os/*,
+         que el servidor le niega: dejar el botón sería un botón que contesta 403. */
+      for (const id of ['nav-config', 'nav-carga']) {
+        const b = document.getElementById(id);
+        if (b) b.style.display = 'none';
+      }
       document.body.classList.add('solo-despacho');
     }
   }
@@ -979,7 +985,7 @@
       + (mes ? ('Sin movimientos en ' + esc(mes) + (f ? (' para "' + esc(f) + '"') : '') + '. Vaciá el mes para ver todo.')
              : (f ? ('Sin movimientos para "' + esc(f) + '".') : 'Sin historial todavía.')) + '</div>'; return; }
     _hist = list;
-    box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>' +
+    box.innerHTML = '<table class="hist"><thead><tr><th>Fecha</th><th>Cliente</th><th>Caja</th><th>Sistema</th><th>Monto</th><th>Estado</th><th>Quién</th><th>Detalle</th></tr></thead><tbody>' +
       list.map((p) => {
         /* 'cargando' caía en el `else` y se dibujaba "✗ rechazado": una mentira sobre un pedido
            cuyas fichas pueden estar cargadas de verdad. Ahora dice lo que es, y si lleva rato
@@ -1002,6 +1008,18 @@
             : 'la carga está en curso…';
         }
         else det = esc(p.error || '');
+        /* ── QUIÉN LA DESPACHÓ ────────────────────────────────────────────────────────────────
+           Sale de lo GUARDADO en el pedido, nunca de quién está mirando la pantalla. Los pedidos
+           de antes de que esto existiera no lo tienen: van con una raya, que es la verdad. No se
+           reparten a nadie por descarte.
+           En una carga anulada el nombre es el de quien la anuló, así que si la había cargado otra
+           persona se lo dice al lado — el dato que importa cuando algo salió mal es quién entregó
+           las fichas. */
+        const quien = p.porUsuario
+          ? ('<b>' + esc(p.porUsuario) + '</b>'
+             + (p.cargadaPor && p.cargadaPor !== p.porUsuario
+                ? '<br><span class="meta">cargó ' + esc(p.cargadaPor) + '</span>' : ''))
+          : '<span class="meta" title="es de antes de que se registrara quién despacha">—</span>';
         // El botón de anular SOLO se dibuja si la carga está dentro de la ventana; después desaparece
         // (igual que el backend, que rechaza). El countdown lo va bajando _tickAnular().
         let anular = '';
@@ -1018,6 +1036,7 @@
         <td data-label="Sistema">${esc(p.sistema)}</td>
         <td data-label="Monto"><strong>${esc(p.divisa)}</strong> $ ${money(p.monto)}</td>
         <td data-label="Estado" class="estado-${p.estado}">${estLbl}</td>
+        <td data-label="Quién">${quien}</td>
         <td data-label="Detalle" class="meta">${det}${anular}</td>
       </tr>`; }).join('') + '</tbody></table>';
   }

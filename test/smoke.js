@@ -9418,6 +9418,71 @@ async function main() {
   check('/tbs está detrás de auth igual que /os', rt.status === 302 || rt.status === 401 || /login/i.test(String(rt.headers.location || '')),
     String(rt.status) + ' ' + String(rt.headers.location || ''));
 
+  /* ── QUIÉN ACEPTÓ CADA CARGA ─────────────────────────────────────────────────────────────────
+     Hasta acá el historial decía qué se cargó y cuándo, pero no quién. Con dos personas
+     despachando —la dueña y quien opera— eso es justo lo que hay que poder mirar cuando una carga
+     salió a la caja equivocada.
+     El nombre se guarda EN EL MOMENTO. Guardar sólo el rol ("operador") deja de decir quién fue el
+     día que esa llave cambie de manos. */
+  {
+    const ped = require('../src/pedidos-store');
+    const auth = require('../src/auth');
+
+    const ALEXA = { rol: 'admin', usuario: 'Admin' };
+    const SOPHI = { rol: 'operador', usuario: 'sophi' };
+
+    const q1 = ped.create({ codigo: 'ZZ-QUIEN', clienteNombre: 'Prueba quién', divisa: 'ARS', monto: 1000 });
+    ped.tomarParaCargar(q1.id, SOPHI);
+    check('quién: se anota antes de tocar el casino, no al terminar',
+      ped.get(q1.id).porUsuario === 'sophi' && ped.get(q1.id).porRol === 'operador'
+      && ped.get(q1.id).estado === 'cargando',
+      'un pedido trabado tiene que decir quién lo estaba haciendo');
+    ped.setEstado(q1.id, 'cargado', { newBalance: 1000 });
+    check('quién: sobrevive al cierre de la carga',
+      ped.get(q1.id).porUsuario === 'sophi' && ped.get(q1.id).estado === 'cargado');
+
+    // Anular la puede apretar otra persona: el nombre pasa a ser el de quien anuló, PERO no se
+    // pierde quién había entregado las fichas — que es el dato que importa cuando algo salió mal.
+    ped.tomarParaAnular(q1.id, ALEXA);
+    check('quién: al anular queda el que anuló y también el que había cargado',
+      ped.get(q1.id).porUsuario === 'Admin' && ped.get(q1.id).cargadaPor === 'sophi');
+
+    // Rechazar también deja rastro.
+    const q2 = ped.create({ codigo: 'ZZ-QUIEN2', clienteNombre: 'Prueba quién 2', divisa: 'ARS', monto: 2000 });
+    ped.setEstado(q2.id, 'rechazado', { error: 'no pagó', por: ALEXA });
+    check('quién: un rechazo también dice quién fue', ped.get(q2.id).porUsuario === 'Admin');
+
+    /* Los pedidos de ANTES no lo tienen, y eso no se rellena por descarte: adivinar quién despachó
+       una carga vieja es peor que decir que no se sabe. */
+    const q3 = ped.create({ codigo: 'ZZ-QUIEN3', clienteNombre: 'Prueba quién 3', divisa: 'ARS', monto: 3000 });
+    ped.setEstado(q3.id, 'cargado', { newBalance: 3000 });
+    check('quién: sin sesión anotada no se inventa un nombre',
+      ped.get(q3.id).porUsuario === undefined || ped.get(q3.id).porUsuario === null);
+
+    [q1.id, q2.id, q3.id].forEach((id) => { try { ped.remove(id); } catch (e) { /* limpieza */ } });
+
+    // El nombre sale del rol, que es lo único que viaja en la cookie.
+    check('quién: el nombre se resuelve desde el rol de la sesión',
+      auth.usuarioDe('admin') === (process.env.PANEL_USER || 'admin')
+      && auth.usuarioDe(null) === null);
+
+    // Y la pantalla lo muestra: una columna propia, con raya para los que no lo tienen.
+    const fiQ = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('quién: el historial tiene su columna',
+      /<th>Estado<\/th><th>Quién<\/th>/.test(fiQ) && /data-label="Quién"/.test(fiQ));
+    check('quién: la pantalla lo lee del pedido guardado, no de quién está mirando',
+      /const quien = p\.porUsuario/.test(fiQ) && !/_soyOperador \?[^\n]*porUsuario/.test(fiQ));
+
+    /* Para que el nombre diga algo tiene que haber DOS llaves, y la del operador ve menos. Su
+       pantalla esconde lo que el servidor le niega: un botón que contesta 403 parece un bug. */
+    check('quién: al operador se le esconde también ⚡ Calcular carga',
+      /for \(const id of \['nav-config', 'nav-carga'\]\)/.test(fiQ),
+      'muestra el % al que trabaja cada cliente, y su API vive en /api/os/*');
+    const rutasOp = fs.readFileSync(path.join(ROOT, 'src', 'auth.js'), 'utf8');
+    check('quién: y el servidor no se lo permite igual, aunque encuentre la URL',
+      !/os\/carga/.test(rutasOp.split('const OPERADOR_PUEDE')[1].split('];')[0]));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();

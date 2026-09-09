@@ -8,7 +8,8 @@
  *
  * Pedido = {
  *   id, codigo, clienteNombre, cajaId, cajaUsuario, sistema, userId, divisa, monto,
- *   estado: 'pendiente'|'cargado'|'rechazado'|'anulado', createdAt, resueltoAt, newBalance, error
+ *   estado: 'pendiente'|'cargado'|'rechazado'|'anulado', createdAt, resueltoAt, newBalance, error,
+ *   porRol, porUsuario  (QUIÉN lo despachó: el rol de la sesión y el nombre con el que entró)
  *   ('anulado' = una carga que se revirtió: se retiró el monto del casino, ej. carga a usuario equivocado)
  * }
  * Se guarda en data/pedidos.json (gitignored).
@@ -89,6 +90,21 @@ function create(p) {
 
 function get(id) { return load().pedidos.find((p) => p.id === id) || null; }
 
+/**
+ * ── QUIÉN LO DESPACHÓ ────────────────────────────────────────────────────────────────────────
+ *
+ * Se escribe el NOMBRE, no sólo el rol, y se escribe EN EL MOMENTO. El rol solo ("operador") deja
+ * de decir quién fue el día que esa llave cambie de manos; el nombre guardado no.
+ *
+ * Va en el pedido y no en una tabla aparte a propósito: lo que se quiere saber es quién aceptó ESA
+ * carga, y ahí es donde se lo va a buscar.
+ */
+function anotarQuien(p, quien) {
+  if (!quien || !quien.rol) return;
+  p.porRol = quien.rol;
+  p.porUsuario = quien.usuario || quien.rol;
+}
+
 /** Cambia estado de un pedido (cargado/rechazado) + extra (newBalance/error). */
 function setEstado(id, estado, extra = {}) {
   const data = load();
@@ -100,6 +116,7 @@ function setEstado(id, estado, extra = {}) {
   if (extra.error !== undefined) p.error = extra.error;
   if (extra.cascada !== undefined) p.cascada = extra.cascada;
   if (extra.trabadoEn !== undefined) p.trabadoEn = extra.trabadoEn;
+  anotarQuien(p, extra.por);
   save(data);
   return p;
 }
@@ -121,11 +138,16 @@ function setCascada(id, cascada, trabadoEn) {
 /** LOCK atómico para anular: si el pedido está 'cargado' lo pasa a 'anulando' y lo devuelve; si no, null.
  *  Es SINCRÓNICO (better-sqlite3) → corre entero sin interleave → previene doble-retiro concurrente.
  *  NO toca resueltoAt/newBalance (así el rollback preserva los datos de la carga original). */
-function tomarParaAnular(id) {
+function tomarParaAnular(id, quien) {
   const data = load();
   const p = data.pedidos.find((x) => x.id === id);
   if (!p || p.estado !== 'cargado') return null;
   p.estado = 'anulando';
+  /* Anular la puede apretar otra persona que la que cargó, así que antes de pisar el nombre se
+     guarda el de quien cargó. Si no, una anulación borraría el único rastro de quién entregó las
+     fichas — que es justo el dato que hay que mirar cuando algo salió mal. */
+  if (p.porUsuario && !p.cargadaPor) p.cargadaPor = p.porUsuario;
+  anotarQuien(p, quien);
   save(data);
   return { ...p };
 }
@@ -142,12 +164,15 @@ function tomarParaAnular(id) {
  * Devuelve null si ya lo tomó otro. Es sincrónico (load/save de un JSON, sin await en el medio),
  * así que entre el chequeo y el guardado no se puede colar nadie.
  */
-function tomarParaCargar(id) {
+function tomarParaCargar(id, quien) {
   const data = load();
   const p = data.pedidos.find((x) => x.id === id);
   if (!p || p.estado !== 'pendiente') return null;
   p.estado = 'cargando';
   p.tomadoAt = new Date().toISOString();
+  /* Se anota ACÁ y no al terminar: la cascada tarda decenas de segundos y puede cortarse en el
+     medio. Un pedido trabado en 'cargando' tiene que decir quién lo estaba haciendo. */
+  anotarQuien(p, quien);
   save(data);
   return { ...p };
 }

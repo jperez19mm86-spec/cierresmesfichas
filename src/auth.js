@@ -401,6 +401,29 @@ function logoutHandler(req, res) {
   res.json({ ok: true });
 }
 
+/**
+ * El NOMBRE con el que entró quien trae esta sesión — para dejarlo escrito al lado de lo que hizo.
+ *
+ * Sale del rol, que es lo único que viaja en la cookie. Y eso alcanza porque cada rol es UNA
+ * persona: si el operador se llama "sophi", el que carga como operador es Sophi.
+ *
+ * ⚠️ Devuelve el nombre de HOY. Quien lo use para auditar tiene que GUARDARLO en el momento, no
+ * volver a preguntarlo después: el día que se renombre el usuario, lo viejo tiene que seguir
+ * diciendo quién fue de verdad.
+ */
+function usuarioDe(rol) {
+  if (rol === 'admin') return PANEL_USER || 'admin';
+  if (rol === 'operador') return OPERADOR_USER || 'operador';
+  if (rol === 'proveedor') return PROVEEDOR_USER || 'proveedor';
+  return null;
+}
+
+/** Quién es el que manda esta request: { rol, usuario }. Sin sesión, las dos en null. */
+function quienEs(req) {
+  const rol = rolDe(req);
+  return { rol: rol || null, usuario: usuarioDe(rol) };
+}
+
 module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador, puedeProveedor,
-  firmarCliente, clienteDeToken, CLIENTE_RENOVAR_MS,
+  firmarCliente, clienteDeToken, CLIENTE_RENOVAR_MS, usuarioDe, quienEs,
   USING_DEFAULT_PASSWORD, PANEL_USER, HAY_OPERADOR };

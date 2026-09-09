@@ -1136,7 +1136,8 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
   // 🔒 SE TOMA EL PEDIDO ANTES DE TOCAR EL CASINO. El camino completo tarda decenas de segundos
   // (login + un loadChips por eslabón) y hasta ahora el pedido seguía en 'pendiente' todo ese rato:
   // apretar dos veces cargaba las fichas DOS VECES y se facturaba una sola.
-  const tomado = pedidos.tomarParaCargar(p.id);
+  // Quién la está cargando: se anota antes de tocar el casino (ver `anotarQuien` en el store).
+  const tomado = pedidos.tomarParaCargar(p.id, auth.quienEs(req));
   if (!tomado) return res.status(409).json({ ok: false, error: 'ese pedido ya se está cargando en este momento' });
   /* En memoria: dice que ESTA carga está corriendo en ESTE proceso. Es lo que impide que alguien la
      destrabe a mano mientras corre —destrabarla la haría cargar dos veces— y se va sola si el
@@ -1246,7 +1247,7 @@ app.post('/api/pedidos/:id/rechazar', (req, res) => {
   const p = pedidos.get(req.params.id);
   if (!p) return res.status(404).json({ ok: false, error: 'pedido no encontrado' });
   if (p.estado !== 'pendiente') return res.status(400).json({ ok: false, error: `el pedido ya está "${p.estado}"` });
-  const upd = pedidos.setEstado(p.id, 'rechazado', { error: (req.body && req.body.motivo) || null });
+  const upd = pedidos.setEstado(p.id, 'rechazado', { error: (req.body && req.body.motivo) || null, por: auth.quienEs(req) });
   sheets.logTransaction(upd); // registro en Google Sheets (fire-and-forget, no bloquea)
   res.json({ ok: true, pedido: upd });
 });
@@ -1297,7 +1298,7 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
   if (!p0.userId) return res.status(400).json({ ok: false, error: 'La caja no tiene user_id del casino' });
 
   // LOCK ATÓMICO (cargado → anulando): previene doble-retiro por doble-click / requests concurrentes.
-  const p = pedidos.tomarParaAnular(req.params.id);
+  const p = pedidos.tomarParaAnular(req.params.id, auth.quienEs(req));
   if (!p) return res.status(409).json({ ok: false, error: 'ese pedido ya se está anulando (o cambió de estado)' });
 
   try {
