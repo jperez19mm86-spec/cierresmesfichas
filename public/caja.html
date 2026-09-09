@@ -1475,10 +1475,14 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
          login con `textContent`, que borraría cualquier cosa que tenga adentro. -->
     <button class="marca" onclick="miCuenta()" aria-label="Mi cuenta y configuración">
       <span class="nomb"><b class="mono" id="quien">GanamosxLatam</b>
-        ${/* 🔴 EL PRIMER ENGRANAJE LO DIBUJÉ A MANO Y SALIÓ TORCIDO: los dientes no quedaron
-             repartidos parejo y de lejos parecía una mancha. Ahora los ocho dientes salen de una
-             sola cuenta —un cuadrado girado 45 grados sobre otro derecho, que es como se dibuja un
-             engranaje de ocho— así que la simetría no depende de mi pulso. */''}
+        <!-- 🔴 EL PRIMER ENGRANAJE LO DIBUJÉ A MANO Y SALIÓ TORCIDO: los dientes no quedaron
+             repartidos parejo y de lejos parecía una mancha. Ahora los ocho salen de una cuenta
+             —radio 10,2 en la punta y 7,6 en el valle, cada 45 grados con el valle a mitad de
+             camino— así que la simetría no depende de mi pulso.
+             🔴 Y ACÁ ESTABA ESCRITO COMO `${...}`, QUE ES UN COMENTARIO DE PLANTILLA. Esta barra
+             es HTML del documento, no una plantilla de JavaScript: el navegador lo imprimió tal
+             cual, y el cajero veía mi comentario al lado de su nombre. Fotografiado por el dueño.
+             En el HTML fijo los comentarios van así, con los signos de menor y mayor. -->
         <svg class="tuerca" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3.2"/>

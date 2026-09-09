@@ -986,6 +986,22 @@ check('sin grilla no se marca nada, en vez de romper',
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
     /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
     && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+  /* 🔴 UN COMENTARIO DE PLANTILLA IMPRESO EN LA PANTALLA. Casi todo el panel se dibuja con
+     plantillas de JavaScript, donde `${'/* … *' + '/'}''` es la forma de comentar. Pero la barra de
+     arriba, el login y el hub son HTML del documento: ahí eso NO es un comentario, el navegador lo
+     imprime tal cual. Pasó el 9-sep-2026 y el cajero veía mi comentario al lado de su nombre.
+     Se mira sólo el HTML —fuera de los guiones, de los estilos y de los comentarios de HTML—: ahí
+     no puede quedar ni una llave de plantilla. */
+  {
+    const soloHtml = htmlCaja
+      .replace(/<script[\s\S]*?<\/script>/g, ' ')
+      .replace(/<style[\s\S]*?<\/style>/g, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ');
+    const sueltos = [...soloHtml.matchAll(/\$\{[^}]{0,60}/g)].map((m) => m[0].replace(/\s+/g, ' '));
+    check('no queda ninguna llave de plantilla suelta en el HTML fijo',
+      sueltos.length === 0, sueltos.length ? sueltos.join(' | ') : 'ninguna');
+  }
+
   /* 🔴 EL NOMBRE YA ERA UN BOTÓN Y NADIE LO SABÍA. Tocarlo abre «Mi cuenta», pero se veía igual
      que un rótulo. Un engranaje al lado lo dice sin agregar texto. Va AFUERA de `#quien`: a ese
      nodo se le escribe el login con `textContent`, que borraría cualquier cosa de adentro. */
