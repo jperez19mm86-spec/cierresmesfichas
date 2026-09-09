@@ -9181,6 +9181,31 @@ async function main() {
       && /new Set\(porPanelSinTC\.map\(\(p\) => p\.divisa\)\)/.test(linkF));
   }
 
+  /* ── CALCULAR UNA CARGA ───────────────────────────────────────────────────────────────────
+     «El cliente me paga 10.000 dólares, ¿cuánto cargo en fichas?». Se hacía con la calculadora
+     del teléfono y un TC de algún lado — y ése no es el que después anota el sistema. */
+  {
+    const uiCg = FUENTE_PANEL();
+    const rutCg = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('carga: la cuenta la hace el servidor con las funciones de la carga real',
+      /\/api\/os\/carga\/calcular/.test(rutCg)
+      && /deudaCargaSvc\.baseDe\(cli, panel\)/.test(rutCg)
+      && /deudaCargaSvc\.tcDelDia/.test(rutCg),
+      'si la pantalla hiciera su propia cuenta, diría un número y el sistema anotaría otro');
+    /* Las dos lecturas de «10.000» se dicen igual y dan distinto: si te PAGA 10.000 la comisión
+       sale de adentro; si quiere 10.000 EN FICHAS, se le suma aparte. */
+    check('carga: contesta las dos lecturas, con nombre',
+      /comoPago: \{ cargar: pagoFichas/.test(rutCg) && /comoFichas: \{ cargar,/.test(rutCg));
+    check('carga: y la pantalla arranca por «lo que me paga», que es el caso de todos los días',
+      /<option value="pago">lo que ME PAGA<\/option>/.test(uiCg)
+      && /const modo = val\('cg-modo'\) \|\| 'pago'/.test(uiCg));
+    // El pedido se crea por la MISMA puerta que un pedido del cliente, y con el monto elegido.
+    check('carga: el pedido sale por la misma puerta que el del cliente',
+      /api\('\/api\/pedir'/.test(uiCg) && /monto: Number\(u\.cargar\)/.test(uiCg));
+    check('carga: y se pregunta antes, que después aparece en la cola de otro',
+      /confirm\('¿Crear el pedido a nombre de/.test(uiCg));
+  }
+
   check('panel: los espacios se llaman por lo que hacen',
     /\['\/','🎰 Fichas'\]/.test(r.data) && /\['\/os','📊 Panel'\]/.test(r.data)
     && /\['\/chat-externo','💬 Chat'\]/.test(r.data));

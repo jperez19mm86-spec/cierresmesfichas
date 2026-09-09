@@ -4883,21 +4883,29 @@ function mount(app) {
     const comisionUsdt = comisionEnCaja == null ? null
       : (enUsd ? comisionEnCaja : (tc ? money.round(money.div(comisionEnCaja, tc), 2) : null));
 
-    /* LA OTRA LECTURA, porque las dos se dicen igual: «pide 10.000» puede ser «quiere 10.000 de
-       fichas» o «va a poner 10.000 en total». Se contestan las dos y nadie tiene que aclararlo. */
-    const conComision = (base != null && money.isPos(String(base)))
-      ? money.round(money.div(money.mul(cargar, '100'), money.add('100', String(base))), 2)
-      : null;
+    /* ── LAS DOS LECTURAS DE «10.000», QUE SE DICEN IGUAL ──────────────────────────────────────
+       · ME PAGA 10.000  → de ahí sale la comisión: se cargan fichas por 10.000 menos su %.
+         Es el caso de todos los días («el cliente me pagará 10.000, cuánto cargo»).
+       · QUIERE 10.000 DE FICHAS → se cargan 10.000 y la comisión se le suma aparte.
+       Se contestan las dos, con nombre, y la pantalla elige cuál muestra primero. Devolver una
+       sola obliga a aclarar de cuál se trata cada vez, y ahí es donde se carga de más. */
+    const b100 = (base != null && money.isPos(String(base))) ? money.add('100', String(base)) : null;
+    const pagoFichas = b100 ? money.round(money.div(money.mul(cargar, '100'), b100), 2) : cargar;
+    const pagoComision = b100 ? money.round(money.sub(cargar, pagoFichas), 2) : null;
+    const enUsdDe = (x) => (x == null ? null : (enUsd ? x : (tc ? money.round(money.div(x, tc), 2) : null)));
 
     ok(res, {
       cliente: { id: cli.id, nombre: cli.nombre || cli.nombreVisible, codigo: cli.codigo },
       caja: { id: caja.id, usuario: caja.usuario, sistema: caja.sistema, divisa: dCaja },
       pide: { monto: money.round(monto, 2), divisa: dPide },
-      cargar: { monto: cargar, divisa: dCaja },
       tc: tc ? { valor: tc, fuente: tcFuente, vivo: tcVivo } : null,
       base: base == null ? null : { pct: String(base), de: (panel && panel.usa_config_cliente === false) ? 'panel' : 'cliente' },
-      comision: { enCaja: comisionEnCaja, divisa: dCaja, usdt: comisionUsdt },
-      siIncluyeComision: conComision == null ? null : { cargar: conComision, divisa: dCaja },
+      // Te paga ese monto: la comisión sale de adentro.
+      comoPago: { cargar: pagoFichas, divisa: dCaja,
+        comision: pagoComision, comision_usdt: enUsdDe(pagoComision) },
+      // Quiere ese monto EN FICHAS: la comisión se le suma aparte.
+      comoFichas: { cargar, divisa: dCaja,
+        comision: comisionEnCaja, comision_usdt: comisionUsdt },
       avisos,
     });
   }));

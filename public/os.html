@@ -53,6 +53,9 @@ const GRUPOS = [
   { id: 'pendientes',
     label: () => { const n = _pendTotal(); return (n ? '🔔' : '✅') + ' Pendientes' + (n ? ' <span class="nb urg">' + n + '</span>' : ''); },
     items: [] },                                        // sin subs: es una sola pantalla
+  /* Primer nivel y con su propio lugar: es lo que más se usa en el día y antes se hacía con la
+     calculadora del teléfono. «Titan pide 10.000 dólares en 463.life» → cuánto poner en el panel. */
+  { id: 'carga', label: () => '⚡ Calcular carga', items: [] },
   { id: 'cuentas', label: () => '💰 Cuentas', items: [
     /* Primera a propósito: cerrar un mes son ocho cosas en un orden que importa, repartidas en
        cinco pantallas. Acá se ve en cuál está el mes y qué falta para la siguiente. */
@@ -3096,6 +3099,150 @@ async function refrescarTodoPendiente() {
   // El título de la pestaña del navegador también, para verlo con el OS en segundo plano.
   const n = _pendTotal();
   document.title = (n ? '(' + n + ') ' : '') + 'Latam Games';
+}
+
+/* ── ⚡ CALCULAR UNA CARGA ──────────────────────────────────────────────────────────────────────
+   «Titan pide 10.000 dólares en 463.life». La caja está en pesos, así que hay que convertir, y
+   además saber qué comisión le genera. Se hacía con la calculadora del teléfono y el TC de algún
+   lado — y el TC de algún lado no es el que después anota el sistema.
+
+   La cuenta la hace el SERVIDOR con las mismas funciones que la carga de verdad. Acá no se
+   multiplica nada: si esta pantalla hiciera su propia cuenta, diría un número y el sistema
+   anotaría otro, y el que ya lo vio es el cliente. */
+let _cgCli = null, _cgCajas = [], _cgRes = null, _cgTimer = null, _cgUsar = null;
+
+VIEWS.carga = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="muted">Cargando clientes…</div></div>';
+  const cs = ((await api('/api/clientes')).clientes || []).filter(c => (c.cajas||[]).length);
+  cs.sort((a,b) => String(a.nombre||a.nombreVisible||'').localeCompare(String(b.nombre||b.nombreVisible||''), 'es'));
+  main.innerHTML = `
+    <div class="card">
+      <h2>⚡ Calcular una carga</h2>
+      ${ayuda('cg', 'Cuánto hay que poner en el panel y qué comisión le genera.',
+        'La cuenta la hace el servidor con las mismas funciones que usa la carga de verdad, así que '
+        + 'lo que dice acá es exactamente lo que se va a anotar. El tipo de cambio es el <b>vivo</b>; '
+        + 'si no contesta, se usa el del mes y se avisa.<br><br>'
+        + '<b>La carga no es deuda.</b> Lo que el cliente queda debiendo es la <b>comisión</b>: su % base '
+        + 'sobre lo cargado. Las fichas se pagan aparte.')}
+      <div class="row" style="align-items:flex-end;margin-top:8px">
+        <div style="flex:1 1 220px"><label>Cliente</label>
+          <select id="cg-cli" onchange="cgCliente()">
+            <option value="">— elegir —</option>
+            ${cs.map(c => `<option value="${esc(c.id)}">${esc(c.nombre||c.nombreVisible)} · ${esc(c.codigo)}</option>`).join('')}
+          </select></div>
+        <div style="flex:1 1 220px"><label>Caja / panel</label>
+          <select id="cg-caja" onchange="cgCalcular()"><option value="">— elegí un cliente —</option></select></div>
+      </div>
+      <div class="row" style="align-items:flex-end;margin-top:6px">
+        <div style="flex:0 0 200px"><label>Ese monto es…</label>
+          <select id="cg-modo" onchange="cgCalcular()">
+            <option value="pago">lo que ME PAGA</option>
+            <option value="fichas">fichas que QUIERE</option>
+          </select></div>
+        <div style="flex:1 1 160px"><label>Monto</label>
+          <input id="cg-monto" inputmode="decimal" placeholder="10000" oninput="cgLuego()"></div>
+        <div style="flex:0 0 120px"><label>En</label>
+          <select id="cg-div" onchange="cgCalcular()"><option value="USD">USD</option></select></div>
+        <div style="flex:0"><button onclick="cgCalcular()">Calcular</button></div>
+      </div>
+    </div>
+    <div id="cg-out"></div>`;
+};
+
+function cgCliente(){
+  const id = val('cg-cli');
+  _cgCli = id || null;
+  api('/api/clientes').then(r => {
+    const c = (r.clientes||[]).find(x => String(x.id) === String(id));
+    _cgCajas = c ? (c.cajas||[]) : [];
+    const sel = document.getElementById('cg-caja'); if(!sel) return;
+    sel.innerHTML = _cgCajas.length
+      ? _cgCajas.map(k => `<option value="${esc(k.id)}">${esc(k.usuario)} · ${esc((k.divisas||['ARS'])[0])}${k.sistema?' · '+esc(k.sistema):''}</option>`).join('')
+      : '<option value="">este cliente no tiene cajas</option>';
+    cgDivisas();
+    cgCalcular();
+  });
+}
+/* Las divisas que se pueden pedir: dólares —que es como se pide casi siempre— y la de la caja,
+   por si el pedido ya viene en pesos. Otra combinación no se ofrece porque la conversión pasa por
+   dólares y el servidor la rechaza; mejor no ofrecer lo que no se puede. */
+function cgDivisas(){
+  const k = _cgCajas.find(x => String(x.id) === val('cg-caja'));
+  const d = (k && (k.divisas||[])[0]) || 'ARS';
+  const sel = document.getElementById('cg-div'); if(!sel) return;
+  const antes = sel.value;
+  const ops = (d === 'USD' || d === 'USDT') ? ['USD'] : ['USD', d];
+  sel.innerHTML = ops.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  if (ops.includes(antes)) sel.value = antes;
+}
+// Al escribir se espera un momento: una consulta por tecla le pega al TC vivo en cada dígito.
+function cgLuego(){ clearTimeout(_cgTimer); _cgTimer = setTimeout(cgCalcular, 450); }
+
+async function cgCalcular(){
+  cgDivisas();
+  const out = document.getElementById('cg-out'); if(!out) return;
+  const cli = val('cg-cli'), caja = val('cg-caja'), monto = val('cg-monto').replace(',', '.');
+  if(!cli || !caja || !(Number(monto) > 0)) { out.innerHTML = ''; _cgRes = null; return; }
+  out.innerHTML = '<div class="card"><div class="muted">Calculando…</div></div>';
+  const r = await api('/api/os/carga/calcular?cliente_id=' + encodeURIComponent(cli)
+    + '&caja_id=' + encodeURIComponent(caja) + '&monto=' + encodeURIComponent(monto)
+    + '&divisa=' + encodeURIComponent(val('cg-div')));
+  if(!r || !r.ok){ out.innerHTML = '<div class="card"><div class="badge err">' + esc((r&&r.error)||'no se pudo') + '</div></div>'; _cgRes = null; return; }
+  _cgRes = r;
+  const M = (x, d) => money(x, d == null ? 2 : d);
+  const modo = val('cg-modo') || 'pago';
+  const A = modo === 'pago' ? r.comoPago : r.comoFichas;   // la lectura elegida
+  const B = modo === 'pago' ? r.comoFichas : r.comoPago;   // la otra, abajo y en chico
+  _cgUsar = A;
+  const D = esc(A.divisa), P = M(r.pide.monto) + ' ' + esc(r.pide.divisa);
+  out.innerHTML = `
+    <div class="card" style="background:var(--bg3)">
+      <label>Cargar en ${esc(r.caja.usuario)}</label>
+      <div style="font-size:34px;font-weight:800;color:var(--gold);line-height:1.15">${M(A.cargar)} <span style="font-size:18px">${D}</span></div>
+      <div class="muted" style="margin-top:2px">
+        ${modo === 'pago'
+          ? 'de los ' + P + ' que te paga' + (A.comision != null ? ', ' + M(A.comision_usdt != null ? A.comision_usdt : A.comision) + ' ' + esc(A.comision_usdt != null ? 'USDT' : A.divisa) + ' son tu comisión' : '')
+          : P + ' en fichas · la comisión se le suma aparte'}
+        ${r.tc ? ' · TC ' + M(r.tc.valor) + ' <span style="opacity:.75">(' + esc(r.tc.fuente) + (r.tc.vivo ? ', ahora' : '') + ')</span>' : ''}
+      </div>
+      <div class="row" style="margin-top:12px;gap:22px">
+        <div><label>${modo === 'pago' ? 'Tu comisión, ya adentro' : 'Le genera de comisión, aparte'}</label>
+          <div style="font-size:22px;font-weight:800">${A.comision_usdt != null ? M(A.comision_usdt) + ' USDT' : (A.comision != null ? M(A.comision) + ' ' + D : '<span class="muted">sin % base</span>')}</div>
+          ${r.base ? '<div class="muted" style="font-size:11.5px">' + esc(r.base.pct) + '%' + (r.base.de === 'panel' ? ' (precio propio del panel)' : '')
+            + (A.comision != null && D !== 'USDT' && D !== 'USD' ? ' · ' + M(A.comision) + ' ' + D : '') + '</div>' : ''}
+        </div>
+        ${B && B.cargar != null ? `<div><label>${modo === 'pago' ? 'Si los ' + M(r.pide.monto,0) + ' fueran sólo fichas' : 'Si los ' + M(r.pide.monto,0) + ' fueran lo que te paga'}</label>
+          <div style="font-size:18px;font-weight:700;opacity:.75">cargar ${M(B.cargar)} ${esc(B.divisa)}</div></div>` : ''}
+      </div>
+      ${(r.avisos||[]).length ? '<div class="muted" style="margin-top:10px;color:var(--gold)">⚠ ' + r.avisos.map(esc).join('<br>⚠ ') + '</div>' : ''}
+      <div class="row" style="margin-top:12px">
+        <button class="outline" onclick="cgCopiar()">📋 Copiar el monto</button>
+        <button class="grave" onclick="cgPedido()">📥 Crear el pedido a su nombre</button>
+      </div>
+    </div>`;
+}
+
+function cgCopiar(){
+  if(!_cgUsar) return;
+  navigator.clipboard.writeText(String(_cgUsar.cargar))
+    .then(() => toast('Copiado: ' + money(_cgUsar.cargar,2) + ' ' + _cgUsar.divisa))
+    .catch(() => toast('No se pudo copiar', true));
+}
+
+/* CREA UN PEDIDO DE VERDAD, a nombre del cliente y en la moneda de la caja. Es la misma puerta por
+   la que entra un pedido del cliente, así que sigue el mismo camino: queda pendiente y lo despacha
+   quien corresponde. Se pregunta antes porque después aparece en la cola de otra persona. */
+async function cgPedido(){
+  const r = _cgRes, u = _cgUsar; if(!r || !u) return;
+  if(!confirm('¿Crear el pedido a nombre de ' + r.cliente.nombre + '?\n\n'
+    + money(u.cargar,2) + ' ' + u.divisa + ' en ' + r.caja.usuario + '\n\n'
+    + 'Queda pendiente, como si lo hubiera pedido él.')) return;
+  toast('Creando el pedido…');
+  const x = await api('/api/pedir', { method:'POST', body: JSON.stringify({
+    codigo: r.cliente.codigo, cajaId: r.caja.id, monto: Number(u.cargar), divisa: u.divisa }) });
+  if(!x || !x.ok) return toast('No se creó: ' + ((x&&x.error)||''), true);
+  toast('✅ Pedido creado · ' + money(u.cargar,2) + ' ' + u.divisa + ' en ' + r.caja.usuario);
 }
 
 VIEWS.pendientes = async () => {
