@@ -128,19 +128,48 @@ function mount(app) {
        body el motor los ignora — las cuatro páginas devolvían las mismas 500 filas y la búsqueda
        no filtraba nada. En la query, `offset=2` trae la página 2 y `search` devuelve 1 fila.
        Es el mismo patrón de `dashboardinfo` y `reportstable`. */
-    const r = await cli.apiCall('users', {
+    /* 🔴 LA LISTA SE CORTABA EN 200 Y NO LO DECÍA. Se pedía UNA página de 200 y nada leía el
+       `pageCount` que el motor devuelve al lado. En una caja de 1.851 jugadores el cajero veía
+       200, el encabezado decía «200 en total» —porque contaba lo que había llegado, no lo que
+       hay— y el tablero de al lado decía 1.851. Peor: el buscador filtra sobre lo que llegó, así
+       que buscar un jugador de la fila 900 devolvía «no hay nada» y el cajero concluía que la
+       cuenta no existía.
+       Ahora se piden páginas de 1.000 —el máximo que el motor respeta— y se siguen pidiendo
+       mientras haya más, hasta un tope. Las páginas van de a una porque el motor cobra caro el
+       paralelo, y se corta apenas una vuelve incompleta. */
+    const TOPE_PAGINAS = 10;                    // 10.000 cuentas colgando de un mismo nodo
+    const porPagina = limiteValido(q.limite || 1000);
+    const comun = {
       /* Mismo motivo que arriba: el rango largo cuesta segundos y no cambia los saldos. */
       ...(q.desde ? { from: `${q.desde} 00:00:00`, to: `${q.hasta || hoy()} 23:59:59` } : rangoBarato()),
       inactive_users: 'all',
       deleted_users: q.eliminados === '1' ? 'delete' : 'undelete',
-      limit: String(limiteValido(q.limite || 200)),
-    }, {
+      limit: String(porPagina),
+    };
+    const query = (pagina) => ({
       id: q.id || req.caja.id,
-      offset: String(q.pagina || 1),
+      offset: String(pagina),
       ...(q.buscar ? { search: String(q.buscar) } : {}),
     });
+
+    const r = await cli.apiCall('users', comun, query(q.pagina || 1));
     if (!esJson(r)) return delMotor(res, r);
     let filas = sinFilaTotal(r.data.users);
+    /* Si el que pide ya eligió una página, se le da esa y nada más: ahí manda él. */
+    let cortada = false;
+    if (!q.pagina) {
+      const cuantas = Number(r.data.pageCount) || 1;
+      const hasta = Math.min(cuantas, TOPE_PAGINAS);
+      for (let pagina = 2; pagina <= hasta; pagina++) {
+        // eslint-disable-next-line no-await-in-loop
+        const otra = await cli.apiCall('users', comun, query(pagina));
+        if (!esJson(otra)) break;
+        const mas = sinFilaTotal(otra.data.users);
+        filas = filas.concat(mas);
+        if (mas.length < porPagina) break;       // página incompleta: no hay más
+      }
+      cortada = cuantas > TOPE_PAGINAS;
+    }
     /* 🔴 «BUSCAR» TIENE QUE BUSCAR. El motor ignora `search` cuando abajo hay CAJEROS —medido el
        4-sep-2026: sobre una caja filtra 1 de 5, sobre la raíz de un agente devuelve las cuatro
        igual, y ningún otro nombre de parámetro cambia nada—. Así que devolvía la lista entera como
@@ -152,6 +181,9 @@ function mount(app) {
     }
     ok(res, {
       cuentas: filas,
+      /* Si ni con el tope alcanzó, se dice: una lista incompleta que se presenta como completa es
+         peor que una lista incompleta que lo avisa. */
+      cortada,
       /* ⚠️ Al buscar, `pageCount` NO se actualiza: sigue diciendo el total sin filtro. */
       paginas: q.buscar ? null : (r.data.pageCount || 1),
       rango: { desde: r.data.config && r.data.config.from, hasta: r.data.config && r.data.config.to },

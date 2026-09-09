@@ -374,9 +374,17 @@ async function main() {
     {
       /* 250 cajas para que la que buscamos caiga en la segunda página. */
       await axios.get(MOTOR + '/__sembrar?cuantas=250&padre=100&grupo=4');
+      /* 🔴 LA LISTA SE CORTABA EN LA PRIMERA PÁGINA Y NO LO DECÍA. El motor pagina de a 200 o de a
+         1.000 y devuelve al lado cuántas páginas hay; nada leía ese número. En una caja de 1.851
+         jugadores el cajero veía 200, el encabezado decía «200 en total» —contaba lo que llegó, no
+         lo que hay— y el tablero de al lado decía 1.851. Y como el buscador filtra sobre lo que
+         llegó, buscar a alguien de la fila 900 contestaba que no existe.
+         Con 250 sembradas y páginas de 200, tienen que volver las 250. */
       const r = (await pedir('/api/caja/cuentas?id=100&limite=200')).data;
-      check('el motor devuelve la primera página nomás',
-        (r.cuentas || []).length === 200, `${(r.cuentas || []).length} cuentas`);
+      check('la lista trae TODAS las páginas, no la primera nomás',
+        (r.cuentas || []).length >= 250, `${(r.cuentas || []).length} cuentas, y la página es de 200`);
+      check('y avisa cuando ni con el tope alcanzó',
+        r.cortada === false, `cortada: ${r.cortada}`);
 
       /* La 249 está en la segunda página: antes esto contestaba «ya está usado». */
       const alta = (await enviar('/api/caja/crear', {
