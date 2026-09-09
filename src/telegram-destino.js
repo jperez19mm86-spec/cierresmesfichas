@@ -28,10 +28,29 @@
  * @param {function} getCliente     (id) => cliente — para poder subir al vendedor
  * @returns {{chatId:string|null, heredado:boolean, de:string|null}}
  */
+/* ── LAS COPIAS ──────────────────────────────────────────────────────────────────────────────
+   Un cliente puede necesitar que sus avisos lleguen ADEMÁS a otro grupo — el de operaciones, el de
+   un socio— sin cambiar el suyo. Titan avisa a -4842085177 y también tiene que llegar a
+   -5425623864.
+
+   ⚠️ NO SE HEREDAN, a diferencia del destino. El destino se hereda porque es «dónde vive este
+   cliente»; una copia es una decisión sobre ESE cliente. Heredarla pondría a los 14 clientes de un
+   vendedor a escribir en un grupo que se cargó para uno solo.
+
+   Y nunca se manda dos veces al mismo lugar: si una copia es igual al destino, se descarta. */
+function copiasDe(cliente) {
+  const c = (cliente && cliente.telegram && cliente.telegram.copias) || [];
+  const propio = (((cliente || {}).telegram || {}).chatId || '').trim();
+  return [...new Set((Array.isArray(c) ? c : [])
+    .map((x) => String(x || '').trim())
+    .filter((x) => x && x !== propio))];
+}
+
 function destinoDe(cliente, getCliente) {
-  if (!cliente) return { chatId: null, heredado: false, de: null, enabled: false };
+  if (!cliente) return { chatId: null, heredado: false, de: null, enabled: false, copias: [] };
+  const copias = copiasDe(cliente);
   const propio = ((cliente.telegram || {}).chatId || '').trim();
-  if (propio) return { chatId: propio, heredado: false, de: null, enabled: !!(cliente.telegram || {}).enabled };
+  if (propio) return { chatId: propio, heredado: false, de: null, enabled: !!(cliente.telegram || {}).enabled, copias };
 
   // SUBE TODA LA CADENA, no un solo escalón. Hay vendedores que cuelgan de otro vendedor —
   // GanamosSarah y Julian son de Alexa — así que un cliente de Julian tiene que poder terminar en
@@ -43,14 +62,14 @@ function destinoDe(cliente, getCliente) {
   let actual = cliente;
   while (true) {
     const vid = actual.vendedor_id;
-    if (!vid || vistos.has(String(vid))) return { chatId: null, heredado: false, de: null, enabled: false };
+    if (!vid || vistos.has(String(vid))) return { chatId: null, heredado: false, de: null, enabled: false, copias };
     vistos.add(String(vid));
     const v = typeof getCliente === 'function' ? getCliente(vid) : null;
-    if (!v) return { chatId: null, heredado: false, de: null, enabled: false };
+    if (!v) return { chatId: null, heredado: false, de: null, enabled: false, copias };
     const suyo = ((v.telegram || {}).chatId || '').trim();
     // El interruptor viaja CON el destino: ver avisaCargas.
     if (suyo) return { chatId: suyo, heredado: true, de: v.nombre || v.codigo || String(vid),
-      enabled: !!(v.telegram || {}).enabled };
+      enabled: !!(v.telegram || {}).enabled, copias };
     actual = v;
   }
 }
@@ -100,4 +119,28 @@ function avisaCargas(cliente, getCliente) {
   return !!(d.chatId && d.enabled);
 }
 
-module.exports = { destinoDe, vendedorPrincipal, avisaCargas };
+/**
+ * Mandar UN aviso al destino del cliente y a todas sus copias.
+ *
+ * Existe para que no haya que acordarse de las copias en cada uno de los ocho lugares que avisan
+ * algo — carga, anulación, movimiento de fichas, abono… Ese olvido es silencioso: el aviso llega
+ * al grupo de siempre y la copia no, y nadie se entera hasta que alguien la reclama.
+ *
+ * Si falla el destino principal se informa; una copia que falla NO hace fallar el aviso: lo
+ * importante ya salió, y devolver error haría pensar que no se avisó.
+ */
+async function enviarConCopias(telegram, tok, dest, texto) {
+  if (!tok || !dest || !dest.chatId) return { ok: false, skipped: true };
+  const r = await telegram.sendMessage(tok, dest.chatId, texto);
+  const copias = [];
+  for (const c of (dest.copias || [])) {
+    try {
+      const x = await telegram.sendMessage(tok, c, texto);
+      copias.push({ chat: c, ok: !!(x && x.ok), error: x && x.error });
+      if (!(x && x.ok)) console.log(`[copia] no salió a ${c}: ${(x && x.error) || 'sin motivo'}`);
+    } catch (e) { copias.push({ chat: c, ok: false, error: String((e && e.message) || e) }); }
+  }
+  return { ...r, copias };
+}
+
+module.exports = { destinoDe, vendedorPrincipal, avisaCargas, copiasDe, enviarConCopias };

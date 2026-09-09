@@ -20,6 +20,7 @@ function load() {
     try { if (r.telegram) telegram = JSON.parse(r.telegram); } catch (e) {}
     try { if (r.cajas) cajas = JSON.parse(r.cajas); } catch (e) {}
     if (!telegram) telegram = { chatId: '', enabled: false };
+    if (!Array.isArray(telegram.copias)) telegram.copias = [];
     return {
       id: r.id, codigo: r.codigo, nombreVisible: r.nombreVisible, createdAt: r.createdAt, telegram, cajas,
       // comercial (OS v3)
@@ -194,6 +195,14 @@ function setTelegram(id, patch) {
   if (!c.telegram) c.telegram = { chatId: '', enabled: false };
   if (patch.chatId !== undefined) c.telegram.chatId = String(patch.chatId).trim();
   if (patch.enabled !== undefined) c.telegram.enabled = !!patch.enabled;
+  /* COPIAS: otros grupos que reciben lo MISMO que el suyo. Viven adentro de `telegram`, que ya es
+     un JSON, así que no hace falta tocar el esquema. Se acepta una lista o un texto separado por
+     comas —que es como se pega—, y se limpia acá y no en la pantalla: la ruta es la puerta, y un
+     chatId con un espacio adelante no lo encuentra nadie después. */
+  if (patch.copias !== undefined) {
+    const crudo = Array.isArray(patch.copias) ? patch.copias : String(patch.copias || '').split(/[,\s]+/);
+    c.telegram.copias = [...new Set(crudo.map((x) => String(x || '').trim()).filter(Boolean))];
+  }
   save(data); return c;
 }
 

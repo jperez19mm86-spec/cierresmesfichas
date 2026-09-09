@@ -55,7 +55,8 @@ async function _send(cliente, text) {
   if (!(tok && d.chatId && cliente && (cliente.telegram || {}).enabled)) {
     return { ok: false, skipped: true };
   }
-  return telegram.sendMessage(tok, d.chatId, text);
+  // Y a las copias del cliente, si tiene: ver telegram-destino.js.
+  return destino.enviarConCopias(telegram, tok, d, text);
 }
 
 const avisarCarga = (cliente, data) => _send(cliente, msgCarga(data));

@@ -824,7 +824,7 @@ async function avisarAbonoAlCliente(c, cli, conArchivo) {
         archivo: Buffer.from(arch.archivo_datos, 'base64'),
         nombre: arch.archivo_nombre, mime: arch.archivo_tipo, caption: telegram.abonoText(a),
       });
-    } else r = await telegram.sendMessage(tok, dest.chatId, telegram.abonoText(a));
+    } else r = await tgDestino.enviarConCopias(telegram, tok, dest, telegram.abonoText(a));
   } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
   try { comprobantes.marcarAvisoCliente(c.id, r); }
   catch (e) { console.warn('[Comprobante] no se pudo anotar el aviso al cliente:', e.message); }
@@ -1209,7 +1209,7 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
         const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
         // El interruptor viaja en el destino: quien hereda el grupo hereda si está encendido.
         if (cli && dest.chatId && dest.enabled && tok) {
-          telegram.sendMessage(tok, dest.chatId, telegram.cargaText({
+          tgDestino.enviarConCopias(telegram, tok, dest, telegram.cargaText({
             clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })
             .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso error:', e.message); });
@@ -1330,7 +1330,7 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
         const tokA = config.getTelegramToken();
         const destA = cliA ? tgDestino.destinoDe(cliA, (id) => clientes.get(id)) : { chatId: null };
         if (cliA && destA.chatId && destA.enabled && tokA) {
-          telegram.sendMessage(tokA, destA.chatId, telegram.anulacionText({
+          tgDestino.enviarConCopias(telegram, tokA, destA, telegram.anulacionText({
             cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso de anulación falló:', tr.error); })
             .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso de anulación error:', e.message); });

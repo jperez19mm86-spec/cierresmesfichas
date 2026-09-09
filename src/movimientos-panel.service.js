@@ -296,7 +296,7 @@ function avisarAlGrupo({ m, origen, destino, log = () => {} }) {
     const tok = config.getTelegramToken();
     const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
     if (!cli || !dest.chatId || !dest.enabled || !tok) return;
-    telegram.sendMessage(tok, dest.chatId, telegram.movimientoText({
+    tgDestino.enviarConCopias(telegram, tok, dest, telegram.movimientoText({
       origen: origen.nombre, destino: destino.nombre, divisa: m.divisa, monto: m.monto,
     })).then((tr) => { if (!tr.ok) log(`[Telegram] aviso de movimiento falló: ${tr.error}`); })
       .catch((e) => log(`[Telegram] aviso de movimiento error: ${e.message}`));

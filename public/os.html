@@ -1267,6 +1267,9 @@ function editCli(id){
             El <b>bot</b> se carga una sola vez en ⚙ Config → 📣 Telegram.</div>
           <div class="row" style="align-items:flex-end">
             <div style="flex:0"><label>chatId del grupo</label><input id="e-tgchat" value="${esc((c.telegram||{}).chatId||'')}" placeholder="-1001234567890" style="width:200px"></div>
+            <div style="flex:0 0 240px"><label>Copias <span class="muted">(otros grupos)</span></label>
+              <input id="e-tgcopias" value="${esc(((c.telegram||{}).copias||[]).join(', '))}" placeholder="-100… , -100…">
+              <div class="muted" style="font-size:11px;margin-top:2px">Reciben lo mismo: cargas, anulaciones, movimientos y abonos. No se heredan a sus clientes.</div></div>
             <div style="flex:0;padding-bottom:9px"><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
               <input type="checkbox" id="e-tgon" ${(c.telegram||{}).enabled?'checked':''} style="width:auto"> avisar cada carga</label></div>
             <div style="flex:0"><button class="outline small" onclick="tgProbar('${id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button></div>
@@ -1428,7 +1431,8 @@ async function saveCli(id){
   // El grupo de Telegram va por su propia ruta, pero se guarda con el mismo botón: para el que
   // lo usa es un dato más de la ficha, no otro trámite.
   const tg=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({
-    chatId:val('e-tgchat'), enabled:document.getElementById('e-tgon').checked })});
+    chatId:val('e-tgchat'), enabled:document.getElementById('e-tgon').checked,
+    copias:val('e-tgcopias') })});
   if(tg&&!tg.ok) toast('⚠ lo demás se guardó, pero el grupo de Telegram no: '+(tg.error||''));
   _cliDirty=false; toast('Guardado'); VIEWS.clientes();
 }

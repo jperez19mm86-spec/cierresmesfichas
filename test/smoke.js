@@ -4848,8 +4848,10 @@ async function main() {
     check('abono: al grupo del cliente le va el archivo, no sólo el texto',
       /r = await telegram\.sendArchivo\(tok, dest\.chatId, \{/.test(idx6)
       && /caption: telegram\.abonoText\(a\)/.test(idx6));
+    /* Desde el 9-sep-2026 el texto sale por `enviarConCopias`, para que llegue también a los
+       grupos de copia del cliente. El archivo todavía no: `sendArchivo` es otra llamada. */
     check('abono: sin archivo sigue yendo el texto solo',
-      /\} else r = await telegram\.sendMessage\(tok, dest\.chatId, telegram\.abonoText\(a\)\);/.test(idx6));
+      /\} else r = await tgDestino\.enviarConCopias\(telegram, tok, dest, telegram\.abonoText\(a\)\);/.test(idx6));
     // ⚠️ El blob se lee UNA vez para los dos avisos, y la variable tiene que estar en un alcance
     // donde el segundo la vea: declarada adentro del else, la llamada de abajo reventaba.
     const fn = idx6.slice(idx6.indexOf('async function avisarComprobante'), idx6.indexOf('async function avisarAbonoAlCliente'));
@@ -9305,6 +9307,42 @@ async function main() {
     const srcDv = fs.readFileSync(path.join(ROOT, 'src', 'tc-divisas.service.js'), 'utf8');
     check('carga: `ultimo` busca hacia atrás sin quedarse en el mes',
       /WHERE divisa=\? AND fecha<=\? ORDER BY fecha DESC LIMIT 1/.test(srcDv));
+  }
+
+  /* ── COPIAS DE LOS AVISOS ─────────────────────────────────────────────────────────────────
+     Un cliente puede necesitar que sus avisos lleguen ADEMÁS a otro grupo, sin cambiar el suyo:
+     Titan avisa a -4842085177 y también tiene que llegar a -5425623864.
+
+     Van adentro de `telegram`, que ya es JSON, así que no hace falta tocar el esquema. Y NO se
+     heredan, a diferencia del destino: el destino es «dónde vive este cliente», una copia es una
+     decisión sobre ESE cliente — heredarla pondría a los 14 clientes de un vendedor a escribir en
+     un grupo cargado para uno solo. */
+  {
+    const dst = require(path.join(ROOT, 'src', 'telegram-destino.js'));
+    const cli = { id: 'c1', nombre: 'Titan', telegram: { chatId: '-111', enabled: true, copias: ['-222', '-333'] } };
+    const d = dst.destinoDe(cli, () => null);
+    check('copias: viajan con el destino', d.chatId === '-111' && (d.copias || []).join(',') === '-222,-333');
+    // Nunca se manda dos veces al mismo lugar.
+    check('copias: una copia igual al destino se descarta',
+      dst.copiasDe({ telegram: { chatId: '-111', copias: ['-111', '-222'] } }).join(',') === '-222');
+    // Y NO se heredan: el hijo de un vendedor con copias no las recibe.
+    const hijo = { id: 'c2', nombre: 'Sub', vendedor_id: 'c1', telegram: { chatId: '', enabled: false } };
+    const dh = dst.destinoDe(hijo, (id) => (id === 'c1' ? cli : null));
+    check('copias: NO se heredan del vendedor, el destino sí',
+      dh.chatId === '-111' && dh.heredado === true && (dh.copias || []).length === 0);
+    // Una copia que falla no puede hacer fallar el aviso: lo importante ya salió.
+    const fake = { sendMessage: async (t, chat) => (chat === '-222' ? { ok: false, error: 'chat not found' } : { ok: true }) };
+    const r = await dst.enviarConCopias(fake, 'tok', d, 'hola');
+    check('copias: si una copia falla, el aviso igual cuenta como enviado',
+      r.ok === true && r.copias.length === 2 && r.copias[0].ok === false && r.copias[1].ok === true);
+    // Y todos los avisos operativos pasan por ahí, no sólo uno.
+    const idxC = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    const mpC = fs.readFileSync(path.join(ROOT, 'src', 'movimientos-panel.service.js'), 'utf8');
+    const nfC = fs.readFileSync(path.join(ROOT, 'src', 'notify.service.js'), 'utf8');
+    check('copias: las usan la carga, la anulación, el abono, el movimiento y el aviso de pago',
+      (idxC.match(/enviarConCopias/g) || []).length >= 3
+      && /enviarConCopias/.test(mpC) && /enviarConCopias/.test(nfC),
+      'con ocho lugares avisando, acordarse en cada uno es cómo una copia deja de llegar');
   }
 
   check('panel: los espacios se llaman por lo que hacen',
