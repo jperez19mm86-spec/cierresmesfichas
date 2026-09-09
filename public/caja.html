@@ -848,6 +848,14 @@ button{font-family:inherit}
 .jug-toca{cursor:pointer; border-radius:10px; margin:0 -6px; padding-left:6px; padding-right:6px}
 .jug-toca:hover{background:var(--bg3)}
 .jug-toca:focus-visible{outline:2px solid var(--g); outline-offset:-2px}
+/* La lista de sesiones se lee igual que la de jugadas: los rótulos UNA vez arriba y las cifras
+   alineadas en columna. Sólo cambia la primera columna —acá va el nombre del juego, no la hora— y
+   el renglón de abajo, que lleva el proveedor y el horario sin robarle lugar a los números. */
+.jug-cab.ses, .jug.ses{grid-template-columns:minmax(0, 1fr) auto auto auto}
+.jug.ses .nom{font-weight:700; overflow-wrap:anywhere}
+.jug.ses .pie{grid-column:1 / -1; font-size:11.5px; color:var(--mut); margin-top:3px}
+.jug.ses .pie .permiso{display:inline-block; margin-left:6px; vertical-align:1px}
+.jug .num.nada{color:var(--mut2)}
 
 /* La grilla: cuadrada, legible, y que entre en un teléfono sin desbordar. */
 .matriz-caja{margin-top:8px}
@@ -2096,16 +2104,38 @@ const JUGADAS = {
    Se agrupa siempre: mostrar las líneas crudas hace ver "apostó 0, ganó 0" sin sentido. */
 function agruparJugadas(filas){
   const orden = [], porRonda = {};
+  /* Vacío es null, cadena vacía, lista sin elementos u objeto sin claves: todo eso es «no vino».
+     Vive acá adentro a propósito: esta función se lee y se prueba sola, y una ayuda suelta afuera
+     la dejaría rota fuera de la página. */
+  const hayDato = (v) => {
+    if (v == null || v === '' || v === false) return false;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === 'object') return Object.keys(v).length > 0;
+    return true;
+  };
   filas.forEach(f => {
     const k = f.round_id || f.dateTime + '|' + f.before;
-    if (!porRonda[k]) { porRonda[k] = { ...f, bet:0, win:0, lineas:0 }; orden.push(k); }
+    /* 🔴 ESTE CONTADOR SE LLAMABA `lineas` Y PISABA LAS LÍNEAS GANADORAS. El motor manda en
+       `winLines` qué símbolo pagó y en qué posiciones, y la ruta lo entrega como `lineas`; acá se
+       lo reemplazaba por un número —cuántos registros se juntaron—. Resultado: la grilla se
+       dibujaba pero NINGUNA celda quedaba en verde y el renglón «Símbolo X × 3 · línea 1» no
+       aparecía nunca, en ningún proveedor. Encontrado el 9-sep-2026 revisando la pantalla con una
+       jugada que sí traía líneas. El contador ahora se llama `registros`. */
+    if (!porRonda[k]) { porRonda[k] = { ...f, bet:0, win:0, registros:0 }; orden.push(k); }
     const r = porRonda[k];
-    r.bet += f.bet; r.win += f.win; r.lineas++;
+    r.bet += f.bet; r.win += f.win; r.registros++;
     /* 🔴 EL SALDO DE ANTES ES EL DE LA PRIMERA LÍNEA, NO EL MAYOR. Antes se tomaba el máximo, que
        funcionaba con los proveedores que parten la jugada dejando el saldo alto adelante. En el
        casino en vivo es al revés: la línea de la apuesta trae 4.251,10 y la del pago 4.971,10, así
        que el máximo mostraba el saldo DESPUÉS de cobrar como si fuera el de antes de apostar. */
     if (f.dateTime < r.dateTime) { r.dateTime = f.dateTime; r.before = f.before; }
+    /* 🔴 Y EL RESULTADO NO VIAJA EN EL REGISTRO DE LA APUESTA. Cuando el casino parte la jugada,
+       la grilla, las líneas que pagaron y el cupón vienen con el PAGO; el registro de la apuesta
+       los trae vacíos. Quedarse con los del primero —que es lo que hacía `{ ...f }`— era quedarse
+       justo con los que no tienen nada adentro. */
+    for (const campo of ['matriz', 'lineas', 'figuras', 'apuestas', 'idSoporte', 'devuelta']) {
+      if (!hayDato(r[campo]) && hayDato(f[campo])) r[campo] = f[campo];
+    }
   });
   return orden.map(k => porRonda[k]);
 }
@@ -2343,7 +2373,15 @@ function rotuloRango(r){
   if (m1 === m2 && a1 === a2) return `${d1} – ${d2} ${MESES[m1-1]}`;
   return `${d1} ${MESES[m1-1]} – ${d2} ${MESES[m2-1]}`;
 }
-const fmt = (n) => new Intl.NumberFormat('es-AR',{maximumFractionDigits:2}).format(n);
+/* 🔴 «4.271,1» NO ES UN IMPORTE. `maximumFractionDigits` sólo recorta: un saldo de 4271.10
+   perdía el centavo y quedaba con un decimal suelto, que no se lee como plata. Visto el
+   9-sep-2026 sobre una sesión de verdad. Con centavos van los DOS; redondo, ninguno —escribir
+   «,00» en cada ficha ensucia una lista donde casi todo es entero.
+   Y los dos formateadores se arman UNA vez: antes se creaba un `Intl.NumberFormat` nuevo en cada
+   número, y una pantalla de movimientos reales son miles de llamadas. */
+const FMT_REDONDO = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+const FMT_CENTAVOS = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n) => (Number.isInteger(Number(n)) ? FMT_REDONDO : FMT_CENTAVOS).format(n);
 const $ = (id) => document.getElementById(id);
 const yo = () => CUENTAS[ROL];
 const esAgente = () => ROL === 'agente';
@@ -3359,7 +3397,9 @@ function pintarCruces(){
 /* Sin cierre, la sesión sigue abierta: está jugando. Con cierre, cuánto duró. */
 function horarioSesion(s){
   const hh = (t) => t ? t.slice(11, 16) : '';
-  if (!s.datetime_close) return `abrió ${hh(s.datetime_open)} · sin cerrar`;
+  /* Sin hora de cierre no se dice «sin cerrar»: al lado va la chapita «jugando ahora», que dice
+     lo mismo y se lee de un vistazo. Repetirlo empujaba la chapita a un renglón propio. */
+  if (!s.datetime_close) return `abrió ${hh(s.datetime_open)}`;
   const mins = Math.max(1, Math.round((new Date(s.datetime_close) - new Date(s.datetime_open)) / 60000));
   return `${hh(s.datetime_open)} – ${hh(s.datetime_close)} · ${mins} min`;
 }
@@ -3393,20 +3433,31 @@ function abrirHistoria(id){
         abiertas ? ` · ${abiertas} abierta${abiertas > 1 ? 's' : ''}` : ''}</span></div>
     ${ses.length ? `
       ${resumen([['Apostado', fmt(tot.bet)], ['Ganado', fmt(tot.win)],
-                  ['Le quedó al jugador', (tot.profit>=0?'+':'') + fmt(tot.profit), tot.profit>=0?'ok':'no']])}
-      <div class="lista">${ses.map(s => `
-        <div class="fila-b" role="button" tabindex="0" style="align-items:flex-start"
+                  ['Le quedó al jugador', (tot.profit>=0?'+':'−') + fmt(Math.abs(tot.profit)),
+                   tot.profit > 0 ? 'ok' : (tot.profit < 0 ? 'no' : undefined)]])}
+      ${/* 🔴 «500 APOSTADO» EN CADA RENGLÓN. La palabra se repetía sesión por sesión, más ancha que
+           la cifra, y en un teléfono partía el número en dos líneas: «14.150» arriba y «apostado»
+           abajo. Señalado el 9-sep-2026 —«no se ve»—. Misma cura que en las jugadas: los rótulos
+           van una vez arriba y abajo quedan sólo las cifras, alineadas para comparar de un vistazo.
+           Y ahora se muestra también lo GANADO, que antes no estaba en la lista y era la mitad de
+           la pregunta que trae el jugador. */''}
+      <div class="jug-cab ses"><span>Juego</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
+      ${ses.map(s => {
+        /* 🔴 UN «+0» VERDE NO ES UNA GANANCIA. Una sesión donde entró a la mesa y no llegó a
+           apostar volvía con bet y win en cero, y el panel la pintaba «+0» en verde al lado de
+           las que sí movieron plata. No se inventa nada: se dice que no movió fichas. */
+        const movio = s.bet || s.win;
+        return `<div class="jug ses jug-toca" role="button" tabindex="0"
           onclick="abrirSesion('${id}','${s.session}')"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSesion('${id}','${s.session}')}">
-          <span class="id">
-            <b>${s.game}</b>
-            <span>${s.labeltitle} · ${horarioSesion(s)}</span>
-            ${!s.datetime_close ? '<span class="permisos"><span class="permiso jugando">● jugando ahora</span></span>' : ''}
-          </span>
-          <span class="bal" style="background:none;border:none;padding:0;display:block;text-align:right">
-            <b class="num ${s.profit>=0?'t-ok':'t-no'}">${s.profit>=0?'+':''}${fmt(s.profit)}</b>
-            <small style="display:block;font-size:11px;color:var(--mut)">${fmt(s.bet)} apostado</small></span>
-        </div>`).join('')}</div>`
+          <span class="nom">${s.game}</span>
+          <span class="num apo ${movio ? '' : 'nada'}">${movio ? fmt(s.bet) : '—'}</span>
+          <span class="num gan ${s.win ? 't-ok' : 'nada'}">${s.win ? fmt(s.win) : '—'}</span>
+          <span class="num net ${!movio || !s.profit ? 'nada' : (s.profit > 0 ? 'mas' : 'menos')}">${movio
+            ? (s.profit >= 0 ? '+' : '−') + fmt(Math.abs(s.profit)) : '—'}</span>
+          <span class="pie">${s.labeltitle} · ${horarioSesion(s)}${movio ? '' : ' · no movió fichas'}${
+            !s.datetime_close ? '<span class="permiso jugando">● jugando ahora</span>' : ''}</span>
+        </div>`; }).join('')}`
       : `<div class="vacio">No jugó nada ${
           ({hoy:'hoy', ayer:'ayer', semana:'esta semana', mes:'este mes', mesant:'el mes pasado',
             custom:'en esas fechas'})[HIST_PER]}.<br><br>Probá con un período más largo.</div>`}
@@ -3507,13 +3558,21 @@ function abrirSesion(jugadorId, sesionId){
            que perdió 324 salía «+324» arriba y «−324» abajo. Reportado el 4-sep-2026. Ahora el
            número es el neto del jugador, el mismo que suman las filas, y el rótulo dice de quién
            es para no tener que adivinarlo. */''}
+    ${/* Sin jugadas no hay resultado que pintar: un «+0» en verde al lado de «0 jugadas» se lee
+         como si hubiera ganado cero jugando, y lo que pasó es que no jugó. */''}
     ${resumen([['Jugadas', js.length], ['Saldo al empezar', fmt(s.balance_before)],
-                ['Le quedó al jugador', (s.profit>=0?'+':'') + fmt(s.profit), s.profit>=0?'ok':'no']])}
+                ['Le quedó al jugador',
+                  js.length ? (s.profit >= 0 ? '+' : '−') + fmt(Math.abs(s.profit)) : '—',
+                  js.length && s.profit > 0 ? 'ok' : (js.length && s.profit < 0 ? 'no' : undefined)]])}
     ${/* 🔴 LOS RÓTULOS OCUPABAN MÁS QUE LOS NÚMEROS. Cada renglón decía «Apostó 260 · ganó 172»:
          la misma palabra repetida en cada jugada, más ancha que el dato que se viene a mirar.
          Señalado el 7-sep-2026 — «el cliente quiere ver 260, 172, rojo, fin». Los rótulos van UNA
          vez arriba y abajo quedan las cifras alineadas en columna: se lee para abajo y se comparan
          de un vistazo, en vez de rastrear el número entre palabras. */''}
+    ${/* 🔴 UNA SESIÓN PUEDE NO TENER NINGUNA JUGADA. En casino en vivo se entra a la mesa, se
+         mira y se sale: el casino manda la sesión igual, con todo en cero. Antes quedaba el
+         encabezado de columnas solo, sin un renglón debajo, como si algo se hubiera roto. */''}
+    ${!js.length ? '<div class="vacio">Entró a la mesa y no llegó a apostar.<br><br>No movió fichas.</div>' : `
     <div class="jug-cab"><span>Hora</span><span>Apostó</span><span>Ganó</span><span>Neto</span></div>
     ${/* 🔴 AHORA TODA JUGADA SE ABRE. Antes sólo las que traían grilla, y los juegos que no la
          traen —la mayoría— quedaban sin nada para tocar. Pero adentro SIEMPRE hay algo que sirve:
@@ -3528,7 +3587,8 @@ function abrirSesion(jugadorId, sesionId){
       <span class="hora">${x.dateTime.slice(11, 16)}</span>
       <span class="num apo">${fmt(x.bet)}</span>
       <span class="num gan ${x.win ? 't-ok' : 'nada'}">${x.win ? fmt(x.win) : '—'}</span>
-      <span class="num net ${neto >= 0 ? 'mas' : 'menos'}">${neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
+      <span class="num net ${!neto ? 'nada' : (neto > 0 ? 'mas' : 'menos')}">${
+        neto >= 0 ? '+' : '−'}${fmt(Math.abs(neto))}</span>
       <span class="jug-mas">
         <span class="jug-dato">saldo antes <b>${fmt(x.before)}</b> · apostó <b>${fmt(x.bet)}</b>
           · ganó <b>${x.win ? fmt(x.win) : '0'}</b></span>
@@ -3538,31 +3598,31 @@ function abrirSesion(jugadorId, sesionId){
         ${x.apuestas ? dibujarApuesta(x) : (hayDetalle ? dibujarMatriz(x) : '')}
         ${x.idSoporte ? filaCred('Número de esta jugada', x.idSoporte, true) : ''}
       </span>
-    </div>`; }).join('')}
-    ${partidas ? `<div class="nota neutra">Este proveedor <b>parte cada jugada en varios
-      renglones</b> —la apuesta por un lado y el pago por otro—: ${jugables.length} renglones para
-      <b>${js.length} ${js.length === 1 ? 'jugada' : 'jugadas'}</b>. Acá se juntan, así que lo que
-      ves es lo que de verdad puso y se llevó.</div>` : ''}
-    ${deMesa ? `<div class="nota neutra">Se dejaron afuera <b>${deMesa} ${deMesa === 1
-      ? 'movimiento de mesa' : 'movimientos de mesa'}</b>: entrar, salir o mirar sin apostar. No
-      mueven fichas.</div>` : ''}
-    ${/* 🔑 El texto le habla a quien está atendiendo, no a quien programó: para qué le sirve, y
-         qué hacer cuando no aparece. Sin nombres de campos ni explicaciones del motor. */''}
-    ${hayMatriz
-      ? notaInfo('matriz',
-        'Tocá una jugada para ver <b>su matriz</b>: la grilla que salió y qué posiciones pagaron.',
-        'Sirve para responder <b>«¿por qué se le pagó eso?»</b>: se ve el símbolo que hizo la '
-        + 'línea, cuántas posiciones entraron y cuánto pagó. <b>No todos los juegos la muestran.</b> '
-        + 'Si tenés dudas con alguna que no aparece, escribinos a soporte y la miramos con vos.')
-      : notaInfo('sinmatriz',
-        '<b>Este juego no muestra las figuras.</b> Tocá una jugada igual: adentro está su número, '
-        + 'listo para copiar y mandarnos.',
-        'Las figuras las manda el proveedor del juego y no todos lo hacen — no es algo que se '
-        + 'pueda encender desde acá. Lo que sí tenés de cada jugada es cuánto puso, cuánto se '
-        + 'llevó, cómo quedó su saldo y <b>su número</b>. Con ese número escribinos a soporte y la '
-        + 'buscamos exacta, sin que tengas que explicar cuál era.')}
-    <div class="nota motor">Algunos proveedores parten cada jugada en dos registros; se juntan por
-    <span class="mono">round_id</span>.</div>
+    </div>`; }).join('')}`}
+    ${/* 🔴 TRES CAJAS DE TEXTO PARA UN RENGLÓN DE DATOS. Debajo de una sesión con UNA jugada
+         quedaban tres avisos seguidos: que el proveedor parte la jugada en dos registros, que se
+         dejaron afuera los movimientos de mesa, y un párrafo sobre por qué faltan las figuras.
+         Todo eso explica cómo manda los datos el casino —algo que a quien atiende no le cambia
+         nada— y tapaba lo único que vino a mirar. Revisado con el dueño el 9-sep-2026: «están
+         dando muchas vueltas y explicando cosas que los clientes no tienen que saber».
+         Queda UNA línea, y es una instrucción, no una explicación. El porqué sigue estando, pero
+         detrás de la (i): quien lo necesite lo abre, el resto no lo ve. */''}
+    ${!js.length ? '' : notaInfo('jugadas',
+      hayMatriz
+        ? 'Tocá una jugada para ver <b>la grilla</b> que salió y copiar su número.'
+        : 'Tocá una jugada para copiar <b>su número</b> y mandárnoslo.',
+      'Adentro de cada jugada está cuánto puso, cuánto se llevó, cómo quedó su saldo y '
+      + '<b>su número</b>. Con ese número escribinos a soporte y la buscamos exacta, sin que tengas '
+      + 'que explicar cuál era.'
+      + (hayMatriz ? ' La grilla responde <b>«¿por qué se le pagó eso?»</b>: el símbolo que hizo la '
+        + 'línea, cuántas posiciones entraron y cuánto pagó.'
+        : ' Las figuras las manda el proveedor del juego y no todos lo hacen; no es algo que se '
+        + 'pueda encender desde acá.')
+      + (partidas ? ` En este juego la apuesta y el pago vienen separados: ${jugables.length}
+        registros del casino son las ${js.length} jugadas de arriba, ya juntas.` : '')
+      + (deMesa ? ` Además se ${deMesa === 1 ? 'dejó' : 'dejaron'} afuera ${deMesa}
+        ${deMesa === 1 ? 'movimiento' : 'movimientos'} de mesa —entrar, salir o mirar—: no mueven
+        fichas.` : ''))}
     <div class="acciones"><button class="btn sec" onclick="abrirHistoria('${jugadorId}')">Volver</button></div>`);
 }
 

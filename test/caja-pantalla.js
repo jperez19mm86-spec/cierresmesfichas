@@ -385,7 +385,7 @@ check('y le habla distinto a un cajero que a un jugador',
   check('el conector guarda el neto del jugador, no el del motor',
     /g\.profit = g\.win - g\.bet;/.test(conector)
     && !/g\.profit \+= plata\(f\.profit\)/.test(conector));
-  check('y las tres pantallas dicen de quién es el número',
+  check('y las dos pantallas dicen de quién es el número',
     (htmlCaja.match(/'Le quedó al jugador'/g) || []).length === 2
     && !/\['Resultado', \(tot\.profit/.test(htmlCaja)
     && !/\['Resultado', \(s\.profit/.test(htmlCaja));
@@ -401,7 +401,7 @@ check('la pantalla ya no dice que el casino no manda el detalle',
   !/algunos traen la grilla del/.test(htmlCaja)
   && !/no manda el detalle de cada tirada/.test(htmlCaja));
 check('y ahora ofrece ver la matriz de cada jugada',
-  /Tocá una jugada para ver <b>su matriz<\/b>/.test(htmlCaja)
+  /Tocá una jugada para ver <b>la grilla<\/b> que salió/.test(htmlCaja)
   && /function dibujarMatriz\(j\)\{/.test(htmlCaja));
 check('el detalle se pide con el id del motor, no con el hash de la sesión',
   /sesion: String\(ses\.idMotor\)/.test(conector) && /idMotor: String\(f\.id \|\| ''\)/.test(conector));
@@ -541,13 +541,38 @@ check('la fila lleva su flecha y la grilla le hace lugar',
      nada. Ahora hay dos textos y se elige por lo que de verdad llegó. */
   check('sólo se ofrece la matriz cuando alguna jugada la trae',
     /const hayMatriz = js\.some\(x => x\.matriz \|\| \(x\.lineas && x\.lineas\.length\)\);/.test(htmlCaja)
-    && /\$\{hayMatriz\n\s*\? notaInfo\('matriz'/.test(htmlCaja));
-  check('y si no la trae, se dice y se ofrece el número para soporte',
-    /notaInfo\('sinmatriz'/.test(htmlCaja)
-    && /Este juego no muestra las figuras/.test(htmlCaja)
-    /* El texto está partido en dos líneas del código: se buscan las dos mitades. */
-    && /adentro está su número, /.test(htmlCaja)
-    && /listo para copiar y mandarnos/.test(htmlCaja));
+    && /hayMatriz\n\s*\? 'Tocá una jugada para ver <b>la grilla<\/b>/.test(htmlCaja));
+  check('y si no la trae, se ofrece el número para soporte',
+    /: 'Tocá una jugada para copiar <b>su número<\/b> y mandárnoslo\.'/.test(htmlCaja));
+
+  /* 🔴 TRES CAJAS DE TEXTO DEBAJO DE UN RENGLÓN DE DATOS. La pantalla explicaba cómo manda los
+     datos el casino —que parte la jugada en dos registros, que hay movimientos de mesa, por qué
+     faltan las figuras— y eso tapaba lo único que el cajero vino a mirar. Revisado con el dueño el
+     9-sep-2026: «están dando muchas vueltas y explicando cosas que los clientes no tienen que
+     saber». Todo eso vive ahora detrás de la (i). */
+  check('el detalle de la sesión no repite avisos sueltos debajo de las jugadas',
+    !/Este proveedor <b>parte cada jugada/.test(htmlCaja)
+    && !/Se dejaron afuera <b>\$\{deMesa\}/.test(htmlCaja));
+  /* Y para que no vuelva a crecer: lo que se VE de una nota entra en un renglón o dos. El porqué
+     va en el segundo argumento, que sólo se abre si lo tocan. */
+  {
+    /* Se mide lo que se LEE, no el código: de la primera mitad de cada `notaInfo` se juntan los
+       pedazos de texto entre comillas y se descuentan las etiquetas. Contar el fuente marcaría
+       como larga una nota corta escrita con un ternario. */
+    const loQueSeLee = (fuente) => (fuente.match(/'[^']*'|"[^"]*"|`[^`]*`/g) || [])
+      .map((t) => t.slice(1, -1).replace(/\$\{[^}]*\}/g, '×'))
+      .join(' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const largas = [...htmlCaja.matchAll(/notaInfo\(\s*'([^']+)',([\s\S]{0,900}?),\n\s{4,}'/g)]
+      .map(([, clave, corto]) => [clave, loQueSeLee(corto)])
+      .filter(([, corto]) => corto.length > 170)
+      .map(([clave, corto]) => `${clave} (${corto.length})`);
+    /* Y el propio medidor tiene que estar midiendo algo: si un cambio de forma lo dejara sin
+       encontrar ninguna nota, este check pasaría en verde sin haber mirado nada. */
+    const medidas = [...htmlCaja.matchAll(/notaInfo\(\s*'([^']+)',([\s\S]{0,900}?),\n\s{4,}'/g)].length;
+    check('y lo que se ve de cada nota entra en un par de renglones',
+      medidas >= 10 && largas.length === 0,
+      largas.length ? largas.join(', ') : `${medidas} notas medidas, todas cortas`);
+  }
 
   /* 🔴 Antes sólo se abrían las jugadas con grilla, así que en los juegos que no la mandan no
      había nada para tocar. Adentro siempre hay algo: el desglose y el número para soporte. */
@@ -556,9 +581,9 @@ check('la fila lleva su flecha y la grilla le hace lugar',
     && !/jug \$\{hayDetalle \? 'jug-toca' : ''\}/.test(htmlCaja));
   check('y adentro va el número de la jugada, copiable',
     /filaCred\('Número de esta jugada', x\.idSoporte, true\)/.test(htmlCaja));
-  check('y la de la matriz explica para qué sirve y qué hacer si no aparece',
-    /responder <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
-    && /escribinos a soporte y la miramos con vos/.test(htmlCaja));
+  check('y detrás de la (i) sigue estando el para qué y el qué hacer',
+    /responde <b>«¿por qué se le pagó eso\?»<\/b>/.test(htmlCaja)
+    && /escribinos a soporte y la buscamos exacta/.test(htmlCaja));
 }
 
 /* 🔴 EL CALLBACK QUE NO RECIBÍA NADA. `pedirUnaVez` guarda la respuesta y llama al callback SIN
@@ -780,6 +805,32 @@ check('sin grilla no se marca nada, en vez de romper',
     js[0].before === 4251.10, String(js[0].before));
   check('y la hora es la de la apuesta, no la del pago',
     js[0].dateTime === '2026-09-08 22:54:12', js[0].dateTime);
+
+  /* 🔴 EL CONTADOR SE LLAMABA `lineas` Y SE COMÍA LAS LÍNEAS GANADORAS. `agruparJugadas` arrancaba
+     cada ronda con `lineas:0` y le sumaba uno por registro, pisando lo que manda el motor en
+     `winLines` —qué símbolo pagó y en qué posiciones—. La grilla se dibujaba igual, así que no se
+     notaba: simplemente NINGUNA celda quedaba en verde y el renglón «Símbolo × 3 · línea 1» no
+     salía nunca, en ningún proveedor. Encontrado el 9-sep-2026 mirando la pantalla, no el código.
+     🔑 Y el resultado viaja en el registro del PAGO, no en el de la apuesta: agrupar quedándose
+     con los campos del primero era quedarse justo con los vacíos. */
+  const partida = [
+    { round_id:'36352824005', dateTime:'2026-09-08 22:54:12', before:320, bet:30, win:0,
+      matriz:null, lineas:[], idSoporte:'' },
+    { round_id:'36352824005', dateTime:'2026-09-08 22:54:43', before:290, bet:0, win:90,
+      matriz:[[1,2,3],[4,5,1],[1,1,6]], figuras:'https://cdn/x/',
+      lineas:[{ line:1, symbol:1, count:3, cash:90, elements:[[0,0],[1,2],[2,0]] }],
+      idSoporte:'36352824005' },
+  ];
+  const unida = agrupar(partida)[0];
+  check('agrupar NO se come las líneas ganadoras',
+    Array.isArray(unida.lineas) && unida.lineas.length === 1,
+    Array.isArray(unida.lineas) ? `${unida.lineas.length} línea` : `quedó ${typeof unida.lineas}`);
+  check('y la grilla, las figuras y el número los toma del registro que los trae',
+    !!unida.matriz && unida.figuras === 'https://cdn/x/' && unida.idSoporte === '36352824005',
+    `matriz ${!!unida.matriz}, figuras ${!!unida.figuras}, número ${unida.idSoporte || '—'}`);
+  check('y con esas líneas la pantalla puede marcar las celdas que pagaron',
+    L.celdasGanadoras(L.normalizarLineas(unida.lineas), unida.matriz).size === 3,
+    `${L.celdasGanadoras(L.normalizarLineas(unida.lineas), unida.matriz).size} celdas`);
 }
 
 /* ── 16 · las seis formas, contra el mapeo de verdad ────────────────────────────────────────────
