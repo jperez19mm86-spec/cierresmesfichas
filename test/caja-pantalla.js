@@ -986,6 +986,16 @@ check('sin grilla no se marca nada, en vez de romper',
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
     /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
     && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+  /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
+     columna angosta arriba de todo, con la pantalla entera vacía debajo. Acá no hay lista que
+     crezca ni nada que se desplace, es una decisión de dos caminos: se centra en la pantalla y las
+     dos opciones van una al lado de la otra, que es lo que dice que valen lo mismo. */
+  check('el hub se centra y pone las dos opciones a la par',
+    /\.marco > \.hub\{max-width:none[\s\S]{0,220}justify-content:center/.test(htmlCaja)
+    && /\.hub \.opciones\{display:grid; grid-template-columns:1fr 1fr/.test(htmlCaja));
+  check('y «Salir» deja de ser una barra de punta a punta',
+    /\.hub \.btn\.sec\{display:block; width:auto; min-width:220px; margin-inline:auto\}/.test(htmlCaja));
+
   /* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px está pensado para leer un teléfono a treinta
      centímetros; la misma medida en una notebook a sesenta se lee chica. Cada tamaño de la hoja
      pasa por `--esc`, así que la proporción entre títulos, datos y notas se mantiene: no se

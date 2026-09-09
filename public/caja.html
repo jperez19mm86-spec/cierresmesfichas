@@ -708,7 +708,22 @@ button{font-family:inherit}
   /* Y la tarjeta de acceso no se estira: son dos campos, un formulario de 1000px de ancho se lee
      peor y no entra en ninguna idea de formulario. */
   .login .tarjeta{max-width:420px; width:100%; margin-inline:auto}
-  .hub{max-width:620px; margin-inline:auto; width:100%}
+
+  /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
+     columna angosta arriba de todo, con la pantalla entera vacía debajo, se lee como una app de
+     celular estirada. Señalado por el dueño el 9-sep-2026 mirándolo en su notebook.
+     Acá no hay lista que crezca ni nada que se desplace: es una decisión de dos caminos. Así que
+     se centra en la pantalla y las dos opciones van una al lado de la otra, que es lo que dice
+     que valen lo mismo. El saludo se centra con ellas y «Salir» deja de ser una barra de punta a
+     punta, porque no es lo que se viene a hacer acá. */
+  .marco > .hub{max-width:none; width:100%; margin:0; overflow:visible;
+    display:flex; flex-direction:column; justify-content:center; align-items:center;
+    padding:40px max(40px, calc((100% - var(--lectura)) / 2)) 56px}
+  .hub > *{width:100%; max-width:900px}
+  .hub .saludo{text-align:center; margin:0 0 26px}
+  .hub .opciones{display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:stretch}
+  .hub .op{height:100%}
+  .hub .btn.sec{display:block; width:auto; min-width:220px; margin-inline:auto}
   /* El riel toma las dos filas de abajo: si tomara sólo la del cuerpo, su borde y su fondo
      terminarían donde termina el contenido, y con una lista corta quedaría un tabique a medias. */
   .secs{grid-column:1; grid-row:3 / -1; flex-direction:column; gap:2px;
