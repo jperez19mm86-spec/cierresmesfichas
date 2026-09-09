@@ -146,6 +146,7 @@
     <a href="/chat-externo" style="text-decoration:none"><button class="outline small" title="Chat Externo — Ganamos × Latam">💬 Chat</button></a>
     <a href="/tbs" style="text-decoration:none"><button class="outline small" title="TBS — el sistema de API: precios por sello, cuentas y cierre del mes">🔌 TBS</button></a>
     <button class="outline small" id="btnNotif" onclick="enableNotifications()" title="Recibir aviso cuando un cliente pide fichas">🔔 Activar avisos</button>
+    <span class="meta" id="quienSoy" style="display:none"></span>
     <button class="outline small" onclick="logout()" title="Cerrar sesión">🚪 Salir</button>
   </div>
 </header>
@@ -571,6 +572,15 @@
     try {
       const { body } = await api('/api/quien');
       _soyOperador = !!(body && body.rol === 'operador');
+      /* CON QUÉ NOMBRE ENTRASTE. Es el mismo que va a quedar escrito al lado de cada carga que
+         despaches, así que se muestra: si dice otra cosa de la que esperabas, se ve antes de
+         cargar y no tres semanas después mirando el historial. */
+      const q = document.getElementById('quienSoy');
+      if (q && body && body.usuario) {
+        q.textContent = '👤 ' + body.usuario;
+        q.title = 'Con este nombre queda registrada cada carga que aceptes';
+        q.style.display = '';
+      }
     } catch (e) { _soyOperador = false; }
     if (_soyOperador) {
       /* Configuración: son las llaves del negocio.

@@ -9465,6 +9465,11 @@ async function main() {
     check('quién: el nombre se resuelve desde el rol de la sesión',
       auth.usuarioDe('admin') === (process.env.PANEL_USER || 'admin')
       && auth.usuarioDe(null) === null);
+    // Y la sesión lo contesta: es de donde lo saca la pantalla.
+    const rq = await get('/api/quien');
+    check('quién: /api/quien dice el rol Y el nombre',
+      rq.data.ok === true && rq.data.rol === 'admin' && !!rq.data.usuario,
+      JSON.stringify(rq.data));
 
     // Y la pantalla lo muestra: una columna propia, con raya para los que no lo tienen.
     const fiQ = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
@@ -9478,6 +9483,10 @@ async function main() {
     check('quién: al operador se le esconde también ⚡ Calcular carga',
       /for \(const id of \['nav-config', 'nav-carga'\]\)/.test(fiQ),
       'muestra el % al que trabaja cada cliente, y su API vive en /api/os/*');
+    /* Y se ve CON QUÉ NOMBRE entraste, arriba, antes de cargar nada: el mismo que va a quedar
+       escrito. Si dice otra cosa de la que esperabas, se nota ahí y no tres semanas después. */
+    check('quién: el panel muestra con qué nombre entraste',
+      /id="quienSoy"/.test(fiQ) && /q\.textContent = '👤 ' \+ body\.usuario/.test(fiQ));
     const rutasOp = fs.readFileSync(path.join(ROOT, 'src', 'auth.js'), 'utf8');
     check('quién: y el servidor no se lo permite igual, aunque encuentre la URL',
       !/os\/carga/.test(rutasOp.split('const OPERADOR_PUEDE')[1].split('];')[0]));

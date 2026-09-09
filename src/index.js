@@ -305,7 +305,10 @@ app.get('/api/despacho/sistemas', (_req, res) => {
 });
 
 /** Quién soy: la pantalla necesita saber el rol para no ofrecer lo que el server va a rechazar. */
-app.get('/api/quien', (req, res) => res.json({ ok: true, rol: auth.rolDe(req) || null }));
+/* Quién trae esta sesión. Devuelve también el NOMBRE con el que entró: es lo que la pantalla
+   muestra arriba, y es lo que se guarda al lado de cada carga. Sin eso, "quién soy" era una
+   pregunta que sólo se podía contestar mirando las variables del servidor. */
+app.get('/api/quien', (req, res) => res.json({ ok: true, ...auth.quienEs(req) }));
 
 app.get('/api/clientes', (_req, res) => {
   res.json({ ok: true, clientes: clientes.list().clientes });
@@ -1689,6 +1692,12 @@ if (auth.USING_DEFAULT_PASSWORD) {
 app.listen(PORT, () => {
   console.log(`[VentaFichas] Panel corriendo en http://localhost:${PORT}`);
   console.log(`[VentaFichas] Login del panel: usuario "${auth.PANEL_USER}" (clave por env PANEL_PASSWORD)`);
+  // La segunda llave, si existe. Se dice el NOMBRE (nunca la clave): es lo que va a quedar escrito
+  // al lado de cada carga que despache, así que tiene que poder verse de un vistazo.
+  console.log(auth.HAY_OPERADOR
+    ? `[VentaFichas] Y el operador entra como "${auth.usuarioDe('operador')}" (sólo pedidos e historial)`
+    : '[VentaFichas] Sin operador: todo el que entra lo hace con la misma llave, así que el historial '
+      + 'no puede distinguir quién despachó (poné OPERADOR_USER y OPERADOR_PASSWORD)');
 
   /* ── LOS PEDIDOS QUE QUEDARON A MITAD DE CARGA ────────────────────────────────────────────────
      Un pedido pasa a 'cargando' ANTES de tocar el casino, y la cascada tarda decenas de segundos.
