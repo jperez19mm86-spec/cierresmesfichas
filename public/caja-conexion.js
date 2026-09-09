@@ -12,17 +12,6 @@
   'use strict';
 
   /* ══════ el pasamanos ══════ */
-  /* 🔴 Las notas rosas explican el motor por dentro —`statistic_type`, `userGroup`, nombres de
-     campos— y están marcadas en el código como «SOLO PROTOTIPO, no va en producción». Viven en el
-     mismo archivo porque el panel es una copia de la maqueta, así que se esconden acá: la maqueta
-     las conserva para nosotros, el cliente no las ve. */
-  (function ocultarNotasDelPrototipo() {
-    const e = document.createElement('style');
-    e.id = 'nota-motor-fuera';
-    e.textContent = '.nota.motor{display:none !important}';
-    document.head.appendChild(e);
-  })();
-
   /* 🔴 NINGUNA FALLA PUEDE QUEDAR MUDA. Antes, si `fetch` reventaba —servidor apagado, red
      cortada— la excepción no la agarraba nadie: el botón volvía a su lugar y no aparecía ningún
      mensaje. Y si el casino se colgaba, la espera era de dos minutos sin decir nada.
@@ -2225,16 +2214,10 @@
     lista.parentElement.insertBefore(nota, lista.nextSibling);
   };
 
-  /* ══════ 5 · el selector de rol del prototipo no va en la app ══════ */
-  document.addEventListener('DOMContentLoaded', () => {
-    const demo = document.querySelector('.demo');
-    if (demo) demo.remove();
-    const aviso = document.querySelector('.aviso');
-    /* 🔴 EL CARTEL TIENE QUE DECIR ALGO CIERTO. Decía que algunas pantallas mostraban ejemplos;
-       revisadas las nueve el 2-sep-2026, todas traen datos del casino. Dejarlo así le restaba
-       confianza a números que son reales. Ahora dice para qué sirve el cartel. */
-    if (aviso) aviso.innerHTML = '<b>En pruebas</b> · si algo falla, pasá el número de caso que sale en el error';
-  });
+  /* 🔴 ACÁ SE BORRABA EL SELECTOR DE ROL Y SE REESCRIBÍA LA CINTA DE «EN PRUEBAS». Las dos cosas
+     eran de la versión de prueba y ya no existen en la página: el andamio se borró del HTML y la
+     cinta se sacó entera. Barrer lo que ya no está sólo sirve para que alguien lo devuelva sin
+     querer. */
 
   window.__cajaAPI = API;
 })();

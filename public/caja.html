@@ -62,7 +62,6 @@
   --no:#c62348; --no-soft:#fdeaee;
   --warn:#a16207; --warn-soft:#fdf3dd;
   --info:#1c5a86; --info-soft:#e8f1f8;
-  --demo:#a3216b; --demo-soft:#ffe6f2;   /* SOLO PROTOTIPO — no va en producción */
   --sombra:0 1px 2px rgba(36,27,46,.05), 0 8px 24px -14px rgba(36,27,46,.24);
   --sheet:0 -8px 40px -12px rgba(36,27,46,.38);
 }
@@ -94,7 +93,6 @@
     --no:#fb7185; --no-soft:#3a1620;
     --warn:#fbbf24; --warn-soft:#32250f;
     --info:#8cc4e6; --info-soft:#13242f;
-    --demo:#f2a3ca; --demo-soft:#341a28;
     --sombra:0 1px 2px rgba(0,0,0,.45), 0 8px 24px -14px rgba(0,0,0,.75);
     --sheet:0 -8px 40px -12px rgba(0,0,0,.8);
   }
@@ -110,7 +108,6 @@
   --no:#f2837a; --no-soft:#3a1c1a;
   --warn:#e0b063; --warn-soft:#332612;
   --info:#8cc4e6; --info-soft:#13242f;
-  --demo:#f2a3ca; --demo-soft:#341a28;
   --sombra:0 1px 2px rgba(0,0,0,.45), 0 8px 24px -14px rgba(0,0,0,.75);
   --sheet:0 -8px 40px -12px rgba(0,0,0,.8);
 }
@@ -175,23 +172,11 @@
      retorno y los promedios, que ya significa eso. Se deja el nombre para no tocar los dos
      lugares que lo usan. */
   --oro:#67e8f9;  --oro-soft:#1b3348;
-  --demo:#c9a5e0; --demo-soft:#31163f;
 
   --sombra:0 6px 22px rgba(0,0,0,.42);
   --sheet:#31163f;
 }
 
-/* ── LA CINTA DE «EN PRUEBAS» ──────────────────────────────────────────────────
-   Iba con `--warn-soft`, que es oliva. Sobre magenta se ve sucia: son dos familias
-   de color que no se hablan. El fondo pasa al violeta de la barra —así la cinta
-   parece parte del panel y no una mancha pegada arriba— y el texto sube a ámbar
-   claro, que sobre ese violeta da 9,5:1. Sigue leyéndose como aviso; deja de
-   ensuciar. */
-:root:root .aviso{
-  background:linear-gradient(180deg,#2d1240,#241036);
-  color:#fcd34d;
-  border-bottom:1px solid rgba(252,211,77,.22);
-}
 
 /* ── LA TARJETA DEL SALDO ──────────────────────────────────────────────────────
    Quedaba plana porque toma `--marca-grad`, que no se tocó. Le va el degradado de
@@ -647,9 +632,6 @@ button{font-family:inherit}
   display:flex; flex-direction:column; position:relative; overflow:hidden}
 @media (max-width:480px){ .marco{border:none} }
 
-.aviso{background:var(--warn-soft); color:var(--warn); font-size:calc(11.5px * var(--esc)); text-align:center;
-  padding:7px 12px; border-bottom:1px solid var(--bor)}
-.aviso b{font-weight:700}
 
 .ficha{width:28px; height:28px; flex:none; background:url("/img/perro.png?v=1") center/contain no-repeat}
 
@@ -703,13 +685,17 @@ button{font-family:inherit}
      el «+ Crear» quedaba unos 470px más abajo, solo, con el vacío en el medio.
      Acá el cuerpo crece con su contenido, el botón va INMEDIATAMENTE debajo del último renglón, y
      lo que sobra abajo es fondo de página, no un hueco enmarcado. */
+  /* 🔴 LAS FILAS SE NOMBRAN, NO SE CUENTAN. Antes la primera era la cinta de «En pruebas» y todo
+     lo demás caía por orden de llegada; al sacar la cinta, cada cosa se corrió un lugar y quedaba
+     una fila vacía en el medio. Con la fila escrita en cada regla, sacar o poner algo arriba no
+     mueve nada de abajo. */
   .marco{display:grid; grid-template-columns:var(--riel) minmax(0, 1fr);
-    grid-template-rows:auto auto auto minmax(0, 1fr); overflow:visible}
-  .marco > .aviso, .marco > .top{grid-column:1 / -1}
+    grid-template-rows:auto auto minmax(0, 1fr); overflow:visible}
+  .marco > .top{grid-column:1 / -1; grid-row:1}
   /* Login y hub se ven cuando NO hay secciones, así que se quedan con las dos columnas y con las
      dos filas de abajo: si sólo tomaran la fila automática quedaban pegados arriba, con la mitad
      de la pantalla vacía debajo. */
-  .marco > .login, .marco > .hub{grid-column:1 / -1; grid-row:2 / -1}
+  .marco > .login, .marco > .hub{grid-column:1 / -1; grid-row:1 / -1}
   /* Y la tarjeta de acceso no se estira: son dos campos, un formulario de 1000px de ancho se lee
      peor y no entra en ninguna idea de formulario. */
   /* 420px es el ancho de un teléfono: en una pantalla de 1791 la tarjeta de acceso quedaba
@@ -733,10 +719,10 @@ button{font-family:inherit}
   .hub .btn.sec{display:block; width:auto; min-width:220px; margin-inline:auto}
   /* El riel toma las dos filas de abajo: si tomara sólo la del cuerpo, su borde y su fondo
      terminarían donde termina el contenido, y con una lista corta quedaría un tabique a medias. */
-  .secs{grid-column:1; grid-row:3 / -1; flex-direction:column; gap:2px;
+  .secs{grid-column:1; grid-row:2 / -1; flex-direction:column; gap:2px;
     overflow-x:visible; overflow-y:auto; padding:12px 10px;
     border-bottom:none; border-right:1px solid var(--bor);
-    top:49px; align-self:stretch; max-height:calc(100dvh - 49px)}
+    top:0; align-self:stretch; max-height:100dvh}
   .secs button{width:100%; text-align:left; border-bottom:none; border-radius:10px;
     padding:10px 12px; font-size:calc(13.5px * var(--esc))}
   .secs button:hover{background:var(--bg3); color:var(--txt)}
@@ -751,7 +737,7 @@ button{font-family:inherit}
   .marco{max-width:none; border-left:none; border-right:none}
   /* `max()`: en una notebook justa manda el margen mínimo; en una pantalla ancha manda el ancho
      de lectura y el resto se reparte a los costados. Un solo cálculo para los dos casos. */
-  .scroll{grid-column:2; grid-row:3; overflow:visible; flex:none;
+  .scroll{grid-column:2; grid-row:2; overflow:visible; flex:none;
     padding:20px max(40px, calc((100% - var(--lectura)) / 2)) 0}
   /* El botón deja de estar clavado a la ventana y pasa a ser el renglón siguiente de la lista.
      🔴 Va como `.marco > .fab` y no como `.fab` a secas por una razón concreta: la regla original
@@ -760,7 +746,7 @@ button{font-family:inherit}
   /* `transform` hay que apagarlo A MANO: el `translateX(-50%)` que centraba el botón cuando
      estaba clavado a la ventana SIGUE aplicándose con `position:static` —no depende de la
      posición— y lo corría media pantalla a la izquierda, fuera del marco. */
-  .marco > .fab{position:static; grid-column:2; grid-row:4; align-self:start; transform:none;
+  .marco > .fab{position:static; grid-column:2; grid-row:3; align-self:start; transform:none;
     width:auto; max-width:none; background:none;
     padding:16px max(40px, calc((100% - var(--lectura)) / 2)) 40px}
 }
@@ -1293,11 +1279,6 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   border-radius:14px; padding:12px 14px; font-size:calc(12.5px * var(--esc)); line-height:1.55; margin-top:12px}
 .nota b{font-weight:700}
 .nota.neutra{background:var(--bg3); color:var(--mut2)}
-/* SOLO PROTOTIPO: explican cómo funciona el motor por dentro. Van en rosa, un color que no
-   se usa en ninguna otra parte, para que su ausencia se note cuando se borren. */
-.nota.motor{background:var(--demo-soft); color:var(--demo); padding-top:8px}
-.nota.motor::before{content:'Nota del prototipo'; display:block; font-size:calc(9.5px * var(--esc)); font-weight:700;
-  text-transform:uppercase; letter-spacing:.09em; opacity:.6; margin-bottom:5px}
 /* Informa algo importante sin gritar: no es una alarma, es un matiz que hay que leer. */
 .filaDom{display:flex; gap:8px; align-items:center; margin-top:10px}
 .filaDom .entrada{flex:1; min-width:0}
@@ -1385,27 +1366,12 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
 .tarjeta .btn{background:var(--lg-tx); color:var(--lg-ink); border:none; font-weight:700}
 .tarjeta .btn:hover{background:#fff}
 .tarjeta .btn:focus-visible{outline:2px solid var(--lg-tx); outline-offset:3px}
-/* 🔴 ESTO SE ASOMABA AL CARGAR. El selector de rol y las notas rosas son del prototipo, y el
-   conector los saca cuando la app arranca — pero el conector es el último guion de la página,
-   así que entre que el navegador pinta la pantalla de acceso y ese código corre, el bloque
-   aparecía. Fotografiado por el dueño el 9-sep-2026 en pleno destello: abajo del «Entrar» se veían
-   los tres botones de simular cuenta y una nota nombrando `area=info` y `area=buttons`.
-   Esconderlo desde la hoja de estilos lo apaga en el PRIMER pintado, antes de que exista la
-   oportunidad de verlo. El conector igual lo sigue borrando del documento, que es lo correcto:
-   apagado y además afuera. */
-.demo, .nota.motor{display:none}
-.demo{border-top:1px dashed var(--bor); margin-top:4px; padding-top:12px}
-.demo .par{display:flex; gap:7px; margin-top:8px}
-.demo .par button{flex:1; background:var(--bg3); border:1px solid var(--bor); border-radius:10px;
-  padding:9px 6px; font-size:calc(12.5px * var(--esc)); font-weight:600; color:var(--mut2); cursor:pointer}
-.demo .par button[aria-pressed="true"]{border-color:var(--g); background:var(--g-soft); color:var(--g-ink)}
 </style>
 
 <div class="marco">
-  <!-- 🔴 Mismo destello que el bloque de arriba: acá decía «Prototipo · números de ejemplo» hasta
-       que el conector lo reemplazaba, así que al cargar se leía un cartel que no es cierto. El
-       texto de verdad va escrito de entrada; el conector lo pisa con el mismo y no se nota nada. -->
-  <div class="aviso"><b>En pruebas</b> · si algo falla, pasá el número de caso que sale en el error</div>
+  <!-- 🔴 ACÁ IBA LA CINTA DE «EN PRUEBAS». Era de la semana de prueba y se sacó entera al cerrar
+       la versión final. El número de caso sigue apareciendo en el propio error, que es donde
+       sirve: una cinta permanente arriba de todo se deja de leer a los dos días. -->
 
   <!-- ══════ LOGIN ══════ -->
   <div class="login" id="pLogin">

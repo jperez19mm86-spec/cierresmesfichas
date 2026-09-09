@@ -924,10 +924,26 @@ check('sin grilla no se marca nada, en vez de romper',
   /* Las notas rosas SÍ hablan del motor, a propósito: son del prototipo y el conector las esconde
      en cuanto la app se enchufa. Lo mismo con la franja de arriba, que pasa a «En pruebas». Si
      alguna de esas dos cosas se rompe, la jerga aparece en la pantalla de un cajero. */
-  check('el conector sigue escondiendo las notas del prototipo',
-    /\.nota\.motor\{display:none !important\}/.test(conector));
-  check('y sigue reemplazando la franja de arriba',
-    /aviso\.innerHTML = '<b>En pruebas<\/b>/.test(conector));
+  /* 🔴 YA NO SE ESCONDE NADA: SE BORRÓ. Mientras el andamio del prototipo vivía en el archivo y
+     sólo estaba apagado, era una cosa que se podía asomar sola —pasó, y el dueño lo fotografió— o
+     que alguien podía volver a encender sin querer. Al cerrar la versión final se sacó entero:
+     el selector de «qué cuenta simular», las notas rosas con sus estilos y su color, y la cinta de
+     «En pruebas». Este test ya no comprueba que estén tapados, comprueba que NO ESTÉN. */
+  {
+    /* Se mira el archivo SIN comentarios: los comentarios cuentan qué se sacó y por qué, y
+       nombrar lo que se borró es justamente lo que evita que vuelva. */
+    const vivo = htmlCaja.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+    check('no queda nada del andamio de la versión de prueba',
+      !/class="demo"/.test(vivo) && !/nota motor|nota\.motor/.test(vivo)
+      && !/--demo\b/.test(vivo) && !/Nota del prototipo/.test(vivo)
+      && !/cuenta simular/i.test(vivo));
+  }
+  {
+    const sinComentar = (t) => t.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+    check('ni la cinta de «En pruebas», ni el código que la reescribía',
+      !/class="aviso"/.test(sinComentar(htmlCaja)) && !/En pruebas/.test(sinComentar(htmlCaja))
+      && !/En pruebas/.test(sinComentar(conector)) && !/nota-motor-fuera/.test(sinComentar(conector)));
+  }
 
   /* Y en todo lo demás no puede quedar jerga. Se sacan comentarios, estilos y las notas rosas, y
      se marca sólo lo que además tiene prosa en castellano: así un `round_id:` de una estructura de
@@ -977,15 +993,15 @@ check('sin grilla no se marca nada, en vez de romper',
     && /@media \(min-width:1000px\)\{ :root/.test(htmlCaja));
   /* En escritorio la tira de secciones deja de ser una tira: se para de costado. */
   check('en escritorio las secciones van al costado',
-    /@media \(min-width:1000px\)\{[\s\S]{0,900}?\.marco\{display:grid/.test(htmlCaja)
-    && /\.secs\{grid-column:1; grid-row:3 \/ -1; flex-direction:column/.test(htmlCaja));
+    /@media \(min-width:1000px\)\{[\s\S]{0,1600}?\.marco\{display:grid/.test(htmlCaja)
+    && /\.secs\{grid-column:1; grid-row:2 \/ -1; flex-direction:column/.test(htmlCaja));
   /* 🔴 Y el botón de acción deja de estar clavado al pie de la ventana: en el teléfono va ahí
      porque ahí está el pulgar, en una notebook queda a media pantalla de lo último que leíste.
      Medido en la ventana del dueño, 1791x1032: con dos renglones de contenido quedaba unos 470px
      más abajo, solo. Pasa a ser el renglón siguiente de la lista. */
   check('y el botón de acción sigue al contenido en vez de quedarse al pie de la ventana',
-    /\.marco > \.fab\{position:static; grid-column:2; grid-row:4/.test(htmlCaja)
-    && /\.scroll\{grid-column:2; grid-row:3; overflow:visible/.test(htmlCaja));
+    /\.marco > \.fab\{position:static; grid-column:2; grid-row:3/.test(htmlCaja)
+    && /\.scroll\{grid-column:2; grid-row:2; overflow:visible/.test(htmlCaja));
   /* 🔴 UN COMENTARIO DE PLANTILLA IMPRESO EN LA PANTALLA. Casi todo el panel se dibuja con
      plantillas de JavaScript, donde `${'/* … *' + '/'}''` es la forma de comentar. Pero la barra de
      arriba, el login y el hub son HTML del documento: ahí eso NO es un comentario, el navegador lo
@@ -1051,11 +1067,6 @@ check('sin grilla no se marca nada, en vez de romper',
      conector, que es el último guion de la página: entre que el navegador pinta la pantalla de
      acceso y ese código corre, el bloque aparecía. Fotografiado el 9-sep-2026 en pleno destello.
      Apagarlo desde la hoja de estilos lo mata en el PRIMER pintado. */
-  check('el prototipo está apagado desde la hoja de estilos, no sólo por el conector',
-    /\.demo, \.nota\.motor\{display:none\}/.test(htmlCaja));
-  check('y el cartel de arriba ya nace diciendo lo cierto',
-    /<div class="aviso"><b>En pruebas<\/b>/.test(htmlCaja)
-    && !/<div class="aviso"><b>Prototipo<\/b>/.test(htmlCaja));
 
   /* Y la hoja deja de subir desde abajo, que es el gesto del pulgar. */
   check('y la hoja se centra en vez de subir desde el borde',
