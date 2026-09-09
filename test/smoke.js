@@ -14,7 +14,7 @@ const TESTDB = path.join(ROOT, 'data', 'test-smoke.sqlite');
    TBS adentro — pero los checks que buscan un texto siguen preguntando lo mismo: «¿está escrito
    esto en la pantalla?». Por eso leen el CONJUNTO en vez de un archivo.
    Los checks de que algo NO está en un espacio no pueden usar esto: piden la página por HTTP. */
-const FUENTE_PANEL = () => ['os.html', 'estilos.css', 'pantalla-tc.js', 'tbs.html', 'tbs-espacio.js']
+const FUENTE_PANEL = () => ['os.html', 'estilos.css', 'pantalla-tc.js', 'pantalla-carga.js', 'tbs.html', 'tbs-espacio.js']
   .map((f) => fs.readFileSync(path.join(ROOT, 'public', f), 'utf8')).join('\n');
 /* La hoja de estilos salió del HTML a /estilos.css. Los checks de CSS miran ésa MÁS los <style>
    sueltos que quedaron adentro de las pantallas. */
@@ -9343,6 +9343,32 @@ async function main() {
       (idxC.match(/enviarConCopias/g) || []).length >= 3
       && /enviarConCopias/.test(mpC) && /enviarConCopias/.test(nfC),
       'con ocho lugares avisando, acordarse en cada uno es cómo una copia deja de llegar');
+  }
+
+  /* ── LA PANTALLA DE CARGA ES UNA SOLA, EN LOS DOS PANELES ─────────────────────────────────
+     La usan /os y / (Fichas, donde se despacha). Copiarla era la forma segura de que en un mes
+     dijeran cosas distintas. Los dos tienen ayudantes con el MISMO nombre y otra forma —el `api`
+     de Fichas devuelve `{status, body}`, su `money` no lleva decimales, y no tiene `toast`—, así
+     que no alcanza con cargar el archivo: cada panel se los inyecta al montarla. */
+  {
+    const mod = fs.readFileSync(path.join(ROOT, 'public', 'pantalla-carga.js'), 'utf8');
+    const osH = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    const fiH = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('carga: la pantalla vive en un solo archivo y la cargan los dos paneles',
+      /window\.PantallaCarga = /.test(mod)
+      && /<script src="\/pantalla-carga\.js"><\/script>/.test(osH)
+      && /<script src="\/pantalla-carga\.js"><\/script>/.test(fiH));
+    check('carga: y no quedó una copia adentro del panel',
+      !/async function cgCalcular\(/.test(osH) && !/async function cgCalcular\(/.test(fiH));
+    /* Fichas adapta su `api`: sin eso la pantalla leería `{status, body}` como si fuera la
+       respuesta y todo saldría vacío, sin un error que lo diga. */
+    check('carga: Fichas le adapta sus ayudantes al montarla',
+      /api: async \(path, opts\) => \(await api\(path, opts\)\)\.body/.test(fiH)
+      && /minimumFractionDigits: d == null \? 2 : d/.test(fiH));
+    // Y busca sus campos DENTRO de la raíz que le dan, no por id global.
+    check('carga: la pantalla busca sus campos dentro de su raíz',
+      /_raiz && _raiz\.querySelector\('#' \+ id\)/.test(mod)
+      && !/document\.getElementById\('cg-/.test(mod));
   }
 
   check('panel: los espacios se llaman por lo que hacen',

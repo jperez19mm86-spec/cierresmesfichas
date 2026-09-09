@@ -152,6 +152,7 @@
 
 <nav class="nav">
   <button class="navbtn active" id="nav-pedidos" onclick="switchView('pedidos')">📥 Pedidos <span class="pedbadge" id="pedBadge" style="display:none">0</span></button>
+  <button class="navbtn" id="nav-carga" onclick="switchView('carga')">⚡ Calcular carga</button>
   <button class="navbtn" id="nav-historial" onclick="switchView('historial')">📜 Historial</button>
   <button class="navbtn" id="nav-clientes" onclick="switchView('clientes')">👥 Clientes</button>
   <button class="navbtn" id="nav-solicitud" onclick="switchView('solicitud')">📦 Abrir una caja</button>
@@ -282,6 +283,8 @@
     <div id="pedidosList"><div class="empty">Cargando…</div></div>
   </div>
 </div>
+
+<div id="view-carga" style="display:none"></div>
 
 <div id="view-historial" style="display:none">
   <div class="card">
@@ -450,7 +453,7 @@
 
   // ═══════════ NAVEGACIÓN ═══════════
   function switchView(name) {
-    for (const v of ['clientes', 'pedidos', 'historial', 'config', 'solicitud']) {
+    for (const v of ['clientes', 'pedidos', 'historial', 'config', 'solicitud', 'carga']) {
       document.getElementById('view-' + v).style.display = name === v ? '' : 'none';
       document.getElementById('nav-' + v).classList.toggle('active', name === v);
     }
@@ -459,6 +462,31 @@
     if (name === 'solicitud') solCargar();
     if (name === 'pedidos') loadPedidos();
     if (name === 'historial') loadHistorial();
+    if (name === 'carga') montarCarga();
+  }
+
+  /* ── ⚡ CALCULAR CARGA ────────────────────────────────────────────────────────────────────────
+     La pantalla es la MISMA que la del panel (public/pantalla-carga.js). Acá sólo se le pasan los
+     ayudantes de este lado, porque tienen el mismo nombre y otra forma:
+       · `api` de acá devuelve `{status, body}` y el módulo espera el cuerpo;
+       · `money` de acá no lleva decimales, y los montos de una carga los necesitan;
+       · no hay `toast`: se usa el banner de arriba, que es como avisa este panel.
+     Copiar la pantalla habría sido más rápido y en un mes dirían cosas distintas. */
+  let _cargaMontada = false;
+  function montarCarga() {
+    if (_cargaMontada) return;
+    _cargaMontada = true;
+    PantallaCarga.montar({
+      el: document.getElementById('view-carga'),
+      api: async (path, opts) => (await api(path, opts)).body,
+      esc,
+      money: (n, d) => Number(n || 0).toLocaleString('es-AR',
+        { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d }),
+      toast: (m) => { const b = document.getElementById('activeBanner');
+        if (b) { b.textContent = m; b.style.display = ''; setTimeout(() => { b.style.display = 'none'; }, 4000); }
+        else alert(m); },
+      ayuda: null,   // este panel no tiene el desplegable de ayuda del OS
+    });
   }
 
   // ═══════════ CLIENTES ═══════════
@@ -1086,5 +1114,6 @@
   setInterval(refreshPedBadge, 20000); // refrescar contador de pedidos pendientes
   registerSW().then(refreshNotifButton); // PWA + estado del botón de avisos
 </script>
+<script src="/pantalla-carga.js"></script>
 </body>
 </html>
