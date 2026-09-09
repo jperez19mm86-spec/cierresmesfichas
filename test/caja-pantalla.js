@@ -1074,6 +1074,63 @@ check('sin grilla no se marca nada, en vez de romper',
     && /\.hoja\{bottom:auto; top:50%/.test(htmlCaja));
 }
 
+/* ── 19 · nada de lo que manda el casino se dibuja crudo ────────────────────────────────────────
+   🔴 Los logins y los nombres entraban derecho al HTML, y hasta adentro de atributos: una comilla
+   en un nombre rompe el atributo y un signo de menor abre una etiqueta. Quien crea cuentas elige
+   esos nombres, así que un cajero podía dejar algo guardado que se ejecuta en el navegador del
+   agente — donde vive la sesión y están los botones que mueven fichas. Encontrado auditando antes
+   de publicar el panel en un dominio propio. */
+{
+  check('hay una sola función de escapar, y escapa las cinco cosas',
+    /const esc = \(v\) => String\(v == null \? '' : v\)/.test(htmlCaja)
+    && ["&amp;", "&lt;", "&gt;", "&quot;", "&#39;"].every((x) => htmlCaja.includes(x)));
+
+  /* Se mira sólo lo que se DIBUJA: fuera comentarios, y fuera las cadenas que se copian o que van
+     en una dirección, que llevan su propio tratamiento. */
+  const cuerpo = htmlCaja.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/<!--[\s\S]*?-->/g, ' ')
+    /* 🔑 El texto de credenciales que se COPIA no va escapado, y está bien: escaparlo pondría
+       «&amp;» en lo que el cliente pega en el chat. Se reconoce por su forma y se saca de la
+       cuenta, para que el test mire sólo lo que de verdad se dibuja. */
+    .replace(/`Login:\$\{[^`]*`/g, ' ');
+  const crudos = [...cuerpo.matchAll(/\$\{([a-zA-Z_$][\w$]{0,8})\.(login|name|game|labeltitle|providertitle|password)\}/g)]
+    .map((m) => m[0]);
+  check('ningún login ni nombre del casino se interpola sin escapar',
+    crudos.length === 0, crudos.length ? [...new Set(crudos)].join(' · ') : 'ninguno crudo');
+
+  /* 🔴 Y el dato NO puede ir adentro de un `onclick`: el navegador decodifica el atributo ANTES de
+     que JS lo lea, así que un `&#39;` vuelve a ser comilla y rompe la cadena igual. Va en `data-*`.
+     Es la misma regla que ya quedó escrita en el módulo del chat. */
+  const enManejador = [...cuerpo.matchAll(/onclick="[a-zA-Z]+\([^"]*\$\{(?:esc\()?[a-zA-Z_$][\w$]*\.(?:login|name|password)/g)];
+  check('ni va adentro de un manejador, donde escapar no alcanza',
+    enManejador.length === 0, enManejador.length ? enManejador.map((m) => m[0]).join(' · ') : 'ninguno');
+
+  /* Lo que va en una DIRECCIÓN se codifica para URL, no para HTML: escaparlo pondría «&amp;» en
+     el link que el jugador abre. */
+  check('el link de acceso codifica para URL, no para HTML',
+    /\?u=\$\{encodeURIComponent\(/.test(htmlCaja) && !/\?u=\$\{esc\(/.test(htmlCaja));
+}
+
+/* ── 20 · las puertas y las cabeceras ───────────────────────────────────────────────────────── */
+{
+  const idx = require('fs').readFileSync(__dirname + '/../src/index.js', 'utf8');
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  const auth = require('fs').readFileSync(__dirname + '/../src/caja/caja-auth.js', 'utf8');
+
+  /* 🔴 La puerta de Mi Caja no tenía tope de intentos: cada intento se manda derecho al casino,
+     así que probar contraseñas contra cuentas reales a través del panel era gratis. */
+  check('la puerta de Mi Caja tiene tope de intentos, por IP y por usuario',
+    /intentos\.demasiados\(kIp\) \|\| intentos\.demasiados\(kUs\)/.test(rutas)
+    && /intentos\.anotar\(kIp\)/.test(rutas) && /intentos\.limpiar\(kIp\)/.test(rutas));
+
+  /* 🔴 Sin clave propia la cookie se firma con un texto que está en el código. */
+  check('sin SESSION_SECRET el sistema no arranca en producción',
+    /SESSION_SECRET no está configurada/.test(auth) && /NODE_ENV === 'production'/.test(auth));
+
+  check('y salen las cabeceras que no rompen nada',
+    /frame-ancestors 'none'/.test(idx) && /X-Content-Type-Options/.test(idx)
+    && /Referrer-Policy/.test(idx));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

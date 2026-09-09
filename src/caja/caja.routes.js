@@ -15,6 +15,7 @@
  *      · el motor puede contestar un HTML de error con HTTP 200
  */
 const auth = require('./caja-auth');
+const intentos = require('../lib/intentos');
 const { aplanar: aplanarAjustes } = require('./caja-token');
 
 /* Los únicos `limit` que el motor respeta. Pedir otro devuelve 50 sin avisar. */
@@ -77,8 +78,22 @@ function mount(app) {
     : null;
   if (!raiz) console.warn('[caja] sin CASINO_ROOT_TOKEN: los clientes van a trabajar con sesión');
 
+  /* 🔴 ESTA PUERTA NO TENÍA TOPE DE INTENTOS. Cada intento se manda derecho al casino, así que
+     sin freno se pueden probar contraseñas contra cuentas REALES a través de nuestro panel, gratis
+     y sin límite. Y como el casino bloquea por intentos fallidos, alcanza para dejar afuera a un
+     cajero de verdad sin adivinar nada. El tope ya existía para las otras puertas del sistema;
+     ésta se agregó después, en otro archivo, y quedó sin él. Encontrado auditando antes de
+     publicar el panel en un dominio propio. */
   app.post('/api/caja/login', wrap(async (req, res) => {
     const b = req.body || {};
+    const ip = intentos.ipDe(req);
+    const quien = String(b.usuario || '').trim().toLowerCase();
+    const kIp = 'ip:caja:' + ip;
+    const kUs = 'caja:' + quien;
+    if (intentos.demasiados(kIp) || intentos.demasiados(kUs)) {
+      return res.status(429).json({ ok: false,
+        error: 'Demasiados intentos. Esperá 15 minutos y volvé a probar.' });
+    }
     const r = await auth.entrar({
       url: process.env.CASINO_URL,
       user: String(b.usuario || '').trim(),
@@ -88,7 +103,9 @@ function mount(app) {
          se trabaja con su sesión y se avisa. Encenderlo es una decisión, no un accidente. */
       generar: process.env.CASINO_GENERAR_TOKEN === '1',
     });
-    if (!r.ok) return mal(res, r.error, 401);
+    if (!r.ok) { intentos.anotar(kIp); intentos.anotar(kUs); return mal(res, r.error, 401); }
+    /* Entrar bien borra la cuenta: quien se equivocó tres veces y después acertó no arrastra nada. */
+    intentos.limpiar(kIp); intentos.limpiar(kUs);
     auth.ponerCookie(res, r.sesion.sid);
     /* Con el saldo adentro: el panel ya no necesita preguntarlo por separado para arrancar. */
     ok(res, { yo: { ...auth.publica(r.sesion), balance: r.sesion.balanceInicial } });

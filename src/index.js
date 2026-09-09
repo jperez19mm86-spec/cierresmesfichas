@@ -93,6 +93,26 @@ app.use(compression());
    cualquier otra dirección da 404. Sirve para desplegarla como servicio aparte —su propio proceso,
    su propio dominio— sin duplicar el código y sin que una caída se lleve puesto al OS. */
 const SOLO_CAJA = process.env.SOLO_CAJA === '1';
+/* ══════ CABECERAS DE SEGURIDAD ═══════════════════════════════════════════════════════════════
+   No había ninguna. Encontrado auditando antes de publicar Mi Caja en un dominio propio.
+
+   `frame-ancestors 'none'` es la que más importa acá: sin ella, cualquiera puede meter el panel
+   adentro de una página suya, taparlo con algo y hacer que el cajero apriete botones que mueven
+   fichas creyendo que aprieta otra cosa. Verificado que el sistema no se muestra a sí mismo dentro
+   de ningún marco, así que no rompe nada.
+
+   ⚠️ La CSP completa NO se puede poner todavía: el panel lleva todo su código adentro del HTML y
+   ochenta manejadores dentro de atributos, así que `script-src` lo dejaría en blanco. Va cuando
+   ese código salga a un archivo aparte; mientras tanto, esto es lo que sí se puede sin romper. */
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  /* Y la contraseña viaja adentro del link de acceso del jugador: sin esto, ese link entero se
+     filtra en la cabecera de referencia a cualquier sitio al que se navegue después. */
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
 if (SOLO_CAJA) {
   const DE_CAJA = /^\/(caja(\/|$)|caja-(conexion|logica)\.js$|api\/caja(\/|$)|img\/|logo|favicon)/;
   app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')));

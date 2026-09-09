@@ -21,7 +21,21 @@ const { asegurarToken } = require('./caja-token');
 
 const COOKIE = 'caja_sid';
 const VIDA_MS = 1000 * 60 * 60 * 12;          // 12 h: un turno largo, no una semana
-const SECRETO = process.env.SESSION_SECRET || 'dev-insecure-secret-cambiar-en-prod';
+/* 🔴 SIN CLAVE PROPIA, LA COOKIE SE FIRMA CON UN TEXTO QUE ESTÁ EN ESTE ARCHIVO. Cualquiera que
+   lea el código puede fabricar una cookie válida. Y encima esa misma clave cifra las sesiones
+   guardadas en disco, así que también quedarían cifradas con algo público.
+   Antes esto caía a un valor por defecto y el sistema arrancaba igual, sin decir nada. Ahora en
+   producción NO ARRANCA: fallar al arrancar se ve enseguida; andar mal en silencio, no. En
+   desarrollo se sigue permitiendo, con aviso, para no obligar a configurar nada en la máquina. */
+const SECRETO = process.env.SESSION_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET no está configurada. Sin ella la cookie de sesión se firma con '
+      + 'una clave escrita en el código fuente y las sesiones guardadas se cifran con lo mismo.');
+  }
+  console.warn('[caja] ⚠️  SESSION_SECRET sin configurar: se usa una clave de desarrollo. '
+    + 'En producción esto no arranca.');
+  return 'dev-insecure-secret-cambiar-en-prod';
+})();
 
 /* Las sesiones vivas, en memoria. Guardan el cliente del motor ya armado —con su cookie
    PHPSESSID adentro— para no volver a loguear en cada llamada. */

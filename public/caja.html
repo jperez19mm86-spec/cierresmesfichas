@@ -2528,6 +2528,16 @@ function rotuloRango(r){
    número, y una pantalla de movimientos reales son miles de llamadas. */
 const FMT_REDONDO = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const FMT_CENTAVOS = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/* 🔴 LO QUE MANDA EL CASINO SE DIBUJABA CRUDO. Los logins y los nombres de las cuentas entraban
+   derecho al HTML, y hasta adentro de atributos: una comilla en un nombre rompe el atributo, y un
+   signo de menor abre una etiqueta. Quien crea cuentas elige esos nombres, así que un cajero podía
+   dejar algo guardado que se ejecuta en el navegador del agente — donde vive la sesión y están los
+   botones que mueven fichas. Encontrado auditando antes de publicar el panel en un dominio propio.
+   El `&` va PRIMERO: al revés se escaparían dos veces los otros. */
+const esc = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 const fmt = (n) => (Number.isInteger(Number(n)) ? FMT_REDONDO : FMT_CENTAVOS).format(n);
 const $ = (id) => document.getElementById(id);
 const yo = () => CUENTAS[ROL];
@@ -2700,8 +2710,8 @@ function pintarUsuarios(){
     ${yo().hide_hall_balance ? '' : `
     <div class="saldo">
       ${DENTRO ? `<button class="dequien tocable" onclick="abrirNodo('${b.id}')"
-          aria-label="Abrir la ficha de ${b.login}">
-        <span class="quien"><b class="mono">${b.login}</b>
+          aria-label="Abrir la ficha de ${esc(b.login)}">
+        <span class="quien"><b class="mono">${esc(b.login)}</b>
           <span>ID ${b.id} · ${h.length} ${h.length === 1 ? 'jugador' : 'jugadores'}</span></span>
         <span class="fl" aria-hidden="true">›</span>
       </button>` : ''}
@@ -2759,7 +2769,7 @@ function verBorrados(cajaId, sonCajas){
     <div class="sub">Siguen existiendo con sus fichas, pero nadie los ve.</div>
     <div class="lista">
       ${bs.map(b => `<div class="fila-b" style="align-items:flex-start; cursor:default">
-        <span class="id"><b class="mono">${b.login}</b>
+        <span class="id"><b class="mono">${esc(b.login)}</b>
           ${/* El motor no siempre da la fecha de baja. Cuando no la da, la línea salía como
                 «eliminado el /» — un renglón que no dice nada y encima se ve roto. Sin fecha,
                 no va la línea. */''
@@ -2836,7 +2846,7 @@ function pintarFilas(){
     return `<div class="fila-b" role="button" tabindex="0" onclick="abrirNodo('${x.id}')"
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirNodo('${x.id}')}">
       <span class="punto ${punto}" aria-hidden="true"></span>
-      <span class="id"><b class="mono">${x.login}</b><span>${sub}</span></span>
+      <span class="id"><b class="mono">${esc(x.login)}</b><span>${sub}</span></span>
       ${/* 🔴 NO SE VEÍA QUE LA FILA SE ABRE. El renglón entero abre la ficha —historial,
            contraseña, credenciales, eliminar— desde siempre, pero nada lo decía: al lado hay un
            botón de fichas que sí parece botón, y el resto se leía como texto. El 7-sep alguien
@@ -2844,7 +2854,7 @@ function pintarFilas(){
            delante. Una flechita alcanza. */''
       }<span class="fl" aria-hidden="true">›</span>
       <button class="bal" onclick="event.stopPropagation(); moverDe('${x.id}')"
-        aria-label="Cargar o retirar fichas de ${x.login}">
+        aria-label="Cargar o retirar fichas de ${esc(x.login)}">
         <span class="cifras"><small>${yo().currency}</small><b class="num">${fmt(x.balance)}</b></span>
         ${/* Dibujado, no el carácter «±»: cada tipografía lo dibuja distinto —en algunas la
               barra es más angosta que la cruz, en otras queda descentrado— y encima cambia de
@@ -2959,7 +2969,7 @@ function pintarTablero(){
   };
   $('cuerpo').innerHTML = `
     ${caja ? `<button class="icobtn" style="margin-bottom:12px" onclick="volverARaiz()">‹ Mis cajeros</button>
-      <div class="rango" style="margin-bottom:10px"><b class="mono">${caja.login}</b>
+      <div class="rango" style="margin-bottom:10px"><b class="mono">${esc(caja.login)}</b>
         <span>${caja.terminals} jugadores</span></div>` : ''}
     <div class="periodos">
       ${PERIODOS_TAB.map(([k, n]) => `<button aria-pressed="${k === PERIODO}" onclick="setPeriodo('${k}')">${
@@ -3028,7 +3038,7 @@ function pintarMovs(){
       <button class="icobtn" style="margin-bottom:12px" onclick="volverARaiz()">‹ Mis cajeros</button>
       <div class="saldo" style="padding:13px 15px; margin-bottom:12px">
         <div class="dequien" style="padding:0; margin:0; border:none">
-          <b class="mono">${caja.login}</b>
+          <b class="mono">${esc(caja.login)}</b>
           <span>Estás viendo SUS movimientos, no los tuyos</span>
         </div>
       </div>` : ''}
@@ -3387,11 +3397,11 @@ function pintarSub(){
           onclick="abrirSubAgente('${s.id}')"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSubAgente('${s.id}')}">
         <span class="id">
-          <b class="mono">${s.login}</b>
+          <b class="mono">${esc(s.login)}</b>
           ${/* El nombre sólo si es DISTINTO del login: el motor copia el login ahí cuando no se
                 le pone otro, y entonces la fila repetía lo mismo dos veces. El ID no va: al
                 cajero no le dice nada, igual que en la lista de jugadores. */''
-          }${mismoNombre(s.name, s.login) ? '' : `<span>${s.name}</span>`}
+          }${mismoNombre(s.name, s.login) ? '' : `<span>${esc(s.name)}</span>`}
           ${/* Sin cartel de cajas: el dato no viene en esta lista y pedirlo por cada uno rompía
                 la pantalla. Se ve entrando al sub-agente, que es donde además se cambia. */''}
         </span>
@@ -3410,16 +3420,16 @@ function abrirSubAgente(id){
      que las veía todas. Si por lo que sea no se pudieron leer, no se dice nada. */
   const sabemos = s.permisosLeidos === true;
   abrirHoja(`
-    <h3 id="hojaTit" class="mono">${s.login}</h3>
+    <h3 id="hojaTit" class="mono">${esc(s.login)}</h3>
     <div class="sub">Sub-agente</div>
     ${sabemos && !ve ? `<div class="nota">⚠️ <b>No ve ninguna caja.</b> Así como está, entra al panel y no
       encuentra nada — ni las cajas ni sus jugadores.</div>` : ''}
     <div class="rot" style="margin:14px 0 2px">Cajas que puede ver</div>
     ${SALAS.map(c => `
       <div class="switch">
-        <span class="tx"><b class="mono">${c.login}</b><span>${c.name} · ${c.terminals} jugadores</span></span>
+        <span class="tx"><b class="mono">${esc(c.login)}</b><span>${esc(c.name)} · ${c.terminals} jugadores</span></span>
         <button class="palanca" role="switch" aria-checked="${!!s.cajas[c.id]}"
-          aria-label="Ver ${c.login}" onclick="tocarCaja('${s.id}','${c.id}')"></button>
+          aria-label="Ver ${esc(c.login)}" onclick="tocarCaja('${s.id}','${c.id}')"></button>
       </div>`).join('')}
     <div class="acciones">
       <button class="btn sec" onclick="todasLasCajas('${s.id}')">Darle todas</button>
@@ -3455,12 +3465,12 @@ function abrirSubDeCaja(cajaId){
   };
   abrirHoja(`
     <h3 id="hojaTit">Sub-cajeros</h3>
-    <div class="sub"><span class="mono">${caja.login}</span> · otro acceso a la misma caja</div>
+    <div class="sub"><span class="mono">${esc(caja.login)}</span> · otro acceso a la misma caja</div>
     ${suyos.length ? `<div class="lista">${suyos.map(s => `
       <div class="fila-b" role="button" tabindex="0" style="align-items:flex-start"
         onclick="abrirSub('${s.id}')"
         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSub('${s.id}')}">
-        <span class="id"><b class="mono">${s.login}</b><span>${s.name} · ID ${s.id}</span>
+        <span class="id"><b class="mono">${esc(s.login)}</b><span>${esc(s.name)} · ID ${s.id}</span>
           <span class="permisos">${restricciones(s)}</span>
         </span><span class="fl" style="color:var(--mut)">›</span>
       </div>`).join('')}</div>`
@@ -3518,14 +3528,14 @@ function pintarCruces(){
           const abierta = IP_ABIERTA === clave;
           const veces = (u.horas || [u.hora]).length;
           return `<button class="pastilla ${abierta ? 'abierta' : ''}" onclick="verHoras('${clave}')"
-            title="${u.hora}"><b class="mono">${u.login}</b>${
+            title="${u.hora}"><b class="mono">${esc(u.login)}</b>${
             unSoloDia ? '' : ' ' + diaCorto(u.hora)}${veces > 1 ? ` ·&nbsp;${veces}` : ''}</button>`; }).join('')}</div>
         ${(() => {
           const abierta = c.cuentas.find(u => IP_ABIERTA === c.ip + '|' + u.login);
           if (!abierta) return '';
           const horas = (abierta.horas || [abierta.hora]).filter(t => { const d = t.slice(0,10); return d >= r.from && d <= r.to; });
           return `<div class="horarios">
-            <div class="rot" style="margin-bottom:6px"><span class="mono">${abierta.login}</span> desde esta IP</div>
+            <div class="rot" style="margin-bottom:6px"><span class="mono">${esc(abierta.login)}</span> desde esta IP</div>
             ${horas.map(t => `<div class="unahora"><b class="mono">${t.slice(11)}</b><span>${diaCorto(t)}</span></div>`).join('')}
           </div>`; })()}
       </div>`; }).join('')}
@@ -3569,7 +3579,7 @@ function abrirHistoria(id){
   const tot = ses.reduce((a, s) => ({ bet:a.bet+s.bet, win:a.win+s.win, profit:a.profit+s.profit }), { bet:0, win:0, profit:0 });
   const abiertas = ses.filter(s => !s.datetime_close).length;
   abrirHoja(`
-    <h3 id="hojaTit" class="mono">${j.login}</h3>
+    <h3 id="hojaTit" class="mono">${esc(j.login)}</h3>
     <div class="sub">Historial de jugadas</div>
     ${tiraPeriodos(HIST_PER, 'perHist', { rangoCustom: CUSTOMS.hist })}
     <div class="rango"><b>${rotuloRango(r)}</b>
@@ -3600,7 +3610,7 @@ function abrirHistoria(id){
         return `<div class="jug ses jug-toca" role="button" tabindex="0"
           onclick="abrirSesion('${id}','${s.session}')"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSesion('${id}','${s.session}')}">
-          <span class="nom">${s.game}</span>
+          <span class="nom">${esc(s.game)}</span>
           <span class="num apo ${movio ? '' : 'nada'}">${movio ? fmt(s.bet) : '—'}</span>
           <span class="num gan ${s.win ? 't-ok' : 'nada'}">${s.win ? fmt(s.win) : '—'}</span>
           <span class="num net ${!movio || !s.profit ? 'nada' : (s.profit > 0 ? 'mas' : 'menos')}">${movio
@@ -3695,8 +3705,8 @@ function abrirSesion(jugadorId, sesionId){
      Se ofrece sólo cuando ALGUNA ronda de esta sesión la trae de verdad. */
   const hayMatriz = js.some(x => x.matriz || (x.lineas && x.lineas.length));
   abrirHoja(`
-    <h3 id="hojaTit">${s.game}</h3>
-    <div class="sub">${s.labeltitle} · ${s.providertitle} · sesión ${s.session}</div>
+    <h3 id="hojaTit">${esc(s.game)}</h3>
+    <div class="sub">${esc(s.labeltitle)} · ${esc(s.providertitle)} · sesión ${s.session}</div>
     ${!s.datetime_close
       ? `<div class="nota">● <b>Está jugando ahora.</b> Abrió a las
          ${s.datetime_open.slice(11,16)}, última jugada ${s.datetime_last.slice(11,16)}.</div>`
@@ -3806,7 +3816,7 @@ function misContactos(){
     ${conPropios.length ? `<div class="rot" style="margin:16px 0 6px">Cajas con contacto propio</div>
       <div class="lista">${conPropios.map(s => `
         <div class="fila-b" style="cursor:default; opacity:.7">
-          <span class="id"><b class="mono">${s.login}</b><span>${
+          <span class="id"><b class="mono">${esc(s.login)}</b><span>${
             (CONTACTOS[s.id] || []).length ? 'usa los suyos, no los tuyos'
               : '⚠️ usa los suyos y no tiene ninguno'}</span></span>
         </div>`).join('')}</div>` : ''}
@@ -3901,7 +3911,7 @@ function claveDeOtro(id){
   const c = (SALAS.concat(TERMINALES)).find(x => x.id === id) || ACTUAL;
   const esJugador = TERMINALES.some(t => t.id === id);
   abrirHoja(`
-    <h3 id="hojaTit">Contraseña de <span class="mono">${c.login}</span></h3>
+    <h3 id="hojaTit">Contraseña de <span class="mono">${esc(c.login)}</span></h3>
     <div class="sub">No hace falta la anterior: sos su superior.</div>
     <label class="campo" for="oNue">Contraseña nueva</label>
     <input class="entrada mono" id="oNue" autocomplete="off"
@@ -3931,7 +3941,7 @@ function guardarClaveDeOtro(id){
   const nueva = $('oNue').value.trim();
   const c = (SALAS.concat(TERMINALES)).find(x => x.id === id);
   if (c) c.password = nueva;
-  const link = c && c.password ? `${TICKET_URL}?u=${c.login}&p=${nueva}` : '';
+  const link = c && c.password ? `${TICKET_URL}?u=${encodeURIComponent(c.login)}&p=${encodeURIComponent(nueva)}` : '';
   abrirHoja(`
     <div class="resultado"><div class="sello">✓</div>
       <h3>Contraseña cambiada</h3>
@@ -3947,7 +3957,7 @@ function abrirContactos(cajaId){
   const lista = CONTACTOS[cajaId] || [];
   abrirHoja(`
     <h3 id="hojaTit">Medios de comunicación</h3>
-    <div class="sub"><span class="mono">${caja.login}</span> · los canales que ven tus jugadores para escribirte.</div>
+    <div class="sub"><span class="mono">${esc(caja.login)}</span> · los canales que ven tus jugadores para escribirte.</div>
     <div class="switch" style="margin-bottom:4px">
       <span class="tx"><b>Usar los medios de tu cuenta</b>
         <span>Sus jugadores ven tu línea de soporte general</span></span>
@@ -4098,7 +4108,7 @@ function editarCaja(id){
   const dominio = c.ticket_url ? normDom(String(c.ticket_url).replace(/^https?:\/\//, '')) : null;
   abrirHoja(`
     <h3 id="hojaTit">Configuración</h3>
-    <div class="sub"><span class="mono">${c.login}</span> · ID ${c.id}</div>
+    <div class="sub"><span class="mono">${esc(c.login)}</span> · ID ${c.id}</div>
     <div class="dato-fijo">
       <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13.6a3.6 3.6 0 005.3.3l2.6-2.6a3.6 3.6 0 00-5.1-5.1l-1.4 1.4"/><path d="M14 10.4a3.6 3.6 0 00-5.3-.3l-2.6 2.6a3.6 3.6 0 005.1 5.1l1.4-1.4"/></svg></span>
       <span class="tx">${dominio
@@ -4145,8 +4155,8 @@ function abrirSub(id){
         aria-label="${titulo}" onclick="tocarPermiso('${id}','${campo}')"></button>
     </div>`;
   abrirHoja(`
-    <h3 id="hojaTit" class="mono">${s.login}</h3>
-    <div class="sub">${s.name} · ID ${s.id} · sub-cajero</div>
+    <h3 id="hojaTit" class="mono">${esc(s.login)}</h3>
+    <div class="sub">${esc(s.name)} · ID ${s.id} · sub-cajero</div>
     ${palanca('hide_hall_balance', 'Ocultar el saldo de la caja',
       'No ve cuántas fichas tiene la caja. Igual puede cargar y retirar.')}
     ${palanca('disable_statistic', 'Deshabilitar estadística',
@@ -4195,7 +4205,7 @@ function abrirNodo(id){
   const estado = esSala ? '' : ACTUAL.jugando ? 'jugando ahora' : ACTUAL.online ? 'conectado' : '';
   const t = esSala ? (TOTALES_CAJA[ACTUAL.id] || {})[CAJA_PER] : null;
   abrirHoja(`
-    <h3 id="hojaTit" class="mono">${ACTUAL.login}</h3>
+    <h3 id="hojaTit" class="mono">${esc(ACTUAL.login)}</h3>
     <div class="sub">${esSala
       ? `${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`
       : `${estado ? `<span class="punto ${ACTUAL.jugando ? 'jugando' : 'on'}"></span>${estado} · ` : ''}${
@@ -4270,7 +4280,7 @@ function accion(i){
   if (a.name === 'share_auth')  return enviarCredenciales();
   if (a.name === 'delete')      return borrar();
   abrirHoja(`<h3 id="hojaTit">${a.title}</h3>
-    <div class="sub"><span class="mono">${a.name}</span> · sobre ${ACTUAL.login}</div>
+    <div class="sub"><span class="mono">${esc(a.name)}</span> · sobre ${esc(ACTUAL.login)}</div>
     <div class="nota neutra">Esta acción todavía no está en Mi Caja. Por ahora se hace desde el
     panel de siempre.</div>
     <div class="acciones"><button class="btn sec" onclick="abrirNodo('${ACTUAL.id}')">Volver</button></div>`);
@@ -4316,8 +4326,10 @@ function copiarDe(id){
 
 function copiar(texto, mensaje){
   if (navigator.clipboard) navigator.clipboard.writeText(texto).catch(() => {});
+  /* Texto que se COPIA, no HTML: escaparlo pondría «&amp;» en lo que el cliente pega. */
   const acceso = `Login:${ACTUAL.login} Contraseña:${ACTUAL.password}`;
-  const link = `${TICKET_URL}?u=${ACTUAL.login}&p=${ACTUAL.password}`;
+  /* Una dirección: lo que corresponde es codificar para URL, no para HTML. */
+  const link = `${TICKET_URL}?u=${encodeURIComponent(ACTUAL.login)}&p=${encodeURIComponent(ACTUAL.password)}`;
   abrirHoja(`<div class="resultado"><div class="sello">✓</div><h3>${mensaje}</h3>
       <div class="sub">Ya está en el portapapeles. Las dos cosas, por si querés la otra:</div></div>
     ${filaCred('Usuario y contraseña', acceso, true)}
@@ -4325,7 +4337,8 @@ function copiar(texto, mensaje){
     <div class="nota"><b>Valen lo mismo que la contraseña.</b> Mandá una sola vez y pedile que la cambie.</div>
     <div class="acciones">
       <button class="btn sec" onclick="abrirNodo('${ACTUAL.id}')">Volver</button>
-      <button class="btn" onclick="compartirTexto(\`${acceso}\n${link}\`)">Compartir</button></div>`);
+      <button class="btn" data-txt="${esc(acceso + '\n' + link)}"
+        onclick="compartirTexto(this.dataset.txt)">Compartir</button></div>`);
 }
 /* navigator.share: en el celular abre el compartir nativo — WhatsApp y listo. */
 function compartirTexto(texto){
@@ -4348,7 +4361,7 @@ function transaccionesDe(id){
   });
   const suma = todas.reduce((a, m) => { a[m.operation] += m.cash; return a; }, { in:0, out:0 });
   abrirHoja(`
-    <h3 id="hojaTit" class="mono">${j.login}</h3>
+    <h3 id="hojaTit" class="mono">${esc(j.login)}</h3>
     <div class="sub">Últimas transacciones · saldo ${yo().currency} ${fmt(j.balance)}</div>
     <div class="tabs" role="tablist">
       <button role="tab" aria-selected="${!MJ_BONOS}" onclick="verMovJug('${id}',false)">Fichas</button>
@@ -4410,7 +4423,8 @@ function enviarCredenciales(){
   const c = ACTUAL;
   window.__envio = {
     clave: `Login:${c.login} Contraseña:${c.password}`,
-    link: `${TICKET_URL}?u=${c.login}&p=${c.password}`,
+    /* Una dirección, no HTML: acá lo que corresponde es codificar para URL. */
+    link: `${TICKET_URL}?u=${encodeURIComponent(c.login)}&p=${encodeURIComponent(c.password)}`,
   };
   pintarEnvio(null);
 }
@@ -4427,7 +4441,7 @@ function pintarEnvio(copiado){
     </button>`;
   abrirHoja(`
     <h3 id="hojaTit">Credenciales del jugador</h3>
-    <div class="sub"><span class="mono">${c.login}</span></div>
+    <div class="sub"><span class="mono">${esc(c.login)}</span></div>
     ${/* 🔴 NO SE OFRECE ELEGIR CUANDO NO HAY ENTRE QUÉ. «Escogé si mandarle su login y contraseña,
          o el link» salía igual en las cajas sin link, arriba de una sola tarjeta: manda a elegir
          entre una cosa. Mismo criterio que la tarjeta del link, que ya se dibuja sólo si existe. */''}
@@ -4464,7 +4478,8 @@ function copiarEnvio(id){
 }
 
 function compartir(){
-  const texto = `Login:${ACTUAL.login} Contraseña:${ACTUAL.password}\n${TICKET_URL}?u=${ACTUAL.login}&p=${ACTUAL.password}`;
+  const texto = `Login:${ACTUAL.login} Contraseña:${ACTUAL.password}\n`
+    + `${TICKET_URL}?u=${encodeURIComponent(ACTUAL.login)}&p=${encodeURIComponent(ACTUAL.password)}`;
   if (navigator.share) { navigator.share({ title:'User data', text:texto }).catch(() => {}); return; }
   copiar(texto, 'Acceso copiado');
 }
@@ -4476,7 +4491,7 @@ function borrar(){
      entrar a jugar hasta que lo restauren (dueño, 27-ago). El motor no habilita `terminalblock`
      para un cajero —`area=buttons` no lo trae y llamarlo da «No rights»—, así que ésta es la
      herramienta que hay, y alcanza. */
-  abrirHoja(`<h3 id="hojaTit">Eliminar <span class="mono">${ACTUAL.login}</span></h3>
+  abrirHoja(`<h3 id="hojaTit">Eliminar <span class="mono">${esc(ACTUAL.login)}</span></h3>
     <div class="sub">Deja de poder entrar a jugar hasta que lo restaures.</div>
     ${conSaldo ? `<div class="nota">⚠️ <b>Tiene ${yo().currency} ${fmt(ACTUAL.balance)} adentro.</b>
       Si lo borrás así, esas fichas quedan congeladas en la cuenta y no vuelven a la caja.
@@ -4508,7 +4523,7 @@ function vistaMover(){
     ? (yo().hide_hall_balance ? Infinity : bolsillo().balance)
     : ACTUAL.balance;
   return `
-    <h3 id="hojaTit" class="mono">${ACTUAL.login}</h3>
+    <h3 id="hojaTit" class="mono">${esc(ACTUAL.login)}</h3>
     <div class="sub">Cambiar balance · ${yo().currency} ${fmt(ACTUAL.balance)}</div>
     <div class="tabs" role="tablist">
       <button role="tab" class="in"  aria-selected="${OP==='in'}"  onclick="cambiarOp('in')">Cargar</button>
@@ -4610,7 +4625,7 @@ function confirmarMov(){
     <h3 id="hojaTit">${carga ? 'Confirmá la carga' : 'Confirmá el retiro'}</h3>
     <div class="sub">Revisá los números antes de mover las fichas.</div>
     <div class="confirmar">
-      <div class="fila"><span>${viendoSalas()?'Cajero':'Jugador'}</span><b class="mono">${ACTUAL.login}</b></div>
+      <div class="fila"><span>${viendoSalas()?'Cajero':'Jugador'}</span><b class="mono">${esc(ACTUAL.login)}</b></div>
       <div class="fila"><span>${TODO_EL_SALDO ? 'Todo el saldo' : 'Monto exacto'}</span>
         <b class="num ${carga?'mas':'menos'}">${carga?'+':'−'} ${fmt(v)}</b></div>
       ${TODO_EL_SALDO && !carga ? `<div class="avisotodo">
@@ -4648,7 +4663,7 @@ function ejecutarMov(v){
     pintar();
     abrirHoja(`<div class="resultado"><div class="sello">✓</div>
       <h3>${carga?'Fichas cargadas':'Fichas retiradas'}</h3>
-      <div class="sub"><b class="mono">${ACTUAL.login}</b> quedó con
+      <div class="sub"><b class="mono">${esc(ACTUAL.login)}</b> quedó con
         <b class="num">${yo().currency} ${fmt(ACTUAL.balance)}</b></div></div>
       <div class="acciones"><button class="btn" onclick="cerrarHoja()">Listo</button></div>`);
   }, 900);
@@ -4660,7 +4675,7 @@ function altaSubCajero(cajaId){
   const caja = SALAS.find(c => c.id === cajaId) || ACTUAL;
   abrirHoja(`
     <h3 id="hojaTit">Nuevo sub-cajero</h3>
-    <div class="sub">Otro acceso a <b class="mono">${caja.login}</b>, con las mismas fichas.</div>
+    <div class="sub">Otro acceso a <b class="mono">${esc(caja.login)}</b>, con las mismas fichas.</div>
     <label class="campo" for="scLogin">Login</label>
     <input class="entrada mono" id="scLogin" autocomplete="off" spellcheck="false" placeholder="cajanoche" oninput="revisarSubCajero()">
     <div class="tope" id="avisoScLogin"></div>
@@ -4718,7 +4733,7 @@ function abrirAlta(){
     </button>`;
   abrirHoja(`
     <h3 id="hojaTit">¿Qué querés crear?</h3>
-    <div class="sub">En <b class="mono">${donde.login}</b></div>
+    <div class="sub">En <b class="mono">${esc(donde.login)}</b></div>
     <div class="opciones">
       ${enCaja
         ? op('Un jugador', 'Entra al casino y juega con las fichas que le cargues', `altaFormulario('5')`)
@@ -4836,14 +4851,17 @@ function pintarQuienLaVe(cajaId, cajaLogin){
     ${SUBAGENTES.map(s => {
       const ve = Object.values(s.cajas).filter(Boolean).length;
       return `<div class="switch">
-        <span class="tx"><b class="mono">${s.login}</b><span>${s.name ? s.name + ' · ' : ''}${
+        <span class="tx"><b class="mono">${esc(s.login)}</b><span>${s.name ? s.name + ' · ' : ''}${
           ve ? `hoy ve ${ve} ${ve === 1 ? 'caja' : 'cajas'}` : 'hoy no ve ninguna'}</span></span>
         <button class="palanca" role="switch" aria-checked="${ELEGIDOS.has(s.id)}"
-          aria-label="Habilitar a ${s.login}" onclick="marcarSub('${s.id}','${cajaId}','${cajaLogin}')"></button>
+          aria-label="Habilitar a ${esc(s.login)}" data-sub="${esc(s.id)}" data-caja="${esc(cajaId)}" data-login="${esc(cajaLogin)}"
+          onclick="marcarSub(this.dataset.sub, this.dataset.caja, this.dataset.login)"></button>
       </div>`; }).join('')}
     <div class="acciones" style="margin-top:14px">
-      <button class="btn sec" onclick="todosVen('${cajaId}','${cajaLogin}')">Todos</button>
-      <button class="btn" onclick="aplicarVisibilidad('${cajaId}','${cajaLogin}')">${
+      <button class="btn sec" data-caja="${esc(cajaId)}" data-login="${esc(cajaLogin)}"
+        onclick="todosVen(this.dataset.caja, this.dataset.login)">Todos</button>
+      <button class="btn" data-caja="${esc(cajaId)}" data-login="${esc(cajaLogin)}"
+        onclick="aplicarVisibilidad(this.dataset.caja, this.dataset.login)">${
         n ? `Habilitar a ${n}` : 'Ninguno por ahora'}</button>
     </div>`);
 }
@@ -4965,7 +4983,8 @@ function crear(){
       <div class="nota"><b>Cualquiera de las dos cosas abre la cuenta.</b> Mandale una sola, por un
       canal privado, y pedile que cambie la contraseña apenas entre.</div>
       <div class="acciones">
-        <button class="btn sec" onclick="compartirTexto(\`${acceso}\n${link}\`)">Compartir</button>
+        <button class="btn sec" data-txt="${esc(acceso + '\n' + link)}"
+          onclick="compartirTexto(this.dataset.txt)">Compartir</button>
         <button class="btn" onclick="cerrarHoja()">Listo</button>
       </div>
       <div style="text-align:center;margin-top:12px">
