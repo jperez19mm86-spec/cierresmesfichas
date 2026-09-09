@@ -6224,14 +6224,25 @@ async function main() {
       'sin el corte, agosto arrastraba los 793,29 de septiembre de Marcelo');
     check('factura: los meses posteriores se marcan, no se esconden',
       /posterior: a\.mes > m/.test(svc));
+    /* ── Y EL 7-sep-2026 EL SALDO SALIÓ DE LA FACTURA, DE LOS TRES LADOS ──────────────────────
+       Lo pidió la dueña: el sistema de pagos todavía no se usa al 100% y ese número no siempre
+       refleja lo real, así que mandárselo al cliente es mandarle algo que puede estar mal. Queda
+       el TOTAL DEL MES, que sí es exacto. El saldo sigue existiendo adentro del panel, en su
+       propia pantalla, que es donde sirve para cobrar.
+       `saldoAlCierre` se sigue calculando: el día que se vuelva a mostrar tiene que ser el del
+       cierre y no el de hoy, que es lo que arreglaba el corte de arriba. */
     const h = FUENTE_PANEL();
-    check('factura: la pantalla dice "al cierre de", no "Saldo" a secas',
-      /Saldo al cierre de/.test(h) && /r\.saldoAlCierre/.test(h));
-    check('factura: y sigue mostrando lo que debe HOY, con otro nombre',
-      /Hoy debe/.test(h), 'para cobrar sirve, pero es otra pregunta');
-    /* Y en el TEXTO que se copia y se manda, lo mismo: ahí iba el saldo de hoy. */
-    check('factura: el texto que se manda también cierra con el saldo del mes',
-      /Saldo al cierre de \$\{esc\(f\.mesNombre\)\}/.test(svc) && !/Saldo de la cuenta/.test(svc));
+    const htmlLink = fs.readFileSync(path.join(ROOT, 'src', 'factura-html.js'), 'utf8');
+    check('factura: el saldo NO sale en la pantalla',
+      !/Saldo al cierre de/.test(h) && !/Hoy debe/.test(h));
+    check('factura: ni en el link que ve el cliente',
+      !/<h2>Tu cuenta<\/h2>/.test(htmlLink) && !/class="saldo"/.test(htmlLink));
+    check('factura: ni en el texto que se manda por Telegram',
+      !/Saldo al cierre de/.test(svc));
+    /* Lo que sí queda arriba de todo: cuánto debe y de qué. */
+    check('factura: y arranca con el resumen — cargas, proveedores, total',
+      /Proveedores externos', exx/.test(h) && /Total del mes', tot, true/.test(h)
+      && /it\('Total del mes', f\.totalMes_usdt, true\)/.test(htmlLink));
     /* ── UN PAGO ASIGNADO A UN CIERRE SE VALÚA CON EL TC DE ESE CIERRE ───────────────────────────
      `valuacion` miraba el mes de la FECHA. Un pago del 3 de septiembre asignado al cierre de
      agosto se valuaba con el promedio de septiembre, y pasaban dos cosas: dos pagos idénticos de
@@ -6274,8 +6285,12 @@ async function main() {
        "regenerada 3 veces", "salió por impresa", "Hoy debe 18.771,52", de dónde salió el detalle:
        sirven para trabajar y no tienen por qué llegarle al cliente. Se SACAN del documento al
        imprimir, no se ocultan con CSS: escondido, cualquiera que abra el PDF igual lo lee. */
+    /* Eran 5 marcas; quedaron 3 (más el comentario y el `remove`) porque «Hoy debe» se fue con el
+       bloque del saldo el 7-sep-2026. Las que quedan son «detalle: …» y la ficha de la factura
+       guardada, que son las que de verdad no pueden salir en el papel. */
     check('factura: lo interno va marcado como solo-yo',
-      (h.match(/solo-yo/g) || []).length >= 5);
+      (h.match(/solo-yo/g) || []).length >= 3
+      && /class="muted solo-yo">detalle:/.test(h) && /class="card solo-yo"/.test(h));
     check('factura: al imprimir se saca del documento, no se esconde',
       /cloneNode\(true\)/.test(h) && /querySelectorAll\('\.solo-yo'\)\.forEach\(\(el\) => el\.remove\(\)\)/.test(h),
       'ocultarlo con CSS lo deja legible en el código del PDF');

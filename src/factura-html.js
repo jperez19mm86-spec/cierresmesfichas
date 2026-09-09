@@ -63,19 +63,35 @@ function pagina({ factura: f, actualizado_at, token }) {
   // lleva su moneda y su tipo de cambio, porque el TC es uno por moneda y sin él el USDT no se
   // puede verificar contra nada.
   let extTablas = '';
-  const filaProv = (i) => `<tr><td>${esc(i.proveedor)}</td><td class="r">${i.profit ? $(i.profit) : '—'}</td>`
+  const filaProv = (i) => `<tr><td>${esc(i.proveedor)}</td><td class="m">${esc(i.divisa || '—')}</td>`
+    + `<td class="r">${i.profit ? $(i.profit) : '—'}</td>`
     + `<td class="r"><b>${esc(i.excedente)}%</b></td>`
     + `<td class="r">${i.monto ? $(i.monto) : '—'}</td><td class="r">${$(i.usdt)}</td></tr>`;
-  const cabezaProv = '<thead><tr><th>Proveedor</th><th class="r">Ganancia</th><th class="r">Excedente</th><th class="r">A cobrar</th><th class="r">USDT</th></tr></thead>';
+  const cabezaProv = '<thead><tr><th>Proveedor</th><th>Divisa</th><th class="r">Ganancia</th><th class="r">Excedente</th><th class="r">A cobrar</th><th class="r">USDT</th></tr></thead>';
 
   if (ext && ext.porPanel && ext.porPanel.length) {
-    extTablas = ext.porPanel.map((p) => `<h3>${esc(p.panel)} <span class="m">(${esc(p.divisa)})`
-      + `${p.tc ? ` · tipo de cambio ${$(p.tc)}` : ' · sin tipo de cambio cargado'}`
-      + ` · ${p.items.length} proveedor(es)</span></h3>
+    /* UN bloque por PANEL, no uno por panel+moneda. El motor los corta por las dos cosas, así que
+       un panel que movió en dos monedas salía dos veces —`Ahora463.com` en ARS y otra vez en UYU—
+       separados por media pantalla, como si fueran dos cuentas. Se juntan y la moneda pasa a ser
+       una COLUMNA: los USDT de las dos filas sí se suman, que es lo que hay que ver. */
+    const juntos = {};
+    ext.porPanel.forEach((p) => {
+      const g = juntos[p.panel] || (juntos[p.panel] = { panel: p.panel, items: [], usdt: '0', tcs: [] });
+      (p.items || []).forEach((i) => g.items.push({ ...i, divisa: i.divisa || p.divisa }));
+      g.usdt = money.add(g.usdt, String(p.usdt || 0));
+      if (p.tc) g.tcs.push(`${esc(p.divisa)} ${$(p.tc)}`);
+    });
+    extTablas = Object.values(juntos)
+      .sort((a, b) => Number(b.usdt) - Number(a.usdt))
+      .map((g) => {
+        const items = g.items.slice().sort((a, b) => Number(b.usdt) - Number(a.usdt));
+        return `<h3>${esc(g.panel)} <span class="m">· ${items.length} proveedor(es)`
+          + `${g.tcs.length ? ` · tipo de cambio ${g.tcs.join(' · ')}` : ' · sin tipo de cambio cargado'}</span></h3>
        <div class="scroll"><table>${cabezaProv}
-        <tbody>${p.items.map(filaProv).join('')}</tbody>
-        <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(p.panel)}</td><td class="r"><b>${$(p.usdt)}</b></td></tr></tfoot>
-       </table></div>`).join('');
+        <tbody>${items.map(filaProv).join('')}</tbody>
+        <tfoot><tr><td colspan="5" class="r m">Subtotal ${esc(g.panel)}</td><td class="r"><b>${$(g.usdt)}</b></td></tr></tfoot>
+       </table></div>`;
+      }).join('');
   } else if (ext && ext.items && ext.items.length) {
     // Los links que ya se mandaron guardan la foto vieja, sin panel ni ganancia. Se muestra lo que
     // haya para que ese link siga abriendo, en vez de quedar en blanco.
@@ -96,18 +112,14 @@ function pagina({ factura: f, actualizado_at, token }) {
       return `<h3>${esc(div)} <span class="m">${tc.tc ? `· tipo de cambio ${$(tc.tc)}` : ''}</span></h3>
        <div class="scroll"><table>${cabezaProv}
         <tbody>${its.map(filaProv).join('')}</tbody>
-        <tfoot><tr><td colspan="4" class="r m">Subtotal ${esc(div)}</td><td class="r"><b>${$(sub)}</b></td></tr></tfoot>
+        <tfoot><tr><td colspan="5" class="r m">Subtotal ${esc(div)}</td><td class="r"><b>${$(sub)}</b></td></tr></tfoot>
        </table></div>`;
     }).join('');
   }
 
   // Resumen arriba del desglose: cuánto puso cada panel. Con varios paneles, es lo primero que se
   // quiere ver; el detalle de proveedores viene abajo.
-  const extResumen = (ext && ext.porPanel && ext.porPanel.length > 1)
-    ? `<table><thead><tr><th>Panel</th><th>Moneda</th><th class="r">Proveedores</th><th class="r">USDT</th></tr></thead><tbody>
-       ${ext.porPanel.map((p) => `<tr><td>${esc(p.panel)}</td><td>${esc(p.divisa)}</td><td class="r">${p.items.length}</td><td class="r">${$(p.usdt)}</td></tr>`).join('')}
-       </tbody></table><h3 style="margin-top:18px">Detalle por panel</h3>`
-    : '';
+  const extResumen = '';   // los bloques ya son uno por panel: el resumen repetía la misma lista
 
   const extHtml = extTablas
     ? `<div class="card"><h2>Proveedores externos</h2>
@@ -119,12 +131,6 @@ function pagina({ factura: f, actualizado_at, token }) {
         <p class="m" style="margin-top:8px">Los importes se redondean a dos decimales. Si dividís una fila por el tipo de cambio,
         el resultado puede diferir en algún centavo; los totales son los que valen.</p></div>`
     : '';
-
-  const pagos = (f.pagosDelMes || []).length
-    ? `<table><thead><tr><th>Fecha</th><th>Por dónde</th><th class="r">USDT</th></tr></thead><tbody>
-       ${f.pagosDelMes.map((p) => `<tr><td>${esc(p.fecha)}</td><td>${esc(p.medio || '—')}</td><td class="r">${$(p.usdt)}</td></tr>`).join('')}
-       </tbody></table>`
-    : '<p class="m">Sin pagos registrados en el mes.</p>';
 
   return `<!DOCTYPE html>
 <html lang="es"><head>
@@ -175,6 +181,25 @@ function pagina({ factura: f, actualizado_at, token }) {
    <button type="button" onclick="window.print()">🖨 Guardar como PDF</button>
   </div>` : ''}
 
+ ${(() => {
+   /* EL RESUMEN, ARRIBA DE TODO. Lo primero que quiere saber el cliente es cuánto debe y de qué:
+      tanto de cargas, tanto de proveedores, tanto en total. Estaba desparramado —la comisión
+      adentro del bloque de cargas, los externos veinte tablas más abajo y el total al final—. */
+   const car = Number((f.consumo && f.consumo.total_usdt) || 0);
+   const exx = Number((f.externos && f.externos.total_usdt) || 0);
+   if (!car && !exx) return '';
+   const it = (t, v, g) => `<div style="flex:1 1 150px"><div class="m" style="text-transform:uppercase;letter-spacing:.04em">${t}</div>`
+     + `<div style="font-size:${g ? '28px' : '21px'};font-weight:800${g ? ';color:var(--g)' : ''}">${$(v)}</div>`
+     + '<div class="m">USDT</div></div>';
+   return `<div class="card"><div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">`
+     + (car ? it('Cargas del mes', car) : '')
+     + (exx ? it('Proveedores externos', exx) : '')
+     + it('Total del mes', f.totalMes_usdt, true)
+     + '</div>'
+     + (f.totalMes_local ? `<div class="m" style="margin-top:6px">${f.totalMes_local.aproximado ? '≈ ' : ''}${$(f.totalMes_local.monto)} ${esc(f.totalMes_local.divisa)}</div>` : '')
+     + '</div>';
+ })()}
+
  ${f.consumo ? `<div class="card"><h2>Cargas del mes</h2>
    <p class="m">${f.consumo.pedidos} carga(s) en el mes. Cada moneda se pasa a USDT con el tipo de cambio del período.</p>
    <table><tbody>${filaDiv}</tbody></table>
@@ -194,17 +219,10 @@ function pagina({ factura: f, actualizado_at, token }) {
 
  <div class="card big"><h2>Total del mes</h2><div class="n">${$(f.totalMes_usdt)} USDT</div>${f.totalMes_local ? `<div class="n2">${f.totalMes_local.aproximado ? '≈ ' : ''}${$(f.totalMes_local.monto)} ${esc(f.totalMes_local.divisa)}</div>` : ''}</div>
 
- <div class="card"><h2>Tu cuenta</h2>
-  <table><tbody>
-   <tr><td>Cargas pendientes</td><td class="r">${$(f.cuenta.consumo_pendiente)}</td></tr>
-   <tr><td>Proveedores pendientes</td><td class="r">${$(f.cuenta.externos_pendiente)}</td></tr>
-   <tr><td>Pagos registrados</td><td class="r">− ${$(f.cuenta.pagos)}</td></tr>
-  </tbody></table>
-  <p class="tot">Saldo: <span class="saldo">${$(f.cuenta.saldo)} USDT</span></p>
-  ${Number(f.cuenta.esperandoTC || 0) > 0 ? '<p class="m">Incluye pagos en pesos que se ajustan cuando se cierra el tipo de cambio del mes.</p>' : ''}
-  ${Number(f.cuenta.sinValuar || 0) > 0 ? `<p class="m" style="color:#b3261e"><b>${f.cuenta.sinValuar} pago(s) todavía sin convertir</b>: no están descontados de este saldo.</p>` : ''}
-  <h3>Pagos del mes</h3>${pagos}
- </div>
+ <!-- El bloque «Tu cuenta» (saldo y pagos del mes) salió de la factura el 7-sep-2026 a pedido de
+      la dueña: el sistema de pagos todavía no se usa al 100% y ese saldo no siempre refleja lo
+      real. Mandarle al cliente un saldo que puede estar mal es peor que no mandarle ninguno; el
+      TOTAL DEL MES sí es exacto y es lo que queda. El saldo sigue existiendo adentro del panel. -->
 
  ${detalle ? `<div class="card"><h2>Detalle de las cargas</h2>
    <p class="m">Todas las cargas del mes, agrupadas por panel y en orden de fecha.</p>

@@ -2235,27 +2235,41 @@ async function verFactura(clienteId, conCruce) {
     ? ('<div class="card" style="margin:8px 0"><b>Proveedores externos</b>'
        + (ex.incompleto ? '<div class="muted" style="color:var(--red)">⚠ el reporte del casino quedó incompleto</div>' : '')
        // por PANEL, igual que las cargas: cada bloque con su moneda, su TC y su subtotal
+       /* UN bloque por PANEL, no uno por panel+moneda. El motor los entrega cortados por las dos
+          cosas, así que `Ahora463.com` salía dos veces —una en ARS y otra en UYU— separadas por
+          media pantalla, como si fueran dos cuentas distintas. Se juntan y la moneda pasa a ser
+          una COLUMNA: los USDT de las dos filas sí se suman, que es lo que hay que ver. */
        + (ex.porPanel && ex.porPanel.length
-          ? ex.porPanel.map(p =>
-              '<div style="margin-top:8px;font-size:12px;color:var(--gold)"><b>' + esc(p.panel) + '</b>'
-              + '<span class="muted"> (' + esc(p.divisa) + ')' + (p.tc ? ' · TC ' + money(p.tc,2) : ' · sin TC cargado')
-              + ' · ' + p.items.length + ' proveedor(es)</span></div>'
-              + '<table style="margin-top:4px"><thead><tr><th>Proveedor</th><th class="right">Ganancia</th><th class="right">Excedente</th><th class="right">A cobrar</th><th class="right">USDT</th></tr></thead><tbody>'
-              + p.items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + money(i.profit,2) + '</td>'
-                  + '<td class="right"><b>' + esc(i.excedente) + '%</b></td>'
-                  + '<td class="right">' + money(i.monto,2) + '</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
-              + '<tr><td colspan="4" class="right muted">Subtotal ' + esc(p.panel) + '</td><td class="right"><b>' + money(p.usdt,2) + '</b></td></tr>'
-              + '</tbody></table>').join('')
+          ? (() => {
+              const porPanel = {};
+              ex.porPanel.forEach(p => {
+                const g = porPanel[p.panel] || (porPanel[p.panel] = { panel:p.panel, items:[], usdt:0, tcs:[] });
+                (p.items||[]).forEach(i => g.items.push({ ...i, divisa: i.divisa || p.divisa }));
+                g.usdt += Number(p.usdt||0);
+                if (p.tc) g.tcs.push(esc(p.divisa) + ' ' + money(p.tc,2));
+              });
+              return Object.values(porPanel)
+                .sort((a,b) => b.usdt - a.usdt)
+                .map(g => {
+                  const items = g.items.slice().sort((a,b) => Number(b.usdt) - Number(a.usdt));
+                  return '<div style="margin-top:8px;font-size:12px;color:var(--gold)"><b>' + esc(g.panel) + '</b>'
+                    + '<span class="muted"> · ' + items.length + ' proveedor(es)'
+                    + (g.tcs.length ? ' · TC ' + g.tcs.join(' · ') : ' · sin TC cargado') + '</span></div>'
+                    + '<table style="margin-top:4px"><thead><tr><th>Proveedor</th><th>Divisa</th><th class="right">Ganancia</th><th class="right">Excedente</th><th class="right">A cobrar</th><th class="right">USDT</th></tr></thead><tbody>'
+                    + items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="muted">' + esc(i.divisa||'—') + '</td>'
+                        + '<td class="right">' + money(i.profit,2) + '</td>'
+                        + '<td class="right"><b>' + esc(i.excedente) + '%</b></td>'
+                        + '<td class="right">' + money(i.monto,2) + '</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
+                    + '<tr><td colspan="5" class="right muted">Subtotal ' + esc(g.panel) + '</td><td class="right"><b>' + money(g.usdt,2) + '</b></td></tr>'
+                    + '</tbody></table>';
+                }).join('');
+            })()
           : '<table style="margin-top:6px"><thead><tr><th>Proveedor</th><th class="right">Excedente</th><th class="right">USDT</th></tr></thead><tbody>'
             + ex.items.map(i => '<tr><td>' + esc(i.proveedor) + '</td><td class="right">' + esc(i.excedente != null ? i.excedente : i.dif) + '%</td><td class="right">' + money(i.usdt,2) + '</td></tr>').join('')
             + '</tbody></table>')
        + '<div style="margin-top:6px">Total → <b style="color:var(--gold)">' + $(ex.total_usdt) + ' USDT</b></div></div>')
     : (ex && ex.faltaBase ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: falta confirmar su % de ese mes.</span></div>'
        : (ex && ex.error ? '<div class="card" style="margin:8px 0"><span class="muted">Proveedores externos: ' + esc(ex.error) + '</span></div>' : ''));
-  const pagos = (r.pagosDelMes||[]).length
-    ? ('<table style="margin-top:6px"><thead><tr><th>Fecha</th><th>Por dónde</th><th class="right">USDT</th></tr></thead><tbody>'
-       + r.pagosDelMes.map(p => '<tr><td>' + esc(p.fecha) + '</td><td>' + esc(p.medio||'—') + '</td><td class="right">' + money(p.usdt,2) + '</td></tr>').join('') + '</tbody></table>')
-    : '<div class="muted" style="margin-top:4px">Sin pagos registrados este mes.</div>';
   // Por panel + carga por carga: es lo que hace que el cliente pueda AUDITAR la factura en vez
   // de tener que creernos el total.
   const porPanel = (r.porPanel||[]).length
@@ -2325,41 +2339,42 @@ async function verFactura(clienteId, conCruce) {
           + (r.guardada.salio_at ? ' · salió por ' + esc(r.guardada.salio_como) + ' el ' + esc(String(r.guardada.salio_at).slice(0,10)) : ' · todavía no se envió')
           + '. Son los números que se le mandaron, no se recalculan.</span></div>'
         : '')
+    /* ── EL RESUMEN, ARRIBA DE TODO ───────────────────────────────────────────────────────────
+       Al abrir un cliente lo primero que se quiere saber es «cuánto debe y de qué»: tantos de
+       cargas, tantos de proveedores, tanto en total. Eso estaba desparramado —la comisión adentro
+       del bloque de cargas, los externos veinte tablas más abajo y el total al final— así que
+       había que scrollear tres pantallas para armarlo de cabeza. */
+    + (() => {
+        const car = Number(r.consumo ? r.consumo.total_usdt : 0);
+        const exx = Number((r.externos && r.externos.total_usdt) || 0);
+        if (!car && !exx) return '';
+        const tot = Number(r.totalMes_usdt);
+        const item = (t, v, c) => '<div style="flex:1 1 140px"><div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">'
+          + t + '</div><div style="font-size:' + (c ? '26px' : '20px') + ';font-weight:800'
+          + (c ? ';color:var(--gold)' : '') + '">' + $(v) + '</div><div class="muted" style="font-size:11px">USDT</div></div>';
+        return '<div class="card" style="margin:8px 0;background:var(--bg3)">'
+          + '<div class="row" style="align-items:flex-end;gap:18px">'
+          + (car ? item('Cargas del mes', car) : '')
+          + (exx ? item('Proveedores externos', exx) : '')
+          + item('Total del mes', tot, true)
+          + '</div>'
+          + (r.totalMes_local ? '<div class="muted" style="margin-top:4px">' + (r.totalMes_local.aproximado?'≈ ':'') + $(r.totalMes_local.monto) + ' ' + esc(r.totalMes_local.divisa) + '</div>' : '')
+          + '</div>';
+      })()
     + cons + porPanel + det + cruceHtml + extHtml
     + '<div class="card" style="margin:8px 0;background:var(--bg3)"><b>TOTAL DEL MES: ' + $(r.totalMes_usdt) + ' USDT</b>'
     + (r.totalMes_local ? '<div style="margin-top:2px;font-weight:700;color:var(--muted)">' + (r.totalMes_local.aproximado?'≈ ':'') + $(r.totalMes_local.monto) + ' ' + esc(r.totalMes_local.divisa) + '</div>' : '')
     + '</div>'
-    + '<div class="card" style="margin:8px 0"><b>Cuenta corriente</b>'
-    /* El saldo NO es el total del mes, y presentarlos pegados sin explicar de qué está hecho cada
-       uno hace que parezca un error. Se desarma por mes: así se ve que incluye los meses
-       siguientes, y que los externos entran recién cuando se emite esa factura. */
-    + ((r.saldoDesglose||[]).length
-        ? '<table style="margin-top:6px"><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Pagos</th></tr></thead><tbody>'
-          + r.saldoDesglose.map(x=>'<tr'+(x.esteMes?' style="background:var(--bg3)"':(x.posterior?' class="solo-yo" style="opacity:.55"':''))+'><td>'+esc(x.mes)
-            +(x.esteMes?' <span class="muted">(este mes)</span>':(x.posterior?' <span class="muted">(posterior · no entra en esta factura)</span>':''))+'</td>'
-            + '<td class="right">'+(Number(x.consumo)?money(x.consumo,2):'<span class="muted">—</span>')+'</td>'
-            + '<td class="right">'+(Number(x.externos)?money(x.externos,2):'<span class="muted">—</span>')+'</td>'
-            + '<td class="right">'+(Number(x.otros)?money(x.otros,2):'<span class="muted">—</span>')+'</td>'
-            + '<td class="right" style="color:var(--green)">'+(Number(x.pagos)?money(x.pagos,2):'<span class="muted">—</span>')+'</td></tr>').join('')
-          + '</tbody></table>'
-        : '<div class="muted" style="margin-top:4px">Consumo pendiente ' + $(r.cuenta.consumo_pendiente) + ' · Externos ' + $(r.cuenta.externos_pendiente) + ' · Pagado ' + $(r.cuenta.pagos) + '</div>')
-    + (Number(r.cuenta.externos_pendiente)===0 && r.externos && Number(r.externos.total_usdt||0)>0
-        ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⚠ Los ' + $(r.externos.total_usdt) + ' USDT de proveedores externos de este mes <b>todavía no están en el saldo</b>: esa factura se emite aparte, desde 🧮 Cierre de Mes.</div>'
-        : '')
-    /* El saldo de la factura es el del CIERRE del mes. Antes se ponía el de hoy, que ya arrastraba
-       lo del mes siguiente: el cliente recibía un número imposible de reconciliar con la factura.
-       El de hoy sigue estando, abajo y en chico, porque para cobrar sirve. */
-    + '<div style="font-size:20px;font-weight:800;margin-top:4px">Saldo al cierre de ' + esc(r.mesNombre) + ': '
-    +   $(r.saldoAlCierre != null ? r.saldoAlCierre : r.cuenta.saldo) + ' USDT</div>'
-    + (r.saldoAlCierre != null && String(r.saldoAlCierre) !== String(r.cuenta.saldo)
-        ? '<div class="muted solo-yo" style="margin-top:2px">Hoy debe <b>' + $(r.cuenta.saldo) + ' USDT</b>: '
-          + 'lo de después de ' + esc(r.mesNombre) + ' no entra en esta factura.</div>' : '')
-    // Un saldo que todavía se mueve se dice que se mueve. Presentarlo como cerrado es peor que
-    // no darlo: se manda, el cliente lo anota, y al cerrar el mes no coincide.
-    + (Number(r.cuenta.esperandoTC||0) ? '<div class="muted" style="margin-top:4px;color:var(--gold)">⏳ ' + r.cuenta.esperandoTC + ' pago(s) contados con el promedio del mes — se ajustan al cargar el TC del cierre</div>' : '')
-    + (Number(r.cuenta.sinValuar||0) ? '<div class="muted" style="margin-top:4px;color:var(--red)">⚠ ' + r.cuenta.sinValuar + ' pago(s) NO entran en este saldo: ese mes no tiene ningún tipo de cambio cargado</div>' : '')
-    + pagos
-    + '</div></div>'
+    /* ── LA CUENTA CORRIENTE SALIÓ DE LA FACTURA (7-sep-2026) ─────────────────────────────
+       Acá iba el desglose del saldo por mes y el «Saldo al cierre». Se sacó a pedido de la
+       dueña: el sistema de pagos todavía no se usa al 100% y ese saldo no siempre refleja lo
+       real, así que ponerlo en la factura es mostrarle al cliente un número que puede estar
+       mal. La factura queda con el TOTAL DEL MES, que sí es exacto.
+       El saldo sigue existiendo en la cuenta del cliente (💳 Cuenta corriente); lo que se
+       quitó es que salga en el papel. Volver a ponerlo es descomentar esto del historial. */
+    /* Cierra #fac-doc: los botones NO van adentro. `facturaImprimir` clona ese nodo para armar el
+       PDF, así que un botón adentro termina impreso en el papel del cliente. */
+    + '</div>'
     + '<div class="row" style="margin-top:10px">'
     + '<button onclick="facturaCopiar()">📋 Copiar para mandar</button>'
     + '<button class="outline" onclick="facturaImprimir()">🖨 Imprimir / PDF</button>'
