@@ -257,6 +257,13 @@ function mount(app) {
            grilla ninguna —no tiene— pero manda el CUPÓN en `info`: qué partido, qué evento, a qué
            cuota, en vivo o no y con qué resultado. Eso es lo que responde «¿por qué se le pagó
            eso?» para deportes, igual que la matriz lo responde para un slot. */
+        /* 🔴 UNA RONDA DEVUELTA NO ES UNA RONDA PERDIDA. El casino en vivo (Jacktop) manda un
+           campo `refund` que ningún otro sello trae. Medido el 8-sep-2026 sobre cuatro ruletas.
+           Si dice que sí, «apostó 100 · ganó 0» NO significa que el jugador perdió 100: la mesa
+           anuló la ronda y la plata volvió. Sin decirlo, un cajero lee una pérdida que no pasó.
+           Se pasa tal cual; la pantalla lo aclara y no toca los números, que son los del motor. */
+        devuelta: (f.refund != null && !/^(no|0|false|)$/i.test(String(f.refund).trim()))
+          ? String(f.refund) : null,
         apuestas: (() => {
           const i = comoJson(f.info);
           return Array.isArray(i) && i.length && i[0] && i[0].GameName ? i : null;

@@ -727,6 +727,20 @@ check('sin grilla no se marca nada, en vez de romper',
   L.celdasGanadoras(MUESTRAS.ruby.lineas, null).size === 0
   && L.celdasGanadoras(null, MUESTRAS.ruby.matriz).size === 0);
 
+/* 🔴 UNA RONDA DEVUELTA NO ES UNA RONDA PERDIDA. El casino en vivo (Jacktop) manda `refund`, que
+   ningún otro sello trae. Medido el 8-sep-2026 sobre cuatro ruletas: sin mirarlo, «apostó 100 ·
+   ganó 0» se lee como una pérdida de 100 aunque la mesa haya anulado la ronda. */
+{
+  const rutas = require('fs').readFileSync(__dirname + '/../src/caja/caja.routes.js', 'utf8');
+  check('una ronda devuelta se pasa a la pantalla',
+    /devuelta: \(f\.refund != null && !\/\^\(no\|0\|false\|\)\$\/i\.test/.test(rutas));
+  check('y «no» no cuenta como devuelta',
+    /\^\(no\|0\|false\|\)\$/.test(rutas));
+  check('la pantalla lo dice sin tocar los números del casino',
+    /El casino marcó esta ronda como/.test(htmlCaja)
+    && /El neto de arriba es el que/.test(htmlCaja));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {
