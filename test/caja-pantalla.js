@@ -1131,6 +1131,19 @@ check('sin grilla no se marca nada, en vez de romper',
     && /Referrer-Policy/.test(idx));
 }
 
+/* ── 21 · el día no puede quedar congelado en la app real ───────────────────────────────────────
+   🔴 `HOY` estaba clavado en agosto y sólo lo corregía el conector; si éste no corría, todos los
+   períodos consultaban un mes viejo y el historial salía vacío sin aviso. Reportado el 10-sep-2026:
+   sólo andaba «Otro rango». El default pasó a ser el reloj real. */
+{
+  check('el día por defecto es el reloj real, no una fecha escrita a mano',
+    /let HOY = location\.search\.includes\('maqueta'\)/.test(htmlCaja)
+    && /: new Date\(\);/.test(htmlCaja));
+  check('la fecha congelada queda sólo para la maqueta, detrás de ?maqueta',
+    /new Date\('2026-08-25/.test(htmlCaja)
+    && /maqueta'\) \? new Date\('2026-08-25/.test(htmlCaja));
+}
+
 const fallaron = verificaciones.filter((v) => !v.ok);
 console.log(`\n${verificaciones.length - fallaron.length}/${verificaciones.length} verificaciones pasaron`);
 if (fallaron.length) {

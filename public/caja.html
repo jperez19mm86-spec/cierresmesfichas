@@ -2396,7 +2396,15 @@ let PER_MOV = 'hoy';
    conectada la pisa `caja-conexion.js` con el reloj de verdad — por eso es `let` y no `const`:
    con `const` el panel real pediría siempre las fechas de la maqueta y se comería los días
    posteriores sin avisar. */
-let HOY = new Date('2026-08-25T12:00:00');
+/* 🔴 ESTE «HOY» CONGELADO ERA UNA TRAMPA SILENCIOSA. Estaba clavado en agosto para que los
+   ejemplos de la maqueta cayeran en «este mes», y en la app de verdad lo pisaba el conector con
+   `HOY = new Date()`. Pero si el conector no corría —una pestaña abierta desde antes de un
+   despliegue, una versión cacheada— TODOS los períodos («hoy», «esta semana», «este mes»…) se
+   calculaban contra agosto y el historial salía vacío, sin un solo aviso. Reportado el 10-sep-2026:
+   sólo andaba «Otro rango», que escribe la fecha a mano y no pasa por `HOY`.
+   Ahora el default ES el reloj real, así que un fallo del conector ya no deja el panel mirando un
+   mes viejo. La maqueta congela el día sólo si se la abre con `?maqueta`. */
+let HOY = location.search.includes('maqueta') ? new Date('2026-08-25T12:00:00') : new Date();
 const dosD = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${dosD(d.getMonth()+1)}-${dosD(d.getDate())}`;
 const sumarDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
