@@ -736,6 +736,27 @@ check('las líneas se leen vengan como lista o como objeto indexado',
   L.normalizarLineas(MUESTRAS.ruby.lineas).length === 1
   && L.normalizarLineas(MUESTRAS.ains.lineas).length === 1,
   `${L.normalizarLineas(MUESTRAS.ains.lineas).length} de AINSWORTH`);
+
+/* 🔴 EL DESGLOSE VENÍA EN OTRA UNIDAD QUE EL PREMIO. Medusa Money (RUBYPLAY XG), 10-sep-2026: la
+   ronda ganó 3,50 y las líneas decían 150 y 200 —suman 350, cien veces de más—. El monto de línea
+   es la unidad interna del proveedor; el `win` de la ronda es la plata que movió el saldo. El
+   desglose se lleva a esa escala: cada línea pasa a su parte del premio real. */
+{
+  const escalar = (lineas, win) => L.escalarLineasAlPago(lineas, win);
+  const xg = escalar([{ pago: 150 }, { pago: 200 }], 3.5).map((l) => l.pago);
+  check('las líneas se llevan a la plata real de la ronda',
+    xg[0] === 1.5 && xg[1] === 2 && Math.round((xg[0] + xg[1]) * 100) / 100 === 3.5,
+    `${xg.join(' + ')} = ${xg[0] + xg[1]}`);
+  /* Si el proveedor ya reporta en plata (SL, EGT: las líneas suman el win), no se toca. */
+  check('lo que ya viene en plata se deja como está',
+    L.escalarLineasAlPago([{ pago: 5 }], 5)[0].pago === 5);
+  check('sin premio o sin monto no se inventa una escala',
+    L.escalarLineasAlPago([{ pago: 150 }], 0)[0].pago === 150
+    && L.escalarLineasAlPago([], 3.5).length === 0);
+  /* La cabecera manda: el `fmt(l.pago)` del dibujo usa la línea YA escalada. */
+  check('el dibujo de la matriz escala antes de mostrar',
+    /escalarLineasAlPago\(normalizarLineas\(j\.lineas\), j\.win\)/.test(htmlCaja));
+}
 check('y con nombres cortos o largos dan lo mismo',
   (() => { const a = L.normalizarLineas(MUESTRAS.oaks.lineas)[0];
     return a.simbolo === '12' && a.cuantos === 3 && a.pago === 60 && a.celdas.length === 3; })());

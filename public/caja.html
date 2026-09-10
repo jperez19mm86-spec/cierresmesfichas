@@ -3662,7 +3662,10 @@ function dibujarApuesta(j){
 }
 
 function dibujarMatriz(j){
-  const lineas = normalizarLineas(j.lineas);
+  /* 🔑 El desglose de líneas viene en la unidad interna del proveedor (RUBYPLAY las manda ×100);
+     se lo lleva a la plata real de la ronda —`j.win`, la que movió el saldo— para que sume lo que
+     de verdad ganó. Ver `escalarLineasAlPago`. */
+  const lineas = escalarLineasAlPago(normalizarLineas(j.lineas), j.win);
   const marcadas = celdasGanadoras(lineas, j.matriz);
   const resumen = lineas.map(l => `<div class="linea-gana">
       <b>Símbolo ${l.simbolo}</b>${l.cuantos ? ` × ${l.cuantos}` : ''}${

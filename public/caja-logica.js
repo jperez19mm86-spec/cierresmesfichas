@@ -168,6 +168,26 @@ function normalizarLineas(w) {
   }));
 }
 
+/* 🔴 LAS LÍNEAS VIENEN EN OTRA UNIDAD QUE EL PREMIO. Medido el 10-sep-2026 sobre Medusa Money
+   (RUBYPLAY XG): la ronda ganó 3,50 y las dos líneas ganadoras decían 150 y 200 —suman 350, cien
+   veces de más—. No es la denominación de un juego suelto: el proveedor reporta el monto de cada
+   línea en su unidad interna (créditos), mientras que el `bet`/`win` de la ronda ya viene en la
+   plata que movió el saldo. Y no siempre es ×100: cambia por proveedor y por juego.
+   Lo único seguro es el `win` de la ronda —ése movió el saldo, se ve en la cabecera—. Así que el
+   desglose se lleva a esa misma escala: cada línea pasa a su parte del premio real. Si el
+   proveedor ya reporta en plata (SL, EGT: las líneas suman el win), el factor es 1 y no se toca
+   nada. Es a prueba de proveedor: se corrige solo, sin una tabla de casos por juego. */
+function escalarLineasAlPago(lineas, winRonda) {
+  const suma = (lineas || []).reduce((a, l) => a + (Number(l && l.pago) || 0), 0);
+  const w = Number(winRonda) || 0;
+  /* Sin líneas con monto, o sin premio, no hay contra qué escalar: se deja como vino. */
+  if (suma <= 0 || w <= 0) return lineas || [];
+  /* Ya están en la misma plata: no se toca, para no meter micro-diferencias de redondeo. */
+  if (Math.abs(suma - w) <= 0.01) return lineas;
+  const factor = w / suma;
+  return lineas.map((l) => ({ ...l, pago: Math.round((Number(l.pago) || 0) * factor * 100) / 100 }));
+}
+
 /* 🔴 SÓLO SE PINTA LO QUE SE PUEDE PROBAR. Las coordenadas vienen en cuatro formas —[columna,fila]
    o [fila,columna], empezando en 0 o en 1— y ni siquiera son iguales dentro del mismo proveedor:
    un RUBYPLAY medido el 4-sep venía en base 1 y otro el 8-sep en base 0. Adivinar mal significa
@@ -277,7 +297,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     aNumero, limpiarTextoLogin, mismoNombre, crucesEnRango, eliminadasDeLaLista,
     desplazarHastaElegido, celdasGanadoras, esCeldaGanadora,
-    simboloDeCelda, multiplicadorDeCelda, normalizarLineas,
+    simboloDeCelda, multiplicadorDeCelda, normalizarLineas, escalarLineasAlPago,
     MENU_POR_NIVEL, seccionesDe, puedeVerNumeros, nivelDeGrupo, seccionNegadaPor,
   };
 }
