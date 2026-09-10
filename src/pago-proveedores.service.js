@@ -32,6 +32,7 @@ const externosSvc = require('./externos.service');
 const estadMes = require('./estadisticas-mes.service');
 const tcUnico = require('./tc-unico.service');
 const ganCache = require('./ganancias-cache');
+const apiStore = require('./api-store');
 const money = require('./lib/money');
 
 const K = (s) => String(s || '').trim().toLowerCase();
@@ -147,6 +148,30 @@ const TBS_SUELTOS = {
 const norm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 /**
+ * ── LA MATRIZ DE SELLOS YA SABE QUÉ ES CADA GRUPO DE TBS ──────────────────────────────────────
+ *
+ * Los 51 grupos que TBS expone en su desplegable son los mismos 51 sellos con los que se le
+ * factura a los clientes de API, y cada sello ya tiene su `grupo_id`, su costo y —en el nombre—
+ * qué proveedores lleva adentro: el 56 es «GALAXSYS, ONETOUCH, 3OAKS OP» al 8,5%.
+ *
+ * Había DOS mapeos para lo mismo: éste, completo, y el de acá abajo, que lo rearmaba por su cuenta
+ * contra la matriz de proveedores externos. Donde el segundo acertaba, coincidía con el primero al
+ * decimal; donde no, el grupo quedaba SIN PRECIO y su plata afuera del total. En agosto-2026 eran
+ * seis grupos: `ig` (Novomatic), `srent` (Spribe SR), `mrk` (Merkur), `op_slot` (PGSoft OP),
+ * `royal` (Absolute Live) y `fire` (Firekirin) — y los seis estaban en la matriz desde siempre.
+ *
+ * Se usa de RESPALDO y no como fuente principal a propósito: el mapeo de abajo se verificó contra
+ * la planilla del dueño de junio grupo por grupo, y cambiarlo entero movería números que hoy
+ * cuadran. Lo que sí se hace siempre es COMPARAR los dos y avisar si no dicen lo mismo.
+ */
+function selloDeGrupo(id) {
+  const g = String(id || '').trim();
+  if (!g) return null;
+  try { return apiStore.listSellos().find((s) => String(s.grupo_id || '').trim() === g) || null; }
+  catch (e) { return null; }   // sin la tabla de sellos, se sigue con el mapeo de siempre
+}
+
+/**
  * Qué fila de la matriz le corresponde a un grupo de TBS.
  * Devuelve { nombre, costo } o { error } — nunca elige entre varias candidatas.
  */
@@ -185,6 +210,32 @@ function filaDeGrupo(g, costoDe, nombres) {
   if (hit.length === 1) return { nombre: hit[0], costo: String(costoDe[K(hit[0])] ?? '') };
   if (hit.length > 1) return { error: `la matriz tiene ${hit.length} filas iguales (${hit.join(' / ')}): habría que dejar una sola` };
   return { error: 'grupo sin equivalencia en la matriz' };
+}
+
+/**
+ * Igual que `filaDeGrupo`, pero cae en la matriz de sellos cuando el mapeo de siempre no encuentra
+ * nada — y cuando SÍ encuentra, comprueba que los dos digan el mismo costo.
+ *
+ * El aviso importa más que el respaldo: dos tablas que dicen precios distintos del mismo paquete
+ * es la clase de cosa que no se nota hasta que alguien cruza la factura del proveedor a mano.
+ */
+function filaDeGrupoConSello(g, costoDe, nombres, avisos) {
+  const fila = filaDeGrupo(g, costoDe, nombres);
+  const sello = selloDeGrupo(g.id);
+  if (!fila.error) {
+    const c1 = String(fila.costo ?? '').trim();
+    const c2 = String((sello && sello.costo) ?? '').trim();
+    if (sello && c1 !== '' && c2 !== '' && Number(c1) !== Number(c2) && Array.isArray(avisos)) {
+      avisos.push(`grupo ${g.nombre}: el pago lo cobra al ${c1}% («${fila.nombre}») y el sello `
+        + `«${sello.corto || sello.nombre}» dice ${c2}% — hay que emparejarlos`);
+    }
+    return fila;
+  }
+  if (!sello) return fila;
+  const costo = String(sello.costo ?? '').trim();
+  if (costo === '') return { error: `${fila.error}; el sello «${sello.corto || sello.nombre}» tampoco tiene costo cargado` };
+  // El nombre del sello y no el del grupo: es el que se muestra y con el que se elige el TC.
+  return { nombre: String(sello.corto || sello.nombre).trim(), costo, deSello: true };
 }
 
 /**
@@ -248,7 +299,7 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
         const conPlata = Object.entries(porDivisa).filter(([, v]) => money.isPos(v));
         if (!conPlata.length) continue;                       // sin ganancia, no se paga nada
 
-        const fila = filaDeGrupo(grp, costos, lista);
+        const fila = filaDeGrupoConSello(grp, costos, lista, avisos);
         if (fila.error) {
           out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: fila.error, porDivisa: Object.fromEntries(conPlata.map(([d, v]) => [d, money.round(v, 2)])) });
           continue;
@@ -256,7 +307,10 @@ async function lineasTBS({ mes, desde, hasta, costoDe, avisos, refrescar = false
         if (fila.costo === '' || fila.costo == null) { out.sinMapear.push({ grupo: grp.nombre, id: grp.id, motivo: `"${fila.nombre}" no tiene costo cargado en la matriz`, porDivisa: Object.fromEntries(conPlata.map(([d, v]) => [d, money.round(v, 2)])) }); continue; }
         if (!money.isPos(fila.costo)) continue;               // cuesta 0: no genera pago
 
-        const a = { proveedor: `${fila.nombre} (TBS)`, costo: fila.costo, usdt: '0', lineas: [] };
+        // `deSello` marca los que salieron de la matriz de sellos y no del mapeo de siempre: son
+        // los que antes quedaban sin precio, y conviene poder verlos aparte hasta emparejar los dos.
+        const a = { proveedor: `${fila.nombre} (TBS)`, costo: fila.costo, usdt: '0', lineas: [],
+          ...(fila.deSello ? { deSello: true } : {}) };
         for (const [divisa, profit] of conPlata) {
           const tc = tcUnico.tcExternos(divisa, mes, fila.nombre);
           if (!tc.valor) { avisos.push(`TBS ${fila.nombre}: sin TC para ${divisa}`); continue; }

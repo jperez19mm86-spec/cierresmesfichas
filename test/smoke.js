@@ -9686,6 +9686,34 @@ async function main() {
       /<div class="montobig">\$\{esc\(p\.divisa\)\} \$\{money\(p\.monto\)\}<\/div>/.test(fiE));
   }
 
+  /* ── DOS MAPEOS PARA LOS MISMOS 51 GRUPOS DE TBS ─────────────────────────────────────────────
+     Los grupos que TBS expone en su desplegable son los mismos sellos con los que se le factura al
+     cliente de API, y cada sello ya trae su grupo_id, su costo y qué proveedores lleva adentro. El
+     pago a proveedores rearmaba ese mapeo por su cuenta contra OTRA tabla, y donde no acertaba el
+     grupo quedaba sin precio y su plata afuera del total: en agosto-2026 fueron seis, y los seis
+     estaban en la matriz desde siempre. */
+  {
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'pago-proveedores.service.js'), 'utf8');
+    check('TBS: el pago puede leer la matriz de sellos',
+      /require\('\.\/api-store'\)/.test(src) && /function selloDeGrupo\(id\)/.test(src));
+    check('TBS: un grupo sin equivalencia cae en su sello antes de quedar sin precio',
+      /filaDeGrupoConSello\(grp, costos, lista, avisos\)/.test(src)
+      && /return \{ nombre: String\(sello\.corto \|\| sello\.nombre\)\.trim\(\), costo, deSello: true \}/.test(src));
+    /* El respaldo NO pisa al mapeo verificado: ése se cruzó contra la planilla de junio grupo por
+       grupo, y cambiarlo entero movería números que hoy cuadran. */
+    check('TBS: el sello es respaldo, no reemplazo del mapeo verificado',
+      /const fila = filaDeGrupo\(g, costoDe, nombres\);\s*\n\s*const sello = selloDeGrupo\(g\.id\);/.test(src)
+      && /if \(!fila\.error\) \{/.test(src));
+    // Y lo que más importa: si las dos tablas dicen precios distintos, se avisa.
+    check('TBS: si las dos tablas no dicen el mismo costo, lo avisa',
+      /el pago lo cobra al \$\{c1\}%/.test(src) && /hay que emparejarlos/.test(src));
+    // Sin la tabla de sellos, el reporte sigue andando con el mapeo de siempre.
+    check('TBS: sin la tabla de sellos no se cae, sigue con el mapeo de siempre',
+      /catch \(e\) \{ return null; \}\s*\/\/ sin la tabla de sellos/.test(src));
+    check('TBS: las líneas que salieron del sello quedan marcadas',
+      /\.\.\.\(fila\.deSello \? \{ deSello: true \} : \{\}\)/.test(src));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
