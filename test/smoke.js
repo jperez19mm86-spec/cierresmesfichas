@@ -9710,8 +9710,11 @@ async function main() {
     // Sin la tabla de sellos, el reporte sigue andando con el mapeo de siempre.
     check('TBS: sin la tabla de sellos no se cae, sigue con el mapeo de siempre',
       /catch \(e\) \{ return null; \}\s*\/\/ sin la tabla de sellos/.test(src));
+    /* Y la marca tiene que LLEGAR al reporte. La primera versión la ponía en el cálculo y la
+       perdía al juntar TBS con el resto: existía donde nadie la mira. */
     check('TBS: las líneas que salieron del sello quedan marcadas',
-      /\.\.\.\(fila\.deSello \? \{ deSello: true \} : \{\}\)/.test(src));
+      /\.\.\.\(fila\.deSello \? \{ deSello: true \} : \{\}\)/.test(src)
+      && /\.\.\.\(p\.deSello \? \{ deSello: true \} : \{\}\)/.test(src));
   }
 
   const fail = asserts.filter((a) => !a.ok);

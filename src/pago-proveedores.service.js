@@ -594,7 +594,10 @@ async function reporte({ mes, monedas = null, refrescar = false } = {}) {
   // porque para el dueño es una sola cuenta: lo que paga en el mes.
   const tbs = await lineasTBS({ mes: m, desde, hasta, costoDe, avisos, refrescar });
   tbs.proveedores.forEach((p) => {
-    const a = acc.get(p.proveedor) || { proveedor: p.proveedor, costo: p.costo, usdt: '0', lineas: [] };
+    // `deSello` viaja hasta el reporte: si se pierde acá, la marca existe en el cálculo y no en lo
+    // que se mira, que es lo mismo que no existir.
+    const a = acc.get(p.proveedor)
+      || { proveedor: p.proveedor, costo: p.costo, usdt: '0', lineas: [], ...(p.deSello ? { deSello: true } : {}) };
     a.usdt = money.add(a.usdt, p.usdt); a.lineas.push(...p.lineas); acc.set(p.proveedor, a);
   });
   tbs.conexiones.forEach((n) => { porConexion[n] = { usdt: '0', filas: 0 }; });
