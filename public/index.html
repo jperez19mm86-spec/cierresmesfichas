@@ -80,7 +80,7 @@
   body.solo-despacho .fila .acciones { display:none !important; }
 
   /* ── LAS CAJAS DE UN CLIENTE ───────────────────────────────────────────────────────────────── */
-  .caja-row { display: grid; grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 1.5fr auto; gap: 8px;
+  .caja-row { display: grid; grid-template-columns: 1.2fr 1.1fr 0.9fr 0.9fr 0.8fr 1.3fr auto; gap: 8px;
               align-items: center; padding: 9px 0; border-bottom: 1px dashed var(--border); }
   .caja-row input, .caja-row select { padding: 6px 8px; font-size: 12px; }
   .caja-head { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
@@ -557,7 +557,7 @@
     if (_soyOperador) {
       const filas = (c.cajas || []).map(k => `
         <div class="caja-row-ro">
-          <b>${esc(k.usuario)}</b>
+          <b>${esc(k.etiqueta || k.usuario)}</b>${k.etiqueta ? ` <span class="meta">${esc(k.usuario)}</span>` : ''}
           <span class="meta">${esc(k.sistema || '')} · id ${esc(k.userId || '—')} · ${esc((k.divisas || []).join(', ') || 'ARS')}</span>
         </div>`).join('');
       return `<div class="cuerpo">${filas || '<div class="meta">Sin cajas.</div>'}</div>`;
@@ -565,6 +565,7 @@
     const rows = (c.cajas || []).map(k => `
       <div class="caja-row" id="caja-${k.id}">
         <div><div class="caja-head">usuario</div><input id="cj-usuario-${k.id}" ${NOFILL} value="${esc(k.usuario)}" /></div>
+        <div><div class="caja-head">nombre para el cliente</div><input id="cj-etiqueta-${k.id}" ${NOFILL} value="${esc(k.etiqueta || '')}" placeholder="ej: Royal" /></div>
         <div><div class="caja-head">sistema</div><select id="cj-sistema-${k.id}">${sistemaOptions(k.sistema)}</select></div>
         <div><div class="caja-head">user_id (ID casino)</div><input id="cj-userid-${k.id}" ${NOFILL} value="${esc(k.userId)}" /></div>
         <div><div class="caja-head">divisas</div><input id="cj-divisas-${k.id}" ${NOFILL} value="${esc((k.divisas || []).join(','))}" /></div>
@@ -590,6 +591,7 @@
         <div class="caja-head" style="margin-bottom:6px">➕ agregar caja</div>
         <div class="caja-row">
           <input id="nc-usuario-${c.id}" ${NOFILL} placeholder="usuario (login casino)" />
+          <input id="nc-etiqueta-${c.id}" ${NOFILL} placeholder="nombre para el cliente (opcional)" />
           <select id="nc-sistema-${c.id}">${sistemaOptions('')}</select>
           <input id="nc-userid-${c.id}" ${NOFILL} placeholder="user_id" />
           <input id="nc-divisas-${c.id}" ${NOFILL} placeholder="ARS" />
@@ -650,6 +652,8 @@
       userId: document.getElementById(`${prefix}-userid-${suffix}`).value,
       divisas: document.getElementById(`${prefix}-divisas-${suffix}`).value,
       montosRapidos: document.getElementById(`${prefix}-montos-${suffix}`).value,
+      // Si el campo no está (una pantalla vieja en caché) no se manda, y el server no lo toca.
+      etiqueta: (document.getElementById(`${prefix}-etiqueta-${suffix}`) || {}).value,
     };
   }
 
@@ -807,7 +811,7 @@
         <div class="montobig">${esc(p.divisa)} ${money(p.monto)}</div>
         <div class="who">
           <b>${esc(p.clienteNombre)}</b> <span class="pill" style="font-size:10px;opacity:.7">${esc(String(p.codigo || '').toUpperCase())}</span><br/>
-          <span class="meta">→ caja <code>${esc(p.cajaUsuario)}</code> · ${esc(p.sistema)} · id ${esc(p.userId) || '?'} · ${esc(p.divisa)}</span><br/>
+          <span class="meta">→ caja <code>${esc(p.cajaUsuario)}</code>${p.cajaEtiqueta ? ` <b>${esc(p.cajaEtiqueta)}</b>` : ''} · ${esc(p.sistema)} · id ${esc(p.userId) || '?'} · ${esc(p.divisa)}</span><br/>
           <span class="meta" style="font-size:11px">${fmtDate(p.createdAt)}</span>
         </div>
         <button class="small" onclick="cargarPedido('${p.id}')">✅ Cargar</button>
@@ -936,7 +940,7 @@
         return `<tr>
         <td data-label="Fecha">${fmtDate(p.resueltoAt || p.createdAt)}</td>
         <td data-label="Cliente"><b>${esc(p.clienteNombre || String(p.codigo || '').toUpperCase())}</b></td>
-        <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code></td>
+        <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code>${p.cajaEtiqueta ? `<div class="meta">${esc(p.cajaEtiqueta)}</div>` : ''}</td>
         <td data-label="Sistema">${esc(p.sistema)}</td>
         <td data-label="Monto"><strong>${esc(p.divisa)}</strong> ${money(p.monto)}</td>
         <td data-label="Estado" class="estado-${p.estado}">${estLbl}${nota}${anular}</td>

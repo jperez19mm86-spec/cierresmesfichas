@@ -49,6 +49,9 @@ function importar(p) {
     clienteNombre: String(p.clienteNombre || '').trim(),
     cajaId: String(p.cajaId || '').trim(),
     cajaUsuario: String(p.cajaUsuario || '').trim(),
+    // El nombre que el cliente le puso a la caja, congelado al pedir: si mañana se le cambia, el
+    // pedido de hoy tiene que seguir diciendo el que el cliente vio cuando lo hizo.
+    cajaEtiqueta: String(p.cajaEtiqueta || '').trim(),
     sistema: String(p.sistema || '').trim(),
     userId: String(p.userId || '').trim(),
     divisa: String(p.divisa || 'ARS').trim(),
@@ -73,6 +76,9 @@ function create(p) {
     clienteNombre: String(p.clienteNombre || '').trim(),
     cajaId: String(p.cajaId || '').trim(),
     cajaUsuario: String(p.cajaUsuario || '').trim(),
+    // El nombre que el cliente le puso a la caja, congelado al pedir: si mañana se le cambia, el
+    // pedido de hoy tiene que seguir diciendo el que el cliente vio cuando lo hizo.
+    cajaEtiqueta: String(p.cajaEtiqueta || '').trim(),
     sistema: String(p.sistema || '').trim(),
     userId: String(p.userId || '').trim(),
     divisa: String(p.divisa || 'ARS').trim(),

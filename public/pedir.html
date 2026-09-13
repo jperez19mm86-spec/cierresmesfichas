@@ -30,6 +30,10 @@
   .opt:active { border-color:var(--gold); }
   .opt.sel { border-color:var(--gold); background:rgba(196,86,173,.12); color:var(--gold); }
   .opt .small { display:block; font-size:11px; color:var(--muted); font-weight:600; margin-top:3px; }
+  /* El usuario con nombre: el nombre grande, y abajo, más chico y más claro, el usuario de la cuenta. */
+  .opt .nom { display:block; font-size:15px; font-weight:800; line-height:1.2; }
+  .opt .log { display:block; font-size:11px; color:var(--muted); font-weight:500; margin-top:2px; }
+  .opt.sel .log { color:inherit; opacity:.75; }
 
   .hidden { display:none; }
   .msg { padding:14px; border-radius:10px; font-size:15px; text-align:center; }
@@ -208,7 +212,7 @@
       document.getElementById('cliName2').textContent = quien;
       document.getElementById('cajasGrid').className = 'grid' + (_cajas.length === 1 ? ' one' : '');
       document.getElementById('cajasGrid').innerHTML = _cajas.length
-        ? _cajas.map(k => '<div class="opt" data-id="' + k.id + '" onclick="pickCaja(\'' + k.id + '\',this)">' + esc(k.usuario) + '</div>').join('')
+        ? _cajas.map(k => '<div class="opt" data-id="' + k.id + '" onclick="pickCaja(\'' + k.id + '\',this)">' + nombreUsuario(k.etiqueta, k.usuario) + '</div>').join('')
         : '<div class="q">Sin usuarios cargados.</div>';
       // Primero elige QUÉ quiere hacer.
       show('cardCamino', true);
@@ -312,7 +316,7 @@
     if ((d.cargas || []).length) {
       h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>'
         + d.cargas.map(x => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
-          + '<span class="small">' + dia(x.fecha) + ' ' + esc(x.usuario || '') + '</span>'
+          + '<span class="small">' + dia(x.fecha) + ' ' + esc(x.etiqueta ? x.etiqueta + ' · ' + (x.usuario || '') : (x.usuario || '')) + '</span>'
           + '<span>' + money(x.monto, 0) + ' ' + esc(x.divisa || '') + '</span></div>').join('');
     }
 
@@ -345,7 +349,7 @@
           }
           /* A QUÉ USUARIO SE CARGARON. Con varias cajas, «¿esto a quién fue?» es la primera
              pregunta, y el dato ya estaba guardado. */
-          if (m.usuario) detalle += (detalle ? ' · ' : '') + 'a ' + esc(m.usuario);
+          if (m.usuario) detalle += (detalle ? ' · ' : '') + 'a ' + esc(m.etiqueta ? m.etiqueta + ' (' + m.usuario + ')' : m.usuario);
           return '<div style="padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
             + '<div style="display:flex;justify-content:space-between;gap:10px">'
             +   '<span class="small">' + esc(concepto) + '</span>'
@@ -430,11 +434,19 @@
 
      ⚠️ ESTE ARCHIVO LO RECIBE EL CLIENTE: no se nombra acá nada interno, ni siquiera en un
      comentario — se lee en el código fuente. Hay un test que lo comprueba. */
+  /* EL USUARIO COMO LO RECONOCE EL CLIENTE. Si le pusimos nombre, el nombre va grande y abajo, más
+     chico y más claro, el usuario de la cuenta. Sin nombre se ve el usuario, como siempre. */
+  function nombreUsuario(etiqueta, usuario) {
+    const e = String(etiqueta || '').trim();
+    return e ? '<span class="nom">' + esc(e) + '</span><span class="log">' + esc(usuario || '') + '</span>'
+             : esc(usuario || '');
+  }
+
   function movReset() {
     _movOrigen = null; _movDestino = null; _movDivisa = null;
     document.getElementById('movMonto').value = '';
     document.getElementById('movOrigenGrid').innerHTML = _paneles
-      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickOrigen(\'' + p.id + '\',this)">' + esc(p.nombre) + '</div>').join('');
+      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickOrigen(\'' + p.id + '\',this)">' + nombreUsuario(p.etiqueta, p.nombre) + '</div>').join('');
     show('cardMovOrigen', true);
   }
 
@@ -447,7 +459,7 @@
 
     const destinos = _paneles.filter(p => p.id !== id);
     document.getElementById('movDestinoGrid').innerHTML = destinos
-      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickDestino(\'' + p.id + '\',this)">' + esc(p.nombre) + '</div>').join('');
+      .map(p => '<div class="opt" data-id="' + p.id + '" onclick="movPickDestino(\'' + p.id + '\',this)">' + nombreUsuario(p.etiqueta, p.nombre) + '</div>').join('');
     document.getElementById('movSinDestino').textContent = destinos.length ? ''
       : 'No hay otro usuario al que puedas mover desde éste.';
     show('cardMovDestino', true);
@@ -518,7 +530,7 @@
       if (d.ok) {
         msg.innerHTML = '<div class="msg ok">✅ <strong>Pedido enviado</strong><br/>'
           + esc(d.pedido.divisa || _selDivisa) + ' $ ' + fmt(d.pedido.monto)
-          + ' para <strong>' + esc(d.pedido.cajaUsuario) + '</strong>.<br/>Te lo van a cargar en breve.</div>';
+          + ' para <strong>' + esc(d.pedido.cajaEtiqueta || d.pedido.cajaUsuario) + '</strong>' + (d.pedido.cajaEtiqueta ? ' <span class="small">(' + esc(d.pedido.cajaUsuario) + ')</span>' : '') + '.<br/>Te lo van a cargar en breve.</div>';
         ['cardCamino','cardCaja','cardDivisa','cardMonto','btnPedir'].forEach(i => show(i, false));
         setTimeout(() => { document.getElementById('codigo').value = ''; document.getElementById('codigo').focus(); msg.innerHTML = ''; resetSel(); }, 5000);
       } else { msg.innerHTML = '<div class="msg err">' + esc(d.error || 'No se pudo enviar') + '</div>'; btn.disabled = false; }

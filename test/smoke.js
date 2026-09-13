@@ -3483,9 +3483,12 @@ async function main() {
       'si no, la lista no cierra con el total y la pregunta llega igual');
     check('cuenta del cliente: y dice de qué carga sale, sin el id interno',
       /da de baja la carga de/.test(pedirPag) && !/da de baja \+ m\.notas/.test(pedirPag));
-    /* Con varias cajas, «¿esto a quién fue?» es la primera pregunta. El dato ya estaba guardado. */
+    /* Con varias cajas, «¿esto a quién fue?» es la primera pregunta. El dato ya estaba guardado.
+       Desde el 13-sep-2026 la caja puede tener un nombre para el cliente («Royal»): entonces dice
+       «a Royal (RoyalAlexa-SA)». El usuario de la cuenta tiene que seguir apareciendo SIEMPRE —con
+       nombre o sin él— porque es lo único que no se confunde entre dos cajas llamadas igual. */
     check('cuenta del cliente: cada carga dice a qué usuario fue',
-      /'a ' \+ esc\(m\.usuario\)/.test(pedirPag));
+      /'a ' \+ esc\(m\.etiqueta \? m\.etiqueta \+ ' \(' \+ m\.usuario \+ '\)' : m\.usuario\)/.test(pedirPag));
     const idxCta = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('cuenta del cliente: y el servidor lo manda, sacándolo del pedido',
       /usuario = p\.cajaUsuario \|\| null/.test(idxCta));
@@ -9715,6 +9718,86 @@ async function main() {
     check('TBS: las líneas que salieron del sello quedan marcadas',
       /\.\.\.\(fila\.deSello \? \{ deSello: true \} : \{\}\)/.test(src)
       && /\.\.\.\(p\.deSello \? \{ deSello: true \} : \{\}\)/.test(src));
+  }
+
+  /* ── EL NOMBRE CON EL QUE EL CLIENTE RECONOCE SU CAJA ────────────────────────────────────────
+     Los clientes elegían su usuario por el login —«RoyalAlexa-SA», «GAF-ParA»— que para ellos no
+     significa nada. Ahora cada caja puede tener un nombre («Royal») que se muestra grande, con el
+     login abajo más chico. El login NO se reemplaza: lo usan la cascada, los avisos y el cruce, y el
+     espejo del panel lo vuelve a escribir cada vez. Por eso el nombre vive en su propio campo. */
+  {
+    const tg = require('../src/telegram');
+    const COD = 'ZZETQ' + Date.now().toString().slice(-5);
+    const alta = await post('/api/clientes', { codigo: COD, nombreVisible: 'Prueba nombre de caja' });
+    const cid = alta.data && alta.data.cliente && alta.data.cliente.id;
+    check('nombre de caja: se crea el cliente de prueba', !!cid, JSON.stringify(alta.data).slice(0, 120));
+    const cj = await post(`/api/clientes/${cid}/cajas`, { usuario: 'RoyalAlexa-SA', sistema: 'Europa',
+      userId: '99887766', divisas: 'ARS', etiqueta: 'Royal' });
+    const kid = cj.data && cj.data.caja && cj.data.caja.id;
+    check('nombre de caja: la caja guarda su nombre aparte del login',
+      cj.data.caja && cj.data.caja.etiqueta === 'Royal' && cj.data.caja.usuario === 'RoyalAlexa-SA');
+    await post(`/api/clientes/${cid}/cajas`, { usuario: 'SinNombre-SA', sistema: 'Europa', userId: '99887767', divisas: 'ARS' });
+
+    const vis = await get(`/api/pedir/${COD}`);
+    const kR = (vis.data.cajas || []).find((k) => k.usuario === 'RoyalAlexa-SA');
+    const kS = (vis.data.cajas || []).find((k) => k.usuario === 'SinNombre-SA');
+    check('nombre de caja: la pantalla del cliente recibe el nombre y el login',
+      kR && kR.etiqueta === 'Royal' && kR.usuario === 'RoyalAlexa-SA');
+    check('nombre de caja: sin nombre llega vacío, y se muestra el login', kS && kS.etiqueta === '');
+
+    /* ⚠️ LO QUE LO HACE SEGURO. Editar la caja corre el espejo hacia el panel, y el espejo del panel
+       hacia la caja reescribe el login. Ninguno de los dos puede borrar el nombre. */
+    await put(`/api/clientes/${cid}/cajas/${kid}`, { divisas: 'ARS,USD' });
+    const vis2 = await get(`/api/pedir/${COD}`);
+    const kR2 = (vis2.data.cajas || []).find((k) => k.usuario === 'RoyalAlexa-SA');
+    check('nombre de caja: editar la caja no le borra el nombre', kR2 && kR2.etiqueta === 'Royal',
+      JSON.stringify(kR2));
+
+    // El pedido congela el nombre que el cliente vio, y el login sigue yendo por su lado.
+    const ped = await post('/api/pedir', { codigo: COD, cajaId: kid, divisa: 'ARS', monto: 1000 });
+    check('nombre de caja: el pedido guarda el nombre y el login',
+      ped.data.ok && ped.data.pedido.cajaEtiqueta === 'Royal' && ped.data.pedido.cajaUsuario === 'RoyalAlexa-SA',
+      JSON.stringify(ped.data.pedido || ped.data));
+    const pedId = ped.data.pedido && ped.data.pedido.id;
+    if (pedId) { try { require('../src/pedidos-store').remove(pedId); } catch (e) { /* está en la base del server */ } }
+
+    /* Telegram: el nombre arriba y el login abajo, siempre los dos. Hay grupos que comparten varios
+       clientes y dos pueden llamar «Argentina» a su caja: el login es lo que no se confunde. */
+    const conN = tg.cargaText({ cajaUsuario: 'RoyalAlexa-SA', cajaEtiqueta: 'Royal', divisa: 'ARS', monto: 1000 });
+    check('nombre de caja: el aviso de carga lleva el nombre y abajo el login',
+      /<b>Royal<\/b>\n<code>RoyalAlexa-SA<\/code>/.test(conN), conN);
+    const sinN = tg.cargaText({ cajaUsuario: 'RoyalAlexa-SA', divisa: 'ARS', monto: 1000 });
+    check('nombre de caja: sin nombre el aviso queda como siempre',
+      /Usuario: <code>RoyalAlexa-SA<\/code>\n/.test(sinN) && !/<b>Royal/.test(sinN), sinN);
+    // Un nombre con forma de dominio Telegram lo haría enlace: va en <code>, como el login.
+    const dom = tg.cargaText({ cajaUsuario: 'X-SA', cajaEtiqueta: 'royal.net', divisa: 'ARS', monto: 1 });
+    check('nombre de caja: un nombre con forma de dominio no queda como enlace',
+      /<code>royal\.net<\/code>/.test(dom) && !/<b>royal\.net/.test(dom), dom);
+    check('nombre de caja: la anulación y el movimiento también lo muestran',
+      /<b>Royal<\/b>/.test(tg.anulacionText({ cajaUsuario: 'RoyalAlexa-SA', cajaEtiqueta: 'Royal', divisa: 'ARS', monto: 1 }))
+      && /<b>Royal<\/b>/.test(tg.movimientoText({ origen: 'RoyalAlexa-SA', origenEtiqueta: 'Royal', destino: 'B-SA', divisa: 'ARS', monto: 1 })));
+
+    // Las pantallas del cliente: el nombre grande y el login abajo, en los tres lugares donde elige.
+    const pedirSrc = fs.readFileSync(path.join(ROOT, 'public', 'pedir.html'), 'utf8');
+    check('nombre de caja: pedir fichas y mover fichas usan el mismo dibujo',
+      /nombreUsuario\(k\.etiqueta, k\.usuario\)/.test(pedirSrc)
+      && (pedirSrc.match(/nombreUsuario\(p\.etiqueta, p\.nombre\)/g) || []).length === 2);
+    check('nombre de caja: sin nombre se ve el login, como siempre',
+      /return e \? '<span class="nom">'[^\n]*\n\s*: esc\(usuario \|\| ''\);/.test(pedirSrc));
+    check('nombre de caja: la confirmación dice el nombre y el login entre paréntesis',
+      /esc\(d\.pedido\.cajaEtiqueta \|\| d\.pedido\.cajaUsuario\)/.test(pedirSrc));
+    const cuentaSrc = fs.readFileSync(path.join(ROOT, 'public', 'cuenta.html'), 'utf8');
+    check('nombre de caja: la cuenta del cliente también lo muestra, con el login abajo',
+      /x\.etiqueta \? `<b>\$\{esc\(x\.etiqueta\)\}<\/b><div class="mut">/.test(cuentaSrc));
+    // Y en el panel se escribe al lado del login; Sophi lo ve pero no lo edita.
+    const fichasSrc = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+    check('nombre de caja: se carga desde Fichas, en la misma fila de la caja',
+      /id="cj-etiqueta-\$\{k\.id\}"/.test(fichasSrc) && /etiqueta: \(document\.getElementById\(`\$\{prefix\}-etiqueta-/.test(fichasSrc));
+    const movSrc = fs.readFileSync(path.join(ROOT, 'src', 'movimientos-panel.service.js'), 'utf8');
+    check('nombre de caja: el aviso de un movimiento busca el nombre en la caja de esa cuenta',
+      /origenEtiqueta: etq\(origen\), destinoEtiqueta: etq\(destino\)/.test(movSrc));
+
+    if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
   const fail = asserts.filter((a) => !a.ok);

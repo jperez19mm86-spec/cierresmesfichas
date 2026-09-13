@@ -296,8 +296,17 @@ function avisarAlGrupo({ m, origen, destino, log = () => {} }) {
     const tok = config.getTelegramToken();
     const dest = cli ? tgDestino.destinoDe(cli, (id) => clientes.get(id)) : { chatId: null };
     if (!cli || !dest.chatId || !dest.enabled || !tok) return;
+    // El nombre que el cliente le puso a cada usuario vive en su CAJA, no en el panel: se busca la
+    // de la misma cuenta para que el aviso diga lo mismo que la pantalla donde pidió el movimiento.
+    const etq = (pan) => {
+      if (!pan || !pan.id_usuario) return '';
+      const k = (cli.cajas || []).find((c) => String(c.userId) === String(pan.id_usuario)
+        && String(c.sistema || '').toLowerCase() === String(pan.sistema || '').toLowerCase());
+      return (k && k.etiqueta) || '';
+    };
     tgDestino.enviarConCopias(telegram, tok, dest, telegram.movimientoText({
-      origen: origen.nombre, destino: destino.nombre, divisa: m.divisa, monto: m.monto,
+      origen: origen.nombre, destino: destino.nombre,
+      origenEtiqueta: etq(origen), destinoEtiqueta: etq(destino), divisa: m.divisa, monto: m.monto,
     })).then((tr) => { if (!tr.ok) log(`[Telegram] aviso de movimiento falló: ${tr.error}`); })
       .catch((e) => log(`[Telegram] aviso de movimiento error: ${e.message}`));
   } catch (e) { log(`[Telegram] aviso de movimiento error: ${e.message}`); }

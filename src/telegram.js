@@ -80,11 +80,29 @@ async function sendArchivo(botToken, chatId, { archivo, nombre, mime, caption })
   } catch (e) { return { ok: false, error: e.message, metodo }; }
 }
 
+/**
+ * EL USUARIO COMO LO RECONOCE EL CLIENTE. Si la caja tiene nombre («Royal»), va el nombre en negrita
+ * y en el renglón de abajo el usuario de la cuenta («RoyalAlexa-SA»). Sin nombre, sólo el usuario.
+ *
+ * El usuario se queda SIEMPRE, no se reemplaza: hay grupos que comparten varios clientes —el de un
+ * vendedor— y dos pueden llamar «Argentina» a su caja. El nombre ayuda a ubicarse; el usuario es lo
+ * que no se puede confundir.
+ *
+ * Un nombre que parece un dominio va en <code> igual que el usuario, por el mismo motivo que explica
+ * `cuenta`: Telegram lo convertiría en un enlace tocable.
+ */
+function usuarioTg(etiqueta, login) {
+  const e = String(etiqueta || '').trim();
+  if (!e) return cuenta(login);
+  const nom = /\.[a-z]{2,}\b/i.test(e) ? cuenta(e) : `<b>${escapeHtml(e)}</b>`;
+  return `${nom}\n${cuenta(login)}`;
+}
+
 /** Texto del aviso de carga exitosa. */
-function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
+function cargaText({ clienteNombre, codigo, cajaUsuario, cajaEtiqueta, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
   return `✅ <b>Carga acreditada</b>\n\n` +
-    `🎰 Usuario: ${cuenta(cajaUsuario)}\n` +
+    `🎰 Usuario: ${usuarioTg(cajaEtiqueta, cajaUsuario)}\n` +
     `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
 }
 
@@ -99,11 +117,11 @@ function cargaText({ clienteNombre, codigo, cajaUsuario, divisa, monto }) {
  * Tampoco dice Casino ni Europa: a qué plataforma pertenece cada usuario es control interno, y ya
  * se cuida de no mandárselo al cliente en la pantalla de pedidos.
  */
-function movimientoText({ origen, destino, divisa, monto }) {
+function movimientoText({ origen, destino, origenEtiqueta, destinoEtiqueta, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
   return '🔀 <b>Fichas movidas</b>\n\n'
-    + `↖️ De: ${cuenta(origen)}\n`
-    + `↘️ A: ${cuenta(destino)}\n`
+    + `↖️ De: ${usuarioTg(origenEtiqueta, origen)}\n`
+    + `↘️ A: ${usuarioTg(destinoEtiqueta, destino)}\n`
     + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>`;
 }
 
@@ -163,10 +181,10 @@ function abonoText({ monto, moneda = 'USDT', declarado = null }) {
  * NO hay un equivalente para "rechazado": un pedido rechazado nunca se cargó, así que al grupo no
  * le llegó nada que corregir. Eso el dueño prefiere hablarlo por privado.
  */
-function anulacionText({ cajaUsuario, divisa, monto }) {
+function anulacionText({ cajaUsuario, cajaEtiqueta, divisa, monto }) {
   const m = Number(monto).toLocaleString('es-AR');
   return '↩️ <b>Carga anulada</b>\n\n'
-    + `🎰 Usuario: ${cuenta(cajaUsuario)}\n`
+    + `🎰 Usuario: ${usuarioTg(cajaEtiqueta, cajaUsuario)}\n`
     + `💰 Monto: <b>${escapeHtml(divisa || '')} $ ${m}</b>\n\n`
     + 'Las fichas se retiraron de la cuenta.';
 }
@@ -190,7 +208,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c)
 function cuenta(s) { return `<code>${escapeHtml(s == null ? '' : s)}</code>`; }
 
 module.exports = {
-  abonoText, sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta,
+  abonoText, sendMessage, sendArchivo, verChat, cargaText, movimientoText, anulacionText, pagoText, cuenta, usuarioTg,
   // Se manda con parse_mode HTML: un nombre de cliente con un & o un < rompe el mensaje entero
   // y Telegram lo rechaza. Quien arme texto acá afuera lo necesita.
   escapeHtml };

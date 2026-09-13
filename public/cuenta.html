@@ -164,7 +164,7 @@ function pintar(r) {
       <label>Fichas de este mes</label>
       <table><tbody>
       ${r.cargas.map((x) => `<tr><td class="mut">${fecha(x.fecha)}</td>
-        <td>${esc(x.usuario||'')}</td>
+        <td>${x.etiqueta ? `<b>${esc(x.etiqueta)}</b><div class="mut">${esc(x.usuario||'')}</div>` : esc(x.usuario||'')}</td>
         <td class="r">${money(x.monto, 0)} <span class="mut">${esc(x.divisa||'')}</span></td></tr>`).join('')}
       </tbody></table>
     </div>` : ''}

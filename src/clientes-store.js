@@ -215,6 +215,11 @@ function addCaja(clienteId, caja) {
     id: newId('k'), usuario: String(caja.usuario || '').trim(), sistema: String(caja.sistema || '').trim(),
     userId: String(caja.userId || '').trim(), divisas: parseDivisas(caja.divisas), montosRapidos: parseMontos(caja.montosRapidos),
     grupoId: String(caja.grupoId || '').trim(), notas: String(caja.notas || '').trim(),
+    /* EL NOMBRE CON EL QUE EL CLIENTE RECONOCE ESTA CAJA («Royal»), aparte del usuario de la cuenta
+       («RoyalAlexa-SA»). Es sólo para mostrar: `usuario` sigue siendo el login, que es lo que usan la
+       cascada, los avisos y el cruce — y lo que el espejo del panel vuelve a escribir cada vez. Por
+       eso el nombre vive en su propio campo, donde nadie lo pisa. Vacío = se muestra el usuario. */
+    etiqueta: String(caja.etiqueta || '').trim(),
   };
   c.cajas.push(k); save(data); return k;
 }
@@ -231,6 +236,7 @@ function updateCaja(clienteId, cajaId, patch) {
   if (patch.montosRapidos !== undefined) k.montosRapidos = parseMontos(patch.montosRapidos);
   if (patch.grupoId !== undefined) k.grupoId = String(patch.grupoId).trim();
   if (patch.notas !== undefined) k.notas = String(patch.notas).trim();
+  if (patch.etiqueta !== undefined) k.etiqueta = String(patch.etiqueta).trim();
   save(data); return k;
 }
 function removeCaja(clienteId, cajaId) {

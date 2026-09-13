@@ -654,7 +654,7 @@ app.get('/api/pedir/:codigo', (req, res) => {
       usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
     },
     // NO exponer "sistema" al cliente (Casino/Europa = control interno). Sí las divisas (el cliente elige).
-    cajas: (cli.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, divisas: (k.divisas && k.divisas.length) ? k.divisas : ['ARS'], montosRapidos: k.montosRapidos || [] })),
+    cajas: (cli.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, etiqueta: k.etiqueta || '', divisas: (k.divisas && k.divisas.length) ? k.divisas : ['ARS'], montosRapidos: k.montosRapidos || [] })),
     // ── MOVER FICHAS ENTRE PANELES PROPIOS ──────────────────────────────────────────────────
     // Se manda la lista de PANELES y no la de cajas: el movimiento es entre paneles, que es lo
     // que tiene el id del casino. Y va sólo si el cliente tiene el permiso: sin él, la pantalla
@@ -669,7 +669,12 @@ app.get('/api/pedir/:codigo', (req, res) => {
       return paneles.list({ cliente_id: cli.id }).filter((p) => p.id_usuario).map((p) => {
         const k = String(p.sistema || '').toLowerCase();
         if (!gr[k]) { n += 1; gr[k] = 'g' + n; }
-        return { id: p.id, nombre: p.nombre, grupo: gr[k],
+        /* Mover fichas lista PANELES, no cajas. El nombre para el cliente vive en la caja, así que se
+           busca la de esa misma cuenta: sin esto el mismo usuario se llamaría «Royal» al pedir y
+           «RoyalAlexa-SA» al mover, que es justo la confusión que el nombre viene a sacar. */
+        const cajaDe = (cli.cajas || []).find((c) => String(c.userId) === String(p.id_usuario)
+          && String(c.sistema || '').toLowerCase() === k);
+        return { id: p.id, nombre: p.nombre, etiqueta: (cajaDe && cajaDe.etiqueta) || '', grupo: gr[k],
           divisas: (p.divisas && p.divisas.length) ? p.divisas : ['ARS'] };
       });
     })() : [],
@@ -689,13 +694,13 @@ app.post('/api/pedir', (req, res) => {
   if (!(m > 0)) return res.status(400).json({ ok: false, error: 'Monto inválido' });
   const pedido = pedidos.create({
     codigo: cli.codigo, clienteNombre: cli.nombreVisible,
-    cajaId: caja.id, cajaUsuario: caja.usuario, sistema: caja.sistema, userId: caja.userId,
+    cajaId: caja.id, cajaUsuario: caja.usuario, cajaEtiqueta: caja.etiqueta || '', sistema: caja.sistema, userId: caja.userId,
     divisa: div, monto: m,
   });
   console.log(`[Pedido] nuevo: ${cli.codigo}/${cli.nombreVisible} → ${caja.usuario} (${caja.sistema}) ${div} $${m}`);
   // PUSH al admin: "Usuario X pidió $monto en MONEDA" (fire-and-forget, no bloquea la respuesta al cliente).
   push.notifyNewPedido(pedido);
-  res.json({ ok: true, pedido: { id: pedido.id, cajaUsuario: pedido.cajaUsuario, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado } });
+  res.json({ ok: true, pedido: { id: pedido.id, cajaUsuario: pedido.cajaUsuario, cajaEtiqueta: pedido.cajaEtiqueta, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado } });
 });
 
 // El cliente AVISA UN PAGO: declara cuánto transfirió y adjunta la captura.
@@ -1045,6 +1050,10 @@ app.get('/api/cuenta/mio', (req, res) => {
   if (!cli) return res.status(404).json({ ok: false, error: 'cuenta no encontrada' });
   const mes = new Date().toISOString().slice(0, 7);
   const cuenta = deudaSvc.cuentaCorriente(cli.id);
+  /* El nombre de cada carga sale del PEDIDO, que lo congeló al pedirse. Los pedidos de antes no lo
+     tienen: para esos se usa el nombre que la caja tenga hoy, así el historial viejo también se lee. */
+  const _etqPorCaja = {}; (cli.cajas || []).forEach((k) => { if (k.etiqueta) _etqPorCaja[k.id] = k.etiqueta; });
+  const etiquetaDe = (p) => (p && (p.cajaEtiqueta || _etqPorCaja[p.cajaId])) || '';
   // ── CADA CARGA CON SU CUENTA COMPLETA ──────────────────────────────────────────────────────
   // El cliente ve "95,25 USDT" y no puede verificar nada: no sabe de qué pedido salió, ni a qué
   // cambio. Con lo cargado, el %, el monto en su moneda y el TC, puede rehacer la cuenta él solo —
@@ -1055,22 +1064,22 @@ app.get('/api/cuenta/mio', (req, res) => {
   const movimientos = movsStore.list({ cliente_id: cli.id })
     .slice(0, 40)
     .map((m) => {
-      let cargado = null; let usuario = null;
+      let cargado = null; let usuario = null; let etiqueta = '';
       /* ADÓNDE FUERON LAS FICHAS. El cliente ve «750,36 USDT» y no sabe a cuál de sus usuarios se
          cargó: con tres o cuatro cajas, la pregunta «¿esto a quién fue?» llega siempre. El dato ya
          estaba guardado en el pedido y no se le mostraba. */
       if (m.pedido_id) {
-        try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; } } catch (e) {}
+        try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; etiqueta = etiquetaDe(p); } } catch (e) {}
       }
       return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
         monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
         divisa: m.divisa, notas: m.notas,
-        base_pct: m.base_pct_aplicado || null, cargado, usuario };
+        base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta };
     });
   const cargas = pedidos.list({ codigo: cli.codigo, estado: 'cargado' })
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
     .map((p) => ({ fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
-      usuario: p.cajaUsuario, monto: p.monto, divisa: p.divisa }));
+      usuario: p.cajaUsuario, etiqueta: etiquetaDe(p), monto: p.monto, divisa: p.divisa }));
   // ── LO QUE AVISÓ Y TODAVÍA NO SE APROBÓ ────────────────────────────────────────────────────
   // Sin esto, el cliente sube su comprobante, ve que el saldo no se movió, y vuelve a subirlo o a
   // preguntar. Que figure como PENDIENTE no cambia ningún número —no toca la deuda hasta que se
@@ -1240,7 +1249,7 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
         // El interruptor viaja en el destino: quien hereda el grupo hereda si está encendido.
         if (cli && dest.chatId && dest.enabled && tok) {
           tgDestino.enviarConCopias(telegram, tok, dest, telegram.cargaText({
-            clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
+            clienteNombre: p.clienteNombre, codigo: p.codigo, cajaUsuario: p.cajaUsuario, cajaEtiqueta: p.cajaEtiqueta, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso falló:', tr.error); })
             .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso error:', e.message); });
         } else {
@@ -1361,7 +1370,7 @@ app.post('/api/pedidos/:id/anular', async (req, res) => {
         const destA = cliA ? tgDestino.destinoDe(cliA, (id) => clientes.get(id)) : { chatId: null };
         if (cliA && destA.chatId && destA.enabled && tokA) {
           tgDestino.enviarConCopias(telegram, tokA, destA, telegram.anulacionText({
-            cajaUsuario: p.cajaUsuario, divisa: p.divisa, monto: p.monto,
+            cajaUsuario: p.cajaUsuario, cajaEtiqueta: p.cajaEtiqueta, divisa: p.divisa, monto: p.monto,
           })).then((tr) => { pedidos.marcarAviso(p.id, tr); if (!tr.ok) console.warn('[Telegram] aviso de anulación falló:', tr.error); })
             .catch((e) => { pedidos.marcarAviso(p.id, { ok: false, error: e.message }); console.warn('[Telegram] aviso de anulación error:', e.message); });
         } else {
