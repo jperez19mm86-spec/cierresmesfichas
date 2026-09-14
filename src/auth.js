@@ -63,6 +63,10 @@ const PUBLIC = [
   /^\/caja\/?$/,
   /^\/caja-conexion\.js$/,
   /^\/api\/caja(\/|$)/,
+  // EL PUENTE con Mi Caja (servicio aparte). Pública la ruta, pero cada /api/enlace/* exige el
+  // token de servicio (env ENLACE_TOKEN) adentro del módulo: sin él contesta 401. No usa la sesión
+  // de admin justamente para no acoplar los dos servicios. Ver src/enlace.routes.js.
+  /^\/api\/enlace(\/|$)/,
   // La FACTURA que se le manda al cliente por link. Es pública a propósito: el cliente no tiene
   // usuario. La llave es el token, que es al azar y largo — sin él no se llega a nada, y cada
   // token abre UNA factura de UN cliente, nunca un listado.

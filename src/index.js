@@ -150,6 +150,10 @@ app.set('sistemaParaCargar', sistemaParaCargar);
 app.set('avisarComprobante', avisarComprobante);
 require('./os.routes').mount(app);
 
+/* EL PUENTE con Mi Caja (servicio aparte): un contrato HTTP chico y versionado, con token propio.
+   Módulo aislado a propósito, para que deployar el OS no obligue a tocar Mi Caja ni al revés. */
+require('./enlace.routes').mount(app);
+
 /* Mi Caja: el panel simple para agentes y cajeros. Los endpoints van acá, con `/api/caja/*`;
    la página se sirve más abajo, con el resto del frontend. */
 /* 🔴 MI CAJA NO SE SIRVE DESDE ACÁ. Decisión del dueño, 4-sep-2026: «bajalo». Mi Caja vive en su
