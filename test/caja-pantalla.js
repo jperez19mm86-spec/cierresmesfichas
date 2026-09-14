@@ -1082,6 +1082,17 @@ check('sin grilla no se marca nada, en vez de romper',
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
     && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
+  /* En PC la barra lateral suma, al pie y separados del bloque del motor, «Solicitar fichas» y
+     «Salir» (sólo para el agente). En mobile la barra es una fila de pestañas: esos dos se esconden
+     —viven en el engranaje y arriba a la derecha—. */
+  check('en PC la barra suma «Solicitar fichas» y «Salir» al pie (sólo agente), escondidos en mobile',
+    /class="extra-side fichas-side" onclick="solicitarFichas\(\)"/.test(htmlCaja)
+    && /class="extra-side salir-side" onclick="salir\(\)"/.test(htmlCaja)
+    && /esAgente\(\) \? `<span class="sep-side"/.test(htmlCaja)
+    && /\.secs \.extra-side, \.secs \.sep-side\{display:none\}/.test(htmlCaja));
+  check('el «Salir» de arriba se saca en PC y queda al pie de la barra',
+    /class="icobtn salir-top"/.test(htmlCaja)
+    && /\.top \.icobtn\.salir-top\{display:none\}/.test(htmlCaja));
 
   /* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px está pensado para leer un teléfono a treinta
      centímetros; la misma medida en una notebook a sesenta se lee chica. Cada tamaño de la hoja

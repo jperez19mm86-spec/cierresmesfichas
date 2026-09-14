@@ -666,6 +666,10 @@ button{font-family:inherit}
 .secs button{background:none; border:none; border-bottom:2px solid transparent; color:var(--mut);
   padding:11px 9px; font-size:calc(13px * var(--esc)); font-weight:600; cursor:pointer; white-space:nowrap}
 .secs button[aria-current="true"]{color:var(--g); border-bottom-color:var(--g)}
+/* «Solicitar fichas» y «Salir» al pie de la barra: SÓLO en la barra vertical de PC. En mobile la
+   barra es una fila de pestañas y estos dos no van —«Solicitar fichas» vive en el engranaje y
+   «Salir» arriba a la derecha—, así que acá se esconden por defecto. */
+.secs .extra-side, .secs .sep-side{display:none}
 
 .scroll{flex:1; overflow-y:auto; padding:14px 14px 96px}
 
@@ -713,6 +717,18 @@ button{font-family:inherit}
   .secs button:hover{background:var(--bg3); color:var(--txt)}
   /* Abierta: fondo en vez de subrayado. Un subrayado abajo de un botón vertical no dice nada. */
   .secs button[aria-current="true"]{background:var(--bg3); color:var(--g)}
+  /* Al pie de la barra (sólo PC): la puerta a «Solicitar fichas», separada del bloque del motor por
+     una línea, y el «Salir». `margin-top:auto` en la línea los empuja al fondo. */
+  .secs .extra-side, .secs .sep-side{display:block}
+  .secs .sep-side{height:1px; background:var(--bor); margin:10px 6px 2px; margin-top:auto}
+  .secs button.extra-side{display:flex; align-items:center; gap:9px}
+  .secs button.fichas-side .mk{width:26px; height:26px; border-radius:8px; flex:none;
+    display:grid; place-items:center; background:var(--g-soft); color:var(--g-ink)}
+  .secs button.salir-side{color:var(--no)}
+  .secs button.salir-side .mk{width:26px; height:26px; border-radius:8px; flex:none;
+    display:grid; place-items:center; background:var(--no-soft); color:var(--no)}
+  /* En PC el «Salir» va al pie de la barra, así que el de arriba se saca. En mobile queda arriba. */
+  .top .icobtn.salir-top{display:none}
   /* 🔴 EL RENGLÓN SE ESTIRABA Y DEJABA UN LAGO EN EL MEDIO. La columna del nombre es la elástica,
      así que con 800px de ancho se quedaba con 500 para un nombre de 150: el saldo se iba al borde
      derecho y el ojo tenía que cruzar la pantalla para juntar la persona con su número. Medido el
@@ -1402,7 +1418,7 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
         </svg></span>
       <span id="quienNivel">Agente</span>
     </button>
-    <button class="icobtn" onclick="salir()">Salir</button>
+    <button class="icobtn salir-top" onclick="salir()">Salir</button>
   </div>
   <div class="secs" id="secciones" hidden></div>
   <div class="scroll" id="cuerpo" hidden></div>
@@ -2570,8 +2586,17 @@ function irPanel(){
     : `${yo().nivel} · hora del panel ${rel.panel}`;
   /* `ROL` es para navegar —el sub-agente se mueve como agente—; el menú va por nivel real. */
   const permitidas = seccionesDe(ROL, SUBAGENTE).filter(x => NOMBRE_SEC[x]);
+  /* Las secciones del MOTOR, y al pie —sólo en la barra vertical de PC, y sólo para el agente— la
+     puerta a «Solicitar fichas» y el «Salir». En mobile estos dos NO van acá (el CSS los esconde):
+     «Solicitar fichas» vive en el engranaje y «Salir» arriba a la derecha. `extra-side` no lleva
+     `data-sec`, así que la lógica de pestañas (aria-current, sacarSeccion) los ignora sola. */
   $('secciones').innerHTML = permitidas.map(x =>
-    `<button data-sec="${x}" aria-current="${x==='users'}" onclick="irSec('${x}')">${nombreSec(x)}</button>`).join('');
+    `<button data-sec="${x}" aria-current="${x==='users'}" onclick="irSec('${x}')">${nombreSec(x)}</button>`).join('')
+    + (esAgente() ? `<span class="sep-side" aria-hidden="true"></span>
+      <button class="extra-side fichas-side" onclick="solicitarFichas()">
+        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span><span>Solicitar fichas</span></button>
+      <button class="extra-side salir-side" onclick="salir()">
+        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5L21 12l-6.5 6.5"/><path d="M21 12H9"/><path d="M11 3.5H5.5A1.5 1.5 0 004 5v14a1.5 1.5 0 001.5 1.5H11"/></svg></span><span>Salir</span></button>` : '');
   mostrar('panel');
   irSec('users');   // deja SEC, la pestaña marcada, el botón y el dibujo, todo de una
 }
