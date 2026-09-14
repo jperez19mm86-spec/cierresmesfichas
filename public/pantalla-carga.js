@@ -165,6 +165,22 @@ async function cgCalcular(){
      El % no es fijo: es una serie con fechas, y el momento en que alguien SABE si cambió es justo
      antes de la primera carga del mes. Titan estuvo al 5 y desde septiembre va al 7 — sin esta
      pregunta, la primera carga de septiembre se anotaba al 5 y nadie se enteraba hasta el cierre. */
+  /* ── SIN % NO HAY CUENTA ─────────────────────────────────────────────────────────────────
+     Con el cliente sin % la cuenta no se puede hacer, y la pantalla lo disimulaba: decía «cargar
+     0,00», «te queda 100.000» y dejaba crear el pedido. Elizabeth, 13-sep-2026: se le cargó igual
+     y la carga no generó deuda. Sin % no se muestra ningún número: se pide el %. */
+  if (!r.base) {
+    out.innerHTML = `
+    <div class="card" style="margin:8px 0;border-left:3px solid var(--gold)">
+      <b>${esc(r.cliente.nombre)} no tiene su % cargado</b>
+      <div class="muted" style="margin-top:2px">Sin el % no se puede saber cuánto cargarle, y lo que se le cargue no le suma deuda.</div>
+      <div class="row" style="margin-top:8px;align-items:flex-end">
+        <div style="flex:0 0 120px"><label>¿A qué % trabaja?</label><input id="cg-otro" inputmode="decimal" placeholder="10"></div>
+        <div style="flex:0"><button onclick="cgBase()">Guardar y calcular</button></div>
+      </div>
+    </div>`;
+    return;
+  }
   const preguntar = r.base && !r.base.confirmada;
   const cab = preguntar ? `
     <div class="card" style="margin:8px 0;border-left:3px solid var(--gold)">

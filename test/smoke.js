@@ -9251,6 +9251,18 @@ async function main() {
       /se anotaría al \$\{baseHoy\}%/.test(rutCg));
     check('carga: sin confirmar no se puede crear el pedido',
       /Confirmá el % arriba para poder crear el pedido/.test(uiCg));
+    /* Sin % la pantalla decía «cargar 0,00» y dejaba crear el pedido: a Elizabeth se le cargó así
+       y no le generó deuda. Sin % no hay número ni botón: se pide el %. */
+    {
+      const cgFn = uiCg.slice(uiCg.indexOf('async function cgCalcular('), uiCg.indexOf('async function cgBase('));
+      const iFalta = cgFn.indexOf('if (!r.base) {');
+      const bloque = cgFn.slice(iFalta, cgFn.indexOf('return;', iFalta));
+      check('carga: sin % pide el % en vez de decir «cargar 0»',
+        iFalta > 0 && iFalta < cgFn.indexOf('Cargar en ${esc(r.caja.usuario)}')
+        && /no tiene su % cargado/.test(bloque) && /id="cg-otro"/.test(bloque) && /onclick="cgBase\(\)"/.test(bloque));
+      check('carga: y sin % no se puede crear el pedido',
+        !/cgPedido\(\)/.test(bloque) && !/A\.cargar/.test(bloque));
+    }
 
     /* ── SE PUEDE CARGAR EN CUALQUIER DIVISA DEL PANEL, NO SÓLO EN LA DE LA CAJA ──────────────
        La caja de 463.life decía ARS; el panel, que es lo que dice el casino, tiene diez —ARS, BRL,
