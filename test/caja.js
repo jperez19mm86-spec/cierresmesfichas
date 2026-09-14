@@ -109,6 +109,21 @@ async function main() {
     check('el saldo de la cabecera lo dice el motor, no la maqueta',
       r.data.ok && r.data.yo.balance === 50000, String(r.data.ok && r.data.yo.balance));
 
+    /* ── puente con el OS (solicitar fichas / cuenta) ───────────────────────────────────────
+       En el test no hay OS_URL ni ENLACE_TOKEN, así que el puente está apagado: lo que importa es
+       que NO se cuelgue y que avise `offline` —para que la pantalla mande a soporte en vez de decir
+       por error «no configurado»—, y que cada ruta exija la sesión. */
+    {
+      let e = await pedir('/api/caja/fichas/estado');
+      check('fichas/estado: con el OS apagado no se cuelga, avisa offline', e.data.ok && e.data.offline === true);
+      e = await enviar('/api/caja/fichas/pedir', { monto: 1000000, divisa: 'ARS' });
+      check('fichas/pedir: idem, offline (no crea nada)', e.data.ok && e.data.offline === true);
+      e = await pedir('/api/caja/fichas/cuenta');
+      check('fichas/cuenta: idem, offline', e.data.ok && e.data.offline === true);
+      const sinSesion = await axios.get(BASE + '/api/caja/fichas/estado', { validateStatus: () => true });
+      check('fichas/estado sin sesión: 401 (no se llega al OS)', sinSesion.status === 401);
+    }
+
     /* ── 2 · lo que mueve plata ─────────────────────────────────────────────────────────── */
     await reiniciarMotor();
     const antesJugador = await saldoDe('301');

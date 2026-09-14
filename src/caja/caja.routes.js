@@ -1656,6 +1656,70 @@ function mount(app) {
     ok(res, { cruces: r.data.intersections || {} });
   }));
 
+  /* ══════ PUENTE con el OS: solicitar fichas, avisar pago, ver la cuenta ══════
+     Los clientes, su %, su grupo de Telegram y su deuda viven en el OS —otro servicio, otra base—,
+     no acá. Este bloque le pregunta al OS por HTTP con un token de servicio (ENLACE_TOKEN) que NUNCA
+     baja al navegador, y con la identidad tomada de la SESIÓN del casino, no del body: así nadie
+     puede pedir fichas ni mirar la cuenta de otra cuenta.
+     Y trata al OS como un servicio EXTERNO opcional: timeout corto y, si está caído o lento, contesta
+     { offline:true } en vez de colgarse o de decir por error «no configurado». La pantalla, ante
+     `offline`, manda a soporte. Deployar el OS no toca esto y viceversa. */
+  const OS_URL = String(process.env.OS_URL || '').replace(/\/+$/, '');
+  const ENLACE_TOKEN = String(process.env.ENLACE_TOKEN || '').trim();
+  if (!OS_URL || !ENLACE_TOKEN) console.warn('[caja] puente con el OS apagado: falta OS_URL o ENLACE_TOKEN');
+
+  async function llamarEnlace(ruta, { method = 'GET', body = null } = {}) {
+    if (!OS_URL || !ENLACE_TOKEN) return { _offline: true };
+    const ctrl = new AbortController();
+    const reloj = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const r = await fetch(`${OS_URL}/api/enlace/v1/${ruta}`, {
+        method,
+        headers: { authorization: 'Bearer ' + ENLACE_TOKEN, ...(body ? { 'content-type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+      });
+      if (!r.ok) return { _offline: true, _status: r.status };
+      return await r.json();
+    } catch (e) {
+      console.warn('[caja/enlace] el OS no respondió:', e && e.message);
+      return { _offline: true };
+    } finally { clearTimeout(reloj); }
+  }
+  /* La identidad SIEMPRE sale de la sesión, nunca del body. */
+  const idDeSesion = (req) => ({ usuario: req.caja.login, userId: String(req.caja.id) });
+  const qId = (req) => new URLSearchParams(idDeSesion(req)).toString();
+
+  // ¿Puede solicitar fichas / ver su cuenta? (configurado = existe + % + Telegram, lo decide el OS)
+  app.get('/api/caja/fichas/estado', auth.requerida, wrap(async (req, res) => {
+    const r = await llamarEnlace(`estado-cliente?${qId(req)}`);
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { estado: r });
+  }));
+
+  // Solicitar fichas: del cliente sólo viene monto/divisa; el destino es su propia cuenta (la sesión).
+  app.post('/api/caja/fichas/pedir', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await llamarEnlace('pedido', { method: 'POST', body: { ...idDeSesion(req), monto: b.monto, divisa: b.divisa } });
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { resultado: r });
+  }));
+
+  // Avisar a soporte (cuando no está configurado, o pide ayuda).
+  app.post('/api/caja/fichas/soporte', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await llamarEnlace('aviso-soporte', { method: 'POST', body: { ...idDeSesion(req), motivo: b.motivo || 'soporte', detalle: String(b.detalle || '').slice(0, 500) } });
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { resultado: r });
+  }));
+
+  // Mi cuenta: deuda/consumo/pagos + movimientos, SIN contraseña (la sesión ya identifica).
+  app.get('/api/caja/fichas/cuenta', auth.requerida, wrap(async (req, res) => {
+    const r = await llamarEnlace(`mi-cuenta?${qId(req)}`);
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { cuenta: r });
+  }));
+
 }
 
 module.exports = { mount };
