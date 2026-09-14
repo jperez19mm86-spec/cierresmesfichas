@@ -2601,43 +2601,133 @@ function irSec(s){
 function entrarEn(id){ DENTRO = id; cerrarHoja(); SEC = 'users'; irSec('users'); }
 function volverARaiz(){ DENTRO = null; irSec('users'); }
 
-/* 🔑 «Fichas y pagos» es el sistema de cuentas: pedir fichas, registrar un pago y ver lo que debés.
-   Se llega desde el engranaje —no es una pantalla que haya que cruzar para trabajar—, así que abre
-   como hoja sobre el panel. Que sea otro sistema no hace falta explicarlo con un cartel. */
-function irCuenta(){
-  abrirHoja(`
-    <h3 id="hojaTit">Fichas y pagos</h3>
-    ${/* Acá se aclaraba que es otro sistema y que tiene su propia dirección. Cómo tenemos
-         repartidos los sistemas no le cambia nada al cliente, y encima insinuaba un lugar al que
-         ir justo cuando las tres opciones contestan que el acceso se le pide a soporte. */''}
-    <div class="sub">Tu cuenta con nosotros.</div>
+/* 🔑 «Solicitar fichas» = el sistema de cuentas del OS (pedir fichas, avisar un pago, ver la deuda),
+   que vive en OTRO servicio. Se llega desde el engranaje / la barra. Al entrar se pregunta UNA vez
+   al OS —vía el proxy `/api/caja/fichas/*`, que pone la identidad de la sesión y el token, no el
+   navegador— si la cuenta está CONFIGURADA (existe + % + grupo de Telegram):
+     · si sí, se muestran las tres opciones;
+     · si no —o si el OS no responde—, se avisa a soporte y se dice que todavía no está habilitado,
+       sin dibujar opciones que no se pueden usar.
+   El OS es un servicio externo opcional: si está caído, el proxy contesta `offline` y acá se cae al
+   camino de soporte, nunca se cuelga. */
+async function solicitarFichas(){
+  abrirHoja(`<h3 id="hojaTit">Solicitar fichas</h3><div class="sub">Un momento…</div>`);
+  let d;
+  try { d = await (await fetch('/api/caja/fichas/estado')).json(); }
+  catch (e) { d = { offline: true }; }
+  const est = d && d.estado;
+  if (!d || d.offline || !est || est.configurado !== true) {
+    /* Sin habilitar u OS caído: se avisa a soporte (sin bloquear) y se dice, sin mostrar opciones. */
+    fetch('/api/caja/fichas/soporte', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"motivo":"soporte"}' }).catch(() => {});
+    return fichasSinHabilitar();
+  }
+  fichasOpciones();
+}
+
+function fichasSinHabilitar(){
+  abrirHoja(`<h3 id="hojaTit">Todavía no lo tenés habilitado</h3>
+    <div class="sub">Tu cuenta no tiene activada esta parte.</div>
+    <div class="nota neutra">Ya le avisamos a soporte para dejártela lista. En cuanto esté, vas a poder pedir fichas, registrar pagos y ver tu cuenta desde acá.</div>
+    <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
+}
+
+function fichasOpciones(){
+  abrirHoja(`<h3 id="hojaTit">Solicitar fichas</h3>
+    <div class="sub">Elegí qué querés hacer.</div>
     <div class="acc">
-      <button onclick="alOtroLado('Pedir fichas')">
+      <button class="destaca" onclick="fichasFormPedir()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg></span>
-        <span class="tx">Pedir fichas<small>Comprar fichas para cargar a tus cajeros</small></span>
+        <span class="tx">Pedir fichas<small>Comprar fichas para cargar a tus cajeros</small></span><span class="fl">›</span>
       </button>
-      <button onclick="alOtroLado('Registrar un pago')">
+      <button onclick="fichasRegistrarPago()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span>
-        <span class="tx">Registrar un pago<small>Avisar que pagaste y subir el comprobante</small></span>
+        <span class="tx">Registrar un pago<small>Avisar que pagaste y subir el comprobante</small></span><span class="fl">›</span>
       </button>
-      <button onclick="alOtroLado('Mi cuenta')">
+      <button onclick="fichasMiCuenta()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3.5-2-3.5 2-3.5-2-3.5 2z"/><path d="M9 8.5h6M9 12.5h6"/></svg></span>
-        <span class="tx">Mi cuenta<small>Lo que consumiste, lo que pagaste y lo que debés</small></span>
+        <span class="tx">Mi cuenta<small>Lo que consumiste, lo que pagaste y lo que debés</small></span><span class="fl">›</span>
       </button>
     </div>
     <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Volver</button></div>`);
 }
 
-function alOtroLado(que){
-  /* 🔴 «ESTO VIVE EN EL SISTEMA DE CUENTAS» ERA UNA PUERTA CERRADA SIN PICAPORTE. Le contaba al
-     cliente cómo están repartidos nuestros sistemas —cosa nuestra— y lo dejaba sin nada para
-     hacer: leía, tocaba «Entendido» y quedaba igual que antes. Reescrito con el dueño el
-     9-sep-2026, con la misma forma que el aviso del link de acceso: se puede tener, y así se pide.
-     El título ya dice cuál de las tres opciones es, así que acá no hace falta repetirlo. */
-  abrirHoja(`<h3 id="hojaTit">${que}</h3>
-    <div class="sub">Todavía no lo tenés habilitado en tu panel.</div>
-    <div class="nota neutra">Pedíselo a soporte y te lo habilitan.</div>
-    <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
+/* Pedir fichas: del cliente sólo viene el monto; el destino es SU propia cuenta (él reparte después
+   a sus cajas). Los montos rápidos son los que pidió el dueño. */
+const FICHAS_RAPIDOS = [500000, 1000000, 5000000, 10000000, 20000000];
+const fichasEtiqueta = (v) => (v >= 1000000 ? (v / 1000000) + 'M' : (v / 1000) + 'K');
+function fichasFormPedir(){
+  abrirHoja(`<h3 id="hojaTit">Pedir fichas</h3>
+    <div class="sub">Elegí cuánto y te lo cargamos a tu cuenta.</div>
+    <label class="campo" for="fMonto">Monto en ${esc(yo().currency)}</label>
+    <input class="entrada grande num" id="fMonto" inputmode="numeric" placeholder="0" oninput="fichasRevisarMonto()">
+    <div class="rapidos">
+      ${FICHAS_RAPIDOS.map((v) => `<button onclick="fichasPonerMonto(${v})">${fichasEtiqueta(v)}</button>`).join('')}
+    </div>
+    <div class="nota neutra" style="margin-top:12px">Te avisamos por Telegram cuando esté acreditado.</div>
+    <div class="acciones">
+      <button class="btn sec" onclick="fichasOpciones()">Volver</button>
+      <button class="btn" id="fPedir" disabled onclick="fichasEnviarPedido()">Pedir fichas</button>
+    </div>`);
+  setTimeout(() => { const m = $('fMonto'); if (m) m.focus(); }, 260);
+}
+function fichasMontoActual(){ const i = $('fMonto'); return Number(String(i ? i.value : '').replace(/[^0-9]/g, '')) || 0; }
+function fichasPonerMonto(v){ const i = $('fMonto'); if (i) i.value = fmt(v); fichasRevisarMonto(); }
+function fichasRevisarMonto(){ const b = $('fPedir'); if (b) b.disabled = !(fichasMontoActual() > 0); }
+async function fichasEnviarPedido(){
+  const monto = fichasMontoActual();
+  if (!(monto > 0)) return;
+  const b = $('fPedir'); if (b) { b.disabled = true; b.textContent = 'Pidiendo…'; }
+  let d;
+  try { d = await (await fetch('/api/caja/fichas/pedir', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ monto, divisa: yo().currency }) })).json(); }
+  catch (e) { d = { offline: true }; }
+  const r = d && d.resultado;
+  if (d && !d.offline && r && r.creado) {
+    return abrirHoja(`<h3 id="hojaTit">¡Pedido enviado!</h3>
+      <div class="sub">Ya quedó registrado.</div>
+      <div class="nota aviso"><b>Pediste ${esc(yo().currency)} ${fmt(monto)}.</b> Te cargamos las fichas y te avisamos por Telegram cuando esté acreditado.</div>
+      <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
+  }
+  /* No configurado / offline / error: el OS ya avisó a soporte cuando corresponde. */
+  const sinConfig = r && r.motivo === 'sin_configurar';
+  return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
+    <div class="sub">${sinConfig ? 'Tu cuenta todavía no está habilitada para pedir.' : 'No pudimos procesarlo en este momento.'}</div>
+    <div class="nota neutra">${sinConfig ? 'Ya le avisamos a soporte para dejártela lista.' : 'Probá de nuevo en un rato. Si sigue, escribí a soporte.'}</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
+/* Mi cuenta: deuda + movimientos, SIN contraseña (la sesión del casino ya identifica). */
+const FICHAS_MOV = { carga: 'Carga', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedor', correccion: 'Corrección' };
+async function fichasMiCuenta(){
+  abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3><div class="sub">Un momento…</div>`);
+  let d;
+  try { d = await (await fetch('/api/caja/fichas/cuenta')).json(); }
+  catch (e) { d = { offline: true }; }
+  const c = d && d.cuenta;
+  if (!d || d.offline || !c || c.existe === false) {
+    return abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
+      <div class="sub">No pudimos traer tu cuenta ahora.</div>
+      <div class="nota neutra">Probá de nuevo en un rato. Si sigue, escribí a soporte.</div>
+      <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+  }
+  const mon = esc(c.moneda || yo().currency);
+  const movs = (c.movimientos || []).slice(0, 12).map((m) =>
+    `<div class="fila"><span>${esc(m.fecha || '')} · ${esc(FICHAS_MOV[m.tipo] || m.tipo || 'Movimiento')}</span><b class="num">${mon} ${fmt(m.monto || 0)}</b></div>`).join('');
+  abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
+    <div class="sub">${esc(yo().login)} · al día de hoy${c.provisional ? ' · provisorio' : ''}</div>
+    <div class="nota aviso"><b>Tu deuda: ${mon} ${fmt(c.deuda || 0)}</b></div>
+    <div class="fila"><span>Fichas cargadas</span><b class="num">${mon} ${fmt(c.fichas || 0)}</b></div>
+    <div class="fila"><span>Pagos registrados</span><b class="num">${mon} ${fmt(c.pagos || 0)}</b></div>
+    ${movs ? `<div class="tit" style="margin-top:14px"><h2>Últimos movimientos</h2></div>${movs}` : ''}
+    <div class="nota neutra" style="margin-top:12px">Entrás sin contraseña: tu sesión ya te identifica.</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
+/* Registrar un pago: por ahora deriva a soporte. El flujo con comprobante se suma en un paso aparte. */
+function fichasRegistrarPago(){
+  abrirHoja(`<h3 id="hojaTit">Registrar un pago</h3>
+    <div class="sub">Avisás que pagaste y subís el comprobante.</div>
+    <div class="nota neutra">Estamos por habilitar esto acá. Por ahora avisá tu pago a soporte y lo cargamos.</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
 }
 
 /* ══════ pintado por sección ══════ */
@@ -3805,9 +3895,9 @@ function miCuenta(){
     <h3 id="hojaTit" class="mono">${yo().login}</h3>
     <div class="sub">${yo().nivel} · ID ${yo().id}</div>
     <div class="acc">
-      ${esAgente() ? `<button onclick="irCuenta()">
+      ${esAgente() ? `<button class="destaca" onclick="solicitarFichas()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span>
-        <span class="tx">Fichas y pagos<small>Pedir fichas, registrar un pago y ver tu deuda</small></span>
+        <span class="tx">Solicitar fichas</span>
         <span class="fl">›</span>
       </button>` : ''}
       ${sinMovs ? `<button onclick="cerrarHoja(); irSec('reports')">

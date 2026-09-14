@@ -1050,14 +1050,22 @@ check('sin grilla no se marca nada, en vez de romper',
     !/id="quien"[^>]*>[^<]*<svg/.test(htmlCaja)
     && /\$\('quien'\)\.textContent/.test(htmlCaja));
 
-  /* 🔴 «ESTO VIVE EN EL SISTEMA DE CUENTAS» ERA UNA PUERTA CERRADA SIN PICAPORTE: le contaba al
-     cliente cómo están repartidos nuestros sistemas y lo dejaba sin nada para hacer. Mismo criterio
-     que el aviso del link: se puede tener, y así se pide. */
-  check('lo que todavía no está habilitado se dice como algo que se pide',
-    /Todavía no lo tenés habilitado en tu panel\./.test(htmlCaja)
-    && /Pedíselo a soporte y te lo habilitan\./.test(htmlCaja)
-    && !/Esto vive en el sistema de cuentas/.test(htmlCaja)
-    && !/es otro sistema, con su propia dirección/.test(htmlCaja));
+  /* 🔑 «SOLICITAR FICHAS» conecta con el OS. Al entrar chequea UNA vez el estado por el proxy; si no
+     está configurada (o el OS no responde) avisa a soporte y no muestra opciones que no se pueden
+     usar. La identidad y el token los pone el server —el navegador nunca los ve—. */
+  check('solicitar fichas chequea el estado al entrar y, sin habilitar, avisa a soporte sin mostrar opciones',
+    /async function solicitarFichas\(\)/.test(htmlCaja)
+    && /\/api\/caja\/fichas\/estado/.test(htmlCaja)
+    && /est\.configurado !== true/.test(htmlCaja)
+    && /fichasSinHabilitar\(\)/.test(htmlCaja)
+    && /\/api\/caja\/fichas\/soporte/.test(htmlCaja));
+  check('pedir fichas y ver la cuenta van por el proxy del OS (token del lado server, no del navegador)',
+    /\/api\/caja\/fichas\/pedir/.test(htmlCaja) && /\/api\/caja\/fichas\/cuenta/.test(htmlCaja)
+    && !/ENLACE_TOKEN/.test(htmlCaja));
+  check('los montos rápidos de pedir son los acordados (500K..20M)',
+    /FICHAS_RAPIDOS = \[500000, 1000000, 5000000, 10000000, 20000000\]/.test(htmlCaja));
+  check('«Mi cuenta» no pide contraseña: se apoya en la sesión',
+    /Entrás sin contraseña: tu sesión ya te identifica\./.test(htmlCaja));
 
   /* 🔑 EL HUB DE DOS PUERTAS SE RETIRÓ (9-sep-2026, pedido del dueño). El cliente casi nunca pide
      fichas y sí pasa el tiempo en el panel: el panel es el único destino al entrar —de cualquier
@@ -1071,9 +1079,9 @@ check('sin grilla no se marca nada, en vez de romper',
     && !/id="volverHub"/.test(htmlCaja));
   check('el conector también manda al panel al terminar el login, sin ramificar por nivel',
     /\n\s*irPanel\(\);/.test(conector) && !/irHub\(\)/.test(conector));
-  check('«Fichas y pagos» se llega desde el engranaje, no desde una pantalla aparte',
-    /Fichas y pagos<small>Pedir fichas, registrar un pago y ver tu deuda<\/small>/.test(htmlCaja)
-    && /\$\{esAgente\(\) \? `<button onclick="irCuenta\(\)"/.test(htmlCaja));
+  check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
+    /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
+    && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
 
   /* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px está pensado para leer un teléfono a treinta
      centímetros; la misma medida en una notebook a sesenta se lee chica. Cada tamaño de la hoja
