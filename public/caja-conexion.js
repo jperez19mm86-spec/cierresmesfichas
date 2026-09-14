@@ -339,79 +339,77 @@
         r && r.detalle);
     }
 
-    window.__caja_sesion = r.yo;
+    /* Entrar bien pasa el «quién sos» que devolvió el motor a la puerta común `aplicarSesion` — la
+       misma que usa el reanudar al refrescar. Si el casino no mandó el saldo, no se entra. */
+    const res = await aplicarSesion(r.yo);
+    if (!res.ok) {
+      return avisarConDetalle('Entraste bien, pero el casino no contestó tu saldo. Probá de nuevo '
+        + 'en un momento.', res.detalle);
+    }
+    const aviso = document.getElementById('avisoLogin');
+    if (aviso) aviso.remove();
+  };
+
+  /* La puerta común a «estar adentro»: deja el estado como si acabaras de entrar, a partir del
+     «quién sos» (`yo`) que devolvió el motor. La usan las DOS puertas —el login manual y el
+     reanudar al refrescar— así que lo que se arregle acá vale para las dos. Devuelve
+     {ok:false, detalle} si el casino no mandó el saldo: sin saldo no se entra, porque `maxAlta()`
+     (el tope de carga) sale de ahí y un tope inventado deja cargar de más. */
+  async function aplicarSesion(yo) {
+    window.__caja_sesion = yo;
     cache.clear();
     vaciarLosEjemplos();
-    try { localStorage.setItem(ULTIMO, r.yo.login || usuario); } catch (e) {}
+    try { localStorage.setItem(ULTIMO, yo.login || ''); } catch (e) {}
 
-    /* 🔴 LOS CAMPOS DEL LOGIN SE APAGAN APENAS ENTRA. No es prolijidad: es lo único que calla a
-       Chrome.
-
-       Esto es una sola página: la tarjeta de login no se destruye, se esconde. Mientras siga
-       existiendo un <input type="password"> junto a uno de usuario, Chrome ve un formulario de
-       acceso vivo, y cada vez que la pantalla cambia de forma —cargar fichas, traer los
-       movimientos— lo lee como «envió el formulario» y dispara «¿Quieres actualizar la
-       contraseña?».
-
-       Ya se probaron dos cosas que NO alcanzan, y conviene que quede escrito para no repetirlas:
-         · `autocomplete="off"`  → Chrome lo ignora en campos de contraseña, hace años.
-         · borrar sólo el valor  → el campo sigue estando, y Chrome se guía por el campo.
-       Lo que sí funciona es `disabled`: un campo deshabilitado queda afuera de la detección de
-       credenciales. Se vuelven a habilitar en `salir()`, que es cuando hacen falta de nuevo. */
+    /* 🔴 LOS CAMPOS DEL LOGIN SE APAGAN, NO SE VACÍAN: es lo único que calla a Chrome. Es una sola
+       página; la tarjeta de login se esconde, no se destruye. Mientras siga vivo un
+       <input type="password"> junto al de usuario, Chrome lee cada cambio de pantalla como «envió
+       el formulario» y ofrece guardar la clave. `disabled` lo saca de esa detección; se reponen en
+       `salir()`. (`autocomplete=off` lo ignora hace años; borrar sólo el valor no alcanza.) */
     try { apagarLogin(true); } catch (e) { /* si no están los campos, no hay nada que apagar */ }
 
-    /* La app decide qué dibujar según ROL: se lo damos con lo que dijo el motor, no con un
-       selector. `area=info` devolvió el group y de ahí sale el rol. */
-    /* 🔴 `fijarNivel`, no `window.ROL = ...`: ver el comentario largo en caja.html. La
-       asignación directa no llega al `let` del panel. Qué grupo es qué nivel lo decide
-       `nivelDeGrupo`, en caja-logica.js, donde lo cubren los tests. */
-    const grupo = Number(r.yo.group);
+    /* El ROL decide qué dibuja la app; se lo damos con lo que dijo el motor (`group` → nivel), no
+       con un selector. `fijarNivel`, no `window.ROL = ...`: la asignación directa no llega al `let`
+       del panel (ver el comentario largo en caja.html). `nivelDeGrupo` vive en caja-logica.js. */
+    const grupo = Number(yo.group);
     const nivel = nivelDeGrupo(grupo);
     fijarNivel(nivel.rol, nivel.subagente);
-    /* 🔴 LA CUENTA PROPIA SE ARMA DE CERO, NO ENCIMA DE LA MAQUETA. Antes esto era un
-       `Object.assign` sobre el ejemplo, así que todo campo que el servidor NO manda se quedaba con
-       el valor inventado. El más caro: `caja`, que en la maqueta apunta a 7357557 —una caja real,
-       de un cliente— y hacía que TODO sub-cajero creyera pertenecer ahí y viera sus cuentas
-       eliminadas. Reportado el 2-sep-2026 con SubbCajacc.
-       Lo mismo valía para `hide_hall_balance` y `disable_statistic`: dos permisos escritos a mano
-       que se le aplicaban a cualquiera. Ahora sólo entra lo que dijo el servidor. */
+
+    /* 🔴 LA CUENTA PROPIA SE ARMA DE CERO, NO ENCIMA DE LA MAQUETA: todo campo que el server no
+       manda tiene que quedar en su valor seguro, no en el de ejemplo. El más caro era `caja`, que
+       en la maqueta apunta a una caja real y hacía que un sub-cajero viera cuentas ajenas
+       (reportado el 2-sep-2026). Igual `hide_hall_balance` y `disable_statistic`. */
     CUENTAS[ROL] = {
-      id: r.yo.id, login: r.yo.login, group: grupo,
-      currency: r.yo.moneda || 'ARS',
+      id: yo.id, login: yo.login, group: grupo,
+      currency: yo.moneda || 'ARS',
       nivel: SUBAGENTE ? 'Sub-agente'
         : { agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
       /* De qué caja cuelga. `null` es «no lo sabemos», y el panel no filtra por una caja ajena. */
-      caja: r.yo.caja || null,
-      hide_hall_balance: r.yo.hide_hall_balance === true,
-      disable_statistic: r.yo.disable_statistic === true,
-      /* El de la maqueta era 100.000. Fuera antes de que se pinte nada. */
+      caja: yo.caja || null,
+      hide_hall_balance: yo.hide_hall_balance === true,
+      disable_statistic: yo.disable_statistic === true,
       balance: null,
     };
 
-    /* 🔴 EL SALDO NO ES DECORACIÓN: `maxAlta()` sale de `bolsillo().balance`, así que es el tope
-       de lo que el panel deja cargar. Si entramos sin él, o con el de la maqueta, el cliente ve un
-       límite que no es suyo. Por eso se espera acá y, si no llega, NO se entra. */
-    /* ⚡ El saldo ya viene en la respuesta del login: el backend lo saca del mismo `info` que usó
-       para validarte. Antes se pedía de nuevo — una llamada idéntica, ~250 ms, en el momento en
-       que más se nota. Sólo se pregunta aparte si por algo no vino. */
-    if (typeof r.yo.balance === 'number') {
-      CUENTAS[ROL].balance = r.yo.balance;
+    /* El saldo ya suele venir en la respuesta (el motor lo saca del mismo `info` que te validó).
+       Sólo si por algo no vino se pregunta aparte —una llamada de ~250 ms—. Sin saldo, no se
+       entra: `maxAlta()` saldría de un número que no es del cliente. */
+    if (typeof yo.balance === 'number') {
+      CUENTAS[ROL].balance = yo.balance;
     } else {
       const s = await API.pedir('yo');
       if (!s.ok || !s.yo || typeof s.yo.balance !== 'number') {
         window.__caja_sesion = null;
-        return avisarConDetalle('Entraste bien, pero el casino no contestó tu saldo. Probá de nuevo '
-          + 'en un momento.', s && s.detalle);
+        return { ok: false, detalle: s && s.detalle };
       }
       CUENTAS[ROL].balance = s.yo.balance;
       if (s.yo.moneda) CUENTAS[ROL].currency = s.yo.moneda;
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
-    const aviso = document.getElementById('avisoLogin');
-    if (aviso) aviso.remove();
+
     arrancarLatido();
     irPanel();
-  };
+    return { ok: true };
+  }
 
   /* ══════ 2 · LAS CUENTAS que cuelgan del nodo ══════ */
 
@@ -2220,4 +2218,20 @@
      querer. */
 
   window.__cajaAPI = API;
+
+  /* ══════ reanudar al refrescar ══════
+     La sesión vive en una cookie HttpOnly (12 h): el navegador la tiene, pero JS no la puede leer.
+     Así que al cargar la página se le pregunta al server con /api/caja/yo. Si contesta, se entra
+     directo al panel; si da 401, se queda el login —en esta carga nunca hubo sesión, no se venció
+     nada, así que sin cartel de «se venció»—. Antes NO existía este chequeo: cada refresh volvía
+     al login aunque la cookie siguiera viva (reportado 14-sep-2026). Se usa `fetch` directo y no
+     `API.pedir`, justamente para no disparar el «se venció la sesión» del pasamanos en el 401
+     normal de quien todavía no entró. */
+  (async function reanudarSesion() {
+    let d = null;
+    try { d = await fetch('/api/caja/yo', { credentials: 'same-origin' }).then((r) => r.json()); }
+    catch (e) { return; }                 // sin red: queda el login, que ya está a la vista
+    if (!d || !d.ok || !d.yo) return;     // 401 u otra cosa: login normal, sin ruido
+    try { await aplicarSesion(d.yo); } catch (e) { /* si algo raro pasa, queda el login */ }
+  })();
 })();

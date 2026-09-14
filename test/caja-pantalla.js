@@ -84,8 +84,8 @@ const sinVaciar = declaradas.filter((n) => !vaciadas.includes(`'${n}'`));
 
 check('el conector tiene la rutina que tira los datos de ejemplo',
   vaciadas.length > 0);
-check('y se llama apenas alguien entra de verdad',
-  /window\.__caja_sesion = r\.yo;[\s\S]{0,80}vaciarLosEjemplos\(\)/.test(conector));
+check('y se llama apenas alguien entra de verdad (en la puerta común aplicarSesion)',
+  /window\.__caja_sesion = yo;[\s\S]{0,80}vaciarLosEjemplos\(\)/.test(conector));
 check('ninguna colección de ejemplo queda sin vaciar',
   sinVaciar.length === 0,
   sinVaciar.length ? `sin vaciar: ${sinVaciar.join(', ')}` : `${declaradas.length} cubiertas`);
@@ -1079,6 +1079,18 @@ check('sin grilla no se marca nada, en vez de romper',
     && !/id="volverHub"/.test(htmlCaja));
   check('el conector también manda al panel al terminar el login, sin ramificar por nivel',
     /\n\s*irPanel\(\);/.test(conector) && !/irHub\(\)/.test(conector));
+  /* 🔴 EL REFRESH NO DEBE DESLOGUEAR. La cookie de sesión es HttpOnly (JS no la lee), así que al
+     cargar hay que PREGUNTARLE al server con /api/caja/yo y, si contesta, retomar el panel. Antes
+     no existía este chequeo y cada refresh volvía al login con la sesión todavía viva
+     (reportado 14-sep-2026). Falla si alguien saca el reanudar o el login deja de usar la puerta
+     común `aplicarSesion`. */
+  check('al refrescar retoma la sesión viva en vez de volver al login',
+    /async function reanudarSesion\(\)/.test(conector)
+    && /fetch\('\/api\/caja\/yo'/.test(conector)
+    && /aplicarSesion\(d\.yo\)/.test(conector));
+  check('login y reanudar comparten la puerta común aplicarSesion',
+    /async function aplicarSesion\(yo\)/.test(conector)
+    && /await aplicarSesion\(r\.yo\)/.test(conector));
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
     && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
