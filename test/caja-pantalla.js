@@ -1025,7 +1025,7 @@ check('sin grilla no se marca nada, en vez de romper',
     && /\.scroll\{grid-column:2; grid-row:2; overflow:visible/.test(htmlCaja));
   /* 🔴 UN COMENTARIO DE PLANTILLA IMPRESO EN LA PANTALLA. Casi todo el panel se dibuja con
      plantillas de JavaScript, donde `${'/* … *' + '/'}''` es la forma de comentar. Pero la barra de
-     arriba, el login y el hub son HTML del documento: ahí eso NO es un comentario, el navegador lo
+     arriba y el login son HTML del documento: ahí eso NO es un comentario, el navegador lo
      imprime tal cual. Pasó el 9-sep-2026 y el cajero veía mi comentario al lado de su nombre.
      Se mira sólo el HTML —fuera de los guiones, de los estilos y de los comentarios de HTML—: ahí
      no puede quedar ni una llave de plantilla. */
@@ -1059,15 +1059,21 @@ check('sin grilla no se marca nada, en vez de romper',
     && !/Esto vive en el sistema de cuentas/.test(htmlCaja)
     && !/es otro sistema, con su propia dirección/.test(htmlCaja));
 
-  /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
-     columna angosta arriba de todo, con la pantalla entera vacía debajo. Acá no hay lista que
-     crezca ni nada que se desplace, es una decisión de dos caminos: se centra en la pantalla y las
-     dos opciones van una al lado de la otra, que es lo que dice que valen lo mismo. */
-  check('el hub se centra y pone las dos opciones a la par',
-    /\.marco > \.hub\{max-width:none[\s\S]{0,220}justify-content:center/.test(htmlCaja)
-    && /\.hub \.opciones\{display:grid; grid-template-columns:1fr 1fr/.test(htmlCaja));
-  check('y «Salir» deja de ser una barra de punta a punta',
-    /\.hub \.btn\.sec\{display:block; width:auto; min-width:220px; margin-inline:auto\}/.test(htmlCaja));
+  /* 🔑 EL HUB DE DOS PUERTAS SE RETIRÓ (9-sep-2026, pedido del dueño). El cliente casi nunca pide
+     fichas y sí pasa el tiempo en el panel: el panel es el único destino al entrar —de cualquier
+     nivel— y «Fichas y pagos» quedó como una opción adentro del engranaje, a mano pero no en el
+     camino. Esto falla si algo revive el hub, el botón de «volver al hub», o deja de ofrecer
+     «Fichas y pagos» desde la cuenta. */
+  check('al entrar se va derecho al panel, sin hub de por medio',
+    /function entrar\(\)\{ irPanel\(\); \}/.test(htmlCaja)
+    && !/id="pHub"/.test(htmlCaja)
+    && !/function irHub\(/.test(htmlCaja)
+    && !/id="volverHub"/.test(htmlCaja));
+  check('el conector también manda al panel al terminar el login, sin ramificar por nivel',
+    /\n\s*irPanel\(\);/.test(conector) && !/irHub\(\)/.test(conector));
+  check('«Fichas y pagos» se llega desde el engranaje, no desde una pantalla aparte',
+    /Fichas y pagos<small>Pedir fichas, registrar un pago y ver tu deuda<\/small>/.test(htmlCaja)
+    && /\$\{esAgente\(\) \? `<button onclick="irCuenta\(\)"/.test(htmlCaja));
 
   /* 🔴 LAS LETRAS TAMBIÉN CAMBIAN DE PANTALLA. 13,5px está pensado para leer un teléfono a treinta
      centímetros; la misma medida en una notebook a sesenta se lee chica. Cada tamaño de la hoja

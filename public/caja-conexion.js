@@ -410,7 +410,7 @@
     const aviso = document.getElementById('avisoLogin');
     if (aviso) aviso.remove();
     arrancarLatido();
-    esAgente() ? irHub() : irPanel();
+    irPanel();
   };
 
   /* ══════ 2 · LAS CUENTAS que cuelgan del nodo ══════ */

@@ -692,31 +692,16 @@ button{font-family:inherit}
   .marco{display:grid; grid-template-columns:var(--riel) minmax(0, 1fr);
     grid-template-rows:auto auto minmax(0, 1fr); overflow:visible}
   .marco > .top{grid-column:1 / -1; grid-row:1}
-  /* Login y hub se ven cuando NO hay secciones, así que se quedan con las dos columnas y con las
-     dos filas de abajo: si sólo tomaran la fila automática quedaban pegados arriba, con la mitad
-     de la pantalla vacía debajo. */
-  .marco > .login, .marco > .hub{grid-column:1 / -1; grid-row:1 / -1}
+  /* El login se ve cuando NO hay secciones, así que se queda con las dos columnas y con las dos
+     filas de abajo: si sólo tomara la fila automática quedaba pegado arriba, con la mitad de la
+     pantalla vacía debajo. */
+  .marco > .login{grid-column:1 / -1; grid-row:1 / -1}
   /* Y la tarjeta de acceso no se estira: son dos campos, un formulario de 1000px de ancho se lee
      peor y no entra en ninguna idea de formulario. */
   /* 420px es el ancho de un teléfono: en una pantalla de 1791 la tarjeta de acceso quedaba
      chiquita en el medio. Con 500 sigue siendo un formulario y deja de parecer una miniatura. */
   .login .tarjeta{max-width:500px; width:100%; margin-inline:auto}
 
-  /* 🔴 EL HUB SEGUÍA SIENDO UN TELÉFONO GRANDE. Son dos opciones y un «Salir»: apilados en una
-     columna angosta arriba de todo, con la pantalla entera vacía debajo, se lee como una app de
-     celular estirada. Señalado por el dueño el 9-sep-2026 mirándolo en su notebook.
-     Acá no hay lista que crezca ni nada que se desplace: es una decisión de dos caminos. Así que
-     se centra en la pantalla y las dos opciones van una al lado de la otra, que es lo que dice
-     que valen lo mismo. El saludo se centra con ellas y «Salir» deja de ser una barra de punta a
-     punta, porque no es lo que se viene a hacer acá. */
-  .marco > .hub{max-width:none; width:100%; margin:0; overflow:visible;
-    display:flex; flex-direction:column; justify-content:center; align-items:center;
-    padding:40px max(40px, calc((100% - var(--lectura)) / 2)) 56px}
-  .hub > *{width:100%; max-width:900px}
-  .hub .saludo{text-align:center; margin:0 0 26px}
-  .hub .opciones{display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:stretch}
-  .hub .op{height:100%}
-  .hub .btn.sec{display:block; width:auto; min-width:220px; margin-inline:auto}
   /* El riel toma las dos filas de abajo: si tomara sólo la del cuerpo, su borde y su fondo
      terminarían donde termina el contenido, y con una lista corta quedaría un tabique a medias. */
   .secs{grid-column:1; grid-row:2 / -1; flex-direction:column; gap:2px;
@@ -847,11 +832,7 @@ button{font-family:inherit}
 .btn.sec:hover{border-color:var(--g); color:var(--g)}
 .btn.peligro{background:var(--no); color:var(--sobre-no)}
 
-/* HUB */
-.hub{flex:1; overflow-y:auto; padding:20px 16px calc(24px + env(safe-area-inset-bottom))}
-.hub .saludo{margin:2px 0 18px}
-.hub .saludo h1{font-size:calc(22px * var(--esc)); font-weight:700; letter-spacing:-.025em; margin:0 0 3px; text-wrap:balance}
-.hub .saludo p{margin:0; color:var(--mut); font-size:calc(13.5px * var(--esc))}
+/* OPCIONES (lista de botones-fila; la usa el resultado del alta y alguna hoja) */
 .opciones{display:flex; flex-direction:column; gap:9px}
 .op{display:flex; align-items:center; gap:13px; width:100%; text-align:left; cursor:pointer;
   background:var(--bg2); border:1px solid var(--bor); border-radius:14px; padding:15px 14px;
@@ -865,12 +846,6 @@ button{font-family:inherit}
 .op .tx span{display:block; font-size:calc(12.5px * var(--esc)); color:var(--mut); line-height:1.35}
 .op .fl{color:var(--mut); flex:none}
 .op{border-radius:20px}
-.op.principal{background:var(--marca-accion); border-color:transparent; color:var(--lg-tx);
-  box-shadow:0 12px 30px -18px rgba(42,11,77,.72)}
-.op.principal .ic{background:rgba(255,255,255,.15); color:var(--lg-tx)}
-.op.principal .tx span{color:var(--lg-tx2)}
-.op.principal .fl{color:var(--lg-tx2)}
-.op.principal:hover{border-color:transparent; filter:brightness(1.08)}
 .grupo{font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.07em; color:var(--mut);
   font-weight:600; margin:20px 2px 9px}
 
@@ -1402,31 +1377,8 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
          y no se elige. `setRol` queda porque lo usan los tests de la lógica de menús. -->
   </div>
 
-  <!-- ══════ HUB ══════ -->
-  <div class="hub" id="pHub" hidden>
-    <div class="saludo">
-      <h1>Hola, <span class="mono" id="hubQuien">GanamosxLatam</span></h1>
-      <p>¿Qué querés hacer?</p>
-    </div>
-    <div class="opciones">
-      <button class="op principal" onclick="irPanel()">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M3.5 9.5h17M9.5 20.5v-11"/></svg>
-        <span class="tx"><b>Tu panel</b><span>Tus cajeros y jugadores</span></span>
-        <span class="fl">›</span>
-      </button>
-      <button class="op" onclick="irCuenta()">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg>
-        <span class="tx"><b>Fichas y pagos</b><span>Comprá, pagá o mirá tu deuda</span></span>
-        <span class="fl">›</span>
-      </button>
-    </div>
-    <div style="height:14px"></div>
-    <button class="btn sec" onclick="salir()">Salir</button>
-  </div>
-
   <!-- ══════ PANEL ══════ -->
   <div class="top" id="barra" hidden>
-    <button class="icobtn" id="volverHub" onclick="irHub()" hidden>‹</button>
     <div class="ficha"></div>
     <!-- 🔴 EL NOMBRE YA ERA UN BOTÓN Y NADIE LO SABÍA. Tocarlo abre «Mi cuenta» —cambiar la
          contraseña, ver los datos— pero se veía igual que un rótulo, así que nadie lo tocaba.
@@ -2584,14 +2536,17 @@ function setRol(r){
 }
 function mostrar(cual){
   $('pLogin').hidden = cual !== 'login';
-  $('pHub').hidden = cual !== 'hub';
   const p = cual === 'panel';
   $('barra').hidden = !p; $('secciones').hidden = !p; $('cuerpo').hidden = !p;
   $('fab').hidden = !p || SEC !== 'users';
   cerrarHoja();
 }
-function entrar(){ esAgente() ? irHub() : irPanel(); }
-function irHub(){ $('hubQuien').textContent = yo().login; mostrar('hub'); }
+/* 🔑 El panel es el único destino al entrar, de cualquier nivel. Antes el agente caía en un hub de
+   dos puertas —«Tu panel» y «Fichas y pagos»—; se retiró (9-sep-2026, pedido del dueño): el cliente
+   casi nunca pide fichas y sí pasa el tiempo en el panel, así que ese es su lugar y no una pantalla
+   que hay que cruzar para empezar a trabajar. «Fichas y pagos» quedó como una opción adentro del
+   engranaje —a mano pero no en el camino—, y por eso ya no hay botón de «volver al hub». */
+function entrar(){ irPanel(); }
 function salir(){ mostrar('login'); }
 
 /* Las secciones salen del menú que el motor autoriza — no de una lista nuestra. */
@@ -2613,7 +2568,6 @@ function irPanel(){
   $('quienNivel').textContent = rel.panel === rel.aca
     ? yo().nivel
     : `${yo().nivel} · hora del panel ${rel.panel}`;
-  $('volverHub').hidden = !esAgente();
   /* `ROL` es para navegar —el sub-agente se mueve como agente—; el menú va por nivel real. */
   const permitidas = seccionesDe(ROL, SUBAGENTE).filter(x => NOMBRE_SEC[x]);
   $('secciones').innerHTML = permitidas.map(x =>
@@ -2647,10 +2601,9 @@ function irSec(s){
 function entrarEn(id){ DENTRO = id; cerrarHoja(); SEC = 'users'; irSec('users'); }
 function volverARaiz(){ DENTRO = null; irSec('users'); }
 
-/* 🔑 El hub tiene DOS puertas y nada más: el panel operativo y el sistema de cuentas. Las tres
-   cosas de cuentas —pedir, pagar, ver lo que debés— viven adentro de la segunda.
-   Que sean dos sistemas separados no hace falta explicarlo con un cartel: la flecha ↗ de la
-   segunda puerta ya dice que lleva a otro lado. */
+/* 🔑 «Fichas y pagos» es el sistema de cuentas: pedir fichas, registrar un pago y ver lo que debés.
+   Se llega desde el engranaje —no es una pantalla que haya que cruzar para trabajar—, así que abre
+   como hoja sobre el panel. Que sea otro sistema no hace falta explicarlo con un cartel. */
 function irCuenta(){
   abrirHoja(`
     <h3 id="hojaTit">Fichas y pagos</h3>
@@ -3852,6 +3805,11 @@ function miCuenta(){
     <h3 id="hojaTit" class="mono">${yo().login}</h3>
     <div class="sub">${yo().nivel} · ID ${yo().id}</div>
     <div class="acc">
+      ${esAgente() ? `<button onclick="irCuenta()">
+        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span>
+        <span class="tx">Fichas y pagos<small>Pedir fichas, registrar un pago y ver tu deuda</small></span>
+        <span class="fl">›</span>
+      </button>` : ''}
       ${sinMovs ? `<button onclick="cerrarHoja(); irSec('reports')">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5h17"/><path d="M7 20.5V13"/><path d="M12 20.5V5.5"/><path d="M17 20.5v-4.5"/></svg></span>
         <span class="tx">Estadísticas<small>El detalle del período, cuenta por cuenta</small></span>
