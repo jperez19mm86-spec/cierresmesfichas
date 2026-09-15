@@ -239,6 +239,21 @@ function updateCaja(clienteId, cajaId, patch) {
   if (patch.etiqueta !== undefined) k.etiqueta = String(patch.etiqueta).trim();
   save(data); return k;
 }
+/* EL NOMBRE ES DE LA CUENTA DEL CASINO, NO DE UNA PANTALLA.
+   Se guarda en la caja, pero en TODAS las cajas de esa cuenta (sistema + id del casino): Marcelo y
+   JJ comparten Celuapuestas-SA y LuWinCasino-SA a propósito, y el cliente tiene que ver el mismo
+   nombre desde cualquiera de las dos. Fichas y el OS escriben por acá, así nunca quedan distintos. */
+function setEtiquetaCuenta(sistema, userId, etiqueta) {
+  if (!userId) return 0;
+  const data = load();
+  const v = String(etiqueta == null ? '' : etiqueta).trim();
+  let n = 0;
+  data.clientes.forEach((c) => (c.cajas || []).forEach((k) => {
+    if (String(k.userId) === String(userId) && (k.sistema || '') === (sistema || '')) { k.etiqueta = v; n++; }
+  }));
+  if (n) save(data);
+  return n;
+}
 function removeCaja(clienteId, cajaId) {
   const data = load();
   const c = data.clientes.find((x) => x.id === clienteId);
@@ -280,5 +295,5 @@ function importRows(rows, dryRun = false) {
 
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
-  addCaja, updateCaja, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
+  addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
 };

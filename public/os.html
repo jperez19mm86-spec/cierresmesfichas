@@ -1013,7 +1013,7 @@ function bloquePaneles(c){
   return `
    <div class="subwrap">
    <table>
-     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
+     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Lo que ve el cliente al pedir fichas, grande, con el login abajo. Es el mismo dato que en Fichas: se cambia en cualquiera de los dos lados.">Nombre para el cliente</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${nivelPanel(p)}</td>
@@ -1042,6 +1042,11 @@ function bloquePaneles(c){
        <td>${p.conexion_id&&p.id_usuario
          ? '<span class="pill">'+esc(p.id_usuario)+'</span> <span class="muted">'+esc(cxName(p.conexion_id))+'</span>'
          : '<span class="badge warn">sin linkear</span>'}</td>
+       <td>${p.id_usuario
+         ? `<input value="${esc(p.etiqueta||'')}" placeholder="ej: Royal" style="width:140px"
+            title="Lo que ve el cliente al pedir fichas. Vacío = ve el login."
+            onchange="setEtiqueta('${p.id}', this.value)">`
+         : '<span class="muted">—</span>'}</td>
        <td><input value="${esc((p.alias||[]).join(', '))}" placeholder="—" style="width:150px"
             title="Si el sistema de pedidos lo escribe distinto (463.life vs 463.live), poné acá esa otra forma. Separá con comas."
             onchange="setAlias('${p.id}', this.value)"></td>
@@ -1052,7 +1057,7 @@ function bloquePaneles(c){
          <option value="ninguno" ${p.consumo_a==='ninguno'?'selected':''}>no genera deuda</option>
        </select></td>
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
-     </tr>`).join('') || '<tr><td colspan="7" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
+     </tr>`).join('') || '<tr><td colspan="9" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
    </table>
    <details class="cajas" style="margin-top:12px">
    <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregarle una caja</summary>
@@ -1689,6 +1694,13 @@ async function linkPanel(id){
 }
 /* El nombre del panel lo elige el casino, no nosotros, y el sistema de pedidos a veces lo escribe
    distinto. En vez de renombrar allá, se registran acá las otras formas. */
+/* El nombre que ve el cliente es UN dato, guardado en la caja de esa cuenta: Fichas lo muestra
+   en la misma fila de la caja. Cambiarlo acá o allá es cambiar lo mismo. */
+async function setEtiqueta(id, txt){
+  const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({etiqueta:txt})});
+  if(r.ok){ const p=(_paneles||[]).find(x=>x.id===id); if(p) p.etiqueta=String(txt||'').trim(); }
+  toast(r.ok?(String(txt||'').trim()?'El cliente va a ver «'+String(txt).trim()+'»':'Sin nombre: el cliente ve el login'):'✗ '+((r&&r.error)||'error'));
+}
 async function setAlias(id, txt){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({alias:txt})});
   toast(r.ok?'Nombres guardados':'✗ '+((r&&r.error)||'error'));

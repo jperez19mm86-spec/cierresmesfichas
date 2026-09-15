@@ -446,6 +446,8 @@ app.post('/api/clientes/:id/cajas', (req, res) => {
 app.put('/api/clientes/:id/cajas/:cajaId', (req, res) => {
   const k = clientes.updateCaja(req.params.id, req.params.cajaId, req.body || {});
   if (!k) return res.status(404).json({ ok: false, error: 'cliente o caja no encontrada' });
+  // El nombre es de la cuenta: si otra caja es la misma cuenta del casino, lleva el mismo.
+  if ((req.body || {}).etiqueta !== undefined) clientes.setEtiquetaCuenta(k.sistema, k.userId, k.etiqueta);
   res.json({ ok: true, caja: k, panel: _espejarPanel(req.params.id, k) });
 });
 

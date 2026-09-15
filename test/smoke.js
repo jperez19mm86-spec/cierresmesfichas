@@ -9809,6 +9809,45 @@ async function main() {
     check('nombre de caja: el aviso de un movimiento busca el nombre en la caja de esa cuenta',
       /origenEtiqueta: etq\(origen\), destinoEtiqueta: etq\(destino\)/.test(movSrc));
 
+    /* ── UN SOLO DATO, DOS PANTALLAS ──────────────────────────────────────────────────────────
+       Alexa carga los nombres mirando la tabla de paneles del OS, y el campo estaba sólo en Fichas.
+       Copiarlo al panel habría sido tener dos datos que tarde o temprano dicen distinto. El nombre
+       vive en la caja; el OS lo lee de ahí y escribe ahí. */
+    {
+      const pans = ((await get(`/api/os/paneles?cliente_id=${cid}`)).data.paneles || []);
+      const pR = pans.find((x) => String(x.id_usuario) === '99887766');
+      check('nombre de caja: el OS ve el nombre cargado en Fichas', pR && pR.etiqueta === 'Royal', JSON.stringify(pR && pR.etiqueta));
+      if (pR) {
+        const gEtq = await put(`/api/os/paneles/${pR.id}`, { etiqueta: 'Royal Casino' });
+        const vis3 = await get(`/api/pedir/${COD}`);
+        const k3 = (vis3.data.cajas || []).find((k) => k.usuario === 'RoyalAlexa-SA');
+        check('nombre de caja: cambiado desde el OS, el cliente lo ve y Fichas también',
+          k3 && k3.etiqueta === 'Royal Casino', JSON.stringify({ status: gEtq && gEtq.status, resp: gEtq && gEtq.data, k3 }).slice(0, 400));
+        const pR2 = ((await get(`/api/os/paneles?cliente_id=${cid}`)).data.paneles || []).find((x) => x.id === pR.id);
+        // El panel que devuelve el guardado no trae el nombre: se escribió en la caja, no en él.
+        check('nombre de caja: y no se guarda una copia en el panel',
+          pR2 && pR2.etiqueta === 'Royal Casino' && gEtq.data && gEtq.data.panel
+          && !Object.prototype.hasOwnProperty.call(gEtq.data.panel, 'etiqueta'),
+          JSON.stringify(gEtq.data && gEtq.data.panel).slice(0, 200));
+        // Y un panel que ya venía con dos monedas no bloquea cambiarle sólo el nombre.
+        check('nombre de caja: cambiar sólo el nombre no pasa por la regla de una moneda',
+          gEtq.status === 200);
+      }
+      // La misma cuenta del casino en dos clientes (Marcelo y JJ): el nombre es uno solo.
+      const COD2 = COD + 'B';
+      const alta2 = await post('/api/clientes', { codigo: COD2, nombreVisible: 'Prueba misma cuenta' });
+      const cid2 = alta2.data && alta2.data.cliente && alta2.data.cliente.id;
+      if (cid2) {
+        await post(`/api/clientes/${cid2}/cajas`, { usuario: 'RoyalAlexa-SA', sistema: 'Europa', userId: '99887766', divisas: 'ARS' });
+        await put(`/api/clientes/${cid}/cajas/${kid}`, { etiqueta: 'Royal VIP' });
+        const otra = await get(`/api/pedir/${COD2}`);
+        const k4 = (otra.data.cajas || []).find((k) => k.usuario === 'RoyalAlexa-SA');
+        check('nombre de caja: la misma cuenta en otro cliente muestra el mismo nombre',
+          k4 && k4.etiqueta === 'Royal VIP', JSON.stringify(k4));
+        try { await axios.delete(BASE + `/api/clientes/${cid2}`, H()); } catch (e) { /* limpieza */ }
+      }
+    }
+
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 

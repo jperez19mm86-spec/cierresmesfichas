@@ -601,8 +601,16 @@ function mount(app) {
 
   // ───────── PANELES ─────────
   app.get('/api/os/paneles', (req, res) => {
+    /* El nombre para el cliente NO se guarda en el panel: vive en la caja de esa cuenta del casino,
+       y el OS lo lee de ahí. Un solo dato, así Fichas y el OS no pueden decir cosas distintas. */
+    const etq = new Map();
+    clientes.list().clientes.forEach((c) => (c.cajas || []).forEach((k) => {
+      const key = `${k.sistema || ''}:${k.userId}`;
+      if (k.etiqueta && !etq.get(key)) etq.set(key, k.etiqueta);
+    }));
     const list = paneles.list({ cliente_id: req.query.cliente_id }).map((p) => ({
       ...p, precio_base_override: p.usa_config_cliente ? null : historial.getVigente('panel', p.id, 'precio_base_pct'),
+      etiqueta: etq.get(`${p.sistema || ''}:${p.id_usuario}`) || '',
     }));
     ok(res, { paneles: list });
   });
@@ -678,9 +686,19 @@ function mount(app) {
     ok(res, { panel });
   }));
   app.put('/api/os/paneles/:id', wrap((req, res) => {
-    const mal = _revisarDivisas(req.body || {}, paneles.get(req.params.id));
-    if (mal) return err(res, 400, mal);
-    const p = paneles.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado');
+    // El nombre para el cliente se escribe en las cajas de esa cuenta, no en el panel.
+    const { etiqueta, ...cambios } = req.body || {};
+    /* La regla de una sola moneda se revisa cuando se toca el PANEL. Cambiar sólo el nombre no toca
+       nada del panel, y un panel que ya venía con dos monedas no puede dejar sin nombre a su caja. */
+    if (Object.keys(cambios).length) {
+      const mal = _revisarDivisas(cambios, paneles.get(req.params.id));
+      if (mal) return err(res, 400, mal);
+    }
+    const p = paneles.update(req.params.id, cambios); if (!p) return err(res, 404, 'no encontrado');
+    if (etiqueta !== undefined) {
+      if (!p.id_usuario) return err(res, 400, 'este panel no está linkeado a una cuenta del casino: no hay caja donde poner el nombre');
+      clientes.setEtiquetaCuenta(p.sistema, p.id_usuario, etiqueta);
+    }
     // Lo que se cambia acá tiene que llegar a Fichas: es la misma cuenta del casino.
     const caja = _espejarCaja(p);
     ok(res, { panel: p, caja: caja === 'actualizada' ? 'actualizada' : (caja ? 'creada' : 'sin cambios') });
