@@ -1062,10 +1062,44 @@ check('sin grilla no se marca nada, en vez de romper',
   check('pedir fichas y ver la cuenta van por el proxy del OS (token del lado server, no del navegador)',
     /\/api\/caja\/fichas\/pedir/.test(htmlCaja) && /\/api\/caja\/fichas\/cuenta/.test(htmlCaja)
     && !/ENLACE_TOKEN/.test(htmlCaja));
+  /* «Registrar un pago» ya no deriva a soporte: es un formulario real que va por el proxy
+     `/api/caja/fichas/pago`, con comprobante OBLIGATORIO (input de imagen) y monto libre. */
+  check('«Registrar un pago» es un formulario real (por el proxy, sin derivar a soporte)',
+    /\/api\/caja\/fichas\/pago/.test(htmlCaja)
+    && /id="pArch"[\s\S]{0,80}accept="image\/\*"/.test(htmlCaja)
+    && /function fichasEnviarPago/.test(htmlCaja)
+    && !/Estamos por habilitar esto acá/.test(htmlCaja));
+  check('el botón de avisar pago exige monto Y comprobante',
+    /disabled = !\(\/\\d\/\.test\(fichasPagoMonto\(\)\) && PAGO_ARCH\)/.test(htmlCaja));
+  /* Se copian CVU y dirección con un helper propio (no el `copiar` de credenciales). La red va en el
+     rótulo de la dirección, y el aviso de «enviá SOLO por esta red» salta AL COPIAR, no como bloque
+     fijo ni con botón de «copiar red» (que se sacó). */
+  check('el pago copia CVU y dirección con helper propio (no la hoja de credenciales)',
+    /onclick="fichasCopiar\('\$\{esc\(cvu\)\}'/.test(htmlCaja)
+    && /onclick="fichasCopiar\('\$\{esc\(dir\)\}'/.test(htmlCaja)
+    && !/Copiar red/.test(htmlCaja));
+  check('el aviso de red salta al copiar la dirección (y la red va en el rótulo)',
+    /Enviá <b>solo<\/b> por la red/.test(htmlCaja)
+    && /Dirección USDT\$\{red \?/.test(htmlCaja));
+  /* La imagen viaja en el JSON (base64): el proxy necesita un límite de body grande, si no se corta
+     en 1 MB. Se pone SÓLO para esa ruta, antes del parser general (patrón de /api/comprobante). */
+  check('el proxy del pago sube el límite de body a 9 MB para la captura',
+    /app\.use\('\/api\/caja\/fichas\/pago', express\.json\(\{ limit: '9mb' \}\)\)/.test(
+      require('fs').readFileSync(__dirname + '/../src/index.js', 'utf8')));
   check('los montos rápidos de pedir son los acordados (500K..20M)',
     /FICHAS_RAPIDOS = \[500000, 1000000, 5000000, 10000000, 20000000\]/.test(htmlCaja));
-  check('«Mi cuenta» no pide contraseña: se apoya en la sesión',
-    /Entrás sin contraseña: tu sesión ya te identifica\./.test(htmlCaja));
+  /* La garantía no es un cartel en pantalla (se sacó: al cliente no le aporta), sino que el flujo
+     de «Mi cuenta» no tiene dónde pedir una clave y se apoya en el proxy, que pone la identidad de
+     la sesión del lado server. */
+  const miCuentaFn = (htmlCaja.match(/async function fichasMiCuenta\(\)[\s\S]*?\n\}/) || [''])[0];
+  check('«Mi cuenta» no pide contraseña: va por el proxy con la identidad de la sesión',
+    /\/api\/caja\/fichas\/cuenta/.test(miCuentaFn)
+    && !/type="password"/.test(miCuentaFn) && !/contraseña|clave/i.test(miCuentaFn));
+  /* Muestra las dos caras: la divisa de la caja y la moneda de la cuenta (USDT). Las manda el OS ya
+     sumadas (`c.caja`); el panel no convierte nada. Si coinciden, `c.caja` es null y va una sola. */
+  check('«Mi cuenta» muestra la divisa de la caja y también USDT, sin convertir',
+    /caraCaja = c\.caja/.test(miCuentaFn) && /monCuenta = c\.moneda/.test(miCuentaFn)
+    && /dosCaras/.test(miCuentaFn));
 
   /* 🔑 EL HUB DE DOS PUERTAS SE RETIRÓ (9-sep-2026, pedido del dueño). El cliente casi nunca pide
      fichas y sí pasa el tiempo en el panel: el panel es el único destino al entrar —de cualquier

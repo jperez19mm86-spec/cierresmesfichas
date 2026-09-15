@@ -120,8 +120,12 @@ async function main() {
       check('fichas/pedir: idem, offline (no crea nada)', e.data.ok && e.data.offline === true);
       e = await pedir('/api/caja/fichas/cuenta');
       check('fichas/cuenta: idem, offline', e.data.ok && e.data.offline === true);
+      e = await enviar('/api/caja/fichas/pago', { via: 'ars', monto: '1000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: 'data:image/png;base64,iVBORw0KGgo=' } });
+      check('fichas/pago: idem, offline (no avisa nada)', e.data.ok && e.data.offline === true);
       const sinSesion = await axios.get(BASE + '/api/caja/fichas/estado', { validateStatus: () => true });
       check('fichas/estado sin sesión: 401 (no se llega al OS)', sinSesion.status === 401);
+      const pagoSinSesion = await axios.post(BASE + '/api/caja/fichas/pago', {}, { validateStatus: () => true });
+      check('fichas/pago sin sesión: 401 (no se llega al OS)', pagoSinSesion.status === 401);
     }
 
     /* ── 2 · lo que mueve plata ─────────────────────────────────────────────────────────── */

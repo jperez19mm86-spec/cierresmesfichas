@@ -1720,6 +1720,21 @@ function mount(app) {
     ok(res, { cuenta: r });
   }));
 
+  // Registrar un pago: el cliente declara monto + vía y adjunta la captura (obligatoria). Se reenvía
+  // al OS con la identidad de la sesión y el token; el OS lo mete en su cola de comprobantes. La
+  // imagen viaja en el JSON (base64) — el límite grande de body para esta ruta se pone en index.js.
+  app.post('/api/caja/fichas/pago', auth.requerida, wrap(async (req, res) => {
+    const b = req.body || {};
+    const r = await llamarEnlace('avisar-pago', { method: 'POST', body: {
+      ...idDeSesion(req),
+      via: b.via, monto: b.monto, divisa: b.divisa,
+      referencia: String(b.referencia || '').slice(0, 120),
+      archivo: b.archivo || null,
+    } });
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { resultado: r });
+  }));
+
 }
 
 module.exports = { mount };
