@@ -1125,6 +1125,15 @@ check('sin grilla no se marca nada, en vez de romper',
   check('login y reanudar comparten la puerta común aplicarSesion',
     /async function aplicarSesion\(yo\)/.test(conector)
     && /await aplicarSesion\(r\.yo\)/.test(conector));
+  /* 🔴 EL CAMPO DE CONTRASEÑA SE SACA RECIÉN AL FINAL. Si se saca al principio y el reanudar falla
+     después (el casino no contesta el saldo), queda el login SIN campo de clave (pasó 14-sep-2026).
+     Sacándolo justo antes de `arrancarLatido`/`irPanel`, cualquier falla previa deja el login sano; y
+     el reanudar repone el campo si `aplicarSesion` no llegó al panel. */
+  check('el campo de contraseña se saca al final del login, no al principio (login no queda roto)',
+    /apagarLogin\(true\);[\s\S]{0,160}arrancarLatido\(\);\s*\n\s*irPanel\(\);/.test(conector)
+    && !/localStorage\.setItem\(ULTIMO[\s\S]{0,120}apagarLogin\(true\)/.test(conector));
+  check('si el reanudar no completa, repone el campo de contraseña (no deja el login sin clave)',
+    /if \(!r \|\| !r\.ok\) \{ window\.__caja_sesion = null; try \{ apagarLogin\(false\)/.test(conector));
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
     && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));

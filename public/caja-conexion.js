@@ -361,13 +361,6 @@
     vaciarLosEjemplos();
     try { localStorage.setItem(ULTIMO, yo.login || ''); } catch (e) {}
 
-    /* 🔴 LOS CAMPOS DEL LOGIN SE APAGAN, NO SE VACÍAN: es lo único que calla a Chrome. Es una sola
-       página; la tarjeta de login se esconde, no se destruye. Mientras siga vivo un
-       <input type="password"> junto al de usuario, Chrome lee cada cambio de pantalla como «envió
-       el formulario» y ofrece guardar la clave. `disabled` lo saca de esa detección; se reponen en
-       `salir()`. (`autocomplete=off` lo ignora hace años; borrar sólo el valor no alcanza.) */
-    try { apagarLogin(true); } catch (e) { /* si no están los campos, no hay nada que apagar */ }
-
     /* El ROL decide qué dibuja la app; se lo damos con lo que dijo el motor (`group` → nivel), no
        con un selector. `fijarNivel`, no `window.ROL = ...`: la asignación directa no llega al `let`
        del panel (ver el comentario largo en caja.html). `nivelDeGrupo` vive en caja-logica.js. */
@@ -405,6 +398,16 @@
       CUENTAS[ROL].balance = s.yo.balance;
       if (s.yo.moneda) CUENTAS[ROL].currency = s.yo.moneda;
     }
+
+    /* 🔴 EL CAMPO DE CONTRASEÑA SE SACA DEL DOCUMENTO —es lo único que calla a Chrome (ver abajo)—,
+       pero RECIÉN ACÁ, cuando ya está TODO listo para mostrar el panel. Antes se sacaba al principio
+       de esta función; si el reanudar al refrescar fallaba después (p. ej. el casino no devolvía el
+       saldo), quedaba el login a la vista SIN campo de contraseña. Sacándolo al final, cualquier
+       falla previa deja el login intacto. Es una sola página: la tarjeta no se destruye, se esconde.
+       Mientras viva un <input type=password> junto al de usuario, Chrome lee cada cambio de pantalla
+       como «envió el formulario» y ofrece guardar la clave; sacarlo del DOM lo evita. Se repone en
+       `salir()` y en `volverAlLogin()` (`autocomplete=off` lo ignora; borrar sólo el valor no alcanza). */
+    try { apagarLogin(true); } catch (e) { /* si no están los campos, no hay nada que apagar */ }
 
     arrancarLatido();
     irPanel();
@@ -2232,6 +2235,15 @@
     try { d = await fetch('/api/caja/yo', { credentials: 'same-origin' }).then((r) => r.json()); }
     catch (e) { return; }                 // sin red: queda el login, que ya está a la vista
     if (!d || !d.ok || !d.yo) return;     // 401 u otra cosa: login normal, sin ruido
-    try { await aplicarSesion(d.yo); } catch (e) { /* si algo raro pasa, queda el login */ }
+    /* Si el reanudar no completa (el casino no contesta el saldo, o algo raro), hay que dejar el
+       login USABLE: `aplicarSesion` saca el campo de contraseña recién al final, pero por las dudas
+       se repone acá si no entró al panel. Sin esto, un resume a medias dejaba el login sin clave. */
+    try {
+      const r = await aplicarSesion(d.yo);
+      if (!r || !r.ok) { window.__caja_sesion = null; try { apagarLogin(false); } catch (e) {} }
+    } catch (e) {
+      window.__caja_sesion = null;
+      try { apagarLogin(false); } catch (e2) {}
+    }
   })();
 })();
