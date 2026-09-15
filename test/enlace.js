@@ -13,6 +13,7 @@ const express = require('express');
 const clientes = require('../src/clientes-store');
 const participaciones = require('../src/participaciones-store');
 const personas = require('../src/personas-store');
+const deudaSvc = require('../src/deuda.service');
 const enlace = require('../src/enlace.routes');
 
 const v = []; const check = (n, c, d) => { v.push({ ok: !!c }); console.log((c ? '✅' : '❌') + ' ' + n + (d ? '  → ' + d : '')); };
@@ -73,6 +74,33 @@ check('un usuario sin cliente: no existe',
 
   const av = await fetch(`${U}/aviso-soporte`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"motivo":"soporte"}' }).then((r) => r.json());
   check('aviso-soporte sin bot: no se cuelga, enviado:false', av.ok === true && av.enviado === false);
+
+  /* ── 3 · registrar un pago (comprobante) ─────────────────────────────────────────────────────── */
+  const est2 = await fetch(`${U}/estado-cliente?usuario=GanamosPrueba`, { headers: tok }).then((r) => r.json());
+  check('estado: trae los datos para pagar (ars/usdt) y que puede avisar pagos',
+    est2.datosPago && typeof est2.datosPago.ars === 'object' && typeof est2.datosPago.usdt === 'object'
+    && est2.puedeAvisarPago === true);
+
+  const pagar = (b) => fetch(`${U}/avisar-pago`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify(b) });
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const sinArch = await pagar({ usuario: 'GanamosPrueba', via: 'ars', monto: '480000', divisa: 'ARS' });
+  check('pago sin comprobante: lo rechaza (obligatorio, 400)', sinArch.status === 400);
+
+  const okPago = await pagar({ usuario: 'GanamosPrueba', via: 'ars', monto: '480000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: PNG } }).then((r) => r.json());
+  check('pago con comprobante: lo crea PENDIENTE, sin tocar la deuda',
+    okPago.ok && okPago.creado === true && okPago.comprobante && okPago.comprobante.estado === 'pendiente' && okPago.comprobante.archivo_bytes > 0);
+
+  const ccPost = deudaSvc.cuentaCorriente(cli.id);
+  check('la deuda NO se movió por el aviso de pago (se acredita recién al aprobar)',
+    ccPost && ccPost.pagos === '0');
+
+  clientes.updateComercial(cli.id, { avisa_pagos: false });
+  const noHab = await pagar({ usuario: 'GanamosPrueba', via: 'ars', monto: '1000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: PNG } }).then((r) => r.json());
+  check('cliente con avisar-pagos apagado: no crea (no_habilitado)', noHab.ok && noHab.creado === false && noHab.motivo === 'no_habilitado');
+  clientes.updateComercial(cli.id, { avisa_pagos: true });
+
+  const pago401 = await fetch(`${U}/avisar-pago`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status);
+  check('avisar-pago sin token: 401', pago401 === 401);
 
   srv.close();
   const fallan = v.filter((x) => !x.ok).length;

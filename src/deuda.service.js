@@ -90,4 +90,39 @@ function cuentaCorriente(cliente_id) {
   };
 }
 
-module.exports = { cuentaCorriente };
+/* ── LA CARA DEL SALDO EN OTRA MONEDA ─────────────────────────────────────────────────────────
+   `cuentaCorriente` lleva el saldo en UNA moneda (la del cliente) y ésa es la autoridad — la deuda
+   que se cobra. Para mostrarle al cliente el MISMO saldo también en la divisa de su caja, se suma
+   la otra columna: la cara que cada movimiento ya guardó derivada al TC de SU día. No convierte
+   nada nuevo, sólo suma caras existentes. Por eso mezcla TCs de días distintos: es una REFERENCIA
+   para leer en la divisa de la caja, no un segundo saldo. Sólo hay cara para las monedas con
+   columna propia (ARS, USDT); una divisa sin columna (PYG, BRL) devuelve null.
+   ⚠️ El switch de tipos tiene que quedar IGUAL al de `cuentaCorriente`: si cambia uno, cambian los dos. */
+const COLUMNA_DE = { ARS: 'monto_ars', USDT: 'monto_usdt' };
+function totalesEnMoneda(cliente_id, monedaPedida) {
+  const col = COLUMNA_DE[String(monedaPedida || '').toUpperCase()];
+  if (!col) return null;
+  const movs = mov.list({ cliente_id });
+  let fichas = '0', proveedores = '0', pagos = '0', bonif = '0';
+  for (const m of movs) {
+    const u = m[col] || '0';
+    switch (m.tipo) {
+      case 'carga': case 'ajuste': case 'correccion': fichas = money.add(fichas, u); break;
+      case 'bonificacion': bonif = money.add(bonif, u); break;
+      case 'proveedor_extra': proveedores = money.add(proveedores, u); break;
+      case 'pago': pagos = money.add(pagos, u); break;
+      default: break;
+    }
+  }
+  fichas = money.sub(fichas, bonif);
+  const total = money.sub(money.add(fichas, proveedores), pagos);
+  return {
+    moneda: String(monedaPedida).toUpperCase(),
+    fichas_pendientes: money.round(fichas, 2),
+    proveedores_pendientes: money.round(proveedores, 2),
+    pagos: money.round(pagos, 2),
+    total: money.round(total, 2),
+  };
+}
+
+module.exports = { cuentaCorriente, totalesEnMoneda };

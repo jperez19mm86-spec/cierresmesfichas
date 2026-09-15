@@ -32,6 +32,7 @@ const telegram = require('./telegram');
 const config = require('./config-store');
 const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
+const comprobantes = require('./comprobantes-store');
 
 // Grupo al que van los avisos de «cuenta sin configurar / necesita soporte». Lo fijó el dueño el
 // 13-sep-2026. Se puede pisar sin deploy con el config `grupoSinConfigurar`, por si el grupo cambia.
@@ -86,9 +87,22 @@ function estadoDe(query) {
     configurado: tienePorcentaje && tieneTelegram,
     tienePorcentaje,
     tieneTelegram,
+    // Avisar un pago se habilita cliente por cliente (`avisa_pagos`, default sí). Va aparte de
+    // «configurado»: se puede estar configurado y tener el aviso de pagos apagado, o al revés.
+    puedeAvisarPago: cliente.avisa_pagos !== false,
     motivosFaltantes,
     codigo: cliente.codigo,
     nombreVisible: cliente.nombreVisible,
+  };
+}
+
+/* Los datos para pagar (a dónde transferir), de la config del OS — los mismos que ve el portal del
+   cliente en `/api/pedir`. No dependen del cliente; son globales. El panel los muestra para copiar. */
+function datosDePago() {
+  const cfg = (k) => String(config.getCfg(k) || '');
+  return {
+    ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
+    usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
   };
 }
 
@@ -142,7 +156,8 @@ function mount(app) {
   r.use(autorizar);
 
   r.get('/v1/estado-cliente', (req, res) => {
-    res.json({ ok: true, ...estadoDe(req.query || {}) });
+    // `datosPago` viaja acá para que «Registrar un pago» tenga a dónde transferir sin otra llamada.
+    res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago() });
   });
 
   r.post('/v1/aviso-soporte', async (req, res) => {
@@ -179,30 +194,73 @@ function mount(app) {
     res.json({ ok: true, creado: true, pedido: { id: pedido.id, cajaUsuario: pedido.cajaUsuario, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado } });
   });
 
+  // Registrar un pago: el cliente declara cuánto pagó y adjunta la captura. Entra a la MISMA cola de
+  // comprobantes que usa el portal del cliente (`/api/comprobante`): queda PENDIENTE, no toca la
+  // deuda —eso pasa al aprobarlo desde el panel—, y le llega un push a quien aprueba. La identidad
+  // sale de la caja (no del body). El comprobante es OBLIGATORIO (decisión del dueño, 14-sep-2026).
+  r.post('/v1/avisar-pago', async (req, res) => {
+    const b = req.body || {};
+    const { cliente } = encontrarCliente(b);
+    if (!cliente) return res.json({ ok: true, creado: false, motivo: 'no_existe' });
+    if (cliente.avisa_pagos === false) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
+    if (!b.archivo || !b.archivo.base64) return res.status(400).json({ ok: false, error: 'falta el comprobante' });
+    const cr = comprobantes.crear({
+      codigo: cliente.codigo, clienteNombre: cliente.nombreVisible,
+      via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas: b.notas,
+      archivo: b.archivo,
+    });
+    if (!cr.ok) return res.status(400).json({ ok: false, error: cr.error });
+    const c = cr.comprobante;
+    // Push al teléfono de quien aprueba (fire-and-forget, no bloquea). El aviso al grupo va cuando
+    // el pago SE ACREDITA, no ahora (igual criterio que `/api/comprobante`).
+    push.notifyNuevoComprobante({ ...c, clienteNombre: cliente.nombreVisible || cliente.nombre, codigo: cliente.codigo });
+    res.json({ ok: true, creado: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa, archivo_bytes: c.archivo_bytes || 0 } });
+  });
+
   // «Mi cuenta»: la deuda y los movimientos del cliente, SIN contraseña. La sesión del casino (que
   // llega resuelta por el proxy de Mi Caja) ya prueba quién es; acá manda el token de servicio. Es
   // la misma cuenta corriente que ve /api/cuenta/mio, pero autenticada por el puente en vez de por
   // el token de cliente. Sólo lee: no toca la deuda ni nada.
   r.get('/v1/mi-cuenta', (req, res) => {
-    const { cliente } = encontrarCliente(req.query || {});
+    const { cliente, caja } = encontrarCliente(req.query || {});
     if (!cliente) return res.json({ ok: true, existe: false });
     const cc = deudaSvc.cuentaCorriente(cliente.id);
-    const col = cc.moneda === 'ARS' ? 'monto_ars' : 'monto_usdt';
+    // La divisa en la que opera la caja del casino (lo que el cliente ve «en su plata»). Puede
+    // diferir de la moneda de la cuenta (con la que se salda la deuda, casi siempre USDT).
+    const monedaCaja = (caja && caja.divisas && caja.divisas[0]) ? String(caja.divisas[0]).toUpperCase() : null;
+    // Si la caja opera en otra moneda que la de la cuenta Y esa moneda tiene cara guardada
+    // (ARS/USDT), se muestra también el saldo en esa divisa. Es una REFERENCIA (suma caras a su TC
+    // del día), no la deuda que se cobra: esa sigue siendo `cc` en `cc.moneda`.
+    const caraCaja = (monedaCaja && monedaCaja !== cc.moneda)
+      ? deudaSvc.totalesEnMoneda(cliente.id, monedaCaja) : null;
     const movimientos = movsStore.list({ cliente_id: cliente.id }).slice(0, 25).map((m) => ({
       fecha: String(m.fecha || '').slice(0, 10),
       tipo: m.tipo,
-      monto: m[col],
+      // La cifra en la moneda de la cuenta (compatibilidad) + las dos caras guardadas, para que el
+      // panel muestre la divisa de la caja y USDT sin convertir nada nuevo.
+      monto: cc.moneda === 'ARS' ? (m.monto_ars || '0') : (m.monto_usdt || '0'),
+      monto_ars: m.monto_ars != null ? m.monto_ars : null,
+      monto_usdt: m.monto_usdt != null ? m.monto_usdt : null,
       divisa: m.divisa || null,
       notas: m.notas || null,
     }));
     res.json({
       ok: true, existe: true,
       codigo: cliente.codigo, nombreVisible: cliente.nombreVisible,
-      moneda: cc.moneda,
+      moneda: cc.moneda,               // moneda de la CUENTA (autoridad de la deuda)
       deuda: cc.total,                 // lo que debe hoy
       fichas: cc.fichas_pendientes,    // lo consumido en fichas
       pagos: cc.pagos,                 // lo pagado
       provisional: !!cc.provisional,   // saldo con TC del mes todavía abierto
+      // La MISMA cuenta leída en la divisa de la caja (o null si coincide con la de la cuenta, o si
+      // esa divisa no tiene cara guardada). Referencia para el cliente, no un segundo saldo.
+      monedaCaja,
+      caja: caraCaja ? {
+        moneda: caraCaja.moneda,
+        deuda: caraCaja.total,
+        fichas: caraCaja.fichas_pendientes,
+        pagos: caraCaja.pagos,
+      } : null,
       movimientos,
     });
   });

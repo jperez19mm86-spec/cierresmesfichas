@@ -97,6 +97,8 @@ app.use('/api/comprobante', express.json({ limit: '9mb' }));   // 6 MB de archiv
    línea el pedido se cortaba con un 413 antes de llegar a la ruta, y el cliente veía "no se pudo
    enviar" sin ninguna explicación — con el archivo ya elegido y ninguna forma de saber por qué. */
 app.use(/^\/chat\/(aviso|[A-Za-z0-9_-]+\/pague)\/?$/, express.json({ limit: '9mb' }));
+// Y el pago que llega por el PUENTE de Mi Caja: mismo caso, la captura viaja en el JSON.
+app.use('/api/enlace/v1/avisar-pago', express.json({ limit: '9mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Y si aun así se pasa, que lo diga en castellano. Sin esto Express contesta un HTML de error que
