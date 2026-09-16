@@ -132,7 +132,7 @@ function pintar(r) {
   const mon = c.moneda || 'USDT';
   const debe = Number(c.total || 0);
   // A favor es un caso real —pagó de más, o de adelantado— y decirlo "saldo -120" obliga a pensar.
-  const titulo = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+  const titulo = debe > 0 ? 'Tu saldo pendiente es' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
 
   const movs = (r.movimientos || []).filter((m) => m.tipo !== 'correccion');
   const nombreTipo = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste',
@@ -146,7 +146,10 @@ function pintar(r) {
       <label>${titulo}</label>
       <div class="saldo" style="color:${debe > 0 ? 'var(--rojo)' : (debe < 0 ? 'var(--verde)' : 'inherit')}">
         ${money(Math.abs(debe))} ${esc(mon)}</div>
-      <div class="chico">
+      ${c.otra_completa && c.total_otra != null && Number(c.total_otra) ? `
+        <div style="font-size:21px;font-weight:700;opacity:.75">${money(Math.abs(c.total_otra))} ${esc(c.otra_moneda || '')}</div>
+        <div class="chico">cada movimiento al cambio de su día</div>` : ''}
+      <div class="chico" style="margin-top:6px">
         Consumo ${money(c.fichas_pendientes)}
         ${Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes) : ''}
         · Pagado ${money(c.pagos)}
@@ -165,7 +168,11 @@ function pintar(r) {
       <table><tbody>
       ${r.cargas.map((x) => `<tr><td class="mut">${fecha(x.fecha)}</td>
         <td>${x.etiqueta ? `<b>${esc(x.etiqueta)}</b><div class="mut">${esc(x.usuario||'')}</div>` : esc(x.usuario||'')}</td>
-        <td class="r">${money(x.monto, 0)} <span class="mut">${esc(x.divisa||'')}</span></td></tr>`).join('')}
+        <td class="r">${money(x.monto, 0)} <span class="mut">${esc(x.divisa||'')}</span>
+          ${x.pagas_ars != null || x.pagas_usdt != null ? `<div class="mut" style="font-size:12px">pagás ${
+            x.pagas_ars != null ? money(x.pagas_ars, 0) + ' ' + esc(x.divisa || '') : ''}${
+            x.pagas_ars != null && x.pagas_usdt != null ? ' · ' : ''}${
+            x.pagas_usdt != null ? money(x.pagas_usdt) + ' USDT' : ''}</div>` : ''}</td></tr>`).join('')}
       </tbody></table>
     </div>` : ''}
 
@@ -184,19 +191,20 @@ function pintar(r) {
           const esAjuste = m.tipo === 'ajuste' && m.notas;
           // La cuenta entera de la carga, para que la pueda rehacer: lo que pidió, su %, cuánto
           // da en su moneda y a qué cambio. Sin esto el número de la derecha hay que creérselo.
+          /* La otra cara ya no va acá: va abajo del número, en TODOS los renglones y no sólo en
+             los que no son cargas. Así las dos pantallas del cliente dicen lo mismo. */
           const detalle = (m.tipo === 'carga' && m.cargado)
             ? `${money(m.cargado, 0)} ${esc(m.divisa || '')}${m.base_pct ? ' · ' + esc(m.base_pct) + '%' : ''}`
               + `${m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : ''}`
               + `${m.tc ? ' · TC ' + money(m.tc, 2) : ''}`
-            : (otro != null && otro !== ''
-                ? `${money(otro, otraMon === 'ARS' ? 0 : 2)} ${esc(otraMon)}${m.tc ? ' · cambio ' + money(m.tc, 2) : ''}`
-                : '');
+            : (m.tc ? `cambio ${money(m.tc, 2)}` : '');
           return `<tr>
             <td class="mut">${esAjuste ? '' : fecha(m.fecha)}</td>
             <td>${esc(esAjuste ? m.notas : (nombreTipo[m.tipo] || m.tipo))}
               ${detalle ? `<div class="mut" style="font-size:12px">${detalle}</div>` : ''}</td>
             <td class="r" style="color:${baja ? 'var(--verde)' : 'inherit'}">
-              ${propio == null || propio === '' ? '<span class="mut">—</span>' : (baja ? '− ' : '') + money(propio)}</td>
+              ${propio == null || propio === '' ? '<span class="mut">—</span>' : (baja ? '− ' : '') + money(propio)}
+              ${otro != null && otro !== '' ? `<div class="mut" style="font-size:12px">${baja ? '− ' : ''}${money(otro, otraMon === 'ARS' ? 0 : 2)} ${esc(otraMon)}</div>` : ''}</td>
           </tr>`;
         }).join('')}
         </tbody>

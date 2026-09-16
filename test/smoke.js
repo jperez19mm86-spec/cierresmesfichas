@@ -7552,6 +7552,49 @@ async function main() {
     check('cuenta: por defecto es USDT', cta.moneda === 'USDT');
     check('cuenta: cuenta los movimientos que quedaron en la otra moneda', 'enOtraMoneda' in cta);
 
+    /* ── EL MISMO SALDO, EN LA MONEDA EN QUE CARGA ────────────────────────────────────────────
+       El cliente que pide siempre en pesos veía sólo «858,82 USDT» y no lo podía comparar con
+       nada. Se manda la otra cara —la suma de cada movimiento al cambio de SU día, no el total
+       convertido a hoy— y se esconde si a algún movimiento le falta: un total corto parece un
+       descuento. */
+    check('cuenta: trae el mismo saldo en la otra moneda', 'total_otra' in cta && 'otra_moneda' in cta && 'otra_completa' in cta);
+    check('cuenta: y avisa si esa otra cara está incompleta', 'otra_completa' in cta && typeof cta.otra_completa === 'boolean');
+    const srcD = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda.service.js'), 'utf8');
+    // Y la suma vive en UN solo lugar: la misma función que usa Mi Caja, no una copia acá.
+    check('cuenta: la otra cara la suma la misma función que Mi Caja',
+      /const otraCara = totalesEnMoneda\(cliente_id, otraMoneda\);/.test(srcD)
+      && !/fichas2/.test(srcD),
+      'dos cuentas para lo mismo terminan diciendo distinto');
+    check('cuenta: la otra cara se SUMA de cada movimiento, no se convierte',
+      /const u2 = m\[otra\];/.test(srcD) && !/tcAhora|tcDelDia/.test(srcD),
+      'convertir el total a hoy daría un número que no es el que se cobró');
+    check('cuenta: un movimiento sin esa cara la marca incompleta',
+      /if \(u2 == null \|\| u2 === ''\) sinOtra \+= 1;/.test(srcD) && /otra_completa: sinOtra === 0/.test(srcD));
+    const pedirSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');
+    const ctaSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'cuenta.html'), 'utf8');
+    check('cuenta: las dos pantallas del cliente lo muestran, y sólo si está completo',
+      /c\.otra_completa && c\.total_otra != null/.test(pedirSrc) && /c\.otra_completa && c\.total_otra != null/.test(ctaSrc));
+    /* Y renglón por renglón: el cliente cargó 300.000 y se le cobró 45.000 ARS; «28,09 USDT» solo
+       no se parece a nada de lo que hizo. La cara en su moneda va abajo del número, en las dos
+       pantallas y en TODOS los movimientos, no sólo en las cargas. */
+    check('cuenta: cada movimiento también muestra su monto en la otra moneda',
+      /const otro = mon === 'ARS' \? m\.monto_usdt : m\.monto_ars;/.test(pedirSrc)
+      && /otraMon === 'ARS' \? 0 : 2/.test(pedirSrc) && /otraMon === 'ARS' \? 0 : 2/.test(ctaSrc));
+    check('cuenta: y la cuenta de cada carga sigue estando, para poder rehacerla',
+      /' = ' \+ money\(m\.monto_ars, 0\)/.test(pedirSrc) && /' = ' \+ money\(m\.monto_ars, 0\)/.test(ctaSrc));
+    /* Y la lista de fichas del mes decía sólo lo que RECIBIÓ —«500.000 ARS»—, no lo que le costó:
+       para saberlo había que bajar hasta movimientos y buscar el mismo día. */
+    const idxSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('cuenta: cada carga del mes viaja con lo que se paga por ella',
+      /pagas_ars: f\.ars != null \? f\.ars : null, pagas_usdt: f\.usdt != null \? f\.usdt : null/.test(idxSrc));
+    check('cuenta: y las dos pantallas lo muestran al lado de las fichas',
+      /pagás /.test(pedirSrc) && /pagás /.test(ctaSrc));
+    // El título se lee como una frase, no como una orden, y el saldo se ve en las dos monedas.
+    check('cuenta: el saldo se presenta como «Tu saldo pendiente es»',
+      /'Tu saldo pendiente es'/.test(pedirSrc) && /'Tu saldo pendiente es'/.test(ctaSrc));
+    check('cuenta: y dice que cada movimiento va al cambio de su día',
+      /cada movimiento al cambio de su día/.test(pedirSrc) && /cada movimiento al cambio de su día/.test(ctaSrc));
+
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda.service.js'), 'utf8');
     // Suma UNA columna, la de su moneda. Nunca las dos, y nunca convierte por su cuenta.
     check('cuenta: suma sólo la columna de su moneda',

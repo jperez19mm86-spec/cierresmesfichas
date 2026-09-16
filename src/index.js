@@ -1084,10 +1084,21 @@ app.get('/api/cuenta/mio', (req, res) => {
         divisa: m.divisa, notas: m.notas,
         base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta };
     });
+  /* Y CUÁNTO SE PAGA POR CADA UNA. La lista decía sólo las fichas que pidió —«500.000 ARS»— que es
+     lo que recibió, no lo que debe: para saber cuánto le costó había que buscar el mismo día abajo,
+     en movimientos. El cobro ya está calculado en su movimiento, así que viaja al lado. */
+  const _feePorPedido = {};
+  movsStore.list({ cliente_id: cli.id }).forEach((m) => {
+    if (m.pedido_id) _feePorPedido[m.pedido_id] = { ars: m.monto_ars, usdt: m.monto_usdt, base_pct: m.base_pct_aplicado || null };
+  });
   const cargas = pedidos.list({ codigo: cli.codigo, estado: 'cargado' })
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
-    .map((p) => ({ fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
-      usuario: p.cajaUsuario, etiqueta: etiquetaDe(p), monto: p.monto, divisa: p.divisa }));
+    .map((p) => {
+      const f = _feePorPedido[p.id] || {};
+      return { fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
+        usuario: p.cajaUsuario, etiqueta: etiquetaDe(p), monto: p.monto, divisa: p.divisa,
+        pagas_ars: f.ars != null ? f.ars : null, pagas_usdt: f.usdt != null ? f.usdt : null, base_pct: f.base_pct || null };
+    });
   // ── LO QUE AVISÓ Y TODAVÍA NO SE APROBÓ ────────────────────────────────────────────────────
   // Sin esto, el cliente sube su comprobante, ve que el saldo no se movió, y vuelve a subirlo o a
   // preguntar. Que figure como PENDIENTE no cambia ningún número —no toca la deuda hasta que se

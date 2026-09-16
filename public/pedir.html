@@ -291,13 +291,20 @@
     const c = d.cuenta || {};
     const mon = c.moneda || 'USDT';
     const debe = Number(c.total || 0);
-    const titulo = debe > 0 ? 'Tenés que pagar' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
+    const titulo = debe > 0 ? 'Tu saldo pendiente es' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
     const nombre = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedores',
       correccion: 'Carga anulada' };
 
     let h = '<div class="q">' + titulo + '</div>'
       + '<div style="font-size:32px;font-weight:800;margin:2px 0">' + money(Math.abs(debe), 2) + ' ' + esc(mon) + '</div>'
-      + '<div class="small">Consumo ' + money(c.fichas_pendientes, 2)
+      /* EL MISMO SALDO EN LA MONEDA EN QUE CARGA. Quien pide siempre en pesos no puede comparar
+         «858,82 USDT» con nada de lo que hizo. No es el total pasado al cambio de hoy: es la suma
+         de cada movimiento al cambio de su día. Si a alguno le falta esa cara, no se muestra:
+         un total corto se lee como un descuento. */
+      + (c.otra_completa && c.total_otra != null && Number(c.total_otra)
+        ? '<div style="font-size:19px;font-weight:700;opacity:.75">' + money(Math.abs(c.total_otra), 2) + ' ' + esc(c.otra_moneda || '') + '</div>'
+          + '<div class="small" style="opacity:.7">cada movimiento al cambio de su día</div>' : '')
+      + '<div class="small" style="margin-top:6px">Consumo ' + money(c.fichas_pendientes, 2)
       + (Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes, 2) : '')
       + ' · Pagado ' + money(c.pagos, 2) + '</div>';
 
@@ -317,7 +324,12 @@
       h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>'
         + d.cargas.map(x => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
           + '<span class="small">' + dia(x.fecha) + ' ' + esc(x.etiqueta ? x.etiqueta + ' · ' + (x.usuario || '') : (x.usuario || '')) + '</span>'
-          + '<span>' + money(x.monto, 0) + ' ' + esc(x.divisa || '') + '</span></div>').join('');
+          + '<span style="text-align:right">' + money(x.monto, 0) + ' ' + esc(x.divisa || '')
+          + (x.pagas_ars != null || x.pagas_usdt != null
+              ? '<div class="small" style="opacity:.7">pagás ' + (x.pagas_ars != null ? money(x.pagas_ars, 0) + ' ' + esc(x.divisa || '') : '')
+                + (x.pagas_ars != null && x.pagas_usdt != null ? ' · ' : '')
+                + (x.pagas_usdt != null ? money(x.pagas_usdt, 2) + ' USDT' : '') + '</div>' : '')
+          + '</span></div>').join('');
     }
 
     /* ⚠️ LAS ANULACIONES SE MOSTRABAN NUNCA, y eso hacía que la lista no cerrara con el total.
@@ -329,6 +341,11 @@
       h += '<div class="q" style="margin-top:16px">Movimientos</div>'
         + movs.map(m => {
           const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
+          /* CADA RENGLÓN EN LAS DOS MONEDAS. La cuenta se lleva en dólares y el cliente cargó en
+             pesos: «28,09» no se parece a nada de lo que hizo. La cara en su moneda ya está
+             guardada en el movimiento —al cambio de SU día— así que va abajo del número. */
+          const otraMon = mon === 'ARS' ? 'USDT' : 'ARS';
+          const otro = mon === 'ARS' ? m.monto_usdt : m.monto_ars;
           const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
           // Un ajuste se explica por su nota —"deuda antes de 08/26"— y no por la palabra
           // "Ajuste" ni por el día en que se cargó, que no significan nada para el cliente.
@@ -353,7 +370,10 @@
           return '<div style="padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
             + '<div style="display:flex;justify-content:space-between;gap:10px">'
             +   '<span class="small">' + esc(concepto) + '</span>'
-            +   '<span>' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2)) + '</span>'
+            +   '<span style="text-align:right">' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2) + ' ' + esc(mon))
+            +     (otro != null && otro !== ''
+                    ? '<div class="small" style="opacity:.7">' + (baja ? '− ' : '') + money(otro, otraMon === 'ARS' ? 0 : 2) + ' ' + esc(otraMon) + '</div>' : '')
+            +   '</span>'
             + '</div>'
             + (detalle ? '<div class="small" style="opacity:.7">' + detalle + '</div>' : '')
             + '</div>';

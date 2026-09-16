@@ -36,6 +36,13 @@ function cuentaCorriente(cliente_id) {
   const col = moneda === 'ARS' ? 'monto_ars' : 'monto_usdt';
   const otra = moneda === 'ARS' ? 'monto_usdt' : 'monto_ars';
   let fichas = '0', proveedores = '0', pagos = '0', bonif = '0';
+  /* ── EL MISMO SALDO, EN LA MONEDA EN QUE SE CARGÓ ────────────────────────────────────────────
+     La cuenta se lleva en una sola moneda, y el cliente que cargó siempre en pesos ve «858,82
+     USDT» y no lo puede comparar con nada de lo que hizo. La otra cara ya está guardada en cada
+     movimiento, y la suma la hace `totalesEnMoneda` — una sola cuenta para todo el sistema, la
+     misma que usa Mi Caja. Acá sólo se cuenta si a algún movimiento le FALTA esa cara: con uno que
+     falte el total queda corto y se lee como un descuento, así que la pantalla lo esconde. */
+  let sinOtra = 0;
   let enOtraMoneda = 0;
   // Cuántos de esos pagos todavía se están contando con un TC que puede cambiar, y cuántos no se
   // pudieron pasar porque el mes no tiene ningún tipo de cambio. Los dos van a la pantalla: un
@@ -58,6 +65,8 @@ function cuentaCorriente(cliente_id) {
        puede grabar (movimientos-store lo rechaza), pero los que hayan quedado de antes tienen que
        aparecer en vez de seguir sumando cero en silencio. */
     if ((m[col] == null || m[col] === '') && (m[otra] == null || m[otra] === '')) sinImporte += 1;
+    const u2 = m[otra];
+    if (u2 == null || u2 === '') sinOtra += 1;
     switch (m.tipo) {
       case 'carga': fichas = money.add(fichas, u); break;
       case 'ajuste': fichas = money.add(fichas, u); break;       // ajuste puede ser +/-
@@ -72,6 +81,8 @@ function cuentaCorriente(cliente_id) {
   }
   fichas = money.sub(fichas, bonif);
   const total = money.sub(money.add(fichas, proveedores), pagos);
+  const otraMoneda = otra === 'monto_ars' ? 'ARS' : 'USDT';
+  const otraCara = totalesEnMoneda(cliente_id, otraMoneda);
   return {
     cliente_id,
     moneda,
@@ -79,6 +90,11 @@ function cuentaCorriente(cliente_id) {
     proveedores_pendientes: money.round(proveedores, 2),
     pagos: money.round(pagos, 2),
     total: money.round(total, 2),
+    // La otra cara del mismo saldo, cada movimiento al cambio de su día. `otra_completa` en false
+    // significa que a algún movimiento le falta esa cara: entonces el número está corto y no se muestra.
+    otra_moneda: otraMoneda,
+    total_otra: (otraCara && otraCara.total) || '0',
+    otra_completa: sinOtra === 0,
     // Cuántos movimientos quedaron cargados en la otra moneda y por eso NO entran en este total.
     // Cero es lo normal; cualquier otro número es algo para mirar, no para tapar.
     enOtraMoneda,
