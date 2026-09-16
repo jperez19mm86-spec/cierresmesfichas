@@ -138,6 +138,53 @@ function pintar(r) {
   const nombreTipo = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste',
     bonificacion: 'Bonificación', proveedor_extra: 'Proveedores' };
 
+  /* ── UNA FILA, CUATRO DATOS: cuándo · qué fue · pesos · dólares ────────────────────────────
+     Antes cada renglón traía también el %, el tipo de cambio y a qué usuario fue. El cliente ya
+     sabe su % y el TC no le sirve: esas líneas tapaban los números que sí mira. */
+  /* Si la caja tiene nombre para el cliente va el nombre, y el login SIEMPRE abajo: es lo único
+     que no se confunde entre dos cajas que se llamen parecido. */
+  const caja = (etq, usr) => (etq || usr)
+    ? (etq ? `<b>${esc(etq)}</b><div class="mut" style="font-size:12px">${esc(usr || '')}</div>`
+           : `<div class="mut" style="font-size:12px">${esc(usr || '')}</div>`) : '';
+  // La moneda se dice UNA vez, en el encabezado de la columna: repetirla en cada renglón era la
+  // mitad del ruido que había que leer.
+  const nro = (v, dec, baja) => (v == null || v === '')
+    ? '<span class="mut">—</span>' : `<b>${baja ? '− ' : ''}${money(v, dec)}</b>`;
+  const fila = (o) => `<tr>
+    <td class="mut" style="white-space:nowrap">${esc(o.dia || '')}</td>
+    <td>${o.que}</td>
+    <td class="r" style="white-space:nowrap;color:${o.baja ? 'var(--verde)' : 'inherit'}">${nro(o.ars, 0, o.baja)}</td>
+    <td class="r" style="white-space:nowrap;color:${o.baja ? 'var(--verde)' : 'inherit'}">${nro(o.usdt, 2, o.baja)}</td>
+  </tr>`;
+  const filaCarga = (x) => fila({ dia: fecha(x.fecha), ars: x.pagas_ars, usdt: x.pagas_usdt,
+    que: `<b>${money(x.monto, 0)}</b>${caja(x.etiqueta, x.usuario)}` });
+  const filaMov = (m) => {
+    const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
+    const que = m.tipo === 'carga' && m.cargado
+      ? `<b>${money(m.cargado, 0)}</b>${caja(m.etiqueta, m.usuario)}`
+      : (m.tipo === 'ajuste' && m.notas ? esc(m.notas) : esc(nombreTipo[m.tipo] || m.tipo));
+    // Un ajuste se explica por su nota, no por el día en que alguien lo cargó.
+    const esAjuste = m.tipo === 'ajuste' && m.notas;
+    return fila({ dia: esAjuste ? '' : fecha(m.fecha), que, ars: m.monto_ars, usdt: m.monto_usdt, baja });
+  };
+  /* EL MES DE CADA MOVIMIENTO NO ES SIEMPRE EL DE SU FECHA: la deuda de julio se cargó en
+     septiembre y por fecha aparecía arriba, mezclada con lo de este mes. */
+  const mesDe = (m) => m.mes || String(m.fecha || '').slice(0, 7);
+  const filasMes = (r.cargas || []).map(filaCarga).join('')
+    + movs.filter((m) => mesDe(m) === r.mes && m.tipo !== 'carga').map(filaMov).join('');
+  /* ORDENADOS POR EL MES AL QUE PERTENECEN, no por el día en que se cargaron: la deuda de julio
+     se cargó el 15 de septiembre y por fecha salía ARRIBA de las cargas de agosto. */
+  const filasAntes = movs.filter((m) => mesDe(m) !== r.mes)
+    .sort((a, b) => mesDe(b).localeCompare(mesDe(a)) || String(b.fecha || '').localeCompare(String(a.fecha || '')))
+    .map(filaMov).join('');
+  const bloque = (titulo, filas) => filas ? `<div class="card">
+      <label>${titulo}</label>
+      <table>
+        <thead><tr><th></th><th>Fichas</th><th class="r">ARS</th><th class="r">USDT</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>` : '';
+
   $('panel').innerHTML = `
     <h1>${esc((r.cliente||{}).nombre || '')}</h1>
     <div class="mut">${esc((r.cliente||{}).codigo || '')}${r.base_pct != null ? ' · trabajás al ' + esc(r.base_pct) + '%' : ''}</div>
@@ -163,53 +210,8 @@ function pintar(r) {
         ${c.sinValuar} pago(s) todavía sin convertir: no están descontados de este saldo.</div>` : ''}
     </div>
 
-    ${(r.cargas||[]).length ? `<div class="card">
-      <label>Fichas de este mes</label>
-      <table><tbody>
-      ${r.cargas.map((x) => `<tr><td class="mut">${fecha(x.fecha)}</td>
-        <td>${x.etiqueta ? `<b>${esc(x.etiqueta)}</b><div class="mut">${esc(x.usuario||'')}</div>` : esc(x.usuario||'')}</td>
-        <td class="r">${money(x.monto, 0)} <span class="mut">${esc(x.divisa||'')}</span>
-          ${x.pagas_ars != null || x.pagas_usdt != null ? `<div class="mut" style="font-size:12px">pagás ${
-            x.pagas_ars != null ? money(x.pagas_ars, 0) + ' ' + esc(x.divisa || '') : ''}${
-            x.pagas_ars != null && x.pagas_usdt != null ? ' · ' : ''}${
-            x.pagas_usdt != null ? money(x.pagas_usdt) + ' USDT' : ''}</div>` : ''}</td></tr>`).join('')}
-      </tbody></table>
-    </div>` : ''}
-
-    ${movs.length ? `<div class="card">
-      <label>Movimientos</label>
-      <table>
-        <thead><tr><th>Fecha</th><th>Concepto</th><th class="r">${esc(mon)}</th></tr></thead>
-        <tbody>
-        ${movs.map((m) => {
-          const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
-          const otro = mon === 'ARS' ? m.monto_usdt : m.monto_ars;
-          const otraMon = mon === 'ARS' ? 'USDT' : 'ARS';
-          const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
-          // Un ajuste se explica por su nota —"deuda antes de 08/26"— y no por la palabra "Ajuste"
-          // ni por el día en que se cargó, que al cliente no le dicen nada.
-          const esAjuste = m.tipo === 'ajuste' && m.notas;
-          // La cuenta entera de la carga, para que la pueda rehacer: lo que pidió, su %, cuánto
-          // da en su moneda y a qué cambio. Sin esto el número de la derecha hay que creérselo.
-          /* La otra cara ya no va acá: va abajo del número, en TODOS los renglones y no sólo en
-             los que no son cargas. Así las dos pantallas del cliente dicen lo mismo. */
-          const detalle = (m.tipo === 'carga' && m.cargado)
-            ? `${money(m.cargado, 0)} ${esc(m.divisa || '')}${m.base_pct ? ' · ' + esc(m.base_pct) + '%' : ''}`
-              + `${m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : ''}`
-              + `${m.tc ? ' · TC ' + money(m.tc, 2) : ''}`
-            : (m.tc ? `cambio ${money(m.tc, 2)}` : '');
-          return `<tr>
-            <td class="mut">${esAjuste ? '' : fecha(m.fecha)}</td>
-            <td>${esc(esAjuste ? m.notas : (nombreTipo[m.tipo] || m.tipo))}
-              ${detalle ? `<div class="mut" style="font-size:12px">${detalle}</div>` : ''}</td>
-            <td class="r" style="color:${baja ? 'var(--verde)' : 'inherit'}">
-              ${propio == null || propio === '' ? '<span class="mut">—</span>' : (baja ? '− ' : '') + money(propio)}
-              ${otro != null && otro !== '' ? `<div class="mut" style="font-size:12px">${baja ? '− ' : ''}${money(otro, otraMon === 'ARS' ? 0 : 2)} ${esc(otraMon)}</div>` : ''}</td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table>
-    </div>` : ''}
+    ${bloque('Fichas de este mes', filasMes)}
+    ${bloque('Meses anteriores', filasAntes)}
 
     <button class="link" onclick="salir()">Salir</button>
   `;

@@ -1079,7 +1079,11 @@ app.get('/api/cuenta/mio', (req, res) => {
       if (m.pedido_id) {
         try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; etiqueta = etiquetaDe(p); } } catch (e) {}
       }
-      return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
+      /* A QUÉ MES PERTENECE, que no siempre es el de su fecha. La deuda de julio se cargó en
+         septiembre: por fecha aparecía arriba de todo, entre las cargas de este mes, y ahí no
+         significa nada. Lo que manda es el mes que la emisión dejó escrito. */
+      const mesDe = m.origen_ref || m.mes_cierre || String(m.fecha || '').slice(0, 7);
+      return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo, mes: mesDe,
         monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
         divisa: m.divisa, notas: m.notas,
         base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta };

@@ -3488,7 +3488,8 @@ async function main() {
        «a Royal (RoyalAlexa-SA)». El usuario de la cuenta tiene que seguir apareciendo SIEMPRE —con
        nombre o sin él— porque es lo único que no se confunde entre dos cajas llamadas igual. */
     check('cuenta del cliente: cada carga dice a qué usuario fue',
-      /'a ' \+ esc\(m\.etiqueta \? m\.etiqueta \+ ' \(' \+ m\.usuario \+ '\)' : m\.usuario\)/.test(pedirPag));
+      /quienCaja\(m\.etiqueta, m\.usuario\)/.test(pedirPag)
+      && /const quienCaja = \(etq, usr\)[\s\S]{0,260}esc\(usr \|\| ''\)/.test(pedirPag));
     const idxCta = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('cuenta del cliente: y el servidor lo manda, sacándolo del pedido',
       /usuario = p\.cajaUsuario \|\| null/.test(idxCta));
@@ -5110,7 +5111,8 @@ async function main() {
         && /notas: etiqueta/.test(rt)
         && !/notas: 'saldo anterior/.test(rt));
       check('saldo anterior: el cliente lo ve por su nota y sin fecha',
-        /m\.tipo === 'ajuste' && m\.notas/.test(ped) && /esAjuste \? '' : fecha\(m\.fecha\)/.test(cta));
+        /m\.tipo === 'ajuste' && m\.notas/.test(ped) && /esAjuste \? '' : dia\(m\.fecha\)/.test(ped)
+        && /esAjuste \? '' : fecha\(m\.fecha\)/.test(cta));
 
       // Y con el código en vez del usuario, que es como entra desde la pantalla de pedidos.
       const porCod = await post('/api/cuenta/login', { usuario: 'L210', clave: alta.data.clave });
@@ -7577,18 +7579,38 @@ async function main() {
     /* Y renglón por renglón: el cliente cargó 300.000 y se le cobró 45.000 ARS; «28,09 USDT» solo
        no se parece a nada de lo que hizo. La cara en su moneda va abajo del número, en las dos
        pantallas y en TODOS los movimientos, no sólo en las cargas. */
-    check('cuenta: cada movimiento también muestra su monto en la otra moneda',
-      /const otro = mon === 'ARS' \? m\.monto_usdt : m\.monto_ars;/.test(pedirSrc)
-      && /otraMon === 'ARS' \? 0 : 2/.test(pedirSrc) && /otraMon === 'ARS' \? 0 : 2/.test(ctaSrc));
-    check('cuenta: y la cuenta de cada carga sigue estando, para poder rehacerla',
-      /' = ' \+ money\(m\.monto_ars, 0\)/.test(pedirSrc) && /' = ' \+ money\(m\.monto_ars, 0\)/.test(ctaSrc));
+    check('cuenta: cada renglón muestra los dos montos, pesos y dólares',
+      /ars: m\.monto_ars, usdt: m\.monto_usdt/.test(pedirSrc) && /ars: m\.monto_ars, usdt: m\.monto_usdt/.test(ctaSrc));
+    /* Y NADA MÁS. El % y el tipo de cambio en cada línea tapaban los números que sí se miran: el
+       cliente ya sabe a qué % trabaja y el TC no le sirve para nada. */
+    check('cuenta: sin el % ni el tipo de cambio en cada renglón',
+      !/base_pct \? ' · '/.test(pedirSrc) && !/base_pct \? ' · '/.test(ctaSrc)
+      && !/TC ' \+ money\(m\.tc/.test(pedirSrc) && !/TC \$\{money\(m\.tc/.test(ctaSrc));
     /* Y la lista de fichas del mes decía sólo lo que RECIBIÓ —«500.000 ARS»—, no lo que le costó:
        para saberlo había que bajar hasta movimientos y buscar el mismo día. */
     const idxSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
     check('cuenta: cada carga del mes viaja con lo que se paga por ella',
       /pagas_ars: f\.ars != null \? f\.ars : null, pagas_usdt: f\.usdt != null \? f\.usdt : null/.test(idxSrc));
     check('cuenta: y las dos pantallas lo muestran al lado de las fichas',
-      /pagás /.test(pedirSrc) && /pagás /.test(ctaSrc));
+      /ars: x\.pagas_ars, usdt: x\.pagas_usdt/.test(pedirSrc) && /ars: x\.pagas_ars, usdt: x\.pagas_usdt/.test(ctaSrc));
+    /* ── CADA COSA EN SU MES ──────────────────────────────────────────────────────────────────
+       La deuda de julio se cargó en septiembre: por fecha salía arriba de todo, entre las cargas
+       de este mes, donde no significa nada. El mes lo manda `origen_ref`, no la fecha. */
+    check('cuenta: el mes de un movimiento sale de su emisión, no de su fecha',
+      /const mesDe = m\.origen_ref \|\| m\.mes_cierre \|\| String\(m\.fecha \|\| ''\)\.slice\(0, 7\)/.test(idxSrc));
+    /* La moneda va UNA vez, arriba de la columna. Repetirla en cada renglón —«500.000 ARS en
+       fichas · 75.000 ARS · 47,11 USDT»— era la mitad del ruido. */
+    check('cuenta: las columnas dicen la moneda, y el renglón sólo el número',
+      /Fichas<\/span>[\s\S]{0,240}>ARS<\/span>[\s\S]{0,120}>USDT<\/span>/.test(pedirSrc)
+      && /<th>Fichas<\/th><th class="r">ARS<\/th><th class="r">USDT<\/th>/.test(ctaSrc)
+      && !/en fichas/.test(pedirSrc) && !/en fichas/.test(ctaSrc));
+    // Y los meses anteriores van del más nuevo al más viejo POR SU MES, no por el día que se cargaron.
+    check('cuenta: los meses anteriores se ordenan por mes, no por fecha de carga',
+      /sort\(\(a, b\) => mesDe\(b\)\.localeCompare\(mesDe\(a\)\)/.test(pedirSrc)
+      && /sort\(\(a, b\) => mesDe\(b\)\.localeCompare\(mesDe\(a\)\)/.test(ctaSrc));
+    check('cuenta: lo de este mes y lo de antes van en bloques separados',
+      /Meses anteriores/.test(pedirSrc) && /Meses anteriores/.test(ctaSrc)
+      && /mesDe\(m\) !== d\.mes/.test(pedirSrc) && /mesDe\(m\) !== r\.mes/.test(ctaSrc));
     // El título se lee como una frase, no como una orden, y el saldo se ve en las dos monedas.
     check('cuenta: el saldo se presenta como «Tu saldo pendiente es»',
       /'Tu saldo pendiente es'/.test(pedirSrc) && /'Tu saldo pendiente es'/.test(ctaSrc));
@@ -9843,7 +9865,8 @@ async function main() {
       /esc\(d\.pedido\.cajaEtiqueta \|\| d\.pedido\.cajaUsuario\)/.test(pedirSrc));
     const cuentaSrc = fs.readFileSync(path.join(ROOT, 'public', 'cuenta.html'), 'utf8');
     check('nombre de caja: la cuenta del cliente también lo muestra, con el login abajo',
-      /x\.etiqueta \? `<b>\$\{esc\(x\.etiqueta\)\}<\/b><div class="mut">/.test(cuentaSrc));
+      /etq \? `<b>\$\{esc\(etq\)\}<\/b><div class="mut"[^\n]*\$\{esc\(usr \|\| ''\)\}/.test(cuentaSrc)
+      && /caja\(x\.etiqueta, x\.usuario\)/.test(cuentaSrc));
     // Y en el panel se escribe al lado del login; Sophi lo ve pero no lo edita.
     const fichasSrc = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
     check('nombre de caja: se carga desde Fichas, en la misma fila de la caja',

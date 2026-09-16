@@ -320,64 +320,69 @@
         + ' pago(s) en pesos contados con el cambio promedio del mes. Al cerrar el mes el número se ajusta.</div></div>';
     }
 
-    if ((d.cargas || []).length) {
-      h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>'
-        + d.cargas.map(x => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
-          + '<span class="small">' + dia(x.fecha) + ' ' + esc(x.etiqueta ? x.etiqueta + ' · ' + (x.usuario || '') : (x.usuario || '')) + '</span>'
-          + '<span style="text-align:right">' + money(x.monto, 0) + ' ' + esc(x.divisa || '')
-          + (x.pagas_ars != null || x.pagas_usdt != null
-              ? '<div class="small" style="opacity:.7">pagás ' + (x.pagas_ars != null ? money(x.pagas_ars, 0) + ' ' + esc(x.divisa || '') : '')
-                + (x.pagas_ars != null && x.pagas_usdt != null ? ' · ' : '')
-                + (x.pagas_usdt != null ? money(x.pagas_usdt, 2) + ' USDT' : '') + '</div>' : '')
-          + '</span></div>').join('');
-    }
+    /* ── UNA FILA, CUATRO DATOS ───────────────────────────────────────────────────────────────
+       Cuándo · qué fue · cuánto en pesos · cuánto en dólares. Antes cada renglón traía además el
+       %, el tipo de cambio y a qué usuario fue, todo junto: el cliente ya sabe su % y el TC no le
+       sirve para nada, y esas dos líneas tapaban los números que sí mira. */
+    const GRILLA = 'display:grid;grid-template-columns:32px 1fr auto auto;gap:7px;align-items:baseline';
+    // La moneda se dice UNA vez, en el encabezado: repetirla en cada renglón —«500.000 ARS en
+    // fichas · 75.000 ARS · 47,11 USDT»— era la mitad del ruido que había que leer.
+    const cabecera = () => '<div style="' + GRILLA + ';padding:2px 0 4px;border-bottom:1px solid rgba(128,128,128,.25)">'
+      + '<span class="small" style="opacity:.55"></span>'
+      + '<span class="small" style="opacity:.55">Fichas</span>'
+      + '<span class="small" style="opacity:.55;text-align:right">ARS</span>'
+      + '<span class="small" style="opacity:.55;text-align:right">USDT</span></div>';
+    const nro = (v, dec, baja) => (v == null || v === '') ? '<span style="opacity:.4">—</span>'
+      : '<b>' + (baja ? '− ' : '') + money(v, dec) + '</b>';
+    const fila = (o) => '<div style="' + GRILLA + ';padding:7px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
+      + '<span class="small" style="opacity:.6">' + esc(o.dia || '') + '</span>'
+      + '<span class="small">' + o.que + '</span>'
+      + '<span style="text-align:right;white-space:nowrap">' + nro(o.ars, 0, o.baja) + '</span>'
+      + '<span style="text-align:right;white-space:nowrap;opacity:.8">' + nro(o.usdt, 2, o.baja) + '</span></div>';
 
+    /* A QUÉ USUARIO FUERON. Con varias cajas es la primera pregunta. Si la caja tiene nombre para
+       el cliente va el nombre, y el login SIEMPRE abajo: es lo único que no se confunde entre dos
+       cajas que se llamen parecido. */
+    const quienCaja = (etq, usr) => (etq || usr)
+      ? '<div class="small" style="opacity:.6">' + (etq ? '<b>' + esc(etq) + '</b><div>' + esc(usr || '') + '</div>' : esc(usr || '')) + '</div>' : '';
+    const filaCarga = (x) => fila({ dia: dia(x.fecha), ars: x.pagas_ars, usdt: x.pagas_usdt,
+      que: '<b>' + money(x.monto, 0) + '</b>' + quienCaja(x.etiqueta, x.usuario) });
+    const filaMov = (m) => {
+      const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
+      const que = m.tipo === 'carga' && m.cargado
+        ? '<b>' + money(m.cargado, 0) + '</b>' + quienCaja(m.etiqueta, m.usuario)
+        : (m.tipo === 'ajuste' && m.notas ? esc(m.notas)
+          : (m.tipo === 'correccion' && m.cargado
+            ? 'da de baja la carga de ' + money(m.cargado, 0) + ' ' + esc(m.divisa || '')
+            : esc(nombre[m.tipo] || m.tipo)));
+      // Un ajuste se explica por su nota —«Fichas de julio 2026»— y NO por el día en que alguien
+      // lo cargó, que al cliente no le dice nada y encima lo pone fuera de lugar en la lista.
+      const esAjuste = m.tipo === 'ajuste' && m.notas;
+      return fila({ dia: esAjuste ? '' : dia(m.fecha), que, ars: m.monto_ars, usdt: m.monto_usdt, baja });
+    };
+
+    /* EL MES DE CADA MOVIMIENTO NO ES SIEMPRE EL DE SU FECHA. La deuda de julio se cargó en
+       septiembre: ordenada por fecha aparecía arriba, mezclada con lo de este mes. Va por el mes
+       al que pertenece, y los meses anteriores van en su propio bloque. */
+    const movs = (d.movimientos || []);
+    const mesDe = (m) => m.mes || String(m.fecha || '').slice(0, 7);
+    const delMes = movs.filter(m => mesDe(m) === d.mes && m.tipo !== 'carga');
+    /* ORDENADOS POR EL MES AL QUE PERTENECEN, no por el día en que se cargaron: la deuda de julio
+       se cargó el 15 de septiembre y por fecha salía ARRIBA de las cargas de agosto. */
+    const anteriores = movs.filter(m => mesDe(m) !== d.mes)
+      .sort((a, b) => mesDe(b).localeCompare(mesDe(a)) || String(b.fecha || '').localeCompare(String(a.fecha || '')));
+
+    if ((d.cargas || []).length || delMes.length) {
+      h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>' + cabecera()
+        + (d.cargas || []).map(filaCarga).join('')
+        + delMes.map(filaMov).join('');
+    }
     /* ⚠️ LAS ANULACIONES SE MOSTRABAN NUNCA, y eso hacía que la lista no cerrara con el total.
        Cuando una carga se anula queda el cargo Y su contra-asiento; escondiendo el segundo, el
-       cliente ve que se le cobró algo que ya no tiene y ningún renglón que lo dé de baja. El
-       número grande estaba bien, la lista parecía estar mal, y la pregunta llegaba igual. */
-    const movs = (d.movimientos || []);
-    if (movs.length) {
-      h += '<div class="q" style="margin-top:16px">Movimientos</div>'
-        + movs.map(m => {
-          const propio = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
-          /* CADA RENGLÓN EN LAS DOS MONEDAS. La cuenta se lleva en dólares y el cliente cargó en
-             pesos: «28,09» no se parece a nada de lo que hizo. La cara en su moneda ya está
-             guardada en el movimiento —al cambio de SU día— así que va abajo del número. */
-          const otraMon = mon === 'ARS' ? 'USDT' : 'ARS';
-          const otro = mon === 'ARS' ? m.monto_usdt : m.monto_ars;
-          const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
-          // Un ajuste se explica por su nota —"deuda antes de 08/26"— y no por la palabra
-          // "Ajuste" ni por el día en que se cargó, que no significan nada para el cliente.
-          const esAjuste = m.tipo === 'ajuste' && m.notas;
-          const concepto = esAjuste ? m.notas : ((dia(m.fecha) ? dia(m.fecha) + ' ' : '') + (nombre[m.tipo] || m.tipo));
-          // La cuenta entera de la carga, para que la pueda rehacer: lo que pidió, su %, cuánto da
-          // en su moneda y a qué cambio. Sin esto el número de la derecha hay que creérselo.
-          let detalle = '';
-          if (m.tipo === 'carga' && m.cargado) {
-            detalle = money(m.cargado, 0) + ' ' + esc(m.divisa || '')
-              + (m.base_pct ? ' · ' + esc(m.base_pct) + '%' : '')
-              + (m.monto_ars ? ' = ' + money(m.monto_ars, 0) + ' ' + esc(m.divisa || '') : '')
-              + (m.tc ? ' · TC ' + money(m.tc, 2) : '');
-          }
-          // Una anulación explica de qué carga sale, sin el id interno del movimiento.
-          if (m.tipo === 'correccion' && m.cargado) {
-            detalle = 'da de baja la carga de ' + money(m.cargado, 0) + ' ' + esc(m.divisa || '');
-          }
-          /* A QUÉ USUARIO SE CARGARON. Con varias cajas, «¿esto a quién fue?» es la primera
-             pregunta, y el dato ya estaba guardado. */
-          if (m.usuario) detalle += (detalle ? ' · ' : '') + 'a ' + esc(m.etiqueta ? m.etiqueta + ' (' + m.usuario + ')' : m.usuario);
-          return '<div style="padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
-            + '<div style="display:flex;justify-content:space-between;gap:10px">'
-            +   '<span class="small">' + esc(concepto) + '</span>'
-            +   '<span style="text-align:right">' + (propio == null || propio === '' ? '—' : (baja ? '− ' : '') + money(propio, 2) + ' ' + esc(mon))
-            +     (otro != null && otro !== ''
-                    ? '<div class="small" style="opacity:.7">' + (baja ? '− ' : '') + money(otro, otraMon === 'ARS' ? 0 : 2) + ' ' + esc(otraMon) + '</div>' : '')
-            +   '</span>'
-            + '</div>'
-            + (detalle ? '<div class="small" style="opacity:.7">' + detalle + '</div>' : '')
-            + '</div>';
-        }).join('');
+       cliente ve que se le cobró algo que ya no tiene y ningún renglón que lo dé de baja. */
+    if (anteriores.length) {
+      h += '<div class="q" style="margin-top:16px">Meses anteriores</div>' + cabecera()
+        + anteriores.map(filaMov).join('');
     }
     h += '<button class="btn full" style="margin-top:16px" onclick="salirCuenta()">Salir de mi cuenta</button>';
     document.getElementById('cardCuentaDatos').innerHTML = h;
