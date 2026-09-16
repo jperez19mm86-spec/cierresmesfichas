@@ -2941,17 +2941,31 @@ function mount(app) {
 
     const m = ofertas.paraMostrar(o);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const pct = (x) => String(x).replace(/\.0+$/, '') + '%';
+    const pct = (x) => String(x).replace(/\.0+$/, '').replace('.', ',') + '%';
     const lineas = ['<b>Oferta comercial</b>'];
     if (m.titulo) lineas.push(esc(m.titulo));
-    lineas.push('', '<i>Porcentaje sobre el GGR de cada proveedor.</i>', '');
+    lineas.push('', '<i>Porcentaje sobre el GGR de cada proveedor.</i>',
+      '<i>Es una oferta base: los porcentajes se conversan y se acuerdan, y bajan a medida que '
+      + 'crece el volumen.</i>', '');
+    /* La misma aclaración que la hoja, y por el mismo motivo: sin ella, un proveedor con dos
+       precios se lee como un error de armado. Sólo sale si hay alguno repetido. */
+    if ((m.repetidos || []).length) {
+      lineas.push('<i>Algunos proveedores figuran más de una vez: llegan por integraciones '
+        + 'distintas, o en más de una versión —una más completa y más cara—. Se contratan por '
+        + 'separado.</i>', '');
+    }
+    /* La misma forma que el documento: un precio de título y sus proveedores debajo. Si el
+       mensaje y la hoja se leyeran distinto, el cliente creería que son dos ofertas. */
     for (const g of m.grupos || []) {
-      lineas.push(`<b>${esc(g.nombre)}</b>` + (g.unico ? ` — ${esc(pct(g.unico))}` : ''));
-      if (g.unico) {
-        lineas.push(esc(ofertas.unicos(g.items.flatMap((i) => i.proveedores)).join(' · ')));
+      const niveles = g.niveles || [];
+      const uno = niveles.length === 1;
+      lineas.push(`<b>${esc(g.nombre)}</b>`
+        + (uno ? ` — ${esc(pct(niveles[0].pct))}` : ` — de ${esc(pct(g.desde))} a ${esc(pct(g.hasta))}`));
+      if (uno) {
+        lineas.push(esc(niveles[0].proveedores.join(' · ')));
       } else {
-        for (const i of g.items.slice().sort((a, b) => a.corto.localeCompare(b.corto, 'es'))) {
-          lineas.push(`  ${esc(ofertas.unicos(i.proveedores).join(', '))} — ${esc(pct(i.pct))}`);
+        for (const n of niveles) {
+          lineas.push('', `<b>${esc(pct(n.pct))}</b>`, esc(n.proveedores.join(' · ')));
         }
       }
       lineas.push('');

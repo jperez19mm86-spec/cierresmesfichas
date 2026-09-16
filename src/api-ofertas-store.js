@@ -72,8 +72,15 @@ function proveedoresDe(nombreSello) {
   let s = String(nombreSello || '').trim();
   let antes;
   do { antes = s; s = s.replace(/\s*\([^()]*\)\s*$/, '').trim(); } while (s !== antes);
-  return s.split(',').map((x) => x.trim()).filter(Boolean).map(_bonito);
+  return s.split(',').map((x) => x.trim()).filter(Boolean).map(_bonito)
+    .filter((n) => !_NO_ES_PROVEEDOR.has(_clave(n)));
 }
+
+/* ── LO QUE NO ES UN PROVEEDOR ────────────────────────────────────────────────────────────────
+   TBS tiene bolsas de descarte —"Others (lobby)"— para lo que no entra en ninguna otra. Adentro
+   son útiles; en la lista que lee el cliente, "Others" se lee como si le estuvieras vendiendo una
+   marca llamada Others. El sello se sigue cotizando igual: lo que desaparece es el chip. */
+const _NO_ES_PROVEEDOR = new Set(['others', 'otros', 'lobby', 'varios', 'otherslobby']);
 
 /* ── LOS NOMBRES, COMO SE LEEN AFUERA ─────────────────────────────────────────────────────────
    TBS los escribe como le queda cómodo y eso está bien adentro; en un documento que sale a un
@@ -121,6 +128,16 @@ const _MARCAS = {};
   'CreedRoomz', 'YeeBet', 'G-Club', 'Buffalo Thunder', 'Holi Bet', 'Backseat', 'Skywind',
   'Red Rake', 'Altente Gaming', 'Absolute Live Gaming', 'Sport Betting', 'Fishing World',
 ].forEach((n) => { _MARCAS[String(n).toLowerCase().replace(/[^a-z0-9]/g, '')] = n; });
+
+/* ── LA MISMA MARCA, ESCRITA CORTA ────────────────────────────────────────────────────────────
+   Adentro de un sello TBS escribe "Pragmatic" y adentro de otro "Pragmatic Play". Son la misma
+   empresa, pero el deduplicador no puede saberlo: para él son dos claves distintas, y en el
+   documento salían los dos chips uno al lado del otro como si le estuvieras vendiendo dos
+   proveedores. Acá se dice, marca por marca, cuál es el nombre de verdad.
+   Sólo van las que se comprobaron: adivinar acá funde dos proveedores que sí son distintos. */
+[
+  ['pragmatic', 'Pragmatic Play'],
+].forEach(([k, n]) => { _MARCAS[k] = n; });
 
 /* La misma marca escrita distinto en dos sellos —"Igt" y "IGT", "Inbet" e "InBet", "Playngo" y
    "Playn GO"— es UN proveedor, y en la lista del cliente tiene que aparecer una vez. La clave de
@@ -300,13 +317,87 @@ function paraMostrar(oferta) {
     return { sello: s, corto: meta.corto || s, pct: v.pct, suelto: true, proveedores: proveedoresDe(s) };
   });
   if (sueltos.length) grupos.push({ paquete_id: null, nombre: 'Otros', items: sueltos, unico: _unico(sueltos) });
-  return { titulo: oferta.titulo, notas: oferta.notas || '', grupos,
-    proveedores: unicos(grupos.flatMap((g) => g.items.flatMap((i) => i.proveedores))) };
+
+  /* Cada grupo, resuelto en NIVELES DE PRECIO. Ver `_niveles`. */
+  const armados = grupos.map((g) => {
+    const niveles = _niveles(g.items);
+    const provs = unicos(niveles.flatMap((n) => n.proveedores));
+    return { ...g, niveles, proveedores: provs,
+      desde: niveles.length ? Number(niveles[0].pct) : Infinity,
+      hasta: niveles.length ? Number(niveles[niveles.length - 1].pct) : Infinity };
+  }).filter((g) => g.proveedores.length);   // un grupo sin proveedores que mostrar no es una fila
+
+  /* ── EL BARATO ARRIBA ──────────────────────────────────────────────────────────────────────
+     Lo que se vende es el Básico: es la puerta de entrada y el número que el cliente compara con
+     el de al lado. Arrancar por el paquete caro lo deja al final de la hoja, leído después de
+     veinte números grandes, como si fuera el resto. Se ordena por precio de entrada, más barato
+     primero; los sellos que no caen en ningún paquete van últimos, porque son la excepción. */
+  armados.sort((a, b) => (a.paquete_id ? 0 : 1) - (b.paquete_id ? 0 : 1) || a.desde - b.desde);
+
+  return { titulo: oferta.titulo, notas: oferta.notas || '', grupos: armados,
+    proveedores: unicos(armados.flatMap((g) => g.proveedores)),
+    repetidos: _repetidos(armados) };
+}
+
+/**
+ * ── LOS QUE APARECEN DOS VECES, Y POR QUÉ ────────────────────────────────────────────────────
+ *
+ * Microgaming está en Básico a 8% y otra vez en Premium a 15%. Pragmatic Live está dos veces
+ * adentro de Live, a 18,5% y a 25%. Adentro no es un error: el mismo proveedor llega por
+ * integraciones distintas, o en más de una versión —una más completa y más cara que la otra—.
+ * En la hoja del cliente, en cambio, se lee como dos precios para lo mismo.
+ *
+ * Con el corte por sello esto no se veía, porque el precio estaba al costado de cada fila. Ahora
+ * el precio es el título y la repetición salta: hay que explicarla. Lo que se devuelve es la lista
+ * de los que repiten, para que el documento sólo ponga la aclaración CUANDO LA HAY — una oferta
+ * sin repetidos no tiene por qué cargar con una nota que no le corresponde.
+ */
+function _repetidos(grupos) {
+  const m = new Map();
+  for (const g of grupos) {
+    for (const n of g.niveles || []) {
+      for (const p of n.proveedores) {
+        const k = _clave(p);
+        if (!m.has(k)) m.set(k, { nombre: p, pcts: new Set() });
+        m.get(k).pcts.add(String(n.pct));
+      }
+    }
+  }
+  return [...m.values()].filter((x) => x.pcts.size > 1)
+    .map((x) => x.nombre).sort((a, b) => a.localeCompare(b, 'es'));
 }
 /** Si todo el grupo va al mismo %, se muestra UN número arriba en vez de repetirlo en cada renglón. */
 function _unico(items) {
   const p = [...new Set(items.map((i) => String(i.pct)))];
   return p.length === 1 ? p[0] : null;
+}
+
+/**
+ * ── UN PRECIO, UNA LISTA DE PROVEEDORES ──────────────────────────────────────────────────────
+ *
+ * Un sello de TBS puede traer tres proveedores adentro —"Galaxsys, OneTouch, 3 Oaks"— y así se
+ * mostraba: una fila con los tres pegados y un precio al costado. Adentro eso es correcto, porque
+ * los tres se compran y se facturan juntos. Para el que lee la oferta no: lo que quiere saber es
+ * CUÁNTOS proveedores le estás dando, y una fila con tres nombres se cuenta como uno.
+ *
+ * Acá se deshace la bolsa. Los sellos se juntan por PRECIO —todos los de 15 juntos, los de 17,5
+ * juntos— y de cada grupo sale una lista plana de proveedores, cada uno una vez. El precio pasa a
+ * ser el título y el proveedor la unidad, que es el orden en el que se lee la oferta.
+ *
+ * De paso desaparecen las repeticiones: "Platipus" estaba suelto y otra vez adentro de
+ * "Microgaming Live", los dos a 15 — un proveedor, un lugar.
+ */
+function _niveles(items) {
+  const m = new Map();
+  for (const i of items) {
+    const k = String(i.pct);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(...i.proveedores);
+  }
+  return [...m.entries()]
+    .map(([pct, provs]) => ({ pct, proveedores: unicos(provs) }))
+    .filter((n) => n.proveedores.length)
+    .sort((a, b) => Number(a.pct) - Number(b.pct));
 }
 
 /**
