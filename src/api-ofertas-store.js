@@ -484,10 +484,34 @@ const EXCEPCIONES = [
    lo que no matchee cae en `PRECIO_LISTA` y queda a 15, que es la mediana de Premium y Live. */
 const PRECIO_LISTA = 15;
 function precioDePaquete(nombre, base) {
-  const k = K(nombre);
-  if (k === 'básico' || k === 'basico') return base;
-  if (k.startsWith('básico +') || k.startsWith('basico +')) return base + 2;
+  const t = tipoDePaquete(nombre);
+  if (t === 'base') return base;
+  if (t === 'base+') return base + 2;
   return PRECIO_LISTA;
+}
+
+/**
+ * ── QUÉ PAQUETE ES ÉSTE, SIN DEPENDER DE CÓMO SE LLAME HOY ───────────────────────────────────
+ *
+ * Media docena de reglas del sistema preguntan "¿éste es el Básico?" —el precio que sale de la
+ * base, el recompuesto por costo, cuáles no se tocan— y lo preguntaban comparando el nombre letra
+ * por letra contra 'básico'. El nombre es del dueño: el día que los renombró a "Slots Base" para
+ * que se entendieran mejor, el Básico dejó de cobrarse a la base y pasó a 15, y el recompuesto
+ * no encontró ningún paquete. Todo en silencio, porque un nombre que no matchea no es un error:
+ * simplemente cae en el `else`.
+ *
+ * Acá se traduce el nombre a un TIPO, que es lo que las reglas de verdad preguntan. Aguanta el
+ * "Slots" adelante, el acento, y Base o Básico. Lo que no reconoce devuelve null y las reglas lo
+ * tratan como un paquete cualquiera — que es lo correcto para uno inventado por el dueño.
+ */
+function tipoDePaquete(nombre) {
+  const k = K(nombre).replace(/^slots\s+/, '');
+  if (/^(b[áa]sico|base)\s*\+/.test(k)) return 'base+';
+  if (/^(b[áa]sico|base)$/.test(k)) return 'base';
+  if (k === 'premium') return 'premium';
+  if (k === 'live') return 'live';
+  if (k === 'sport' || k === 'deportes') return 'sport';
+  return null;
 }
 
 /**
@@ -559,22 +583,24 @@ const TECHO_BASICO_PLUS = 3;
 
 function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
   const paquetes = listPaquetes();
-  const bplus = paquetes.find((p) => K(p.nombre).startsWith('básico +') || K(p.nombre).startsWith('basico +'));
-  const premium = paquetes.find((p) => K(p.nombre) === 'premium');
-  if (!bplus || !premium) return { error: 'no encontré los paquetes Básico + y Premium' };
+  const bplus = paquetes.find((p) => tipoDePaquete(p.nombre) === 'base+');
+  const premium = paquetes.find((p) => tipoDePaquete(p.nombre) === 'premium');
+  if (!bplus || !premium) return { error: 'no encontré los paquetes Base + y Premium' };
 
   const aNum = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
   const sellos = apiStore.listSellos();
   const fuera = new Set(excluir.map(K));
   const esExterno = (s) => s.tipo !== 'postpago';
 
-  const enBasico = new Set(paquetes.filter((p) => K(p.nombre) === 'básico' || K(p.nombre) === 'basico')
+  /* Los que no se tocan. Sport entra en la lista por el mismo motivo que Live: es otro producto,
+     no un escalón de precio de los slots, y meterlo en la bolsa de al lado por lo que cuesta lo
+     haría desaparecer de su sección. */
+  const quietos = new Set(paquetes.filter((p) => ['base', 'live', 'sport'].includes(tipoDePaquete(p.nombre)))
     .flatMap((p) => p.sellos));
-  const enLive = new Set(paquetes.filter((p) => K(p.nombre) === 'live').flatMap((p) => p.sellos));
 
   const nuevoBplus = [], nuevoPremium = [], movimientos = [];
   for (const s of sellos) {
-    if (enBasico.has(s.nombre) || enLive.has(s.nombre)) continue;   // ésos no se tocan
+    if (quietos.has(s.nombre)) continue;                            // ésos no se tocan
     if (!esExterno(s)) continue;
     const costo = aNum(s.costo);
     const estaba = bplus.sellos.includes(s.nombre) ? 'Básico +'
@@ -612,7 +638,7 @@ function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
 }
 
 module.exports = {
-  armarDesdeBase, MARGEN_MINIMO, recomponerPorCosto, TECHO_BASICO_PLUS,
+  armarDesdeBase, MARGEN_MINIMO, recomponerPorCosto, TECHO_BASICO_PLUS, tipoDePaquete,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
   listOfertas, getOferta, saveOferta, removeOferta,
   resolver, diff, aplicar, paraMostrar,
