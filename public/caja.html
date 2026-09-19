@@ -1437,6 +1437,20 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   /* Se esconde el logo/nombre de GANAMOS y aparece el wordmark de la marca. */
   :root:root[data-marca="bet30"] .logo, :root:root[data-marca="bet30"] .marca-ganamos{display:none}
   :root:root[data-marca="bet30"] .marca-bet30{display:block}
+  /* ── SUPERFICIES DE LA PIEL QUE VAN HARDCODEADAS (no por variable) ──────────────────────────────
+     La «piel magenta» pinta algunas superficies con degradados morados escritos a mano (no toman
+     `--marca-*`), así que hay que pisarlas una por una. Si aparece un morado nuevo, es porque hay
+     otra regla `:root:root .algo{ background: ...#9146a8... }` sin equivalente acá. */
+  :root:root[data-marca="bet30"] .saldo{
+    background:
+      radial-gradient(110% 170% at 88% -30%, rgba(230,58,92,.16), transparent 60%),
+      linear-gradient(90deg,#1c2a47 0%,#0e1626 82%);
+    border-color:rgba(230,58,92,.18);
+  }
+  :root:root[data-marca="bet30"] .op,
+  :root:root[data-marca="bet30"] .tj{background:linear-gradient(90deg,#e63a5c 0%,#164c93 82%)}
+  :root:root[data-marca="bet30"] .diahead{background:linear-gradient(90deg, rgba(230,58,92,.26), rgba(11,17,33,.96) 60%)}
+  :root:root[data-marca="bet30"] .acc button:hover{background:linear-gradient(90deg,rgba(230,58,92,.28),rgba(20,29,48,.20) 82%)}
   </style>
 
   <!-- ══════ LOGIN ══════ -->
