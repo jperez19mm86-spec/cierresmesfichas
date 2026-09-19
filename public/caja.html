@@ -12,8 +12,10 @@
      `viewport-fit=cover` va porque el diseño ya usaba `env(safe-area-inset-bottom)` para no
      meter los botones abajo de la barra del iPhone, y ese valor da cero sin esto. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- 🎨 LA MARCA (skin por servicio). El server rellena `__MARCA__` con el valor de la env `MARCA`
-     al servir esta página; sin env queda '' y no cambia nada (GANAMOS es el default). Va ANTES de
+<!-- 🎨 LA MARCA (skin por servicio). El server rellena el atributo data-marca de abajo con el valor
+     de la env `MARCA` al servir esta página; sin env queda '' y no cambia nada (GANAMOS es el
+     default). ⚠️ El único placeholder que el server reemplaza tiene que estar UNA sola vez en el
+     archivo (reemplaza el primero); por eso acá no se escribe el literal. Va ANTES de
      los estilos para que el atributo ya esté puesto cuando se aplican, sin parpadeo. La skin de cada
      marca vive en el CSS, bajo `:root:root[data-marca="..."]`, inerte hasta que este atributo la
      enciende. Así una marca nueva no toca en nada a las demás. -->

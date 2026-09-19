@@ -123,7 +123,7 @@ function servirCaja(res) {
     const crudo = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'caja.html'), 'utf8');
     const marca = String(process.env.MARCA || '').trim().toLowerCase();
     const limpia = /^[a-z0-9-]{1,20}$/.test(marca) ? marca : '';   // sólo un identificador simple
-    _cajaHtmlCache = crudo.replace('__MARCA__', limpia);
+    _cajaHtmlCache = crudo.replace(/__MARCA__/g, limpia);   // global: no depende de que haya uno solo
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');

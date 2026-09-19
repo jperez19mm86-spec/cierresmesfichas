@@ -1141,7 +1141,7 @@ check('sin grilla no se marca nada, en vez de romper',
   check('la marca se setea por un atributo que el server rellena (placeholder __MARCA__)',
     /setAttribute\('data-marca','__MARCA__'\)/.test(htmlCaja)
     && /_cajaHtmlCache\b/.test(idxCajaMarca)
-    && /\.replace\('__MARCA__', limpia\)/.test(idxCajaMarca));
+    && /\.replace\(\/__MARCA__\/g, limpia\)/.test(idxCajaMarca));
   check('la marca del server se sanea (sólo identificador simple), si no queda vacía → GANAMOS',
     /const limpia = \/\^\[a-z0-9-\]\{1,20\}\$\/\.test\(marca\) \? marca : ''/.test(idxCajaMarca));
   check('la skin Bet30 está gateada por data-marca (no puede pintar el GANAMOS por defecto)',
