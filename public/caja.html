@@ -1401,8 +1401,12 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
 
   <style id="skin-marcas">
   /* Wordmark de una marca alternativa (texto, se lee nítido en cualquier pantalla). Oculto por
-     defecto; el color de cada letra y su aparición los pone la skin de la marca. */
-  .marca-alt{display:none; font-family:'Outfit',sans-serif; font-weight:800; font-size:52px; letter-spacing:-1.5px; margin:6px 0 2px; line-height:1}
+     defecto; el color de cada letra y su aparición los pone la skin de la marca.
+     ⚠️ VA CON `.login .marca-alt` (0,2,0), NO `.marca-alt` (0,1,0): el `.login h1{display:flex}`
+     de más arriba pesa (0,1,1) y le ganaba al `display:none`, así que el wordmark Bet30 se colaba
+     en GANAMOS. Con (0,2,0) le gana; y el reveal de la marca (:root:root[data-marca], 0,3,0) le
+     sigue ganando a esto, así que en Bet30 aparece igual. */
+  .login .marca-alt{display:none; font-family:'Outfit',sans-serif; font-weight:800; font-size:52px; letter-spacing:-1.5px; margin:6px 0 2px; line-height:1}
   .marca-bet30 .b{color:#e63a5c} .marca-bet30 .n{color:#3b82f6}
 
   /* ══════ SKIN BET30 ══════ navy + rosa/rojo. INERTE hasta que el server pone data-marca="bet30"
@@ -1451,6 +1455,13 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   :root:root[data-marca="bet30"] .tj{background:linear-gradient(90deg,#e63a5c 0%,#164c93 82%)}
   :root:root[data-marca="bet30"] .diahead{background:linear-gradient(90deg, rgba(230,58,92,.26), rgba(11,17,33,.96) 60%)}
   :root:root[data-marca="bet30"] .acc button:hover{background:linear-gradient(90deg,rgba(230,58,92,.28),rgba(20,29,48,.20) 82%)}
+  /* La barra del panel muestra el logo perro de GANAMOS (`.top .ficha` = perro.png). Para Bet30 se
+     reemplaza por un mark compacto «B30» (no hay ícono cuadrado de la marca; el wordmark va en el
+     login). El `.ficha` del login queda escondido aparte, dentro de `.logo`. */
+  :root:root[data-marca="bet30"] .top .ficha{
+    background:linear-gradient(135deg,#e63a5c 0%,#164c93 100%); border-radius:7px; display:grid; place-items:center;
+  }
+  :root:root[data-marca="bet30"] .top .ficha::after{content:"B30"; font:800 11px 'Outfit',sans-serif; color:#fff; letter-spacing:-.3px}
   </style>
 
   <!-- ══════ LOGIN ══════ -->

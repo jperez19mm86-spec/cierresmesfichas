@@ -1148,7 +1148,7 @@ check('sin grilla no se marca nada, en vez de romper',
     /:root:root\[data-marca="bet30"\]\{/.test(htmlCaja)
     && !/\n\s*:root:root\{[^}]*--bg:#0B1121/.test(htmlCaja));
   check('el wordmark de la marca alternativa arranca oculto y sólo lo muestra su skin',
-    /\.marca-alt\{display:none/.test(htmlCaja)
+    /\.login \.marca-alt\{display:none/.test(htmlCaja)   /* scopeado a .login: le gana a `.login h1{display:flex}`, si no el wordmark se cuela en GANAMOS */
     && /:root:root\[data-marca="bet30"\] \.marca-bet30\{display:block\}/.test(htmlCaja)
     && /:root:root\[data-marca="bet30"\] \.logo, :root:root\[data-marca="bet30"\] \.marca-ganamos\{display:none\}/.test(htmlCaja));
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
