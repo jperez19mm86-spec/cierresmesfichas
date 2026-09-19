@@ -12,6 +12,12 @@
      `viewport-fit=cover` va porque el diseño ya usaba `env(safe-area-inset-bottom)` para no
      meter los botones abajo de la barra del iPhone, y ese valor da cero sin esto. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 🎨 LA MARCA (skin por servicio). El server rellena `__MARCA__` con el valor de la env `MARCA`
+     al servir esta página; sin env queda '' y no cambia nada (GANAMOS es el default). Va ANTES de
+     los estilos para que el atributo ya esté puesto cuando se aplican, sin parpadeo. La skin de cada
+     marca vive en el CSS, bajo `:root:root[data-marca="..."]`, inerte hasta que este atributo la
+     enciende. Así una marca nueva no toca en nada a las demás. -->
+<script>document.documentElement.setAttribute('data-marca','__MARCA__');</script>
 <title>Mi Caja</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1391,12 +1397,55 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
        la versión final. El número de caso sigue apareciendo en el propio error, que es donde
        sirve: una cinta permanente arriba de todo se deja de leer a los dos días. -->
 
+  <style id="skin-marcas">
+  /* Wordmark de una marca alternativa (texto, se lee nítido en cualquier pantalla). Oculto por
+     defecto; el color de cada letra y su aparición los pone la skin de la marca. */
+  .marca-alt{display:none; font-family:'Outfit',sans-serif; font-weight:800; font-size:52px; letter-spacing:-1.5px; margin:6px 0 2px; line-height:1}
+  .marca-bet30 .b{color:#e63a5c} .marca-bet30 .n{color:#3b82f6}
+
+  /* ══════ SKIN BET30 ══════ navy + rosa/rojo. INERTE hasta que el server pone data-marca="bet30"
+     (env MARCA=bet30). Pisa la «piel magenta» (:root:root, 0,2,0) por especificidad (0,3,0), así
+     que vale para TODAS las secciones y niveles sin tocar el default GANAMOS. */
+  :root:root[data-marca="bet30"]{
+    --bg:#0B1121; --bg2:#151d30; --bg3:#1e2942; --bg4:#28344f;
+    --bor:#2b3950; --bor2:#3b4b68;
+    --txt:#ffffff; --mut:#8ea1bf; --mut2:#c4d1e8;
+    --g:#f26b86; --g-fill:#e63a5c; --g-soft:#3a1526; --g-ink:#ff9fb2;
+    --marca-barra:linear-gradient(96deg,#e63a5c 0%,#164c93 100%);
+    --marca-accion:linear-gradient(120deg,#e63a5c 0%,#c22b49 100%);
+    --marca-grad:linear-gradient(168deg,#1c2a47 0%,#0e1626 74%);
+    --lg-halo:rgba(230,58,92,.28);
+    --dato:#67e8f9; --dato-soft:#12384a; --info:#7fd6ef; --info-soft:#12303c;
+    --no:#fb7185; --no-soft:#3a1622; --warn:#fbbf24; --warn-soft:#2f2913; --ok:#4ade80; --ok-soft:#123227;
+  }
+  :root:root[data-marca="bet30"] .tarjeta{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(230,58,92,.20), transparent 58%),
+      linear-gradient(168deg,#1c2a47 0%,#0e1626 74%);
+  }
+  :root:root[data-marca="bet30"] .tarjeta .btn{background:linear-gradient(135deg,#f0476a,#d12a4c); box-shadow:0 6px 20px rgba(230,58,92,.42)}
+  :root:root[data-marca="bet30"] .tarjeta .btn:hover{filter:brightness(1.08); background:linear-gradient(135deg,#f0476a,#d12a4c)}
+  :root:root[data-marca="bet30"] .tarjeta .ojo{background:#233355; border-color:transparent; color:#fff}
+  :root:root[data-marca="bet30"] .tarjeta .ojo:hover{background:#fff; color:#233355}
+  :root:root[data-marca="bet30"] .tarjeta .entrada:-webkit-autofill,
+  :root:root[data-marca="bet30"] .tarjeta .entrada:-webkit-autofill:hover,
+  :root:root[data-marca="bet30"] .tarjeta .entrada:-webkit-autofill:focus{
+    -webkit-box-shadow:0 0 0 100px #1c2a47 inset; box-shadow:0 0 0 100px #1c2a47 inset; -webkit-text-fill-color:#fff; caret-color:#fff;
+  }
+  /* Se esconde el logo/nombre de GANAMOS y aparece el wordmark de la marca. */
+  :root:root[data-marca="bet30"] .logo, :root:root[data-marca="bet30"] .marca-ganamos{display:none}
+  :root:root[data-marca="bet30"] .marca-bet30{display:block}
+  </style>
+
   <!-- ══════ LOGIN ══════ -->
   <div class="login" id="pLogin">
     <div class="tarjeta">
       <div class="cab">
         <div class="logo"><div class="ficha"></div></div>
         <h1 class="marca-ganamos"><span>GANAMOS</span></h1>
+        <!-- Marca alternativa por skin. Oculta por defecto; la piel de cada marca la muestra y
+             esconde el logo/nombre de GANAMOS. Sólo texto: se lee nítido en cualquier pantalla. -->
+        <h1 class="marca-alt marca-bet30" aria-hidden="true"><span class="b">Bet</span><span class="n">30</span></h1>
       </div>
       <div class="cmp">
         <label class="campo" for="u">Tu usuario</label>

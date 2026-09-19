@@ -113,9 +113,26 @@ app.use((_req, res, next) => {
   next();
 });
 
+/* caja.html con la MARCA inyectada (skin por servicio). Se lee una vez y se cachea —la marca es
+   fija por deploy—: el server reemplaza `__MARCA__` por el valor de la env `MARCA`. Sin esa env
+   queda '' y la página es IDÉNTICA a GANAMOS (la skin del CSS está inerte sin el atributo). Así un
+   servicio con `MARCA=bet30` se ve Bet30 y el de GANAMOS no cambia en nada. */
+let _cajaHtmlCache = null;
+function servirCaja(res) {
+  if (_cajaHtmlCache == null) {
+    const crudo = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'caja.html'), 'utf8');
+    const marca = String(process.env.MARCA || '').trim().toLowerCase();
+    const limpia = /^[a-z0-9-]{1,20}$/.test(marca) ? marca : '';   // sólo un identificador simple
+    _cajaHtmlCache = crudo.replace('__MARCA__', limpia);
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(_cajaHtmlCache);
+}
+
 if (SOLO_CAJA) {
   const DE_CAJA = /^\/(caja(\/|$)|caja-(conexion|logica)\.js$|api\/caja(\/|$)|img\/|logo|favicon)/;
-  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')));
+  app.get('/', (_req, res) => servirCaja(res));
   app.use((req, res, next) => {
     if (DE_CAJA.test(req.path)) return next();
     /* Al navegador se le contesta en castellano; a una llamada de datos, JSON. Un 404 en HTML
@@ -1397,8 +1414,7 @@ app.get('/cuenta', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
 
 // Mi Caja. La página es pública; el DATO no: cada endpoint /api/caja/* exige la sesión propia,
 // que se abre con el usuario y la clave del casino.
-app.get('/caja', (_req, res) => { res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(__dirname, '..', 'public', 'caja.html')); });
+app.get('/caja', (_req, res) => servirCaja(res));
 
 // La FACTURA que ve el cliente con su link. Pública a propósito: el cliente no tiene usuario, y la
 // llave es el token. Muestra una FOTO congelada — si después entran cargas nuevas o cambia un %,

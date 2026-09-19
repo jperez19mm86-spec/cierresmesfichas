@@ -1134,6 +1134,23 @@ check('sin grilla no se marca nada, en vez de romper',
     && !/localStorage\.setItem\(ULTIMO[\s\S]{0,120}apagarLogin\(true\)/.test(conector));
   check('si el reanudar no completa, repone el campo de contraseña (no deja el login sin clave)',
     /if \(!r \|\| !r\.ok\) \{ window\.__caja_sesion = null; try \{ apagarLogin\(false\)/.test(conector));
+  /* ── SKIN POR MARCA (Bet30 y futuras). Prod = GANAMOS tiene que quedar INTACTO: la skin va bajo
+     `:root:root[data-marca="..."]`, inerte hasta que el server pone el atributo (env MARCA). El
+     wordmark alternativo arranca oculto. Sin la env, `__MARCA__` queda '' y no cambia nada. */
+  const idxCajaMarca = require('fs').readFileSync(__dirname + '/../src/index.js', 'utf8');
+  check('la marca se setea por un atributo que el server rellena (placeholder __MARCA__)',
+    /setAttribute\('data-marca','__MARCA__'\)/.test(htmlCaja)
+    && /_cajaHtmlCache\b/.test(idxCajaMarca)
+    && /\.replace\('__MARCA__', limpia\)/.test(idxCajaMarca));
+  check('la marca del server se sanea (sólo identificador simple), si no queda vacía → GANAMOS',
+    /const limpia = \/\^\[a-z0-9-\]\{1,20\}\$\/\.test\(marca\) \? marca : ''/.test(idxCajaMarca));
+  check('la skin Bet30 está gateada por data-marca (no puede pintar el GANAMOS por defecto)',
+    /:root:root\[data-marca="bet30"\]\{/.test(htmlCaja)
+    && !/\n\s*:root:root\{[^}]*--bg:#0B1121/.test(htmlCaja));
+  check('el wordmark de la marca alternativa arranca oculto y sólo lo muestra su skin',
+    /\.marca-alt\{display:none/.test(htmlCaja)
+    && /:root:root\[data-marca="bet30"\] \.marca-bet30\{display:block\}/.test(htmlCaja)
+    && /:root:root\[data-marca="bet30"\] \.logo, :root:root\[data-marca="bet30"\] \.marca-ganamos\{display:none\}/.test(htmlCaja));
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
     && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
