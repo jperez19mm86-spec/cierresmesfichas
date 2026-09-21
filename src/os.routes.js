@@ -65,6 +65,7 @@ const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const telegram = require('./telegram');
 const billeteras = require('./billeteras-store');
+const tipoArchivo = require('./lib/tipo-archivo');
 const importSheet = require('./import-sheet.service');
 const backup = require('./backup.service');
 const ofertas = require('./api-ofertas-store');
@@ -1466,23 +1467,12 @@ function mount(app) {
      Ahora manda lo que dicen los BYTES: una imagen o un PDF se muestran; cualquier otra cosa se
      descarga y no se abre nunca. Más nosniff —que el navegador no adivine— y sandbox, que apaga
      scripts aunque alguien fuerce la apertura. */
-  const VER_EN_PANTALLA = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'application/pdf']);
-  function _tipoPorLosBytes(b) {
-    if (!b || b.length < 12) return '';
-    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
-    if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
-    if (b.slice(0, 4).toString('ascii') === 'GIF8') return 'image/gif';
-    if (b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
-    if (b.slice(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
-    if (b.slice(4, 8).toString('ascii') === 'ftyp' && /heic|heif|mif1/i.test(b.slice(8, 12).toString('ascii'))) return 'image/heic';
-    return '';
-  }
   app.get('/api/os/comprobantes/:id/archivo', (req, res) => {
     const c = comprobantes.get(req.params.id, true);
     if (!c || !c.archivo_datos) return err(res, 404, 'ese comprobante no tiene archivo');
     const buf = Buffer.from(c.archivo_datos, 'base64');
-    const tipo = _tipoPorLosBytes(buf);
-    const mostrar = VER_EN_PANTALLA.has(tipo);
+    const tipo = tipoArchivo.tipoPorBytes(buf);
+    const mostrar = tipoArchivo.sePuedeMostrar(tipo);
     const nombre = (c.archivo_nombre || 'comprobante').replace(/[^\w.\-]/g, '_');
     res.setHeader('Content-Type', mostrar ? tipo : 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');

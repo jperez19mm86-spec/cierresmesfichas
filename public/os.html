@@ -2839,8 +2839,15 @@ async function pintarComprobantes(estado, conFiltros) {
     const pend = c.estado === 'pendiente';
     // A qué billetera entró. Con dos billeteras, «¿esto dónde entró?» es la primera pregunta.
     const via = (c.via === 'usdt' ? '₮ USDT' : '💵 ARS') + (c.billetera ? ' · ' + esc(c.billetera) : '');
+    /* ⚠️ Y SI EL ARCHIVO NO ES UNA FOTO NI UN PDF, SE DICE ANTES DE TOCARLO. Los dos .html que
+       entraron el 21-sep-2026 se veían como cualquier otro comprobante en esta lista. Hoy el
+       servidor los baja como documento en vez de abrirlos, pero el que mira tiene que saber qué
+       está por abrir. */
+    const tipoArch = String(c.archivo_tipo || '').toLowerCase();
+    const raro = !!c.archivo_bytes && !/^image\/|^application\/pdf$/.test(tipoArch);
     const arch = c.archivo_bytes
       ? '<a href="/api/os/comprobantes/' + c.id + '/archivo" target="_blank" class="pill">📎 ver comprobante</a>'
+        + (raro ? ' <span class="pill" style="background:var(--gold);color:#000" title="No se abre en pantalla: se descarga. Un archivo así puede intentar ejecutarse dentro del panel.">⚠ no es una foto ni un PDF (' + esc(tipoArch || 'sin tipo') + ')</span>' : '')
       : '<span class="pill" style="background:var(--red);color:#000">SIN comprobante</span>';
     // El primero que espera arranca abierto; los demás, plegados.
     const abrir = !pend || (_abiertos++ === 0);

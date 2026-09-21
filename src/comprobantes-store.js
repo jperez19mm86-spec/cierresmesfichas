@@ -13,6 +13,7 @@
  * serían peores que no tenerlo).
  */
 const { db } = require('./db');
+const tipoArchivo = require('./lib/tipo-archivo');
 const { parseMonto } = require('./lib/monto');
 
 const nowISO = () => new Date().toISOString();
@@ -50,9 +51,19 @@ function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, a
     // El tamaño EXACTO, no estimado. `largo * 0.75` ignora el relleno del base64 y devolvía de más
     // —68 bytes contados como 69— así que el número que se muestra y el que se compara contra el
     // máximo no eran el peso real del archivo. Decodificar cuesta nada: ya está entero en memoria.
-    bytes = Buffer.from(limpio, 'base64').length;
+    const crudo = Buffer.from(limpio, 'base64');
+    bytes = crudo.length;
     if (bytes > MAX_BYTES) return { ok: false, error: `el archivo pesa ${(bytes / 1048576).toFixed(1)} MB y el máximo son ${MAX_BYTES / 1048576} MB` };
-    datos = limpio; nombre = K(archivo.nombre).slice(0, 120); tipo = K(archivo.tipo).slice(0, 60);
+    /* 🔴 SOLO FOTOS Y PDF, Y SE MIRA EL ARCHIVO, NO LO QUE DICE QUIEN LO SUBE.
+       El 21-sep-2026 entraron dos `.html` por esta puerta —pública: alcanza con saber el código de
+       un cliente— y el panel los abría como páginas de su propio dominio. Servirlos como descarga
+       ya lo desactiva, pero ni siquiera tienen que entrar: un comprobante es una foto o un PDF. */
+    const real = tipoArchivo.tipoPorBytes(crudo);
+    if (!tipoArchivo.sePuedeMostrar(real)) {
+      return { ok: false, error: 'el comprobante tiene que ser una foto (PNG, JPG, HEIC) o un PDF' };
+    }
+    // Se guarda el tipo REAL: el declarado no se usa para nada más que quedar en el nombre.
+    datos = limpio; nombre = K(archivo.nombre).slice(0, 120); tipo = real;
   }
 
   const id = newId();

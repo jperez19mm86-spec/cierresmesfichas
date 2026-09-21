@@ -10050,35 +10050,49 @@ async function main() {
     const alta = await post('/api/clientes', { codigo: COD, nombreVisible: 'Prueba archivo' });
     const cid = alta.data && alta.data.cliente && alta.data.cliente.id;
     const html = Buffer.from('<h1>poc</h1><script>window.x=1</script>').toString('base64');
+
+    // 1) POR LA PUERTA: un comprobante es una foto o un PDF. Un .html ya no entra.
     const sub = await post('/api/comprobante', { codigo: COD, via: 'usdt', monto: '10',
-      archivo: { base64: html, nombre: 'poc.html', tipo: 'text/html' } });
-    const cmpId = sub.data && sub.data.comprobante && sub.data.comprobante.id;
-    check('comprobante: se puede subir un archivo cualquiera', !!cmpId, JSON.stringify(sub.data).slice(0, 140));
-    if (cmpId) {
-      const arch = await get('/api/os/comprobantes/' + cmpId + '/archivo');
-      const h = arch.headers || {};
-      check('comprobante: un HTML subido NO se devuelve como página',
-        String(h['content-type'] || '').startsWith('application/octet-stream'),
-        'content-type: ' + h['content-type']);
-      check('comprobante: y se descarga en vez de abrirse',
-        /attachment/.test(String(h['content-disposition'] || '')), String(h['content-disposition']));
-      check('comprobante: con nosniff y sandbox, por si alguien lo fuerza',
-        String(h['x-content-type-options'] || '') === 'nosniff'
-        && /sandbox/.test(String(h['content-security-policy'] || '')),
-        JSON.stringify({ nosniff: h['x-content-type-options'], csp: h['content-security-policy'] }));
-      // Y una imagen de verdad se sigue viendo: el blindaje no puede romper lo que se usa todos los días.
-      const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
-      const sub2 = await post('/api/comprobante', { codigo: COD, via: 'usdt', monto: '11',
-        archivo: { base64: png, nombre: 'foto.png', tipo: 'application/octet-stream' } });
-      const id2 = sub2.data && sub2.data.comprobante && sub2.data.comprobante.id;
-      if (id2) {
-        const a2 = await get('/api/os/comprobantes/' + id2 + '/archivo');
-        check('comprobante: una imagen se sigue mostrando, aunque venga mal rotulada',
-          String((a2.headers || {})['content-type'] || '').startsWith('image/png')
-          && /inline/.test(String((a2.headers || {})['content-disposition'] || '')),
-          (a2.headers || {})['content-type']);
-      }
+      archivo: { base64: html, nombre: 'poc.html', tipo: 'image/jpeg' } });
+    check('comprobante: un archivo que no es foto ni PDF no se acepta',
+      sub.status === 400 && /foto .* o un PDF|foto \(PNG/i.test(String(sub.data && sub.data.error)),
+      JSON.stringify(sub.data).slice(0, 160));
+
+    /* 2) Y UNO YA GUARDADO —los dos que entraron el 21-sep-2026— se sirve inerte. El archivo vive
+       en la base del server, que corre aparte, así que esto se mira en el código que lo entrega:
+       el tipo sale de los BYTES, lo que no es foto ni PDF va como descarga, y van las dos cabeceras
+       que impiden que se ejecute igual. */
+    const rutArch = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const bloqueArch = rutArch.slice(rutArch.indexOf("app.get('/api/os/comprobantes/:id/archivo'"),
+      rutArch.indexOf("app.post('/api/os/comprobantes/:id/resolver'"));
+    check('comprobante: el tipo con que se entrega sale de los bytes, no del que lo subió',
+      /const tipo = tipoArchivo\.tipoPorBytes\(buf\);/.test(bloqueArch)
+      && /const mostrar = tipoArchivo\.sePuedeMostrar\(tipo\);/.test(bloqueArch)
+      && !/c\.archivo_tipo/.test(bloqueArch));
+    check('comprobante: lo que no es foto ni PDF se descarga, nunca se abre',
+      /mostrar \? tipo : 'application\/octet-stream'/.test(bloqueArch)
+      && /\$\{mostrar \? 'inline' : 'attachment'\}/.test(bloqueArch));
+    check('comprobante: y va con nosniff y sandbox, por si alguien lo fuerza',
+      /X-Content-Type-Options', 'nosniff'/.test(bloqueArch) && /sandbox/.test(bloqueArch));
+
+    // 3) Y una foto de verdad se sigue viendo: el blindaje no puede romper lo de todos los días.
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+    const sub2 = await post('/api/comprobante', { codigo: COD, via: 'usdt', monto: '11',
+      archivo: { base64: png, nombre: 'foto.png', tipo: 'application/octet-stream' } });
+    const id2 = sub2.data && sub2.data.comprobante && sub2.data.comprobante.id;
+    check('comprobante: una foto entra aunque venga mal rotulada', !!id2, JSON.stringify(sub2.data).slice(0, 140));
+    if (id2) {
+      const a2 = await get('/api/os/comprobantes/' + id2 + '/archivo');
+      check('comprobante: y se sigue mostrando en pantalla',
+        String((a2.headers || {})['content-type'] || '').startsWith('image/png')
+        && /inline/.test(String((a2.headers || {})['content-disposition'] || '')),
+        (a2.headers || {})['content-type']);
     }
+    // Y en la lista del panel se avisa antes de tocarlo.
+    const osArch = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('comprobante: el panel avisa cuando el archivo no es foto ni PDF',
+      /no es una foto ni un PDF/.test(osArch));
+
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
