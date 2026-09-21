@@ -2895,7 +2895,23 @@ async function pintarComprobantes(estado, conFiltros) {
              lo cotidiano de lo que sale para afuera, y acá las dos cosas son lo mismo —aprobar—,
              sólo cambia si ya sabés el cambio o todavía no. Poner una en gris sugería que era la
              segunda opción, y para el que cobra en pesos todo el mes es la primera. */
-          + '<div class="card" style="margin:8px 0 0;background:var(--bg2);border:1px solid var(--border);padding:11px 13px">'
+          /* ── SI EL PAGO Y LA CUENTA ESTÁN EN LA MISMA MONEDA, NO HAY NADA QUE CONVERTIR ──────
+             Un pago en USDT sobre una cuenta en USDT no tiene tipo de cambio: pedirlo obliga a
+             inventar un número, y el otro camino —«con el TC del mes»— deja el pago marcado como
+             provisional para siempre y decía la frase sin sentido «se acredita en USDT y se pasa a
+             USDT con el tipo de cambio del mes». Un solo campo: lo que entró. */
+          + (_cmpMoneda(c.codigo) === String(c.divisa || 'ARS').toUpperCase()
+            ? '<div class="card" style="margin:8px 0 0;background:var(--bg2);border:1px solid var(--border);padding:11px 13px">'
+              + '<b style="font-size:12.5px">¿Cuánto entró?</b>'
+              + '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
+              +   '<div style="flex:0 0 auto"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
+              +     '<input id="cmp-u-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
+              +   '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+              +   '<div class="muted" style="flex:1 1 200px;padding-bottom:9px;font-size:12px">Viene en ' + esc(c.divisa || 'ARS')
+              +     ' y su cuenta se lleva en ' + esc(_cmpMoneda(c.codigo)) + ': no hay tipo de cambio que poner.</div>'
+              + '</div>'
+              + '</div>'
+            : ('<div class="card" style="margin:8px 0 0;background:var(--bg2);border:1px solid var(--border);padding:11px 13px">'
           +   '<b style="font-size:12.5px">Ya sé a qué cambio recibí esta plata</b>'
           +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
@@ -2930,7 +2946,7 @@ async function pintarComprobantes(estado, conFiltros) {
           +   '</div>'
           +   '<div class="muted" style="margin-top:6px;font-size:12px">Se acredita en ' + esc(c.divisa || 'ARS')
           +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
-          + '</div>'
+          + '</div>'))
 
           + '<div class="row" style="margin-top:10px;align-items:flex-end;gap:10px">'
           +   '<div style="flex:1 1 300px"><label>Nota <span class="muted" style="text-transform:none;letter-spacing:0">— sólo la ves vos</span></label>'

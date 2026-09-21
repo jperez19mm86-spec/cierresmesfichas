@@ -10023,6 +10023,22 @@ async function main() {
       && /esc\(m\.caja_etiqueta\|\|m\.caja\)/.test(osFi));
   }
 
+  /* ── UN PAGO EN LA MISMA MONEDA DE LA CUENTA NO TIENE TIPO DE CAMBIO ────────────────────────
+     La tarjeta pedía el TC o empujaba a «aprobar con el TC del mes», que deja el pago provisional
+     hasta el cierre y mostraba la frase sin sentido «se acredita en USDT y se pasa a USDT con el
+     tipo de cambio del mes». Cuando las dos monedas coinciden va un solo campo: lo que entró. */
+  {
+    const osPago = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('comprobante: en la misma moneda se aprueba sin tipo de cambio',
+      /_cmpMoneda\(c\.codigo\) === String\(c\.divisa \|\| 'ARS'\)\.toUpperCase\(\)/.test(osPago)
+      && /¿Cuánto entró\?/.test(osPago));
+    // Y el servidor lo acepta sin TC: acredita la moneda del pago y no inventa la otra cara.
+    const rutPago = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('comprobante: sin TC se acredita igual, sin inventar la otra cara',
+      /const tcNum = !porElMes && b\.tc != null && String\(b\.tc\)\.trim\(\) !== '' \? parseMonto\(b\.tc\) : null;/.test(rutPago)
+      && /else \{ enUsdt = monto; if \(tc\) enArs = money\.mul\(monto, tc\)|else \{ enUsdt = monto; if \(tc\) enArs = money\.round\(money\.mul\(monto, tc\), 2\); \}/.test(rutPago));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
