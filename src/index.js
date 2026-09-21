@@ -654,7 +654,31 @@ app.post('/api/_restore', (req, res) => {
 // ─────────────── PEDIDOS — vista cliente (por código) ───────────────
 
 // El cliente entra su código → ve sus cajas + montos rápidos para armar el pedido.
-app.get('/api/pedir/:codigo', (req, res) => {
+/* ── TOPE PARA LAS PUERTAS PÚBLICAS ───────────────────────────────────────────────────────────
+   El tope de arriba cuida los dos INGRESOS. Las otras puertas públicas no pedían nada, y no son
+   inofensivas: `/api/pedir/<código>` contesta con el nombre del cliente, sus cajas y DÓNDE PAGAR,
+   así que probar códigos en serie dibuja el negocio entero; `/api/comprobante` y
+   `/api/movimiento-panel` CREAN cosas que después alguien tiene que mirar una por una.
+   El 21-sep-2026 alguien subió dos archivos de prueba por esa puerta: con tope, un aluvión se
+   corta solo. Los números son holgados para no molestar a nadie que use la pantalla de verdad. */
+const _publico = new Map();
+function limitePublico(nombre, tope, ventanaMin) {
+  return (req, res, next) => {
+    const ip = String(req.ip || req.headers['x-forwarded-for'] || 'x').split(',')[0].trim();
+    const clave = nombre + ':' + ip;
+    const ahora = Date.now(); const ventana = ventanaMin * 60 * 1000;
+    const prev = (_publico.get(clave) || []).filter((t) => ahora - t < ventana);
+    if (_publico.size > 5000) _publico.clear();            // no crece para siempre
+    if (prev.length >= tope) {
+      console.log(`[Público] tope de ${nombre} desde ${ip}`);
+      return res.status(429).json({ ok: false, error: 'Demasiados pedidos seguidos. Probá de nuevo en unos minutos.' });
+    }
+    prev.push(ahora); _publico.set(clave, prev);
+    return next();
+  };
+}
+
+app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
   const cli = clientes.getByCodigo(req.params.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
   // Los datos para pagar y, sobre todo, los AVISOS: fuera del rango o en la red equivocada la
@@ -735,7 +759,7 @@ app.post('/api/pedir', (req, res) => {
 
 // El cliente AVISA UN PAGO: declara cuánto transfirió y adjunta la captura.
 // Queda pendiente. No toca la deuda: eso se hace al aprobarlo desde el panel.
-app.post('/api/comprobante', async (req, res) => {
+app.post('/api/comprobante', limitePublico('comprobante', 20, 60), async (req, res) => {
   const b = req.body || {};
   const cli = clientes.getByCodigo(b.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
@@ -974,7 +998,7 @@ app.post('/api/os/comprobantes/:id/reavisar', async (req, res) => {
  * El permiso `mover_balance` se comprueba ACÁ y no sólo escondiendo el botón: esta ruta es pública
  * (no pide login, ver auth.js) y cualquiera que sepa un código puede postearle a mano.
  */
-app.post('/api/movimiento-panel', (req, res) => {
+app.post('/api/movimiento-panel', limitePublico('mover', 20, 60), (req, res) => {
   const b = req.body || {};
   const cli = clientes.getByCodigo(b.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
@@ -1045,6 +1069,7 @@ function anotarIntento(clave) {
   _intentos.set(clave, arr);
 }
 function limpiarIntentos(clave) { _intentos.delete(clave); }
+
 
 app.post('/api/cuenta/login', (req, res) => {
   const b = req.body || {};
@@ -1662,7 +1687,7 @@ app.post('/chat/nuevo', (req, res) => {
 
 /* EL CLIENTE AVISA QUE PAGÓ. Pública, como la de fichas: el cliente no tiene usuario. Queda
    PENDIENTE — acreditar un pago porque alguien subió una imagen sería confiar en la imagen. */
-app.post('/chat/:token/pague', (req, res) => {
+app.post('/chat/:token/pague', limitePublico('pague', 20, 60), (req, res) => {
   const chatDoc = require('./chat-doc');
   const chatStore = require('./chat-externo.store');
   const r = chatDoc.porToken(req.params.token);
@@ -1751,6 +1776,11 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
     res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');
   },
 }));
+/* Una dirección que no existe bajo /api contestaba 200 con la PÁGINA del panel: al leer los logs
+   parece que algo funcionó cuando no existe, y quien prueba rutas a mano lee un éxito donde no lo
+   hay (pasó el 21-sep-2026 con /api/pedir/comprobante/... y /api/cuenta/comprobantes). */
+app.all(/^\/api\//, (req, res) => res.status(404).json({ ok: false, error: 'esa dirección no existe' }));
+
 app.get('*', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));

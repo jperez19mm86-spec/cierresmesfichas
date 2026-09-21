@@ -10096,6 +10096,28 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── LAS PUERTAS PÚBLICAS TIENEN TOPE ───────────────────────────────────────────────────────
+     El tope de intentos cuidaba sólo los dos ingresos. `/api/pedir/<código>` contesta con el
+     nombre del cliente, sus cajas y dónde pagar: probar códigos en serie dibujaba el negocio
+     entero, gratis. Y las dos puertas que CREAN —comprobante y mover fichas— tampoco pedían nada. */
+  {
+    const idxPub = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    check('público: las tres puertas de la pantalla del cliente tienen tope por dirección',
+      /app\.get\('\/api\/pedir\/:codigo', limitePublico\('pedir'/.test(idxPub)
+      && /app\.post\('\/api\/comprobante', limitePublico\('comprobante'/.test(idxPub)
+      && /app\.post\('\/api\/movimiento-panel', limitePublico\('mover'/.test(idxPub));
+    check('público: y el aviso de pago del chat también',
+      /app\.post\('\/chat\/:token\/pague', limitePublico\('pague'/.test(idxPub));
+    // ⚠️ Definido ANTES de usarse: es la misma trampa que dejó sin migrar la billetera de Config.
+    check('público: el limitador se define antes de la primera ruta que lo usa',
+      idxPub.indexOf('function limitePublico(') < idxPub.indexOf("app.get('/api/pedir/:codigo', limitePublico("));
+    // Y una dirección inexistente bajo /api no devuelve la PÁGINA del panel, que se lee como un éxito.
+    const r404 = await get('/api/no-existe-esta-ruta');
+    check('público: una dirección /api que no existe contesta que no existe',
+      r404.status === 404 && r404.data && r404.data.ok === false,
+      r404.status + ' · ' + String(r404.headers && r404.headers['content-type']));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
