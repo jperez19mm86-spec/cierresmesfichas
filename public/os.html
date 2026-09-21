@@ -1551,6 +1551,11 @@ async function cliResumen(id){
         return `<tr>
           <td class="muted" style="white-space:nowrap">${esc(m.fecha)}</td>
           <td><b>${esc(nom)}</b>${m.medio?' <span class="muted">· '+esc(m.medio)+'</span>':''}
+            ${/* CUÁNTAS FICHAS Y A QUÉ CAJA: la nota decía «12% de 10.000.000 ARS» y para saber a
+                  cuál de sus cajas fueron había que ir a buscar el pedido. */
+              m.cargado!=null?'<div style="font-size:12px"><b>'+money(m.cargado,0)+'</b> '+esc(m.divisa||'')
+                +' en fichas'+(m.caja?' → <b>'+esc(m.caja_etiqueta||m.caja)+'</b>'
+                +(m.caja_etiqueta?' <span class="muted">('+esc(m.caja)+')</span>':''):'')+'</div>':''}
             ${m.notas?'<div class="muted" style="font-size:11px">'+esc(m.notas)+'</div>':''}</td>
           <td class="right${baja?'':''}">${m.monto_ars!=null&&m.monto_ars!==''?(baja?'− ':'')+money(m.monto_ars,2):'<span class="muted">—</span>'}</td>
           <td class="right"><b>${m.monto_usdt!=null&&m.monto_usdt!==''?(baja?'− ':'')+money(m.monto_usdt,2):'<span class="muted">—</span>'}</b></td>

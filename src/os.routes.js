@@ -581,12 +581,25 @@ function mount(app) {
     // que poder abrir el renglón. Son los MISMOS movimientos que ve él en su pantalla, con lo que
     // acá hace falta y allá no: la nota, el tipo de cambio y las dos monedas.
     // Vienen valuados del store, así que un pago que espera el TC del mes ya figura con su valor.
-    const cuentaMovs = movs.list({ cliente_id: c.id }).slice(0, 100).map((m) => ({
-      id: m.id, fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
-      monto_ars: m.monto_ars, monto_usdt: m.monto_usdt,
-      tc: m.tc_momento || m.tc_usado || null, tc_pendiente: m.tc_modo === 'mes' && !!m.provisional,
-      divisa: m.divisa, notas: m.notas || '', medio: m.medio || null,
-    }));
+    const cuentaMovs = movs.list({ cliente_id: c.id }).slice(0, 100).map((m) => {
+      /* CUÁNTAS FICHAS Y A QUÉ CAJA. La nota decía «12% de 10.000.000 ARS» y ahí se terminaba: para
+         saber a cuál de sus cajas habían ido esas fichas había que ir a buscar el pedido. Con
+         varias cajas —y más si alguna se mudó de cliente— es la primera pregunta que llega. */
+      let cargado = null; let caja = null; let cajaEtiqueta = '';
+      if (m.pedido_id) {
+        try {
+          const ped = pedidosStore.get(m.pedido_id);
+          if (ped) { cargado = ped.monto; caja = ped.cajaUsuario || null; cajaEtiqueta = ped.cajaEtiqueta || ''; }
+        } catch (e) { /* un pedido borrado no puede tapar la cuenta */ }
+      }
+      return {
+        id: m.id, fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo,
+        monto_ars: m.monto_ars, monto_usdt: m.monto_usdt,
+        tc: m.tc_momento || m.tc_usado || null, tc_pendiente: m.tc_modo === 'mes' && !!m.provisional,
+        divisa: m.divisa, notas: m.notas || '', medio: m.medio || null,
+        cargado, caja, caja_etiqueta: cajaEtiqueta,
+      };
+    });
     ok(res, {
       cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado, paneles: cPaneles.length },
       base_actual: baseActual, deuda, historial_pct: histPct, auditoria_pct: auditPct, meses: filas, plataformas,

@@ -9983,6 +9983,21 @@ async function main() {
       /c\.billetera \? ' · ' \+ esc\(c\.billetera\)/.test(osBw));
   }
 
+  /* ── EN EL OS, CADA CARGA DICE CUÁNTAS FICHAS Y A QUÉ CAJA ──────────────────────────────────
+     La nota decía «12% de 10.000.000 ARS» y ahí terminaba: para saber a cuál de sus cajas fueron
+     esas fichas había que ir a buscar el pedido. Con varias cajas —y más si alguna se mudó de
+     cliente, como GanamosM01, que era de Ariel y se cobró a Fran— es la primera pregunta. */
+  {
+    const rutFi = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const osFi = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    check('cuenta del OS: cada movimiento de carga trae las fichas y su caja',
+      /cargado, caja, caja_etiqueta: cajaEtiqueta,/.test(rutFi)
+      && /const ped = pedidosStore\.get\(m\.pedido_id\);/.test(rutFi));
+    check('cuenta del OS: y la tabla las muestra, con el nombre de la caja y su login',
+      /m\.cargado!=null\?'<div style="font-size:12px"><b>'\+money\(m\.cargado,0\)/.test(osFi)
+      && /esc\(m\.caja_etiqueta\|\|m\.caja\)/.test(osFi));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
