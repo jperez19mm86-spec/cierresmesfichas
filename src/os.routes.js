@@ -1457,12 +1457,39 @@ function mount(app) {
       comprobantes: lista,
     });
   });
+  /* 🔴 EL TIPO LO DECIDE EL SERVIDOR, NO QUIEN SUBE EL ARCHIVO ──────────────────────────────────
+     Un comprobante se sube desde la pantalla pública —alcanza con saber el código de un cliente— y
+     su `Content-Type` viajaba tal cual hasta la respuesta. El 21-sep-2026 alguien subió un .html
+     con el código de Fran y el navegador lo abrió COMO PÁGINA DEL PANEL: desde ahí un script puede
+     hacer pedidos con la sesión de quien lo mira (la cookie es HttpOnly, así que no se lee, pero
+     se usa igual). Es el mismo blindaje que ya tenía el archivo de un aviso del chat.
+     Ahora manda lo que dicen los BYTES: una imagen o un PDF se muestran; cualquier otra cosa se
+     descarga y no se abre nunca. Más nosniff —que el navegador no adivine— y sandbox, que apaga
+     scripts aunque alguien fuerce la apertura. */
+  const VER_EN_PANTALLA = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'application/pdf']);
+  function _tipoPorLosBytes(b) {
+    if (!b || b.length < 12) return '';
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg';
+    if (b.slice(0, 4).toString('ascii') === 'GIF8') return 'image/gif';
+    if (b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+    if (b.slice(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+    if (b.slice(4, 8).toString('ascii') === 'ftyp' && /heic|heif|mif1/i.test(b.slice(8, 12).toString('ascii'))) return 'image/heic';
+    return '';
+  }
   app.get('/api/os/comprobantes/:id/archivo', (req, res) => {
     const c = comprobantes.get(req.params.id, true);
     if (!c || !c.archivo_datos) return err(res, 404, 'ese comprobante no tiene archivo');
-    res.setHeader('Content-Type', c.archivo_tipo || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${(c.archivo_nombre || 'comprobante').replace(/[^\w.\-]/g, '_')}"`);
-    res.send(Buffer.from(c.archivo_datos, 'base64'));
+    const buf = Buffer.from(c.archivo_datos, 'base64');
+    const tipo = _tipoPorLosBytes(buf);
+    const mostrar = VER_EN_PANTALLA.has(tipo);
+    const nombre = (c.archivo_nombre || 'comprobante').replace(/[^\w.\-]/g, '_');
+    res.setHeader('Content-Type', mostrar ? tipo : 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; sandbox");
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.setHeader('Content-Disposition', `${mostrar ? 'inline' : 'attachment'}; filename="${nombre}"`);
+    res.send(buf);
   });
   // Aprobar → registra el PAGO (que es lo único que mueve la deuda). Rechazar → solo queda el motivo.
   app.post('/api/os/comprobantes/:id/resolver', wrap(async (req, res) => {

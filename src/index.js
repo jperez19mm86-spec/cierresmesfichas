@@ -1727,7 +1727,11 @@ app.get('/logo.png', (_req, res, next) => {
     if (!guardado) return next();          // no subió ninguno: vale el del repo
     const [, tipo, b64] = /^data:([^;]+);base64,(.+)$/.exec(guardado) || [];
     if (!b64) return next();
-    res.setHeader('Content-Type', tipo || 'image/png');
+    // El logo lo sube la dueña, pero el tipo igual se acota: un data: con text/html serviría una
+    // página desde el dominio del panel, que es justo lo que pasó con un comprobante el 21-sep-2026.
+    const limpio = String(tipo || '').toLowerCase().split(';')[0].trim();
+    res.setHeader('Content-Type', /^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(limpio) && limpio !== 'image/svg+xml' ? limpio : 'image/png');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'public, max-age=300');   // corto: para verlo apenas lo cambia
     return res.send(Buffer.from(b64, 'base64'));
   } catch (e) { return next(); }

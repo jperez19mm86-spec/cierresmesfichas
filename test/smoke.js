@@ -10039,6 +10039,49 @@ async function main() {
       && /else \{ enUsdt = monto; if \(tc\) enArs = money\.mul\(monto, tc\)|else \{ enUsdt = monto; if \(tc\) enArs = money\.round\(money\.mul\(monto, tc\), 2\); \}/.test(rutPago));
   }
 
+  /* ── 🔴 UN COMPROBANTE NO PUEDE EJECUTARSE COMO PÁGINA DEL PANEL ────────────────────────────
+     El archivo se sube desde la pantalla pública —alcanza con saber el código de un cliente— y su
+     Content-Type viajaba tal cual hasta la respuesta. El 21-sep-2026 alguien subió un .html con el
+     código de Fran y el navegador lo abrió DENTRO del dominio del panel: desde ahí un script hace
+     pedidos con la sesión de quien lo mira. Ahora el tipo sale de los BYTES y lo que no es imagen
+     ni PDF se descarga. */
+  {
+    const COD = 'ZZXSS' + Date.now().toString().slice(-5);
+    const alta = await post('/api/clientes', { codigo: COD, nombreVisible: 'Prueba archivo' });
+    const cid = alta.data && alta.data.cliente && alta.data.cliente.id;
+    const html = Buffer.from('<h1>poc</h1><script>window.x=1</script>').toString('base64');
+    const sub = await post('/api/comprobante', { codigo: COD, via: 'usdt', monto: '10',
+      archivo: { base64: html, nombre: 'poc.html', tipo: 'text/html' } });
+    const cmpId = sub.data && sub.data.comprobante && sub.data.comprobante.id;
+    check('comprobante: se puede subir un archivo cualquiera', !!cmpId, JSON.stringify(sub.data).slice(0, 140));
+    if (cmpId) {
+      const arch = await get('/api/os/comprobantes/' + cmpId + '/archivo');
+      const h = arch.headers || {};
+      check('comprobante: un HTML subido NO se devuelve como página',
+        String(h['content-type'] || '').startsWith('application/octet-stream'),
+        'content-type: ' + h['content-type']);
+      check('comprobante: y se descarga en vez de abrirse',
+        /attachment/.test(String(h['content-disposition'] || '')), String(h['content-disposition']));
+      check('comprobante: con nosniff y sandbox, por si alguien lo fuerza',
+        String(h['x-content-type-options'] || '') === 'nosniff'
+        && /sandbox/.test(String(h['content-security-policy'] || '')),
+        JSON.stringify({ nosniff: h['x-content-type-options'], csp: h['content-security-policy'] }));
+      // Y una imagen de verdad se sigue viendo: el blindaje no puede romper lo que se usa todos los días.
+      const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+      const sub2 = await post('/api/comprobante', { codigo: COD, via: 'usdt', monto: '11',
+        archivo: { base64: png, nombre: 'foto.png', tipo: 'application/octet-stream' } });
+      const id2 = sub2.data && sub2.data.comprobante && sub2.data.comprobante.id;
+      if (id2) {
+        const a2 = await get('/api/os/comprobantes/' + id2 + '/archivo');
+        check('comprobante: una imagen se sigue mostrando, aunque venga mal rotulada',
+          String((a2.headers || {})['content-type'] || '').startsWith('image/png')
+          && /inline/.test(String((a2.headers || {})['content-disposition'] || '')),
+          (a2.headers || {})['content-type']);
+      }
+    }
+    if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
