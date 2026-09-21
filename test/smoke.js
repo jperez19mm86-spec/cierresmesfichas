@@ -5111,7 +5111,8 @@ async function main() {
         && /notas: etiqueta/.test(rt)
         && !/notas: 'saldo anterior/.test(rt));
       check('saldo anterior: el cliente lo ve por su nota y sin fecha',
-        /m\.tipo === 'ajuste' && m\.notas/.test(ped) && /esAjuste \? '' : dia\(m\.fecha\)/.test(ped)
+        /m\.tipo === 'ajuste' \|\| m\.tipo === 'bonificacion'\) && m\.notas/.test(ped)
+        && /esAjuste \? '' : dia\(m\.fecha\)/.test(ped)
         && /esAjuste \? '' : fecha\(m\.fecha\)/.test(cta));
 
       // Y con el código en vez del usuario, que es como entra desde la pantalla de pedidos.
@@ -7606,6 +7607,17 @@ async function main() {
        con un guion, que el cliente lee como un error nuestro. Ahora cada renglón muestra lo que
        paga EN LA MONEDA DE ESA CARGA —el % sobre lo cargado, la cuenta que él puede rehacer— y al
        lado el equivalente en dólares. */
+    /* «Bonificación» es una palabra nuestra. El cliente ve un renglón que le baja la deuda y no
+       entiende de qué: va su nota —«tus 2 puntos de las fichas de Ariel»— o, si no hay, algo que
+       se lea solo. Y lo que resta va en otro color: en una lista donde todo suma, el signo solo
+       se pierde. */
+    check('cuenta: lo que le baja la deuda se explica y no dice «Bonificación»',
+      /'A tu favor'/.test(pedirSrc) && /'A tu favor'/.test(ctaSrc)
+      && /\(m\.tipo === 'ajuste' \|\| m\.tipo === 'bonificacion'\) && m\.notas/.test(pedirSrc)
+      && /\(m\.tipo === 'ajuste' \|\| m\.tipo === 'bonificacion'\) && m\.notas/.test(ctaSrc));
+    check('cuenta: los pagos y lo que está a favor van en otro color',
+      /o\.baja \? ';color:var\(--green\)' : ''/.test(pedirSrc)
+      && /o\.baja \? 'var\(--verde\)' : 'inherit'/.test(ctaSrc));
     check('cuenta: lo que paga se muestra en la moneda de esa carga',
       /propio_monto: propio, propio_divisa: divPropia/.test(idxSrc)
       && /pagas_monto: pagas, pagas_divisa: div/.test(idxSrc)

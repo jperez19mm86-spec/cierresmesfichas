@@ -339,12 +339,15 @@
       + '<span class="small" style="opacity:.55;text-align:right">Pagás</span>'
       + '<span class="small" style="opacity:.55;text-align:right">USDT</span></div>';
     const nro = (v, dec, baja, div) => (v == null || v === '') ? '<span style="opacity:.4">—</span>'
-      : '<b>' + (baja ? '− ' : '') + money(v, dec) + '</b>' + (div ? ' <span class="small" style="opacity:.55">' + esc(div) + '</span>' : '');
-    const fila = (o) => '<div style="' + GRILLA + ';padding:7px 0;border-bottom:1px solid rgba(128,128,128,.2)">'
+      : '<b>' + (baja ? '− ' : '') + money(v, dec) + '</b>' + (div ? ' <span style="font-size:10.5px;opacity:.55">' + esc(div) + '</span>' : '');
+    /* Lo que RESTA —un pago, algo a favor— va en verde: en una lista donde casi todo suma, el
+       signo solo se pierde y el cliente lee un cargo donde hay un crédito. */
+    const fila = (o) => '<div style="' + GRILLA + ';padding:7px 0;border-bottom:1px solid rgba(128,128,128,.2)'
+      + (o.baja ? ';color:var(--green)' : '') + '">'
       + '<span class="small" style="opacity:.6">' + esc(o.dia || '') + '</span>'
       + '<span class="small">' + o.que + '</span>'
-      + '<span style="text-align:right;white-space:nowrap">' + nro(o.propio, o.propio_divisa === 'USDT' ? 2 : 0, o.baja, o.propio_divisa) + '</span>'
-      + '<span style="text-align:right;white-space:nowrap;opacity:.8">' + nro(o.usdt, 2, o.baja) + '</span></div>';
+      + '<span style="text-align:right;white-space:nowrap;font-size:13px">' + nro(o.propio, o.propio_divisa === 'USDT' ? 2 : 0, o.baja, o.propio_divisa) + '</span>'
+      + '<span style="text-align:right;white-space:nowrap;font-size:13px;opacity:.8">' + nro(o.usdt, 2, o.baja) + '</span></div>';
 
     /* A QUÉ USUARIO FUERON. Con varias cajas es la primera pregunta. Si la caja tiene nombre para
        el cliente va el nombre, y el login SIEMPRE abajo: es lo único que no se confunde entre dos
@@ -357,13 +360,15 @@
       const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
       const que = m.tipo === 'carga' && m.cargado
         ? '<b>' + money(m.cargado, 0) + '</b> <span class="small" style="opacity:.55">' + esc(m.divisa || '') + '</span>' + quienCaja(m.etiqueta, m.usuario)
-        : (m.tipo === 'ajuste' && m.notas ? esc(m.notas)
+        /* «Bonificación» es una palabra nuestra: al cliente no le dice nada. Va la nota —«tus 2
+           puntos de las fichas de Ariel»— y si no hay, algo que se entienda solo. */
+        : ((m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas ? esc(m.notas)
           : (m.tipo === 'correccion' && m.cargado
             ? 'da de baja la carga de ' + money(m.cargado, 0) + ' ' + esc(m.divisa || '')
-            : esc(nombre[m.tipo] || m.tipo)));
+            : esc(m.tipo === 'bonificacion' ? 'A tu favor' : (nombre[m.tipo] || m.tipo))));
       // Un ajuste se explica por su nota —«Fichas de julio 2026»— y NO por el día en que alguien
       // lo cargó, que al cliente no le dice nada y encima lo pone fuera de lugar en la lista.
-      const esAjuste = m.tipo === 'ajuste' && m.notas;
+      const esAjuste = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
       return fila({ dia: esAjuste ? '' : dia(m.fecha), que, propio: m.propio_monto, propio_divisa: m.propio_divisa, usdt: m.monto_usdt, baja });
     };
 

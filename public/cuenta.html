@@ -151,7 +151,7 @@ function pintar(r) {
   /* La columna decía ARS, y una carga en guaraníes no tiene cara en pesos: salía un guion, que se
      lee como un error. Cada renglón muestra lo que paga EN SU MONEDA y su equivalente en dólares. */
   const nro = (v, dec, baja, div) => (v == null || v === '')
-    ? '<span class="mut">—</span>' : `<b>${baja ? '− ' : ''}${money(v, dec)}</b>${div ? ` <span class="mut">${esc(div)}</span>` : ''}`;
+    ? '<span class="mut">—</span>' : `<b style="font-size:13px">${baja ? '− ' : ''}${money(v, dec)}</b>${div ? ` <span class="mut" style="font-size:10.5px">${esc(div)}</span>` : ''}`;
   const fila = (o) => `<tr>
     <td class="mut" style="white-space:nowrap">${esc(o.dia || '')}</td>
     <td>${o.que}</td>
@@ -164,9 +164,12 @@ function pintar(r) {
     const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
     const que = m.tipo === 'carga' && m.cargado
       ? `<b>${money(m.cargado, 0)}</b> <span class="mut">${esc(m.divisa || '')}</span>${caja(m.etiqueta, m.usuario)}`
-      : (m.tipo === 'ajuste' && m.notas ? esc(m.notas) : esc(nombreTipo[m.tipo] || m.tipo));
+      /* «Bonificación» es una palabra nuestra: al cliente no le dice nada. Va su nota, y si no hay,
+         algo que se entienda solo. */
+      : ((m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas ? esc(m.notas)
+        : esc(m.tipo === 'bonificacion' ? 'A tu favor' : (nombreTipo[m.tipo] || m.tipo)));
     // Un ajuste se explica por su nota, no por el día en que alguien lo cargó.
-    const esAjuste = m.tipo === 'ajuste' && m.notas;
+    const esAjuste = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
     return fila({ dia: esAjuste ? '' : fecha(m.fecha), que, propio: m.propio_monto, propio_divisa: m.propio_divisa, usdt: m.monto_usdt, baja });
   };
   /* EL MES DE CADA MOVIMIENTO NO ES SIEMPRE EL DE SU FECHA: la deuda de julio se cargó en
