@@ -149,10 +149,6 @@ app.use(auth.required);
 app.set('sistemaParaCargar', sistemaParaCargar);
 // El aviso del comprobante lo dispara la aprobación, que vive en os.routes. Se pasa por el app en
 // vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
-/* La billetera que ya estaba en Configuración pasa a ser un registro la primera vez, para que
-   nada cambie para quien la usa. Si falla, el sistema arranca igual: se carga a mano. */
-try { const b = billeteras.sembrar(); if (b) console.log('[Billeteras] se migró la de Configuración como', b.nombre); }
-catch (e) { console.warn('[Billeteras] no se pudo migrar la de Configuración:', e.message); }
 app.set('avisarComprobante', avisarComprobante);
 require('./os.routes').mount(app);
 
@@ -357,6 +353,15 @@ const movPanelSvc = require('./movimientos-panel.service');
 const deudaCargaSvc = require('./deuda-carga.service');
 const accesoCli = require('./cliente-acceso');
 const billeteras = require('./billeteras-store');
+
+/* ⚠️ VA DESPUÉS DEL require, NO ARRIBA. Estaba 200 líneas antes y `billeteras` es una const: al
+   arrancar tiraba «Cannot access 'billeteras' before initialization», el catch lo tapaba, y la
+   billetera de Configuración NO se migró. La primera que se cargó a mano quedó de principal y
+   todos los clientes sin asignar pasaron a ver ESA dirección. Pasó en producción el 21-sep-2026.
+   La billetera que ya estaba en Configuración pasa a ser un registro la primera vez, para que nada
+   cambie para quien la usa. Si falla, el sistema arranca igual: se carga a mano. */
+try { const b = billeteras.sembrar(); if (b) console.log('[Billeteras] se migró la de Configuración como', b.nombre); }
+catch (e) { console.warn('[Billeteras] no se pudo migrar la de Configuración:', e.message); }
 const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
 

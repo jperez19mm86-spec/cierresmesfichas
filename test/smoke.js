@@ -9968,6 +9968,13 @@ async function main() {
        lista: sin el campo, el selector sale en «la principal» y el próximo Guardar se la borra.
        Es el mismo agujero que ya se tapó con externos_modo. */
     const rutBw = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    /* ⚠️ Y LA MIGRACIÓN CORRE DESPUÉS DEL require. Estaba antes, y como es una const, al arrancar
+       tiraba «Cannot access before initialization»: el catch lo tapaba y la billetera de
+       Configuración nunca se migró. La primera cargada a mano quedó de principal y los clientes
+       sin asignar pasaron a ver esa dirección. Pasó en producción el 21-sep-2026. */
+    check('billeteras: la migración de la de Configuración corre después de cargar el módulo',
+      idxBw.indexOf("const billeteras = require('./billeteras-store')") < idxBw.indexOf('billeteras.sembrar()')
+      && idxBw.indexOf('billeteras.sembrar()') > 0);
     check('billeteras: la lista de clientes manda a cuál paga cada uno',
       /billetera_id: c\.billetera_id \|\| null/.test(rutBw));
     check('billeteras: se administran en Config y se asignan en la ficha del cliente',
