@@ -7616,6 +7616,11 @@ async function main() {
       /'Tu saldo pendiente es'/.test(pedirSrc) && /'Tu saldo pendiente es'/.test(ctaSrc));
     check('cuenta: y dice que cada movimiento va al cambio de su día',
       /cada movimiento al cambio de su día/.test(pedirSrc) && /cada movimiento al cambio de su día/.test(ctaSrc));
+    /* ⚠️ Y EN QUÉ MONEDA SE PAGA. Sólo una cuenta llevada en pesos se paga en pesos; las demás se
+       pagan en dólares. Sin decirlo, el monto de referencia se lee como «pagá esto en pesos». */
+    check('cuenta: el monto en la otra moneda dice que es de referencia y en cuál se paga',
+      /de referencia[^']*se paga en ' \+ esc\(mon\)/.test(pedirSrc)
+      && /de referencia[^$]*se paga en \$\{esc\(mon\)\}/.test(ctaSrc));
 
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda.service.js'), 'utf8');
     // Suma UNA columna, la de su moneda. Nunca las dos, y nunca convierte por su cuenta.

@@ -301,9 +301,12 @@
          «858,82 USDT» con nada de lo que hizo. No es el total pasado al cambio de hoy: es la suma
          de cada movimiento al cambio de su día. Si a alguno le falta esa cara, no se muestra:
          un total corto se lee como un descuento. */
+      /* ⚠️ EN QUÉ MONEDA SE PAGA. Sólo una cuenta llevada en pesos se paga en pesos; las demás se
+         pagan en dólares. El monto en la otra moneda es una REFERENCIA —lo que costó cada carga en
+         la moneda en que se cobró— y hay que decirlo, o se lee como «pagá esto en pesos». */
       + (c.otra_completa && c.total_otra != null && Number(c.total_otra)
         ? '<div style="font-size:19px;font-weight:700;opacity:.75">' + money(Math.abs(c.total_otra), 2) + ' ' + esc(c.otra_moneda || '') + '</div>'
-          + '<div class="small" style="opacity:.7">cada movimiento al cambio de su día</div>' : '')
+          + '<div class="small" style="opacity:.7">de referencia, cada movimiento al cambio de su día · se paga en ' + esc(mon) + '</div>' : '')
       + '<div class="small" style="margin-top:6px">Consumo ' + money(c.fichas_pendientes, 2)
       + (Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes, 2) : '')
       + ' · Pagado ' + money(c.pagos, 2) + '</div>';

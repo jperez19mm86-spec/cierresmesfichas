@@ -193,9 +193,12 @@ function pintar(r) {
       <label>${titulo}</label>
       <div class="saldo" style="color:${debe > 0 ? 'var(--rojo)' : (debe < 0 ? 'var(--verde)' : 'inherit')}">
         ${money(Math.abs(debe))} ${esc(mon)}</div>
+      ${/* ⚠️ Sólo una cuenta llevada en pesos se paga en pesos; las demás se pagan en dólares. El
+            monto en la otra moneda es una REFERENCIA de lo que costó cada carga, y hay que decirlo
+            o se lee como «pagá esto en pesos». */''}
       ${c.otra_completa && c.total_otra != null && Number(c.total_otra) ? `
         <div style="font-size:21px;font-weight:700;opacity:.75">${money(Math.abs(c.total_otra))} ${esc(c.otra_moneda || '')}</div>
-        <div class="chico">cada movimiento al cambio de su día</div>` : ''}
+        <div class="chico">de referencia, cada movimiento al cambio de su día · se paga en ${esc(mon)}</div>` : ''}
       <div class="chico" style="margin-top:6px">
         Consumo ${money(c.fichas_pendientes)}
         ${Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes) : ''}
