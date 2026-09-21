@@ -64,6 +64,7 @@ const ganCache = require('./ganancias-cache');
 const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const telegram = require('./telegram');
+const billeteras = require('./billeteras-store');
 const importSheet = require('./import-sheet.service');
 const backup = require('./backup.service');
 const ofertas = require('./api-ofertas-store');
@@ -181,6 +182,8 @@ function mount(app) {
       disparador: c.disparador, tc_aplicar: c.tc_aplicar, tc_proveedor: c.tc_proveedor,
       // v3.0 §7-10 (planilla). Si no viajan acá, el modal los renderiza vacíos y al Guardar los pisa con null.
       mover_balance: c.mover_balance, moneda_cuenta: c.moneda_cuenta, margen_externos_pct: c.margen_externos_pct,
+      // ⚠️ Si no viaja, la ficha dibuja «la principal» y al Guardar le borra la billetera al cliente.
+      billetera_id: c.billetera_id || null,
       es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, externos_modo: c.externos_modo, saldo_inicial: c.saldo_inicial,
       factura_a: c.factura_a, externos_precios_de: c.externos_precios_de,
       internos_se_cobran: !!c.internos_se_cobran,
@@ -1234,6 +1237,24 @@ function mount(app) {
   }));
 
   // ───────── PARTICIPACIONES ─────────
+  /* ── LAS BILLETERAS ───────────────────────────────────────────────────────────────────────
+     Cada una con sus direcciones (una por red) y SU grupo de Telegram. Un cliente apunta a una;
+     el que no apunta a ninguna usa la principal, que es la que estaba en Configuración. */
+  app.get('/api/os/billeteras', (_req, res) => ok(res, { billeteras: billeteras.list(), principal: billeteras.principal() }));
+  app.post('/api/os/billeteras', wrap((req, res) => {
+    const b = req.body || {};
+    if (!String(b.nombre || '').trim()) return err(res, 400, 'ponele un nombre: es lo que se ve en el OS y en el comprobante');
+    ok(res, { billetera: billeteras.crear(b) });
+  }));
+  app.put('/api/os/billeteras/:id', wrap((req, res) => {
+    const w = billeteras.actualizar(req.params.id, req.body || {});
+    w ? ok(res, { billetera: w }) : err(res, 404, 'no existe esa billetera');
+  }));
+  app.delete('/api/os/billeteras/:id', wrap((req, res) => {
+    const r = billeteras.borrar(req.params.id);
+    r.ok ? ok(res, r) : err(res, 409, r.error);
+  }));
+
   app.get('/api/os/participaciones', (req, res) => {
     const { cliente_id, panel_id } = req.query;
     if (!cliente_id) return err(res, 400, 'cliente_id requerido');
@@ -1393,7 +1414,11 @@ function mount(app) {
     // 205.000. Se acredita lo del comprobante, y eso quedaba guardado en el movimiento — o sea,
     // registrado pero invisible: la tarjeta mostraba lo DECLARADO y un id de movimiento, así que
     // para saber qué se cobró de verdad había que ir a buscarlo. Ahora viaja con cada comprobante.
+    // A qué billetera entró cada pago. El nombre viaja con el comprobante: sin esto, en la pantalla
+    // sólo se ve un id, y con dos billeteras la pregunta «¿esto dónde entró?» llega siempre.
+    const nombreBw = {}; billeteras.list().forEach((b) => { nombreBw[b.id] = b.nombre; });
     const lista = comprobantes.list({ estado: req.query.estado, codigo: req.query.codigo })
+      .map((c) => ({ ...c, billetera: c.billetera_id ? (nombreBw[c.billetera_id] || 'billetera borrada') : '' }))
       .map((c) => {
         if (!c.movimiento_id) return c;
         const m = movs.get(c.movimiento_id);            // ya viene valuado
@@ -2899,6 +2924,16 @@ function mount(app) {
     });
     if (r.error) return err(res, 400, r.error);
     ok(res, r);
+  }));
+
+  /* ── EN QUÉ SECCIÓN SE MUESTRA CADA PROVEEDOR ───────────────────────────────────────────────
+     Sólo afecta al documento: el sello, su costo y lo que se factura no se tocan. Sirve para las
+     bolsas mezcladas de TBS, donde un sello trae una mesa en vivo y dos catálogos de slots. */
+  app.get('/api/os/api/prov-seccion', (_req, res) => ok(res, { secciones: ofertas.listSecciones() }));
+  app.put('/api/os/api/prov-seccion', wrap((req, res) => {
+    const b = req.body || {};
+    const r = ofertas.setSeccion(b.prov, b.paquete_id);
+    r.ok ? ok(res, { ...r, secciones: ofertas.listSecciones() }) : err(res, 400, r.error);
   }));
 
   app.get('/api/os/api/ofertas', (_req, res) => ok(res, { ofertas: ofertas.listOfertas() }));

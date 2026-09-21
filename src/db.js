@@ -263,6 +263,23 @@ db.exec(`
     movimiento_id TEXT            -- el movimiento de pago que se generó al aprobarlo
   );
   CREATE INDEX IF NOT EXISTS ix_comprobantes_estado ON comprobantes (estado, creado_at);
+
+  /* ── LAS BILLETERAS DONDE ENTRA LA PLATA ───────────────────────────────────────────────────
+     Había UNA dirección USDT para todos, en la configuración. Ahora son varias: cada cliente paga
+     en la suya, cada una avisa a SU grupo de Telegram, y el comprobante queda marcado con a cuál
+     entró la plata — que antes no se podía saber mirando el sistema.
+     La columna direcciones es un JSON [{red, direccion}]: una billetera puede recibir por varias
+     redes (BEP20 y TRC20 son la misma billetera con dos direcciones, no dos billeteras). */
+  CREATE TABLE IF NOT EXISTS billeteras (
+    id TEXT PRIMARY KEY,
+    nombre TEXT,
+    direcciones TEXT,             -- [{ red: 'TRC20', direccion: 'T...' }]
+    tg_chat TEXT,                 -- grupo que recibe los comprobantes de ESTA billetera
+    nota TEXT,
+    activa INTEGER DEFAULT 1,
+    ord INTEGER,
+    createdAt TEXT
+  );
   CREATE INDEX IF NOT EXISTS ix_comprobantes_codigo ON comprobantes (codigo);
 
   /* ───── CONEXIONES AL CASINO (api_token, genérico/multi-master) ───── */
@@ -686,6 +703,11 @@ ensureColumns('comprobantes', { aviso_ok: 'INTEGER', aviso_error: 'TEXT', aviso_
    cripto), no en qué moneda se le lleva la cuenta. Son dos preguntas distintas y meterlas en el
    mismo campo hace que la respuesta a una rompa la otra. */
 ensureColumns('clientes', { moneda_cuenta: 'TEXT' });
+// A qué billetera paga este cliente. Vacío = la principal, que es lo que había antes.
+ensureColumns('clientes', { billetera_id: 'TEXT' });
+// Y a cuál entró ESTE pago: se congela al avisarlo, porque el cliente puede cambiar de billetera
+// después y el comprobante tiene que seguir diciendo dónde entró la plata.
+ensureColumns('comprobantes', { billetera_id: 'TEXT' });
 
 /* La CUENTA PROPIA de un cliente: usuario y contraseña para ver su saldo y su factura.
    No la tienen todos, y está bien que no: la mayoría sólo pide fichas y ahí el código alcanza.

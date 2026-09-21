@@ -28,7 +28,7 @@ const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
  * Alta desde la pantalla pública.
  * @param archivo { nombre, tipo, base64 }  opcional
  */
-function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, archivo = null }) {
+function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, archivo = null, billetera_id = null }) {
   const v = K(via).toLowerCase() === 'usdt' ? 'usdt' : 'ars';
   // ⚠️ ACÁ ESTABA EL ERROR DE LOS 100×. Esta línea borraba TODOS los puntos antes de leer el
   // número, así que "94.22" se guardaba como 9422 — cien veces más. Pasó de verdad: un cliente
@@ -58,17 +58,20 @@ function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, a
   const id = newId();
   db.prepare(`INSERT INTO comprobantes
     (id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado,
-     archivo_nombre, archivo_tipo, archivo_bytes, archivo_datos, creado_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+     archivo_nombre, archivo_tipo, archivo_bytes, archivo_datos, creado_at, billetera_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, K(codigo), K(clienteNombre), v, m, v === 'usdt' ? 'USDT' : K(divisa || 'ARS').toUpperCase(),
       K(referencia).slice(0, 120), K(notas).slice(0, 500), 'pendiente',
-      nombre, tipo, bytes, datos, nowISO());
+      nombre, tipo, bytes, datos, nowISO(),
+      // A qué billetera entró. Se congela acá: el cliente puede cambiar de billetera mañana y este
+      // comprobante tiene que seguir diciendo dónde entró la plata.
+      K(billetera_id) || null);
   return { ok: true, comprobante: get(id) };
 }
 
 /** Sin el adjunto: es lo que se lista. Traerlo en cada listado sería mover megas al pedo. */
 function get(id, conArchivo = false) {
-  const cols = `id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado,
+  const cols = `id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado, billetera_id,
     archivo_nombre, archivo_tipo, archivo_bytes, creado_at, resuelto_at, resuelto_por, motivo, movimiento_id
     ${conArchivo ? ', archivo_datos' : ''}`;
   return db.prepare(`SELECT ${cols} FROM comprobantes WHERE id=?`).get(String(id)) || null;
@@ -79,7 +82,7 @@ function list({ estado = null, codigo = null, limite = 200 } = {}) {
   if (estado) { donde.push('estado=?'); args.push(String(estado)); }
   if (codigo) { donde.push('codigo=?'); args.push(String(codigo)); }
   const w = donde.length ? 'WHERE ' + donde.join(' AND ') : '';
-  return db.prepare(`SELECT id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado,
+  return db.prepare(`SELECT id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado, billetera_id,
     archivo_nombre, archivo_tipo, archivo_bytes, creado_at, resuelto_at, resuelto_por, motivo, movimiento_id,
     aviso_ok, aviso_error, aviso_at
     FROM comprobantes ${w} ORDER BY creado_at DESC LIMIT ?`).all(...args, Number(limite) || 200);

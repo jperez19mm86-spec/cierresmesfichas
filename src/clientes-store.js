@@ -53,6 +53,8 @@ function load() {
       acceso_corte: r.acceso_corte != null ? Number(r.acceso_corte) : null,
       // Vacío = USDT: es como estaban todos antes de que esto existiera.
       moneda_cuenta: (r.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
+      // A qué billetera paga. Vacío = la principal, que es lo que había con una sola dirección.
+      billetera_id: r.billetera_id || null,
       margen_externos_pct: r.margen_externos_pct || null,
       es_vendedor: !!r.es_vendedor,
       // ⚠️ El store guarda con DELETE + INSERT: si load() no trae una columna, el próximo
@@ -76,11 +78,11 @@ const _saveTx = db.transaction((data) => {
   const ins = db.prepare(`INSERT INTO clientes
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
-     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,
+     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,billetera_id,
      acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
-     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,
+     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,@bwid,
      @accOn,@accU,@accC,@accAt,@accCorte)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
@@ -91,7 +93,7 @@ const _saveTx = db.transaction((data) => {
     pp: c.paga_proveedores ? 1 : 0, pd: c.permite_deuda ? 1 : 0,
     mez: nn(c.mezcla_pago_usdt), aj: nn(c.ajuste_usdt_pct), fa: c.fecha_alta || c.createdAt || null,
     dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
-    mcta: c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT',
+    mcta: c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT', bwid: nn(c.billetera_id),
     mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
     facta: nn(c.factura_a), exprec: nn(c.externos_precios_de), intcob: c.internos_se_cobran ? 1 : 0,
     avisa: (c.avisa_pagos === false) ? 0 : 1,
@@ -174,6 +176,8 @@ function updateComercial(id, patch) {
     'factura_a', 'externos_precios_de', 'internos_se_cobran'].forEach((k) => {
     if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
   });
+  // A qué billetera paga. Vacío = la principal.
+  if (patch.billetera_id !== undefined) c.billetera_id = patch.billetera_id === '' ? null : String(patch.billetera_id).trim();
   if (patch.mover_balance !== undefined) c.mover_balance = !!patch.mover_balance;
   if (patch.moneda_cuenta !== undefined) c.moneda_cuenta = (String(patch.moneda_cuenta).toUpperCase() === 'ARS' ? 'ARS' : 'USDT');
   if (patch.es_vendedor !== undefined) c.es_vendedor = !!patch.es_vendedor;

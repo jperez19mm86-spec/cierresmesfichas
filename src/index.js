@@ -149,6 +149,10 @@ app.use(auth.required);
 app.set('sistemaParaCargar', sistemaParaCargar);
 // El aviso del comprobante lo dispara la aprobación, que vive en os.routes. Se pasa por el app en
 // vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
+/* La billetera que ya estaba en Configuración pasa a ser un registro la primera vez, para que
+   nada cambie para quien la usa. Si falla, el sistema arranca igual: se carga a mano. */
+try { const b = billeteras.sembrar(); if (b) console.log('[Billeteras] se migró la de Configuración como', b.nombre); }
+catch (e) { console.warn('[Billeteras] no se pudo migrar la de Configuración:', e.message); }
 app.set('avisarComprobante', avisarComprobante);
 require('./os.routes').mount(app);
 
@@ -352,6 +356,7 @@ const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
 const deudaCargaSvc = require('./deuda-carga.service');
 const accesoCli = require('./cliente-acceso');
+const billeteras = require('./billeteras-store');
 const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
 
@@ -659,7 +664,17 @@ app.get('/api/pedir/:codigo', (req, res) => {
     puedeVerCuenta: !!cli.acceso_habilitado,
     pago: {
       ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), min: cfg('arsMin'), max: cfg('arsMax'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
-      usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
+      /* ── DÓNDE PAGA ESTE CLIENTE ──────────────────────────────────────────────────────────
+         La dirección era UNA para todos. Ahora sale de SU billetera, que puede recibir por varias
+         redes (BEP20 y TRC20 son la misma billetera). `direccion` y `red` siguen viajando con la
+         primera para no romper nada de lo que ya las leía. */
+      usdt: (() => {
+        const w = billeteras.deCliente(cli);
+        const redes = (w && w.direcciones.length) ? w.direcciones
+          : (cfg('usdtAddress') ? [{ red: cfg('usdtRed'), direccion: cfg('usdtAddress') }] : []);
+        return { direccion: redes[0] ? redes[0].direccion : '', red: redes[0] ? redes[0].red : '',
+          redes, billetera: (w && w.nombre) || '', aviso: cfg('usdtAviso'), nota: (w && w.nota) || cfg('usdtNota') };
+      })(),
     },
     // NO exponer "sistema" al cliente (Casino/Europa = control interno). Sí las divisas (el cliente elige).
     cajas: (cli.cajas || []).map((k) => ({ id: k.id, usuario: k.usuario, etiqueta: k.etiqueta || '', divisas: (k.divisas && k.divisas.length) ? k.divisas : ['ARS'], montosRapidos: k.montosRapidos || [] })),
@@ -727,6 +742,9 @@ app.post('/api/comprobante', async (req, res) => {
     codigo: cli.codigo, clienteNombre: cli.nombreVisible,
     via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas: b.notas,
     archivo: b.archivo || null,
+    // A qué billetera entró. Se congela con el comprobante: si mañana el cliente pasa a otra, éste
+    // tiene que seguir diciendo dónde entró la plata.
+    billetera_id: String(b.via || '').toLowerCase() === 'usdt' ? (billeteras.deCliente(cli) || {}).id || null : null,
   });
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
   const c = r.comprobante;
@@ -757,7 +775,13 @@ app.post('/api/comprobante', async (req, res) => {
  * fila y se ve en la pantalla.
  */
 async function avisarComprobante(c, cli, monto, moneda) {
-  const chat = String(config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
+  /* CADA BILLETERA AVISA A SU GRUPO. Antes todos los pagos en dólares caían en el mismo, y con
+     dos billeteras eso mezcla la plata de dos flujos distintos. El grupo sale de la billetera del
+     comprobante; si no tiene, se usa el de siempre. */
+  const wallet = c.via === 'usdt'
+    ? (c.billetera_id ? billeteras.get(c.billetera_id) : billeteras.deCliente(cli)) : null;
+  const chat = String((wallet && wallet.tg_chat)
+    || config.getCfg(c.via === 'usdt' ? 'tgChatUsdt' : 'tgChatArs') || '').trim();
   const tok = config.getTelegramToken();
   // El archivo se lee UNA vez y lo usan los DOS avisos —cobranzas y el del cliente—. Va acá afuera
   // a propósito: adentro del else queda fuera de alcance del segundo aviso, y son hasta 6 MB que

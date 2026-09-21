@@ -137,6 +137,7 @@ let _chatSub = 'cuentas';
 let _chatPendN = 0;                       // cuántas cosas esperan: va en la pestaña
 const _chatPend = () => _chatPendN;
 let _clientes = [], _personas = [], _paneles = [], _proveedores = [], _repMes = '', _cfgSub = 'revision';
+let _bws = [];   // las billeteras donde entra la plata (⚙ Config → 💳 Cobros)
 let _repSub = 'mes', _repCli = '';   // Reparto: qué subpantalla y qué cliente se está editando
 let _cxSel = '', _cxNodos = [];
 
@@ -544,6 +545,7 @@ VIEWS.clientes = async () => {
   // el cartel de cada panel avisa cuáles de sus divisas no se consultan
   api('/api/os/config/divisas-ignoradas').then(x=>{ window._divIgnoradas = (x&&x.divisas)||[]; });
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
+  api('/api/os/billeteras').then(r=>{ _bws = r.billeteras||[]; }).catch(()=>{});
   window._divDiag = {}; ((dv&&dv.paneles)||[]).forEach(x=>{ window._divDiag[x.panel_id]=x; });
   setTimeout(solAviso, 0); setTimeout(movAviso, 0);   // no bloquean el pintado
   const sinDueno = _paneles.filter(p=>!_clientes.some(c=>c.id===p.cliente_id));
@@ -1258,7 +1260,13 @@ function editCli(id){
             <div style="flex:0"><label>Cuenta en</label><select id="e-moneda">
               <option value="USDT" ${c.moneda_cuenta!=='ARS'?'selected':''}>USDT</option>
               <option value="ARS" ${c.moneda_cuenta==='ARS'?'selected':''}>ARS</option></select></div>
-
+            <!-- A qué billetera paga. Cada billetera avisa a SU grupo de Telegram y queda escrita
+                 en el comprobante, así se sabe dónde entró la plata. -->
+            <div style="flex:0 0 220px"><label>Paga en la billetera</label><select id="e-bw">
+              <option value="">— la principal —</option>${
+                _bws.filter(b=>b.activa||b.id===c.billetera_id).map(b=>`<option value="${b.id}" ${c.billetera_id===b.id?'selected':''}>${esc(b.nombre)}${b.activa?'':' (apagada)'}</option>`).join('')
+              }</select></div>
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Es la dirección USDT que ve al pedir, y el grupo al que llega su comprobante.</div>
           </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Externos: cobrar +</label><input id="e-mext" value="${esc(c.margen_externos_pct||'')}" placeholder="ej 3" style="width:90px"/></div>
@@ -1428,6 +1436,7 @@ async function saveCli(id){
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
     mover_balance:val('e-mover')==='1', moneda_cuenta:val('e-moneda'), margen_externos_pct:val('e-mext'),
+    billetera_id:val('e-bw'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     factura_a:val('e-facta'), externos_precios_de:val('e-exprec'),
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
@@ -2823,7 +2832,8 @@ async function pintarComprobantes(estado, conFiltros) {
   let _abiertos = 0;
   const fila = (c) => {
     const pend = c.estado === 'pendiente';
-    const via = c.via === 'usdt' ? '₮ USDT' : '💵 ARS';
+    // A qué billetera entró. Con dos billeteras, «¿esto dónde entró?» es la primera pregunta.
+    const via = (c.via === 'usdt' ? '₮ USDT' : '💵 ARS') + (c.billetera ? ' · ' + esc(c.billetera) : '');
     const arch = c.archivo_bytes
       ? '<a href="/api/os/comprobantes/' + c.id + '/archivo" target="_blank" class="pill">📎 ver comprobante</a>'
       : '<span class="pill" style="background:var(--red);color:#000">SIN comprobante</span>';
@@ -5605,6 +5615,10 @@ async function delDivisa(cod){ if(!confirm('¿Borrar la divisa "'+cod+'"?'))retu
 CFG.pagos = async () => {
   const p=(await api('/api/os/config/pagos')).pagos||{};
   const cs=(await api('/api/os/clientes')).clientes||[];
+  _bws = (await api('/api/os/billeteras')).billeteras||[];
+  // Cuántos clientes paga cada una: borrar la que alguien usa lo dejaría cobrando en una dirección
+  // que ya no existe, así que se ve antes de tocar nada.
+  const usoBw = {}; cs.forEach(c=>{ if(c.billetera_id) usoBw[c.billetera_id]=(usoBw[c.billetera_id]||0)+1; });
   const puede=cs.filter(c=>c.avisa_pagos!==false);
   document.getElementById('cfg-body').innerHTML = `
     <div class="card"><h2>🧾 Quién puede avisar pagos</h2>
@@ -5649,6 +5663,33 @@ CFG.pagos = async () => {
       <div style="margin-top:6px"><label>Advertencia que lee el cliente ANTES de transferir (USDT)</label><textarea id="pg-usdtaviso" rows="2" style="width:100%;max-width:560px" placeholder="ej: verificá que la red sea TRC20 antes de enviar — otra red pierde los fondos">${esc(p.usdtAviso||'')}</textarea></div>
       <div style="margin-top:6px"><label>Nota / advertencia USDT</label><textarea id="pg-usdtnota" rows="2" style="width:100%;max-width:560px" placeholder="ej: transferir SOLO por la misma red">${esc(p.usdtNota||'')}</textarea></div>
       <hr/>
+      <!-- ── LAS BILLETERAS ────────────────────────────────────────────────────────────────────
+           Había UNA dirección para todos. Ahora cada cliente puede pagar en la suya, y cada
+           billetera avisa a SU grupo. La de arriba sigue sirviendo de respaldo: la usa quien no
+           tenga ninguna billetera asignada y ninguna esté cargada. -->
+      <h3 style="margin:6px 0">💳 Billeteras</h3>
+      <div class="muted" style="margin-bottom:6px">Cada cliente paga en una (se elige en su ficha). La <b>primera encendida</b> es la principal: la usan todos los que no tengan otra.
+        Una billetera puede recibir por <b>varias redes</b> — BEP20 y TRC20 son la misma billetera con dos direcciones, y el cliente elige cuál usar.</div>
+      <div id="bw-lista">${_bws.map((b,i)=>`
+        <div class="card" style="margin:8px 0;background:var(--bg3)">
+          <div class="row" style="align-items:flex-end">
+            <div style="flex:0 0 190px"><label>Nombre</label><input id="bw-nom-${b.id}" value="${esc(b.nombre)}"></div>
+            <div style="flex:0 0 210px"><label>Grupo de Telegram</label><input id="bw-tg-${b.id}" value="${esc(b.tg_chat||'')}" placeholder="-100xxxxxxxxx"></div>
+            <div style="flex:0"><label>Estado</label><select id="bw-on-${b.id}"><option value="1" ${b.activa?'selected':''}>encendida</option><option value="0" ${b.activa?'':'selected'}>apagada</option></select></div>
+            <div class="muted" style="flex:1;padding-bottom:9px">${i===0?'<b>Es la principal</b> · ':''}${usoBw[b.id]||0} cliente(s) la tienen asignada</div>
+            <div style="flex:0"><button class="small" onclick="bwGuardar('${b.id}')">💾</button></div>
+            <div style="flex:0"><button class="danger small" onclick="bwBorrar('${b.id}')">🗑</button></div>
+          </div>
+          <div style="margin-top:6px"><label>Direcciones <span class="muted">(una por línea: RED dirección)</span></label>
+            <textarea id="bw-dir-${b.id}" rows="${Math.max(2,(b.direcciones||[]).length+1)}" style="width:100%;max-width:620px" placeholder="TRC20 Txxxxxxxx&#10;BEP20 0xxxxxxxx">${esc((b.direcciones||[]).map(d=>`${d.red} ${d.direccion}`).join('\n'))}</textarea></div>
+        </div>`).join('') || '<div class="muted">Todavía no hay ninguna.</div>'}</div>
+      <div class="row" style="align-items:flex-end;margin-top:6px">
+        <div style="flex:0 0 190px"><label>➕ Nueva billetera</label><input id="bw-nuevo-nom" placeholder="ej: Wallet Alexa"></div>
+        <div style="flex:0 0 210px"><label>Grupo de Telegram</label><input id="bw-nuevo-tg" placeholder="-100xxxxxxxxx"></div>
+        <div style="flex:1 1 320px"><label>Direcciones (una por línea: RED dirección)</label><textarea id="bw-nuevo-dir" rows="2" style="width:100%" placeholder="TRC20 Txxxxxxxx&#10;BEP20 0xxxxxxxx"></textarea></div>
+        <div style="flex:0"><button onclick="bwCrear()">Agregar</button></div>
+      </div>
+      <hr/>
       <!-- Estos dos existían y funcionaban, pero no había dónde escribirlos: quedaban de la primera
            carga y para cambiarlos había que ir a la API. Si están vacíos, el comprobante llega por
            push al teléfono pero no sale ningún mensaje al grupo. -->
@@ -5676,6 +5717,33 @@ async function savePagos(){
     tgChatArs:val('pg-tgars'), tgChatUsdt:val('pg-tgusdt'), tgChatInterno:val('pg-tgint'),
   })});
   toast('Guardado');
+}
+
+/* Las direcciones se escriben como texto —«TRC20 Txxx» por línea— porque es como se pegan de la
+   wallet. Se parte por el primer espacio: lo de antes es la red, lo de después la dirección. */
+function bwLeerDirs(txt){
+  return String(txt||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const i=l.search(/\s/);
+    return i<0 ? { red:'', direccion:l } : { red:l.slice(0,i), direccion:l.slice(i+1).trim() };
+  });
+}
+async function bwGuardar(id){
+  const r=await api('/api/os/billeteras/'+id,{method:'PUT',body:JSON.stringify({
+    nombre:val('bw-nom-'+id), tg_chat:val('bw-tg-'+id), activa:val('bw-on-'+id)==='1',
+    direcciones:bwLeerDirs(document.getElementById('bw-dir-'+id).value) })});
+  toast(r.ok?'Guardada':'✗ '+((r&&r.error)||'error')); if(r.ok) CFG.pagos();
+}
+async function bwCrear(){
+  if(!val('bw-nuevo-nom')) return toast('Ponele un nombre');
+  const r=await api('/api/os/billeteras',{method:'POST',body:JSON.stringify({
+    nombre:val('bw-nuevo-nom'), tg_chat:val('bw-nuevo-tg'),
+    direcciones:bwLeerDirs(document.getElementById('bw-nuevo-dir').value) })});
+  toast(r.ok?'Billetera agregada':'✗ '+((r&&r.error)||'error')); if(r.ok) CFG.pagos();
+}
+async function bwBorrar(id){
+  if(!confirm('¿Borrar esta billetera?\n\nSi algún cliente o comprobante la usa no se borra: apagala y deja de ofrecerse, pero lo viejo se sigue leyendo.')) return;
+  const r=await api('/api/os/billeteras/'+id,{method:'DELETE'});
+  toast(r.ok?'Borrada':'✗ '+((r&&r.error)||'error')); if(r.ok) CFG.pagos();
 }
 
 /* ───────── CONFIG ▸ TELEGRAM ─────────────────────────────────────────────────────────────

@@ -54,6 +54,23 @@ db.exec(`
     createdAt TEXT, aplicadaAt TEXT
   );
   CREATE INDEX IF NOT EXISTS ix_oferta_cliente ON api_oferta (cliente_id);
+
+  /* ── EN QUÉ SECCIÓN DEL DOCUMENTO SE MUESTRA UN PROVEEDOR ─────────────────────────────────
+     TBS vende de a bolsas y una bolsa puede mezclar productos distintos: el sello
+     "MICROGAMING LIVE, PLATIPUS, MICROGAMING" trae una mesa en vivo y dos catálogos de slots,
+     y se compra y se factura entero. Mover el sello a Live metía los dos de slots adentro de
+     Live; dejarlo en Premium ponía una mesa en vivo en la sección de slots.
+
+     Esto rompe el empate: el SELLO no se mueve —la bolsa, el costo y la factura quedan como
+     están— y lo que se manda a otra sección es el PROVEEDOR, sólo en el documento. Se lleva su
+     propio precio con él, que es el del sello: como el documento ya está cortado por precio, el
+     chip aterriza en el bloque que le corresponde y el número que el cliente lee es el que se le
+     va a cobrar. Si no hubiera un bloque a ese precio, se abre uno. */
+  CREATE TABLE IF NOT EXISTS api_prov_seccion (
+    clave TEXT PRIMARY KEY,       -- el nombre del proveedor, normalizado
+    prov TEXT,                    -- cómo se escribe, para poder mostrarlo
+    paquete_id TEXT               -- a qué sección va en el documento
+  );
 `);
 
 const nowISO = () => new Date().toISOString();
@@ -157,6 +174,32 @@ function unicos(nombres) {
     if ((gritaYa && !grita) || (gritaYa === grita && n.length > ya.length)) m.set(k, n);
   }
   return [...m.values()].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
+// ── en qué sección se muestra cada proveedor ─────────────────────────────────
+/** @returns Map(clave del proveedor → paquete_id donde se muestra) */
+function seccionesDeProveedor() {
+  return new Map(db.prepare('SELECT clave, paquete_id FROM api_prov_seccion').all()
+    .map((r) => [r.clave, r.paquete_id]));
+}
+function listSecciones() {
+  return db.prepare('SELECT * FROM api_prov_seccion ORDER BY prov ASC').all();
+}
+/** Con `paquete_id` vacío se borra la excepción y el proveedor vuelve a la sección de su sello. */
+function setSeccion(prov, paqueteId) {
+  const nombre = String(prov || '').trim();
+  const clave = _clave(nombre);
+  if (!clave) return { ok: false, error: 'falta el proveedor' };
+  const pid = String(paqueteId || '').trim();
+  if (!pid) {
+    db.prepare('DELETE FROM api_prov_seccion WHERE clave=?').run(clave);
+    return { ok: true, borrada: true };
+  }
+  if (!listPaquetes().some((p) => p.id === pid)) return { ok: false, error: 'esa sección no existe' };
+  db.prepare(`INSERT INTO api_prov_seccion (clave,prov,paquete_id) VALUES (?,?,?)
+    ON CONFLICT(clave) DO UPDATE SET prov=excluded.prov, paquete_id=excluded.paquete_id`)
+    .run(clave, nombre, pid);
+  return { ok: true };
 }
 
 // ── paquetes ─────────────────────────────────────────────────────────────────
@@ -318,9 +361,27 @@ function paraMostrar(oferta) {
   });
   if (sueltos.length) grupos.push({ paquete_id: null, nombre: 'Otros', items: sueltos, unico: _unico(sueltos) });
 
+  /* ── CADA PROVEEDOR A SU SECCIÓN ───────────────────────────────────────────────────────────
+     Por defecto un proveedor se muestra donde está su sello. La tabla `api_prov_seccion` lo
+     manda a otra —sin tocar el sello, el costo ni la factura— y se lleva su precio con él. Si la
+     sección de destino no está cotizada en ESTA oferta, se queda donde estaba: mostrarlo en una
+     sección que el cliente no compró sería ofrecerle algo que no le vendiste. */
+  const seccion = seccionesDeProveedor();
+  const hay = new Set(grupos.map((g) => g.paquete_id).filter(Boolean));
+  const porGrupo = new Map(grupos.map((g) => [g.paquete_id, []]));
+  for (const g of grupos) {
+    for (const i of g.items) {
+      for (const prov of i.proveedores) {
+        const destino = seccion.get(_clave(prov));
+        const id = destino && hay.has(destino) ? destino : g.paquete_id;
+        porGrupo.get(id).push({ prov, pct: i.pct });
+      }
+    }
+  }
+
   /* Cada grupo, resuelto en NIVELES DE PRECIO. Ver `_niveles`. */
   const armados = grupos.map((g) => {
-    const niveles = _niveles(g.items);
+    const niveles = _niveles(porGrupo.get(g.paquete_id) || []);
     const provs = unicos(niveles.flatMap((n) => n.proveedores));
     return { ...g, niveles, proveedores: provs,
       desde: niveles.length ? Number(niveles[0].pct) : Infinity,
@@ -334,9 +395,17 @@ function paraMostrar(oferta) {
      primero; los sellos que no caen en ningún paquete van últimos, porque son la excepción. */
   armados.sort((a, b) => (a.paquete_id ? 0 : 1) - (b.paquete_id ? 0 : 1) || a.desde - b.desde);
 
+  /* Las excepciones que aplican a ESTA oferta, con el nombre tal como se muestra: es lo que la
+     pantalla necesita para dibujar cada desplegable en su valor actual. */
+  const secciones = {};
+  for (const g of grupos) for (const i of g.items) for (const prov of i.proveedores) {
+    const d = seccion.get(_clave(prov));
+    if (d && hay.has(d)) secciones[prov] = d;
+  }
+
   return { titulo: oferta.titulo, notas: oferta.notas || '', grupos: armados,
     proveedores: unicos(armados.flatMap((g) => g.proveedores)),
-    repetidos: _repetidos(armados) };
+    repetidos: _repetidos(armados), secciones };
 }
 
 /**
@@ -387,12 +456,12 @@ function _unico(items) {
  * De paso desaparecen las repeticiones: "Platipus" estaba suelto y otra vez adentro de
  * "Microgaming Live", los dos a 15 — un proveedor, un lugar.
  */
-function _niveles(items) {
+function _niveles(entradas) {
   const m = new Map();
-  for (const i of items) {
-    const k = String(i.pct);
+  for (const e of entradas) {
+    const k = String(e.pct);
     if (!m.has(k)) m.set(k, []);
-    m.get(k).push(...i.proveedores);
+    m.get(k).push(e.prov);
   }
   return [...m.entries()]
     .map(([pct, provs]) => ({ pct, proveedores: unicos(provs) }))
@@ -640,6 +709,7 @@ function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
 module.exports = {
   armarDesdeBase, MARGEN_MINIMO, recomponerPorCosto, TECHO_BASICO_PLUS, tipoDePaquete,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
+  listSecciones, setSeccion, seccionesDeProveedor,
   listOfertas, getOferta, saveOferta, removeOferta,
   resolver, diff, aplicar, paraMostrar,
 };

@@ -710,6 +710,80 @@ API.ofertas = async () => {
   if(_ofSel) ofAbrir(_ofSel);
 };
 
+/* ── LAS BOLSAS MEZCLADAS DE TBS ─────────────────────────────────────────────────────────────
+   Un sello puede traer varios proveedores juntos y a veces son productos distintos:
+   "MICROGAMING LIVE, PLATIPUS, MICROGAMING" es una mesa en vivo y dos catálogos de slots, y se
+   compra entero. Mover el sello a Live metía los dos de slots adentro de Live; dejarlo quieto
+   ponía una mesa en vivo en la sección de slots.
+
+   Acá se manda el PROVEEDOR a otra sección sólo para el documento. El sello no se toca: el costo
+   y lo que se factura quedan como están, y el proveedor se lleva su propio precio, así que el
+   número que el cliente lee es el que se le va a cobrar.
+
+   ── Y SE MUESTRAN SÓLO LOS QUE HAY QUE MIRAR ─────────────────────────────────────────────────
+   Listar todos los proveedores de todos los sellos compartidos son noventa renglones, y ochenta
+   y ocho dicen "Amatic va en slots". Una lista donde casi todo está bien no se revisa: se cierra.
+   Salen los que el NOMBRE delata en la sección equivocada —"Microgaming Live" adentro de slots—
+   y los que ya moviste, para poder volverlos atrás. El resto está detrás de "ver todos".
+
+   La pista es el nombre y nada más, así que propone, no decide: el desplegable arranca donde el
+   proveedor está hoy y no se guarda nada hasta que lo toques. */
+var _ofTodos = false;
+function _ofPinta(prov){
+  if(/\b(live|dealers?|ruleta|roulette)\b/i.test(prov)) return 'live';
+  if(/\b(sport|betting|deportes?)\b/i.test(prov)) return 'sport';
+  return null;
+}
+function _ofTipo(nombre){
+  const k=String(nombre||'').trim().toLowerCase().replace(/^slots\s+/,'');
+  if(/^(b[áa]sico|base)\s*\+/.test(k)) return 'base+';
+  if(/^(b[áa]sico|base)$/.test(k)) return 'base';
+  return k;
+}
+function ofMezclados(m){
+  const secs=m.secciones||{}, filas=[];
+  for(const g of (m.grupos||[])) for(const i of (g.items||[])){
+    if((i.proveedores||[]).length<2) continue;   // un sello de uno se arregla moviendo el sello
+    for(const prov of i.proveedores){
+      const actual=secs[prov]||g.paquete_id;
+      const donde=(_ofPaquetes.find(p=>p.id===actual)||{}).nombre||g.nombre;
+      const pinta=_ofPinta(prov);
+      filas.push({ prov, sello:i.corto, actual, donde,
+        movido: !!secs[prov] && secs[prov]!==g.paquete_id,
+        raro: !!pinta && pinta!==_ofTipo(donde) });
+    }
+  }
+  if(!filas.length) return '';
+  const movidos=filas.filter(f=>f.movido).length;
+  const ver=_ofTodos?filas:filas.filter(f=>f.raro||f.movido);
+  const opts=(sel)=>_ofPaquetes.map(p=>`<option value="${esc(p.id)}"${p.id===sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
+  return `<details style="margin-top:12px"${(movidos||ver.length)?' open':''}>
+    <summary style="cursor:pointer;font-size:13px">🔀 Dónde se muestra cada proveedor${
+      movidos?` <span class="badge warn">${movidos} movido${movidos>1?'s':''}</span>`:''}</summary>
+    <div class="muted" style="font-size:11.5px;margin:8px 0">
+      Algunos sellos traen varios proveedores juntos y se compran así. Si adentro hay uno de otro
+      producto —una mesa en vivo dentro de un sello de slots— mandalo a su sección: en el documento
+      aparece ahí, con su mismo precio. <b>No cambia el costo ni lo que se factura.</b></div>
+    ${ver.length?`<div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
+      <th>Proveedor</th><th>Viene en</th><th>Se muestra en</th></tr></thead><tbody>
+      ${ver.map(f=>`<tr>
+        <td><b>${esc(f.prov)}</b>${f.raro&&!f.movido?' <span class="badge warn" style="font-size:10px">¿va acá?</span>':''}</td>
+        <td class="muted" style="font-size:11px">${esc(f.sello)}</td>
+        <td><select onchange="ofSeccion('${esc(f.prov).replace(/'/g,'&#39;')}',this.value)"
+          style="font-size:12px">${opts(f.actual)}</select></td>
+      </tr>`).join('')}</tbody></table></div>`
+    :'<div class="muted" style="font-size:12px">Ninguno parece estar fuera de lugar.</div>'}
+    <div style="margin-top:8px"><button class="btn ghost" style="font-size:11.5px;padding:4px 10px"
+      onclick="_ofTodos=!_ofTodos;ofAbrir(_ofSel)">${_ofTodos
+        ?'Ver sólo los que hay que mirar':`Ver los ${filas.length} de sellos compartidos`}</button></div>
+  </details>`;
+}
+async function ofSeccion(prov,paqueteId){
+  const r=await api('/api/os/api/prov-seccion',{method:'PUT',
+    body:JSON.stringify({prov,paquete_id:paqueteId})});
+  if(r&&r.ok){ toast(prov+': listo'); ofAbrir(_ofSel); }
+}
+
 async function ofCrear(){
   const t=val('of-nueva'); if(!t) return toast('Poné a quién va la oferta');
   const r=await api('/api/os/api/ofertas',{method:'POST',body:JSON.stringify({titulo:t,lineas:[]})});
@@ -764,6 +838,7 @@ async function ofAbrir(id){
           <div class="muted" style="font-size:11px;margin-top:4px">${p.sellos.length} sellos</div>
         </div>`).join('')}
       </div>
+      ${ofMezclados(m)}
       <div class="row" style="margin-top:12px"><div style="flex:1">
         <label>Nota para el documento (opcional)</label>
         <input id="of-notas" value="${esc(o.notas||'')}" onchange="ofGuardar('${o.id}')"

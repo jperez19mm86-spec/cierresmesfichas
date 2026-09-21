@@ -566,9 +566,14 @@
   }
 
   // ─── Camino B: avisar un pago ─────────────────────────────────────────────
+  // Las redes de su billetera y cuál eligió. `var` y no `let`: los onclick del HTML las buscan en
+  // window, y una `let` de este archivo no llega ahí (pasó con los niveles de Mi Caja).
+  var _redes = []; var _redSel = 0; var _viaEl = null;
+  function pickRed(i) { _redSel = Number(i) || 0; pickVia(_via, _viaEl); }
   function pickVia(v, el) {
     _via = v;
-    document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.toggle('sel', x === el));
+    if (el) _viaEl = el;                       // para volver a pintar al cambiar de red
+    document.querySelectorAll('#cardVia .opt').forEach(x => x.classList.toggle('sel', x === (el || _viaEl)));
     const d = (_pago || {})[v] || {};
 
     // El AVISO va PRIMERO y bien visible: es lo que evita que se pierda la plata.
@@ -577,8 +582,21 @@
       html += '<div class="q">Titular</div><div class="dato">' + esc(d.titular || '—') + '</div>'
         + '<div class="q" style="margin-top:12px">CVU</div><div class="dato" id="datoCopiable">' + esc(d.cvu || '—') + '</div>';
     } else {
-      html += '<div class="q">Dirección USDT</div><div class="dato" id="datoCopiable">' + esc(d.direccion || '—') + '</div>'
-        + '<div class="q" style="margin-top:12px">Red</div><div class="dato">' + esc(d.red || '—') + '</div>';
+      /* ── UNA BILLETERA PUEDE RECIBIR POR VARIAS REDES ──────────────────────────────────────
+         BEP20 y TRC20 son la misma billetera con dos direcciones. Mandar a la red equivocada es
+         plata que no vuelve, así que se elige la red PRIMERO y la dirección que se copia es la de
+         esa red — nunca las dos juntas, que invita a copiar la de al lado. */
+      _redes = (d.redes && d.redes.length) ? d.redes : (d.direccion ? [{ red: d.red, direccion: d.direccion }] : []);
+      if (_redSel >= _redes.length) _redSel = 0;
+      const elegida = _redes[_redSel] || {};
+      if (_redes.length > 1) {
+        html += '<div class="q">Elegí la red</div><div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:4px">'
+          + _redes.map((r, i) => '<button class="opt' + (i === _redSel ? ' sel' : '') + '" style="flex:0 0 auto;padding:8px 14px"'
+            + ' onclick="pickRed(' + i + ')">' + esc(r.red || 'red ' + (i + 1)) + '</button>').join('')
+          + '</div>';
+      }
+      html += '<div class="q">Dirección USDT</div><div class="dato" id="datoCopiable">' + esc(elegida.direccion || '—') + '</div>'
+        + '<div class="q" style="margin-top:12px">Red</div><div class="dato">' + esc(elegida.red || '—') + '</div>';
     }
     if (d.nota) html += '<div class="small" style="margin-top:10px">' + esc(d.nota) + '</div>';
     html += '<button class="btn full" style="margin-top:12px" onclick="copiarDato()">📋 Copiar</button>';

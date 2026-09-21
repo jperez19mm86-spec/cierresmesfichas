@@ -9922,6 +9922,60 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── LAS BILLETERAS: DÓNDE ENTRA LA PLATA ───────────────────────────────────────────────────
+     Había UNA dirección USDT para todos y UN grupo para todos los pagos en dólares: no se podía
+     saber a qué billetera había entrado un pago, ni mandar los de un cliente a otro grupo. */
+  {
+    const bw = require('../src/billeteras-store');
+    const antes = bw.list().length;
+    const w = bw.crear({ nombre: 'Wallet de prueba', tg_chat: '-100999',
+      direcciones: [{ red: 'trc20', direccion: 'Txxx' }, { red: 'BEP20', direccion: '0xyyy' },
+        { red: 'BEP20', direccion: '' }, { red: 'trc20', direccion: 'Txxx' }] });
+    check('billeteras: una billetera puede recibir por varias redes',
+      w && w.direcciones.length === 2 && w.direcciones[0].red === 'TRC20' && w.direcciones[1].red === 'BEP20',
+      JSON.stringify(w && w.direcciones));
+    check('billeteras: una red sin dirección no se guarda, y no se repite la misma',
+      bw.limpiarDirecciones([{ red: 'X', direccion: '' }]).length === 0
+      && bw.limpiarDirecciones([{ red: 'X', direccion: 'a' }, { red: 'X', direccion: 'a' }]).length === 1);
+    check('billeteras: se agregó a la lista', bw.list().length === antes + 1);
+
+    // El cliente que no tiene ninguna asignada usa la PRINCIPAL: es lo que había antes de esto.
+    check('billeteras: sin asignar, el cliente paga en la principal',
+      (bw.deCliente({}) || {}).id === (bw.principal() || {}).id);
+    check('billeteras: con una asignada, paga en la suya', (bw.deCliente({ billetera_id: w.id }) || {}).id === w.id);
+    // Una apagada no se ofrece más, pero lo viejo se sigue leyendo.
+    bw.actualizar(w.id, { activa: false });
+    check('billeteras: una apagada deja de ser la de su cliente', (bw.deCliente({ billetera_id: w.id }) || {}).id !== w.id);
+    check('billeteras: y se sigue pudiendo leer', (bw.get(w.id) || {}).nombre === 'Wallet de prueba');
+    bw.borrar(w.id);
+
+    // Y la pantalla del cliente recibe las redes, no una sola dirección.
+    const idxBw = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');
+    check('billeteras: la pantalla del cliente recibe la billetera que le toca',
+      /const w = billeteras\.deCliente\(cli\);/.test(idxBw) && /redes, billetera: \(w && w\.nombre\)/.test(idxBw));
+    check('billeteras: el comprobante guarda a cuál entró la plata',
+      /billetera_id: String\(b\.via \|\| ''\)\.toLowerCase\(\) === 'usdt'/.test(idxBw));
+    /* ⚠️ Y EL AVISO VA AL GRUPO DE ESA BILLETERA. Si siguiera yendo al de siempre, dos flujos
+       distintos caerían en el mismo grupo y nadie sabría cuál es cuál. */
+    check('billeteras: el aviso del comprobante va al grupo de su billetera',
+      /const chat = String\(\(wallet && wallet\.tg_chat\)/.test(idxBw));
+    const pedirBw = fs.readFileSync(path.join(ROOT, 'public', 'pedir.html'), 'utf8');
+    check('billeteras: con dos redes, el cliente elige una y copia esa dirección',
+      /function pickRed\(i\)/.test(pedirBw) && /Elegí la red/.test(pedirBw)
+      && /esc\(elegida\.direccion \|\| '—'\)/.test(pedirBw));
+    const osBw = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
+    /* ⚠️ Y LA LISTA DE CLIENTES TIENE QUE MANDARLA. El modal se dibuja con lo que viaja en esa
+       lista: sin el campo, el selector sale en «la principal» y el próximo Guardar se la borra.
+       Es el mismo agujero que ya se tapó con externos_modo. */
+    const rutBw = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    check('billeteras: la lista de clientes manda a cuál paga cada uno',
+      /billetera_id: c\.billetera_id \|\| null/.test(rutBw));
+    check('billeteras: se administran en Config y se asignan en la ficha del cliente',
+      /id="bw-nuevo-nom"/.test(osBw) && /billetera_id:val\('e-bw'\)/.test(osBw));
+    check('billeteras: y el comprobante muestra a cuál entró',
+      /c\.billetera \? ' · ' \+ esc\(c\.billetera\)/.test(osBw));
+  }
+
   const fail = asserts.filter((a) => !a.ok);
   console.log('\n=== ' + (asserts.length - fail.length) + '/' + asserts.length + ' checks OK ===');
   srv.kill();
