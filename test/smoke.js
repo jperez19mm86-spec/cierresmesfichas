@@ -10111,6 +10111,17 @@ async function main() {
     // ⚠️ Definido ANTES de usarse: es la misma trampa que dejó sin migrar la billetera de Config.
     check('público: el limitador se define antes de la primera ruta que lo usa',
       idxPub.indexOf('function limitePublico(') < idxPub.indexOf("app.get('/api/pedir/:codigo', limitePublico("));
+    /* Y el tope CORTA de verdad, no está sólo escrito: 120 consultas por dirección cada 15
+       minutos. Se prueba con la puerta que sólo lee — las que crean quedarían llenando la cola. */
+    let corto = 0; let ultimo = 0;
+    for (let i = 0; i < 125 && !corto; i += 1) {
+      const r = await get('/api/pedir/NO-EXISTE-' + i);
+      ultimo = r.status;
+      if (r.status === 429) corto = i + 1;
+    }
+    check('público: el tope corta de verdad al pasarse', corto > 0 && corto <= 125,
+      corto ? ('cortó en el pedido ' + corto) : ('no cortó · último ' + ultimo));
+
     // Y una dirección inexistente bajo /api no devuelve la PÁGINA del panel, que se lee como un éxito.
     const r404 = await get('/api/no-existe-esta-ruta');
     check('público: una dirección /api que no existe contesta que no existe',
