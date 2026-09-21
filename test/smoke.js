@@ -7579,8 +7579,9 @@ async function main() {
     /* Y renglón por renglón: el cliente cargó 300.000 y se le cobró 45.000 ARS; «28,09 USDT» solo
        no se parece a nada de lo que hizo. La cara en su moneda va abajo del número, en las dos
        pantallas y en TODOS los movimientos, no sólo en las cargas. */
-    check('cuenta: cada renglón muestra los dos montos, pesos y dólares',
-      /ars: m\.monto_ars, usdt: m\.monto_usdt/.test(pedirSrc) && /ars: m\.monto_ars, usdt: m\.monto_usdt/.test(ctaSrc));
+    check('cuenta: cada renglón muestra los dos montos, el suyo y el de dólares',
+      /propio: m\.propio_monto, propio_divisa: m\.propio_divisa, usdt: m\.monto_usdt/.test(pedirSrc)
+      && /propio: m\.propio_monto, propio_divisa: m\.propio_divisa, usdt: m\.monto_usdt/.test(ctaSrc));
     /* Y NADA MÁS. El % y el tipo de cambio en cada línea tapaban los números que sí se miran: el
        cliente ya sabe a qué % trabaja y el TC no le sirve para nada. */
     check('cuenta: sin el % ni el tipo de cambio en cada renglón',
@@ -7592,7 +7593,8 @@ async function main() {
     check('cuenta: cada carga del mes viaja con lo que se paga por ella',
       /pagas_ars: f\.ars != null \? f\.ars : null, pagas_usdt: f\.usdt != null \? f\.usdt : null/.test(idxSrc));
     check('cuenta: y las dos pantallas lo muestran al lado de las fichas',
-      /ars: x\.pagas_ars, usdt: x\.pagas_usdt/.test(pedirSrc) && /ars: x\.pagas_ars, usdt: x\.pagas_usdt/.test(ctaSrc));
+      /propio: x\.pagas_monto, propio_divisa: x\.pagas_divisa, usdt: x\.pagas_usdt/.test(pedirSrc)
+      && /propio: x\.pagas_monto, propio_divisa: x\.pagas_divisa, usdt: x\.pagas_usdt/.test(ctaSrc));
     /* ── CADA COSA EN SU MES ──────────────────────────────────────────────────────────────────
        La deuda de julio se cargó en septiembre: por fecha salía arriba de todo, entre las cargas
        de este mes, donde no significa nada. El mes lo manda `origen_ref`, no la fecha. */
@@ -7600,9 +7602,20 @@ async function main() {
       /const mesDe = m\.origen_ref \|\| m\.mes_cierre \|\| String\(m\.fecha \|\| ''\)\.slice\(0, 7\)/.test(idxSrc));
     /* La moneda va UNA vez, arriba de la columna. Repetirla en cada renglón —«500.000 ARS en
        fichas · 75.000 ARS · 47,11 USDT»— era la mitad del ruido. */
+    /* ⚠️ UNA CARGA EN GUARANÍES NO TIENE CARA EN PESOS. La columna decía ARS y esas filas salían
+       con un guion, que el cliente lee como un error nuestro. Ahora cada renglón muestra lo que
+       paga EN LA MONEDA DE ESA CARGA —el % sobre lo cargado, la cuenta que él puede rehacer— y al
+       lado el equivalente en dólares. */
+    check('cuenta: lo que paga se muestra en la moneda de esa carga',
+      /propio_monto: propio, propio_divisa: divPropia/.test(idxSrc)
+      && /pagas_monto: pagas, pagas_divisa: div/.test(idxSrc)
+      && /money\.pct\(String\(cargado\), String\(m\.base_pct_aplicado\)\)/.test(idxSrc));
+    check('cuenta: y las dos pantallas lo dibujan con su moneda al lado',
+      /nro\(o\.propio, o\.propio_divisa === 'USDT' \? 2 : 0, o\.baja, o\.propio_divisa\)/.test(pedirSrc)
+      && /nro\(o\.propio, o\.propio_divisa === 'USDT' \? 2 : 0, o\.baja, o\.propio_divisa\)/.test(ctaSrc));
     check('cuenta: las columnas dicen la moneda, y el renglón sólo el número',
-      /Fichas<\/span>[\s\S]{0,240}>ARS<\/span>[\s\S]{0,120}>USDT<\/span>/.test(pedirSrc)
-      && /<th>Fichas<\/th><th class="r">ARS<\/th><th class="r">USDT<\/th>/.test(ctaSrc)
+      /Fichas<\/span>[\s\S]{0,240}>Pagás<\/span>[\s\S]{0,120}>USDT<\/span>/.test(pedirSrc)
+      && /<th>Fichas<\/th><th class="r">Pagás<\/th><th class="r">USDT<\/th>/.test(ctaSrc)
       && !/en fichas/.test(pedirSrc) && !/en fichas/.test(ctaSrc));
     // Y los meses anteriores van del más nuevo al más viejo POR SU MES, no por el día que se cargaron.
     check('cuenta: los meses anteriores se ordenan por mes, no por fecha de carga',

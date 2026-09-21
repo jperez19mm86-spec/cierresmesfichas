@@ -351,6 +351,8 @@ const solicitudesCaja = require('./solicitudes-caja');
 const movPanel = require('./movimientos-panel');
 const movPanelSvc = require('./movimientos-panel.service');
 const deudaCargaSvc = require('./deuda-carga.service');
+// Cuentas con decimales exactos: el % de una carga en guaraníes no se hace con números sueltos.
+const money = require('./lib/money');
 const accesoCli = require('./cliente-acceso');
 const billeteras = require('./billeteras-store');
 
@@ -1112,7 +1114,17 @@ app.get('/api/cuenta/mio', (req, res) => {
          septiembre: por fecha aparecía arriba de todo, entre las cargas de este mes, y ahí no
          significa nada. Lo que manda es el mes que la emisión dejó escrito. */
       const mesDe = m.origen_ref || m.mes_cierre || String(m.fecha || '').slice(0, 7);
+      /* ── LO QUE PAGA, EN LA MONEDA DE ESA CARGA ────────────────────────────────────────────
+         La columna decía ARS y una carga en guaraníes no tiene cara en pesos: salía un guion, que
+         al cliente le parece un error. Su costo en SU moneda es el % sobre lo cargado, que es
+         justo la cuenta que él puede rehacer. */
+      const divPropia = String(m.divisa || 'ARS').toUpperCase();
+      let propio = divPropia === 'ARS' ? m.monto_ars : (divPropia === 'USDT' ? m.monto_usdt : null);
+      if (propio == null && cargado != null && m.base_pct_aplicado) {
+        try { propio = money.round(money.pct(String(cargado), String(m.base_pct_aplicado)), 2); } catch (e) { propio = null; }
+      }
       return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo, mes: mesDe,
+        propio_monto: propio, propio_divisa: divPropia,
         monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
         divisa: m.divisa, notas: m.notas,
         base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta };
@@ -1128,8 +1140,15 @@ app.get('/api/cuenta/mio', (req, res) => {
     .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes)
     .map((p) => {
       const f = _feePorPedido[p.id] || {};
+      const div = String(p.divisa || 'ARS').toUpperCase();
+      let pagas = div === 'ARS' ? f.ars : (div === 'USDT' ? f.usdt : null);
+      if (pagas == null && f.base_pct) {
+        try { pagas = money.round(money.pct(String(p.monto), String(f.base_pct)), 2); } catch (e) { pagas = null; }
+      }
       return { fecha: String(p.resueltoAt || p.createdAt || '').slice(0, 10),
         usuario: p.cajaUsuario, etiqueta: etiquetaDe(p), monto: p.monto, divisa: p.divisa,
+        // Lo que paga por ESA carga, en la moneda en que la pidió: en guaraníes no hay cara en pesos.
+        pagas_monto: pagas, pagas_divisa: div,
         pagas_ars: f.ars != null ? f.ars : null, pagas_usdt: f.usdt != null ? f.usdt : null, base_pct: f.base_pct || null };
     });
   // ── LO QUE AVISÓ Y TODAVÍA NO SE APROBÓ ────────────────────────────────────────────────────

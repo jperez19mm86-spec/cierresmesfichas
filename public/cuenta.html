@@ -148,24 +148,26 @@ function pintar(r) {
            : `<div class="mut" style="font-size:12px">${esc(usr || '')}</div>`) : '';
   // La moneda se dice UNA vez, en el encabezado de la columna: repetirla en cada renglón era la
   // mitad del ruido que había que leer.
-  const nro = (v, dec, baja) => (v == null || v === '')
-    ? '<span class="mut">—</span>' : `<b>${baja ? '− ' : ''}${money(v, dec)}</b>`;
+  /* La columna decía ARS, y una carga en guaraníes no tiene cara en pesos: salía un guion, que se
+     lee como un error. Cada renglón muestra lo que paga EN SU MONEDA y su equivalente en dólares. */
+  const nro = (v, dec, baja, div) => (v == null || v === '')
+    ? '<span class="mut">—</span>' : `<b>${baja ? '− ' : ''}${money(v, dec)}</b>${div ? ` <span class="mut">${esc(div)}</span>` : ''}`;
   const fila = (o) => `<tr>
     <td class="mut" style="white-space:nowrap">${esc(o.dia || '')}</td>
     <td>${o.que}</td>
-    <td class="r" style="white-space:nowrap;color:${o.baja ? 'var(--verde)' : 'inherit'}">${nro(o.ars, 0, o.baja)}</td>
+    <td class="r" style="white-space:nowrap;color:${o.baja ? 'var(--verde)' : 'inherit'}">${nro(o.propio, o.propio_divisa === 'USDT' ? 2 : 0, o.baja, o.propio_divisa)}</td>
     <td class="r" style="white-space:nowrap;color:${o.baja ? 'var(--verde)' : 'inherit'}">${nro(o.usdt, 2, o.baja)}</td>
   </tr>`;
-  const filaCarga = (x) => fila({ dia: fecha(x.fecha), ars: x.pagas_ars, usdt: x.pagas_usdt,
-    que: `<b>${money(x.monto, 0)}</b>${caja(x.etiqueta, x.usuario)}` });
+  const filaCarga = (x) => fila({ dia: fecha(x.fecha), propio: x.pagas_monto, propio_divisa: x.pagas_divisa, usdt: x.pagas_usdt,
+    que: `<b>${money(x.monto, 0)}</b> <span class="mut">${esc(x.divisa || '')}</span>${caja(x.etiqueta, x.usuario)}` });
   const filaMov = (m) => {
     const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
     const que = m.tipo === 'carga' && m.cargado
-      ? `<b>${money(m.cargado, 0)}</b>${caja(m.etiqueta, m.usuario)}`
+      ? `<b>${money(m.cargado, 0)}</b> <span class="mut">${esc(m.divisa || '')}</span>${caja(m.etiqueta, m.usuario)}`
       : (m.tipo === 'ajuste' && m.notas ? esc(m.notas) : esc(nombreTipo[m.tipo] || m.tipo));
     // Un ajuste se explica por su nota, no por el día en que alguien lo cargó.
     const esAjuste = m.tipo === 'ajuste' && m.notas;
-    return fila({ dia: esAjuste ? '' : fecha(m.fecha), que, ars: m.monto_ars, usdt: m.monto_usdt, baja });
+    return fila({ dia: esAjuste ? '' : fecha(m.fecha), que, propio: m.propio_monto, propio_divisa: m.propio_divisa, usdt: m.monto_usdt, baja });
   };
   /* EL MES DE CADA MOVIMIENTO NO ES SIEMPRE EL DE SU FECHA: la deuda de julio se cargó en
      septiembre y por fecha aparecía arriba, mezclada con lo de este mes. */
@@ -180,7 +182,7 @@ function pintar(r) {
   const bloque = (titulo, filas) => filas ? `<div class="card">
       <label>${titulo}</label>
       <table>
-        <thead><tr><th></th><th>Fichas</th><th class="r">ARS</th><th class="r">USDT</th></tr></thead>
+        <thead><tr><th></th><th>Fichas</th><th class="r">Pagás</th><th class="r">USDT</th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
     </div>` : '';
