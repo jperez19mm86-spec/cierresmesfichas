@@ -10122,6 +10122,38 @@ async function main() {
     check('público: el tope corta de verdad al pasarse', corto > 0 && corto <= 125,
       corto ? ('cortó en el pedido ' + corto) : ('no cortó · último ' + ultimo));
 
+    /* ── LAS QUE FALTABAN (auditoría del 22-sep-2026) ──────────────────────────────────────
+       Poner el tope sólo en la puerta que CONSULTA no sirve de nada si al lado hay otras tres que
+       contestan distinto según el código exista o no: se prueban códigos por ahí y listo.
+        · POST /api/pedir  → además CREA el pedido y dispara el aviso al teléfono.
+        · GET  /api/movimiento-panel/<código> → 404 o la lista, o sea confirma códigos.
+        · POST /chat/entrar → se entra SIN CLAVE con el nombre de la caja o el código.
+       Y la de Mi Caja, que corre en otro servicio con este mismo código: le pasa usuario y clave
+       AL CASINO, así que sin tope era un probador de contraseñas del motor. */
+    check('público: crear un pedido también tiene tope',
+      /app\.post\('\/api\/pedir', limitePublico\('pedir-nuevo'/.test(idxPub));
+    check('público: consultar los movimientos por código también',
+      /app\.get\('\/api\/movimiento-panel\/:codigo', limitePublico\('mover-estado'/.test(idxPub));
+    check('público: y la puerta del chat, que entra sin clave',
+      /app\.post\('\/chat\/entrar', limitePublico\('chat-entrar'/.test(idxPub));
+    {
+      const idxCaja = fs.readFileSync(path.join(ROOT, 'src', 'caja', 'caja.routes.js'), 'utf8');
+      check('público: el ingreso de Mi Caja tiene tope (le pasa la clave al casino)',
+        /app\.post\('\/api\/caja\/login', tope\.porIp\('caja-login'/.test(idxCaja)
+        && /require\('\.\.\/lib\/tope'\)/.test(idxCaja));
+    }
+    /* El contador es UNO solo, compartido por los dos servicios que lo usan. Si mañana alguien lo
+       vuelve a copiar adentro de un archivo, esto avisa. */
+    check('público: el tope vive en lib/tope.js y no copiado en cada archivo',
+      fs.existsSync(path.join(ROOT, 'src', 'lib', 'tope.js'))
+      && /require\('\.\/lib\/tope'\)/.test(idxPub));
+    /* Y cada puerta cuenta APARTE: gastar el tope de una no puede cerrar las demás. Recién se
+       gastaron 120 consultas de `pedir` acá arriba, así que crear un pedido tiene que seguir
+       contestando (aunque sea un error de datos, no un 429). */
+    const otroBalde = await post('/api/pedir', { codigo: 'NO-EXISTE-XYZ', cajaId: 'x', monto: 1 });
+    check('público: el tope de una puerta no cierra las otras', otroBalde.status !== 429,
+      'POST /api/pedir → ' + otroBalde.status);
+
     // Y una dirección inexistente bajo /api no devuelve la PÁGINA del panel, que se lee como un éxito.
     const r404 = await get('/api/no-existe-esta-ruta');
     check('público: una dirección /api que no existe contesta que no existe',

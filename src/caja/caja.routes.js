@@ -61,12 +61,17 @@ function mount(app) {
   /* La credencial que aprovisiona: una sola, por encima de todos los clientes. Se arma una vez.
      Sin ella el panel igual anda — cada cliente trabaja con su sesión, que caduca. */
   const { makeClient } = require('../casino-api');
+  const tope = require('../lib/tope');
   const raiz = process.env.CASINO_ROOT_TOKEN
     ? makeClient({ url: process.env.CASINO_URL, token: process.env.CASINO_ROOT_TOKEN })
     : null;
   if (!raiz) console.warn('[caja] sin CASINO_ROOT_TOKEN: los clientes van a trabajar con sesión');
 
-  app.post('/api/caja/login', wrap(async (req, res) => {
+  /* ⚠️ TOPE. Esta puerta es pública y le pasa el usuario y la clave AL CASINO. Sin tope era un
+     probador de contraseñas del motor con el dominio de ella adelante: gratis, sin registro del
+     otro lado y con nuestra IP como origen. Veinte por cuarto de hora no molesta a nadie que
+     escriba su clave a mano. */
+  app.post('/api/caja/login', tope.porIp('caja-login', 20, 15), wrap(async (req, res) => {
     const b = req.body || {};
     const r = await auth.entrar({
       url: process.env.CASINO_URL,

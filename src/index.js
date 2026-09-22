@@ -661,22 +661,9 @@ app.post('/api/_restore', (req, res) => {
    `/api/movimiento-panel` CREAN cosas que después alguien tiene que mirar una por una.
    El 21-sep-2026 alguien subió dos archivos de prueba por esa puerta: con tope, un aluvión se
    corta solo. Los números son holgados para no molestar a nadie que use la pantalla de verdad. */
-const _publico = new Map();
-function limitePublico(nombre, tope, ventanaMin) {
-  return (req, res, next) => {
-    const ip = String(req.ip || req.headers['x-forwarded-for'] || 'x').split(',')[0].trim();
-    const clave = nombre + ':' + ip;
-    const ahora = Date.now(); const ventana = ventanaMin * 60 * 1000;
-    const prev = (_publico.get(clave) || []).filter((t) => ahora - t < ventana);
-    if (_publico.size > 5000) _publico.clear();            // no crece para siempre
-    if (prev.length >= tope) {
-      console.log(`[Público] tope de ${nombre} desde ${ip}`);
-      return res.status(429).json({ ok: false, error: 'Demasiados pedidos seguidos. Probá de nuevo en unos minutos.' });
-    }
-    prev.push(ahora); _publico.set(clave, prev);
-    return next();
-  };
-}
+/* El contador vive en lib/tope.js: Mi Caja corre en otro servicio con el mismo código y su puerta
+   pública lo necesita igual. Copiarlo era garantizar que mañana se arregle uno y no el otro. */
+function limitePublico(nombre, tope, ventanaMin) { return require('./lib/tope').porIp(nombre, tope, ventanaMin); }
 
 app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
   const cli = clientes.getByCodigo(req.params.codigo);
@@ -736,7 +723,9 @@ app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
 });
 
 // El cliente hace el pedido: { codigo, cajaId, monto } → queda 'pendiente'.
-app.post('/api/pedir', (req, res) => {
+/* Con tope igual que la de consultar, y por un motivo más: acá se CREA. Sin esto, cualquiera con
+   un código —y los códigos son cortos— podía llenar la cola de pedidos y el teléfono de avisos. */
+app.post('/api/pedir', limitePublico('pedir-nuevo', 60, 15), (req, res) => {
   const { codigo, cajaId, monto, divisa } = req.body || {};
   const cli = clientes.getByCodigo(codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
@@ -1024,7 +1013,9 @@ app.post('/api/movimiento-panel', limitePublico('mover', 20, 60), (req, res) => 
 });
 
 /** En qué quedaron los movimientos que pidió este cliente. */
-app.get('/api/movimiento-panel/:codigo', (req, res) => {
+/* Tope también acá: contesta distinto si el código existe, así que sin esto era la misma prueba de
+   códigos en serie que cerramos en /api/pedir, por otra puerta. */
+app.get('/api/movimiento-panel/:codigo', limitePublico('mover-estado', 60, 15), (req, res) => {
   const cli = clientes.getByCodigo(req.params.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
   const porId = {}; paneles.list({ cliente_id: cli.id }).forEach((p) => { porId[p.id] = p.nombre; });
@@ -1610,7 +1601,10 @@ app.get('/chat', (_req, res) => {
   res.sendFile(require('path').join(__dirname, '..', 'public', 'ganamos.html'));
 });
 
-app.post('/chat/entrar', (req, res) => {
+/* ⚠️ ACÁ SE ENTRA SIN CLAVE, a propósito: alcanza el nombre de la caja, el código del cliente o
+   el link del casino. Eso hace que probar nombres en serie devuelva cuentas ajenas, así que el tope
+   no es un lujo. Lo que NO arregla es una consulta dirigida: quien ya sabe el nombre, entra. */
+app.post('/chat/entrar', limitePublico('chat-entrar', 30, 15), (req, res) => {
   const chatStore = require('./chat-externo.store');
   // Lo que ya venció tiene que estar adentro ANTES de mostrarle el saldo: si no, entra y ve
   // "estás al día" debiendo un mes.
