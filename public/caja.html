@@ -1462,6 +1462,51 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
     background:linear-gradient(135deg,#e63a5c 0%,#164c93 100%); border-radius:7px; display:grid; place-items:center;
   }
   :root:root[data-marca="bet30"] .top .ficha::after{content:"B30"; font:800 11px 'Outfit',sans-serif; color:#fff; letter-spacing:-.3px}
+
+  /* ══════ SKIN ZEUS ══════ dark plum + rosa; el logo es una IMAGEN (tridente + ZEUS CASINO), no
+     texto. Misma mecánica e igual que Bet30: inerte hasta que el server pone data-marca="zeus". */
+  :root:root[data-marca="zeus"]{
+    --bg:#130f16; --bg2:#1e1826; --bg3:#291f33; --bg4:#352a42;
+    --bor:#352a45; --bor2:#493a5d;
+    --txt:#ffffff; --mut:#a394b3; --mut2:#d5c8e0;
+    --g:#f06a89; --g-fill:#e93b63; --g-soft:#3a1626; --g-ink:#ff9fb4;
+    --marca-barra:linear-gradient(96deg,#e93b63 0%,#7c1c3a 100%);
+    --marca-accion:linear-gradient(120deg,#e93b63 0%,#c42a4c 100%);
+    --marca-grad:linear-gradient(168deg,#241a30 0%,#120c18 74%);
+    --lg-halo:rgba(233,59,99,.28);
+    --dato:#67e8f9; --dato-soft:#123a4a; --info:#7fd6ef; --info-soft:#12303c;
+    --no:#fb7185; --no-soft:#3a1622; --warn:#fbbf24; --warn-soft:#2f2913; --ok:#4ade80; --ok-soft:#123227;
+  }
+  :root:root[data-marca="zeus"] .tarjeta{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(233,59,99,.18), transparent 58%),
+      linear-gradient(168deg,#241a30 0%,#120c18 74%);
+  }
+  :root:root[data-marca="zeus"] .tarjeta .btn{background:linear-gradient(135deg,#f0476a,#d12a4c); box-shadow:0 6px 20px rgba(233,59,99,.42)}
+  :root:root[data-marca="zeus"] .tarjeta .btn:hover{filter:brightness(1.08); background:linear-gradient(135deg,#f0476a,#d12a4c)}
+  :root:root[data-marca="zeus"] .tarjeta .ojo{background:#2b2238; border-color:transparent; color:#fff}
+  :root:root[data-marca="zeus"] .tarjeta .ojo:hover{background:#fff; color:#2b2238}
+  :root:root[data-marca="zeus"] .tarjeta .entrada:-webkit-autofill,
+  :root:root[data-marca="zeus"] .tarjeta .entrada:-webkit-autofill:hover,
+  :root:root[data-marca="zeus"] .tarjeta .entrada:-webkit-autofill:focus{
+    -webkit-box-shadow:0 0 0 100px #241a30 inset; box-shadow:0 0 0 100px #241a30 inset; -webkit-text-fill-color:#fff; caret-color:#fff;
+  }
+  /* Se esconden GANAMOS y Bet30, y aparece el logo Zeus (imagen con fondo transparente). */
+  :root:root[data-marca="zeus"] .logo, :root:root[data-marca="zeus"] .marca-ganamos, :root:root[data-marca="zeus"] .marca-bet30{display:none}
+  :root:root[data-marca="zeus"] .marca-zeus{display:block; width:min(255px,74%); aspect-ratio:644/226; margin:2px auto 4px; background:url("/img/zeus.webp") center/contain no-repeat}
+  /* Superficies hardcodeadas de la piel, en color Zeus. */
+  :root:root[data-marca="zeus"] .saldo{
+    background:
+      radial-gradient(110% 170% at 88% -30%, rgba(233,59,99,.16), transparent 60%),
+      linear-gradient(90deg,#2a1e39 0%,#140d1c 82%);
+    border-color:rgba(233,59,99,.18);
+  }
+  :root:root[data-marca="zeus"] .op,
+  :root:root[data-marca="zeus"] .tj{background:linear-gradient(90deg,#e93b63 0%,#7c1c3a 82%)}
+  :root:root[data-marca="zeus"] .diahead{background:linear-gradient(90deg, rgba(233,59,99,.26), rgba(19,15,22,.96) 60%)}
+  :root:root[data-marca="zeus"] .acc button:hover{background:linear-gradient(90deg,rgba(233,59,99,.28),rgba(40,32,50,.20) 82%)}
+  /* La barra del panel muestra el logo Zeus (chico) en vez del perro. */
+  :root:root[data-marca="zeus"] .top .ficha{background:url("/img/zeus.webp") center/contain no-repeat; width:72px; height:26px; border-radius:0}
   </style>
 
   <!-- ══════ LOGIN ══════ -->
@@ -1471,8 +1516,10 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
         <div class="logo"><div class="ficha"></div></div>
         <h1 class="marca-ganamos"><span>GANAMOS</span></h1>
         <!-- Marca alternativa por skin. Oculta por defecto; la piel de cada marca la muestra y
-             esconde el logo/nombre de GANAMOS. Sólo texto: se lee nítido en cualquier pantalla. -->
+             esconde el logo/nombre de GANAMOS. Bet30 es texto; Zeus es una imagen (logo con
+             tridente), que la skin muestra como fondo. -->
         <h1 class="marca-alt marca-bet30" aria-hidden="true"><span class="b">Bet</span><span class="n">30</span></h1>
+        <div class="marca-alt marca-zeus" aria-hidden="true"></div>
       </div>
       <div class="cmp">
         <label class="campo" for="u">Tu usuario</label>

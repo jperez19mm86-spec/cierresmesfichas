@@ -1151,6 +1151,13 @@ check('sin grilla no se marca nada, en vez de romper',
     /\.login \.marca-alt\{display:none/.test(htmlCaja)   /* scopeado a .login: le gana a `.login h1{display:flex}`, si no el wordmark se cuela en GANAMOS */
     && /:root:root\[data-marca="bet30"\] \.marca-bet30\{display:block\}/.test(htmlCaja)
     && /:root:root\[data-marca="bet30"\] \.logo, :root:root\[data-marca="bet30"\] \.marca-ganamos\{display:none\}/.test(htmlCaja));
+  /* Zeus: misma mecánica, gateada por data-marca; su logo es una IMAGEN (no texto) que arranca
+     oculta (`.marca-zeus` tiene `.marca-alt`) y aparece con la skin, escondiendo GANAMOS y Bet30. */
+  check('la skin Zeus está gateada por data-marca y usa el logo real como imagen',
+    /:root:root\[data-marca="zeus"\]\{/.test(htmlCaja)
+    && /:root:root\[data-marca="zeus"\] \.marca-zeus\{display:block;[^}]*url\("\/img\/zeus\.webp"\)/.test(htmlCaja)
+    && /class="marca-alt marca-zeus"/.test(htmlCaja)
+    && /:root:root\[data-marca="zeus"\] \.logo, :root:root\[data-marca="zeus"\] \.marca-ganamos, :root:root\[data-marca="zeus"\] \.marca-bet30\{display:none\}/.test(htmlCaja));
   check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
     && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
