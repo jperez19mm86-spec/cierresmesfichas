@@ -1523,13 +1523,27 @@ async function main() {
       /if \(!dry\) \{\s*\n\s*paneles\.setJerarquia/.test(srcArb) && /dry: !!dry/.test(srcArb));
 
     const srcRt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
-    check('árbol: un panel nuevo se resuelve solo, por los dos caminos de alta',
-      /function _resolverJerarquia\(panel\)/.test(srcRt2)
-      && (srcRt2.match(/_resolverJerarquia\(panel\);/g) || []).length === 2);
+    check('árbol: un panel nuevo se resuelve solo, por los dos caminos de alta del OS',
+      (srcRt2.match(/_resolverJerarquia\(panel\);/g) || []).length === 2
+      && /_resolverJerarquia = \(panel\) => arbolSvc\.resolverEnSegundoPlano\(panel\)/.test(srcRt2));
+    /* ⚠️ Y POR EL TERCERO, que es el que faltaba: una caja creada del lado de Fichas espeja un
+       panel, y ese panel nacía sin árbol. Nadie lo iba a buscar: se enteraba la dueña cuando la
+       primera carga fallaba con «Suma de entrada excede los límites», que no nombra el problema.
+       27-sep-2026: NahuelBet30 y NahuelZeus, los únicos 2 de 221 sin resolver, salieron por ahí. */
+    const srcIdx2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    check('árbol: y también cuando la caja se crea del lado de Fichas',
+      /const nuevo = paneles\.create\(\{ cliente_id: clienteId, nombre: caja\.usuario/.test(srcIdx2)
+      && /require\('\.\/arbol\.service'\)\.resolverEnSegundoPlano\(nuevo\);/.test(srcIdx2));
+    /* Uno solo y compartido: el que lo tenía adentro de os.routes.js era justamente el motivo por
+       el que el alta de Fichas se quedó sin resolver —no se podía llamar desde afuera. */
+    check('árbol: el que resuelve es uno solo, en el servicio, no una copia por archivo',
+      /function resolverEnSegundoPlano\(panel\)/.test(srcArb)
+      && /resolverEnSegundoPlano,/.test(srcArb)
+      && !/function _resolverJerarquia\(panel\) \{/.test(srcRt2));
     // En segundo plano: baja el árbol entero y tarda; bloquear el alta sería peor.
     check('árbol: resolver no bloquea el alta ni tumba el proceso si falla',
-      /arbolSvc\.sincronizar\(\{ soloPanel: panel\.id \}\)\s*\n\s*\.then/.test(srcRt2)
-      && /\.catch\(\(e\) => console\.warn\('\[Árbol\] no se pudo resolver'/.test(srcRt2));
+      /sincronizar\(\{ soloPanel: panel\.id \}\)\s*\n\s*\.then/.test(srcArb)
+      && /\.catch\(\(e\) => console\.warn\('\[Árbol\] no se pudo resolver'/.test(srcArb));
 
     const srcUi2 = FUENTE_PANEL();
     check('árbol: un panel sin resolver se ve como tal, no como un nivel cualquiera',

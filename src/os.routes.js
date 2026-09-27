@@ -668,16 +668,10 @@ function mount(app) {
      Va en segundo plano y no bloquea la respuesta: baja el árbol entero de esa conexión (el casino
      no devuelve el padre de un nodo) y tarda cerca de un minuto. Si falla, el panel queda "sin
      resolver" y la pantalla lo muestra así, con su botón para reintentar. */
-  function _resolverJerarquia(panel) {
-    if (!panel || !panel.id || !panel.id_usuario) return;
-    arbolSvc.sincronizar({ soloPanel: panel.id })
-      .then((r) => {
-        const c = (r && r.nivelCorregido || [])[0];
-        console.log(`[Árbol] ${panel.nombre}: ` + (!r || !r.ok ? 'no se pudo resolver — ' + ((r && r.error) || '')
-          : (c ? `era ${c.de} y es ${c.a}` : 'el nivel ya era el correcto')));
-      })
-      .catch((e) => console.warn('[Árbol] no se pudo resolver', panel.nombre, e.message));
-  }
+  /* Vive en arbol.service porque las cajas se crean TAMBIÉN del lado de Fichas, y esa alta
+     necesita exactamente esto. Tenerlo acá adentro era la razón por la que aquel camino se quedó
+     sin resolver: no se podía llamar desde afuera. */
+  const _resolverJerarquia = (panel) => arbolSvc.resolverEnSegundoPlano(panel);
 
   /* ── SÓLO LOS SUPERAGENTES MANEJAN VARIAS MONEDAS ────────────────────────────────────────────
      Regla de la dueña (5-sep-2026): un distribuidor —y todo lo que cuelga de él— maneja UNA sola,

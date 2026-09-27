@@ -445,8 +445,14 @@ function _espejarPanel(clienteId, caja) {
       paneles.update(p.id, { nombre: caja.usuario || p.nombre, divisas: caja.divisas });
       return 'actualizado';
     }
-    paneles.create({ cliente_id: clienteId, nombre: caja.usuario, usuario: caja.usuario,
+    const nuevo = paneles.create({ cliente_id: clienteId, nombre: caja.usuario, usuario: caja.usuario,
       sistema: caja.sistema, id_usuario: caja.userId, divisas: caja.divisas });
+    /* ⚠️ Y SE LE RESUELVE EL ÁRBOL, igual que cuando el panel se crea desde el OS. Sin esto el
+       panel nace sin padres, la carga va directo al nodo y el casino la rechaza con "Suma de
+       entrada excede los límites" — un mensaje que no dice nada de lo que pasa de verdad.
+       27-sep-2026: NahuelBet30 y NahuelZeus, los únicos 2 de 221 sin resolver, salieron los dos
+       por acá. Tarda cerca de un minuto y corre en segundo plano: no demora esta respuesta. */
+    require('./arbol.service').resolverEnSegundoPlano(nuevo);
     return 'creado';
   } catch (e) { console.log('[cajas] no se pudo espejar el panel:', e.message); return null; }
 }

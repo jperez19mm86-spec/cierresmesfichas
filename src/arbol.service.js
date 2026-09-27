@@ -145,4 +145,27 @@ async function sincronizar({ soloConexion = null, soloPanel = null, dry = false 
   return { ok: true, ...res };
 }
 
-module.exports = { armar, escalaDe, arbolDe, sincronizar, RANGO, rango, A_NIVEL_OS };
+/**
+ * Resolver la jerarquía de UN panel recién creado, en segundo plano.
+ *
+ * Un panel nace sin árbol, y sin árbol la carga va DIRECTO al nodo sin pasar por los padres: el
+ * casino la rechaza con "Suma de entrada excede los límites", que no dice nada de lo que pasa.
+ * Pasó con NahuelBet30 y NahuelZeus el 27-sep-2026 — creados como caja del lado de Fichas, que era
+ * el único camino de alta que no llamaba a esto.
+ *
+ * Va en segundo plano y no bloquea la respuesta a propósito: baja el árbol entero de esa conexión
+ * —decenas de miles de nodos— y tarda cerca de un minuto. Si falla, el panel queda sin resolver y
+ * la pantalla lo muestra así, con su botón para reintentar.
+ */
+function resolverEnSegundoPlano(panel) {
+  if (!panel || !panel.id || !panel.id_usuario) return;
+  sincronizar({ soloPanel: panel.id })
+    .then((r) => {
+      const c = ((r && r.nivelCorregido) || [])[0];
+      console.log(`[Árbol] ${panel.nombre}: ` + (!r || !r.ok ? 'no se pudo resolver — ' + ((r && r.error) || '')
+        : (c ? `era ${c.de} y es ${c.a}` : 'el nivel ya era el correcto')));
+    })
+    .catch((e) => console.warn('[Árbol] no se pudo resolver', panel.nombre, e.message));
+}
+
+module.exports = { armar, escalaDe, arbolDe, sincronizar, resolverEnSegundoPlano, RANGO, rango, A_NIVEL_OS };
