@@ -2971,6 +2971,7 @@ function fichasPagoPintar(){
   /* Se preservan monto y referencia al re-dibujar (cambiar de vía o adjuntar redibuja la hoja). */
   const montoPrev = ($('pMonto') || {}).value || '';
   const refPrev = ($('pRef') || {}).value || '';
+  const pesosPrev = ($('pMontoPesos') || {}).value || '';
   const dp = fichasPagoDatos();
   const esUsdt = PAGO_VIA === 'usdt';
   const mon = esUsdt ? 'USDT' : 'ARS';
@@ -3010,6 +3011,9 @@ function fichasPagoPintar(){
     ${destino ? `<div class="pago-destino">${destino}<div id="pagoCopiaAviso" hidden></div></div>` : ''}
     <label class="campo" for="pMonto">Monto en ${mon}</label>
     <input class="entrada grande num" id="pMonto" inputmode="decimal" placeholder="0" oninput="fichasPagoRevisar()">
+    ${esUsdt ? `<label class="campo" for="pMontoPesos" style="margin-top:12px">Monto en pesos (opcional)</label>
+    <input class="entrada" id="pMontoPesos" inputmode="decimal" placeholder="Ej: 50000">
+    <div class="sub" style="margin-top:4px">Si querés, cuántos pesos representa este pago. Es una referencia para el equipo.</div>` : ''}
     <label class="campo">Comprobante</label>
     ${adjunto}
     <input type="file" id="pArch" accept="image/*" hidden onchange="fichasPagoArchivo(this)">
@@ -3023,6 +3027,7 @@ function fichasPagoPintar(){
     </div>`);
   const m2 = $('pMonto'); if (m2 && montoPrev) m2.value = montoPrev;
   const r2 = $('pRef'); if (r2 && refPrev) r2.value = refPrev;
+  const p2 = $('pMontoPesos'); if (p2 && pesosPrev) p2.value = pesosPrev;
   fichasPagoRevisar();
 }
 
@@ -3032,10 +3037,14 @@ async function fichasEnviarPago(){
   const b = $('pEnviar'); if (b) { b.disabled = true; b.textContent = 'Enviando…'; }
   const divisa = PAGO_VIA === 'usdt' ? 'USDT' : 'ARS';
   const referencia = String(($('pRef') || {}).value || '').slice(0, 120);
+  // Campo opcional: cuántos pesos representa el pago (útil cuando se paga en USDT). Viaja como `notas`,
+  // que el OS ya guarda y muestra al revisar el comprobante.
+  const pesos = String(($('pMontoPesos') || {}).value || '').trim();
+  const notas = pesos ? `Monto en pesos (declarado): ${pesos}` : '';
   let d;
   try {
     d = await (await fetch('/api/caja/fichas/pago', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ via: PAGO_VIA, monto, divisa, referencia, archivo: PAGO_ARCH }) })).json();
+      body: JSON.stringify({ via: PAGO_VIA, monto, divisa, referencia, notas, archivo: PAGO_ARCH }) })).json();
   } catch (e) { d = { offline: true }; }
   const r = d && d.resultado;
   if (d && !d.offline && r && r.creado) {

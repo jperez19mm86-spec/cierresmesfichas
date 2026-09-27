@@ -1729,6 +1729,7 @@ function mount(app) {
       ...idDeSesion(req),
       via: b.via, monto: b.monto, divisa: b.divisa,
       referencia: String(b.referencia || '').slice(0, 120),
+      notas: String(b.notas || '').slice(0, 500),
       archivo: b.archivo || null,
     } });
     if (r._offline) return ok(res, { offline: true });
