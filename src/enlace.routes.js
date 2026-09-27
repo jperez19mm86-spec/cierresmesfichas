@@ -33,6 +33,7 @@ const config = require('./config-store');
 const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
 const comprobantes = require('./comprobantes-store');
+const billeteras = require('./billeteras-store');
 
 // Grupo al que van los avisos de «cuenta sin configurar / necesita soporte». Lo fijó el dueño el
 // 13-sep-2026. Se puede pisar sin deploy con el config `grupoSinConfigurar`, por si el grupo cambia.
@@ -96,13 +97,22 @@ function estadoDe(query) {
   };
 }
 
-/* Los datos para pagar (a dónde transferir), de la config del OS — los mismos que ve el portal del
-   cliente en `/api/pedir`. No dependen del cliente; son globales. El panel los muestra para copiar. */
-function datosDePago() {
+/* Los datos para pagar (a dónde transferir), los mismos que ve el portal del cliente en `/api/pedir`.
+   El CVU (ARS) es global. La billetera USDT es la DEL CLIENTE (`billetera_id`): puede recibir por
+   varias redes (BEP20 y TRC20 son la misma billetera). `direccion`/`red` siguen viajando con la
+   primera para no romper lo que ya las leía; `redes` trae la lista completa. Sin billetera propia
+   —o si todavía no hay ninguna cargada— cae a la global de siempre. */
+function datosDePago(cli) {
   const cfg = (k) => String(config.getCfg(k) || '');
+  const w = billeteras.deCliente(cli);
+  const redes = (w && w.direcciones.length) ? w.direcciones
+    : (cfg('usdtAddress') ? [{ red: cfg('usdtRed'), direccion: cfg('usdtAddress') }] : []);
   return {
     ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
-    usdt: { direccion: cfg('usdtAddress'), red: cfg('usdtRed'), aviso: cfg('usdtAviso'), nota: cfg('usdtNota') },
+    usdt: {
+      direccion: redes[0] ? redes[0].direccion : '', red: redes[0] ? redes[0].red : '',
+      redes, billetera: (w && w.nombre) || '', aviso: cfg('usdtAviso'), nota: (w && w.nota) || cfg('usdtNota'),
+    },
   };
 }
 
@@ -157,7 +167,9 @@ function mount(app) {
 
   r.get('/v1/estado-cliente', (req, res) => {
     // `datosPago` viaja acá para que «Registrar un pago» tenga a dónde transferir sin otra llamada.
-    res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago() });
+    // La billetera USDT depende del cliente, así que lo resolvemos para pasárselo a datosDePago.
+    const { cliente } = encontrarCliente(req.query || {});
+    res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente) });
   });
 
   r.post('/v1/aviso-soporte', async (req, res) => {
