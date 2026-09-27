@@ -2980,9 +2980,17 @@ function fichasPagoPintar(){
     /* La red va en el rótulo (junto a «Dirección»), no en un botón aparte. El aviso de «enviá SOLO
        por esta red» salta al COPIAR —que es el momento justo, antes de pegar y mandar—; en mobile no
        hay hover, así que el disparador es el click. */
-    const dir = datos.direccion || '', red = datos.red || '';
-    destino = `${dir ? `<div class="pago-dato"><span>Dirección USDT${red ? ` <span class="red-badge">${esc(red)}</span>` : ''}</span><b class="mono">${esc(dir)}</b>
-        <button class="copiar" onclick="fichasCopiar('${esc(dir)}','<b>✓ Dirección copiada.</b> Enviá <b>solo</b> por la red <b>${esc(red || 'indicada')}</b> — si mandás por otra, la plata se pierde y no se recupera.', true)">${FICHAS_ICO_COPIAR}Copiar dirección</button></div>` : ''}`;
+    /* Una billetera puede recibir por VARIAS redes (BEP20 y TRC20 son la misma billetera): se
+       dibuja un bloque por red, cada uno con su dirección y su aviso. `redes[]` es lo nuevo; si no
+       viene (versión vieja del OS), se cae a la dirección única de siempre. */
+    const redes = (datos.redes && datos.redes.length) ? datos.redes
+      : (datos.direccion ? [{ red: datos.red, direccion: datos.direccion }] : []);
+    destino = redes.map((w) => {
+      const dir = w.direccion || '', red = w.red || '';
+      if (!dir) return '';
+      return `<div class="pago-dato"><span>Dirección USDT${red ? ` <span class="red-badge">${esc(red)}</span>` : ''}</span><b class="mono">${esc(dir)}</b>
+        <button class="copiar" onclick="fichasCopiar('${esc(dir)}','<b>✓ Dirección copiada.</b> Enviá <b>solo</b> por la red <b>${esc(red || 'indicada')}</b> — si mandás por otra, la plata se pierde y no se recupera.', true)">${FICHAS_ICO_COPIAR}Copiar dirección</button></div>`;
+    }).join('');
   } else {
     const cvu = datos.cvu || '', tit = datos.titular || '';
     destino = `${cvu ? `<div class="pago-dato"><span>CVU${tit ? ' · ' + esc(tit) : ''}</span><b class="mono">${esc(cvu)}</b>
