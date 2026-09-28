@@ -81,6 +81,7 @@ const GRUPOS = [
   ] },
   { id: 'padron', label: () => '👥 Clientes', items: [
     ['clientes', '👥 Clientes y paneles'],
+    ['altaCliente', '✨ Nuevo cliente'],
     ['proveedores', '🏷 Proveedores'],
     ['cierre:matriz', '🧮 Matriz de %'],
     ['reparto', '💰 Reparto'],
@@ -558,8 +559,9 @@ VIEWS.clientes = async () => {
         <div style="flex:0"><label>Código</label><input id="nc-cod" placeholder="Titan" style="width:160px"/></div>
         <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
         <button onclick="nuevoCliente()">Crear cliente</button>
+        <button class="outline" onclick="go('altaCliente')">✨ Asistente completo</button>
       </div>
-      <div class="muted" style="margin-top:6px">Después, con <b>Abrir su ficha</b>, le ponés % base, proveedores, vendedor y grupo de Telegram.</div>
+      <div class="muted" style="margin-top:6px">El alta rápida crea el cliente pelado (después le ponés todo en su ficha). El <b>✨ Asistente</b> hace todo en una pantalla: cuentas, % y reparto, billetera y Telegram, con un semáforo de qué le falta.</div>
     </div>
     <div class="card">
       <div class="tapa">
@@ -1095,6 +1097,245 @@ async function nuevoCliente(){
   const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
   if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   ASISTENTE DE ALTA — «Nuevo cliente» en UNA pantalla. Encadena los endpoints que ya existen
+   (cliente → nombres → comercial → % base → reparto → paneles → telegram) y muestra en vivo qué le
+   falta al cliente para operar y en qué secciones queda conectado. NO agrega backend. El alta rápida
+   de arriba sigue existiendo para quien sólo quiere el alta pelada.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+const WZ_DIVISAS = ['ARS','USDT','PYG','BRL','CLP','COP'];
+let _wz = null;
+VIEWS.altaCliente = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
+  const [db, dpe, dc] = await Promise.all([
+    api('/api/os/billeteras'), api('/api/os/personas'), api('/api/os/casino/conexiones')]);
+  _wz = { bws:(db.billeteras||[]).filter(b=>b.activa!==false), personas:dpe.personas||[],
+    cxs:(dc.conexiones||[]), cuentas:[], partis:[], seq:1, cod:'', nom:'', base:'', desde:'mes',
+    cobro:'usdt', bw:'', tg:'', tgon:true, esVend:false, vendid:'', pp:false, deuda:false, mcta:'USDT' };
+  wzAddCuenta();
+  wzRender();
+};
+function wzMes(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function wzNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n; }
+function wzAddCuenta(){ _wz.cuentas.push({id:_wz.seq++, cx:'', usuario:'', idu:'', divisas:['ARS']}); }
+function wzAddParti(){ _wz.partis.push({id:_wz.seq++, per:'', pts:''}); }
+
+/* Lee el DOM al estado (antes de cualquier re-render, para no perder lo tipeado). */
+function wzSync(){
+  const w=_wz; if(!w) return;
+  w.cod=val('wz-cod'); w.nom=val('wz-nom'); w.base=val('wz-base'); w.desde=val('wz-desde')||'mes';
+  w.cobro=val('wz-cobro')||'usdt'; w.bw=val('wz-bw'); w.tg=val('wz-tg'); w.vendid=val('wz-vendid'); w.mcta=val('wz-mcta')||'USDT';
+  const g=id=>{const e=document.getElementById(id); return e?e.checked:false;};
+  w.tgon=g('wz-tgon'); w.esVend=g('wz-vend'); w.pp=g('wz-pp'); w.deuda=g('wz-deuda');
+  w.cuentas.forEach(c=>{ c.cx=val('wzc-cx-'+c.id); c.usuario=val('wzc-usu-'+c.id); c.idu=val('wzc-idu-'+c.id); });
+  w.partis.forEach(p=>{ p.per=val('wzp-per-'+p.id); p.pts=val('wzp-pts-'+p.id); });
+}
+function wzEstado(){
+  const w=_wz;
+  const nLink=w.cuentas.filter(c=>c.cx).length;
+  const base=wzNum(w.base);
+  const suma=w.partis.reduce((a,p)=>a+wzNum(p.pts),0);
+  const puedePedir=!!w.cod && !!w.nom && w.cuentas.length>=1;
+  return { base, suma, nLink, puedePedir, enFact:nLink>=1,
+    baseOk:w.esVend||base>0, repartoOk:w.esVend||(base>0&&Math.abs(suma-base)<0.001),
+    tgOk:!!w.tg||!!w.vendid };
+}
+/* Actualiza SÓLO el panel de estado y el botón, sin re-render (no pierde foco al tipear). */
+function wzRecalc(){
+  wzSync();
+  const w=_wz, e=wzEstado();
+  const ico=(on,na)=> na?'<span class="badge" style="background:var(--blue-bg,#e8f0fc);color:var(--blue)">–</span>'
+    : (on?'<span class="badge ok">✓</span>':'<span class="badge" style="background:var(--bg3);color:var(--muted)">○</span>');
+  const line=(on,na,t,s)=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border)">${ico(on,na)}<div><div style="font-size:13px">${t}</div><div class="muted" style="font-size:11.5px">${esc(s)}</div></div></div>`;
+  const checks=[
+    line(e.puedePedir,false,'Puede pedir fichas', e.puedePedir?('Código + '+w.cuentas.length+' cuenta(s)'):'Falta código, nombre o una cuenta'),
+    line(e.enFact,false,'Aparece en facturación', e.enFact?(e.nLink+' cuenta(s) linkeada(s)'):'Ninguna cuenta con conexión'),
+    line(e.baseOk,w.esVend,'% base cargado', w.esVend?'Vendedor: no aplica':(e.base>0?(e.base+'%'):'Sin % no se factura')),
+    line(e.repartoOk,w.esVend,'Reparto cierra', w.esVend?'Vendedor: sin reparto':(e.repartoOk?('Suma '+e.suma):'No suma el % base')),
+    line(e.tgOk,false,'Aviso de Telegram', w.tg?'Grupo propio':(w.vendid?'Hereda del vendedor':'Sin grupo ni vendedor')),
+  ].join('');
+  const done=[e.puedePedir,e.enFact,e.baseOk||w.esVend,e.repartoOk||w.esVend,e.tgOk].filter(Boolean).length;
+  const est=document.getElementById('wz-estado'); if(est) est.innerHTML=`<div style="font-weight:700;margin-bottom:2px">Estado del cliente</div><div class="muted" style="font-size:12px;margin-bottom:8px">${done} de 5 listo</div>${checks}`;
+  const listo=e.puedePedir&&e.baseOk;
+  const btn=document.getElementById('wz-crear'); if(btn) btn.disabled=!listo;
+  const hint=document.getElementById('wz-crear-hint'); if(hint) hint.textContent=listo?'Listo para crear.':(!e.puedePedir?'Falta código, nombre o una cuenta.':'Falta el % base (o marcar vendedor).');
+  // barra de suma del reparto
+  const sb=document.getElementById('wz-suma'); if(sb){ const b=e.base;
+    sb.textContent = b>0?(Math.abs(e.suma-b)<0.001?('Cierra ✓ '+e.suma+'/'+b):(e.suma<b?('Faltan '+(Math.round((b-e.suma)*100)/100)+' pts'):('Se pasa '+(Math.round((e.suma-b)*100)/100)+' pts'))):('Cargá el % base primero');
+    sb.style.color = b>0&&Math.abs(e.suma-b)<0.001?'var(--green)':(e.suma>b&&b>0?'var(--red)':'var(--durazno)'); }
+}
+function wzTogDiv(cid,d){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c)return; const i=c.divisas.indexOf(d); if(i>=0)c.divisas.splice(i,1); else c.divisas.push(d); wzRender(); }
+function wzDelCuenta(cid){ wzSync(); _wz.cuentas=_wz.cuentas.filter(x=>x.id!==cid); wzRender(); }
+function wzDelParti(pid){ wzSync(); _wz.partis=_wz.partis.filter(x=>x.id!==pid); wzRender(); }
+function wzMasCuenta(){ wzSync(); wzAddCuenta(); wzRender(); }
+function wzMasParti(){ wzSync(); wzAddParti(); wzRender(); }
+function wzVend(){ wzSync(); wzRender(); }
+
+function wzRender(){
+  const w=_wz; if(!w) return;
+  const main=document.getElementById('main');
+  const cxOpts=(sel)=>['<option value="">— sin conexión —</option>'].concat(
+    w.cxs.map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.nombre||c.id)}</option>`)).join('');
+  const cuentasHtml = w.cuentas.map(c=>{
+    const chips=WZ_DIVISAS.map(d=>`<span onclick="wzTogDiv(${c.id},'${d}')" style="cursor:pointer;user-select:none;border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;${c.divisas.indexOf(d)>=0?'background:var(--gold);color:#fff;border-color:var(--gold)':'background:var(--bg2);color:var(--muted)'}">${d}</span>`).join(' ');
+    const linked=!!c.cx;
+    return `<div style="border:1px solid var(--border);border-radius:9px;padding:11px;margin-bottom:9px;background:var(--bg3)">
+      <div class="row">
+        <div style="flex:2"><label>Conexión al casino</label><select id="wzc-cx-${c.id}" onchange="wzSync();wzRender()">${cxOpts(c.cx)}</select></div>
+        <div><label>Usuario del panel</label><input id="wzc-usu-${c.id}" value="${esc(c.usuario)}" oninput="wzRecalc()" placeholder="NahuelBet30"></div>
+        <div><label>ID de usuario</label><input id="wzc-idu-${c.id}" value="${esc(c.idu)}" oninput="wzRecalc()" placeholder="7469243"></div>
+        <button class="danger small" onclick="wzDelCuenta(${c.id})" title="Quitar">✕</button>
+      </div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <span class="muted" style="font-size:11px">Divisas:</span> ${chips}
+        <span class="badge ${linked?'ok':''}" style="margin-left:auto;${linked?'':'background:var(--durazno-bg);color:var(--durazno)'}">${linked?'● linkeada':'○ sin linkear'}</span>
+      </div></div>`;
+  }).join('') || '<div class="muted" style="margin-bottom:8px">Agregá al menos una cuenta para que pueda pedir fichas.</div>';
+
+  const perOpts=(sel)=>['<option value="">— persona —</option>'].concat(
+    w.personas.map(p=>`<option value="${esc(p.id)}"${p.id===sel?' selected':''}>${esc(p.nombre)}</option>`)).join('');
+  const partisHtml = w.partis.map(p=>`<div class="row" style="align-items:flex-end;margin-bottom:6px">
+      <div style="flex:2"><select id="wzp-per-${p.id}" onchange="wzSync();wzRecalc()">${perOpts(p.per)}</select></div>
+      <div style="flex:0 0 110px"><input id="wzp-pts-${p.id}" value="${esc(p.pts)}" inputmode="decimal" oninput="wzRecalc()" placeholder="pts" style="text-align:right"></div>
+      <button class="danger small" onclick="wzDelParti(${p.id})">✕</button></div>`).join('');
+
+  const bwOpts=['<option value="">— la principal (global) —</option>'].concat(
+    w.bws.map(b=>`<option value="${esc(b.id)}"${b.id===w.bw?' selected':''}>${esc(b.nombre)}${b.direcciones&&b.direcciones.length?(' ('+b.direcciones.map(d=>d.red).join('+')+')'):''}</option>`)).join('');
+
+  main.innerHTML = `
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+    <div>
+      <div class="card">
+        <h2>✨ Nuevo cliente — asistente</h2>
+        <div class="muted" style="margin:-4px 0 12px">Todo en una pantalla. El panel de la derecha te dice qué le falta y dónde queda conectado. <a href="#" onclick="event.preventDefault();go('clientes')">Volver a la lista</a></div>
+        <div class="row">
+          <div style="flex:0 0 180px"><label>Código (link del billete)</label><input id="wz-cod" value="${esc(w.cod)}" oninput="wzRecalc()" placeholder="Nahuel32"></div>
+          <div><label>Nombre</label><input id="wz-nom" value="${esc(w.nom)}" oninput="wzRecalc()" placeholder="Nahuel"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Cuentas del casino</h2>
+        <div class="muted" style="margin:-4px 0 10px">Cada cuenta habilita <b>pedir fichas</b> y suma al <b>consumo de facturación</b> (si tiene conexión).</div>
+        ${cuentasHtml}
+        <button class="outline small" onclick="wzMasCuenta()">+ Agregar cuenta</button>
+      </div>
+
+      <div class="card">
+        <h2>% y reparto</h2>
+        <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-size:13px;color:var(--text);font-weight:400;margin-bottom:10px">
+          <input type="checkbox" id="wz-vend" ${w.esVend?'checked':''} onchange="wzVend()" style="width:auto"> Es vendedor (sin % base ni reparto)</label>
+        <div id="wz-rep" style="${w.esVend?'display:none':''}">
+          <div class="row">
+            <div style="flex:0 0 130px"><label>% base</label><input id="wz-base" value="${esc(w.base)}" inputmode="decimal" oninput="wzRecalc()" placeholder="15" style="text-align:right"></div>
+            <div><label>Vigente desde</label><select id="wz-desde">
+              <option value="mes"${w.desde==='mes'?' selected':''}>Este mes (${wzMes()})</option>
+              <option value="siempre"${w.desde==='siempre'?' selected':''}>Siempre (corrección)</option></select></div>
+          </div>
+          <label style="margin-top:12px">Reparto — quién se lleva esos puntos</label>
+          ${partisHtml}
+          <button class="outline small" onclick="wzMasParti()">+ Agregar participación</button>
+          <div style="margin-top:8px;font-size:13px;font-weight:700" id="wz-suma"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Cobro y billetera</h2>
+        <div class="row">
+          <div><label>Camino de cobro</label><select id="wz-cobro" onchange="wzRecalc()">
+            <option value="usdt"${w.cobro==='usdt'?' selected':''}>Solo USDT</option>
+            <option value="cvu"${w.cobro==='cvu'?' selected':''}>Solo pesos (CVU)</option>
+            <option value="variable"${w.cobro==='variable'?' selected':''}>Ambas</option></select></div>
+          <div><label>Billetera USDT</label><select id="wz-bw" onchange="wzRecalc()">${bwOpts}</select></div>
+        </div>
+        <div class="muted" style="margin-top:6px;font-size:12px">La billetera define a qué dirección(es) USDT paga. «La principal» = la global. El CVU (ARS) es siempre el global.</div>
+      </div>
+
+      <div class="card">
+        <h2>Avisos de Telegram</h2>
+        <div class="row">
+          <div><label>Grupo (chat ID)</label><input id="wz-tg" value="${esc(w.tg)}" oninput="wzRecalc()" placeholder="-100…"></div>
+          <div style="flex:0 0 auto"><label>Activo</label><input type="checkbox" id="wz-tgon" ${w.tgon?'checked':''} style="width:auto;margin-top:8px"></div>
+        </div>
+        <div class="muted" style="margin-top:6px;font-size:12px">Si lo dejás vacío, hereda el grupo del vendedor (si tiene).</div>
+      </div>
+
+      <details class="card"><summary style="cursor:pointer;font-weight:700">Opciones comerciales</summary>
+        <div class="row" style="margin-top:12px">
+          <div><label>Moneda de la cuenta</label><select id="wz-mcta"><option${w.mcta==='USDT'?' selected':''}>USDT</option><option${w.mcta==='ARS'?' selected':''}>ARS</option></select></div>
+          <div><label>Cuelga del vendedor (id)</label><input id="wz-vendid" value="${esc(w.vendid)}" oninput="wzRecalc()" placeholder="opcional"></div>
+        </div>
+        <div style="display:flex;gap:18px;margin-top:12px">
+          <label style="text-transform:none;font-size:13px;color:var(--text);font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wz-pp" ${w.pp?'checked':''} style="width:auto"> Paga proveedores</label>
+          <label style="text-transform:none;font-size:13px;color:var(--text);font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wz-deuda" ${w.deuda?'checked':''} style="width:auto"> Permite deuda</label>
+        </div>
+      </details>
+
+      <div style="display:flex;gap:12px;align-items:center;margin:4px 0 30px">
+        <button id="wz-crear" onclick="wzCrear()" disabled>Crear cliente</button>
+        <span class="muted" id="wz-crear-hint" style="font-size:12px"></span>
+      </div>
+      <div id="wz-log"></div>
+    </div>
+
+    <div class="card" id="wz-estado" style="position:sticky;top:12px"></div>
+  </div>`;
+  wzRecalc();
+}
+
+async function wzCrear(){
+  wzSync();
+  const w=_wz, e=wzEstado();
+  if(!(e.puedePedir&&e.baseOk)) return;
+  const btn=document.getElementById('wz-crear'); if(btn){btn.disabled=true;btn.textContent='Creando…';}
+  const log=document.getElementById('wz-log'); const pasos=[];
+  const paso=(ok,t)=>{ pasos.push((ok?'✓ ':'✗ ')+t); if(log) log.innerHTML='<div class="card"><b>Progreso</b><div style="margin-top:6px;font-size:13px">'+pasos.map(esc).join('<br>')+'</div></div>'; };
+  const stop=(t)=>{ paso(false,t); if(btn){btn.disabled=false;btn.textContent='Crear cliente';} };
+
+  // 1) cliente
+  let r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo:w.cod,nombre:w.nom})});
+  if(!r||!r.ok||!r.cliente) return stop('Crear cliente ('+((r&&r.error)||'error')+')');
+  const id=r.cliente.id; paso(true,'Cliente creado');
+  // 2) nombres sincronizados
+  await api('/api/clientes/'+id,{method:'PUT',body:JSON.stringify({codigo:w.cod,nombre:w.nom,nombreVisible:w.nom})});
+  paso(true,'Nombre fijado');
+  // 3) comercial (+ billetera + cobro)
+  r=await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
+    moneda_cobro:w.cobro, moneda_cuenta:w.mcta, avisa_pagos:true, billetera_id:w.bw||'',
+    es_vendedor:w.esVend, vendedor_id:w.vendid||'', paga_proveedores:w.pp, permite_deuda:w.deuda })});
+  paso(!!(r&&r.ok),'Datos comerciales'+(w.bw?' + billetera':''));
+  // 4) % base
+  if(!w.esVend && wzNum(w.base)>0){
+    const desde = w.desde==='siempre'?'siempre':wzMes();
+    r=await api('/api/os/clientes/'+id+'/precio-base',{method:'PUT',body:JSON.stringify({valor:wzNum(w.base),vigente_desde:desde})});
+    paso(!!(r&&r.ok),'% base '+w.base+(r&&r.ok?'':' ('+((r&&r.error)||'error')+')'));
+  }
+  // 5) reparto
+  if(!w.esVend){
+    const items=w.partis.filter(p=>p.per&&wzNum(p.pts)>0).map(p=>({persona_id:p.per,porcentaje:wzNum(p.pts)}));
+    if(items.length){
+      r=await api('/api/os/participaciones',{method:'POST',body:JSON.stringify({cliente_id:id,items,vigente_desde:wzMes()+'-01'})});
+      paso(!!(r&&r.ok),'Reparto'+(r&&r.ok?(' (suma '+r.suma+'/'+r.base+')'):(' ('+((r&&r.error)||'error')+')')));
+    }
+  }
+  // 6) paneles
+  for(const c of w.cuentas){
+    if(!c.idu && !c.usuario) continue;
+    const cx=w.cxs.find(x=>x.id===c.cx);
+    r=await api('/api/os/paneles',{method:'POST',body:JSON.stringify({
+      cliente_id:id, nombre:c.usuario||c.idu, sistema:(cx&&cx.nombre)||'', tipo:'exclusivo',
+      id_usuario:c.idu, conexion_id:c.cx||'', divisas:(c.divisas&&c.divisas.length?c.divisas:['ARS']) })});
+    paso(!!(r&&r.ok),'Cuenta '+(c.usuario||c.idu));
+  }
+  // 7) telegram
+  if(w.tg){ r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId:w.tg,enabled:w.tgon})}); paso(!!(r&&r.ok),'Telegram'); }
+
+  paso(true,'Listo ✅');
+  toast('Cliente '+w.cod+' creado');
+  setTimeout(()=>abrirCliente(id,'resumen'), 900);
 }
 /* ── RENOMBRAR, DESDE DONDE SE MIRA AL CLIENTE ────────────────────────────────────────────────
    Vivía sólo en el lápiz de 🎰 Fichas, en el otro espacio. Con la ficha del cliente abierta en el
