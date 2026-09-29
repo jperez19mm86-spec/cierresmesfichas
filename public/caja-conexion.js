@@ -301,6 +301,8 @@
   const salirDeLaMaqueta = window.salir;
   window.salir = function salirYReviviElLogin() {
     try { apagarLogin(false); } catch (e) { /* seguir: salir importa más */ }
+    // Lo que el OS dijo que podía hacer el que se va (y sus datos para pagar) no pasa al que entra.
+    window.__fichasEstado = null;
 
     /* 🔴 SALIR TIENE QUE CERRAR LA SESIÓN DEL SERVIDOR, no sólo cambiar de pantalla.
        Así estaba: `salir()` hacía `mostrar('login')` y nada más. La cookie seguía viva, así que

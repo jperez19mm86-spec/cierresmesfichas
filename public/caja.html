@@ -2805,26 +2805,45 @@ async function solicitarFichas(){
 function fichasSinHabilitar(){
   abrirHoja(`<h3 id="hojaTit">Todavía no lo tenés habilitado</h3>
     <div class="sub">Tu cuenta no tiene activada esta parte.</div>
-    <div class="nota neutra">Ya le avisamos a soporte para dejártela lista. En cuanto esté, vas a poder pedir fichas, registrar pagos y ver tu cuenta desde acá.</div>
+    <div class="nota neutra">Ya le avisamos a soporte para dejártela lista. En cuanto esté, vas a poder usarla desde acá.</div>
     <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Entendido</button></div>`);
 }
 
+/* QUÉ PUEDE HACER ESTE AGENTE. El OS decide por la cuenta con la que entró: dentro de un mismo
+   cliente, uno puede hacer todo y otro sólo pedir fichas. Si el OS no manda el dato (una versión
+   anterior), se muestra como siempre; y aunque se esconda el botón, el OS igual lo rechaza. */
+function fichasPuede(k){ const e = window.__fichasEstado || {}; return e[k] !== false; }
+function fichasNoHabilitado(que){
+  abrirHoja(`<h3 id="hojaTit">No lo tenés habilitado</h3>
+    <div class="sub">Tu usuario no puede ${esc(que)} desde acá.</div>
+    <div class="nota neutra">Si lo necesitás, pedíselo al responsable de tu cuenta.</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
 function fichasOpciones(){
+  const ICO = {
+    pedir: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>',
+    pago: '<rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/>',
+    cuenta: '<path d="M5 3.5h14v17l-3.5-2-3.5 2-3.5-2-3.5 2z"/><path d="M9 8.5h6M9 12.5h6"/>',
+  };
+  const opciones = [
+    fichasPuede('puedePedir') && ['fichasFormPedir()', ICO.pedir, 'Pedir fichas', 'Comprar fichas para cargar a tus cajeros'],
+    fichasPuede('puedeAvisarPago') && ['fichasRegistrarPago()', ICO.pago, 'Registrar un pago', 'Avisar que pagaste y subir el comprobante'],
+    fichasPuede('puedeVerCuenta') && ['fichasMiCuenta()', ICO.cuenta, 'Mi cuenta', 'Lo que consumiste, lo que pagaste y lo que debés'],
+  ].filter(Boolean);
+  if (!opciones.length) {
+    return abrirHoja(`<h3 id="hojaTit">Solicitar fichas</h3>
+      <div class="sub">Tu usuario no tiene opciones habilitadas acá.</div>
+      <div class="nota neutra">Si las necesitás, pedíselas al responsable de tu cuenta.</div>
+      <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Volver</button></div>`);
+  }
   abrirHoja(`<h3 id="hojaTit">Solicitar fichas</h3>
     <div class="sub">Elegí qué querés hacer.</div>
     <div class="acc">
-      <button class="destaca" onclick="fichasFormPedir()">
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg></span>
-        <span class="tx">Pedir fichas<small>Comprar fichas para cargar a tus cajeros</small></span><span class="fl">›</span>
-      </button>
-      <button onclick="fichasRegistrarPago()">
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span>
-        <span class="tx">Registrar un pago<small>Avisar que pagaste y subir el comprobante</small></span><span class="fl">›</span>
-      </button>
-      <button onclick="fichasMiCuenta()">
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h14v17l-3.5-2-3.5 2-3.5-2-3.5 2z"/><path d="M9 8.5h6M9 12.5h6"/></svg></span>
-        <span class="tx">Mi cuenta<small>Lo que consumiste, lo que pagaste y lo que debés</small></span><span class="fl">›</span>
-      </button>
+      ${opciones.map(([fn, ico, tit, sub], i) => `<button${i === 0 ? ' class="destaca"' : ''} onclick="${fn}">
+        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ico}</svg></span>
+        <span class="tx">${tit}<small>${sub}</small></span><span class="fl">›</span>
+      </button>`).join('')}
     </div>
     <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Volver</button></div>`);
 }
@@ -2834,6 +2853,7 @@ function fichasOpciones(){
 const FICHAS_RAPIDOS = [500000, 1000000, 5000000, 10000000, 20000000];
 const fichasEtiqueta = (v) => (v >= 1000000 ? (v / 1000000) + 'M' : (v / 1000) + 'K');
 function fichasFormPedir(){
+  if (!fichasPuede('puedePedir')) return fichasNoHabilitado('pedir fichas');
   abrirHoja(`<h3 id="hojaTit">Pedir fichas</h3>
     <div class="sub">Elegí cuánto y te lo cargamos a tu cuenta.</div>
     <label class="campo" for="fMonto">Monto en ${esc(yo().currency)}</label>
@@ -2866,6 +2886,7 @@ async function fichasEnviarPedido(){
       <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
   }
   /* No configurado / offline / error: el OS ya avisó a soporte cuando corresponde. */
+  if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
   const sinConfig = r && r.motivo === 'sin_configurar';
   return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
     <div class="sub">${sinConfig ? 'Tu cuenta todavía no está habilitada para pedir.' : 'No pudimos procesarlo en este momento.'}</div>
@@ -2876,11 +2897,13 @@ async function fichasEnviarPedido(){
 /* Mi cuenta: deuda + movimientos, SIN contraseña (la sesión del casino ya identifica). */
 const FICHAS_MOV = { carga: 'Carga', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedor', correccion: 'Corrección' };
 async function fichasMiCuenta(){
+  if (!fichasPuede('puedeVerCuenta')) return fichasNoHabilitado('ver la cuenta');
   abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3><div class="sub">Un momento…</div>`);
   let d;
   try { d = await (await fetch('/api/caja/fichas/cuenta')).json(); }
   catch (e) { d = { offline: true }; }
   const c = d && d.cuenta;
+  if (c && c.habilitado === false) return fichasNoHabilitado('ver la cuenta');
   if (!d || d.offline || !c || c.existe === false) {
     return abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
       <div class="sub">No pudimos traer tu cuenta ahora.</div>
@@ -2926,6 +2949,7 @@ let PAGO_ARCH = null;   // { nombre, tipo, base64, bytes } — la captura ya le�
 const FICHAS_ICO_COPIAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5 15V5.5A2.5 2.5 0 017.5 3H17"/></svg>';
 
 function fichasRegistrarPago(){
+  if (!fichasPuede('puedeAvisarPago')) return fichasNoHabilitado('registrar pagos');
   PAGO_VIA = (yo().currency === 'USDT') ? 'usdt' : 'ars';   // arranca en la moneda de la caja
   PAGO_ARCH = null;
   fichasPagoPintar();
@@ -5390,4 +5414,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260915-login"></script>
+<script src="/caja-conexion.js?v=20260929-permisos"></script>
