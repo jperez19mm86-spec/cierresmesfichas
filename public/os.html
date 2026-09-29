@@ -1601,16 +1601,41 @@ async function loadAgentes(id){
       <input type="checkbox" style="width:auto" ${on?'checked':''} data-agente="${a.id}" data-campo="${campo}"
         oninput="event.stopPropagation()" onchange="event.stopPropagation();setPermAgente('${id}','${a.id}')"> ${label}</label>`;
   };
+  const cxs=((await api('/api/os/casino/conexiones')).conexiones||[]).filter(x=>!x.carga_de);
+  const dist=ag.filter(a=>a.rol==='distribuidor'), agts=ag.filter(a=>a.rol!=='distribuidor');
   box.innerHTML = `<div class="card" style="margin:0;background:var(--bg3);padding:10px 12px">
     <label>Qué puede hacer cada agente en Mi Caja</label>
-    ${ag.length ? ag.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
+    ${dist.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="min-width:180px"><b>${esc(a.usuario)}</b> <span class="badge" style="background:var(--blue);color:#fff">Distribuidor</span>
+          <div class="muted" style="font-size:11px">${esc(a.sistema||'')} · ${esc(a.userId||'')} · ${esc((a.divisas||[]).join(',')||'ARS')}</div></div>
+        <div class="muted" style="font-size:12px;flex:1">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente con «sólo pedir fichas».</div>
+        <button class="small danger" onclick="quitarDistribuidor('${id}','${a.id}','${esc(a.usuario)}')">Quitar</button>
+      </div>`).join('')}
+    ${agts.length ? agts.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
         <div style="min-width:180px"><b>${esc(a.etiqueta||a.usuario)}</b>${a.etiqueta?` <span class="muted" style="font-size:11px">${esc(a.usuario)}</span>`:''}
           <div class="muted" style="font-size:11px">${esc(a.sistema||'')}${a.userId?' · '+esc(a.userId):''}${a.permisos?'':' · <span style="color:var(--durazno)">sin configurar → sólo pide fichas</span>'}</div></div>
         <div>${chk(a,'pedir','Pedir fichas')}${chk(a,'pagos','Registrar pagos')}${chk(a,'cuenta','Ver cuenta y monto pendiente')}</div>
-      </div>`).join('') : '<div class="muted">Este cliente todavía no tiene cuentas cargadas.</div>'}
+      </div>`).join('') : '<div class="muted">Este cliente todavía no tiene cuentas de agentes.</div>'}
+    <div class="row" style="margin-top:10px;align-items:flex-end;gap:8px" oninput="event.stopPropagation()" onchange="event.stopPropagation()">
+      <div style="flex:0 0 auto"><label>Cuenta de un distribuidor</label><input id="dist-login-${id}" placeholder="login" style="width:150px"></div>
+      <div style="flex:0 0 auto"><label>ID</label><input id="dist-id-${id}" placeholder="7470000" style="width:110px"></div>
+      <div style="flex:0 0 auto"><label>Casino</label><select id="dist-sis-${id}">${cxs.map(x=>`<option>${esc(x.nombre)}</option>`).join('')}</select></div>
+      <div style="flex:0 0 auto"><label>Moneda</label><input id="dist-div-${id}" value="ARS" style="width:70px"></div>
+      <div style="flex:0 0 auto"><button class="small" onclick="agregarDistribuidor('${id}')">Agregar distribuidor</button></div>
+    </div>
     <div class="muted" style="font-size:12px;margin-top:6px">Se guarda al tocar. Una cuenta nueva que nadie configuró <b>sólo puede pedir fichas</b>.
       «Puede avisar pagos» de arriba es la llave general: si está en no, ningún agente de este cliente registra pagos.</div>
   </div>`;
+}
+async function agregarDistribuidor(clienteId){
+  const r=await api('/api/os/clientes/'+clienteId+'/distribuidores',{method:'POST',body:JSON.stringify({
+    login:val('dist-login-'+clienteId), userId:val('dist-id-'+clienteId), sistema:val('dist-sis-'+clienteId), divisa:val('dist-div-'+clienteId) })});
+  if(r&&r.ok){ toast('Distribuidor agregado: '+r.agente.usuario); loadAgentes(clienteId); }
+}
+async function quitarDistribuidor(clienteId, cajaId, login){
+  if(!confirm('¿Quitar a '+login+' como distribuidor de este cliente? Los agentes que ya creó siguen como están; los nuevos dejan de sumarse solos.')) return;
+  const r=await api('/api/clientes/'+clienteId+'/cajas/'+cajaId,{method:'DELETE'});
+  if(r&&r.ok!==false){ toast('Quitado'); loadAgentes(clienteId); }
 }
 async function setPermAgente(clienteId, cajaId){
   const leer=c=>{ const el=document.querySelector(`[data-agente="${cajaId}"][data-campo="${c}"]`); return !!(el&&el.checked); };

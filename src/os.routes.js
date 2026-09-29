@@ -438,7 +438,7 @@ function mount(app) {
     const efectivos = clientes.permisosDe(c, k);
     return { id: k.id, usuario: k.usuario, etiqueta: k.etiqueta || '', sistema: k.sistema, userId: k.userId,
       permisos: k.permisos ? { pedir: !!k.permisos.pedir, pagos: !!k.permisos.pagos, cuenta: !!k.permisos.cuenta } : null,
-      efectivos, pagosCliente: c.avisa_pagos !== false };
+      efectivos, pagosCliente: c.avisa_pagos !== false, rol: k.rol || '', divisas: k.divisas || [] };
   };
   app.get('/api/os/clientes/:id/agentes', (req, res) => {
     const c = clientes.get(req.params.id);
@@ -466,6 +466,36 @@ function mount(app) {
   }));
   /* UNA VEZ, el día que se sube: los agentes que ya operaban quedan con lo que podían hacer hasta
      hoy. Sólo toca las cajas sin permisos; correrlo de nuevo no cambia nada. */
+  /* ── LA CUENTA DE UN DISTRIBUIDOR ───────────────────────────────────────────────────────────
+     Para que el alta de agentes desde Mi Caja sepa a qué cliente sumarlos, la cuenta del
+     distribuidor tiene que estar en su cliente. Entra como IDENTIDAD (caja con rol 'distribuidor'),
+     no como panel: el consumo de un distribuidor ya incluye el de sus agentes. Antes de guardarla se
+     le pregunta al casino que ese login sea ese id en ese sistema: un id tipeado mal sumaría los
+     agentes de otro a este cliente. */
+  app.post('/api/os/clientes/:id/distribuidores', wrap(async (req, res) => {
+    const b = req.body || {};
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    const login = String(b.login || '').trim(); const uid = String(b.userId || '').trim();
+    const sistema = String(b.sistema || '').trim();
+    const divisa = String(b.divisa || 'ARS').trim().toUpperCase();
+    if (!login || !/^\d+$/.test(uid) || !sistema) return err(res, 400, 'faltan el login, el id o el sistema');
+    const cx = casinoConex.list463().find((x) => String(x.nombre || '').toLowerCase() === sistema.toLowerCase() && !x.carga_de);
+    const cli = cx && casinoConex.client(cx.id);
+    if (!cli) return err(res, 400, `no hay conexión de lectura para ${sistema}`);
+    const r = await cli.buscar({ login });
+    if (!r.ok) return err(res, 502, 'no se pudo preguntar al casino: ' + (r.error || ''));
+    const hit = (r.users || []).find((u) => String(u.login).toLowerCase() === login.toLowerCase());
+    if (!hit) return err(res, 404, `${login} no existe en ${sistema}`);
+    if (String(hit.id) !== uid) return err(res, 409, `en ${sistema}, ${login} es el id ${hit.id}, no ${uid}`);
+    const ya = (c.cajas || []).find((k) => String(k.userId) === uid && (k.sistema || '') === sistema);
+    const caja = ya
+      ? clientes.updateCaja(c.id, ya.id, { rol: 'distribuidor', divisas: [divisa] })
+      : clientes.addCaja(c.id, { usuario: hit.login, sistema, userId: uid, divisas: [divisa], rol: 'distribuidor',
+        permisos: { pedir: false, pagos: false, cuenta: false } });
+    ok(res, { agente: agenteVista(clientes.get(c.id), caja) });
+  }));
+
   app.post('/api/os/agentes/congelar', wrap((_req, res) => {
     ok(res, { congeladas: clientes.congelarPermisosActuales() });
   }));

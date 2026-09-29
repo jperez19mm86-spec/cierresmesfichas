@@ -147,6 +147,31 @@ check('un usuario sin cliente: no existe',
   const kB = clientes.get(cli.id).cajas.find((k) => k.id === cajaB.id);
   check('los permisos sobreviven a una actualización de la caja (espejo del panel)', kB.permisos && kB.permisos.pagos === true && kB.permisos.cuenta === false);
 
+  /* ── 4 · un DISTRIBUIDOR crea agentes desde Mi Caja ───────────────────────────────────────── */
+  const alta = (b) => fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify(b) }).then((r) => r.json());
+  // Sin la cuenta del distribuidor cargada en un cliente: no inventa nada.
+  const sinCli = await alta({ usuario: 'DistFantasma', userId: '555000', login: 'AgNuevo0', id: '555001' });
+  check('distribuidor que no está en ningún cliente: no registra (distribuidor_sin_cliente)', sinCli.registrado === false && sinCli.motivo === 'distribuidor_sin_cliente');
+  // Se carga la cuenta del distribuidor en el cliente (identidad, sin panel).
+  clientes.addCaja(cli.id, { usuario: 'DistPrueba', sistema: 'europa', userId: '555100', divisas: ['ARS'], rol: 'distribuidor', permisos: { pedir: false, pagos: false, cuenta: false } });
+  const nuevo = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist1', id: '555101' });
+  const kN = clientes.get(cli.id).cajas.find((k) => k.userId === '555101');
+  const pN = require('../src/paneles-store').list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555101');
+  check('agente creado por el distribuidor: queda en el cliente, sólo pedir, mismo casino y moneda',
+    nuevo.registrado === true && kN && kN.permisos && kN.permisos.pedir === true && kN.permisos.pagos === false && kN.permisos.cuenta === false
+    && kN.sistema === 'europa' && kN.divisas.join() === 'ARS');
+  check('…y como el distribuidor no factura, el agente nuevo SÍ lleva panel', nuevo.conPanel === true && pN && pN.nivel_usuario === 'Agente');
+  const estN = await fetch(`${U}/estado-cliente?usuario=AgDelDist1&userId=555101`, { headers: tok }).then((r) => r.json());
+  check('el agente nuevo ya puede pedir fichas (configurado, sólo pedir)', estN.configurado && estN.puedePedir === true && estN.puedeAvisarPago === false && estN.puedeVerCuenta === false);
+  const otraVez = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist1', id: '555101' });
+  check('llamarlo dos veces no lo duplica', otraVez.yaEstaba === true && clientes.get(cli.id).cajas.filter((k) => k.userId === '555101').length === 1);
+  // Si el distribuidor factura como panel, el agente va sólo como cuenta (no se cobra dos veces).
+  require('../src/paneles-store').create({ cliente_id: cli.id, nombre: 'DistPrueba', sistema: 'europa', id_usuario: '555100', divisas: ['ARS'] });
+  const nuevo2 = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist2', id: '555102' });
+  const pN2 = require('../src/paneles-store').list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555102');
+  check('distribuidor que ya factura como panel: el agente nuevo va sin panel (no se cobra dos veces)', nuevo2.registrado === true && nuevo2.conPanel === false && !pN2);
+  check('datos inválidos: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"usuario":"DistPrueba","login":"x","id":"abc"}' }).then((r) => r.status)) === 400);
+
   srv.close();
   const fallan = v.filter((x) => !x.ok).length;
   console.log(`\n${v.length - fallan}/${v.length} verificaciones pasaron`);

@@ -227,6 +227,10 @@ function addCaja(clienteId, caja) {
     /* QUÉ PUEDE HACER ESTE AGENTE EN MI CAJA. `null` = nadie lo configuró → sólo pedir fichas
        (ver PERMISOS_POR_DEFECTO). Ver permisosDe(). */
     permisos: caja.permisos ? normPermisos(caja.permisos) : null,
+    /* 'distribuidor' = la cuenta con la que un DISTRIBUIDOR entra a Mi Caja. Es sólo identidad: el
+       puente la usa para saber a qué cliente sumar los agentes que crea. No es un panel (su consumo
+       ya incluye el de sus agentes: facturarlo junto a ellos sería cobrar dos veces). '' = agente. */
+    rol: caja.rol === 'distribuidor' ? 'distribuidor' : '',
   };
   c.cajas.push(k); save(data); return k;
 }
@@ -282,6 +286,7 @@ function updateCaja(clienteId, cajaId, patch) {
   if (patch.notas !== undefined) k.notas = String(patch.notas).trim();
   if (patch.etiqueta !== undefined) k.etiqueta = String(patch.etiqueta).trim();
   if (patch.permisos !== undefined) k.permisos = patch.permisos === null ? null : normPermisos(patch.permisos);
+  if (patch.rol !== undefined) k.rol = patch.rol === 'distribuidor' ? 'distribuidor' : '';
   save(data); return k;
 }
 /* EL NOMBRE ES DE LA CUENTA DEL CASINO, NO DE UNA PANTALLA.

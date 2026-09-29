@@ -34,6 +34,9 @@ const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
 const comprobantes = require('./comprobantes-store');
 const billeteras = require('./billeteras-store');
+const paneles = require('./paneles-store');
+const casinoConex = require('./casino-conexiones-store');
+const arbolSvc = require('./arbol.service');
 
 // Grupo al que van los avisos de «cuenta sin configurar / necesita soporte». Lo fijó el dueño el
 // 13-sep-2026. Se puede pisar sin deploy con el config `grupoSinConfigurar`, por si el grupo cambia.
@@ -135,7 +138,9 @@ async function avisarSoporte(body, est, motivo) {
     ? (est.motivosFaltantes.length ? est.motivosFaltantes.join(', ') : 'nada (revisar)')
     : 'no existe como cliente';
   const detalle = body.detalle ? `\n${escapeHtml(String(body.detalle).slice(0, 500))}` : '';
-  const situacion = motivo === 'soporte' ? 'pidió soporte' : 'quiso pedir fichas sin estar configurado';
+  const situacion = motivo === 'soporte' ? 'pidió soporte'
+    : motivo === 'agente_nuevo' ? 'es distribuidor, creó un agente y su cuenta no está cargada en ningún cliente del OS'
+    : 'quiso pedir fichas sin estar configurado';
   const texto =
     `🛠️ <b>Cuenta sin configurar</b>\n`
     + `Usuario del casino: <code>${quien}</code>\n`
@@ -175,6 +180,45 @@ function mount(app) {
     // La billetera USDT depende del cliente, así que lo resolvemos para pasárselo a datosDePago.
     const { cliente } = encontrarCliente(req.query || {});
     res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente) });
+  });
+
+  /* ── ALTA DE UN AGENTE HECHA POR UN DISTRIBUIDOR EN MI CAJA ─────────────────────────────────
+     Mi Caja la llama DESPUÉS de crear el agente en el casino y encontrarlo (el id es el del motor).
+     El distribuidor se reconoce por su cuenta cargada en el cliente (caja con rol 'distribuidor').
+     El agente nuevo entra como cuenta de ese cliente con «sólo pedir fichas» (decisión del dueño,
+     29-sep-2026), con el casino y la moneda del distribuidor —un distribuidor y lo suyo manejan UNA
+     sola—, y el Telegram es el del cliente, así que no hay que tocar nada más.
+     Si el distribuidor ya factura como panel, su consumo incluye el de sus agentes: el agente va
+     sólo como cuenta (para pedir), sin panel, para no cobrarlo dos veces.
+     Si la cuenta del distribuidor no está en ningún cliente, no se inventa nada: se avisa a soporte. */
+  r.post('/v1/agente-nuevo', async (req, res) => {
+    const b = req.body || {};
+    const login = String(b.login || '').trim();
+    const id = String(b.id || '').trim();
+    if (!login || !/^\d+$/.test(id)) return res.status(400).json({ ok: false, error: 'faltan el login y el id del agente' });
+    const { cliente, caja } = encontrarCliente(b);
+    if (!cliente || !caja) {
+      const av = await avisarSoporte({ ...b, detalle: `Agente nuevo: ${login} (id ${id})` },
+        { existe: false, motivosFaltantes: ['distribuidor_sin_cliente'] }, 'agente_nuevo');
+      return res.json({ ok: true, registrado: false, motivo: 'distribuidor_sin_cliente', avisado: av.enviado });
+    }
+    const sistema = caja.sistema || '';
+    const ya = (cliente.cajas || []).find((k) => String(k.userId) === id && (k.sistema || '') === sistema);
+    if (ya) return res.json({ ok: true, registrado: true, yaEstaba: true, cliente: cliente.codigo });
+    const divisas = (caja.divisas && caja.divisas.length) ? [String(caja.divisas[0]).toUpperCase()] : ['ARS'];
+    const distFactura = paneles.list({ cliente_id: cliente.id })
+      .some((p) => String(p.id_usuario) === String(caja.userId) && (p.sistema || '') === sistema);
+    let panel = null;
+    if (!distFactura) {
+      const cx = casinoConex.list463().find((c) => String(c.nombre || '').toLowerCase() === sistema.toLowerCase() && !c.carga_de);
+      panel = paneles.create({ cliente_id: cliente.id, nombre: login, sistema, tipo: 'exclusivo', nivel_usuario: 'Agente',
+        id_usuario: id, conexion_id: cx ? cx.id : null, divisas });
+      try { arbolSvc.resolverEnSegundoPlano(panel); } catch (e) { /* queda sin resolver; la pantalla lo muestra */ }
+    }
+    clientes.addCaja(cliente.id, { usuario: login, sistema, userId: id, divisas,
+      permisos: { pedir: true, pagos: false, cuenta: false } });
+    console.log(`[Enlace] agente ${login} (${id}) creado por el distribuidor ${caja.usuario} → cliente ${cliente.codigo}${panel ? ' (con panel)' : ' (sólo cuenta)'}`);
+    res.json({ ok: true, registrado: true, cliente: cliente.codigo, conPanel: !!panel });
   });
 
   r.post('/v1/aviso-soporte', async (req, res) => {
