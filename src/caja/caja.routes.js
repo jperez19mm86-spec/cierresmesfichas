@@ -934,7 +934,9 @@ function mount(app) {
          «retirar todo» no funciona sobre una caja, el casino lo acepta y no mueve nada (medido el
          1-sep-2026). Decirlo ahorra el llamado telefónico. */
       const razon = operacion === 'in'
-        ? 'No alcanzan las fichas de la caja. El tope para cargar es el saldo de la caja, no el tuyo.'
+        ? (req.caja.rol === 'distribuidor'
+          ? 'No te alcanzan las fichas: lo máximo que le podés cargar a un agente es tu saldo.'
+          : 'No alcanzan las fichas de la caja. El tope para cargar es el saldo de la caja, no el tuyo.')
         : (todo
           ? 'No se pudo retirar el saldo. Se probó de las dos maneras —«todo» y el monto exacto— y '
             + 'el casino no movió nada. Puede que la cuenta tenga el retiro bloqueado.'
