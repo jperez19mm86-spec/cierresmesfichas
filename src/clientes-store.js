@@ -224,8 +224,48 @@ function addCaja(clienteId, caja) {
        cascada, los avisos y el cruce — y lo que el espejo del panel vuelve a escribir cada vez. Por
        eso el nombre vive en su propio campo, donde nadie lo pisa. Vacío = se muestra el usuario. */
     etiqueta: String(caja.etiqueta || '').trim(),
+    /* QUÉ PUEDE HACER ESTE AGENTE EN MI CAJA. `null` = nadie lo configuró → sólo pedir fichas
+       (ver PERMISOS_POR_DEFECTO). Ver permisosDe(). */
+    permisos: caja.permisos ? normPermisos(caja.permisos) : null,
   };
   c.cajas.push(k); save(data); return k;
+}
+
+/* ── PERMISOS POR AGENTE ─────────────────────────────────────────────────────────────────────
+   Cada caja es la cuenta de UN agente en el casino, y Mi Caja lo reconoce por esa cuenta. Dentro
+   de un mismo cliente, un agente puede hacer todo y otro sólo pedir fichas.
+   · pedir  → Pedir fichas
+   · pagos  → Registrar un pago (subir comprobante)
+   · cuenta → Ver su cuenta y el monto pendiente
+   Una caja sin `permisos` es una cuenta que nadie configuró: sólo pide fichas (lo decidió el
+   dueño el 29-sep-2026). Las que ya existían se congelaron con lo que tenían ese día. */
+const PERMISOS_POR_DEFECTO = Object.freeze({ pedir: true, pagos: false, cuenta: false });
+function normPermisos(p) {
+  const o = p || {};
+  return { pedir: o.pedir === true || o.pedir === 'true' || o.pedir === 1 || o.pedir === '1',
+    pagos: o.pagos === true || o.pagos === 'true' || o.pagos === 1 || o.pagos === '1',
+    cuenta: o.cuenta === true || o.cuenta === 'true' || o.cuenta === 1 || o.cuenta === '1' };
+}
+/* Lo que el agente puede hacer DE VERDAD. «Puede avisar pagos» del cliente sigue siendo la llave
+   general: apagado ahí, ningún agente de ese cliente registra pagos, tenga lo que tenga. */
+function permisosDe(cliente, caja) {
+  const p = (caja && caja.permisos) ? normPermisos(caja.permisos) : { ...PERMISOS_POR_DEFECTO };
+  return { pedir: p.pedir, pagos: p.pagos && !(cliente && cliente.avisa_pagos === false), cuenta: p.cuenta,
+    configurados: !!(caja && caja.permisos) };
+}
+/* El día que esto se sube, los agentes que ya operaban no pierden nada: a cada caja SIN permisos se
+   le escribe lo que podía hacer hasta ese momento (todo; los pagos siguen dependiendo de la llave
+   del cliente). Sólo toca las que no tienen: correrlo dos veces no cambia nada. */
+function congelarPermisosActuales() {
+  const data = load(); let n = 0;
+  for (const c of data.clientes) {
+    for (const k of (c.cajas || [])) {
+      if (k.permisos) continue;
+      k.permisos = { pedir: true, pagos: true, cuenta: true }; n += 1;
+    }
+  }
+  if (n) save(data);
+  return n;
 }
 function updateCaja(clienteId, cajaId, patch) {
   const data = load();
@@ -241,6 +281,7 @@ function updateCaja(clienteId, cajaId, patch) {
   if (patch.grupoId !== undefined) k.grupoId = String(patch.grupoId).trim();
   if (patch.notas !== undefined) k.notas = String(patch.notas).trim();
   if (patch.etiqueta !== undefined) k.etiqueta = String(patch.etiqueta).trim();
+  if (patch.permisos !== undefined) k.permisos = patch.permisos === null ? null : normPermisos(patch.permisos);
   save(data); return k;
 }
 /* EL NOMBRE ES DE LA CUENTA DEL CASINO, NO DE UNA PANTALLA.
@@ -300,4 +341,5 @@ function importRows(rows, dryRun = false) {
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
   addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
+  permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO,
 };

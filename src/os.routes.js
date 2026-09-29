@@ -431,6 +431,45 @@ function mount(app) {
     ok(res, { cambiados: ids.length, campo: b.campo, valor });
   }));
 
+  /* ── PERMISOS POR AGENTE (Mi Caja) ──────────────────────────────────────────────────────────
+     Cada caja del cliente es la cuenta de un agente en el casino. Acá se decide qué puede hacer
+     cada uno en Mi Caja: pedir fichas, registrar pagos, ver la cuenta. Ver clientes.permisosDe. */
+  const agenteVista = (c, k) => {
+    const efectivos = clientes.permisosDe(c, k);
+    return { id: k.id, usuario: k.usuario, etiqueta: k.etiqueta || '', sistema: k.sistema, userId: k.userId,
+      permisos: k.permisos ? { pedir: !!k.permisos.pedir, pagos: !!k.permisos.pagos, cuenta: !!k.permisos.cuenta } : null,
+      efectivos, pagosCliente: c.avisa_pagos !== false };
+  };
+  app.get('/api/os/clientes/:id/agentes', (req, res) => {
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    ok(res, { agentes: (c.cajas || []).map((k) => agenteVista(c, k)), porDefecto: clientes.PERMISOS_POR_DEFECTO });
+  });
+  app.put('/api/os/clientes/:id/agentes/:cajaId', wrap((req, res) => {
+    const b = req.body || {};
+    if (!b.permisos || typeof b.permisos !== 'object') return err(res, 400, 'faltan los permisos');
+    const k = clientes.updateCaja(req.params.id, req.params.cajaId, { permisos: b.permisos });
+    if (!k) return err(res, 404, 'no existe esa cuenta en este cliente');
+    ok(res, { agente: agenteVista(clientes.get(req.params.id), k) });
+  }));
+  /* El asistente de alta crea el panel y el espejo le arma la caja, así que no conoce su id: la
+     busca por la cuenta del casino (sistema + id). */
+  app.put('/api/os/clientes/:id/agentes-por-cuenta', wrap((req, res) => {
+    const b = req.body || {};
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    const k = (c.cajas || []).find((x) => String(x.userId) === String(b.userId || '')
+      && (!b.sistema || String(x.sistema || '').toLowerCase() === String(b.sistema).toLowerCase()));
+    if (!k) return err(res, 404, 'esa cuenta no está en este cliente');
+    const nk = clientes.updateCaja(c.id, k.id, { permisos: b.permisos || null });
+    ok(res, { agente: agenteVista(clientes.get(c.id), nk) });
+  }));
+  /* UNA VEZ, el día que se sube: los agentes que ya operaban quedan con lo que podían hacer hasta
+     hoy. Sólo toca las cajas sin permisos; correrlo de nuevo no cambia nada. */
+  app.post('/api/os/agentes/congelar', wrap((_req, res) => {
+    ok(res, { congeladas: clientes.congelarPermisosActuales() });
+  }));
+
   app.put('/api/os/accesos/:id/usuario', wrap((req, res) => {
     const u = String((req.body || {}).usuario || '').trim();
     if (!u) return err(res, 400, 'falta el usuario');

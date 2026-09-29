@@ -73,7 +73,7 @@ function encontrarCliente({ usuario, userId, sistema } = {}) {
 
 /** Estado de configuración de un cliente, con el detalle de lo que le falta. */
 function estadoDe(query) {
-  const { cliente } = encontrarCliente(query);
+  const { cliente, caja } = encontrarCliente(query);
   if (!cliente) return { existe: false, configurado: false, motivosFaltantes: ['no_existe'] };
   // % vigente: es lo que arma el alta (participaciones con vigencia) y lo que genera la deuda.
   const tienePorcentaje = participaciones.listVigente(cliente.id).length > 0;
@@ -88,9 +88,14 @@ function estadoDe(query) {
     configurado: tienePorcentaje && tieneTelegram,
     tienePorcentaje,
     tieneTelegram,
-    // Avisar un pago se habilita cliente por cliente (`avisa_pagos`, default sí). Va aparte de
-    // «configurado»: se puede estar configurado y tener el aviso de pagos apagado, o al revés.
-    puedeAvisarPago: cliente.avisa_pagos !== false,
+    /* QUÉ PUEDE HACER ESTE AGENTE. Es por CAJA —la cuenta del casino con la que entró—, no por
+       cliente: dentro del mismo cliente uno puede hacer todo y otro sólo pedir. «Puede avisar pagos»
+       del cliente sigue siendo la llave general de los pagos. Van aparte de «configurado». Mi Caja
+       dibuja sólo lo permitido, y las rutas de abajo lo comprueban igual. */
+    ...(() => {
+      const p = clientes.permisosDe(cliente, caja);
+      return { puedePedir: p.pedir, puedeAvisarPago: p.pagos, puedeVerCuenta: p.cuenta, permisosConfigurados: p.configurados };
+    })(),
     motivosFaltantes,
     codigo: cliente.codigo,
     nombreVisible: cliente.nombreVisible,
@@ -193,6 +198,8 @@ function mount(app) {
       const av = await avisarSoporte(b, est);
       return res.json({ ok: true, creado: false, motivo: 'sin_configurar', motivosFaltantes: est.motivosFaltantes, avisado: av.enviado });
     }
+    // Este agente puede no tener permiso de pedir aunque el cliente esté configurado.
+    if (!est.puedePedir) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
     const monto = Number(b.monto);
     if (!(monto > 0)) return res.status(400).json({ ok: false, error: 'monto inválido' });
     const cajaDivisas = (caja.divisas && caja.divisas.length) ? caja.divisas : ['ARS'];
@@ -212,14 +219,21 @@ function mount(app) {
   // sale de la caja (no del body). El comprobante es OBLIGATORIO (decisión del dueño, 14-sep-2026).
   r.post('/v1/avisar-pago', async (req, res) => {
     const b = req.body || {};
-    const { cliente } = encontrarCliente(b);
+    const { cliente, caja } = encontrarCliente(b);
     if (!cliente) return res.json({ ok: true, creado: false, motivo: 'no_existe' });
-    if (cliente.avisa_pagos === false) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
+    // Por agente (la caja con la que entró), con la llave general del cliente encima.
+    if (!clientes.permisosDe(cliente, caja).pagos) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
     if (!b.archivo || !b.archivo.base64) return res.status(400).json({ ok: false, error: 'falta el comprobante' });
+    /* QUIÉN LO MANDÓ Y A DÓNDE ENTRÓ. Con varios agentes por cliente, «¿quién subió esto?» se
+       contestaba preguntando. Va al frente de las notas, que el panel ya muestra al revisar. Y la
+       billetera, igual que el portal: sin ella, con dos billeteras no se sabe dónde entró la plata. */
+    const agente = caja ? (caja.etiqueta || caja.usuario) : '';
+    const notas = [agente ? `Agente: ${agente}` : '', String(b.notas || '').trim()].filter(Boolean).join(' · ');
     const cr = comprobantes.crear({
       codigo: cliente.codigo, clienteNombre: cliente.nombreVisible,
-      via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas: b.notas,
+      via: b.via, monto: b.monto, divisa: b.divisa, referencia: b.referencia, notas,
       archivo: b.archivo,
+      billetera_id: String(b.via || '').toLowerCase() === 'usdt' ? (billeteras.deCliente(cliente) || {}).id || null : null,
     });
     if (!cr.ok) return res.status(400).json({ ok: false, error: cr.error });
     const c = cr.comprobante;
@@ -236,6 +250,8 @@ function mount(app) {
   r.get('/v1/mi-cuenta', (req, res) => {
     const { cliente, caja } = encontrarCliente(req.query || {});
     if (!cliente) return res.json({ ok: true, existe: false });
+    // Ver la cuenta es un permiso del agente: la deuda del cliente no la ve cualquiera de sus cajas.
+    if (!clientes.permisosDe(cliente, caja).cuenta) return res.json({ ok: true, existe: true, habilitado: false });
     const cc = deudaSvc.cuentaCorriente(cliente.id);
     // La divisa en la que opera la caja del casino (lo que el cliente ve «en su plata»). Puede
     // diferir de la moneda de la cuenta (con la que se salda la deuda, casi siempre USDT).

@@ -1120,7 +1120,9 @@ VIEWS.altaCliente = async () => {
 };
 function wzMes(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function wzNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n; }
-function wzAddCuenta(){ _wz.cuentas.push({id:_wz.seq++, cx:'', usuario:'', idu:'', divisas:['ARS']}); }
+// Una cuenta nueva arranca en «sólo pedir fichas» (decisión del dueño, 29-sep-2026).
+function wzAddCuenta(){ _wz.cuentas.push({id:_wz.seq++, cx:'', usuario:'', idu:'', divisas:['ARS'], perm:{pedir:true,pagos:false,cuenta:false}}); }
+function wzTogPerm(cid,campo){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c)return; c.perm=c.perm||{pedir:true,pagos:false,cuenta:false}; c.perm[campo]=!c.perm[campo]; wzRender(); }
 function wzAddParti(){ _wz.partis.push({id:_wz.seq++, per:'', pts:''}); }
 
 /* Lee el DOM al estado (antes de cualquier re-render, para no perder lo tipeado). */
@@ -1192,6 +1194,13 @@ function wzRender(){
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px">
         <span class="muted" style="font-size:11px">Divisas:</span> ${chips}
         <span class="badge ${linked?'ok':''}" style="margin-left:auto;${linked?'':'background:var(--durazno-bg);color:var(--durazno)'}">${linked?'● linkeada':'○ sin linkear'}</span>
+      </div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <span class="muted" style="font-size:11px">En Mi Caja puede:</span>
+        ${[['pedir','Pedir fichas'],['pagos','Registrar pagos'],['cuenta','Ver cuenta y monto pendiente']].map(([k,l])=>{
+          const on=!!(c.perm||{})[k];
+          return `<span onclick="wzTogPerm(${c.id},'${k}')" style="cursor:pointer;user-select:none;border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;${on?'background:var(--green);color:#fff;border-color:var(--green)':'background:var(--bg2);color:var(--muted)'}">${on?'✓ ':''}${l}</span>`;
+        }).join(' ')}
       </div></div>`;
   }).join('') || '<div class="muted" style="margin-bottom:8px">Agregá al menos una cuenta para que pueda pedir fichas.</div>';
 
@@ -1329,6 +1338,13 @@ async function wzCrear(){
       cliente_id:id, nombre:c.usuario||c.idu, sistema:(cx&&cx.nombre)||'', tipo:'exclusivo',
       id_usuario:c.idu, conexion_id:c.cx||'', divisas:(c.divisas&&c.divisas.length?c.divisas:['ARS']) })});
     paso(!!(r&&r.ok),'Cuenta '+(c.usuario||c.idu));
+    // Qué puede hacer ese agente en Mi Caja. El panel ya armó su caja: se la busca por la cuenta.
+    if(r&&r.ok&&c.idu){
+      const p=c.perm||{pedir:true,pagos:false,cuenta:false};
+      const rp=await api('/api/os/clientes/'+id+'/agentes-por-cuenta',{method:'PUT',body:JSON.stringify({
+        userId:c.idu, sistema:(cx&&cx.nombre)||'', permisos:p })});
+      paso(!!(rp&&rp.ok),'   permisos: '+[p.pedir&&'pedir',p.pagos&&'pagos',p.cuenta&&'cuenta'].filter(Boolean).join(', '));
+    }
   }
   // 7) telegram
   if(w.tg){ r=await api('/api/clientes/'+id+'/telegram',{method:'PUT',body:JSON.stringify({chatId:w.tg,enabled:w.tgon})}); paso(!!(r&&r.ok),'Telegram'); }
@@ -1439,6 +1455,11 @@ function editCli(id){
             </div>
             <div id="acc-clave-${id}"></div>
           </div>
+          <!-- ── QUÉ PUEDE HACER CADA AGENTE EN MI CAJA ─────────────────────────────────────────
+               Los permisos de arriba son del CLIENTE. Estos son de cada AGENTE (cada cuenta del
+               casino con la que entra a adminganamos): uno puede hacer todo y otro sólo pedir.
+               Se guardan al tocarlos y el servidor los hace cumplir. -->
+          <div id="agentes-${id}" style="margin-top:8px"></div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
             <div><label>Su vendedor</label><select id="e-vend"><option value="">— cliente directo —</option>${
@@ -1558,10 +1579,45 @@ function editCli(id){
   fillDivisas(c.divisa_fichas);
   cliPintarCodigos(id);
   accEstado(id);          // si puede ver su cuenta, y con qué usuario
+  loadAgentes(id);        // qué puede hacer cada agente en Mi Caja
   loadCliPlat(id);
   loadCliProv(id);
 }
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
+
+/* ── PERMISOS POR AGENTE (Mi Caja) ──────────────────────────────────────────────────────────────
+   Una fila por cuenta del cliente (cada una es un agente que entra a adminganamos). Se guarda al
+   tocar: por eso los checks no avisan «cambios sin guardar» a la ficha. */
+async function loadAgentes(id){
+  const box=document.getElementById('agentes-'+id); if(!box) return;
+  const r=await api('/api/os/clientes/'+id+'/agentes');
+  if(!r||!r.ok){ box.innerHTML=''; return; }
+  const ag=r.agentes||[], def=r.porDefecto||{};
+  const chk=(a,campo,label)=>{
+    const on = a.permisos ? !!a.permisos[campo] : !!def[campo];
+    const bloq = campo==='pagos' && !a.pagosCliente;
+    return `<label style="display:inline-flex;gap:5px;align-items:center;text-transform:none;font-size:13px;color:var(--text);font-weight:400;margin-right:14px${bloq?';opacity:.55':''}"
+      title="${bloq?'Apagado para todo el cliente en «Puede avisar pagos»':''}">
+      <input type="checkbox" style="width:auto" ${on?'checked':''} data-agente="${a.id}" data-campo="${campo}"
+        oninput="event.stopPropagation()" onchange="event.stopPropagation();setPermAgente('${id}','${a.id}')"> ${label}</label>`;
+  };
+  box.innerHTML = `<div class="card" style="margin:0;background:var(--bg3);padding:10px 12px">
+    <label>Qué puede hacer cada agente en Mi Caja</label>
+    ${ag.length ? ag.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="min-width:180px"><b>${esc(a.etiqueta||a.usuario)}</b>${a.etiqueta?` <span class="muted" style="font-size:11px">${esc(a.usuario)}</span>`:''}
+          <div class="muted" style="font-size:11px">${esc(a.sistema||'')}${a.userId?' · '+esc(a.userId):''}${a.permisos?'':' · <span style="color:var(--durazno)">sin configurar → sólo pide fichas</span>'}</div></div>
+        <div>${chk(a,'pedir','Pedir fichas')}${chk(a,'pagos','Registrar pagos')}${chk(a,'cuenta','Ver cuenta y monto pendiente')}</div>
+      </div>`).join('') : '<div class="muted">Este cliente todavía no tiene cuentas cargadas.</div>'}
+    <div class="muted" style="font-size:12px;margin-top:6px">Se guarda al tocar. Una cuenta nueva que nadie configuró <b>sólo puede pedir fichas</b>.
+      «Puede avisar pagos» de arriba es la llave general: si está en no, ningún agente de este cliente registra pagos.</div>
+  </div>`;
+}
+async function setPermAgente(clienteId, cajaId){
+  const leer=c=>{ const el=document.querySelector(`[data-agente="${cajaId}"][data-campo="${c}"]`); return !!(el&&el.checked); };
+  const r=await api('/api/os/clientes/'+clienteId+'/agentes/'+cajaId,{method:'PUT',
+    body:JSON.stringify({permisos:{pedir:leer('pedir'),pagos:leer('pagos'),cuenta:leer('cuenta')}})});
+  if(r&&r.ok){ toast('Permisos guardados'); loadAgentes(clienteId); }
+}
 async function fillDivisas(curCsv){
   const d=await api('/api/os/divisas?activas=1'); const box=document.getElementById('e-divisas'); if(!box)return;
   const sel=new Set(String(curCsv||'').split(/[,\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean));
