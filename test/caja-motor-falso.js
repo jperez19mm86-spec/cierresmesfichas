@@ -45,6 +45,10 @@ function crearMotorFalso() {
      resumen y recibe TODO EN CERO — se imita, porque de ahí sale la única forma honesta de
      mostrarlo: calcular lo que se pueda y decir lo que no. */
   poner({ id: '601', login: 'SubAgenteDePrueba', group: 6, padre: '100', saldo: 0 });
+  /* Un DISTRIBUIDOR con un agente suyo, aparte del mundo de arriba: sirve para probar que Mi Caja
+     lo deja ver, crear y cargar SÓLO a sus agentes, y le niega todo lo demás. */
+  poner({ id: '50', login: 'DistribuidorDePrueba', group: 2, padre: null, saldo: 200000 });
+  poner({ id: '150', login: 'AgenteDelDist', group: 3, padre: '50', saldo: 1000 });
 
   const hijosDe = (id) => [...cuentas.values()].filter((c) => c.padre === String(id));
 
@@ -143,6 +147,7 @@ function crearMotorFalso() {
 
       if (area === 'buttons') {
         const porGrupo = {
+          2: ['users', 'reports', 'usersettings', 'createuser', 'sub', 'dashboard', 'intersections'],
           3: ['users', 'useredit', 'balance', 'createuser', 'sub', 'reports', 'dashboard', 'usersettings', 'intersections'],
           4: ['users', 'useredit', 'balance', 'createuser', 'reports'],
           6: ['users', 'useredit', 'balance', 'createuser', 'reports', 'dashboard'],

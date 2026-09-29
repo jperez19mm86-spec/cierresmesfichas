@@ -257,6 +257,10 @@ const MENU_POR_NIVEL = {
      consulta más por cada visita a una pantalla que el casino no sostiene. Decisión del dueño:
      si el casino no lo da, no se arma. Le queda su lista de cajeros, que es lo que usa. */
   subagente: ['users'],
+  /* EL DISTRIBUIDOR (29-sep-2026): sus agentes, su resumen y los movimientos. Crear agentes y
+     cargarles fichas sale de la lista de agentes; las estadísticas, de donde ya salen. Nada de
+     sub-usuarios, ajustes ni pedir fichas: eso no se le dio (y el servidor se lo niega igual). */
+  distribuidor: ['users', 'dashboard', 'balance'],
 };
 
 /* 🔴 EL PERMISO «SIN ESTADÍSTICAS» LO HACE CUMPLIR ESTA PANTALLA, PORQUE EL MOTOR NO.
@@ -274,7 +278,7 @@ function puedeVerNumeros(rol, permisos) {
 
 /* El grupo que da el motor decide el nivel. El 6 navega como agente pero con menú más corto. */
 function nivelDeGrupo(grupo) {
-  const porGrupo = { 3: 'agente', 4: 'cajero', 6: 'agente', 8: 'subcajero' };
+  const porGrupo = { 2: 'distribuidor', 3: 'agente', 4: 'cajero', 6: 'agente', 8: 'subcajero' };
   const g = Number(grupo);
   return { rol: porGrupo[g] || 'cajero', subagente: g === 6 };
 }

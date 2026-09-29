@@ -1581,7 +1581,7 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   </div>
 </div>
 
-<script src="/caja-logica.js?v=1"></script>
+<script src="/caja-logica.js?v=20260929-dist"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════════════
    Lo que devolvería el motor. Todo esto sale de llamadas reales medidas el
@@ -1614,6 +1614,11 @@ const ACCIONES_SALA = [
 /* 🔑 area=buttons depende del NODO **y de quién pregunta** (dueño, 25-ago): entregar el acceso
    de un jugador es tarea de su cajero, no del agente. El agente ve la misma terminal sin esas
    cuatro acciones. */
+/* Lo que un DISTRIBUIDOR puede hacer sobre un agente suyo: cargar, retirar y ver qué pasó.
+   Ni configuración, ni sub-usuarios, ni eliminar (el servidor también se lo niega). */
+const ACCIONES_DIST_AGENTE = [
+  { name:'balance',      title:'Balance', mueve:true, sinNota:true },
+];
 const ACCIONES_TERMINAL = [
   /* Cargar, retirar y ver qué pasó son la misma conversación: una sola puerta. */
   { name:'balance',      title:'Balance', mueve:true, sinNota:true },
@@ -1771,6 +1776,7 @@ function tiposDeMov(){
     /* «Sus» y no «los»: mirando desde afuera, son los jugadores DEL CAJERO, no los de uno. */
     return { 'usual:to':'Al cajero', 'usual:players':'A sus jugadores' };
   }
+  if (esDist()) return { 'usual:to':'A mi panel', 'usual:from':'A mis agentes' };
   if (esAgente()) return { 'usual:to':'A mi panel', 'usual:from':'A mis cajeros' };
   return { 'usual:to':'A mi panel', 'usual:players':'A mis jugadores' };
 }
@@ -1778,6 +1784,10 @@ function explicaMov(){
   if (DENTRO) return {
     'usual:to':      'Fichas que le cargaste vos a este cajero.',
     'usual:players': 'Fichas que el cajero le cargó o le retiró a sus jugadores.',
+  };
+  if (esDist()) return {
+    'usual:to':   'Fichas que entraron a tu panel: las que te cargó tu superior.',
+    'usual:from': 'Fichas que saliste de tu panel hacia tus agentes.',
   };
   if (esAgente()) return {
     'usual:to':   'Fichas que entraron a tu panel: las que te cargó tu superior.',
@@ -2207,7 +2217,11 @@ const EXPLICA_GRUPO = {
   terminal:    'Una fila por jugador, sumando todas tus cajas.',
 };
 /* Un cajero no tiene cajas debajo: para él la agrupación por caja no existe. */
-const gruposDisponibles = () => esAgente() ? Object.keys(EST_GRUPOS) : ['general','terminal'];
+const gruposDisponibles = () => esDist() ? ['general','child_users']
+  : esAgente() ? Object.keys(EST_GRUPOS) : ['general','terminal'];
+/* Para un distribuidor, «una fila por caja» es una fila por AGENTE. */
+const grupoEst = (k) => (esDist() && k === 'child_users') ? 'Por agente' : EST_GRUPOS[k];
+const explicaGrupo = (k) => (esDist() && k === 'child_users') ? 'Una fila por agente.' : EXPLICA_GRUPO[k];
 
 const ESTADISTICAS = {
   'on_money|terminal': {
@@ -2668,6 +2682,9 @@ const fmt = (n) => (Number.isInteger(Number(n)) ? FMT_REDONDO : FMT_CENTAVOS).fo
 const $ = (id) => document.getElementById(id);
 const yo = () => CUENTAS[ROL];
 const esAgente = () => ROL === 'agente';
+/* EL DISTRIBUIDOR navega como un agente de un piso más arriba: sus filas son AGENTES y no entra
+   adentro de ninguno. Todo lo demás del agente (sub-usuarios, ajustes, pedir fichas) no lo tiene. */
+const esDist = () => ROL === 'distribuidor';
 /* 🔴 `area=users` devuelve una FILA DE TOTALES mezclada con las cuentas: `id` vacío y login
    "En total" —medido el 26-ago: con limit=50 vienen 51 filas—. Dibujada tal cual aparece como
    una cuenta fantasma que no se puede abrir, y cualquier conteo da uno de más.
@@ -2675,9 +2692,9 @@ const esAgente = () => ROL === 'agente';
 const sinFilaTotal = (filas) => (filas || []).filter(x => x && x.id !== '' && x.id != null);
 
 /* Un cajero ve terminales. Un agente ve salas — salvo que haya entrado a una. */
-const viendoSalas = () => esAgente() && !DENTRO;
+const viendoSalas = () => (esAgente() || esDist()) && !DENTRO;
 const hijos = () => DENTRO ? TERMINALES.filter(t => t.sala === DENTRO)
-  : esAgente() ? SALAS : TERMINALES.filter(t => t.sala === (yo().caja || yo().id));
+  : (esAgente() || esDist()) ? SALAS : TERMINALES.filter(t => t.sala === (yo().caja || yo().id));
 const salaActual = () => SALAS.find(s => s.id === DENTRO);
 /* De quién salen las fichas y con qué saldo comparo: de la sala si entré, si no de mi cuenta. */
 const bolsillo = () => DENTRO ? salaActual() : yo();
@@ -2721,7 +2738,7 @@ const NOMBRE_SEC = { users:'Cuentas', dashboard:'Resumen', balance:'Movimientos'
   sub:'Mis sub-usuarios', history:'Historial de jugadas' };
 /* Las pestañas se llaman como las llama el operador: «mis», porque son suyas. Y la primera cambia
    según quién mire — un agente ve cajeros, un cajero ve jugadores. */
-const nombreSec = (s) => s === 'users' ? (esAgente() ? 'Mis cajeros' : 'Mis jugadores') : NOMBRE_SEC[s];
+const nombreSec = (s) => s === 'users' ? (esDist() ? 'Mis agentes' : esAgente() ? 'Mis cajeros' : 'Mis jugadores') : NOMBRE_SEC[s];
 function irPanel(){
   /* 🔴 NO SE PONE `SEC` A MANO. Antes esta función asignaba `SEC = 'users'` y dibujaba, pero no
      tocaba la etiqueta del botón de abajo —eso lo hace `irSec`— así que volviendo del hub estando
@@ -2773,7 +2790,7 @@ function irSec(s){
   $('cuerpo').scrollTop = 0;
   pintar();
 }
-function entrarEn(id){ DENTRO = id; cerrarHoja(); SEC = 'users'; irSec('users'); }
+function entrarEn(id){ if (esDist()) return; DENTRO = id; cerrarHoja(); SEC = 'users'; irSec('users'); }
 function volverARaiz(){ DENTRO = null; irSec('users'); }
 
 /* 🔑 «Solicitar fichas» = el sistema de cuentas del OS (pedir fichas, avisar un pago, ver la deuda),
@@ -3272,6 +3289,8 @@ function pintarFilas(){
     </div>`; }).join('') : `<div class="vacio">${
       q ? `Nada coincide con “${q}”.${!VER_DORMIDOS && dormidos
             ? '<br><br>Puede estar entre los que no tienen movimiento.' : ''}`
+        : esDist()
+          ? 'Todavía no tenés agentes.<br>Creá el primero con el botón de abajo.'
         : (DENTRO || !esAgente())
           ? 'Todavía no hay jugadores acá.<br>Creá el primero con el botón de abajo.'
           : 'Todavía no tenés cajeros.<br>Creá el primero con el botón de abajo.'}</div>`)
@@ -3696,13 +3715,13 @@ function pintarEstadisticas(){
     </div>
     <div class="periodos">
       ${gruposDisponibles().map(k =>
-        `<button aria-pressed="${k===EST_GRUPO}" onclick="setEst('grupo','${k}')">${EST_GRUPOS[k]}</button>`).join('')}
+        `<button aria-pressed="${k===EST_GRUPO}" onclick="setEst('grupo','${k}')">${grupoEst(k)}</button>`).join('')}
     </div>
     ${tiraPeriodos(EST_PER, 'setPerEst', { rangoCustom: CUSTOMS.est })}
 
     <div class="filtros-dice">Estás viendo <b>${EST_TIPOS[EST_TIPO].toLowerCase()}</b>,
-      <b>${EST_GRUPOS[EST_GRUPO].toLowerCase()}</b>, en <b>${yo().currency}</b> ·
-      <b>${rotuloRango(r)}</b><br>${EXPLICA_GRUPO[EST_GRUPO]}
+      <b>${grupoEst(EST_GRUPO).toLowerCase()}</b>, en <b>${yo().currency}</b> ·
+      <b>${rotuloRango(r)}</b><br>${explicaGrupo(EST_GRUPO)}
       ${filas.length > 1 ? `<br>Ordenado por <b>${(cols.find(([c]) => c === EST_ORDEN) || [,EST_ORDEN])[1].toLowerCase()}</b>,
         de ${EST_ASC ? 'menor a mayor' : 'mayor a menor'} — tocá cualquier título para cambiarlo.` : ''}</div>
 
@@ -4606,7 +4625,7 @@ function abrirNodo(id){
   const esSala = entreLosHijos ? viendoSalas() : !!entreLasCajas;
   /* La lista que se dibuja y la que se ejecuta tienen que ser LA MISMA: si se filtra
      una y no la otra, los índices se corren y tocar una acción ejecuta otra. */
-  ACCIONES_ACTUALES = esSala ? ACCIONES_SALA : ACCIONES_TERMINAL;
+  ACCIONES_ACTUALES = esSala ? (esDist() ? ACCIONES_DIST_AGENTE : ACCIONES_SALA) : ACCIONES_TERMINAL;
   const acciones = ACCIONES_ACTUALES;
   /* 🔴 «SIN CONEXIÓN» NO. Quería decir que el jugador no está adentro del casino en este momento,
      pero se lee como que se cortó internet — y en una pantalla que sí depende de la red, eso
@@ -4623,7 +4642,7 @@ function abrirNodo(id){
   abrirHoja(`
     <h3 id="hojaTit" class="mono">${esc(ACTUAL.login)}</h3>
     <div class="sub">${esSala
-      ? `${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`
+      ? (esDist() ? 'Agente' : `${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`)
       : `${estado ? `<span class="punto ${ACTUAL.jugando ? 'jugando' : 'on'}"></span>${estado} · ` : ''}${
           yo().currency} ${fmt(ACTUAL.balance)}`}</div>
     ${(() => {
@@ -4656,10 +4675,10 @@ function abrirNodo(id){
                       ['Jugaron', totalPanel((TABLERO_CAJA[ACTUAL.id] || {}).active_players)]]) : ''}
       <button class="masmenos" style="margin:-4px 0 12px"
         onclick="resumenDeCaja('${ACTUAL.id}')">Ver el resumen de esta caja ›</button>
-      <div class="parbotones">
+      ${esDist() ? '' : `<div class="parbotones">
         <button class="btn" onclick="entrarEn('${ACTUAL.id}')">Ver sus jugadores</button>
         <button class="btn sec" onclick="const c='${ACTUAL.id}'; entrarEn(c); altaFormulario('5')">+ Crear</button>
-      </div>` : ''}
+      </div>`}` : ''}
     <div class="acc">
       ${acciones.map((a, i) => `
         <button class="${a.mueve||a.link?'destaca':''} ${a.peligro?'rojo':''}" onclick="accion(${i})">
@@ -5041,7 +5060,7 @@ function confirmarMov(){
     <h3 id="hojaTit">${carga ? 'Confirmá la carga' : 'Confirmá el retiro'}</h3>
     <div class="sub">Revisá los números antes de mover las fichas.</div>
     <div class="confirmar">
-      <div class="fila"><span>${viendoSalas()?'Cajero':'Jugador'}</span><b class="mono">${esc(ACTUAL.login)}</b></div>
+      <div class="fila"><span>${esDist()?'Agente':viendoSalas()?'Cajero':'Jugador'}</span><b class="mono">${esc(ACTUAL.login)}</b></div>
       <div class="fila"><span>${TODO_EL_SALDO ? 'Todo el saldo' : 'Monto exacto'}</span>
         <b class="num ${carga?'mas':'menos'}">${carga?'+':'−'} ${fmt(v)}</b></div>
       ${TODO_EL_SALDO && !carga ? `<div class="avisotodo">
@@ -5138,6 +5157,7 @@ function crearSubCajero(cajaId){
 /* Dos opciones explícitas según dónde estés parado. El tipo no se elige en un desplegable:
    se elige tocando lo que querés crear. */
 function abrirAlta(){
+  if (esDist()) return altaFormulario('3');     // un distribuidor sólo crea agentes
   if (SEC === 'sub') return altaSub();
   const enCaja = !viendoSalas();
   const donde = enCaja ? (DENTRO ? SALAS.find(s => s.id === DENTRO) : yo()) : yo();
@@ -5169,12 +5189,13 @@ function abrirAlta(){
 let ALTA_PREVIA = null;
 
 function altaFormulario(grupo, volviendo){
-  const esSala = grupo === '4';
+  const esAgenteNuevo = grupo === '3';          // lo crea un distribuidor
+  const esSala = grupo === '4' || esAgenteNuevo;
   const p = (volviendo && ALTA_PREVIA && ALTA_PREVIA.grupo === grupo) ? ALTA_PREVIA : null;
   abrirHoja(`
-    <h3 id="hojaTit">${esSala ? 'Nuevo cajero' : 'Nuevo jugador'}</h3>
+    <h3 id="hojaTit">${esAgenteNuevo ? 'Nuevo agente' : esSala ? 'Nuevo cajero' : 'Nuevo jugador'}</h3>
     <div class="sub">${esSala ? 'Cuelga de' : 'En la caja'} <b class="mono">${bolsillo().login}</b>${
-      esSala ? ' y hereda sus divisas.' : '.'}</div>
+      esAgenteNuevo ? ' y maneja su misma moneda.' : esSala ? ' y hereda sus divisas.' : '.'}</div>
     <input type="hidden" id="ngrupo" value="${grupo}">
     <label class="campo" for="nlogin">Login</label>
     <input class="entrada mono" id="nlogin" autocomplete="off" spellcheck="false" value="${p ? p.login : ''}" placeholder="${esSala?'CajaCentro2':'Maria3719'}" oninput="revisarAlta()">
@@ -5182,7 +5203,7 @@ function altaFormulario(grupo, volviendo){
     <div style="height:12px"></div>
     <label class="campo" for="nclave">Contraseña</label>
     <input class="entrada mono" id="nclave" autocomplete="off" spellcheck="false" value="${p ? p.clave : ''}"
-      placeholder="${esSala ? 'Mín. 8, con mayúscula y número' : 'La que quieras, sin espacios'}" oninput="revisarAlta()">
+      placeholder="${esAgenteNuevo ? '8 a 20, con mayúscula, minúscula y número' : esSala ? 'Mín. 8, con mayúscula y número' : 'La que quieras, sin espacios'}" oninput="revisarAlta()">
     <div class="tope" id="avisoNclave"></div>
     ${esSala ? '' : `<div style="height:12px"></div>
       <label class="campo" for="nbal">Balance inicial (opcional)</label>
@@ -5192,8 +5213,8 @@ function altaFormulario(grupo, volviendo){
     <div class="nota"><b>El login es único en todo el sistema</b> y queda reservado aunque se
     elimine la cuenta. Si ya está ocupado, probá con otro.</div>
     <div class="acciones">
-      <button class="btn sec" onclick="abrirAlta()">Volver</button>
-      <button class="btn" id="crear" disabled onclick="crear()">${esSala ? 'Crear cajero' : 'Crear jugador'}</button>
+      <button class="btn sec" onclick="${esAgenteNuevo ? 'cerrarHoja()' : 'abrirAlta()'}">${esAgenteNuevo ? 'Cancelar' : 'Volver'}</button>
+      <button class="btn" id="crear" disabled onclick="crear()">${esAgenteNuevo ? 'Crear agente' : esSala ? 'Crear cajero' : 'Crear jugador'}</button>
     </div>`);
   setTimeout(() => {
     const el = $('nlogin');
@@ -5414,4 +5435,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260929-permisos"></script>
+<script src="/caja-conexion.js?v=20260929-dist"></script>

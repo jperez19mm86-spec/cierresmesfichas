@@ -190,9 +190,11 @@ async function entrar({ url, user, password, token, raiz = null, generar = true 
   const ficha = (info.data && info.data.editUser) || {};
   const group = String(main.group || '');
 
-  /* 🔒 Mi Caja es SÓLO para agentes (3), cajeros (4), sub-agentes (6) y sub-cajeros (8).
-     Un jugador no entra acá, y un distribuidor tampoco: para eso está el panel del motor. */
-  const PERMITIDOS = { 3: 'agente', 4: 'cajero', 6: 'subagente', 8: 'subcajero' };
+  /* 🔒 Mi Caja es para distribuidores (2), agentes (3), cajeros (4), sub-agentes (6) y sub-cajeros (8).
+     Un jugador no entra acá. El DISTRIBUIDOR entra con funciones limitadas (decisión del dueño,
+     29-sep-2026): ver sus agentes, crearlos, cargarles y retirarles fichas, sus movimientos y
+     estadísticas. Lo demás que el motor le permite se le niega acá (ver RUTAS_DISTRIBUIDOR). */
+  const PERMITIDOS = { 2: 'distribuidor', 3: 'agente', 4: 'cajero', 6: 'subagente', 8: 'subcajero' };
   if (!PERMITIDOS[group]) {
     return { ok: false, error: 'Esta cuenta no usa Mi Caja. Entrá por el panel de siempre.' };
   }
@@ -285,6 +287,23 @@ function clienteDe(sesion, { auditoria = false } = {}) {
   return sesion.conToken || sesion.conSesion;    // todo lo operativo
 }
 
+/* ── EL DISTRIBUIDOR, LIMITADO ACÁ Y NO EN LA PANTALLA ─────────────────────────────────────────
+   En el motor un distribuidor alcanza TODA su rama (agentes, sus cajeros, sus jugadores) y puede
+   borrar, cambiar claves, tocar juegos… Esconder botones no alcanza: cualquiera puede llamar una
+   ruta a mano. Por eso es LISTA BLANCA —lo que no está, se niega— y vive en el único lugar por el
+   que pasan todas las rutas protegidas. Las rutas permitidas además controlan a QUÉ cuenta apuntan
+   (sólo a sus agentes): ver `delDistribuidor` en caja.routes.js. */
+const RUTAS_DISTRIBUIDOR = new Set([
+  'GET /api/caja/yo',
+  'GET /api/caja/cuentas',          // sus agentes
+  'POST /api/caja/crear',           // sólo agentes, debajo suyo
+  'POST /api/caja/fichas',          // cargar / retirar a SUS agentes
+  'GET /api/caja/movimientos',      // los suyos o los de un agente suyo
+  'GET /api/caja/resumen',
+  'GET /api/caja/estadisticas',
+  'POST /api/caja/mi-clave',        // cambiar SU clave
+]);
+
 /** Middleware: exige sesión de Mi Caja. Responde 401 en JSON, nunca redirige. */
 function requerida(req, res, next) {
   const bruto = leerCookie(req, COOKIE);
@@ -306,6 +325,9 @@ function requerida(req, res, next) {
   s.vence = Date.now() + VIDA_MS;               // se renueva mientras trabaja
   guardarEnDisco(s);
   req.caja = s;
+  if (s.rol === 'distribuidor' && !RUTAS_DISTRIBUIDOR.has(`${req.method} ${req.path}`)) {
+    return res.status(403).json({ ok: false, error: 'Tu usuario no puede hacer esto desde acá.', noPermitido: true });
+  }
   next();
 }
 

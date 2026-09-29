@@ -134,6 +134,47 @@ function mount(app) {
     ok(res, { acciones: r.data.buttons || [] });
   }));
 
+  /* ══════ EL DISTRIBUIDOR SÓLO VE Y TOCA A SUS AGENTES ══════
+     `users` con el id de un distribuidor trae TODA su rama —sus agentes y los cajeros de cada
+     uno—, y el nivel no viene en un campo propio sino en `additional.group` («[Agent]»). Medido en
+     el entorno de prueba de Imperia el 29-sep-2026. Se pregunta una vez por minuto y por sesión. */
+  const grupoDeFila = (f) => {
+    if (f && f.group != null && f.group !== '') return String(f.group);
+    let g = '';
+    try { const a = typeof f.additional === 'string' ? JSON.parse(f.additional) : (f.additional || {}); g = String(a.group || ''); } catch (e) { g = ''; }
+    if (/super/i.test(g)) return '1';
+    if (/dealer|distrib|diller/i.test(g)) return '2';
+    if (/agent/i.test(g)) return '3';
+    return '';
+  };
+  const esFilaAgente = (f) => grupoDeFila(f) === '3';
+  const cacheAgentes = new Map();                      // sid → { at, ids:Set }
+  async function agentesDe(req) {
+    const s = req.caja; const c = cacheAgentes.get(s.sid);
+    if (c && Date.now() - c.at < 60 * 1000) return c.ids;
+    const cli = auth.clienteDe(s); const ids = new Set();
+    for (let pagina = 1; pagina <= 10; pagina++) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await cli.apiCall('users', { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '1000' },
+        { id: String(s.id), offset: String(pagina) });
+      if (!esJson(r)) break;
+      const filas = sinFilaTotal(r.data.users);
+      filas.filter(esFilaAgente).forEach((f) => ids.add(String(f.id)));
+      if (filas.length < 1000) break;
+    }
+    cacheAgentes.set(s.sid, { at: Date.now(), ids });
+    return ids;
+  }
+  /* ¿Este distribuidor puede apuntar a esta cuenta? Él mismo o uno de SUS agentes. A cualquier otro
+     rol no lo toca: para ellos manda el motor, como siempre. */
+  async function delDistribuidor(req, id) {
+    if (req.caja.rol !== 'distribuidor') return true;
+    const x = String(id == null ? '' : id).trim();
+    if (!x || x === String(req.caja.id)) return true;
+    return (await agentesDe(req)).has(x);
+  }
+  const noEsTuyo = (res) => res.status(403).json({ ok: false, error: 'Esa cuenta no es un agente tuyo.', noPermitido: true });
+
   /* ══════ las cuentas que cuelgan de un nodo ══════ */
 
   app.get('/api/caja/cuentas', auth.requerida, wrap(async (req, res) => {
@@ -163,8 +204,10 @@ function mount(app) {
       deleted_users: q.eliminados === '1' ? 'delete' : 'undelete',
       limit: String(porPagina),
     };
+    /* El distribuidor ve SUS agentes: siempre su propio nodo, filtrado a agentes más abajo. */
+    const soyDist = req.caja.rol === 'distribuidor';
     const query = (pagina) => ({
-      id: q.id || req.caja.id,
+      id: soyDist ? req.caja.id : (q.id || req.caja.id),
       offset: String(pagina),
       ...(q.buscar ? { search: String(q.buscar) } : {}),
     });
@@ -196,6 +239,7 @@ function mount(app) {
       const aguja = String(q.buscar).toLowerCase();
       filas = filas.filter((f) => `${f.login || ''} ${f.name || ''}`.toLowerCase().includes(aguja));
     }
+    if (soyDist) filas = filas.filter(esFilaAgente);     // su rama trae también los cajeros de cada agente
     ok(res, {
       cuentas: filas,
       /* Si ni con el tope alcanzó, se dice: una lista incompleta que se presenta como completa es
@@ -212,6 +256,7 @@ function mount(app) {
   app.get('/api/caja/movimientos', auth.requerida, wrap(async (req, res) => {
     const cli = auth.clienteDe(req.caja);
     const q = req.query;
+    if (!(await delDistribuidor(req, q.id))) return noEsTuyo(res);
     const r = await cli.apiCall('balance', {
       ...rango(q),
       balance_type: q.tipo || 'usual:players',
@@ -339,6 +384,7 @@ function mount(app) {
   app.get('/api/caja/resumen', auth.requerida, wrap(async (req, res) => {
     const cli = auth.clienteDe(req.caja);
     const q = req.query;
+    if (!(await delDistribuidor(req, q.id))) return noEsTuyo(res);
     /* 🔴 NUNCA se usa `type: day|week|month` a secas. Medido el 27-ago: el motor NO los calcula
        contra hoy sino contra el `from`/`to` que quedó pegado en la sesión — pidiendo «week» un
        jueves 27 devolvió del 20 al 25, y «month» del 28-jul al 25-ago. El rótulo del panel decía
@@ -452,6 +498,7 @@ function mount(app) {
   app.get('/api/caja/estadisticas', auth.requerida, wrap(async (req, res) => {
     const cli = auth.clienteDe(req.caja);
     const q = req.query;
+    if (!(await delDistribuidor(req, q.id))) return noEsTuyo(res);
     const r = rango(q);
     const nodo = String(q.id || req.caja.id);
     const tipo = q.tipo === 'on_bets' ? 'on_bets' : 'on_money';
@@ -718,6 +765,12 @@ function mount(app) {
     const monto = Number(b.monto);
 
     if (!cuenta) return mal(res, 'falta la cuenta');
+    /* EL DISTRIBUIDOR mueve fichas sólo entre él y SUS agentes: el padre es él, diga lo que diga el
+       pedido, y la cuenta tiene que ser un agente de su rama (no un cajero ni un jugador de abajo). */
+    if (req.caja.rol === 'distribuidor') {
+      padre = String(req.caja.id);
+      if (cuenta === padre || !(await delDistribuidor(req, cuenta))) return noEsTuyo(res);
+    }
     if (!todo && (!Number.isFinite(monto) || monto <= 0)) {
       return mal(res, 'El monto tiene que ser un número mayor que cero');
     }
@@ -806,7 +859,8 @@ function mount(app) {
        al cajero, y quien llega al jugador por el buscador global no lo tiene. Antes eso terminaba
        en «no se pudo leer el saldo de esa cuenta» y no se podía cargar. Se le pregunta al motor de
        qué caja cuelga y se reintenta una vez. Medido el 1-sep-2026 con P000999888. */
-    if (antes == null) {
+    // Al distribuidor no: buscar «el padre real» podría saltar a cualquier cuenta de su rama.
+    if (antes == null && req.caja.rol !== 'distribuidor') {
       const real = await padreDeVerdad(cli, cuenta, b.login);
       if (real && real !== String(dePadre)) {
         dePadre = real;
@@ -924,7 +978,22 @@ function mount(app) {
      🔑 El tope del saldo inicial es DINÁMICO: el saldo del padre en ese instante. Se lee del
         formulario (`balance.max`) en cada alta, nunca de una constante. */
 
-  const GRUPOS = { jugador: '5', subcajero: '8', cajero: '4', subagente: '6' };
+  const GRUPOS = { jugador: '5', subcajero: '8', cajero: '4', subagente: '6', agente: '3' };
+
+  /* LA REGLA DE CLAVE DE IMPERIA para cuentas de panel (no jugadores), textual de su
+     `errorMessage` (medido en su entorno de prueba, 29-sep-2026): 8 a 20 caracteres, al menos una
+     mayúscula, una minúscula y un número, y distinta del login. Con la versión nueva, una clave que
+     no la cumple NO crea la cuenta; se frena antes, con el motivo en castellano. */
+  function claveImperia(clave, login) {
+    const v = String(clave || '');
+    if (/\s/.test(v)) return 'La contraseña no puede llevar espacios';
+    if (v.length < 8 || v.length > 20) return 'La contraseña tiene que tener entre 8 y 20 caracteres';
+    if (!/[A-Z]/.test(v)) return 'A la contraseña le falta una mayúscula';
+    if (!/[a-z]/.test(v)) return 'A la contraseña le falta una minúscula';
+    if (!/[0-9]/.test(v)) return 'A la contraseña le falta un número';
+    if (login && v.toLowerCase() === String(login).toLowerCase()) return 'La contraseña no puede ser igual al usuario';
+    return null;
+  }
 
   /* 🔴 Un sub-usuario NO aparece en `area=users`: vive en `area=sub`, bajo la clave `subs`.
      Verificar su alta contra la lista de cuentas daría siempre «no se creó». */
@@ -989,15 +1058,20 @@ function mount(app) {
 
   app.post('/api/caja/crear', auth.requerida, wrap(async (req, res) => {
     const b = req.body || {};
-    const padre = String(b.padre || req.caja.id).trim();
+    /* AGENTES: sólo los crea un distribuidor, y un distribuidor sólo crea agentes, debajo suyo. */
+    const soyDist = req.caja.rol === 'distribuidor';
+    if (soyDist && b.tipo !== 'agente') return mal(res, 'Como distribuidor sólo podés crear agentes.', 403);
+    if (!soyDist && b.tipo === 'agente') return mal(res, 'Los agentes los crea un distribuidor.', 403);
+    const padre = soyDist ? String(req.caja.id) : String(b.padre || req.caja.id).trim();
     const login = String(b.login || '').trim();
     const clave = String(b.clave || '').trim();
     const nombre = String(b.nombre || '').trim();
-    const grupo = GRUPOS[b.tipo] || GRUPOS.jugador;
+    const grupo = soyDist ? GRUPOS.agente : (GRUPOS[b.tipo] || GRUPOS.jugador);
     const saldo = b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
 
     if (!login) return mal(res, 'Falta el login');
     if (!clave) return mal(res, 'Falta la contraseña');
+    if (grupo === GRUPOS.agente) { const floja = claveImperia(clave, login); if (floja) return mal(res, floja); }
     if (!Number.isFinite(saldo) || saldo < 0) return mal(res, 'El saldo inicial no es un número válido');
 
     const cli = auth.clienteDe(req.caja);
@@ -1026,12 +1100,16 @@ function mount(app) {
     if (saldo > 0) cuerpo.balance = String(saldo);
     /* 🔑 El motor EXIGE `name` para los sub-usuarios y para las cajas, pero el panel no tiene
        dónde mostrarlo. Se manda el login, que es como los nombra la gente. */
-    if (esSub || grupo === GRUPOS.cajero) cuerpo.name = nombre || login;
-    await cli.apiCall('createuser', cuerpo, { id: padre });
+    if (esSub || grupo === GRUPOS.cajero || grupo === GRUPOS.agente) cuerpo.name = nombre || login;
+    const respAlta = await cli.apiCall('createuser', cuerpo, { id: padre });
 
     /* 4 · LA PRUEBA */
     const creada = await buscar(cli, padre, login);
     if (!creada) {
+      /* La versión nueva del motor rechaza sin `error`: el motivo viene en `errorMessage` (clave
+         débil, login inválido…). Si vino, se dice ESO y no «ese nombre ya está usado». */
+      const motivo = respAlta && respAlta.data && typeof respAlta.data.errorMessage === 'string' && respAlta.data.errorMessage.trim();
+      if (motivo) return mal(res, `El casino no aceptó el alta: ${motivo}`, 409);
       return res.status(409).json({ ok: false, ocupado: true,
         error: `No se pudo crear ${login}. Ese nombre ya está usado en el sistema, aunque no lo veas `
           + 'en tu panel: los logins son únicos y quedan reservados aunque la cuenta se elimine. '
@@ -1039,8 +1117,19 @@ function mount(app) {
     }
     /* El saldo que se muestra es el que el casino confirma, leído de donde de verdad está. */
     const quedo = saldoDeFila(creada);
+    /* EL AGENTE QUE CREA UN DISTRIBUIDOR SE SUMA SOLO AL OS: entra como cuenta de su cliente, con
+       «sólo pedir fichas» y el Telegram del cliente. Es de buena fe: si el OS no contesta, el agente
+       igual quedó creado en el casino y se avisa en la respuesta, sin fallar el alta. */
+    let os = null;
+    if (grupo === GRUPOS.agente) {
+      cacheAgentes.delete(req.caja.sid);             // tiene un agente más
+      const r = await llamarEnlace('agente-nuevo', { method: 'POST',
+        body: { ...idDeSesion(req), login: creada.login || login, id: String(creada.id) } });
+      os = r._offline ? { registrado: false, motivo: 'os_sin_respuesta' }
+        : { registrado: !!r.registrado, motivo: r.motivo || null, cliente: r.cliente || null };
+    }
     ok(res, { cuenta: { ...creada, balance: quedo }, saldoPedido: saldo, saldoQuedo: quedo,
-      parcial: saldo > 0 && Math.abs(quedo - saldo) > 0.009 });
+      parcial: saldo > 0 && Math.abs(quedo - saldo) > 0.009, os });
   }));
 
   app.post('/api/caja/eliminar', auth.requerida, wrap(async (req, res) => {

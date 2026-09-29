@@ -281,6 +281,10 @@ check('el grupo 6 navega como agente pero está marcado sub-agente',
   L.nivelDeGrupo(6).rol === 'agente' && L.nivelDeGrupo(6).subagente === true);
 check('un grupo desconocido cae en el nivel más chico, no en el más grande',
   L.nivelDeGrupo(99).rol === 'cajero');
+check('el grupo 2 es el distribuidor',
+  L.nivelDeGrupo(2).rol === 'distribuidor' && L.nivelDeGrupo(2).subagente === false);
+check('el distribuidor ve sus agentes, resumen y movimientos — sin sub-usuarios ni nada más',
+  L.seccionesDe('distribuidor', false).join() === 'users,dashboard,balance');
 
 check('el agente ve sus cuatro secciones',
   L.seccionesDe('agente', false).join(',') === 'users,dashboard,balance,sub');

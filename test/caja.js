@@ -428,6 +428,44 @@ async function main() {
       check('y buscar algo que no está devuelve nada, no la lista entera',
         (vacio.cuentas || []).length === 0, `${(vacio.cuentas || []).length} cuentas`);
     }
+
+    /* ── DISTRIBUIDOR: ve, crea y carga SÓLO a sus agentes; todo lo demás, 403 ─────────────── */
+    {
+      const agente = galleta;
+      let rd = await enviar('/api/caja/login', { usuario: 'DistribuidorDePrueba', clave: 'clave-de-prueba' });
+      galleta = (rd.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+      check('entra un distribuidor, con su nivel', rd.data.ok && rd.data.yo.rol === 'distribuidor', rd.data.ok ? rd.data.yo.rol : rd.data.error);
+      const cs = (await pedir('/api/caja/cuentas')).data;
+      check('ve sus agentes', cs.ok && (cs.cuentas || []).some((c) => c.id === '150'), JSON.stringify((cs.cuentas || []).map((c) => c.login)));
+      const ajena = (await pedir('/api/caja/cuentas?id=100')).data;
+      check('pedir la lista de otro nodo le devuelve igual SUS agentes (el id lo pone el servidor)',
+        ajena.ok && (ajena.cuentas || []).every((c) => c.id !== '200'), JSON.stringify((ajena.cuentas || []).map((c) => c.login)));
+      const carga = await enviar('/api/caja/fichas', { cuenta: '150', monto: 500, operacion: 'in', padre: '100', gesto: 'd1' });
+      check('carga fichas a SU agente (aunque el pedido diga otro padre)', carga.status === 200 && carga.data.ok, carga.data.error);
+      const cargaAjena = await enviar('/api/caja/fichas', { cuenta: '200', monto: 10, operacion: 'in', gesto: 'd2' });
+      check('NO puede cargarle a una cuenta que no es agente suyo (403)', cargaAjena.status === 403, String(cargaAjena.status));
+      const movOk = await pedir('/api/caja/movimientos?id=150&tipo=usual:to');
+      check('ve los movimientos de su agente', movOk.status === 200 && movOk.data.ok, movOk.data.error);
+      const movMal = await pedir('/api/caja/movimientos?id=200');
+      check('NO ve los movimientos de una cuenta ajena (403)', movMal.status === 403, String(movMal.status));
+      const jug = await enviar('/api/caja/crear', { login: 'NoDeberiaSer', clave: 'Abcdefg1', tipo: 'jugador' });
+      check('como distribuidor NO crea jugadores (403)', jug.status === 403, String(jug.status));
+      const debil = await enviar('/api/caja/crear', { login: 'AgenteClaveFloja', clave: '123456', tipo: 'agente' });
+      check('un agente con clave débil se frena antes de ir al casino', debil.status === 400 && /caracteres|mayúscula|minúscula|número/.test(debil.data.error || ''), debil.data.error);
+      const nuevo = await enviar('/api/caja/crear', { login: 'AgenteNuevoDist', clave: 'Abcdefg1', tipo: 'agente' });
+      check('crea un agente debajo suyo, y dice qué pasó con el OS',
+        nuevo.status === 200 && nuevo.data.ok && nuevo.data.cuenta && nuevo.data.os && nuevo.data.os.registrado === false,
+        JSON.stringify(nuevo.data.os || nuevo.data.error));
+      for (const [m, ruta, cuerpo] of [['post', '/api/caja/eliminar', { cuenta: '150', login: 'AgenteDelDist', padre: '50', confirmado: true }],
+        ['post', '/api/caja/clave-de', { cuenta: '150', nueva: 'Abcdefg1' }], ['get', '/api/caja/subusuarios'],
+        ['get', '/api/caja/fichas/estado'], ['get', '/api/caja/acceso?cuenta=150'], ['get', '/api/caja/buscar-jugador?q=Jug']]) {
+        const x = m === 'get' ? await pedir(ruta) : await enviar(ruta, cuerpo);
+        check(`distribuidor: ${ruta} está bloqueada (403)`, x.status === 403, String(x.status));
+      }
+      galleta = agente;
+      const agenteCreaAgente = await enviar('/api/caja/crear', { login: 'AgenteDeAgente', clave: 'Abcdefg1', tipo: 'agente' });
+      check('un agente NO puede crear agentes (403)', agenteCreaAgente.status === 403, String(agenteCreaAgente.status));
+    }
   } finally {
     /* ⚠️ ACÁ SE APAGAN LOS SERVIDORES. Todo lo que hable con el sistema va ARRIBA; abajo sólo
        pueden ir verificaciones que leen archivos. Una que pida por HTTP acá abajo no falla con

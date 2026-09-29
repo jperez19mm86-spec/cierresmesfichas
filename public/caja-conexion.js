@@ -378,7 +378,7 @@
       id: yo.id, login: yo.login, group: grupo,
       currency: yo.moneda || 'ARS',
       nivel: SUBAGENTE ? 'Sub-agente'
-        : { agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
+        : { distribuidor: 'Distribuidor', agente: 'Agente', cajero: 'Cajero', subcajero: 'Sub-cajero' }[ROL],
       /* De qué caja cuelga. `null` es «no lo sabemos», y el panel no filtra por una caja ajena. */
       caja: yo.caja || null,
       hide_hall_balance: yo.hide_hall_balance === true,
@@ -799,7 +799,7 @@
     const r = await API.enviar('crear', {
       padre: DENTRO ? String(DENTRO) : undefined,
       login, clave,
-      tipo: grupo === '4' ? 'cajero' : grupo === '8' ? 'subcajero' : 'jugador',
+      tipo: grupo === '3' ? 'agente' : grupo === '4' ? 'cajero' : grupo === '8' ? 'subcajero' : 'jugador',
       saldo: bal || undefined,
     });
 
@@ -829,6 +829,33 @@
     const c = r.cuenta;
     const id = String(c.id);
     const saldoReal = Number(c.balance) || 0;
+    /* UN AGENTE, creado por un distribuidor. Va a la lista como las filas de caja, y el cartel dice
+       si el OS ya lo dejó pidiendo fichas (se suma solo a su cliente) o si hubo que avisar. */
+    if (grupo === '3') {
+      SALAS.unshift({ id, login, name: c.name || login, balance: saldoReal,
+        terminals: 0, terminals_online: 0, terminals_game: 0, phone: '', online: false });
+      const yoAhora = await API.pedir('yo');
+      if (yoAhora.ok && yoAhora.yo && typeof yoAhora.yo.balance === 'number') CUENTAS[ROL].balance = yoAhora.yo.balance;
+      pintar();
+      const os = r.os || {};
+      const acceso = `Login:${login} Contraseña:${clave}`;
+      const notaOs = os.registrado
+        ? 'Ya puede entrar a este panel con ese usuario y pedir fichas.'
+        : os.motivo === 'distribuidor_sin_cliente'
+          ? 'Ya existe en el casino. Para que pueda pedir fichas desde acá falta asociarlo a tu cuenta: ya le avisamos a soporte.'
+          : 'Ya existe en el casino. No pudimos confirmar que quedó habilitado para pedir fichas: si no le aparece, escribí a soporte.';
+      return abrirHoja(`
+        <div class="resultado"><div class="sello">✓</div>
+          <h3>Agente creado</h3>
+          <div class="sub"><b class="mono">${login}</b> · ID ${id} · verificado en el casino${
+            saldoReal ? ` · con ${fmt(saldoReal)} ${yo().currency}` : ''}</div></div>
+        ${filaCred('Usuario y contraseña', acceso, true)}
+        <div class="nota">${notaOs}</div>
+        <div class="acciones">
+          <button class="btn sec" onclick="compartirTexto(\`${acceso}\`)">Compartir</button>
+          <button class="btn" onclick="cerrarHoja()">Listo</button>
+        </div>`);
+    }
     if (grupo === '4') {
       SALAS.unshift({ id, login, name: c.name || login, balance: saldoReal,
         terminals: 0, terminals_online: 0, terminals_game: 0, phone: '', online: false });
