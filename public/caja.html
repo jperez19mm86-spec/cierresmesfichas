@@ -2479,6 +2479,7 @@ function validarClave(clave, esJugador){
   if (!/[A-Z]/.test(c)) return 'Le falta una mayúscula';
   if (!/[a-z]/.test(c)) return 'Le falta una minúscula';
   if (!/\d/.test(c)) return 'Le falta un número';
+  if (esDist() && c.length > 20) return 'Máximo 20 caracteres';
   return null;
 }
 /* Pinta el aviso debajo del campo y devuelve si está bien. */
@@ -4311,7 +4312,7 @@ function cambiarMiClave(){
     ${campoClave('pAnt', '', 'revisarClave()')}
     <div style="height:12px"></div>
     <label class="campo" for="pNue">Contraseña nueva</label>
-    ${campoClave('pNue', 'Mín. 8, con mayúscula y número', 'revisarClave()')}
+    ${campoClave('pNue', esDist() ? '8 a 20, con mayúscula, minúscula y número' : 'Mín. 8, con mayúscula y número', 'revisarClave()')}
     <div style="height:12px"></div>
     <label class="campo" for="pRep">Repetir la nueva</label>
     ${campoClave('pRep', '', 'revisarClave()')}
@@ -4673,8 +4674,8 @@ function abrirNodo(id){
                       ['Ganancia', fmt(t.profit), 'ok'], ['% de retorno', t.rtp, 'g'],
                       ['Jugando ahora', (TABLERO_CAJA[ACTUAL.id] || {}).summary_stats?.online_players ?? '—'],
                       ['Jugaron', totalPanel((TABLERO_CAJA[ACTUAL.id] || {}).active_players)]]) : ''}
-      <button class="masmenos" style="margin:-4px 0 12px"
-        onclick="resumenDeCaja('${ACTUAL.id}')">Ver el resumen de esta caja ›</button>
+      ${esDist() ? '' : `<button class="masmenos" style="margin:-4px 0 12px"
+        onclick="resumenDeCaja('${ACTUAL.id}')">Ver el resumen de esta caja ›</button>`}
       ${esDist() ? '' : `<div class="parbotones">
         <button class="btn" onclick="entrarEn('${ACTUAL.id}')">Ver sus jugadores</button>
         <button class="btn sec" onclick="const c='${ACTUAL.id}'; entrarEn(c); altaFormulario('5')">+ Crear</button>
@@ -4694,7 +4695,8 @@ function perCaja(p){ CAJA_PER = p; abrirNodo(ACTUAL.id); }
 
 /* El mismo Resumen, con el id de la caja en vez del propio: gráficos, comparación contra el
    período anterior y, adentro, la puerta a Estadísticas. Es una pantalla, no dos. */
-function resumenDeCaja(id){ DENTRO = id; cerrarHoja(); irSec('dashboard'); }
+/* El distribuidor no entra adentro de un agente: DENTRO lo haría ver como agente lo de abajo. */
+function resumenDeCaja(id){ if (esDist()) return; DENTRO = id; cerrarHoja(); irSec('dashboard'); }
 
 function accion(i){
   const a = ACCIONES_ACTUALES[i];
@@ -5435,4 +5437,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260929-dist"></script>
+<script src="/caja-conexion.js?v=20260929-dist2"></script>

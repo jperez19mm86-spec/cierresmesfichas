@@ -446,6 +446,13 @@ async function main() {
       check('NO puede cargarle a una cuenta que no es agente suyo (403)', cargaAjena.status === 403, String(cargaAjena.status));
       const movOk = await pedir('/api/caja/movimientos?id=150&tipo=usual:to');
       check('ve los movimientos de su agente', movOk.status === 200 && movOk.data.ok, movOk.data.error);
+      const antesTipo = motor.pedidos.length;
+      await pedir('/api/caja/movimientos?id=150&tipo=usual:players');
+      const tipoMandado = motor.pedidos.slice(antesTipo).filter((x) => x.area === 'balance').map((x) => x.cuerpo.balance_type);
+      check('al distribuidor no se le abren las de jugadores: el tipo raro se vuelve «usual:to»',
+        tipoMandado.length === 1 && tipoMandado[0] === 'usual:to', JSON.stringify(tipoMandado));
+      const conEspacio = await pedir('/api/caja/movimientos?id=%20150');
+      check('un id con espacios no pasa (se valida lo mismo que se manda)', conEspacio.status === 403, String(conEspacio.status));
       const movMal = await pedir('/api/caja/movimientos?id=200');
       check('NO ve los movimientos de una cuenta ajena (403)', movMal.status === 403, String(movMal.status));
       const jug = await enviar('/api/caja/crear', { login: 'NoDeberiaSer', clave: 'Abcdefg1', tipo: 'jugador' });

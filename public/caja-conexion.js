@@ -1483,6 +1483,8 @@
     const q = ((document.getElementById('filtro') || {}).value || '').trim();
     if (q.length < 3) { BUSCA_ULTIMA = ''; pintarHallazgos('', []); return; }
     if (q === BUSCA_ULTIMA) return;                 // ya está pintado
+    /* El distribuidor busca sólo entre sus agentes, que ya están en la lista: no hay «en todas tus cajas». */
+    if (typeof esDist === 'function' && esDist()) { BUSCA_ULTIMA = ''; pintarHallazgos('', []); return; }
     BUSCA_ULTIMA = q;
     pintarHallazgos(q, [], true);
 
@@ -1659,6 +1661,8 @@
   /* El aviso se dibuja con la lista que ya esté; si todavía no vino, se pide y se repinta. */
   const enlaceOriginal = window.enlaceBorrados;
   window.enlaceBorrados = function enlaceBorradosDeVerdad(cajaId, sonCajas) {
+    /* El distribuidor no tiene la pantalla de eliminados: preguntarla era un 403 en cada repintado. */
+    if (typeof esDist === 'function' && esDist()) return '';
     if (!window.__caja_sesion) return enlaceOriginal.apply(this, arguments);
     const clave = `borradas:${cajaId}`;
     if (!cache.has(clave)) {

@@ -138,14 +138,18 @@ function mount(app) {
      `users` con el id de un distribuidor trae TODA su rama —sus agentes y los cajeros de cada
      uno—, y el nivel no viene en un campo propio sino en `additional.group` («[Agent]»). Medido en
      el entorno de prueba de Imperia el 29-sep-2026. Se pregunta una vez por minuto y por sesión. */
+  /* 🔒 Se reconoce SÓLO la etiqueta exacta. Con `/agent/` un «[Sub Agent]» (grupo 6) o un
+     «[Agent Cashier]» pasaban por agente, y el distribuidor podía moverles fichas. Y `group` se cree
+     sólo si es un número: el motor real no lo manda, y cualquier otra cosa no es un nivel. */
+  const ETIQUETAS_GRUPO = { 'super agent': '1', superagent: '1', 'super agente': '1', superagente: '1',
+    dealer: '2', distributor: '2', distribuidor: '2', diller: '2', agent: '3', agente: '3' };
   const grupoDeFila = (f) => {
-    if (f && f.group != null && f.group !== '') return String(f.group);
+    if (!f) return '';
+    if (f.group != null && /^\d+$/.test(String(f.group).trim())) return String(f.group).trim();
     let g = '';
     try { const a = typeof f.additional === 'string' ? JSON.parse(f.additional) : (f.additional || {}); g = String(a.group || ''); } catch (e) { g = ''; }
-    if (/super/i.test(g)) return '1';
-    if (/dealer|distrib|diller/i.test(g)) return '2';
-    if (/agent/i.test(g)) return '3';
-    return '';
+    g = g.replace(/<[^>]*>/g, '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return ETIQUETAS_GRUPO[g] || '';
   };
   const esFilaAgente = (f) => grupoDeFila(f) === '3';
   const cacheAgentes = new Map();                      // sid → { at, ids:Set }
@@ -157,11 +161,14 @@ function mount(app) {
       // eslint-disable-next-line no-await-in-loop
       const r = await cli.apiCall('users', { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '1000' },
         { id: String(s.id), offset: String(pagina) });
-      if (!esJson(r)) break;
+      /* Si el motor falla a mitad, lo leído NO se guarda: un error no puede dejar al distribuidor
+         sin sus agentes durante un minuto. Esta vez se contesta con lo que haya (menos, nunca más). */
+      if (!esJson(r)) return ids;
       const filas = sinFilaTotal(r.data.users);
       filas.filter(esFilaAgente).forEach((f) => ids.add(String(f.id)));
       if (filas.length < 1000) break;
     }
+    if (cacheAgentes.size > 500) cacheAgentes.clear();
     cacheAgentes.set(s.sid, { at: Date.now(), ids });
     return ids;
   }
@@ -169,7 +176,9 @@ function mount(app) {
      rol no lo toca: para ellos manda el motor, como siempre. */
   async function delDistribuidor(req, id) {
     if (req.caja.rol !== 'distribuidor') return true;
-    const x = String(id == null ? '' : id).trim();
+    const crudo = String(id == null ? '' : id);
+    const x = crudo.trim();
+    if (crudo !== x) return false;                     // se valida lo mismo que se manda
     if (!x || x === String(req.caja.id)) return true;
     return (await agentesDe(req)).has(x);
   }
@@ -257,9 +266,14 @@ function mount(app) {
     const cli = auth.clienteDe(req.caja);
     const q = req.query;
     if (!(await delDistribuidor(req, q.id))) return noEsTuyo(res);
+    /* Al distribuidor, sólo lo que entra y sale de su panel o del de su agente: nunca las de los
+       jugadores ni otro tipo que el motor pudiera abrir. */
+    const tipoMov = req.caja.rol === 'distribuidor'
+      ? (q.tipo === 'usual:from' ? 'usual:from' : 'usual:to')
+      : (q.tipo || 'usual:players');
     const r = await cli.apiCall('balance', {
       ...rango(q),
-      balance_type: q.tipo || 'usual:players',
+      balance_type: tipoMov,
       limit: String(limiteValido(q.limite || 200)),
       offset: String(q.pagina || 1),
     }, { id: q.id || req.caja.id });
@@ -501,6 +515,11 @@ function mount(app) {
     if (!(await delDistribuidor(req, q.id))) return noEsTuyo(res);
     const r = rango(q);
     const nodo = String(q.id || req.caja.id);
+    /* 🔒 El distribuidor ve TOTALES: el de su rama, el de cada agente y el desglose «por agente».
+       Nunca las filas de abajo — el motor, preguntado por él o por un agente, las abre por cajero
+       o por jugador, y eso ya no es de su incumbencia. */
+    const soyDist = req.caja.rol === 'distribuidor';
+    const soloTotales = (x) => (soyDist ? { ...x, filas: [], cuantas: 0 } : x);
     const tipo = q.tipo === 'on_bets' ? 'on_bets' : 'on_money';
     const campo = q.ordenar || 'profit';
     const orden = q.sentido === 'asc' ? 'asc' : 'desc';
@@ -569,16 +588,18 @@ function mount(app) {
       const armado = await ejeDineroArmado(cli, { nodo, fanOut, from: r.from, to: r.to, agrupar: q.agrupar });
       const num = (x) => Number(x) || 0;
       armado.filas.sort((a, b) => (orden === 'asc' ? 1 : -1) * (num(b[campo]) - num(a[campo])));
-      return ok(res, { filas: armado.filas, cuantas: armado.filas.length, total: armado.total,
-        eje: 'dinero', ejePedido: 'dinero', armadoDeMovimientos: true, cajasLeidas: fanOut.length || 1 });
+      return ok(res, soloTotales({ filas: armado.filas, cuantas: armado.filas.length, total: armado.total,
+        eje: 'dinero', ejePedido: 'dinero', armadoDeMovimientos: true, cajasLeidas: fanOut.length || 1 }));
     }
 
-    if (q.agrupar === 'child_users') {
+    /* «Por agente» sólo tiene sentido parado en su propio panel: sobre un agente serían sus cajeros. */
+    if (q.agrupar === 'child_users' && !(soyDist && nodo !== String(req.caja.id))) {
       const hijos = await cli.apiCall('users',
-        { ...rangoBarato(), limit: '200', inactive_users: 'all', deleted_users: 'undelete' },
+        { ...rangoBarato(), limit: soyDist ? '1000' : '200', inactive_users: 'all', deleted_users: 'undelete' },
         { id: nodo, offset: '1' });
       if (!esJson(hijos)) return delMotor(res, hijos);
-      const cajas = sinFilaTotal(hijos.data.users || hijos.data.rows || []);
+      /* Al distribuidor el motor le trae la rama entera: se queda con sus agentes y nada más. */
+      const cajas = sinFilaTotal(hijos.data.users || hijos.data.rows || []).filter((c) => !soyDist || esFilaAgente(c));
 
       /* De a 5 por vez: ni una ráfaga de 40 llamadas ni una fila por segundo. */
       const filas = [];
@@ -611,7 +632,7 @@ function mount(app) {
         avg_in: f.avg_in != null ? f.avg_in : (ci ? dosDec(aNumero(f.in) / ci) : 0),
         avg_out: f.avg_out != null ? f.avg_out : (co ? dosDec(aNumero(f.out) / co) : 0) };
     };
-    ok(res, {
+    ok(res, soloTotales({
       filas: sinFilaTotal(tabla.data.rows).map(conPromedios),
       cuantas: tabla.data.total || 0,
       /* ⭐ El total del PERÍODO entero, no de la página. Es el número que hay que mostrar. */
@@ -619,7 +640,7 @@ function mount(app) {
       /* 🔴 El eje que el casino ENTREGÓ, que no siempre es el que pedimos. Ver la nota de arriba:
          lo manda la plantilla guardada de la cuenta, y desde acá no se puede cambiar. */
       eje, ejePedido,
-    });
+    }));
   }));
 
   /* ══════ historial de jugadas — va con el id del JUGADOR ══════ */
@@ -1068,7 +1089,8 @@ function mount(app) {
     const login = String(b.login || '').trim();
     const clave = String(b.clave || '').trim();
     const nombre = String(b.nombre || '').trim();
-    const grupo = soyDist ? GRUPOS.agente : (GRUPOS[b.tipo] || GRUPOS.jugador);
+    const grupo = soyDist ? GRUPOS.agente
+      : (Object.prototype.hasOwnProperty.call(GRUPOS, b.tipo) ? GRUPOS[b.tipo] : GRUPOS.jugador);
     const saldo = b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
 
     if (!login) return mal(res, 'Falta el login');
@@ -1278,7 +1300,8 @@ function mount(app) {
   app.post('/api/caja/mi-clave', auth.requerida, wrap(async (req, res) => {
     const { actual, nueva } = req.body || {};
     if (!actual) return mal(res, 'Falta tu contraseña actual');
-    const floja = claveFloja(nueva, false);
+    /* El distribuidor, con la regla de Imperia (la más exigente): así el motor no la rechaza callado. */
+    const floja = req.caja.rol === 'distribuidor' ? claveImperia(nueva, req.caja.login) : claveFloja(nueva, false);
     if (floja) return mal(res, floja);
     if (String(actual) === String(nueva)) return mal(res, 'La nueva tiene que ser distinta de la actual');
     if (!raiz) {
