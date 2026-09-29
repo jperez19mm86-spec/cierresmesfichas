@@ -364,6 +364,18 @@ const billeteras = require('./billeteras-store');
    cambie para quien la usa. Si falla, el sistema arranca igual: se carga a mano. */
 try { const b = billeteras.sembrar(); if (b) console.log('[Billeteras] se migró la de Configuración como', b.nombre); }
 catch (e) { console.warn('[Billeteras] no se pudo migrar la de Configuración:', e.message); }
+/* PERMISOS POR AGENTE: UNA SOLA VEZ, al arrancar la primera versión que los tiene. Los agentes que
+   ya operaban quedan con lo que podían hacer (pedir, pagar, ver cuenta) —decisión del dueño,
+   29-sep-2026—; desde acá, una cuenta nueva sin configurar sólo pide fichas. Se hace al arrancar y
+   no con un botón para que no haya ni un minuto en que el servidor le niegue algo a quien ya lo
+   tenía. La marca en la config impide que vuelva a correr. */
+try {
+  if (!config.getCfg('permisosAgenteCongelados')) {
+    const n = clientes.congelarPermisosActuales();
+    config.setCfg('permisosAgenteCongelados', `${new Date().toISOString()} · ${n} cuenta(s)`);
+    console.log(`[Permisos] ${n} cuenta(s) de agentes quedaron con lo que podían hacer hasta hoy`);
+  }
+} catch (e) { console.warn('[Permisos] no se pudieron congelar los permisos actuales:', e.message); }
 const deudaSvc = require('./deuda.service');
 const movsStore = require('./movimientos-store');
 
