@@ -302,6 +302,12 @@ const RUTAS_DISTRIBUIDOR = new Set([
   'GET /api/caja/resumen',
   'GET /api/caja/estadisticas',
   'POST /api/caja/mi-clave',        // cambiar SU clave
+  /* Pedir fichas al OS, para sí o para sus agentes. Si puede o no, lo decide el OS por su cuenta
+     (interruptor en la ficha del cliente). Pagar y ver la cuenta NO: esas no van con este nivel. */
+  'GET /api/caja/fichas/estado',
+  'POST /api/caja/fichas/pedir',
+  'POST /api/caja/fichas/pedir-agentes',
+  'POST /api/caja/fichas/soporte',
 ]);
 
 /** Middleware: exige sesión de Mi Caja. Responde 401 en JSON, nunca redirige. */

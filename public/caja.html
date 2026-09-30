@@ -2761,7 +2761,7 @@ function irPanel(){
      `data-sec`, así que la lógica de pestañas (aria-current, sacarSeccion) los ignora sola. */
   $('secciones').innerHTML = permitidas.map(x =>
     `<button data-sec="${x}" aria-current="${x==='users'}" onclick="irSec('${x}')">${nombreSec(x)}</button>`).join('')
-    + (esAgente() ? `<span class="sep-side" aria-hidden="true"></span>
+    + ((esAgente() || esDist()) ? `<span class="sep-side" aria-hidden="true"></span>
       <button class="extra-side fichas-side" onclick="solicitarFichas()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span><span>Solicitar fichas</span></button>
       <button class="extra-side salir-side" onclick="salir()">
@@ -2845,7 +2845,13 @@ function fichasOpciones(){
     pago: '<rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/>',
     cuenta: '<path d="M5 3.5h14v17l-3.5-2-3.5 2-3.5-2-3.5 2z"/><path d="M9 8.5h6M9 12.5h6"/>',
   };
-  const opciones = [
+  /* EL DISTRIBUIDOR: pide para él (y reparte) o directo para sus agentes. Pagar y ver la cuenta
+     no son de este nivel: no se le dibujan aunque el OS no lo dijera. */
+  const ICO_AG = '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.6c2.4-.3 4.4 1.2 5 4.9"/>';
+  const opciones = esDist() ? [
+    fichasPuede('puedePedir') && ['fichasFormAgentes()', ICO_AG, 'Pedir para mis agentes', 'Elegí a quiénes y cuánto: se las cargamos directo a cada uno'],
+    fichasPuede('puedePedir') && ['fichasFormPedir()', ICO.pedir, 'Pedir para mí', 'Te las cargamos a tu cuenta y vos se las repartís'],
+  ].filter(Boolean) : [
     fichasPuede('puedePedir') && ['fichasFormPedir()', ICO.pedir, 'Pedir fichas', 'Comprar fichas para cargar a tus cajeros'],
     fichasPuede('puedeAvisarPago') && ['fichasRegistrarPago()', ICO.pago, 'Registrar un pago', 'Avisar que pagaste y subir el comprobante'],
     fichasPuede('puedeVerCuenta') && ['fichasMiCuenta()', ICO.cuenta, 'Mi cuenta', 'Lo que consumiste, lo que pagaste y lo que debés'],
@@ -2906,6 +2912,89 @@ async function fichasEnviarPedido(){
   }
   /* No configurado / offline / error: el OS ya avisó a soporte cuando corresponde. */
   if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  const sinConfig = r && r.motivo === 'sin_configurar';
+  return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
+    <div class="sub">${sinConfig ? 'Tu cuenta todavía no está habilitada para pedir.' : 'No pudimos procesarlo en este momento.'}</div>
+    <div class="nota neutra">${sinConfig ? 'Ya le avisamos a soporte para dejártela lista.' : 'Probá de nuevo en un rato. Si sigue, escribí a soporte.'}</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
+/* PEDIR PARA MIS AGENTES (distribuidor). Sus agentes son los de «Mis agentes» (el casino dice que
+   son suyos); de esos, sólo se puede pedir para los que ya están en el sistema de cuentas del OS
+   —los demás se muestran apagados, para que sepa por qué no aparecen—. Un pedido por agente, y
+   cada uno se carga directo a la cuenta de ese agente. */
+function fichasAgentesPedibles(){
+  const enOS = new Set(((window.__fichasEstado || {}).agentesDelCliente || []).map((a) => String(a.userId)));
+  return SALAS.map((s) => ({ id: String(s.id), login: s.login, enOS: enOS.has(String(s.id)) }));
+}
+function fichasFormAgentes(){
+  if (!fichasPuede('puedePedir')) return fichasNoHabilitado('pedir fichas');
+  const ags = fichasAgentesPedibles();
+  const cur = esc(yo().currency);
+  if (!ags.length) {
+    return abrirHoja(`<h3 id="hojaTit">Pedir para mis agentes</h3>
+      <div class="sub">Todavía no tenés agentes.</div>
+      <div class="nota neutra">Creá uno desde «Mis agentes» y después vas a poder pedirle fichas desde acá.</div>
+      <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+  }
+  abrirHoja(`<h3 id="hojaTit">Pedir para mis agentes</h3>
+    <div class="sub">Escribí cuánto querés para cada uno. Los que dejes vacíos no se piden.</div>
+    <div class="fila" style="display:flex;gap:8px;align-items:flex-end;margin:6px 0 10px">
+      <div style="flex:1"><label class="campo" for="faTodos">Mismo monto a todos</label>
+        <input class="entrada num" id="faTodos" inputmode="numeric" placeholder="0"></div>
+      <button class="btn sec" style="flex:0 0 auto" onclick="fichasMontoATodos()">Poner</button>
+    </div>
+    ${ags.map((a) => `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--linea, rgba(255,255,255,.08))${a.enOS ? '' : ';opacity:.5'}">
+        <div style="flex:1;min-width:0"><b class="mono">${esc(a.login)}</b>
+          ${a.enOS ? '' : '<div style="font-size:12px">Todavía no está en el sistema de cuentas: escribile a soporte.</div>'}</div>
+        <input class="entrada num" style="width:44%;flex:0 0 auto" inputmode="numeric" placeholder="${cur} 0"
+          data-fa="${esc(a.id)}" ${a.enOS ? '' : 'disabled'} oninput="fichasRevisarAgentes()">
+      </div>`).join('')}
+    <div class="tope" id="faTotal" style="margin-top:10px"><span>Total</span><b class="num">${cur} 0</b></div>
+    <div class="nota neutra" style="margin-top:12px">Te avisamos por Telegram cuando estén acreditadas.</div>
+    <div class="acciones">
+      <button class="btn sec" onclick="fichasOpciones()">Volver</button>
+      <button class="btn" id="faPedir" disabled onclick="fichasEnviarAgentes()">Pedir</button>
+    </div>`);
+}
+const fichasNumDe = (el) => Number(String(el ? el.value : '').replace(/[^0-9]/g, '')) || 0;
+function fichasPedidosAgentes(){
+  return [...document.querySelectorAll('[data-fa]')].filter((i) => !i.disabled)
+    .map((i) => ({ userId: i.getAttribute('data-fa'), monto: fichasNumDe(i) })).filter((x) => x.monto > 0);
+}
+function fichasMontoATodos(){
+  const v = fichasNumDe($('faTodos'));
+  document.querySelectorAll('[data-fa]').forEach((i) => { if (!i.disabled) i.value = v ? fmt(v) : ''; });
+  fichasRevisarAgentes();
+}
+function fichasRevisarAgentes(){
+  const lista = fichasPedidosAgentes();
+  const total = lista.reduce((a, x) => a + x.monto, 0);
+  const t = $('faTotal');
+  if (t) t.innerHTML = `<span>Total${lista.length ? ` · ${lista.length} agente${lista.length === 1 ? '' : 's'}` : ''}</span><b class="num">${esc(yo().currency)} ${fmt(total)}</b>`;
+  const b = $('faPedir'); if (b) b.disabled = !lista.length;
+}
+async function fichasEnviarAgentes(){
+  const lista = fichasPedidosAgentes();
+  if (!lista.length) return;
+  const b = $('faPedir'); if (b) { b.disabled = true; b.textContent = 'Pidiendo…'; }
+  let d;
+  try { d = await (await fetch('/api/caja/fichas/pedir-agentes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pedidos: lista, divisa: yo().currency }) })).json(); }
+  catch (e) { d = { offline: true }; }
+  const r = d && d.resultado;
+  const nombre = (id) => { const s = SALAS.find((x) => String(x.id) === String(id)); return s ? s.login : id; };
+  if (d && !d.offline && r && Array.isArray(r.creados) && r.creados.length) {
+    const MOT = { agente_no_en_cliente: 'no está en el sistema de cuentas', monto_invalido: 'sin monto' };
+    return abrirHoja(`<h3 id="hojaTit">¡Pedido enviado!</h3>
+      <div class="sub">${r.creados.length === 1 ? 'Quedó registrado.' : `Quedaron registrados ${r.creados.length} pedidos.`}</div>
+      <div class="nota aviso">${r.creados.map((x) => `<b>${esc(x.cajaUsuario)}</b>: ${esc(x.divisa)} ${fmt(x.monto)}`).join('<br>')}</div>
+      ${(r.rechazados || []).length ? `<div class="nota neutra">No se pidió para: ${r.rechazados.map((x) => `<b>${esc(x.usuario || nombre(x.userId))}</b> (${esc(MOT[x.motivo] || x.motivo)})`).join(', ')}.</div>` : ''}
+      <div class="sub" style="margin-top:8px">Se las cargamos a cada agente y te avisamos por Telegram.</div>
+      <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
+  }
+  if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  if (d && d.error) return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3><div class="sub">${esc(d.error)}</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasFormAgentes()">Volver</button></div>`);
   const sinConfig = r && r.motivo === 'sin_configurar';
   return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
     <div class="sub">${sinConfig ? 'Tu cuenta todavía no está habilitada para pedir.' : 'No pudimos procesarlo en este momento.'}</div>
@@ -4273,7 +4362,7 @@ function miCuenta(){
     <h3 id="hojaTit" class="mono">${yo().login}</h3>
     <div class="sub">${yo().nivel} · ID ${yo().id}</div>
     <div class="acc">
-      ${esAgente() ? `<button class="destaca" onclick="solicitarFichas()">
+      ${(esAgente() || esDist()) ? `<button class="destaca" onclick="solicitarFichas()">
         <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/></svg></span>
         <span class="tx">Solicitar fichas</span>
         <span class="fl">›</span>
@@ -5438,4 +5527,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260930-dist3"></script>
+<script src="/caja-conexion.js?v=20260930-dist4"></script>

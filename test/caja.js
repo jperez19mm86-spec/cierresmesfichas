@@ -465,11 +465,24 @@ async function main() {
         JSON.stringify(nuevo.data.os || nuevo.data.error));
       for (const [m, ruta, cuerpo] of [['post', '/api/caja/eliminar', { cuenta: '150', login: 'AgenteDelDist', padre: '50', confirmado: true }],
         ['post', '/api/caja/clave-de', { cuenta: '150', nueva: 'Abcdefg1' }], ['get', '/api/caja/subusuarios'],
-        ['get', '/api/caja/fichas/estado'], ['get', '/api/caja/acceso?cuenta=150'], ['get', '/api/caja/buscar-jugador?q=Jug']]) {
+        ['get', '/api/caja/fichas/cuenta'], ['post', '/api/caja/fichas/pago', { monto: 1 }], ['get', '/api/caja/acceso?cuenta=150'], ['get', '/api/caja/buscar-jugador?q=Jug']]) {
         const x = m === 'get' ? await pedir(ruta) : await enviar(ruta, cuerpo);
         check(`distribuidor: ${ruta} está bloqueada (403)`, x.status === 403, String(x.status));
       }
+      // Pedir fichas: para sí o para SUS agentes (el OS decide si está habilitado; acá no hay OS).
+      const pdEst = await pedir('/api/caja/fichas/estado');
+      check('distribuidor: puede preguntar si tiene habilitado pedir fichas', pdEst.status === 200, String(pdEst.status));
+      const pdAjeno = await enviar('/api/caja/fichas/pedir-agentes', { pedidos: [{ userId: '150', monto: 100 }, { userId: '200', monto: 100 }] });
+      check('pedir para una cuenta que no es agente suyo: se rechaza todo (403)', pdAjeno.status === 403, String(pdAjeno.status));
+      const pdVacio = await enviar('/api/caja/fichas/pedir-agentes', { pedidos: [] });
+      check('pedir sin agentes: 400', pdVacio.status === 400, String(pdVacio.status));
+      const pdSinMonto = await enviar('/api/caja/fichas/pedir-agentes', { pedidos: [{ userId: '150', monto: 0 }] });
+      check('pedir con un agente sin monto: 400', pdSinMonto.status === 400, String(pdSinMonto.status));
+      const pdOk = await enviar('/api/caja/fichas/pedir-agentes', { pedidos: [{ userId: '150', monto: 100 }] });
+      check('pedir para su agente llega al OS (acá apagado: offline)', pdOk.status === 200 && pdOk.data.offline === true, JSON.stringify(pdOk.data));
       galleta = agente;
+      const agPide = await enviar('/api/caja/fichas/pedir-agentes', { pedidos: [{ userId: '200', monto: 100 }] });
+      check('un agente NO pide para otros (403)', agPide.status === 403, String(agPide.status));
       const agenteCreaAgente = await enviar('/api/caja/crear', { login: 'AgenteDeAgente', clave: 'Abcdefg1', tipo: 'agente' });
       check('un agente NO puede crear agentes (403)', agenteCreaAgente.status === 403, String(agenteCreaAgente.status));
     }

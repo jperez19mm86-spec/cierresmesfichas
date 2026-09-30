@@ -1162,16 +1162,16 @@ check('sin grilla no se marca nada, en vez de romper',
     && /:root:root\[data-marca="zeus"\] \.marca-zeus\{display:block;[^}]*url\("\/img\/zeus\.webp"\)/.test(htmlCaja)
     && /class="marca-alt marca-zeus"/.test(htmlCaja)
     && /:root:root\[data-marca="zeus"\] \.logo, :root:root\[data-marca="zeus"\] \.marca-ganamos, :root:root\[data-marca="zeus"\] \.marca-bet30\{display:none\}/.test(htmlCaja));
-  check('«Solicitar fichas» se ofrece desde el engranaje (sólo al agente) y abre el flujo real',
+  check('«Solicitar fichas» se ofrece desde el engranaje (al agente y al distribuidor) y abre el flujo real',
     /<span class="tx">Solicitar fichas<\/span>/.test(htmlCaja)
-    && /\$\{esAgente\(\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
+    && /\$\{\(esAgente\(\) \|\| esDist\(\)\) \? `<button class="destaca" onclick="solicitarFichas\(\)"/.test(htmlCaja));
   /* En PC la barra lateral suma, al pie y separados del bloque del motor, «Solicitar fichas» y
      «Salir» (sólo para el agente). En mobile la barra es una fila de pestañas: esos dos se esconden
      —viven en el engranaje y arriba a la derecha—. */
-  check('en PC la barra suma «Solicitar fichas» y «Salir» al pie (sólo agente), escondidos en mobile',
+  check('en PC la barra suma «Solicitar fichas» y «Salir» al pie (agente y distribuidor), escondidos en mobile',
     /class="extra-side fichas-side" onclick="solicitarFichas\(\)"/.test(htmlCaja)
     && /class="extra-side salir-side" onclick="salir\(\)"/.test(htmlCaja)
-    && /esAgente\(\) \? `<span class="sep-side"/.test(htmlCaja)
+    && /\(esAgente\(\) \|\| esDist\(\)\) \? `<span class="sep-side"/.test(htmlCaja)
     && /\.secs \.extra-side, \.secs \.sep-side\{display:none\}/.test(htmlCaja));
   check('el «Salir» de arriba se saca en PC y queda al pie de la barra',
     /class="icobtn salir-top"/.test(htmlCaja)

@@ -1819,6 +1819,29 @@ function mount(app) {
     ok(res, { resultado: r });
   }));
 
+  /* EL DISTRIBUIDOR PIDE PARA SUS AGENTES. Cada cuenta de la lista tiene que ser un agente SUYO según
+     el casino (no alcanza con que el navegador lo diga): con una sola ajena se rechaza todo. El OS
+     después comprueba que cada uno esté en su mismo cliente y crea un pedido por agente. */
+  app.post('/api/caja/fichas/pedir-agentes', auth.requerida, wrap(async (req, res) => {
+    if (req.caja.rol !== 'distribuidor') return mal(res, 'Sólo un distribuidor pide fichas para sus agentes.', 403);
+    const b = req.body || {};
+    const lista = Array.isArray(b.pedidos) ? b.pedidos.slice(0, 50) : [];
+    if (!lista.length) return mal(res, 'Elegí al menos un agente y cuánto querés para él.');
+    const mios = await agentesDe(req);
+    const limpia = [];
+    for (const x of lista) {
+      const uid = String((x && x.userId) || '').trim();
+      const monto = Number(x && x.monto);
+      if (!uid || !mios.has(uid)) return noEsTuyo(res);
+      if (!(monto > 0)) return mal(res, 'Hay un agente sin monto.');
+      if (!limpia.some((y) => y.userId === uid)) limpia.push({ userId: uid, monto });
+    }
+    const r = await llamarEnlace('pedido-agentes', { method: 'POST',
+      body: { ...idDeSesion(req), divisa: req.caja.moneda || b.divisa, pedidos: limpia } });
+    if (r._offline) return ok(res, { offline: true });
+    ok(res, { resultado: r });
+  }));
+
   // Avisar a soporte (cuando no está configurado, o pide ayuda).
   app.post('/api/caja/fichas/soporte', auth.requerida, wrap(async (req, res) => {
     const b = req.body || {};
