@@ -2490,6 +2490,7 @@ function avisarClave(idAviso, clave, esJugador){
   el.classList.toggle('mal', !!clave && !!err);
   el.innerHTML = !clave
     ? (esJugador ? '<span>Cualquier contraseña sirve, menos con espacios</span>'
+                 : esDist() ? '<span>De 8 a 20 caracteres, con mayúscula, minúscula y número</span>'
                  : '<span>8 caracteres, con mayúscula, minúscula y número</span>')
     : err ? `<span><b>${err}</b></span>` : '<span>✓ Contraseña válida</span>';
   return !err;
@@ -5200,7 +5201,7 @@ function altaFormulario(grupo, volviendo){
       esAgenteNuevo ? ' y maneja su misma moneda.' : esSala ? ' y hereda sus divisas.' : '.'}</div>
     <input type="hidden" id="ngrupo" value="${grupo}">
     <label class="campo" for="nlogin">Login</label>
-    <input class="entrada mono" id="nlogin" autocomplete="off" spellcheck="false" value="${p ? p.login : ''}" placeholder="${esSala?'CajaCentro2':'Maria3719'}" oninput="revisarAlta()">
+    <input class="entrada mono" id="nlogin" autocomplete="off" spellcheck="false" value="${p ? p.login : ''}" placeholder="${esAgenteNuevo ? 'AgenteCentro2' : esSala ? 'CajaCentro2' : 'Maria3719'}" oninput="revisarAlta()">
     <div class="tope" id="avisoNlogin"></div>
     <div style="height:12px"></div>
     <label class="campo" for="nclave">Contraseña</label>
@@ -5437,4 +5438,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260929-dist2"></script>
+<script src="/caja-conexion.js?v=20260930-dist3"></script>
