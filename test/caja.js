@@ -459,6 +459,16 @@ async function main() {
       check('como distribuidor NO crea jugadores (403)', jug.status === 403, String(jug.status));
       const debil = await enviar('/api/caja/crear', { login: 'AgenteClaveFloja', clave: '123456', tipo: 'agente' });
       check('un agente con clave débil se frena antes de ir al casino', debil.status === 400 && /caracteres|mayúscula|minúscula|número/.test(debil.data.error || ''), debil.data.error);
+      const usado = await enviar('/api/caja/crear', { login: 'CajaDePrueba', clave: 'Abcdefg1', tipo: 'agente' });
+      check('«User exists» de otra rama: se dice «ya existe» y se ofrecen nombres con el número siguiente',
+        usado.status === 409 && usado.data.ocupado === true && /ya existe/.test(usado.data.error || '')
+        && JSON.stringify(usado.data.sugerencias) === JSON.stringify(['CajaDePrueba2', 'CajaDePrueba3', 'CajaDePrueba4']),
+        JSON.stringify(usado.data));
+      const usado7 = await enviar('/api/caja/crear', { login: 'JugadorUno', clave: 'Abcdefg1', tipo: 'agente' });
+      check('…y si ya termina en número, sigue desde ahí', (usado7.data.sugerencias || [])[0] === 'JugadorUno2', JSON.stringify(usado7.data.sugerencias));
+      await enviar('/api/caja/crear', { login: 'Agente08', clave: 'Abcdefg1', tipo: 'agente' });
+      const usado08 = await enviar('/api/caja/crear', { login: 'Agente08', clave: 'Abcdefg1', tipo: 'agente' });
+      check('…respetando los ceros: «Agente08» ocupado ofrece «Agente09»', (usado08.data.sugerencias || [])[0] === 'Agente09', JSON.stringify(usado08.data.sugerencias));
       const nuevo = await enviar('/api/caja/crear', { login: 'AgenteNuevoDist', clave: 'Abcdefg1', tipo: 'agente' });
       check('crea un agente debajo suyo, y dice qué pasó con el OS',
         nuevo.status === 200 && nuevo.data.ok && nuevo.data.cuenta && nuevo.data.os && nuevo.data.os.registrado === false,

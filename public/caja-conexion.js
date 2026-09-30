@@ -775,6 +775,19 @@
      🔴 El motor no avisa si el alta funcionó —contesta lo mismo creando que rebotando—, así que
         el backend verifica volviendo a pedir la lista. Lo que se muestra acá es ESO. */
 
+  /* Reintento con un nombre sugerido: se vuelve a abrir el mismo formulario (con la contraseña y el
+     saldo que ya estaban), se pone el nombre nuevo y se manda. Si el formulario no pasa la revisión
+     (no debería), queda abierto para corregir. */
+  window.reintentarAlta = function reintentarAlta(nuevo) {
+    const p = ALTA_PREVIA;
+    if (!p) return;
+    altaFormulario(p.grupo, true);
+    const i = $('nlogin'); if (i) i.value = String(nuevo || '');
+    if (typeof revisarAlta === 'function') revisarAlta();
+    const b = $('crear');
+    if (b && !b.disabled) window.crear();
+  };
+
   window.crear = async function crearDeVerdad() {
     if (!window.__caja_sesion) return;
     const login = ($('nlogin').value || '').trim();
@@ -794,7 +807,10 @@
 
     /* Se guarda ANTES de mandar: si el motor dice que el login está ocupado, el formulario se
        vuelve a abrir con la contraseña y el balance ya puestos y sólo hay que cambiar el nombre. */
-    window.ALTA_PREVIA = { grupo, login, clave, bal: bal || '' };
+    /* 🔴 SIN `window.`: ALTA_PREVIA es un `let` de caja.html, y un `let` global NO es propiedad de
+       window. Escrito como `window.ALTA_PREVIA` iba a otra variable y «Probar otro nombre» abría el
+       formulario vacío, perdiendo la contraseña. Ver «Las let no llegan por window». */
+    ALTA_PREVIA = { grupo, login, clave, bal: bal || '' };
 
     const r = await API.enviar('crear', {
       padre: DENTRO ? String(DENTRO) : undefined,
@@ -806,6 +822,22 @@
     if (!r.ok) {
       dibujar(1, true);
       const ocupado = !!r.ocupado;
+      /* NOMBRE OCUPADO: no es un error, es elegir otro. Se ofrece el mismo con el número siguiente,
+         y se crea con un toque —misma contraseña y mismo saldo—, sin volver a tipear nada. */
+      const sug = (ocupado && Array.isArray(r.sugerencias) && grupo !== '8') ? r.sugerencias.slice(0, 3) : [];
+      if (sug.length) {
+        return setTimeout(() => abrirHoja(`
+          <div class="resultado"><div class="sello">!</div>
+            <h3>${esc(login)} ya existe</h3>
+            <div class="sub">Los nombres son únicos en todo el casino, aunque la cuenta sea de otro o esté eliminada.</div></div>
+          <div class="nota neutra" style="margin-top:4px">Probá con uno de estos. Se crea con la misma contraseña${bal ? ' y el mismo saldo' : ''}:</div>
+          <div class="acc">
+            ${sug.map((x, i) => `<button${i === 0 ? ' class="destaca"' : ''} onclick="reintentarAlta('${esc(x)}')">
+              <span class="mk">+</span><span class="tx">Crear <b class="mono">${esc(x)}</b></span><span class="fl">›</span></button>`).join('')}
+          </div>
+          <div class="acciones"><button class="btn sec" onclick="cerrarHoja()">Cancelar</button>
+            <button class="btn sec" onclick="altaFormulario('${grupo}', true)">Escribir otro nombre</button></div>`), 500);
+      }
       return setTimeout(() => abrirHoja(`
         <div class="resultado"><div class="sello malo">✕</div>
           <h3>${ocupado ? 'Ese nombre ya está usado' : 'No se pudo crear'}</h3>
@@ -823,7 +855,7 @@
         </div>`), 500);
     }
 
-    window.ALTA_PREVIA = null;   // salió bien: la contraseña no se guarda ni un segundo más
+    ALTA_PREVIA = null;   // salió bien: la contraseña no se guarda ni un segundo más
     olvidar('cuentas:');   // la cuenta nueva no está en la copia guardada
     /* El id y el saldo son los que el casino confirmó, no los que pedimos. */
     const c = r.cuenta;

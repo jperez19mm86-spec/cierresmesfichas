@@ -229,6 +229,11 @@ function crearMotorFalso() {
       }
 
       if (area === 'createuser' || area === 'adduser') {
+        /* Los logins son únicos en TODO el casino: la versión nueva contesta «User exists» en
+           `errorMessage`, sin crear nada, aunque la cuenta sea de otra rama. */
+        if (cuerpo.login && [...cuentas.values()].some((c) => String(c.login || "").toLowerCase() === String(cuerpo.login).toLowerCase())) {
+          return responder({ errorMessage: 'User exists' });
+        }
         const nuevo = String(30000 + cuentas.size);
         /* La cuenta cuelga del nodo que dice la dirección, no de quien la pide: un agente crea
            jugadores dentro de una de sus cajas. Al revés, la verificación del alta la busca donde

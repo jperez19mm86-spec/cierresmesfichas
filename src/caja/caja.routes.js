@@ -1007,6 +1007,23 @@ function mount(app) {
      `errorMessage` (medido en su entorno de prueba, 29-sep-2026): 8 a 20 caracteres, al menos una
      mayúscula, una minúscula y un número, y distinta del login. Con la versión nueva, una clave que
      no la cumple NO crea la cuenta; se frena antes, con el motivo en castellano. */
+  /* 🔑 NOMBRES LIBRES PARA OFRECER cuando el login ya existe: el mismo con el número siguiente.
+     «Gana-Pachi» → Gana-Pachi2, 3, 4 · «Caja7» → Caja8, 9, 10. No se puede confirmar desde acá que
+     estén libres en TODO el casino (los logins son únicos en el sistema entero y sólo vemos nuestra
+     rama); si el elegido también está usado, la misma respuesta ofrece los siguientes. */
+  function sugerirLogins(login, cuantos = 3) {
+    const m = String(login || '').match(/^(.*?)(\d+)$/);
+    const base = m ? m[1] : String(login || '');
+    const desde = m ? Number(m[2]) + 1 : 2;
+    const out = [];
+    for (let n = desde; out.length < cuantos && n < desde + 50; n++) {
+      const c = (base + (m ? String(n).padStart(m[2].length, '0') : n)).slice(0, 50);   // «-08» → «-09»
+      if (c.toLowerCase() !== String(login).toLowerCase() && !out.includes(c)) out.push(c);
+    }
+    return out;
+  }
+  const esLoginUsado = (txt) => /exist|already|taken|ocupad|en uso|usad[oa]|существ|занят/i.test(String(txt || ''));
+
   function claveImperia(clave, login) {
     const v = String(clave || '');
     if (/\s/.test(v)) return 'La contraseña no puede llevar espacios';
@@ -1107,7 +1124,7 @@ function mount(app) {
        más común sin gastar un alta. */
     const yaEsta = await buscar(cli, padre, login);
     if (yaEsta) {
-      return res.status(409).json({ ok: false, ocupado: true,
+      return res.status(409).json({ ok: false, ocupado: true, login, sugerencias: sugerirLogins(login),
         error: `Ya tenés una cuenta que se llama ${login}.` });
     }
 
@@ -1133,11 +1150,11 @@ function mount(app) {
       /* La versión nueva del motor rechaza sin `error`: el motivo viene en `errorMessage` (clave
          débil, login inválido…). Si vino, se dice ESO y no «ese nombre ya está usado». */
       const motivo = respAlta && respAlta.data && typeof respAlta.data.errorMessage === 'string' && respAlta.data.errorMessage.trim();
-      if (motivo) return mal(res, `El casino no aceptó el alta: ${motivo}`, 409);
-      return res.status(409).json({ ok: false, ocupado: true,
-        error: `No se pudo crear ${login}. Ese nombre ya está usado en el sistema, aunque no lo veas `
-          + 'en tu panel: los logins son únicos y quedan reservados aunque la cuenta se elimine. '
-          + 'Probá con otro.' });
+      /* «User exists» (y parecidos) no es un error: es el nombre ocupado, y se ofrece otro. */
+      if (motivo && !esLoginUsado(motivo)) return mal(res, `El casino no aceptó el alta: ${motivo}`, 409);
+      return res.status(409).json({ ok: false, ocupado: true, login, sugerencias: sugerirLogins(login),
+        error: `${login} ya existe en el sistema, aunque no lo veas en tu panel: los nombres son `
+          + 'únicos en todo el casino y quedan reservados aunque la cuenta se elimine.' });
     }
     /* El saldo que se muestra es el que el casino confirma, leído de donde de verdad está. */
     const quedo = saldoDeFila(creada);
