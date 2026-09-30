@@ -154,7 +154,16 @@ check('un usuario sin cliente: no existe',
   check('distribuidor que no está en ningún cliente: no registra (distribuidor_sin_cliente)', sinCli.registrado === false && sinCli.motivo === 'distribuidor_sin_cliente');
   // Se carga la cuenta del distribuidor en el cliente (identidad, sin panel).
   clientes.addCaja(cli.id, { usuario: 'DistPrueba', sistema: 'europa', userId: '555100', divisas: ['ARS'], rol: 'distribuidor', permisos: { pedir: false, pagos: false, cuenta: false } });
+  // Telegram de mentira: se anota lo que se mandaría al grupo de soporte.
+  const tg = require('../src/telegram'); const cfgStore = require('../src/config-store');
+  const enviados = []; const tgOrig = tg.sendMessage; const tokOrig = cfgStore.getTelegramToken;
+  tg.sendMessage = async (_t, grupo, texto) => { enviados.push({ grupo, texto }); return { ok: true }; };
+  cfgStore.getTelegramToken = () => 'tok-de-prueba';
   const nuevo = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist1', id: '555101' });
+  const aviso = enviados.find((x) => /Agente nuevo/.test(x.texto));
+  check('avisa al grupo de soporte: quién lo creó, el agente, el cliente y que lleva panel',
+    nuevo.avisado === true && aviso && /DistPrueba/.test(aviso.texto) && /AgDelDist1/.test(aviso.texto) && /555101/.test(aviso.texto)
+    && /sólo pedir/.test(aviso.texto) && /Panel creado/.test(aviso.texto));
   const kN = clientes.get(cli.id).cajas.find((k) => k.userId === '555101');
   const pN = require('../src/paneles-store').list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555101');
   check('agente creado por el distribuidor: queda en el cliente, sólo pedir, mismo casino y moneda',
@@ -163,13 +172,20 @@ check('un usuario sin cliente: no existe',
   check('…y como el distribuidor no factura, el agente nuevo SÍ lleva panel', nuevo.conPanel === true && pN && pN.nivel_usuario === 'Agente');
   const estN = await fetch(`${U}/estado-cliente?usuario=AgDelDist1&userId=555101`, { headers: tok }).then((r) => r.json());
   check('el agente nuevo ya puede pedir fichas (configurado, sólo pedir)', estN.configurado && estN.puedePedir === true && estN.puedeAvisarPago === false && estN.puedeVerCuenta === false);
+  const antesOtra = enviados.length;
   const otraVez = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist1', id: '555101' });
+  check('llamarlo dos veces no avisa dos veces', enviados.length === antesOtra);
   check('llamarlo dos veces no lo duplica', otraVez.yaEstaba === true && clientes.get(cli.id).cajas.filter((k) => k.userId === '555101').length === 1);
   // Si el distribuidor factura como panel, el agente va sólo como cuenta (no se cobra dos veces).
   require('../src/paneles-store').create({ cliente_id: cli.id, nombre: 'DistPrueba', sistema: 'europa', id_usuario: '555100', divisas: ['ARS'] });
   const nuevo2 = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist2', id: '555102' });
   const pN2 = require('../src/paneles-store').list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555102');
   check('distribuidor que ya factura como panel: el agente nuevo va sin panel (no se cobra dos veces)', nuevo2.registrado === true && nuevo2.conPanel === false && !pN2);
+  check('…y el aviso dice que va sin panel', /Sin panel/.test((enviados[enviados.length - 1] || {}).texto || ''));
+  tg.sendMessage = async () => { throw new Error('telegram caído'); };
+  const nuevo3 = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist3', id: '555103' });
+  check('si Telegram falla, el alta igual queda hecha (avisado:false)', nuevo3.registrado === true && nuevo3.avisado === false);
+  tg.sendMessage = tgOrig; cfgStore.getTelegramToken = tokOrig;
   check('datos inválidos: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"usuario":"DistPrueba","login":"x","id":"abc"}' }).then((r) => r.status)) === 400);
 
   srv.close();
