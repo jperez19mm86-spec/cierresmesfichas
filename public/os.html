@@ -1608,7 +1608,8 @@ async function loadAgentes(id){
     ${dist.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
         <div style="min-width:180px"><b>${esc(a.usuario)}</b> <span class="badge" style="background:var(--blue);color:#fff">Distribuidor</span>
           <div class="muted" style="font-size:11px">${esc(a.sistema||'')} · ${esc(a.userId||'')} · ${esc((a.divisas||[]).join(',')||'ARS')}</div></div>
-        <div class="muted" style="font-size:12px;flex:1">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente con «sólo pedir fichas».</div>
+        <div style="flex:1">${chk(a,'pedir','Puede pedir fichas (para él y para sus agentes)')}
+          <div class="muted" style="font-size:12px">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente con «sólo pedir fichas». Nunca registra pagos ni ve la cuenta.</div></div>
         <button class="small danger" onclick="quitarDistribuidor('${id}','${a.id}','${esc(a.usuario)}')">Quitar</button>
       </div>`).join('')}
     ${agts.length ? agts.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">

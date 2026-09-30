@@ -812,6 +812,7 @@
         <div class="who">
           <b>${esc(p.clienteNombre)}</b> <span class="pill" style="font-size:10px;opacity:.7">${esc(String(p.codigo || '').toUpperCase())}</span><br/>
           <span class="meta">→ caja <code>${esc(p.cajaUsuario)}</code>${p.cajaEtiqueta ? ` <b>${esc(p.cajaEtiqueta)}</b>` : ''} · ${esc(p.sistema)} · id ${esc(p.userId) || '?'} · ${esc(p.divisa)}</span><br/>
+          ${p.pedidoPor ? `<span class="meta">📦 lo pidió su distribuidor <code>${esc(p.pedidoPor)}</code></span><br/>` : ''}
           <span class="meta" style="font-size:11px">${fmtDate(p.createdAt)}</span>
         </div>
         <button class="small" onclick="cargarPedido('${p.id}')">✅ Cargar</button>
@@ -940,7 +941,7 @@
         return `<tr>
         <td data-label="Fecha">${fmtDate(p.resueltoAt || p.createdAt)}</td>
         <td data-label="Cliente"><b>${esc(p.clienteNombre || String(p.codigo || '').toUpperCase())}</b></td>
-        <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code>${p.cajaEtiqueta ? `<div class="meta">${esc(p.cajaEtiqueta)}</div>` : ''}</td>
+        <td data-label="Caja"><code>${esc(p.cajaUsuario)}</code>${p.cajaEtiqueta ? `<div class="meta">${esc(p.cajaEtiqueta)}</div>` : ''}${p.pedidoPor ? `<div class="meta">pedido por ${esc(p.pedidoPor)}</div>` : ''}</td>
         <td data-label="Sistema">${esc(p.sistema)}</td>
         <td data-label="Monto"><strong>${esc(p.divisa)}</strong> ${money(p.monto)}</td>
         <td data-label="Estado" class="estado-${p.estado}">${estLbl}${nota}${anular}</td>

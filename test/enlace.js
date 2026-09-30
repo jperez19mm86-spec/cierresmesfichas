@@ -188,6 +188,38 @@ check('un usuario sin cliente: no existe',
   tg.sendMessage = tgOrig; cfgStore.getTelegramToken = tokOrig;
   check('datos inválidos: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"usuario":"DistPrueba","login":"x","id":"abc"}' }).then((r) => r.status)) === 400);
 
+  /* ── 5 · el DISTRIBUIDOR pide fichas: para sí o para sus agentes ─────────────────────────── */
+  const pedirAg = (b) => fetch(`${U}/pedido-agentes`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify(b) }).then((r) => r.json());
+  const estD = await fetch(`${U}/estado-cliente?usuario=DistPrueba&userId=555100`, { headers: tok }).then((r) => r.json());
+  check('el estado del distribuidor lo dice, con las cuentas de su cliente y sin poder pedir de entrada',
+    estD.esDistribuidor === true && estD.puedePedir === false && estD.puedeAvisarPago === false
+    && (estD.agentesDelCliente || []).some((a) => a.userId === '555101') && !(estD.agentesDelCliente || []).some((a) => a.userId === '555100'));
+  const apagado = await pedirAg({ usuario: 'DistPrueba', userId: '555100', pedidos: [{ userId: '555101', monto: 1000 }] });
+  check('con «pedir» apagado no crea nada (no_habilitado)', apagado.motivo === 'no_habilitado' && apagado.creados.length === 0);
+  const kD = clientes.get(cli.id).cajas.find((k) => k.userId === '555100');
+  clientes.updateCaja(cli.id, kD.id, { permisos: { pedir: true, pagos: false, cuenta: false } });
+  const pedidosStore = require('../src/pedidos-store');
+  const multi = await pedirAg({ usuario: 'DistPrueba', userId: '555100', divisa: 'ARS', pedidos: [
+    { userId: '555101', monto: 1000 }, { userId: '555102', monto: 2500 }, { userId: '999999', monto: 10 }, { userId: '555103', monto: 0 }] });
+  const pA = pedidosStore.get((multi.creados[0] || {}).id);
+  check('pide para dos agentes: un pedido por agente, a la cuenta del agente, con quién lo pidió',
+    multi.creados.length === 2 && pA && pA.userId === '555101' && pA.cajaUsuario === 'AgDelDist1' && pA.pedidoPor === 'DistPrueba' && pA.monto === 1000);
+  check('los que no son de su cliente o no tienen monto se devuelven con su motivo, sin frenar a los demás',
+    multi.rechazados.length === 2 && multi.rechazados.some((x) => x.userId === '999999' && x.motivo === 'agente_no_en_cliente')
+    && multi.rechazados.some((x) => x.userId === '555103' && x.motivo === 'monto_invalido'));
+  const noDist = await pedirAg({ usuario: 'AgDelDist1', userId: '555101', pedidos: [{ userId: '555102', monto: 5 }] });
+  check('un agente no puede pedir para otros (no_es_distribuidor)', noDist.motivo === 'no_es_distribuidor' && noDist.creados.length === 0);
+  const propio = await fetch(`${U}/pedido`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify({ usuario: 'DistPrueba', userId: '555100', monto: 7000, divisa: 'ARS' }) }).then((r) => r.json());
+  const pP = pedidosStore.get(propio.pedido && propio.pedido.id);
+  check('y pide para sí mismo: el pedido va a SU cuenta', propio.creado === true && pP && pP.userId === '555100' && !pP.pedidoPor);
+  // La carga al distribuidor baja por los mismos padres que la de sus agentes (escala prestada).
+  const panelesStore = require('../src/paneles-store'); const cascada = require('../src/carga-cascada.service');
+  const pAg = panelesStore.list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555101');
+  panelesStore.setJerarquia(pAg.id, { escala: [{ id: '9000', login: 'ElSuper', nivel: 'SuperAgente' }, { id: '555100', login: 'DistPrueba', nivel: 'Distribuidor' }], arbol_at: new Date().toISOString() });
+  const pasos = cascada.pasosDe({ sistema: 'europa', userId: '555100', monto: 7000, divisa: 'ARS', cajaUsuario: 'DistPrueba' });
+  check('la carga al distribuidor pasa por su SuperAgente (camino tomado de sus agentes)',
+    pasos.pasos.length === 2 && pasos.pasos[0].id === '9000' && pasos.pasos[1].id === '555100' && pasos.superagenteId === '9000' && pasos.resuelto);
+
   srv.close();
   const fallan = v.filter((x) => !x.ok).length;
   console.log(`\n${v.length - fallan}/${v.length} verificaciones pasaron`);

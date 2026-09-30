@@ -30,16 +30,31 @@ function panelDe(sistema, userId) {
  * Si el panel no tiene escala (es SuperAgente, o no está resuelto) devuelve un solo paso: la carga
  * directa de siempre.
  */
+/* 🔑 UNA CUENTA SIN PANEL —el distribuidor, que va como identidad y no factura— no tiene escala
+   propia. Pero sí aparece en la escala de sus agentes: ahí está el camino completo hasta él. Se
+   toma el tramo de arriba (sin incluirlo). Sin esto la carga le iría directo y dependería de que su
+   padre tenga saldo, que es justo lo que la cascada existe para evitar. */
+function escalaPrestada(sistema, userId) {
+  for (const p of paneles.list()) {
+    if (K(p.sistema) !== K(sistema) || !Array.isArray(p.escala)) continue;
+    const i = p.escala.findIndex((x) => String(x.id) === String(userId));
+    if (i >= 0) return { escala: p.escala.slice(0, i), yo: p.escala[i], de: p };
+  }
+  return null;
+}
+
 function pasosDe({ sistema, userId, monto, divisa, cajaUsuario }) {
   const panel = panelDe(sistema, userId);
-  const escala = (panel && panel.escala) || [];
+  // También si tiene panel pero sin escala resuelta. (Un SuperAgente da escala vacía igual.)
+  const prestada = (panel && Array.isArray(panel.escala) && panel.escala.length) ? null : escalaPrestada(sistema, userId);
+  const escala = (prestada && prestada.escala) || (panel && panel.escala) || [];
   const div = String(divisa || 'ARS').toUpperCase();
   const pasos = escala.map((x) => ({
     id: String(x.id), login: x.login, nivel: x.nivel, padre: true, estado: 'pendiente',
   }));
   pasos.push({
     id: String(userId), login: (panel && (panel.usuario || panel.nombre)) || cajaUsuario || String(userId),
-    nivel: (panel && panel.nivel_usuario) || '', destino: true, estado: 'pendiente',
+    nivel: (panel && panel.nivel_usuario) || (prestada && prestada.yo && prestada.yo.nivel) || '', destino: true, estado: 'pendiente',
   });
 
   // El saldo del padre es POR DIVISA: si un padre no tiene habilitada la moneda del pedido, la
@@ -54,7 +69,7 @@ function pasosDe({ sistema, userId, monto, divisa, cajaUsuario }) {
 
   return {
     panel,
-    resuelto: !!(panel && panel.arbol_at),
+    resuelto: !!((panel && panel.arbol_at) || (prestada && prestada.de.arbol_at)),
     monto: Number(monto), divisa: div,
     superagenteId: escala.length ? String(escala[0].id) : String(userId),
     bloqueo, sinLaDivisa,

@@ -448,7 +448,12 @@ function mount(app) {
   app.put('/api/os/clientes/:id/agentes/:cajaId', wrap((req, res) => {
     const b = req.body || {};
     if (!b.permisos || typeof b.permisos !== 'object') return err(res, 400, 'faltan los permisos');
-    const k = clientes.updateCaja(req.params.id, req.params.cajaId, { permisos: b.permisos });
+    const c0 = clientes.get(req.params.id);
+    const k0 = c0 && (c0.cajas || []).find((x) => x.id === req.params.cajaId);
+    /* Al distribuidor sólo se le habilita pedir: pagar y ver la cuenta no van con ese nivel. */
+    const permisos = k0 && k0.rol === 'distribuidor'
+      ? { pedir: !!b.permisos.pedir, pagos: false, cuenta: false } : b.permisos;
+    const k = clientes.updateCaja(req.params.id, req.params.cajaId, { permisos });
     if (!k) return err(res, 404, 'no existe esa cuenta en este cliente');
     ok(res, { agente: agenteVista(clientes.get(req.params.id), k) });
   }));

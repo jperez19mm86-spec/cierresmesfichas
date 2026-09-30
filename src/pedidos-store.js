@@ -83,6 +83,8 @@ function create(p) {
     userId: String(p.userId || '').trim(),
     divisa: String(p.divisa || 'ARS').trim(),
     monto: Number(p.monto) || 0,
+    // Cuando lo pide un DISTRIBUIDOR para uno de sus agentes: su cuenta. Vacío = lo pidió el mismo.
+    pedidoPor: String(p.pedidoPor || '').trim(),
     estado: 'pendiente',
     createdAt: new Date().toISOString(),
     resueltoAt: null,

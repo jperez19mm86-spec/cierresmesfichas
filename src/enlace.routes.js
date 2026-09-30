@@ -102,6 +102,15 @@ function estadoDe(query) {
     motivosFaltantes,
     codigo: cliente.codigo,
     nombreVisible: cliente.nombreVisible,
+    /* EL DISTRIBUIDOR pide para sí o para sus agentes. Se le pasan las cuentas del cliente en su
+       mismo casino: Mi Caja las cruza con los agentes que el casino dice que son suyos, y sólo a
+       esos les deja pedir. Nunca paga ni ve la cuenta (esos permisos no se le dan). */
+    ...(caja && caja.rol === 'distribuidor' ? {
+      esDistribuidor: true,
+      agentesDelCliente: (cliente.cajas || [])
+        .filter((k) => k.rol !== 'distribuidor' && norm(k.sistema) === norm(caja.sistema) && k.userId)
+        .map((k) => ({ userId: String(k.userId), usuario: k.usuario, etiqueta: k.etiqueta || '' })),
+    } : {}),
   };
 }
 
@@ -280,6 +289,48 @@ function mount(app) {
     });
     push.notifyNewPedido(pedido); // fire-and-forget, no bloquea la respuesta
     res.json({ ok: true, creado: true, pedido: { id: pedido.id, cajaUsuario: pedido.cajaUsuario, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado } });
+  });
+
+  /* ── UN DISTRIBUIDOR PIDE FICHAS PARA SUS AGENTES ──────────────────────────────────────────
+     Un pedido por agente, cargado DIRECTO a la cuenta del agente (con su cascada de siempre), y con
+     `pedidoPor` para que en el panel se vea quién lo pidió. Lo habilita el «pedir» de la cuenta del
+     distribuidor (apagado de entrada, se prende en la ficha del cliente); el permiso propio del
+     agente no cuenta: el que pide es el distribuidor. Mi Caja ya comprobó en el casino que cada
+     agente es suyo; acá se comprueba que esté en el MISMO cliente y casino. Los que no, se
+     devuelven uno por uno con su motivo y no frenan a los demás. */
+  r.post('/v1/pedido-agentes', async (req, res) => {
+    const b = req.body || {};
+    const { cliente, caja } = encontrarCliente(b);
+    if (!cliente || !caja) return res.json({ ok: true, creados: [], motivo: 'no_existe' });
+    if (caja.rol !== 'distribuidor') return res.json({ ok: true, creados: [], motivo: 'no_es_distribuidor' });
+    const est = estadoDe(b);
+    if (!est.configurado) {
+      const av = await avisarSoporte(b, est);
+      return res.json({ ok: true, creados: [], motivo: 'sin_configurar', motivosFaltantes: est.motivosFaltantes, avisado: av.enviado });
+    }
+    if (!est.puedePedir) return res.json({ ok: true, creados: [], motivo: 'no_habilitado' });
+    const lista = Array.isArray(b.pedidos) ? b.pedidos.slice(0, 50) : [];
+    if (!lista.length) return res.status(400).json({ ok: false, error: 'no hay pedidos' });
+    const creados = []; const rechazados = [];
+    for (const x of lista) {
+      const uid = String((x && x.userId) || '').trim();
+      const monto = Number(x && x.monto);
+      const ag = (cliente.cajas || []).find((k) => String(k.userId) === uid && k.rol !== 'distribuidor'
+        && norm(k.sistema) === norm(caja.sistema));
+      if (!ag) { rechazados.push({ userId: uid, motivo: 'agente_no_en_cliente' }); continue; }
+      if (!(monto > 0)) { rechazados.push({ userId: uid, usuario: ag.usuario, motivo: 'monto_invalido' }); continue; }
+      const divs = (ag.divisas && ag.divisas.length) ? ag.divisas : ['ARS'];
+      const divisa = divs.includes(b.divisa) ? b.divisa : divs[0];
+      const pedido = pedidos.create({
+        codigo: cliente.codigo, clienteNombre: cliente.nombreVisible,
+        cajaId: ag.id, cajaUsuario: ag.usuario, cajaEtiqueta: ag.etiqueta || '', sistema: ag.sistema, userId: ag.userId,
+        divisa, monto, pedidoPor: caja.usuario,
+      });
+      push.notifyNewPedido(pedido);
+      creados.push({ id: pedido.id, cajaUsuario: pedido.cajaUsuario, divisa: pedido.divisa, monto: pedido.monto, estado: pedido.estado });
+    }
+    console.log(`[Enlace] ${caja.usuario} pidió para ${creados.length} agente(s) · rechazados ${rechazados.length}`);
+    res.json({ ok: true, creados, rechazados });
   });
 
   // Registrar un pago: el cliente declara cuánto pagó y adjunta la captura. Entra a la MISMA cola de
