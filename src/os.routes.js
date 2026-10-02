@@ -3414,8 +3414,10 @@ function mount(app) {
     ok(res, { enviado: true, partes: partes.length, cuentas: d.filas.length, chat });
   }));
 
+  /* ⚠️ `fresco`: éste y sólo éste entra de nuevo al casino. Probar es preguntar si las
+     credenciales sirven HOY — con la sesión guardada viva, una contraseña cambiada diría "anda". */
   app.post('/api/os/casino/conexiones/:id/test', wrap(async (req, res) => {
-    const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
+    const cli = casinoConex.client(req.params.id, { fresco: true }); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.test(); r.ok ? ok(res, { login: r.login, balances: r.balances }) : err(res, 502, r.error);
   }));
   // listar nodos: sin id = root (todos, c/total); ?id= = subárbol de ese nodo

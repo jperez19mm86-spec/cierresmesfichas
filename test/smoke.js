@@ -1523,6 +1523,32 @@ async function main() {
       /if \(!dry\) \{\s*\n\s*paneles\.setJerarquia/.test(srcArb) && /dry: !!dry/.test(srcArb));
 
     const srcRt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    /* ── LA SESIÓN DEL CASINO SE REUSA ───────────────────────────────────────────────────────
+       El motor deja UNA sesión por usuario, y las dos conexiones de lectura van con la cuenta de
+       la dueña (a ese nivel no hay api_token). Cuando `client()` devolvía uno nuevo cada vez, cada
+       lectura del OS entraba de nuevo y la echaba de su propio panel. Medido el 2-oct-2026: más de
+       40 entradas en dos horas y media, una cada tres minutos. */
+    {
+      const cxSt = require('../src/casino-conexiones-store');
+      const cx1 = cxSt.create({ nombre: 'PruebaSesion', url: 'https://ejemplo.invalido',
+        usuario: 'u1', password: 'clave1', motor: '463' });
+      const a = cxSt.client(cx1.id);
+      const b = cxSt.client(cx1.id);
+      check('casino: dos lecturas seguidas comparten la sesión, no entran dos veces', a === b);
+      // Probar la conexión es la excepción: ahí hay que entrar de nuevo, o una clave cambiada
+      // seguiría dando "anda" mientras la sesión vieja viva.
+      check('casino: probar la conexión sí entra de nuevo', cxSt.client(cx1.id, { fresco: true }) !== b);
+      check('casino: y la pantalla de probar es la que lo pide',
+        /conexiones\/:id\/test[\s\S]{0,260}casinoConex\.client\(req\.params\.id, \{ fresco: true \}\)/.test(srcRt2));
+      // Si cambian las credenciales, la sesión guardada no sirve más.
+      cxSt.update(cx1.id, { password: 'clave2' });
+      check('casino: al cambiar la clave se tira la sesión guardada', cxSt.client(cx1.id) !== b);
+      // Y al borrar la conexión no queda nada colgado con sus credenciales adentro.
+      cxSt.remove(cx1.id);
+      check('casino: al borrar la conexión no queda el cliente guardado', cxSt.client(cx1.id) === null);
+    }
+
+
     check('árbol: un panel nuevo se resuelve solo, por los dos caminos de alta del OS',
       (srcRt2.match(/_resolverJerarquia\(panel\);/g) || []).length === 2
       && /_resolverJerarquia = \(panel\) => arbolSvc\.resolverEnSegundoPlano\(panel\)/.test(srcRt2));

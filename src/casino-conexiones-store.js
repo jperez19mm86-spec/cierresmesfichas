@@ -55,7 +55,7 @@ function update(id, patch) {
   return get(id);
 }
 
-function remove(id) { return db.prepare('DELETE FROM casino_conexiones WHERE id=?').run(id).changes > 0; }
+function remove(id) { olvidar(id); return db.prepare('DELETE FROM casino_conexiones WHERE id=?').run(id).changes > 0; }
 
 /**
  * El cliente que corresponde a esta conexión. Usa token si hay, si no usuario/contraseña.
@@ -64,13 +64,49 @@ function remove(id) { return db.prepare('DELETE FROM casino_conexiones WHERE id=
  * del engine 463.life: por eso TBS, que es otro producto, devolvía "usuario o contraseña
  * incorrectos" — el cliente le posteaba a una ruta que en ese panel no existe.
  */
-function client(id) {
+/* ── LA SESIÓN SE REUSA, NO SE ABRE DE NUEVO EN CADA LLAMADA ──────────────────────────────────
+   Hasta el 2-oct-2026 cada `client()` devolvía un cliente RECIÉN HECHO, con la cookie vacía: la
+   primera cosa que le pidieras entraba al casino otra vez. Y el motor deja UNA sesión por usuario,
+   así que cada entrada del OS echaba a la dueña de su propio panel — las dos conexiones de lectura
+   van con SU cuenta (Alexa_support), que a este nivel no tiene api_token.
+   Medido ese día: la tarjeta "en qué nivel está cada casino" entra una vez POR CONEXIÓN y se
+   dispara sola al abrir La Foto; entre eso y las capturas, más de 40 entradas en dos horas y media.
+
+   Ahora el cliente —y con él la cookie— vive hasta que cambie algo de la conexión. Lo que lo hace
+   seguro es que `apiCall` ya se rehace sola: si la sesión murió (porque venció, o porque la dueña
+   entró y la pisó a ESTA), el motor contesta `redirect: login`, vuelve a entrar una vez y sigue.
+   Por eso no hay vencimiento acá: poner uno sería volver a entrar sin que nadie lo necesite, que
+   es exactamente lo que se viene a sacar. */
+const _vivos = new Map();   // id → { firma, cli }
+
+/** Si cambia la URL, el motor o cualquiera de las credenciales, el cliente guardado no sirve más. */
+function _firma(c) {
+  return [c.url, c.motor, c.usuario, c.token, c.password].map((x) => String(x || '')).join('|');
+}
+
+/** Se tira el cliente guardado de una conexión (al editarla o borrarla). */
+function olvidar(id) { _vivos.delete(String(id || '')); }
+
+/**
+ * @param fresco  true = uno nuevo, sin reusar la sesión. Sólo para PROBAR la conexión: con la
+ *                sesión vieja viva, una contraseña equivocada daría "anda" — y probar es
+ *                justamente preguntar si las credenciales sirven HOY.
+ */
+function client(id, { fresco = false } = {}) {
   const c = get(id, true);
   if (!c) return null;
+  const firma = _firma(c);
+  if (!fresco) {
+    const ya = _vivos.get(id);
+    if (ya && ya.firma === firma) return ya.cli;
+  }
   const mod = require(c.motor === 'tbs' ? './tbs-api' : './casino-api');
-  if (c.token) return mod.makeClient({ url: c.url, token: c.token });
-  if (c.usuario && c.password) return mod.makeClient({ url: c.url, user: c.usuario, password: c.password });
-  return null;
+  let cli = null;
+  if (c.token) cli = mod.makeClient({ url: c.url, token: c.token });
+  else if (c.usuario && c.password) cli = mod.makeClient({ url: c.url, user: c.usuario, password: c.password });
+  if (!cli) { _vivos.delete(id); return null; }
+  _vivos.set(id, { firma, cli });
+  return cli;
 }
 
 /**
@@ -112,4 +148,4 @@ function listDeReportes() {
   return list463().filter((c) => conPaneles.has(c.id));
 }
 
-module.exports = { list, list463, listDeReportes, get, create, update, remove, client, paraCargar, MOTORES };
+module.exports = { list, list463, listDeReportes, get, create, update, remove, client, olvidar, paraCargar, MOTORES };
