@@ -3006,8 +3006,29 @@ function mount(app) {
 
   /* Armar una oferta con un solo número: la base. Devuelve las líneas listas para editar y
      guardar — no escribe nada. Ver el porqué de la tarifa en api-ofertas-store.js. */
+  /* ── CUÁNTO MOVIÓ CADA SELLO ────────────────────────────────────────────────────────────────
+     El armador de ofertas discute el precio de 37 externos, y resulta que en julio 19 de ellos no
+     movieron una sola ficha: los externos enteros fueron el 0,21% del GGR. Sin este número al lado
+     del precio, se negocia a ciegas el 0,2% del negocio con el mismo cuidado que el 99,8%.
+     Sale de las cuentas ya calculadas del mes, así que no le pide nada nuevo a TBS. */
+  app.get('/api/os/api/volumen', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const r = apiCuenta.cuentas({ mes });
+    if (!r.ok) return err(res, 400, r.error);
+    const ggr = {};
+    for (const c of r.cuentas || []) {
+      for (const l of c.lineas || []) {
+        ggr[l.sello] = (ggr[l.sello] || 0) + (Number(l.ggr_usd) || 0);
+      }
+    }
+    const total = Object.values(ggr).reduce((a, b) => a + b, 0);
+    ok(res, { mes, total, ggr, cuentas: (r.cuentas || []).length });
+  }));
+
   app.get('/api/os/api/oferta-desde-base', (req, res) => {
-    const r = ofertas.armarDesdeBase(req.query.base);
+    const r = ofertas.armarDesdeBase(req.query.base, {
+      puntos: req.query.puntos, minExt: req.query.min_ext, maxExt: req.query.max_ext,
+    });
     if (r.error) return res.status(400).json({ ok: false, error: r.error });
     ok(res, r);
   });

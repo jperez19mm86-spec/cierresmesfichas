@@ -73,6 +73,11 @@ db.exec(`
   );
 `);
 
+/* Los topes y los puntos viven en la oferta: son de ESE cliente, no del catálogo. */
+for (const c of ['puntos TEXT', 'min_ext TEXT', 'max_ext TEXT']) {
+  try { db.exec('ALTER TABLE api_oferta ADD COLUMN ' + c); } catch (e) { /* ya la tiene */ }
+}
+
 const nowISO = () => new Date().toISOString();
 const J = (t, d) => { try { const v = JSON.parse(t); return v == null ? d : v; } catch (e) { return d; } };
 const K = (s) => String(s || '').trim().toLowerCase();
@@ -251,13 +256,21 @@ function saveOferta(d) {
     if (money.isNeg(l.pct)) return { ok: false, error: `${l.pct} es negativo` };
     if (money.cmp(l.pct, '100') > 0) return { ok: false, error: `${l.pct} pasa de 100%` };
   }
-  db.prepare(`INSERT INTO api_oferta (id,titulo,cliente_id,lineas,notas,estado,createdAt,aplicadaAt)
-      VALUES (?,?,?,?,?,?,?,?)
+  /* Vacío NO es cero: un tope sin poner es "no hay tope". Guardar 0 sería ponerle precio cero a
+     todos los externos, que es justo el error que el campo tiene que evitar. */
+  const opt = (v, ant) => (v === undefined ? (ant == null ? null : String(ant))
+    : (v === '' || v === null ? null : String(v).trim()));
+  db.prepare(`INSERT INTO api_oferta (id,titulo,cliente_id,lineas,notas,estado,createdAt,aplicadaAt,
+      puntos,min_ext,max_ext)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET titulo=excluded.titulo, cliente_id=excluded.cliente_id,
-      lineas=excluded.lineas, notas=excluded.notas`)
+      lineas=excluded.lineas, notas=excluded.notas, puntos=excluded.puntos,
+      min_ext=excluded.min_ext, max_ext=excluded.max_ext`)
     .run(id, titulo, d.cliente_id || (prev && prev.cliente_id) || null, JSON.stringify(lineas),
       String(d.notas || ''), (prev && prev.estado) || 'borrador',
-      (prev && prev.createdAt) || nowISO(), (prev && prev.aplicadaAt) || null);
+      (prev && prev.createdAt) || nowISO(), (prev && prev.aplicadaAt) || null,
+      opt(d.puntos, prev && prev.puntos), opt(d.min_ext, prev && prev.min_ext),
+      opt(d.max_ext, prev && prev.max_ext));
   return { ok: true, oferta: getOferta(id) };
 }
 function removeOferta(id) {
@@ -505,73 +518,16 @@ function sembrarPaquetes() {
 }
 
 /**
- * ── ARMAR UNA OFERTA CON UN SOLO NÚMERO ──────────────────────────────────────────────────────
- *
- * La tarifa salió de comparar las 13 ofertas que se armaron a mano durante 2025 (sin ALMIR, que
- * nunca arrancó y era una excepción para ganar la cuenta). Comparadas entre sí no son 13
- * negociaciones: son UNA lista y un escalón de base por cliente.
- *
- *     Básico    = la base          ← lo único que se negocia
- *     Básico +  = base + 2
- *     Premium   = 15
- *     Live      = 15
- *
- * 🔑 EL MERCADO NEGOCIA LA BASE, NO LOS EXTERNOS. Medido: NACHO paga 7 puntos menos en Básico y el
- *    precio de lista COMPLETO en Premium y Live; YASH paga 2 más en Básico y lo mismo que todos en
- *    los externos. Por eso la base es la palanca: bajarla de 12 a 6 son seis puntos de regalo que
- *    cuestan 1,63 de margen, porque sólo mueve 10 de los 52 sellos.
- *
- * 🔴 Y EL PISO CORRE SIEMPRE: ningún sello por debajo de su costo + MARGEN_MINIMO. Sin esto se
- *    vende a pérdida sin que nadie se entere — pasaba con Betsoft OP, que cuesta 15 y estaba en
- *    Básico + a 12. El piso lo levanta solo, y también cuando el proveedor suba su costo.
- *
- * Lo que sale de acá es un BORRADOR: se edita, se guarda, y recién al aplicarlo escribe la matriz.
- */
-const MARGEN_MINIMO = 2;
-
-/* Los caros van con precio propio: son los que el mercado ya paga por encima de su bolsa. Salen de
-   lo que más se repite en las ofertas de 2025. El sello suelto le gana al paquete, así que alcanza
-   con nombrarlos. */
-/* Cada precio es la MEDIANA de lo que se les cobró a los clientes con base 10 en las ofertas de
-   2025, no un número elegido. Sin estas líneas, la familia Evolution caía en el precio de Live (15)
-   y se vendía entre 3,5 y 5 puntos por debajo de lo que siempre se cobró — que es el error más caro
-   posible, porque son los proveedores que más se juegan. */
-const EXCEPCIONES = [
-  { busca: 'red tiger premium',   pct: 19.5 },
-  { busca: 'spribe/endorphina',   pct: 18.5 },
-  { busca: 'red tiger/amigo',     pct: 17.5 },
-  { busca: 'booming',             pct: 17.5 },
-  { busca: 'pragmatic live op',   pct: 25 },   // el sello trae Live y Live Premium juntos
-  { busca: 'evolution expensive', pct: 22 },
-  { busca: 'evolution original',  pct: 20 },   // "Evolution Live Dealers" en la hoja de oferta
-  { busca: 'evolution lobby',     pct: 18.5 }, // ⚠ el sello junta Lobby (18,3) y Lobby Premium (23)
-  { busca: 'evolution op',        pct: 18.5 },
-  { busca: 'pragmatic live ev',   pct: 18.5 },
-];
-
-/* Cuánto vale cada bolsa a partir de la base. Si algún día cambian los nombres de los paquetes,
-   lo que no matchee cae en `PRECIO_LISTA` y queda a 15, que es la mediana de Premium y Live. */
-const PRECIO_LISTA = 15;
-function precioDePaquete(nombre, base) {
-  const t = tipoDePaquete(nombre);
-  if (t === 'base') return base;
-  if (t === 'base+') return base + 2;
-  return PRECIO_LISTA;
-}
-
-/**
  * ── QUÉ PAQUETE ES ÉSTE, SIN DEPENDER DE CÓMO SE LLAME HOY ───────────────────────────────────
  *
- * Media docena de reglas del sistema preguntan "¿éste es el Básico?" —el precio que sale de la
- * base, el recompuesto por costo, cuáles no se tocan— y lo preguntaban comparando el nombre letra
+ * Media docena de reglas preguntan "¿éste es el Básico?" y lo hacían comparando el nombre letra
  * por letra contra 'básico'. El nombre es del dueño: el día que los renombró a "Slots Base" para
- * que se entendieran mejor, el Básico dejó de cobrarse a la base y pasó a 15, y el recompuesto
- * no encontró ningún paquete. Todo en silencio, porque un nombre que no matchea no es un error:
- * simplemente cae en el `else`.
+ * que se entendieran mejor, el Básico dejó de cobrarse a la base y pasó a lista, en silencio —
+ * un nombre que no matchea no es un error, cae en el `else`.
  *
  * Acá se traduce el nombre a un TIPO, que es lo que las reglas de verdad preguntan. Aguanta el
- * "Slots" adelante, el acento, y Base o Básico. Lo que no reconoce devuelve null y las reglas lo
- * tratan como un paquete cualquiera — que es lo correcto para uno inventado por el dueño.
+ * "Slots" adelante, el acento, y Base o Básico. Lo que no reconoce devuelve null y se trata como
+ * un paquete cualquiera, que es lo correcto para uno inventado por el dueño.
  */
 function tipoDePaquete(nombre) {
   const k = K(nombre).replace(/^slots\s+/, '');
@@ -584,47 +540,125 @@ function tipoDePaquete(nombre) {
 }
 
 /**
- * @param {number} base  el único número que se negocia
+ * ── EL PRECIO DEL EXTERNO SALE DE LO QUE CUESTA ──────────────────────────────────────────────
+ *
+ * Antes todo el Premium/Live/Sport salía 15% plano, con diez excepciones escritas a mano. Medido
+ * sobre el catálogo real, ese 15% plano cae sobre costos que van de 4% a 15%: te dejaba ONCE
+ * puntos en Altente y CERO en Betsoft, al mismo precio. No era una tarifa, era un promedio.
+ *
+ * Y no bajaba nunca. Los diez números fijos salieron de las ofertas de 2025, de clientes con base
+ * 10 ó 12; cotizándole a uno de base 3 el mismo 25% de Pragmatic Live, el cliente veía un salto de
+ * ×8 entre lo que le vendías y lo que le cobrabas por el resto.
+ *
+ * Ahora el precio del externo es `lo que te cuesta + tus puntos`. Te quedás lo mismo en todos, el
+ * caro se cotiza caro, y al bajar la base baja todo junto sin tocar nada más.
+ *
+ * 🔑 CUÁNTO VALE ESTA DECISIÓN, MEDIDO: en julio los externos fueron el 0,21% del GGR —9.856 USD
+ *    contra 4.596.505 de la base—. Todo su margen son 806 USD al mes: 0,011 puntos de base. Lo que
+ *    se decide acá NO es plata, es cómo se lee la hoja. Por eso el default es generoso con el
+ *    cliente: lo que se protege es la base, que es donde está el 99,8%.
+ */
+const MARGEN_MINIMO = 2;
+
+/* Tus puntos siguen a la base —te quedás afuera lo mismo que adentro— pero con techo. Sin él, a
+   base 12 serían 12 puntos sobre el costo y suben 36 de los 37 externos: Betsoft se iría a 27%.
+   El 7 es el margen mediano que ya cobrabas con la tarifa vieja. */
+const PUNTOS_TECHO = 7;
+const puntosDeBase = (base) => Math.min(Math.max(Number(base) || 0, MARGEN_MINIMO), PUNTOS_TECHO);
+
+/**
+ * ── LOS DOS TOPES, POR CLIENTE ───────────────────────────────────────────────────────────────
+ *
+ * Los puntos son una regla pareja y a veces el caso no lo es. Con `minExt` ningún externo sale por
+ * debajo de ese precio aunque de ese proveedor quisieras ganar un solo punto; con `maxExt` ninguno
+ * pasa de ese precio aunque quisieras ganarle catorce. Son del CLIENTE, no del catálogo: el mismo
+ * proveedor sale a un precio en una oferta y a otro en la de al lado, que es lo que pasa cuando
+ * negociás de verdad.
+ *
+ * ⚠️ EL PISO LE GANA AL TECHO, SIEMPRE. Evolution Expensive cuesta 15%: un máximo de 14 no lo
+ *    abarata, lo vende a pérdida. Cuando chocan, manda `costo + MARGEN_MINIMO` y el proveedor
+ *    queda POR ENCIMA del máximo que pediste — y eso se devuelve en `avisos`, con nombre y
+ *    apellido, para que decidas vos si lo sacás de la oferta. Un tope que se aplica en silencio
+ *    rompiendo el piso es la forma más cara de que el sistema te dé la razón.
+ */
+function precioExterno(costo, puntos, minExt, maxExt) {
+  let p = costo + puntos;
+  if (minExt != null) p = Math.max(p, minExt);
+  if (maxExt != null) p = Math.min(p, maxExt);
+  return Math.max(p, costo + MARGEN_MINIMO);          // el piso, sobre todo lo anterior
+}
+
+/**
+ * @param {number} base   el único número que se negocia
+ * @param {object} opts   { puntos, minExt, maxExt } — todos opcionales
  * @returns {{lineas:Array, avisos:Array}} las líneas listas para guardar, y qué tuvo que corregir
  */
-function armarDesdeBase(base) {
+function armarDesdeBase(base, opts) {
   const b = Number(base);
   if (!Number.isFinite(b) || b <= 0) return { error: 'La base tiene que ser un número mayor que cero' };
+  const o = opts || {};
+  const n = (v) => (v == null || v === '' ? null : Number(String(v).replace(',', '.')));
+  const puntos = n(o.puntos) != null ? n(o.puntos) : puntosDeBase(b);
+  const minExt = n(o.minExt), maxExt = n(o.maxExt);
+  if (puntos < 0) return { error: 'Los puntos no pueden ser negativos' };
+  if (minExt != null && maxExt != null && minExt > maxExt) {
+    return { error: `El mínimo (${minExt}) no puede ser mayor que el máximo (${maxExt})` };
+  }
 
   const paquetes = listPaquetes();
   const sellos = apiStore.listSellos();
   /* El costo viene como texto y puede traer coma decimal: se normaliza acá una sola vez. */
   const aNum = (v) => Number(String(v ?? '').replace(',', '.')) || 0;
-  const costoDe = new Map(sellos.map((s) => [s.nombre, aNum(s.costo)]));
-  const paqDe = new Map();
-  paquetes.forEach((p) => (p.sellos || []).forEach((s) => paqDe.set(s, p)));
+  const r1 = (x) => Math.round(x * 10) / 10;
 
-  const lineas = paquetes.map((p) => ({ paquete_id: p.id, pct: precioDePaquete(p.nombre, b) }));
-  const avisos = [];
-
-  /* 1 · los caros, por nombre */
-  for (const e of EXCEPCIONES) {
-    const s = sellos.find((x) => K(x.nombre).includes(e.busca) || K(x.corto).includes(e.busca));
-    if (!s) continue;
-    if (lineas.some((l) => l.sello === s.nombre)) continue;
-    lineas.push({ sello: s.nombre, pct: e.pct });
+  /* El detalle sale de acá y no se recalcula en la pantalla. Si el navegador repitiera la fórmula
+     para dibujar la tabla, habría dos lugares con el mismo precio — y es cuestión de tiempo que
+     uno de los dos quede viejo y le muestres al cliente un número que no es el que vas a cobrar. */
+  const lineas = [], avisos = [], detalle = [];
+  for (const p of paquetes) {
+    const t = tipoDePaquete(p.nombre);
+    /* La base y la base+ son catálogo propio: no tienen costo que pasar, y su precio ES la base.
+       Van como línea de paquete, un número para todo el grupo. */
+    if (t === 'base')  { lineas.push({ paquete_id: p.id, pct: b }); continue; }
+    if (t === 'base+') { lineas.push({ paquete_id: p.id, pct: b + 2 }); continue; }
+    /* Los externos se cotizan de a uno: cada uno cuesta distinto, así que cada uno vale distinto.
+       La línea de paquete igual se escribe, para que el grupo tenga precio si mañana le entra un
+       sello nuevo que todavía no tiene costo cargado. */
+    lineas.push({ paquete_id: p.id, pct: r1(precioExterno(0, puntos, minExt, maxExt)) });
   }
 
-  /* 2 · el piso, que manda sobre todo lo anterior */
+  const enPaquete = new Map();
+  paquetes.forEach((p) => (p.sellos || []).forEach((s) => enPaquete.set(s, p)));
   for (const s of sellos) {
-    const costo = costoDe.get(s.nombre) || 0;
-    const minimo = costo + MARGEN_MINIMO;
-    const suelta = lineas.find((l) => l.sello === s.nombre);
-    const p = paqDe.get(s.nombre);
-    const actual = suelta ? suelta.pct : (p ? precioDePaquete(p.nombre, b) : null);
-    if (actual == null || actual >= minimo) continue;
-    if (suelta) suelta.pct = minimo;
-    else lineas.push({ sello: s.nombre, pct: minimo });
-    avisos.push({ sello: s.nombre, corto: s.corto, costo, era: actual, queda: minimo,
-      porque: `cuesta ${costo}% y a ${actual}% te dejaba ${(actual - costo).toFixed(1)} puntos` });
+    const p = enPaquete.get(s.nombre);
+    if (!p) continue;
+    const t = tipoDePaquete(p.nombre);
+    const costo = aNum(s.costo);
+    if (t === 'base' || t === 'base+') {
+      /* Los de la base casi no cuestan, pero alguno sí —Buffalo Thunder cuesta 5— y a la base
+         pelada se vendería a pérdida. Sólo ésos salen como línea suelta. */
+      const piso = costo + MARGEN_MINIMO;
+      const delGrupo = t === 'base' ? b : b + 2;
+      if (costo <= 0 || delGrupo >= piso) continue;
+      lineas.push({ sello: s.nombre, pct: r1(piso) });
+      avisos.push({ sello: s.nombre, corto: s.corto, costo, queda: r1(piso), tipo: 'piso',
+        porque: `cuesta ${costo}% y a ${delGrupo}% lo vendías a pérdida` });
+      continue;
+    }
+    const pct = r1(precioExterno(costo, puntos, minExt, maxExt));
+    lineas.push({ sello: s.nombre, pct });
+    detalle.push({ sello: s.nombre, corto: s.corto, grupo: p.nombre, tipo: t, costo,
+      pct, mg: r1(pct - costo), tope: minExt != null && pct === minExt ? 'min'
+        : maxExt != null && pct === maxExt ? 'max'
+        : pct === r1(costo + MARGEN_MINIMO) && costo + puntos < costo + MARGEN_MINIMO ? 'piso' : null });
+    if (maxExt != null && pct > maxExt) {
+      avisos.push({ sello: s.nombre, corto: s.corto, costo, queda: pct, tipo: 'pasa-el-maximo',
+        porque: `cuesta ${costo}% y tu máximo es ${maxExt}%: por debajo de ${r1(costo + MARGEN_MINIMO)}% lo vendés a pérdida` });
+    }
   }
 
-  return { lineas, avisos, base: b };
+  detalle.sort((a, b2) => b2.mg - a.mg);
+  return { lineas, avisos, detalle, base: b, puntos, minExt, maxExt };
 }
 
 /**
@@ -707,7 +741,8 @@ function recomponerPorCosto({ aplicar = false, excluir = [] } = {}) {
 }
 
 module.exports = {
-  armarDesdeBase, MARGEN_MINIMO, recomponerPorCosto, TECHO_BASICO_PLUS, tipoDePaquete,
+  armarDesdeBase, MARGEN_MINIMO, PUNTOS_TECHO, puntosDeBase, precioExterno,
+  recomponerPorCosto, TECHO_BASICO_PLUS, tipoDePaquete,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
   listSecciones, setSeccion, seccionesDeProveedor,
   listOfertas, getOferta, saveOferta, removeOferta,

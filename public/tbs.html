@@ -51,7 +51,10 @@ async function api(path, opts={}){
     if(!r.ok) { const msg = 'el servidor cortó la llamada (' + r.status + '). Suele ser porque tardó '
       + 'demasiado; lo que se guardó quedó guardado.'; toast('⚠ '+msg, true); return { ok:false, error: msg, seCorto:true }; }
   }
-  if(!b.ok && b.error) toast('⚠ '+b.error);
+  /* `silencioso` para lo que se recalcula mientras escribís: la previa del armador pregunta a
+     cada movimiento, y un error mientras tipeás el tope no puede llenar la pantalla de carteles.
+     Lo muestra quien llamó, en su propio renglón. */
+  if(!b.ok && b.error && !opts.silencioso) toast('⚠ '+b.error);
   return b;
 }
 function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }

@@ -383,3 +383,18 @@ td.vta-a{width:1%;white-space:nowrap;padding-right:8px}
 /* la vuelta que el casino tiene puesta AHORA: es la única que se puede sacar en este momento */
 tr.vta-ahora td{background:#fdf3d6}
 tr.vta-ahora.vta-ok td{background:#eaf5ec}
+
+  /* ── EL ARMADOR DE OFERTAS ─────────────────────────────────────────────────────────────────
+     Deslizadores con el número grande al lado, y las cuatro tarjetas de resumen. El número tiene
+     que leerse sin buscarlo: es lo que estás moviendo. */
+  .of-mando { display:flex; align-items:center; gap:10px; }
+  .of-mando input[type=range] { width:190px; accent-color:var(--gold); }
+  .of-mando b { font-size:22px; color:var(--gold); font-variant-numeric:tabular-nums;
+                min-width:74px; line-height:1; }
+  .of-tarjetas { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  .of-t { flex:1; min-width:155px; border:1px solid var(--border); border-radius:10px;
+          padding:10px 12px; background:var(--bg2); }
+  .of-t .k { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .of-t .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:2px; }
+  .of-t .n { font-size:11px; color:var(--muted); margin-top:1px; }
+  @media (max-width:560px){ .of-mando input[type=range]{ width:130px } .of-t{ min-width:130px } }

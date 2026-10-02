@@ -813,16 +813,56 @@ async function ofAbrir(id){
 
       <!-- Armar todo con un número. La tarifa salió de comparar las 13 ofertas de 2025: lo único
            que se negocia es la base; Premium y Live van a lista. Ver api-ofertas-store.js. -->
-      <div class="card" style="margin:0 0 12px;background:var(--bg3);display:flex;gap:10px;
-           align-items:center;flex-wrap:wrap">
-        <div>
-          <label style="margin:0">Armar con una base</label>
-          <div class="muted" style="font-size:11px">Básico = la base · Básico + = base+2 · Premium y Live = 15</div>
+      <!-- ── EL ARMADOR, CON LA CUENTA A LA VISTA ──────────────────────────────────────────
+           Antes eran cuatro casillas y un botón: ponías 3, dabas Armar, y recién en el documento
+           veías que al cliente le salía un 25%. Ahora movés y ves — qué ve él, qué te queda, y
+           cuánto movió de verdad cada proveedor el mes pasado. Los números NO se calculan acá:
+           cada movimiento se los pide al servidor, que es el que después los guarda. Dos fórmulas
+           para el mismo precio es cómo terminás mostrando uno y cobrando otro. -->
+      <div class="card" style="margin:0 0 12px;background:var(--bg3)">
+        <label style="margin:0">Armar con una base</label>
+        <div class="muted" style="font-size:11px;margin-bottom:10px">
+          El externo sale de <b>lo que te cuesta + tus puntos</b>. Los sellos propios van a la base;
+          Base + va a base&nbsp;+&nbsp;2. Nada baja de costo&nbsp;+&nbsp;2.</div>
+
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+          <div><label style="font-size:10.5px">Base</label>
+            <div class="of-mando"><input type="range" id="ofBase" min="2" max="12" step="1"
+              value="${esc(String(o.base_usada || 10))}" oninput="ofPrevia('${o.id}')">
+              <b id="ofBaseV"></b></div></div>
+          <div><label style="font-size:10.5px">Tus puntos sobre el externo</label>
+            <div class="of-mando"><input type="range" id="ofPuntos" min="2" max="14" step="0.5"
+              value="${esc(String(o.puntos || 7))}" oninput="_ofPtsManual=true;ofPrevia('${o.id}')">
+              <b id="ofPuntosV"></b>
+              <button class="btn ghost" style="font-size:10.5px;padding:3px 8px"
+                onclick="_ofPtsManual=false;ofPrevia('${o.id}')" title="que vuelva a seguir la base">auto</button>
+            </div></div>
+          <div style="border-left:1px solid var(--linea);padding-left:18px">
+            <label style="font-size:10.5px">Topes del externo — sólo este cliente</label>
+            <div class="of-mando">
+              <input id="ofMin" value="${esc(o.min_ext || '')}" placeholder="mín" style="width:62px;text-align:center"
+                oninput="ofPrevia('${o.id}')">
+              <span class="muted">a</span>
+              <input id="ofMax" value="${esc(o.max_ext || '')}" placeholder="máx" style="width:62px;text-align:center"
+                oninput="ofPrevia('${o.id}')"></div></div>
         </div>
-        <input id="ofBase" value="10" style="width:70px;font-size:16px;text-align:center"
-          onkeydown="if(event.key==='Enter') ofDesdeBase('${o.id}')">
-        <button class="btn" onclick="ofDesdeBase('${o.id}')">Armar</button>
-        <div id="ofBaseAviso" class="muted" style="font-size:11.5px;flex-basis:100%"></div>
+
+        <div id="ofTarjetas" class="of-tarjetas"></div>
+        <div id="ofBaseAviso" class="muted" style="font-size:11.5px;margin-top:9px"></div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <button class="btn" onclick="ofDesdeBase('${o.id}')">Usar estos precios</button>
+          <span class="muted" style="font-size:11px">hasta que lo toques, la oferta guardada no cambia</span>
+        </div>
+
+        <details style="margin-top:12px"><summary style="cursor:pointer;font-size:12.5px">
+          Ver externo por externo</summary>
+          <!-- sin alto fijo: adentro de un <details> ya está plegada, y un alto máximo abre un
+               segundo scroll que se traga el de la página -->
+          <div style="overflow-x:auto"><table style="min-width:100%">
+            <thead><tr><th>Sello</th><th>Sección</th><th class="right">Movió</th>
+              <th class="right">Te cuesta</th><th class="right">Precio</th><th class="right">Te quedan</th></tr></thead>
+            <tbody id="ofFilas"></tbody></table></div></details>
       </div>
       <div class="row" style="margin:0 0 8px;justify-content:flex-end">
         <button class="btn ghost" style="font-size:12px;padding:5px 11px"
@@ -866,17 +906,127 @@ async function ofAbrir(id){
       </div>`).join(''):'<div class="empty">Poné el % de al menos un paquete.</div>'}
     </div>`;
   if(o.cliente_id) ofVerCambios(o.id);
+  /* La previa arranca sola con lo que la oferta ya tenía guardado: abrís y ves en qué quedó, sin
+     tener que tocar nada. El volumen llega después y se redibuja cuando llega. */
+  _ofPtsManual = !!o.puntos;
+  ofPrevia(o.id);
+  if (_ofVolumen === null) ofCargarVolumen(o.id); 
 }
 
 /* Trae la oferta armada desde la base y la escribe en los campos. No guarda: el dueño la mira,
    la retoca si quiere, y guarda él. Los avisos dicen qué levantó el piso y por qué — eso no es
    un detalle: es plata que se estaba vendiendo por debajo del costo. */
-async function ofDesdeBase(id){
-  const base = (document.getElementById('ofBase')||{}).value;
+/* ── LA PREVIA ───────────────────────────────────────────────────────────────────────────────
+   Cada vez que movés algo se le pregunta al SERVIDOR cómo quedarían los precios, y se dibuja lo
+   que contestó. Es la misma llamada que después guarda la oferta, así que lo que mirás es
+   literalmente lo que se va a cobrar — no una cuenta parecida hecha de este lado.
+
+   Se espera 220 ms antes de preguntar: arrastrando la base salen veinte movimientos por segundo
+   y no hace falta contestarlos todos, sólo el último. */
+let _ofPtsManual = false, _ofPrevia = null, _ofTimer = null, _ofVolumen = null;
+
+function ofValores(){
+  const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
+  const base = +v('ofBase') || 10;
+  if (!_ofPtsManual) {
+    /* En auto los puntos siguen a la base, con el mismo techo que usa el servidor. */
+    const p = Math.min(Math.max(base, 2), 7);
+    const el = document.getElementById('ofPuntos'); if (el) el.value = p;
+  }
+  return { base, puntos: v('ofPuntos'), min: v('ofMin'), max: v('ofMax') };
+}
+
+function ofPrevia(id){
+  const { base, puntos, min, max } = ofValores();
+  const bv = document.getElementById('ofBaseV'), pv = document.getElementById('ofPuntosV');
+  if (bv) bv.textContent = base + '%';
+  if (pv) pv.textContent = puntos + (_ofPtsManual ? '' : ' (auto)');
+  clearTimeout(_ofTimer);
+  _ofTimer = setTimeout(() => ofPreviaYa(id, base, puntos, min, max), 220);
+}
+
+async function ofPreviaYa(id, base, puntos, min, max){
+  const q = new URLSearchParams({ base: String(base), puntos });
+  if (min) q.set('min_ext', min);
+  if (max) q.set('max_ext', max);
   const av = document.getElementById('ofBaseAviso');
-  if (av) av.textContent = 'Armando…';
-  const r = await api('/api/os/api/oferta-desde-base?base=' + encodeURIComponent(base));
-  if (!r || r.ok === false) { if (av) av.textContent = (r && r.error) || 'No se pudo armar'; return; }
+  const r = await api('/api/os/api/oferta-desde-base?' + q, { silencioso: true });
+  if (!r || r.ok === false) {
+    _ofPrevia = null;
+    if (av) av.innerHTML = '<b style="color:#a3341f">' + esc((r && r.error) || 'No se pudo calcular') + '</b>';
+    const t = document.getElementById('ofTarjetas'); if (t) t.innerHTML = '';
+    return;
+  }
+  _ofPrevia = r;
+  ofPintarPrevia(r, base);
+}
+
+function ofPintarPrevia(r, base){
+  const det = r.detalle || [];
+  const ps = det.map(d => d.pct), mg = det.map(d => d.mg);
+  const num = (x) => String(Math.round(x * 10) / 10).replace('.', ',');
+  const vol = _ofVolumen || {};
+  const movieron = det.filter(d => (vol[d.corto] || 0) > 0).length;
+
+  document.getElementById('ofTarjetas').innerHTML = [
+    ['Lo que ve el cliente', base + '% a ' + num(Math.max(...ps)) + '%', 'la base, y el externo más caro'],
+    ['Te quedás, en el externo', num(Math.min(...mg)) + ' a ' + num(Math.max(...mg)) + ' pts',
+      'en la base te quedás ' + base],
+    ['Externos que te dejan menos que la base', det.filter(d => d.mg < base).length + ' de ' + det.length,
+      'ahí ganás menos afuera que con lo tuyo'],
+    ['Movieron el mes pasado', _ofVolumen ? movieron + ' de ' + det.length : '—',
+      _ofVolumen ? 'el resto no jugó una ficha' : 'sin datos del mes'],
+  ].map(([k, v, n]) => '<div class="of-t"><div class="k">' + k + '</div><div class="v">' + v
+    + '</div><div class="n">' + n + '</div></div>').join('');
+
+  /* Los dos avisos se leen distinto y no se mezclan: uno dice "te salvé de vender a pérdida" y el
+     otro "tu tope no se pudo cumplir". El segundo pide una decisión tuya. */
+  const pasa = (r.avisos || []).filter(a => a.tipo === 'pasa-el-maximo');
+  const piso = (r.avisos || []).filter(a => a.tipo !== 'pasa-el-maximo');
+  const partes = [];
+  if (pasa.length) partes.push('<b style="color:#a3341f">No entran en tu máximo de ' + esc(String(r.maxExt))
+    + '%:</b> ' + pasa.map(a => esc(a.corto) + ' queda en ' + a.queda + '%').join(' · ')
+    + '. <span class="muted">Cuestan más que eso: bajarlos sería venderlos a pérdida. Si no los '
+    + 'querés en la hoja, sacalos del paquete.</span>');
+  if (piso.length) partes.push('<b>El piso levantó</b> '
+    + piso.map(a => esc(a.corto) + ' a ' + a.queda + '%').join(' · ') + '.');
+  document.getElementById('ofBaseAviso').innerHTML = partes.join('<br>');
+
+  const CHIP = { min: ['el mínimo lo levantó', '#8a5a00', '#fdf2dc'],
+                 max: ['el máximo lo cortó', '#1b7a4b', '#e8f6ee'],
+                 piso: ['contra el piso', '#a3341f', '#fdeee9'] };
+  document.getElementById('ofFilas').innerHTML = det.map(d => {
+    const g = vol[d.corto] || 0;
+    const c = CHIP[d.tope];
+    return '<tr><td><b>' + esc(d.corto) + '</b>'
+      + (c ? ' <span style="font-size:10px;padding:1px 6px;border-radius:9px;color:' + c[1]
+             + ';background:' + c[2] + '">' + c[0] + '</span>' : '')
+      + '</td><td class="muted" style="font-size:11px">' + esc(d.grupo) + '</td>'
+      + '<td class="right muted" style="font-size:11px">'
+      + (g ? Math.round(g).toLocaleString('es-AR') + ' USD' : '<span style="opacity:.4">nada</span>') + '</td>'
+      + '<td class="right muted">' + num(d.costo) + '%</td>'
+      + '<td class="right"><b>' + num(d.pct) + '%</b></td>'
+      + '<td class="right">' + num(d.mg) + '</td></tr>';
+  }).join('');
+}
+
+/* El volumen del mes cerrado, una sola vez por pantalla. Es lo que convierte la discusión de
+   precios en una discusión con plata al lado: 19 de los 37 externos no movieron nada en julio. */
+async function ofCargarVolumen(id){
+  const hoy = new Date(); hoy.setMonth(hoy.getMonth() - 1);
+  const mes = hoy.toISOString().slice(0, 7);
+  const r = await api('/api/os/api/volumen?mes=' + mes, { silencioso: true });
+  _ofVolumen = (r && r.ok && r.total > 0) ? r.ggr : null;
+  if (_ofPrevia) ofPintarPrevia(_ofPrevia, +(document.getElementById('ofBase') || {}).value || 10);
+}
+
+async function ofDesdeBase(id){
+  /* Se guarda EXACTAMENTE la previa que estás mirando: no se vuelve a pedir el cálculo, porque
+     entre que lo viste y apretaste podría haber cambiado un costo y guardarías otra cosa. */
+  const r = _ofPrevia;
+  const v = (id) => ((document.getElementById(id)||{}).value || '').trim();
+  const av = document.getElementById('ofBaseAviso');
+  if (!r) { if (av) av.textContent = 'Todavía no hay nada calculado'; return; }
 
   /* Se guarda la oferta ENTERA de una —paquetes y proveedores sueltos— y después se redibuja.
      Pasar por `ofGuardar` no serviría: esa función arma las líneas desde los campos de la
@@ -885,16 +1035,11 @@ async function ofDesdeBase(id){
   const g = await api('/api/os/api/ofertas', { method: 'POST', body: JSON.stringify({
     id, titulo: actual.titulo,
     notas: (document.getElementById('of-notas') || {}).value || '',
+    puntos: v('ofPuntos'), min_ext: v('ofMin'), max_ext: v('ofMax'),
     lineas: r.lineas }) });
   if (!g || !g.ok) { if (av) av.textContent = 'Se armó, pero no se pudo guardar'; return; }
+  toast('Precios guardados: base ' + r.base + ', ' + r.puntos + ' punto(s) sobre el costo');
 
-  if (av) {
-    const n = (r.avisos || []).length;
-    av.innerHTML = n
-      ? '<b>Ojo:</b> ' + r.avisos.map(a => esc(a.corto) + ' — ' + esc(a.porque) + ', queda en ' + a.queda).join(' · ')
-        + '<br><span class="muted">Son los que se vendían por debajo del costo. El piso los levantó solo.</span>'
-      : 'Listo. ' + (r.lineas || []).filter(l => l.sello).length + ' proveedor(es) con precio propio.';
-  }
   ofAbrir(id);
 }
 
