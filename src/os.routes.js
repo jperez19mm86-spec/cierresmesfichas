@@ -3067,6 +3067,15 @@ function mount(app) {
   }));
   app.delete('/api/os/api/ofertas/:id', wrap((req, res) => ok(res, ofertas.removeOferta(req.params.id))));
 
+  /* El precio de UN sello, a mano. Vacío lo devuelve al precio de su paquete. */
+  app.put('/api/os/api/ofertas/:id/precio', wrap((req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const b = req.body || {};
+    const r = ofertas.precioDeSello(o, b.sello, b.pct);
+    r.ok ? ok(res, { ...r, mostrar: ofertas.paraMostrar(r.oferta) }) : err(res, 400, r.error);
+  }));
+
   /* Qué proveedores NO van en esta oferta. Ruta propia y no `saveOferta` entero: destildar una
      casilla no tiene por qué reescribir las líneas de precio, y si la pantalla mandara una lista
      vieja de líneas junto con la casilla, pisaría precios sin que nadie lo pidiera. */

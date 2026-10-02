@@ -671,13 +671,18 @@ const API={};
    Acá la oferta ES el precio: se arma con PAQUETES —no con los 51 sellos uno por uno— se mira el
    documento, y al aplicarla escribe la matriz. Antes de escribir muestra qué cambia, porque un
    cliente que ya venía facturando puede tener precios negociados que la oferta no menciona. */
-let _ofSel=null, _ofPaquetes=[], _ofClientes=[];
+let _ofSel=null, _ofPaquetes=[], _ofClientes=[], _ofSellos=new Map();
 
 API.ofertas = async () => {
   const b=document.getElementById('api-body');
   b.innerHTML='<div class="card"><div class="muted">Cargando…</div></div>';
-  const [lo,lp,lc]=await Promise.all([api('/api/os/api/ofertas'),api('/api/os/api/paquetes'),api('/api/os/api/clientes')]);
+  const [lo,lp,lc,ls]=await Promise.all([api('/api/os/api/ofertas'),api('/api/os/api/paquetes'),
+    api('/api/os/api/clientes'),api('/api/os/api/sellos')]);
   _ofPaquetes=lp.paquetes||[]; _ofClientes=(lc.clientes||[]).filter(c=>c.activo);
+  /* El costo vive acá y NO en lo que devuelve `paraMostrar`: ese payload es el que arma el
+     documento del cliente, y la forma más segura de no filtrar un dato interno es no tenerlo a
+     mano cuando se dibuja la hoja. Se junta del lado de la pantalla, que sí puede verlo. */
+  _ofSellos=new Map((ls.sellos||[]).map(x=>[x.nombre,x]));
   const ofs=lo.ofertas||[];
   const nom=(c)=>String(c.de_quien||'').trim()||c.login;
   b.innerHTML=`
@@ -709,6 +714,58 @@ API.ofertas = async () => {
     <div id="of-editor"></div>`;
   if(_ofSel) ofAbrir(_ofSel);
 };
+
+/* ── CAMBIARLE EL PRECIO A UNO, ANTES DE MANDAR ──────────────────────────────────────────────
+   La tarifa es una regla pareja y la negociación no lo es: "me lo dejás a 9 y cerramos". Acá se
+   pisa el precio de uno sin tocar el resto, y vacío lo devuelve al de su paquete.
+
+   ⚠️ La unidad de precio es el SELLO. Si trae un proveedor solo, cambiarlo es cambiar exactamente
+   a ése. Si trae varios —se compran juntos— el precio se mueve para todos, y la fila lo dice antes
+   de que lo toques: cotizarle a un cliente un número que no existe se descubre al facturar. */
+function ofAMano(m){
+  const filas=[];
+  for(const g of (m.grupos||[])) for(const i of (g.items||[])){
+    const meta=_ofSellos.get(i.sello)||{};
+    const costo=Number(String(meta.costo??'').replace(',','.'))||0;
+    filas.push({...i, grupo:g.nombre, costo, mg:Math.round((Number(i.pct)-costo)*10)/10});
+  }
+  if(!filas.length) return '';
+  filas.sort((a,b)=>a.mg-b.mg);
+  const tocados=filas.filter(f=>f.suelto).length;
+  return `<details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:13px">✏️ Cambiarle el precio a uno${
+      tocados?` <span class="badge warn">${tocados} a mano</span>`:''}</summary>
+    <div class="muted" style="font-size:11.5px;margin:8px 0">
+      Pisa el precio de ese proveedor sin tocar los demás. Vaciá la casilla para que vuelva al
+      precio que le da la regla. Ordenado por lo que te deja, de menos a más.</div>
+    <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
+      <th>Proveedor</th><th>Sección</th><th class="right">Te cuesta</th>
+      <th class="right">Precio</th><th class="right">Te quedan</th></tr></thead><tbody>
+      ${filas.map(f=>{
+        const provs=f.proveedores||[];
+        const juntos=provs.length>1;
+        return `<tr>
+          <td><b>${esc(provs[0]||f.corto)}</b>${juntos
+            ? ` <span class="muted" style="font-size:10.5px" title="${esc(provs.join(', '))}">+${provs.length-1} en el mismo sello</span>`:''}</td>
+          <td class="muted" style="font-size:11px">${esc(f.grupo)}</td>
+          <td class="right muted">${String(f.costo).replace('.',',')}%</td>
+          <td class="right"><input value="${esc(String(f.pct))}" style="width:66px;text-align:center;
+            font-size:13px${f.suelto?';border-color:var(--gold)':''}"
+            onchange="ofPrecioUno('${esc(f.sello).replace(/'/g,'&#39;')}',this.value)"></td>
+          <td class="right"${f.mg<2?' style="color:#a3341f;font-weight:700"':''}>${String(f.mg).replace('.',',')}</td>
+        </tr>`;}).join('')}
+    </tbody></table></div></details>`;
+}
+async function ofPrecioUno(sello, pct){
+  const r=await api('/api/os/api/ofertas/'+_ofSel+'/precio',
+    {method:'PUT', body:JSON.stringify({sello, pct})});
+  if(!r||!r.ok) return;
+  /* Los avisos van en un toast y no en un cartel fijo: son de ESE cambio, y un cartel que queda
+     puesto después de corregirlo dice algo que ya no es cierto. */
+  if((r.avisos||[]).length) toast('⚠ '+r.avisos.join(' '));
+  else if(r.vuelveAlPaquete) toast('Vuelve al precio que le da la regla');
+  ofAbrir(_ofSel);
+}
 
 /* ── QUÉ PROVEEDORES VAN EN ESTA OFERTA ──────────────────────────────────────────────────────
    No todo lo que está en el catálogo se le ofrece a todos. La lista es de la OFERTA, no del
@@ -880,7 +937,7 @@ async function ofAbrir(id){
         <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
           <div><label style="font-size:10.5px">Base</label>
             <div class="of-mando"><input type="range" id="ofBase" min="2" max="12" step="1"
-              value="${esc(String(o.base_usada || 10))}" oninput="ofPrevia('${o.id}')">
+              value="${esc(String(o.base || 10))}" oninput="ofPrevia('${o.id}')">
               <b id="ofBaseV"></b></div></div>
           <div><label style="font-size:10.5px">Tus puntos sobre el externo</label>
             <div class="of-mando"><input type="range" id="ofPuntos" min="2" max="14" step="0.5"
@@ -930,6 +987,7 @@ async function ofAbrir(id){
           <div class="muted" style="font-size:11px;margin-top:4px">${p.sellos.length} sellos</div>
         </div>`).join('')}
       </div>
+      ${ofAMano(m)}
       ${ofQuienVa(m)}
       ${ofMezclados(m)}
       <div class="row" style="margin-top:12px"><div style="flex:1">
@@ -1088,7 +1146,7 @@ async function ofDesdeBase(id){
   const g = await api('/api/os/api/ofertas', { method: 'POST', body: JSON.stringify({
     id, titulo: actual.titulo,
     notas: (document.getElementById('of-notas') || {}).value || '',
-    puntos: v('ofPuntos'), min_ext: v('ofMin'), max_ext: v('ofMax'),
+    base: String(r.base), puntos: v('ofPuntos'), min_ext: v('ofMin'), max_ext: v('ofMax'),
     lineas: r.lineas }) });
   if (!g || !g.ok) { if (av) av.textContent = 'Se armó, pero no se pudo guardar'; return; }
   toast('Precios guardados: base ' + r.base + ', ' + r.puntos + ' punto(s) sobre el costo');

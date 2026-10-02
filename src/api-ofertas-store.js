@@ -74,7 +74,7 @@ db.exec(`
 `);
 
 /* Los topes y los puntos viven en la oferta: son de ESE cliente, no del catálogo. */
-for (const c of ['puntos TEXT', 'min_ext TEXT', 'max_ext TEXT', 'excluidos TEXT']) {
+for (const c of ['puntos TEXT', 'min_ext TEXT', 'max_ext TEXT', 'excluidos TEXT', 'base TEXT']) {
   try { db.exec('ALTER TABLE api_oferta ADD COLUMN ' + c); } catch (e) { /* ya la tiene */ }
 }
 
@@ -267,18 +267,82 @@ function saveOferta(d) {
     : JSON.stringify([...new Set((Array.isArray(d.excluidos) ? d.excluidos : [])
         .map((x) => _clave(x)).filter(Boolean))]);
   db.prepare(`INSERT INTO api_oferta (id,titulo,cliente_id,lineas,notas,estado,createdAt,aplicadaAt,
-      puntos,min_ext,max_ext,excluidos)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      puntos,min_ext,max_ext,excluidos,base)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET titulo=excluded.titulo, cliente_id=excluded.cliente_id,
       lineas=excluded.lineas, notas=excluded.notas, puntos=excluded.puntos,
-      min_ext=excluded.min_ext, max_ext=excluded.max_ext, excluidos=excluded.excluidos`)
+      min_ext=excluded.min_ext, max_ext=excluded.max_ext, excluidos=excluded.excluidos,
+      base=excluded.base`)
     .run(id, titulo, d.cliente_id || (prev && prev.cliente_id) || null, JSON.stringify(lineas),
       String(d.notas || ''), (prev && prev.estado) || 'borrador',
       (prev && prev.createdAt) || nowISO(), (prev && prev.aplicadaAt) || null,
       opt(d.puntos, prev && prev.puntos), opt(d.min_ext, prev && prev.min_ext),
-      opt(d.max_ext, prev && prev.max_ext), excl);
+      opt(d.max_ext, prev && prev.max_ext), excl, opt(d.base, prev && prev.base));
   return { ok: true, oferta: getOferta(id) };
 }
+/**
+ * ── CAMBIARLE EL PRECIO A UNO SOLO, ANTES DE MANDAR LA OFERTA ────────────────────────────────
+ *
+ * La tarifa es una regla pareja y la negociación no lo es: "me lo dejás a 9 y cerramos". Esto
+ * escribe el precio de UN sello como línea suelta, que le gana al paquete, sin tocar el resto.
+ *
+ * ⚠️ LA UNIDAD DE PRECIO ES EL SELLO, NO EL PROVEEDOR. Si el sello trae uno solo, cambiarlo es
+ *    exactamente cambiar ese proveedor. Si trae varios —"Galaxsys, OneTouch, 3 Oaks" se compran
+ *    juntos— no hay forma de cobrarle distinto a uno de ellos: el precio se mueve para los tres.
+ *    La pantalla lo dice antes de tocar, porque descubrirlo después es haberle cotizado a un
+ *    cliente un número que no existe.
+ *
+ * El piso de costo + MARGEN_MINIMO NO se fuerza acá: si el dueño decide vender algo al costo para
+ * cerrar una cuenta, es su decisión y el sistema no está para discutírsela. Lo que sí hace es
+ * devolver el aviso, para que sea una decisión y no un descuido.
+ */
+function precioDeSello(oferta, sello, pct) {
+  const nombre = String(sello || '').trim();
+  if (!nombre) return { ok: false, error: 'falta el sello' };
+  const meta = apiStore.listSellos().find((s) => s.nombre === nombre);
+  if (!meta) return { ok: false, error: 'ese sello no existe' };
+
+  const lineas = (oferta.lineas || []).filter((l) => l.sello !== nombre);
+  const vacio = pct == null || String(pct).trim() === '';
+  /* ⚠️ VACIARLO NO PUEDE SER "QUE CAIGA AL PAQUETE". La línea de paquete de un externo es un
+     relleno —`costo 0 + tus puntos`— que existe sólo para un sello nuevo todavía sin costo. Si al
+     borrar la excepción el sello cayera ahí, Betsoft pasaba de 18% a 3% costando 15, en silencio y
+     con un campo que el dueño vació para "volver atrás". Volver atrás es volver al precio que la
+     regla le daba, así que se recalcula con la base y los puntos de ESTA oferta. */
+  if (vacio) {
+    const n = (v) => (v == null || v === '' ? null : Number(String(v).replace(',', '.')));
+    const b = n(oferta.base);
+    const t = tipoDePaquete((listPaquetes().find((p) => (p.sellos || []).includes(nombre)) || {}).nombre);
+    if (b != null && t && t !== 'base' && t !== 'base+') {
+      const costo0 = Number(String(meta.costo ?? '').replace(',', '.')) || 0;
+      const puntos = n(oferta.puntos) != null ? n(oferta.puntos) : puntosDeBase(b);
+      const vuelta = Math.round(precioExterno(costo0, puntos, n(oferta.min_ext), n(oferta.max_ext)) * 10) / 10;
+      lineas.push({ paquete_id: null, sello: nombre, pct: String(vuelta) });
+    }
+  }
+  if (!vacio) {
+    const v = String(pct).trim();
+    if (!money.esNumero(v)) return { ok: false, error: `"${v}" no es un número. Usá punto para los decimales: 12.5` };
+    if (money.isNeg(v)) return { ok: false, error: `${v} es negativo` };
+    if (money.cmp(v, '100') > 0) return { ok: false, error: `${v} pasa de 100%` };
+    lineas.push({ paquete_id: null, sello: nombre, pct: v });
+  }
+  const r = saveOferta({ ...oferta, lineas });
+  if (!r.ok) return r;
+
+  const costo = Number(String(meta.costo ?? '').replace(',', '.')) || 0;
+  const avisos = [];
+  if (!vacio && Number(pct) < costo + MARGEN_MINIMO) {
+    avisos.push(`${meta.corto} cuesta ${costo}%: a ${pct}% te quedan ${(Number(pct) - costo).toFixed(1)} puntos.`);
+  }
+  const provs = proveedoresDe(nombre);
+  if (provs.length > 1) {
+    avisos.push(`Ese precio es del sello ${meta.corto}, que trae ${provs.length} proveedores juntos: `
+      + `${provs.join(', ')}. Se movieron todos.`);
+  }
+  return { ...r, avisos, vuelveAlPaquete: vacio };
+}
+
 function removeOferta(id) {
   return { ok: true, borrados: db.prepare('DELETE FROM api_oferta WHERE id=?').run(String(id)).changes };
 }
@@ -817,6 +881,6 @@ module.exports = {
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
   sellosSacados,
   listSecciones, setSeccion, seccionesDeProveedor,
-  listOfertas, getOferta, saveOferta, removeOferta,
+  listOfertas, getOferta, saveOferta, removeOferta, precioDeSello,
   resolver, diff, aplicar, paraMostrar,
 };

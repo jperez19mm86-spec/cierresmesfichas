@@ -229,7 +229,8 @@ function cuentas({ mes, cliente_id = null } = {}) {
 
   // El GGR guardado, sello por sello: { grupo → { cuenta → { divisa → profit } } }
   const ggr = {}; const sinTraer = [];
-  sellosEnUso().forEach((s) => {
+  const enUso = sellosEnUso();
+  enUso.forEach((s) => {
     const hit = ganCache.get(c.cx.id, `_api_${s.grupo_id}`, m, '_todas');
     if (hit) ggr[s.grupo_id] = hit.filas; else sinTraer.push(s.corto);
   });
@@ -374,10 +375,25 @@ function cuentas({ mes, cliente_id = null } = {}) {
     const conPrecio = movieronSinCobrar.filter((c) => c.enLaFoto && c.precios);
     const sinPrecioNinguno = movieronSinCobrar.filter((c) => c.enLaFoto && !c.precios);
     if (fuera.length) {
-      avisos.push(`🚨 ${fuera.length} cuenta(s) movieron y TBS ya NO las devuelve bajo esta conexión: `
-        + `${fuera.map((c) => c.cuenta).join(' · ')}. No están en el árbol con ningún rango de fechas, `
-        + 'así que no hay GGR que facturar y cargarles precios NO lo arregla. Lo único que queda de su '
-        + 'movimiento es el reporte diario. Hay que reclamarle el acceso al proveedor.');
+      /* ⚠️ `enLaFoto` se lee contra la foto del mes, así que SIN FOTO da falso en todas: con `ggr`
+         vacío, cualquier cuenta que movió parece perdida. El 2-oct-2026 el aviso daba por perdidas
+         las 9 cuentas de septiembre —NachoAPI incluida, que es el 60% del GGR— y TBS las devolvía
+         todas con `faltantes: []`: lo único que faltaba era sacar la foto del mes.
+
+         Mandar a reclamarle el acceso al proveedor por un mes sin precargar es hacer perder una
+         mañana y quedar mal con el proveedor por un dato que no se miró. Si falta buena parte de la
+         foto, el aviso dice lo que de verdad hay que hacer: precargar y volver a mirar. */
+      const sinFoto = enUso.length > 0 && sinTraer.length >= enUso.length / 2;
+      avisos.push(sinFoto
+        ? `⚠️ ${fuera.length} cuenta(s) movieron y no aparecen en la foto del mes, pero la foto está `
+          + `casi vacía (${sinTraer.length} de ${enUso.length} sellos sin traer): con la foto `
+          + 'incompleta TODA cuenta que movió cae acá, haya acceso o no. '
+          + `Precargá ${m} y volvé a mirar ANTES de sacar conclusiones. Son: `
+          + `${fuera.map((c) => c.cuenta).join(' · ')}.`
+        : `🚨 ${fuera.length} cuenta(s) movieron y TBS ya NO las devuelve bajo esta conexión: `
+          + `${fuera.map((c) => c.cuenta).join(' · ')}. No están en el árbol con ningún rango de fechas, `
+          + 'así que no hay GGR que facturar y cargarles precios NO lo arregla. Lo único que queda de su '
+          + 'movimiento es el reporte diario. Hay que reclamarle el acceso al proveedor.');
     }
     if (sinPrecioNinguno.length) {
       avisos.push(`⚠️ ${sinPrecioNinguno.length} cuenta(s) MOVIERON este mes y no tienen NINGÚN precio cargado, `
