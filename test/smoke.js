@@ -1826,6 +1826,24 @@ async function main() {
       r.get('ZZ-dos').pct === '15' && r.get('ZZ-dos').suelto === true
       && r.get('ZZ-dos').paquete_id === P1.id,
       'ZZ-dos va a 15% y sigue mostrándose dentro de ' + P1.nombre);
+    /* ── GUARDAR DOS VECES LA MISMA OFERTA ────────────────────────────────────────────────────
+       `getOferta` devuelve `excluidos` ya parseado a array, y al reguardar sin tocar las casillas
+       ese array llegaba tal cual a la consulta. better-sqlite3 toma un array como LA LISTA DE
+       PARÁMETROS, no como un valor: con uno vacío aportaba cero y moría con «Too few parameter
+       values were provided». Guardar dejó de funcionar para toda oferta que ya existía, y no se vio
+       porque las pruebas pasaban `excluidos` explícito. Esta prueba recorre el camino de la
+       pantalla: armar, guardar, volver a guardar. */
+    {
+      const g1 = ofs.saveOferta({ id: O.id, titulo: O.titulo, lineas: O.lineas, base: '3', puntos: '5.5' });
+      check('oferta: se puede volver a guardar una que ya existe', g1.ok === true,
+        g1.ok ? 'base ' + g1.oferta.base + ' · puntos ' + g1.oferta.puntos : g1.error);
+      const g2 = ofs.saveOferta({ ...ofs.getOferta(O.id), excluidos: ['ZZ-prov'] });
+      const g3 = ofs.saveOferta({ id: O.id, titulo: O.titulo, lineas: O.lineas });
+      check('oferta: reguardar sin tocar las casillas conserva lo sacado',
+        g2.ok === true && g3.ok === true && JSON.stringify(g3.oferta.excluidos) === '["zzprov"]',
+        g3.ok ? JSON.stringify(g3.oferta.excluidos) : g3.error);
+      ofs.saveOferta({ ...ofs.getOferta(O.id), excluidos: [] });   // se deja como estaba
+    }
     // El % pasa el mismo control que la matriz del cierre, por el mismo motivo.
     check('oferta: un % mal escrito no entra',
       ofs.saveOferta({ titulo: 'ZZ mal', lineas: [{ paquete_id: P1.id, pct: '12,5' }] }).ok === false

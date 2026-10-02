@@ -261,10 +261,16 @@ function saveOferta(d) {
   const opt = (v, ant) => (v === undefined ? (ant == null ? null : String(ant))
     : (v === '' || v === null ? null : String(v).trim()));
   /* Los sacados se guardan por su clave normalizada: "Play'n GO" y "Playngo" son el mismo, y si
-     se guardara el nombre tal cual, sacarlo en un sello no lo sacaría del otro. */
-  const excl = d.excluidos === undefined
-    ? ((prev && prev.excluidos) || '[]')
-    : JSON.stringify([...new Set((Array.isArray(d.excluidos) ? d.excluidos : [])
+     se guardara el nombre tal cual, sacarlo en un sello no lo sacaría del otro.
+
+     🔴 SIEMPRE TEXTO, NUNCA EL ARRAY. `getOferta` devuelve `excluidos` ya parseado, así que al
+     reguardar una oferta sin tocar las casillas acá entraba un ARRAY — y better-sqlite3 toma un
+     array como LA LISTA DE PARÁMETROS de la consulta, no como un valor. Con uno vacío aportaba
+     cero parámetros y la consulta entera moría con «Too few parameter values were provided»:
+     guardar la oferta dejó de funcionar para toda oferta que ya existía. */
+  const prevExcl = Array.isArray(prev && prev.excluidos) ? prev.excluidos : [];
+  const excl = JSON.stringify(d.excluidos === undefined ? prevExcl
+    : [...new Set((Array.isArray(d.excluidos) ? d.excluidos : [])
         .map((x) => _clave(x)).filter(Boolean))]);
   db.prepare(`INSERT INTO api_oferta (id,titulo,cliente_id,lineas,notas,estado,createdAt,aplicadaAt,
       puntos,min_ext,max_ext,excluidos,base)
