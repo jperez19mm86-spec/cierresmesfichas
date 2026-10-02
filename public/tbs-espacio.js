@@ -710,6 +710,57 @@ API.ofertas = async () => {
   if(_ofSel) ofAbrir(_ofSel);
 };
 
+/* ── QUÉ PROVEEDORES VAN EN ESTA OFERTA ──────────────────────────────────────────────────────
+   No todo lo que está en el catálogo se le ofrece a todos. La lista es de la OFERTA, no del
+   catálogo: destildar a alguien acá no lo saca de ningún otro cliente.
+
+   ⚠️ Y hace dos cosas distintas según de dónde venga, así que la casilla lo dice:
+   · El que está SOLO en su sello se saca de verdad — no se cotiza, no entra en la matriz, el
+     cliente no lo tiene.
+   · El que comparte sello con otros no se puede sacar: el sello se compra en bolsa y se vende
+     igual. Lo único que pasa es que el nombre no figura en la hoja, y el cliente lo va a tener.
+     Esconder algo que igual va a recibir es la clase de verdad a medias que se descubre sola, así
+     que la casilla avisa antes, no después. */
+function ofQuienVa(m){
+  const cat = m.catalogo || [];
+  if(!cat.length) return '';
+  const fuera = new Set(m.excluidos || []);
+  const clave = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const sacados = cat.filter(c => fuera.has(clave(c.prov)));
+  const escondidos = sacados.filter(c => !c.solo);
+  return `<details style="margin-top:12px"${sacados.length?' open':''}>
+    <summary style="cursor:pointer;font-size:13px">☑️ Qué proveedores van en esta oferta
+      <span class="muted">— ${cat.length - sacados.length} de ${cat.length}</span>${
+      sacados.length?` <span class="badge warn">${sacados.length} afuera</span>`:''}</summary>
+    <div class="muted" style="font-size:11.5px;margin:8px 0">
+      Destildá al que no quieras ofrecerle a <b>este</b> cliente. El que está solo en su sello se
+      saca de verdad: no se le cotiza. Al que <b>comparte sello</b> (marcado) no se lo puede sacar
+      —se compra en bolsa— y sólo deja de figurar en la hoja; el cliente lo va a tener igual.</div>
+    ${escondidos.length?`<div class="muted" style="font-size:11.5px;margin:0 0 8px;color:#a3341f">
+      <b>Ojo:</b> ${escondidos.map(c=>esc(c.prov)).join(', ')} ${escondidos.length===1?'queda':'quedan'}
+      fuera de la hoja pero el cliente ${escondidos.length===1?'lo va':'los va'} a tener igual.</div>`:''}
+    <div class="of-casillas">${cat.map(c => {
+      const dentro = !fuera.has(clave(c.prov));
+      return `<label class="of-casilla${dentro?'':' fuera'}" title="viene en ${esc(c.sellos.join(', '))}">
+        <input type="checkbox"${dentro?' checked':''}
+          onchange="ofExcluir('${esc(c.prov).replace(/'/g,'&#39;')}',this.checked)">
+        <span>${esc(c.prov)}</span>${c.solo?'':'<i title="comparte sello: sacarlo sólo lo esconde">⊂</i>'}
+      </label>`;
+    }).join('')}</div>
+  </details>`;
+}
+/* Se manda la lista entera y no "este sí / este no": si dos pestañas tocan la misma oferta, el
+   último en guardar define, y una lista completa no puede dejar un estado a medias. */
+async function ofExcluir(prov, dentro){
+  const m = _ofMostrar || {};
+  const clave = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const fuera = new Set(m.excluidos || []);
+  dentro ? fuera.delete(clave(prov)) : fuera.add(clave(prov));
+  const r = await api('/api/os/api/ofertas/' + _ofSel + '/excluidos',
+    { method:'PUT', body: JSON.stringify({ excluidos: [...fuera] }) });
+  if (r && r.ok) ofAbrir(_ofSel);
+}
+
 /* ── LAS BOLSAS MEZCLADAS DE TBS ─────────────────────────────────────────────────────────────
    Un sello puede traer varios proveedores juntos y a veces son productos distintos:
    "MICROGAMING LIVE, PLATIPUS, MICROGAMING" es una mesa en vivo y dos catálogos de slots, y se
@@ -803,6 +854,7 @@ async function ofAbrir(id){
   const r=await api('/api/os/api/ofertas/'+id);
   if(!r||!r.ok) return;
   const o=r.oferta, m=r.mostrar;
+  _ofMostrar = m;
   const pctDe=(pid)=>{const l=(o.lineas||[]).find(x=>x.paquete_id===pid); return l?(l.pct||''):'';};
   const nom=(c)=>String(c.de_quien||'').trim()||c.login;
   cont.innerHTML=`
@@ -878,6 +930,7 @@ async function ofAbrir(id){
           <div class="muted" style="font-size:11px;margin-top:4px">${p.sellos.length} sellos</div>
         </div>`).join('')}
       </div>
+      ${ofQuienVa(m)}
       ${ofMezclados(m)}
       <div class="row" style="margin-top:12px"><div style="flex:1">
         <label>Nota para el documento (opcional)</label>
@@ -923,7 +976,7 @@ async function ofAbrir(id){
 
    Se espera 220 ms antes de preguntar: arrastrando la base salen veinte movimientos por segundo
    y no hace falta contestarlos todos, sólo el último. */
-let _ofPtsManual = false, _ofPrevia = null, _ofTimer = null, _ofVolumen = null;
+let _ofPtsManual = false, _ofPrevia = null, _ofTimer = null, _ofVolumen = null, _ofMostrar = null;
 
 function ofValores(){
   const v = (id) => ((document.getElementById(id) || {}).value || '').trim();

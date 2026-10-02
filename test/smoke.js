@@ -1928,10 +1928,16 @@ async function main() {
     const re = await axios.get(BASE + '/tbs', H());
     check('cache: sigue mandando ETag, así revalidar no cuesta nada', !!re.headers.etag,
       String(re.headers.etag || '').slice(0, 24));
-    // Lo que NO es HTML sí puede cachearse: no cambia en cada despliegue.
+    /* El .js y el .css del panel también se revalidan. Estaban con max-age=3600 y el panel los
+       carga SIN `?v=`: un arreglo subido tardaba hasta una hora en llegarle a quien ya había
+       entrado ese día, conviviendo el HTML nuevo con el JavaScript viejo. Sólo se quedan la hora
+       las imágenes y las tipografías, que pesan y que cuando cambian cambian de nombre. */
     const srcIdx6 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
-    check('cache: sólo los HTML se revalidan; el resto se cachea',
-      /\.html\?\$\/i\.test\(ruta\) \? 'no-cache' : 'public, max-age=3600'/.test(srcIdx6));
+    check('cache: el js y el css del panel se revalidan, no se cachean una hora',
+      /ESTABLE\.test\(ruta\) \? 'public, max-age=3600' : 'no-cache'/.test(srcIdx6));
+    const estable = (srcIdx6.match(/const ESTABLE = \/\\\.\(([^)]*)\)/) || [])[1] || '';
+    check('cache: la lista de lo que sí se cachea no incluye js ni css',
+      !!estable && !/\bjs\b|\bcss\b/.test(estable), estable.slice(0, 50));
   }
 
   /* ── 💬 CHAT EXTERNO ─────────────────────────────────────────────────────────────────────────

@@ -398,3 +398,20 @@ tr.vta-ahora.vta-ok td{background:#eaf5ec}
   .of-t .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:2px; }
   .of-t .n { font-size:11px; color:var(--muted); margin-top:1px; }
   @media (max-width:560px){ .of-mando input[type=range]{ width:130px } .of-t{ min-width:130px } }
+
+  /* ── LAS CASILLAS DE QUIÉN VA EN LA OFERTA ─────────────────────────────────────────────────
+     Ochenta y un nombres: en una columna no se recorren, y en una grilla rígida los nombres largos
+     se cortan. Columnas que se acomodan solas, y el destildado se apaga para que los que están
+     afuera se vean de un golpe sin tener que mirar casilla por casilla. */
+  .of-casillas { display:grid; grid-template-columns:repeat(auto-fill,minmax(205px,1fr));
+                 gap:1px 16px; margin-top:4px }
+  /* Es un <label>, así que hereda el de arriba: bloque, MAYÚSCULAS y color apagado. Un nombre de
+     proveedor no es el rótulo de un campo — se escribe como se escribe y en una sola línea. */
+  .of-casilla { display:flex; align-items:center; gap:7px; padding:3px 0; margin:0;
+                font-size:12.5px; text-transform:none; letter-spacing:normal;
+                color:var(--text); cursor:pointer; min-width:0 }
+  .of-casilla input[type=checkbox] { width:auto; margin:0; padding:0; flex:0 0 auto;
+                accent-color:var(--gold); cursor:pointer }
+  .of-casilla span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .of-casilla i { font-style:normal; color:var(--muted); font-size:11px; cursor:help; flex:0 0 auto }
+  .of-casilla.fuera span { color:var(--muted); text-decoration:line-through }

@@ -74,7 +74,7 @@ db.exec(`
 `);
 
 /* Los topes y los puntos viven en la oferta: son de ESE cliente, no del catálogo. */
-for (const c of ['puntos TEXT', 'min_ext TEXT', 'max_ext TEXT']) {
+for (const c of ['puntos TEXT', 'min_ext TEXT', 'max_ext TEXT', 'excluidos TEXT']) {
   try { db.exec('ALTER TABLE api_oferta ADD COLUMN ' + c); } catch (e) { /* ya la tiene */ }
 }
 
@@ -231,11 +231,11 @@ function removePaquete(id) {
 // ── ofertas ──────────────────────────────────────────────────────────────────
 function listOfertas() {
   return db.prepare('SELECT * FROM api_oferta ORDER BY createdAt DESC').all()
-    .map((r) => ({ ...r, lineas: J(r.lineas, []) }));
+    .map((r) => ({ ...r, lineas: J(r.lineas, []), excluidos: J(r.excluidos, []) }));
 }
 function getOferta(id) {
   const r = db.prepare('SELECT * FROM api_oferta WHERE id=?').get(String(id));
-  return r ? { ...r, lineas: J(r.lineas, []) } : null;
+  return r ? { ...r, lineas: J(r.lineas, []), excluidos: J(r.excluidos, []) } : null;
 }
 function saveOferta(d) {
   const titulo = String(d.titulo || '').trim();
@@ -260,17 +260,23 @@ function saveOferta(d) {
      todos los externos, que es justo el error que el campo tiene que evitar. */
   const opt = (v, ant) => (v === undefined ? (ant == null ? null : String(ant))
     : (v === '' || v === null ? null : String(v).trim()));
+  /* Los sacados se guardan por su clave normalizada: "Play'n GO" y "Playngo" son el mismo, y si
+     se guardara el nombre tal cual, sacarlo en un sello no lo sacaría del otro. */
+  const excl = d.excluidos === undefined
+    ? ((prev && prev.excluidos) || '[]')
+    : JSON.stringify([...new Set((Array.isArray(d.excluidos) ? d.excluidos : [])
+        .map((x) => _clave(x)).filter(Boolean))]);
   db.prepare(`INSERT INTO api_oferta (id,titulo,cliente_id,lineas,notas,estado,createdAt,aplicadaAt,
-      puntos,min_ext,max_ext)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      puntos,min_ext,max_ext,excluidos)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET titulo=excluded.titulo, cliente_id=excluded.cliente_id,
       lineas=excluded.lineas, notas=excluded.notas, puntos=excluded.puntos,
-      min_ext=excluded.min_ext, max_ext=excluded.max_ext`)
+      min_ext=excluded.min_ext, max_ext=excluded.max_ext, excluidos=excluded.excluidos`)
     .run(id, titulo, d.cliente_id || (prev && prev.cliente_id) || null, JSON.stringify(lineas),
       String(d.notas || ''), (prev && prev.estado) || 'borrador',
       (prev && prev.createdAt) || nowISO(), (prev && prev.aplicadaAt) || null,
       opt(d.puntos, prev && prev.puntos), opt(d.min_ext, prev && prev.min_ext),
-      opt(d.max_ext, prev && prev.max_ext));
+      opt(d.max_ext, prev && prev.max_ext), excl);
   return { ok: true, oferta: getOferta(id) };
 }
 function removeOferta(id) {
@@ -286,17 +292,58 @@ function removeOferta(id) {
  *
  * @returns Map(nombreSello → { pct, paquete_id, suelto })
  */
-function resolver(oferta) {
+/**
+ * ── SACAR UN PROVEEDOR DE UNA OFERTA ─────────────────────────────────────────────────────────
+ *
+ * No todo lo que está en el catálogo se le ofrece a todos. Un proveedor sacado desaparece de la
+ * hoja de ESE cliente —la lista es de la oferta, no del catálogo— y no se le cotiza.
+ *
+ * ⚠️ PERO EL SELLO SE COMPRA EN BOLSA. Si el sello trae un solo proveedor, sacarlo lo saca de
+ *    verdad: no se cotiza, no entra en la matriz, el cliente no lo tiene. Si el sello trae varios
+ *    —"Galaxsys, OneTouch, 3 Oaks" se compran juntos— sacar a uno NO saca a los otros, así que el
+ *    sello se sigue vendiendo y lo único que pasa es que ese nombre no figura en la hoja. El
+ *    cliente lo va a tener igual. Por eso la pantalla lo dice con todas las letras: esconder algo
+ *    que el cliente igual va a recibir es una verdad a medias, y la que se descubre sola.
+ *
+ * @returns Set de nombres de sello que quedan fuera por completo (todos sus proveedores sacados)
+ */
+function sellosSacados(oferta) {
+  const fuera = new Set((oferta.excluidos || []).map((x) => _clave(x)));
+  const out = new Set();
+  if (!fuera.size) return out;
+  for (const s of apiStore.listSellos()) {
+    const provs = proveedoresDe(s.nombre);
+    if (provs.length && provs.every((p) => fuera.has(_clave(p)))) out.add(s.nombre);
+  }
+  return out;
+}
+
+/**
+ * @param oferta
+ * @param opts  `ignorarSacados` devuelve TODO lo que la oferta cotizaría si no hubieras sacado a
+ *              nadie. Lo usa la lista de casillas: si se armara con lo que queda, el proveedor que
+ *              acabás de destildar desaparecería de la lista y no habría forma de volver a
+ *              ponerlo. Una casilla que al apagarse se borra a sí misma es una puerta de una sola
+ *              dirección, y no se ve hasta que la cruzás.
+ */
+function resolver(oferta, opts) {
   const paq = new Map(listPaquetes().map((p) => [p.id, p]));
+  /* Lo que se sacó entero no se cotiza. Va acá y no sólo en el documento: `diff` y `aplicar` salen
+     de esta misma función, así que un sello sacado tampoco entra en la matriz — si sólo lo
+     escondiera la hoja, se lo seguiría facturando. */
+  const sacados = (opts && opts.ignorarSacados) ? new Set() : sellosSacados(oferta);
   const out = new Map();
   for (const l of oferta.lineas || []) {
     if (!l.paquete_id || l.pct == null) continue;
     const p = paq.get(l.paquete_id);
     if (!p) continue;
-    for (const s of p.sellos) out.set(s, { pct: l.pct, paquete_id: p.id, suelto: false });
+    for (const s of p.sellos) {
+      if (sacados.has(s)) continue;
+      out.set(s, { pct: l.pct, paquete_id: p.id, suelto: false });
+    }
   }
   for (const l of oferta.lineas || []) {
-    if (!l.sello || l.pct == null) continue;
+    if (!l.sello || l.pct == null || sacados.has(l.sello)) continue;
     const ya = out.get(l.sello);
     out.set(l.sello, { pct: l.pct, paquete_id: ya ? ya.paquete_id : null, suelto: true });
   }
@@ -382,9 +429,14 @@ function paraMostrar(oferta) {
   const seccion = seccionesDeProveedor();
   const hay = new Set(grupos.map((g) => g.paquete_id).filter(Boolean));
   const porGrupo = new Map(grupos.map((g) => [g.paquete_id, []]));
+  /* Los sacados que SOBREVIVEN acá son los que comparten sello con otros que sí van: el sello se
+     vende igual y lo único que se puede hacer es no nombrarlos. Los que estaban solos en su sello
+     ya no llegaron: `resolver` los dejó sin precio. */
+  const fuera = new Set((oferta.excluidos || []).map((x) => _clave(x)));
   for (const g of grupos) {
     for (const i of g.items) {
       for (const prov of i.proveedores) {
+        if (fuera.has(_clave(prov))) continue;
         const destino = seccion.get(_clave(prov));
         const id = destino && hay.has(destino) ? destino : g.paquete_id;
         porGrupo.get(id).push({ prov, pct: i.pct });
@@ -412,13 +464,32 @@ function paraMostrar(oferta) {
      pantalla necesita para dibujar cada desplegable en su valor actual. */
   const secciones = {};
   for (const g of grupos) for (const i of g.items) for (const prov of i.proveedores) {
+    if (fuera.has(_clave(prov))) continue;
     const d = seccion.get(_clave(prov));
     if (d && hay.has(d)) secciones[prov] = d;
   }
 
+  /* Para cada proveedor de la oferta: en qué sellos viene y si alguno de ésos lo trae SOLO. Es lo
+     que la pantalla necesita para avisar, casilla por casilla, si destildarlo lo saca de verdad o
+     nada más lo borra de la hoja. */
+  const enSellos = new Map();
+  for (const [nombre] of resolver(oferta, { ignorarSacados: true })) {
+    const meta = sellos.get(nombre) || {};
+    const provs = proveedoresDe(nombre);
+    for (const prov of provs) {
+      const k = _clave(prov);
+      if (!enSellos.has(k)) enSellos.set(k, { prov, sellos: [], solo: false });
+      const e = enSellos.get(k);
+      e.sellos.push(meta.corto || nombre);
+      if (provs.length === 1) e.solo = true;
+    }
+  }
+
   return { titulo: oferta.titulo, notas: oferta.notas || '', grupos: armados,
     proveedores: unicos(armados.flatMap((g) => g.proveedores)),
-    repetidos: _repetidos(armados), secciones };
+    repetidos: _repetidos(armados), secciones,
+    excluidos: oferta.excluidos || [],
+    catalogo: [...enSellos.values()].sort((a, b) => a.prov.localeCompare(b.prov, 'es')) };
 }
 
 /**
@@ -744,6 +815,7 @@ module.exports = {
   armarDesdeBase, MARGEN_MINIMO, PUNTOS_TECHO, puntosDeBase, precioExterno,
   recomponerPorCosto, TECHO_BASICO_PLUS, tipoDePaquete,
   proveedoresDe, unicos, listPaquetes, savePaquete, removePaquete, sembrarPaquetes,
+  sellosSacados,
   listSecciones, setSeccion, seccionesDeProveedor,
   listOfertas, getOferta, saveOferta, removeOferta,
   resolver, diff, aplicar, paraMostrar,

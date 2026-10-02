@@ -1783,9 +1783,21 @@ if (!CAJA_AQUI) {
   const DE_CAJA = /^\/(caja\.html|caja-(conexion|logica)\.js|api\/caja(\/|$))/;
   app.use((req, res, siguiente) => (DE_CAJA.test(req.path) ? res.status(404).end() : siguiente()));
 }
+/* ── EL PANEL NO SE CACHEA UNA HORA ──────────────────────────────────────────────────────────
+   Estaba con `max-age=3600` para todo lo que no fuera .html, y el panel carga su .js y su .css SIN
+   `?v=`. O sea: un arreglo subido tardaba hasta una hora en llegarle a quien ya había entrado ese
+   día, y mientras tanto convivían el HTML nuevo con el JavaScript viejo. Se perdía media mañana
+   buscando en el código un error que estaba arreglado.
+
+   `no-cache` no quiere decir "bajalo de nuevo cada vez": quiere decir "preguntá antes de usarlo".
+   El navegador manda su ETag y el servidor contesta 304 sin cuerpo, así que el costo es un viaje
+   de ida y vuelta vacío y el beneficio es que lo que subís se ve.
+
+   Las imágenes y las tipografías sí se quedan la hora: pesan, y cuando cambian cambia su nombre. */
+const ESTABLE = /\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|mp3|mp4)$/i;
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, ruta) => {
-    res.setHeader('Cache-Control', /\.html?$/i.test(ruta) ? 'no-cache' : 'public, max-age=3600');
+    res.setHeader('Cache-Control', ESTABLE.test(ruta) ? 'public, max-age=3600' : 'no-cache');
   },
 }));
 /* Una dirección que no existe bajo /api contestaba 200 con la PÁGINA del panel: al leer los logs

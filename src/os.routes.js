@@ -3067,6 +3067,17 @@ function mount(app) {
   }));
   app.delete('/api/os/api/ofertas/:id', wrap((req, res) => ok(res, ofertas.removeOferta(req.params.id))));
 
+  /* Qué proveedores NO van en esta oferta. Ruta propia y no `saveOferta` entero: destildar una
+     casilla no tiene por qué reescribir las líneas de precio, y si la pantalla mandara una lista
+     vieja de líneas junto con la casilla, pisaría precios sin que nadie lo pidiera. */
+  app.put('/api/os/api/ofertas/:id/excluidos', wrap((req, res) => {
+    const o = ofertas.getOferta(req.params.id);
+    if (!o) return err(res, 404, 'no existe esa oferta');
+    const b = req.body || {};
+    const r = ofertas.saveOferta({ ...o, excluidos: Array.isArray(b.excluidos) ? b.excluidos : [] });
+    r.ok ? ok(res, { ...r, mostrar: ofertas.paraMostrar(r.oferta) }) : err(res, 400, r.error);
+  }));
+
   // Qué cambiaría en la matriz. NO escribe: se mira antes de tocar precios que ya se facturan.
   app.get('/api/os/api/ofertas/:id/diff', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
