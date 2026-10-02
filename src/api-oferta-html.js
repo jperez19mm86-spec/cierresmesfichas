@@ -11,15 +11,23 @@
  * del paquete, proveedores y el % del cliente— y no tiene acceso a nada más. Es a propósito: la
  * forma más segura de no filtrar un dato interno es no tenerlo a mano.
  *
- * ── UN PRECIO, UNA LISTA DE PROVEEDORES ──────────────────────────────────────────────────────
- * Todo el documento tiene la misma forma: un precio de título y debajo los proveedores que entran
- * a ese precio, uno por chip. Si el paquete entero va a un solo % hay un bloque; si adentro hay
- * varios, hay un bloque por cada uno —todos los de 15, todos los de 17,5— y no renglón por sello.
+ * ── EL TÍTULO ES EL PRODUCTO; EL PRECIO, UN DATO DEL PROVEEDOR ───────────────────────────────
+ * Una sección por producto —Slots Base, Premium, Live, Sport— y adentro los proveedores, uno por
+ * renglón. El corte por sello era el corte de TBS, no el del cliente: una fila decía "Galaxsys,
+ * OneTouch, 3 Oaks" porque esos tres se compran juntos, y el que la lee cuenta UN proveedor donde
+ * hay tres. La bolsa interna no se le muestra a nadie de afuera.
  *
- * El corte por sello era el corte de TBS, no el del cliente: una fila decía "Galaxsys, OneTouch,
- * 3 Oaks" porque esos tres se compran juntos, y el que la lee cuenta UN proveedor donde hay tres.
- * La bolsa interna no se le muestra a nadie de afuera; lo que se le muestra es cuántos proveedores
- * le estás dando y a qué precio.
+ * Durante un tiempo el corte fue por PRECIO: un bloque por cada %. Funcionaba cuando había cuatro
+ * precios. Desde que el externo se cotiza por lo que cuesta hay dieciséis, y dieciséis encabezados
+ * convierten la oferta en una lista de precios — que es exactamente lo que no es.
+ *
+ * ── CÓMO SE DECIDE LA FORMA DE CADA SECCIÓN ──────────────────────────────────────────────────
+ * · Si un precio se lleva la amplia mayoría, va GRANDE arriba y abajo van los chips pelados. Sólo
+ *   se etiqueta al que se sale. Slots Base son 34 proveedores a 3% y uno a 7%: poner "3%" treinta
+ *   y cuatro veces para marcar a uno hace que el lector busque la diferencia entre etiquetas
+ *   iguales.
+ * · Si no hay mayoría, arriba va el RANGO y abajo una lista a dos columnas, nombre y precio. Se
+ *   recorre buscando un nombre, que es como se lee una oferta con treinta proveedores.
  *
  * ── Y EL BARATO PRIMERO ──────────────────────────────────────────────────────────────────────
  * El orden lo pone `paraMostrar`: de menor a mayor precio de entrada. El Básico es lo que más se
@@ -54,15 +62,23 @@ const CSS = `
   .provs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
   .prov{background:var(--suave);border:1px solid var(--linea);border-radius:20px;
     padding:3px 11px;font-size:13px}
-  /* ── UN BLOQUE POR PRECIO ──────────────────────────────────────────────────────────────────
-     El % es el título y los proveedores van debajo. La línea de la izquierda ata visualmente el
-     precio con su lista: sin ella, en Live —que tiene seis— no se ve dónde termina uno y empieza
-     el que sigue. */
-  .nivel{margin-top:14px;padding-left:13px;border-left:3px solid var(--linea);break-inside:avoid}
-  .ncab{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
-  .npct{font-size:18px;font-weight:700;color:var(--acento);font-variant-numeric:tabular-nums}
-  .ncuenta{font-size:12px;color:var(--ink2)}
-  .nivel .provs{margin-top:7px}
+  /* El precio pegado al nombre, para el que se sale del precio de la sección. Va en su propia
+     cápsula blanca: sin el borde se lee como parte del nombre del proveedor. */
+  .prov.conp{display:inline-flex;align-items:baseline;gap:7px;padding-right:5px}
+  .prov.conp b{color:var(--acento);font-variant-numeric:tabular-nums;font-size:12.5px;
+    background:#fff;border:1px solid var(--linea);border-radius:14px;padding:1px 7px}
+  /* ── LA LISTA A DOS COLUMNAS ───────────────────────────────────────────────────────────────
+     Cuando ningún precio manda, treinta proveedores con treinta números se recorren buscando un
+     nombre. Dos columnas entran en la misma altura, y la línea de puntos lleva el ojo del nombre
+     a su número sin tener que apoyar el dedo en la pantalla. */
+  .carta{list-style:none;margin:11px 0 0;padding:0;columns:2;column-gap:34px}
+  .carta li{display:flex;align-items:baseline;gap:8px;break-inside:avoid;padding:4px 0;font-size:14px}
+  .carta li span{flex:0 1 auto}
+  .carta li .puntos{flex:1 1 auto;border-bottom:1px dotted #cdbfd4;margin:0 2px 4px;min-width:14px}
+  .carta li b{color:var(--acento);font-variant-numeric:tabular-nums;white-space:nowrap}
+  /* En el teléfono dos columnas no entran: "Microgaming Original Slots" se parte en tres
+     renglones y el precio queda flotando lejos del nombre. Una sola columna y se lee. */
+  @media(max-width:640px){ .carta{columns:1} .hoja{padding:28px 16px 50px} }
   /* ── EL BÁSICO SE TIENE QUE VER ────────────────────────────────────────────────────────────
      Es el más barato, el que más entra y el primero de la hoja; con el mismo formato que los
      demás quedaba como el preámbulo de lo importante. Fondo propio y el número más grande de la
@@ -121,11 +137,10 @@ const CSS = `
     .prov{font-size:10.5px;padding:1.5px 8px;border-radius:12px}
     .grupo.destacado{padding:10px 12px 12px;margin-top:10px;border-radius:8px}
     .grupo.destacado .gpct{font-size:23px}
-    .nivel{margin-top:8px;padding-left:9px}
-    .ncab{break-after:avoid}
-    .npct{font-size:13px}
-    .ncuenta{font-size:10.5px}
-    .nivel .provs{margin-top:4px}
+    .prov.conp b{font-size:9.5px;padding:0 5px}
+    /* En papel entran tres columnas y la hoja baja de cuatro carillas a dos. */
+    .carta{columns:3;column-gap:16px;margin-top:6px}
+    .carta li{padding:1px 0;font-size:10.5px;gap:5px}
     .cond{margin-top:16px;padding-top:9px}
     .cond p,.cond li{font-size:11px;margin-bottom:3px}
     .pie{margin-top:11px;font-size:10px}
@@ -135,33 +150,80 @@ const CSS = `
 /**
  * @param mostrar  lo que devuelve api-ofertas-store.paraMostrar — y NADA más
  */
-const chips = (provs) => `<div class="provs">${
-  provs.map((p) => `<span class="prov">${esc(p)}</span>`).join('')}</div>`;
+/**
+ * ── UN PROVEEDOR, UN RENGLÓN — AUNQUE LLEGUE POR DOS CAMINOS ─────────────────────────────────
+ *
+ * Creedroomz Live llega por su propio sello (cuesta 12) y adentro del de SA Gaming (cuesta 9), así
+ * que con el precio pegado al nombre salía dos veces: 15% y 12%. Dos renglones con el mismo nombre
+ * y números distintos se leen como un error de armado, no como dos integraciones.
+ *
+ * Sale UNA vez con su rango —"12–15%"—, que es lo único honesto: cuál de los dos paga depende de
+ * por dónde entre, y la nota de arriba ya explica por qué hay dos. Mostrar sólo el barato sería
+ * cotizar menos de lo que después se factura.
+ */
+function unaFila(g) {
+  const m = new Map();
+  for (const n of g.niveles || []) {
+    for (const p of n.proveedores) {
+      if (!m.has(p)) m.set(p, []);
+      m.get(p).push(Number(n.pct));
+    }
+  }
+  return [...m].map(([p, pcts]) => {
+    const u = [...new Set(pcts)].sort((a, b) => a - b);
+    return { p, pct: u[0], varios: u.length > 1 ? u : null };
+  }).sort((a, b) => a.p.localeCompare(b.p, 'es'));
+}
+/* "12 a 15%" no entra en un chip; el guion lo dice igual en cuatro caracteres. */
+const marca = (x) => (x.varios
+  ? x.varios.map((v) => String(v).replace('.', ',')).join('–') + '%'
+  : pct(x.pct));
+
+/**
+ * El precio de la MAYORÍA de la sección, o null si no hay ninguno que mande. Ver la cabecera del
+ * archivo: con mayoría se muestra un número grande y se etiqueta sólo la excepción; sin mayoría,
+ * el rango arriba y el precio en cada renglón.
+ */
+const MAYORIA = 0.7;
+function manda(g) {
+  const niveles = g.niveles || [];
+  if (!niveles.length) return null;
+  /* Number() y no el texto: `unaFila` devuelve números, y "5" === 5 es falso. Con la comparación
+     rota el precio de la mayoría no coincide con ninguno y se etiquetan todos los chips. */
+  if (niveles.length === 1) return Number(niveles[0].pct);
+  const total = (g.proveedores || []).length;
+  const top = niveles.slice().sort((a, b) => b.proveedores.length - a.proveedores.length)[0];
+  return total && top.proveedores.length / total >= MAYORIA ? Number(top.pct) : null;
+}
 
 function pagina(mostrar) {
   const grupos = (mostrar.grupos || []).map((g, idx) => {
-    const niveles = g.niveles || [];
-    const uno = niveles.length === 1;
+    const filas = unaFila(g);
+    const M = manda(g);
     /* El primero es el más barato —`paraMostrar` los ordena así— y es el que más se vende. */
     const destacado = idx === 0 ? ' destacado' : '';
 
     const cab = `<div class="gcab"><span class="gnom">${esc(g.nombre)}</span>`
-      + (uno
-        ? `<span class="gpct">${esc(pct(niveles[0].pct))}</span>`
+      + (M != null
+        ? `<span class="gpct">${esc(pct(M))}</span>`
         : `<span class="gnota">de ${esc(pct(g.desde))} a ${esc(pct(g.hasta))}</span>`)
       + '</div>'
       /* Cuántos son. Es el dato que el cliente compara contra la oferta de al lado, y hasta ahora
          había que contar los chips a ojo. */
-      + `<p class="gsub">${esc(cuenta((g.proveedores || []).length))}</p>`;
+      + `<p class="gsub">${esc(cuenta(filas.length))}</p>`;
 
-    // Un solo precio para todo el paquete: no hace falta repetirlo, alcanza la lista.
-    if (uno) return `<div class="grupo${destacado}">${cab}${chips(niveles[0].proveedores)}</div>`;
+    // Hay un precio que manda: chips pelados, y etiqueta sólo en los que se salen.
+    if (M != null) {
+      return `<div class="grupo${destacado}">${cab}<div class="provs">${filas.map((x) => (
+        x.pct === M && !x.varios
+          ? `<span class="prov">${esc(x.p)}</span>`
+          : `<span class="prov conp">${esc(x.p)}<b>${esc(marca(x))}</b></span>`
+      )).join('')}</div></div>`;
+    }
 
-    // Varios precios: un bloque por cada uno, de menor a mayor.
-    return `<div class="grupo${destacado}">${cab}${niveles.map((n) => `<div class="nivel">
-      <div class="ncab"><span class="npct">${esc(pct(n.pct))}</span>
-        <span class="ncuenta">${esc(cuenta(n.proveedores.length))}</span></div>
-      ${chips(n.proveedores)}</div>`).join('')}</div>`;
+    // Sin precio dominante: lista a dos columnas, para recorrerla buscando un nombre.
+    return `<div class="grupo${destacado}">${cab}<ul class="carta">${filas.map((x) =>
+      `<li><span>${esc(x.p)}</span><i class="puntos"></i><b>${esc(marca(x))}</b></li>`).join('')}</ul></div>`;
   }).join('');
 
   const cuantos = (mostrar.proveedores || []).length;
