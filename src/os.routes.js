@@ -586,6 +586,10 @@ function mount(app) {
       }
     }
 
+    // Mismo motivo que al confirmar el % del mes: con coma se guarda y después vale cero.
+    if (!money.esNumero(b.valor)) {
+      return err(res, 400, `"${b.valor}" no es un número. Escribilo con punto: 6.5`);
+    }
     const vigente_desde = siempre ? null : (crudo.length === 7 ? crudo + '-01' : crudo);
     const v = historial.setValor('cliente', req.params.id, 'precio_base_pct', {
       valor: b.valor, tipo_cambio: siempre ? 'correccion' : 'vigencia', vigente_desde, notas: b.notas });
@@ -2163,6 +2167,14 @@ function mount(app) {
     const { mes, base_pct } = req.body || {};
     if (!mes) return err(res, 400, 'falta mes');
     if (base_pct === undefined || base_pct === null || base_pct === '') return err(res, 400, 'falta base_pct');
+    /* ⚠️ ESCRITO CON COMA SE GUARDA Y VALE CERO. La librería de plata no entiende "6,5": devuelve
+       0 sin quejarse, y este % es el número por el que se multiplica todo. Con 0 pasan DOS cosas a
+       la vez: la factura de consumo sale en cero, y al proveedor externo se le cobra el 100% de la
+       celda en vez del excedente. Los tipos de cambio y la matriz ya se validaban así; éste era el
+       único número tipeado a mano que había quedado afuera (auditoría del 3-oct-2026). */
+    if (!money.esNumero(base_pct)) {
+      return err(res, 400, `"${base_pct}" no es un número. Escribilo con punto: 6.5`);
+    }
     ok(res, { confirmada: externosSvc.confirmarBase(req.params.cliente, mes, base_pct) });
   }));
   /**

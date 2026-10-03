@@ -219,6 +219,42 @@ function extIrA(m){ _extMes = m; _extData = null; cieExternos(); }
 
    Se emite igual para el resto: frenar a los 44 porque uno falló sería peor. Lo que cambia es que
    ahora se sabe cuáles quedaron afuera. */
+/* ── EL TERMÓMETRO: LOS QUE YA TENÍAN SU DEUDA CARGADA, Y CUÁNTO SE APARTAN ──────────────────
+   A un cliente cuya deuda se fue cargando carga por carga, la emisión del mes NO le emite nada: su
+   deuda ya está. Pero el cálculo mensual igual corre, y la diferencia entre los dos números es el
+   único aviso de que la cuenta corriente y la factura se separaron — porque las dos siguen
+   cuadrando, cada una con su número, que es la forma más cara de estar mal.
+   El servidor lo manda en `conciliado` desde que existe la emisión y no lo mostraba ninguna
+   pantalla (lo encontró la auditoría del 3-oct-2026). Acá se pinta, debajo de los salteados.
+   Una diferencia de centavos es normal: la cuenta usa el TC del día de cada carga y el cálculo
+   mensual el del mes. Una diferencia grande no lo es. */
+function pintarConciliado(id, r) {
+  const box = document.getElementById(id);
+  if (!box || !(r.conciliado || []).length) return;
+  const dif = (f) => Math.abs(Number(f.diferencia) || 0);
+  // Lo que se mira primero es lo que más se aparta; lo que difiere menos de un dólar es ruido.
+  const filas = (r.conciliado || []).slice().sort((a, b) => dif(b) - dif(a));
+  const gordas = filas.filter((f) => dif(f) >= 1);
+  box.innerHTML += `<div class="card" style="margin:12px 0 0;border-left:3px solid ${gordas.length ? 'var(--durazno)' : 'var(--border)'}">
+    <b>${gordas.length ? '⚠️ ' : ''}${filas.length} cliente(s) ya tenían su deuda cargada carga por carga</b>
+    <div class="muted" style="font-size:13px;margin:4px 0 10px">A ellos no se les emitió nada —su deuda ya está—
+      pero el cálculo del mes igual corrió. ${gordas.length
+        ? `<b>A ${gordas.length} le da distinto por más de 1 USDT</b>: eso no es redondeo, es algo para mirar.`
+        : 'Ninguno se aparta más de 1 USDT: es la diferencia normal entre el tipo de cambio del día y el del mes.'}</div>
+    <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
+      <th>Cliente</th><th class="right">Cargas</th><th class="right">En su cuenta</th>
+      <th class="right">Cálculo del mes</th><th class="right">Diferencia</th></tr></thead><tbody>
+      ${filas.map((f) => `<tr>
+        <td><b>${esc(f.codigo || '')}</b></td>
+        <td class="right">${esc(String(f.cargas || 0))}</td>
+        <td class="right">${money(f.enCuenta_usdt, 2)}</td>
+        <td class="right">${money(f.calculoMes_usdt, 2)}</td>
+        <td class="right"${dif(f) >= 1 ? ' style="font-weight:700;color:var(--red)"' : ''}>${money(f.diferencia, 2)}</td>
+      </tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
 function pintarSalteados(id, r, quien) {
   const box = document.getElementById(id);
   if (!box) return;
@@ -2369,9 +2405,20 @@ async function facEmitir(confirmado, sinPreguntar, recontrastar) {
   }
   const box = document.getElementById('fac-emi-out'); if (box) box.innerHTML = '';
   toast(r.creados + ' emitidos · ' + money(r.total,2) + ' USDT' + (r.yaEstaban ? ' · ' + r.yaEstaban + ' ya estaban' : '') + (r.enCero ? ' · ' + r.enCero + ' en cero (no se emiten)' : ''));
+  /* ⚠️ ACÁ DECÍA `facturar()`, UNA FUNCIÓN QUE NO EXISTE. Al no existir, el error se tragaba solo
+     —estamos adentro de un `async`— y la pantalla quedaba mostrando «Todavía no se pasó a la
+     deuda» con el botón de emitir, justo después de emitir. Volver a apretarlo no duplica, pero
+     vuelve a correr el contraste contra el casino (uno o dos minutos) para terminar diciendo
+     «0 emitidos», que se lee como que no funcionó.
+     El repintado va ANTES de la lista de salteados y no después: `VIEWS.facturacion()` rehace la
+     pantalla entera y borraría justamente lo que hay que dejar a la vista. */
+  await VIEWS.facturacion();
   // A quién NO se le cobró y por qué. El toast se va; esto se queda.
   pintarSalteados('fac-emi-out', r, 'cliente');
-  facturar();
+  /* Y quiénes ya tenían la deuda cargada carga por carga, con cuánto se aparta del cálculo del
+     mes. El servidor lo viene mandando desde siempre y no lo mostraba ninguna pantalla: es el
+     termómetro que avisa cuando la cuenta corriente y la factura se separaron. */
+  pintarConciliado('fac-emi-out', r);
 }
 /**
  * EL AVISO: qué no cuadra entre lo que se factura y lo que registran los paneles.
@@ -2542,7 +2589,9 @@ async function facAnular() {
   const r = await api('/api/os/emision/facturacion/' + encodeURIComponent(mes), { method: 'DELETE' });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(r.borrados + ' movimientos borrados · ' + money(r.total,2) + ' USDT');
-  facturar();
+  // Mismo caso que arriba: decía `facturar()`, que no existe, y la pantalla seguía diciendo
+  // «✅ Ya emitido» después de anular.
+  VIEWS.facturacion();
 }
 
 // ───────── 📄 LA FACTURA DEL MES ─────────
@@ -4804,7 +4853,11 @@ function extPintar() {
     if (d.internosSeCobran) {
       /* La excepción: este cliente los cobra como a cualquier otro proveedor. Se dice fuerte,
          porque es al revés de la regla general y si no, el número no se entiende. */
-      const cob = items.filter(i => i.cobra && cieEsInterno(i.proveedor));
+      /* ⚠️ ACÁ DECÍA `cieEsInterno(...)`, que no existe en ningún lado. Como esta línea corre SÓLO
+         para los dos clientes de la excepción (Juan y Titan), la pantalla de externos se les
+         quedaba para siempre en «Consultando el casino, panel por panel…» y parecía que el casino
+         estaba lento. El dato ya viene del servidor en cada renglón: `interno`. */
+      const cob = items.filter(i => i.cobra && i.interno);
       avisos.push('🟣 <b>A este cliente SÍ se le cobran los internos</b> (SL · SL2 · XG), '
         + 'como a cualquier otro proveedor: es un acuerdo aparte de la regla general. '
         + (cob.length ? cob.length + ' de ellos se le están cobrando este mes.' : 'Ninguno le dio ganancia este mes.'));

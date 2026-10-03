@@ -10197,6 +10197,56 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── LO QUE ENCONTRÓ LA AUDITORÍA DEL 3-OCT-2026 ────────────────────────────────────────────
+     Tres cosas verificadas, las tres del mismo tipo: una puerta que quedó sin cerrar al lado de
+     otra que sí se cerró. */
+  {
+    const osAud = FUENTE_PANEL();
+    /* 1 · DOS FUNCIONES QUE NO EXISTÍAN. Al llamarlas, el error se tragaba solo —las dos llamadas
+       están adentro de un `async`— así que no pasaba NADA: ni mensaje, ni aviso. Emitir y anular
+       el mes dejaban la pantalla diciendo lo contrario de lo que había pasado, y la pantalla de
+       externos se colgaba para los dos clientes de la excepción (Juan y Titan). */
+    // Sin comentarios: el porqué del arreglo nombra la función vieja, y eso no es una llamada.
+    const osCodigo = osAud.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    check('panel: emitir y anular el mes repintan la pantalla',
+      !/[^.\w]facturar\(\)/.test(osCodigo)
+      && /await VIEWS\.facturacion\(\);/.test(osAud)
+      && /toast\(r\.borrados[\s\S]{0,260}VIEWS\.facturacion\(\);/.test(osAud));
+    check('panel: el aviso de los internos usa el dato del servidor, no una función inventada',
+      !/cieEsInterno\(/.test(osCodigo)
+      && /i\.cobra && i\.interno/.test(osAud));
+
+    /* 2 · EL % ESCRITO CON COMA SE GUARDABA Y VALÍA CERO. `pct(1000, "6,5")` devuelve 0 — medido—,
+       y con 0 la factura de consumo sale en cero Y al externo se le cobra el 100% de la celda en
+       vez del excedente. Era el único número tipeado a mano sin la validación que el propio
+       sistema exige por escrito en lib/money.js. */
+    const cliPct = await post('/api/clientes', { codigo: 'ZZPCT' + Date.now().toString().slice(-5), nombreVisible: 'Prueba %' });
+    const idPct = cliPct.data && cliPct.data.cliente && cliPct.data.cliente.id;
+    if (idPct) {
+      const malo = await axios.put(BASE + `/api/os/clientes/${idPct}/precio-base`,
+        { valor: '6,5', desde: 'siempre' }, { ...H(), validateStatus: () => true });
+      check('precio base: un % con coma se rechaza, no se guarda valiendo cero',
+        malo.status === 400 && /no es un número/.test((malo.data && malo.data.error) || ''),
+        malo.status + ' · ' + ((malo.data && malo.data.error) || ''));
+      const bueno = await axios.put(BASE + `/api/os/clientes/${idPct}/precio-base`,
+        { valor: '6.5', desde: 'siempre' }, { ...H(), validateStatus: () => true });
+      check('precio base: con punto entra normal', bueno.status === 200 && bueno.data.ok === true);
+      const baseMala = await axios.post(BASE + '/api/os/externos/' + encodeURIComponent('Prueba %') + '/base',
+        { mes: '2026-09', base_pct: '6,5' }, { ...H(), validateStatus: () => true });
+      check('% del mes: con coma también se rechaza al confirmarlo',
+        baseMala.status === 400 && /no es un número/.test((baseMala.data && baseMala.data.error) || ''),
+        baseMala.status + ' · ' + ((baseMala.data && baseMala.data.error) || ''));
+      try { await axios.delete(BASE + `/api/clientes/${idPct}`, H()); } catch (e) { /* limpieza */ }
+    }
+
+    /* 3 · EL TERMÓMETRO QUE NADIE VEÍA. `conciliado` —cuánto se aparta la deuda ya cargada del
+       cálculo del mes— viajaba desde siempre y no lo pintaba ninguna pantalla. Es lo único que
+       avisa cuando la cuenta corriente y la factura se separaron, porque las dos cuadran. */
+    check('emisión: la pantalla muestra a los que ya tenían la deuda cargada y cuánto se apartan',
+      /function pintarConciliado\(id, r\)/.test(osAud)
+      && /pintarConciliado\('fac-emi-out', r\);/.test(osAud));
+  }
+
   /* ── 💰 COBRANZAS: EL MISMO SALDO, PARTIDO POR MES ──────────────────────────────────────────
      El tablero muestra el saldo de cada cliente abierto en tres: lo de antes, el mes pasado y el
      mes en curso. El riesgo no es que la suma esté mal hoy — es que mañana alguien agregue un tipo
