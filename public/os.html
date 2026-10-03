@@ -3335,6 +3335,19 @@ async function pintarComprobantes(estado, conFiltros) {
         // se llena, y encima es privada — no la ve el cliente ni sale por Telegram.
         ? ''
 
+          /* ── A QUÉ CIERRE ENTRA ESTE PAGO ──────────────────────────────────────────────────
+             Uno solo para toda la tarjeta: los tres botones de abajo son el mismo acto —acreditar—
+             y el mes es el mismo para los tres. Arranca en el mes en que el cliente lo mandó, que
+             es cuando pagó; se cambia cuando ese pago corresponde a otro cierre. Hasta el 3-oct
+             esto no se podía decir y todo caía en el mes en que se apretaba el botón: el que pagaba
+             septiembre el 2 de octubre dejaba septiembre figurando sin cobrar. */
+          + '<div class="row" style="margin:8px 0 0;align-items:flex-end;gap:8px">'
+          +   '<div style="flex:0 0 auto"><label>Entra en el cierre de</label>'
+          +     '<input id="cmp-mes-' + c.id + '" type="month" value="' + esc(String(c.creado_at || '').slice(0, 7)) + '"></div>'
+          +   '<div class="muted" style="flex:1 1 220px;padding-bottom:9px;font-size:12px">'
+          +     'Vale para cualquiera de los botones de abajo. Cambialo si este pago descuenta de otro mes.</div>'
+          + '</div>'
+
           /* ── LAS DOS CAJAS SON DOS CAMINOS, NO UNO BUENO Y UNO GRIS ────────────────────────
              El fondo de la caja era `--bg3`, el MISMO rosa que el de los campos: todo se fundía y
              el botón de contorno del segundo camino desaparecía. «Aprobar con el TC del mes» no
@@ -3520,6 +3533,9 @@ async function cmpResolver(id, estado, codigo, opts) {
 async function _cmpResolver(id, estado, codigo, opts) {
   const o = opts || {};
   const nota0 = (document.getElementById('cmp-n-' + id) || {}).value;
+  /* El cierre al que entra el pago. Uno por tarjeta, lo leen los tres caminos. Si rechazás no se
+     manda: un rechazo no crea ningún movimiento, así que no entra en ningún mes. */
+  const mes0 = (document.getElementById('cmp-mes-' + id) || {}).value || undefined;
   // ── CON EL TC DEL MES ────────────────────────────────────────────────────────────────────
   // Se acredita en la moneda en que PAGÓ. Si escribió un monto lo usa —puede haber entrado algo
   // distinto de lo declarado— y si no, toma el declarado. El TC no se pide: lo pone el cierre.
@@ -3536,7 +3552,7 @@ async function _cmpResolver(id, estado, codigo, opts) {
     // La moneda va explícita: el servidor la compara con la que él calcula y rechaza si no coinciden.
     // Sin eso, un desajuste entre pantalla y servidor se convierte en plata mal acreditada, callado.
     const r0 = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-      body: JSON.stringify({ estado, monto: String(nm), moneda: o.divisa, tc_modo: 'mes', motivo: nota0 }) });
+      body: JSON.stringify({ estado, monto: String(nm), moneda: o.divisa, tc_modo: 'mes', motivo: nota0, mes: mes0 }) });
     if (!r0.ok) return toast('Error: ' + (r0.error || ''));
     toast('Acreditado · se ajusta al cerrar el mes');
     return VIEWS.movimientos();
@@ -3554,10 +3570,13 @@ async function _cmpResolver(id, estado, codigo, opts) {
   const eqTxt = (document.getElementById('cmp-eq-' + id) || {}).textContent;
   if (estado === 'aprobado' && !confirm('¿Acreditar ' + u + ' ' + mon
     + (eqTxt && eqTxt !== '—' ? ' (' + eqTxt + ')' : '')
-    + '?\n\nEsto registra el pago y le baja la deuda al cliente.')) return;
+    + '?\n\nEsto registra el pago y le baja la deuda al cliente'
+    // El mes entra en la pregunta porque ahora se puede elegir: un pago puesto en el cierre
+    // equivocado deja un mes figurando sin cobrar y otro con plata que no corresponde.
+    + (mes0 ? ', en el cierre de ' + mes0 + '.' : '.'))) return;
   const tc = (document.getElementById('cmp-tc-' + id) || {}).value;
   const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota }) });
+    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota, mes: mes0 }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();

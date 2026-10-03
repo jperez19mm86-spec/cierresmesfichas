@@ -1686,6 +1686,13 @@ function mount(app) {
       // Sólo si de verdad queda algo pendiente: si pagó en la misma moneda en que se lleva su
       // cuenta, el importe que suma ya está y no depende de ningún tipo de cambio.
       tc_modo: (porElMes && monedaCargada !== moneda) ? 'mes' : null,
+      /* ── A QUÉ CIERRE ENTRA ESTE PAGO ────────────────────────────────────────────────────
+         No es lo mismo que cuándo entró la plata. Un cliente que paga el 2 de octubre la factura
+         de septiembre tiene que descontar de SEPTIEMBRE: si no, el tablero de cobranzas muestra
+         septiembre sin cobrar y octubre con un pago que no corresponde a nada.
+         Hasta el 3-oct-2026 esto no se podía decir al aprobar —sólo en el pago cargado a mano— y
+         todo caía en el mes en que se apretaba el botón. Sin `mes` se comporta igual que antes. */
+      mes_cierre: /^\d{4}-\d{2}$/.test(String(b.mes || '')) ? String(b.mes) : null,
       divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
       notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
     const montoUsdt = enUsdt;

@@ -10101,6 +10101,43 @@ async function main() {
     check('comprobante: sin TC se acredita igual, sin inventar la otra cara',
       /const tcNum = !porElMes && b\.tc != null && String\(b\.tc\)\.trim\(\) !== '' \? parseMonto\(b\.tc\) : null;/.test(rutPago)
       && /else \{ enUsdt = monto; if \(tc\) enArs = money\.mul\(monto, tc\)|else \{ enUsdt = monto; if \(tc\) enArs = money\.round\(money\.mul\(monto, tc\), 2\); \}/.test(rutPago));
+
+    /* ── A QUÉ CIERRE ENTRA EL PAGO ───────────────────────────────────────────────────────────
+       El que paga septiembre el 2 de octubre tiene que descontar de SEPTIEMBRE. Hasta el 3-oct-2026
+       no se podía decir al aprobar —sólo en el pago cargado a mano— y todo caía en el mes del
+       botón: el tablero de cobranzas mostraba septiembre sin cobrar y octubre con un pago suelto. */
+    check('comprobante: al aprobar se elige a qué cierre entra el pago',
+      /<label>Entra en el cierre de<\/label>/.test(osPago)
+      && /id="cmp-mes-' \+ c\.id \+ '" type="month"/.test(osPago));
+    // Uno solo por tarjeta: los tres botones de aprobar son el mismo acto y el mes es el mismo.
+    check('comprobante: el mes lo leen los dos caminos de aprobación',
+      (osPago.match(/mes: mes0/g) || []).length === 2
+      && /const mes0 = \(document\.getElementById\('cmp-mes-' \+ id\) \|\| \{\}\)\.value/.test(osPago));
+    check('comprobante: y el servidor lo guarda como mes de cierre',
+      /mes_cierre: \/\^\\d\{4\}-\\d\{2\}\$\/\.test\(String\(b\.mes \|\| ''\)\) \? String\(b\.mes\) : null,/.test(rutPago));
+
+    /* Y de punta a punta: un comprobante aprobado con un mes viejo tiene que aparecer en ESE mes
+       del tablero de cobranzas, no en el de hoy. Es lo que une las dos pantallas. */
+    const codM = 'ZZMES' + Date.now().toString().slice(-5);
+    const altaM = await post('/api/clientes', { codigo: codM, nombreVisible: 'Prueba mes' });
+    const cidM = altaM.data && altaM.data.cliente && altaM.data.cliente.id;
+    if (cidM) {
+      const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const subM = await post('/api/comprobante', { codigo: codM, via: 'usdt', monto: '150',
+        archivo: { base64: PNG1, nombre: 'pago.png', tipo: 'image/png' } });
+      const cmpId = subM.data && subM.data.comprobante && subM.data.comprobante.id;
+      const apr = await post('/api/os/comprobantes/' + cmpId + '/resolver',
+        { estado: 'aprobado', monto: '150', mes: '2026-02' });
+      check('comprobante: aprobado con un mes viejo, cae en ESE mes del tablero',
+        apr.data && apr.data.ok === true, (apr.data && apr.data.error) || 'acreditado');
+      const cobM = await get('/api/os/cobranzas?mes=2026-03');
+      const fila = (cobM.data.filas || []).find((f) => f.codigo === codM);
+      // febrero es el "mes anterior" cuando se mira marzo: el pago tiene que estar ahí, en negativo.
+      check('comprobante: el tablero lo muestra en febrero, no en el mes en que se aprobó',
+        !!fila && Math.abs(fila.anterior + 150) < 0.02 && Math.abs(fila.actual) < 0.02,
+        fila ? ('anterior ' + fila.anterior + ' · actual ' + fila.actual) : 'no apareció');
+      try { await axios.delete(BASE + `/api/clientes/${cidM}`, H()); } catch (e) { /* limpieza */ }
+    }
   }
 
   /* ── 🔴 UN COMPROBANTE NO PUEDE EJECUTARSE COMO PÁGINA DEL PANEL ────────────────────────────
