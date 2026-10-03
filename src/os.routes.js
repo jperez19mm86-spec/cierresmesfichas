@@ -596,6 +596,77 @@ function mount(app) {
     ok(res, { historial: historial.listValores('cliente', req.params.id, 'precio_base_pct') }));
   app.get('/api/os/clientes/:id/cuenta', (req, res) => ok(res, { cuenta: deudaSvc.cuentaCorriente(req.params.id) }));
 
+  /* ───────── 💰 COBRANZAS: QUIÉN DEBE, Y DE CUÁNDO ──────────────────────────────────────────
+     Lo que no había en ninguna pantalla: todos los clientes juntos, con el saldo ABIERTO POR MES.
+     «Cuenta del cliente» muestra uno por vez y «Cuenta y pagos» muestra el total de todos sumado;
+     para saber qué quedó sin cobrar de meses pasados había que abrir cliente por cliente.
+
+     Tres columnas y el total: el mes en curso, el anterior, y TODO lo de antes en una sola. Más
+     de tres no ayuda a decidir a quién llamar, y la deuda vieja importa por cuánta es, no por el
+     mes exacto en que nació — para eso está la cuenta del cliente.
+
+     ⚠️ EL TOTAL NO SE SUMA ACÁ. Lo calcula `cuentaCorriente`, que es la autoridad e incluye los
+     proveedores externos. Esta ruta PARTE ese mismo saldo y manda las dos cosas: si la suma de los
+     meses no da el total, la pantalla lo dice en vez de mostrar una fila que cuadra por casualidad.
+
+     Y NO se suman monedas distintas. Un cliente que lleva su cuenta en pesos no entra en el total
+     en USDT; cada moneda tiene su propia línea. */
+  app.get('/api/os/cobranzas', (req, res) => {
+    const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : mesTZ();
+    const [aa, mm] = mes.split('-').map(Number);
+    const prev = mm === 1 ? `${aa - 1}-12` : `${aa}-${String(mm - 1).padStart(2, '0')}`;
+
+    // Los comprobantes que el cliente mandó y todavía nadie aprobó. No bajan la deuda —por eso no
+    // entran en ninguna columna— pero cambian a quién llamar: reclamarle a alguien que ya avisó
+    // que pagó es el peor llamado que se puede hacer.
+    const esperando = {};
+    for (const c of comprobantes.list({ estado: 'pendiente', limite: 500 })) {
+      const k = String(c.codigo || '').toUpperCase();
+      esperando[k] = (esperando[k] || 0) + 1;
+    }
+
+    const porCliente = {};
+    for (const m of movs.list()) {
+      (porCliente[m.cliente_id] = porCliente[m.cliente_id] || []).push(m);
+    }
+
+    const filas = [];
+    const totales = {};
+    for (const c of clientes.list().clientes) {
+      const cuenta = deudaSvc.cuentaCorriente(c.id);
+      const moneda = cuenta.moneda;
+      const col = deudaSvc.columnaDe(moneda);
+      const mios = porCliente[c.id] || [];
+      let antes = 0, anterior = 0, actual = 0;
+      for (const m of mios) {
+        const v = deudaSvc.signoDe(m.tipo) * (Number(m[col]) || 0);
+        if (!v) continue;
+        const k = movs.mesDe(m);
+        if (k >= mes) actual += v;            // ⚠️ `>=`: lo que quedó cargado con un mes futuro
+        else if (k === prev) anterior += v;   //    tiene que aparecer en algún lado, no perderse.
+        else antes += v;
+      }
+      const total = Number(cuenta.total) || 0;
+      // Nadie con la cuenta en cero ocupa una fila; pero si tiene movimientos y da cero, tampoco
+      // es un error — es alguien que está al día.
+      if (!mios.length && !total) continue;
+      const parte = antes + anterior + actual;
+      filas.push({
+        cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible || '',
+        moneda, antes, anterior, actual, total,
+        // Si esto no da, la pantalla avisa en vez de dibujar una fila que no cierra.
+        cuadra: Math.abs(parte - total) < 0.02,
+        esperando: esperando[String(c.codigo || '').toUpperCase()] || 0,
+        provisional: !!cuenta.provisional,
+        es_vendedor: !!c.es_vendedor,
+      });
+      const t = (totales[moneda] = totales[moneda] || { antes: 0, anterior: 0, actual: 0, total: 0, clientes: 0 });
+      t.antes += antes; t.anterior += anterior; t.actual += actual; t.total += total; t.clientes += 1;
+    }
+    filas.sort((a, b) => b.total - a.total);
+    ok(res, { mes, mes_anterior: prev, filas, totales });
+  });
+
   // PERFIL del cliente: header + historial de % (vigencias) + resumen MES A MES (cargas/fee/pagos/profit reales).
   app.get('/api/os/clientes/:id/perfil', wrap(async (req, res) => {
     const c = clientes.get(req.params.id); if (!c) return err(res, 404, 'cliente no encontrado');

@@ -415,3 +415,28 @@ tr.vta-ahora.vta-ok td{background:#eaf5ec}
   .of-casilla span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
   .of-casilla i { font-style:normal; color:var(--muted); font-size:11px; cursor:help; flex:0 0 auto }
   .of-casilla.fuera span { color:var(--muted); text-decoration:line-through }
+
+  /* ── 💰 COBRANZAS EN EL TELÉFONO ───────────────────────────────────────────────────────────
+     Cinco columnas no entran en 375px: la tabla se podía correr de costado, pero la que quedaba
+     escondida era «Debe hoy» —la única que se mira de un vistazo— y había que arrastrar para
+     verla. Abajo de 700px cada cliente pasa a ser un bloque: el nombre, el total grande a la
+     derecha, y los tres meses chiquitos con su rótulo. Mismos datos, mismo HTML. */
+  @media (max-width:700px){
+    .cobr thead { display:none }
+    .cobr, .cobr tbody, .cobr tfoot, .cobr tr, .cobr td, .cobr th { display:block; width:auto }
+    /* Flex y no grid: los tres meses tienen que COMPARTIR una línea, y en una grilla cada celda
+       se lleva su propia fila. Con wrap caen solos abajo del nombre y ocupan una sola. */
+    .cobr tr { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px;
+               padding:10px 0; border-bottom:1px solid var(--bg3) }
+    .cobr td, .cobr th { border:none; padding:0 }
+    .cobr td:first-child, .cobr th:first-child { flex:1 1 55%; font-size:14px; order:1 }
+    .cobr .hoy { order:2; flex:0 0 auto; margin-left:auto; text-align:right;
+                 font-size:17px; white-space:nowrap }
+    /* Cada mes con su rótulo: tres números sueltos abajo de un nombre no dicen de cuándo es cada uno. */
+    .cobr .mes { order:3; flex:0 0 auto; text-align:left; font-size:12px;
+                 color:var(--muted); font-weight:400 }
+    .cobr .mes::before { content:attr(data-l) " "; font-size:10.5px; text-transform:uppercase;
+                         letter-spacing:.04em; opacity:.75 }
+    .cobr .acc { order:4; flex:0 0 auto; margin-left:auto }
+    .cobr tfoot tr { border-bottom:none; border-top:2px solid var(--bg3); font-weight:700 }
+  }

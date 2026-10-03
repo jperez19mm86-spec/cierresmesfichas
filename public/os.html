@@ -63,6 +63,7 @@ const GRUPOS = [
     ['facturacion', '🧾 Consumo (fichas)'],
     ['cierre:externos', '🏷 Proveedores externos'],
     ['foto', '📸 Foto del mes'],
+    ['cobranzas', '💰 Cobranzas'],
     ['movimientos:cliente', '📒 Cuenta del cliente'],
     /* Estas dos NO son "pendiente" y "resuelto" de la misma cosa. La primera es el libro de la
        cuenta: cargas, pagos y ajustes de todos los clientes. La segunda son los comprobantes que
@@ -2958,6 +2959,124 @@ function pagBuscar(moneda, v){
   VIEWS.pagos().then(() => { const el = document.getElementById('pag-q-' + moneda);
     if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
 }
+
+/* ───────── 💰 COBRANZAS: QUIÉN DEBE Y DE CUÁNDO ──────────────────────────────────────────────
+   Faltaba el tablero: todos los clientes juntos, con el saldo abierto por mes. Hasta acá, para
+   saber qué quedó sin cobrar de meses viejos había que entrar cliente por cliente.
+   Tres columnas y el total. La vieja va toda junta en «Antes de X» a propósito: para decidir a
+   quién llamar importa CUÁNTA es, no de qué mes exacto salió — eso está en la cuenta del cliente,
+   a un clic de acá. */
+let _cobMes = '';          // '' = el mes en curso, que lo decide el servidor
+let _cobQ = '';            // buscador
+let _cobOrden = 'total';   // total | antes | codigo
+let _cobVend = true;       // mostrar también a los vendedores
+
+VIEWS.cobranzas = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/cobranzas' + (_cobMes ? '?mes=' + encodeURIComponent(_cobMes) : ''));
+  if (!r || !r.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: '
+    + esc((r && r.error) || '') + '</div></div>'; return; }
+
+  const nomMes = (m) => { const [a, b] = String(m).split('-');
+    return ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+      'septiembre', 'octubre', 'noviembre', 'diciembre'][Number(b)] + ' ' + a; };
+
+  const q = _cobQ.toLowerCase();
+  /* Los que están en cero no ocupan una fila: esto es para decidir a quién reclamarle, y con 53
+     clientes la mitad en cero el tablero se lee peor. Se cuentan abajo, que es lo único que hace
+     falta saber de ellos. */
+  const alDia = (r.filas || []).filter((f) => Math.abs(f.total) < 0.01).length;
+  const filas = (r.filas || [])
+    .filter((f) => Math.abs(f.total) >= 0.01)
+    .filter((f) => _cobVend || !f.es_vendedor)
+    .filter((f) => !q || String(f.codigo || '').toLowerCase().includes(q)
+      || String(f.nombre || '').toLowerCase().includes(q))
+    .sort((a, b) => _cobOrden === 'codigo' ? String(a.codigo).localeCompare(String(b.codigo))
+      : _cobOrden === 'antes' ? b.antes - a.antes : b.total - a.total);
+
+  /* Cada moneda, su tabla. Sumar pesos con dólares da un número que no significa nada, y el
+     cliente que lleva su cuenta en pesos es justo el que se perdería en un total en USDT. */
+  const monedas = [...new Set(filas.map((f) => f.moneda))]
+    .sort((a, b) => (r.totales[b] ? Math.abs(r.totales[b].total) : 0) - (r.totales[a] ? Math.abs(r.totales[a].total) : 0));
+
+  const nocuadran = filas.filter((f) => !f.cuadra).length;
+
+  const tabla = (mon) => {
+    const mias = filas.filter((f) => f.moneda === mon);
+    /* ⚠️ EL TOTAL ES EL DE LO QUE SE VE, no el que mandó el servidor. Si filtraste por un cliente
+       o sacaste a los vendedores y abajo siguiera la suma de todos, el renglón del total diría
+       otra cosa que la tabla que tenés delante. Misma regla que la pantalla de pagos. */
+    const T = mias.reduce((a, f) => ({ antes: a.antes + f.antes, anterior: a.anterior + f.anterior,
+      actual: a.actual + f.actual, total: a.total + f.total }), { antes: 0, anterior: 0, actual: 0, total: 0 });
+    const filtrando = !!q || !_cobVend;
+    return `<div class="card">
+      <h2>${esc(mon)} <span class="muted" style="font-weight:400;font-size:13px">· ${mias.length} cliente${mias.length === 1 ? '' : 's'}</span></h2>
+      <div style="overflow-x:auto"><table class="cobr" style="min-width:100%">
+        <thead><tr>
+          <th>Cliente</th>
+          <th class="right" title="Todo lo que quedó sin cobrar de meses cerrados">Antes de ${esc(nomMes(r.mes_anterior))}</th>
+          <th class="right">${esc(nomMes(r.mes_anterior))}</th>
+          <th class="right">${esc(nomMes(r.mes))}</th>
+          <th class="right">Debe hoy</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${mias.map((f) => `<tr>
+          <td><b>${esc(f.codigo)}</b>${f.nombre ? ' <span class="muted">' + esc(f.nombre) + '</span>' : ''}
+            ${f.es_vendedor ? '<span class="pill" style="font-size:10px">vendedor</span>' : ''}
+            ${f.esperando ? '<span class="pill" style="font-size:10px;background:var(--durazno-bg)" title="Avisó que pagó y todavía no lo aprobaste. Hasta que lo apruebes no baja nada.">⏳ ' + f.esperando + ' por aprobar</span>' : ''}
+            ${f.provisional ? '<span class="pill" style="font-size:10px" title="Tiene pagos valuados con un tipo de cambio que todavía puede cambiar: el saldo se va a mover un poco al cerrar el mes.">~ provisorio</span>' : ''}
+            ${f.cuadra ? '' : '<span class="pill urg" style="font-size:10px" title="Los meses no suman el total. Mirá la cuenta de este cliente.">⚠ no cierra</span>'}</td>
+          <td class="right mes" data-l="antes"${f.antes > 0 ? ' style="font-weight:700"' : ''}>${money(f.antes)}</td>
+          <td class="right mes" data-l="${esc(nomMes(r.mes_anterior).split(' ')[0])}">${money(f.anterior)}</td>
+          <td class="right mes" data-l="${esc(nomMes(r.mes).split(' ')[0])}">${money(f.actual)}</td>
+          <td class="right hoy" data-l="debe hoy"><b>${money(f.total)}</b></td>
+          <td class="right acc"><button class="outline small" onclick="cobVerCuenta('${f.cliente_id}')">Ver cuenta</button></td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr>
+          <th>Total ${esc(mon)}${filtrando ? ' <span class="muted" style="font-weight:400">de lo que estás viendo</span>' : ''}</th>
+          <th class="right mes" data-l="antes">${money(T.antes)}</th>
+          <th class="right mes" data-l="${esc(nomMes(r.mes_anterior).split(' ')[0])}">${money(T.anterior)}</th>
+          <th class="right mes" data-l="${esc(nomMes(r.mes).split(' ')[0])}">${money(T.actual)}</th>
+          <th class="right hoy" data-l="debe hoy">${money(T.total)}</th><th class="acc"></th>
+        </tr></tfoot>
+      </table></div>
+    </div>`;
+  };
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>💰 Cobranzas</h2>
+      <div class="muted" style="margin-bottom:10px">Quién debe, y de cuándo viene. <b>Antes de ${esc(nomMes(r.mes_anterior))}</b>
+        es lo que quedó sin cobrar de meses ya cerrados — por ahí se empieza.
+        El total de cada cliente es el mismo que muestra su cuenta: acá sólo está partido por mes.</div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1 1 200px"><label>Buscar</label>
+          <input id="cob-q" value="${esc(_cobQ)}" placeholder="código o nombre" oninput="cobBuscar(this.value)"/></div>
+        <div style="flex:0"><label>Mes</label>
+          <input id="cob-mes" type="month" value="${esc(r.mes)}" onchange="cobMes(this.value)"/></div>
+        <div style="flex:0"><label>Ordenar por</label>
+          <select onchange="cobOrden(this.value)">
+            <option value="total"${_cobOrden === 'total' ? ' selected' : ''}>lo que debe hoy</option>
+            <option value="antes"${_cobOrden === 'antes' ? ' selected' : ''}>lo más viejo</option>
+            <option value="codigo"${_cobOrden === 'codigo' ? ' selected' : ''}>código</option>
+          </select></div>
+        <div style="flex:0"><label style="display:flex;gap:6px;align-items:center;white-space:nowrap">
+          <input type="checkbox" ${_cobVend ? 'checked' : ''} onchange="cobVend(this.checked)"> ver vendedores</label></div>
+      </div>
+      ${nocuadran ? `<div class="nota err" style="margin-top:10px">⚠ ${nocuadran} cliente(s) donde los meses no suman el total.
+        Están marcados en la tabla: abriles la cuenta antes de usar esos números.</div>` : ''}
+    </div>
+    ${monedas.length ? monedas.map(tabla).join('') : '<div class="card"><div class="muted">Nadie debe nada.</div></div>'}
+    ${alDia ? `<div class="muted" style="margin:10px 2px">Y ${alDia} cliente${alDia === 1 ? '' : 's'} en cero, que no se listan.</div>` : ''}`;
+};
+
+function cobBuscar(v) { _cobQ = v; VIEWS.cobranzas(); setTimeout(() => { const i = document.getElementById('cob-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
+function cobMes(v) { _cobMes = v; VIEWS.cobranzas(); }
+function cobOrden(v) { _cobOrden = v; VIEWS.cobranzas(); }
+function cobVend(v) { _cobVend = v; VIEWS.cobranzas(); }
+/* Al cliente, a su cuenta mes a mes: el tablero dice CUÁNTO y de cuándo; el porqué está allá. */
+function cobVerCuenta(id) { _mcCli = id; _movSub = 'cliente'; go('movimientos'); }
 
 VIEWS.pagos = async () => {
   const main = document.getElementById('main');

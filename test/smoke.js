@@ -10160,6 +10160,58 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── 💰 COBRANZAS: EL MISMO SALDO, PARTIDO POR MES ──────────────────────────────────────────
+     El tablero muestra el saldo de cada cliente abierto en tres: lo de antes, el mes pasado y el
+     mes en curso. El riesgo no es que la suma esté mal hoy — es que mañana alguien agregue un tipo
+     de movimiento al switch de `cuentaCorriente` y se olvide del otro lado. Entonces la cuenta del
+     cliente diría una cosa y el tablero otra, las dos con cara de correctas.
+     Por eso lo que se prueba no son los números, sino que las dos cuentas den IGUAL. */
+  {
+    const cob = await get('/api/os/cobranzas');
+    check('cobranzas: contesta con los clientes y los totales por moneda',
+      cob.status === 200 && cob.data.ok === true && Array.isArray(cob.data.filas) && !!cob.data.totales,
+      (cob.data.filas || []).length + ' cliente(s)');
+
+    // El mes en curso y el anterior los decide el servidor; pedirle otro los corre a los dos.
+    const otro = await get('/api/os/cobranzas?mes=2026-03');
+    check('cobranzas: se puede pedir otro mes y las columnas se corren',
+      otro.data.ok === true && otro.data.mes === '2026-03' && otro.data.mes_anterior === '2026-02',
+      otro.data.mes + ' · anterior ' + otro.data.mes_anterior);
+    // Enero tiene que caer en diciembre del año anterior, no en el mes cero.
+    const enero = await get('/api/os/cobranzas?mes=2026-01');
+    check('cobranzas: el anterior a enero es diciembre del año pasado',
+      enero.data.mes_anterior === '2025-12', enero.data.mes_anterior);
+
+    /* ⚠️ EL CONTROL QUE IMPORTA: antes + anterior + actual tiene que dar el total que calcula
+       `cuentaCorriente`, para TODOS. El servidor ya lo comprueba fila por fila (`cuadra`) y la
+       pantalla avisa cuando no da; acá se exige que no haya ninguna. */
+    const noCuadran = (cob.data.filas || []).filter((f) => !f.cuadra);
+    check('cobranzas: los meses suman exactamente el saldo de la cuenta corriente',
+      noCuadran.length === 0, noCuadran.length ? noCuadran.map((f) => f.codigo).join(', ') : 'todas cierran');
+
+    // Y el total por moneda es la suma de sus filas, no de todas: pesos y dólares no se mezclan.
+    const porMon = {};
+    (cob.data.filas || []).forEach((f) => { porMon[f.moneda] = (porMon[f.moneda] || 0) + f.total; });
+    const malMoneda = Object.entries(cob.data.totales || {})
+      .filter(([m, t]) => Math.abs((porMon[m] || 0) - t.total) > 0.02);
+    check('cobranzas: cada moneda suma la suya y no se mezclan',
+      malMoneda.length === 0, malMoneda.map(([m]) => m).join(', ') || 'ok');
+
+    // La pantalla: que exista, que esté en la barra y que el total sea el de lo que se ve.
+    const hCob = FUENTE_PANEL();
+    check('cobranzas: la pantalla está en la barra, en Cuentas',
+      /\['cobranzas', '💰 Cobranzas'\]/.test(hCob) && /VIEWS\.cobranzas = async/.test(hCob));
+    /* El total de abajo suma las filas VISIBLES. Si filtrás por un cliente y el pie siguiera
+       sumando a todos, el renglón del total diría otra cosa que la tabla de arriba. */
+    check('cobranzas: el total de abajo es el de lo que se está viendo',
+      /const T = mias\.reduce\(/.test(hCob) && /de lo que estás viendo/.test(hCob));
+    // En el teléfono las cinco columnas no entran: la que se escondía era «Debe hoy».
+    const hCss = fs.readFileSync(path.join(ROOT, 'public', 'estilos.css'), 'utf8');
+    check('cobranzas: en el teléfono la tabla se reordena y «debe hoy» queda a la vista',
+      /@media \(max-width:700px\)\{\s*\n\s*\.cobr thead \{ display:none \}/.test(hCss)
+      && /\.cobr \.hoy \{ order:2/.test(hCss));
+  }
+
   /* ── LAS PUERTAS PÚBLICAS TIENEN TOPE ───────────────────────────────────────────────────────
      El tope de intentos cuidaba sólo los dos ingresos. `/api/pedir/<código>` contesta con el
      nombre del cliente, sus cajas y dónde pagar: probar códigos en serie dibujaba el negocio

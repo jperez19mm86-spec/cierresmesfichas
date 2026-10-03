@@ -141,4 +141,21 @@ function totalesEnMoneda(cliente_id, monedaPedida) {
   };
 }
 
-module.exports = { cuentaCorriente, totalesEnMoneda };
+/* ── LAS TRES REGLAS, SUELTAS, PARA QUIEN NECESITE ABRIR EL SALDO ────────────────────────────
+   El tablero de cobranzas muestra el MISMO saldo partido por mes. Si vuelve a decidir por su
+   cuenta qué suma y qué resta, el día que acá cambie algo las dos pantallas van a decir números
+   distintos y la que esté mal va a ser la que nadie mire.
+   ⚠️ `SIGNO` tiene que quedar igual al switch de `cuentaCorriente`: si se agrega un tipo de
+   movimiento, va en los dos lados. El suite lo ata — compara la suma por mes contra el total. */
+const SIGNO = { carga: 1, ajuste: 1, correccion: 1, proveedor_extra: 1, bonificacion: -1, pago: -1 };
+
+/** Qué le hace al saldo cada tipo: 1 lo sube, -1 lo baja, 0 no lo toca. */
+function signoDe(tipo) { return SIGNO[tipo] || 0; }
+
+/** La columna que SUMA en una cuenta llevada en esta moneda. */
+function columnaDe(moneda) { return moneda === 'ARS' ? 'monto_ars' : 'monto_usdt'; }
+
+/* A qué MES entra un movimiento NO se decide acá: ya lo decide `movimientos-store.mesDe`, que es
+   el mismo que usa `list({mes})`. Una segunda versión sería una segunda verdad. */
+
+module.exports = { cuentaCorriente, totalesEnMoneda, signoDe, columnaDe };
