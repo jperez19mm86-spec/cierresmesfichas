@@ -4418,6 +4418,10 @@ function mount(app) {
            celda porque es la unidad: sin esta distinción el aviso nombraba a USD y USDT, que no
            llevan tipo de cambio que decidir. Se pregunta por moneda y no leyendo la tabla entera,
            que es lo que este bloque tiene prohibido hacer. */
+        /* El dólar SÍ tiene celda, con un 1 adentro, y no es un tipo de cambio que alguien haya
+           decidido: es la unidad. Se pregunta por la fuente y no por la celda porque eso es lo
+           que de verdad lo distingue. */
+        if (tcUnico.tcDelMes(mon, mes).fuente === 'el dólar es la unidad') continue;
         const celda = cierreStore.tcCelda(mon, colMes);
         if (!celda) continue;
         if (!celda.confirmado) sinMirar.push(mon);
