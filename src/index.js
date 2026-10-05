@@ -1308,7 +1308,9 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     {
       const pan = cascada.panelDe(p.sistema, p.userId);
       const previo = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
-      if (pan && !previo.resuelto) {
+      // Un SuperAgente no tiene padres por los que pasar: no hay árbol que buscarle (y si su rama no
+      // la ve la conexión de lectura, como Zulanda-SA, la búsqueda sólo demoraría la carga).
+      if (pan && !previo.resuelto && pan.nivel_usuario !== 'SuperAgente') {
         try {
           const rs = await require('./arbol.service').sincronizar({ soloPanel: pan.id });
           console.log(`[Pedido] ${p.cajaUsuario}: sin árbol, se resolvió antes de cargar → ${rs && rs.ok ? `${rs.resueltos} resuelto(s)` : (rs && rs.error) || 'falló'}`);
