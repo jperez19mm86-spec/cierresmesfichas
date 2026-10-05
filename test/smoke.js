@@ -10241,11 +10241,27 @@ async function main() {
     check('cobrado: lo que recibieron entre todos es lo mismo que entró',
       Math.abs(porRec - entro) < 0.02, porRec.toFixed(2) + ' vs ' + entro.toFixed(2));
 
-    /* Un pago sin su cara en USDT no se puede repartir, y se DICE: repartir cero en silencio deja
-       plata afuera del informe sin que nada lo note. */
+    /* ── EL QUE LLEVA SU CUENTA EN PESOS ────────────────────────────────────────────────────
+       Su pago se guarda sólo en pesos y quedaba AFUERA del informe: 1 de los 18 de septiembre, con
+       el total diciendo 10.222,15 como si no faltara nada. Ahora entra convertido al TC del mes y
+       se dice que se convirtió — un importe derivado puesto como si fuera uno escrito no se puede
+       reconstruir después. */
+    const conv = (rc.data.pagos || []).filter((p) => p.convertido);
+    check('cobrado: el pago en pesos entra convertido al TC del mes, y se dice con cuál',
+      conv.every((p) => p.usdt != null && p.convertido.tc && p.convertido.desde_ars),
+      conv.length + ' convertido(s)');
+    // Y la cuenta de la conversión tiene que dar: pesos ÷ TC.
+    const malConv = conv.filter((p) => Math.abs(Number(p.convertido.desde_ars) / Number(p.convertido.tc) - Number(p.usdt)) > 0.02);
+    check('cobrado: la conversión es los pesos divididos por ese TC', malConv.length === 0,
+      malConv.length ? malConv.map((p) => p.cliente).join(', ') : 'ok');
+    /* Lo que no se puede convertir —sin TC para ese mes— sigue marcándose en vez de contarse como
+       cero: repartir cero en silencio deja plata afuera sin que nada lo note. */
     const sinU = (rc.data.pagos || []).filter((p) => p.estado === 'sin_usdt');
-    check('cobrado: un pago sin USDT se marca en vez de repartirse en cero',
+    check('cobrado: lo que no se puede convertir se marca en vez de repartirse en cero',
       sinU.every((p) => p.usdt === null && !p.items.length), sinU.length + ' sin USDT');
+    const osConv = FUENTE_PANEL();
+    check('cobrado: la pantalla muestra de cuántos pesos y a qué TC salió',
+      /f\.convertido \? '<div class="muted"[^']*' \+ money\(f\.convertido\.desde_ars,2\)/.test(osConv));
 
     // Quién agarró la plata se puede corregir después: al acreditar no siempre se sabe.
     const unPago = (rc.data.pagos || [])[0];

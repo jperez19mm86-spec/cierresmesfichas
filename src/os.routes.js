@@ -5622,10 +5622,22 @@ function mount(app) {
     let total = '0'; let sinAsignar = '0';
     const pagos = movs.list({ tipo: 'pago' }).filter((mv) => movs.mesDe(mv) === mes).map((mv) => {
       const cli = porId[mv.cliente_id] || {};
-      /* SIEMPRE en USDT: es la unidad de la cuenta y la única forma de sumar a todos juntos. Un
-         pago sin esa cara —cargado en pesos sobre una cuenta en pesos y sin TC— no se puede
-         repartir, y se dice: repartir cero en silencio es peor que no repartir. */
-      const usdt = mv.monto_usdt;
+      /* SIEMPRE en USDT: es la unidad de la cuenta y la única forma de sumar a todos juntos.
+         ── EL QUE LLEVA SU CUENTA EN PESOS ───────────────────────────────────────────────────
+         Su pago se guarda sólo en pesos: su cuenta es en pesos y nadie necesitó la otra cara. Para
+         el reparto sí hace falta, así que se pasa con el TC DEL MES —el mismo que valúa todo lo
+         demás— y se marca `convertido`, para que en pantalla se vea que ese número se derivó y no
+         es un importe que alguien escribió. Antes quedaba afuera del informe: 1 de los 18 pagos de
+         septiembre, y el total decía 10.222,15 como si no faltara nada. */
+      let usdt = mv.monto_usdt;
+      let convertido = null;
+      if ((usdt == null || usdt === '') && mv.monto_ars != null && mv.monto_ars !== '') {
+        const t = tcUnico.tcDelMes('ARS', mes);
+        if (t.valor && money.isPos(t.valor)) {
+          usdt = money.round(money.div(mv.monto_ars, t.valor), 2);
+          convertido = { desde_ars: mv.monto_ars, tc: t.valor, fuente: t.fuente };
+        }
+      }
       const sinUsdt = usdt == null || usdt === '';
       const r = sinUsdt ? null : repartoSvc.repartirCobrado(usdt, cli, mes);
       if (r) {
@@ -5645,6 +5657,7 @@ function mount(app) {
         id: mv.id, fecha: String(mv.fecha || mv.createdAt || '').slice(0, 10),
         cliente: cli.nombre || cli.codigo || '(sin cliente)', codigo: cli.codigo || '',
         usdt: sinUsdt ? null : money.round(usdt, 2),
+        convertido,
         via: mv.medio || null,
         recibido_por: mv.recibido_por || '', recibido: mv.recibido_por ? (nomPersona[mv.recibido_por] || '(persona borrada)') : '',
         estado: r ? r.estado : 'sin_usdt',

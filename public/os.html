@@ -5933,7 +5933,13 @@ VIEWS.repartocobrado = async () => {
                      : 'Al reparto de este cliente le faltan puntos por asignar.')
                   + '">' + esc(f.estado.replace('_',' ')) + '</span>' : '')
             + '</td>'
-            + '<td class="reptd right"><b>' + (f.usdt == null ? '<span style="color:var(--red)">sin USDT</span>' : money(f.usdt,2)) + '</b></td>'
+            /* El que lleva su cuenta en pesos entra convertido al TC del mes. Se dice que se
+               convirtió y con qué número: un importe derivado puesto como si fuera uno escrito es
+               la clase de dato que después nadie puede reconstruir. */
+            + '<td class="reptd right"><b>' + (f.usdt == null ? '<span style="color:var(--red)">sin USDT</span>' : money(f.usdt,2)) + '</b>'
+            +   (f.convertido ? '<div class="muted" style="font-size:11px">' + money(f.convertido.desde_ars,2)
+                  + ' ARS a ' + money(f.convertido.tc,2) + '</div>' : '')
+            + '</td>'
             + '<td class="reptd">' + selPersona(f) + '</td>'
             + '<td class="reptd right">' + (f.items.length
                 ? '<button class="outline small" onclick="cobRVer(\'' + f.id + '\')">' + (_cobAbierto===f.id?'ocultar':'ver reparto') + '</button>' : '')
