@@ -595,6 +595,14 @@ ensureColumns('estad_captura', { modo: 'TEXT' });
    perdía el dato de cuándo entró de verdad. Son dos cosas distintas — la fecha es un hecho, el mes
    de cierre es una decisión— y ahora se guardan por separado. Vacío = el mes de la fecha. */
 ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT', tc_modo: 'TEXT', mes_cierre: 'TEXT' });
+
+/* `confirmado`: CUÁNDO una persona dijo que ese tipo de cambio es el real, en ISO. NULL = lo
+   escribió el sistema solo al terminar el mes (tc-columna.service) y nadie lo miró todavía.
+   Hace falta porque la celda es la misma para los dos y `tc-unico.manual()` no los distingue:
+   el promedio automático quedaba contando como "cargado a mano en el cierre", o sea el
+   definitivo, y los pagos se acreditaban con una estimación que nadie decidió. Septiembre 2026:
+   el sistema puso 1596,3923 y el real era 1679,88 — 5,2% arriba, 241,74 USDT en 7 clientes. */
+ensureColumns('cierre_tc', { confirmado: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

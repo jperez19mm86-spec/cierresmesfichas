@@ -165,14 +165,38 @@ function removeCliente(nombre) {
 const FILA_PROVEEDOR = 'ARS_OF';
 
 function getTC() {
-  const rows = db.prepare('SELECT moneda, mes, tasa FROM cierre_tc').all();
+  const rows = db.prepare('SELECT moneda, mes, tasa, confirmado FROM cierre_tc').all();
   const monedas = [...new Set(rows.map((r) => r.moneda))].sort();
   const meses = [...new Set(rows.map((r) => r.mes))];
-  const tasas = {};
-  for (const r of rows) (tasas[r.moneda] = tasas[r.moneda] || {})[r.mes] = r.tasa;
-  return { monedas, meses, tasas };
+  const tasas = {}; const confirmados = {};
+  for (const r of rows) {
+    (tasas[r.moneda] = tasas[r.moneda] || {})[r.mes] = r.tasa;
+    (confirmados[r.moneda] = confirmados[r.moneda] || {})[r.mes] = r.confirmado || null;
+  }
+  return { monedas, meses, tasas, confirmados };
 }
-function setTC(moneda, mes, tasa, forzar = false) {
+
+/** ¿Alguien dijo que este TC es el real? Devuelve cuándo, o null si lo puso el sistema solo. */
+function tcConfirmado(moneda, mes) {
+  const r = db.prepare('SELECT confirmado FROM cierre_tc WHERE lower(moneda)=lower(?) AND lower(mes)=lower(?)')
+    .get(clean(moneda) || '', clean(mes) || '');
+  return (r && r.confirmado) || null;
+}
+
+/** Decir «este número es el real» sin cambiarlo. Es la salida para cuando el automático está bien. */
+function confirmarTC(moneda, mes) {
+  const n = db.prepare('UPDATE cierre_tc SET confirmado=? WHERE lower(moneda)=lower(?) AND lower(mes)=lower(?)')
+    .run(new Date().toISOString(), clean(moneda) || '', clean(mes) || '').changes;
+  return n ? { ok: true, confirmado: tcConfirmado(moneda, mes) } : { ok: false, error: 'no hay un tipo de cambio cargado para esa moneda y ese mes' };
+}
+
+/**
+ * @param confirmado  true = lo escribió una PERSONA y dice que es el real. false = lo puso el
+ *                    sistema (el promedio automático al cerrar el mes), y queda esperando que
+ *                    alguien lo mire. La celda es la misma para los dos, así que sin esto no hay
+ *                    forma de saber cuál de las dos cosas es.
+ */
+function setTC(moneda, mes, tasa, forzar = false, confirmado = false) {
   const m = clean(moneda), me = clean(mes), t = clean(tasa);
   if (!m || !me) return { ok: false, error: 'falta la moneda o el mes' };
   if (t == null) { db.prepare('DELETE FROM cierre_tc WHERE moneda=? AND mes=?').run(m, me); return { ok: true, borrado: true }; }
@@ -202,7 +226,9 @@ function setTC(moneda, mes, tasa, forzar = false) {
       }
     }
   }
-  db.prepare('INSERT INTO cierre_tc (moneda,mes,tasa) VALUES (?,?,?) ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa').run(m, me, t);
+  const sello = confirmado ? new Date().toISOString() : null;
+  db.prepare(`INSERT INTO cierre_tc (moneda,mes,tasa,confirmado) VALUES (?,?,?,?)
+    ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa, confirmado=excluded.confirmado`).run(m, me, t, sello);
   // ARS_OF ES el TC del proveedor: el mismo número que la tarjeta "Cierre mensual". Estaban en
   // dos tablas distintas y se habían separado — julio tenía 1473,5 en una y nada en la otra, y la
   // factura de externos lee la otra. Se escribe en las dos de una vez para que no vuelva a pasar.
@@ -403,7 +429,7 @@ function setCeldas(cambios) {
 }
 
 module.exports = {
-  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR,
+  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR, tcConfirmado, confirmarTC,
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,

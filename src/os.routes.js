@@ -1533,12 +1533,22 @@ function mount(app) {
   app.delete('/api/os/cierre/cliente/:nombre', (req, res) => ok(res, { borrado: cierreStore.removeCliente(req.params.nombre) }));
   app.post('/api/os/cierre/tc', wrap((req, res) => {
     const b = req.body || {};
-    const r = cierreStore.setTC(b.moneda, b.mes, b.tasa, !!b.forzar);
+    // `true` al final: esto lo escribió una PERSONA en la pantalla, así que vale como el real.
+    // Lo que escribe el sistema solo (tc-columna, al cerrar el mes) no lleva esa marca.
+    const r = cierreStore.setTC(b.moneda, b.mes, b.tasa, !!b.forzar, true);
     // El TC se tipea a mano y es el divisor de todo lo que se cobra: si viene mal escrito hay que
     // decirlo en el momento, no dejar que salga una factura en cero o mil veces más grande.
     if (r.ok) return ok(res, { guardado: true, borrado: !!r.borrado });
     // 409 = 'estás seguro?': la pantalla lo re-manda con forzar:true si el dueño confirma
     res.status(r.confirmar ? 409 : 400).json({ ok: false, error: r.error, confirmar: !!r.confirmar, anterior: r.anterior });
+  }));
+  /* «Este número es el real», sin tener que volver a tipearlo. Es la salida para cuando el
+     promedio que puso el sistema está bien: sin esto, la única forma de sacarse el aviso de
+     encima sería reescribir el mismo número. */
+  app.post('/api/os/cierre/tc/confirmar', wrap((req, res) => {
+    const b = req.body || {};
+    const r = cierreStore.confirmarTC(b.moneda, b.mes);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.post('/api/os/cierre/importar', wrap((req, res) => ok(res, cierreStore.importar(req.body || {}))));
   // vinculación proveedor del casino ↔ matriz
@@ -2074,7 +2084,7 @@ function mount(app) {
        Con `true` fijo, la única pantalla donde se carga ese número lo salteaba siempre. Ahora
        `forzar` llega de la pantalla, que primero muestra la pregunta. */
     const forzar = !!(req.body || {}).forzar;
-    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, forzar);
+    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, forzar, true);
     // `confirmar` y `anterior` viajan al cliente: sin eso la pantalla no puede preguntar nada.
     if (!r.ok) return err(res, 400, r.error, { confirmar: !!r.confirmar, anterior: r.anterior || null });
     ok(res, { mes: tcStore.getMes(req.params.mes) });
@@ -4368,8 +4378,11 @@ function mount(app) {
        confiar en los avisos, que es peor que no tenerlos. */
     const sinTC = [];
     let faltaProv = false; let hayARS = false;
+    /* Afuera del `try` a propósito: el paso de abajo —«¿es el real?»— también necesita saber qué
+       monedas movió el mes, y declarada adentro no la ve. Declarada adentro, ese paso no fallaba:
+       no hacía NADA, en silencio, que es peor. */
+    const usadas = new Set();
     try {
-      const usadas = new Set();
       pedidosStore.detalleDelMes(mes).forEach((d) => usadas.add(d.divisa));
       [...usadas].forEach((d) => { if (tcUnico.tcDelMes(d, mes).valor == null) sinTC.push(d); });
       /* ── Y EL TC DEL PROVEEDOR, QUE ES OTRO NÚMERO ────────────────────────────────────────
@@ -4390,6 +4403,25 @@ function mount(app) {
         faltaProv = !(t && t.tc_proveedor_ext != null && String(t.tc_proveedor_ext) !== '');
       }
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
+    /* ── ⚠️ EL TC QUE PUSO EL SISTEMA Y NADIE MIRÓ ────────────────────────────────────────
+       Al terminar el mes, `tc-columna` arma la columna sola con el promedio automático y la
+       escribe en la MISMA celda donde iría el real. `tc-unico.manual()` no los distingue: el
+       promedio queda contando como el definitivo, los pagos dejan de figurar provisorios, y se
+       acreditan con una estimación que nadie decidió.
+       Septiembre 2026: el sistema puso 1596,3923 y el real era 1679,88 — 5,2% arriba, 241,74
+       USDT repartidos en 7 clientes. Por eso esto no es un detalle del paso: es su propio aviso. */
+    const sinMirar = [];
+    try {
+      const colMes = mesCierreLbl(mes);
+      for (const mon of usadas) {
+        // Sólo las que TIENEN número: las que faltan ya las cuenta `sinTC`. Y se pregunta por
+        // moneda y no leyendo la tabla entera, que es lo que este bloque tiene prohibido hacer:
+        // mirarla en crudo volvía a pedir el TC del dólar, que no necesita ninguno.
+        if (tcUnico.tcDelMes(mon, mes).valor == null) continue;
+        if (!cierreStore.tcConfirmado(mon, colMes)) sinMirar.push(mon);
+      }
+    } catch (e) { /* si no se puede leer, no se frena el resto */ }
+
     const porQueTC = [];
     if (sinTC.length) porQueTC.push('falta el de ' + sinTC.join(', ') + ' — sin él esa moneda entra valiendo cero');
     if (faltaProv) porQueTC.push('falta el TC del PROVEEDOR de ARS (la fila ARS_OF): sin él la cuenta de los '
@@ -4399,6 +4431,16 @@ function mount(app) {
       estado: porQueTC.length ? 'falta' : 'listo',
       detalle: porQueTC.length ? porQueTC.join(' · ')
         : 'todas las monedas que movió el mes lo tienen' + (hayARS ? ', y el del proveedor está cargado' : '') });
+
+    /* Paso aparte y no un renglón del anterior: aquél pregunta si el número ESTÁ, éste si es el
+       REAL. Con el automático puesto, el de arriba da «listo» — y es justo cuando hay que mirar. */
+    paso({ id: 'tc-real', titulo: 'Confirmar que el tipo de cambio es el real', ir: 'tc',
+      estado: sinMirar.length ? 'aviso' : 'listo',
+      detalle: sinMirar.length
+        ? 'el de ' + sinMirar.join(', ') + ' lo puso el sistema solo (el promedio del mes), no vos. '
+          + 'Con él ya se acreditaron los pagos en esa moneda: si el real es otro, los saldos cambian. '
+          + 'Escribí el tuyo o tocá «es el real» en 💱 Tipos de cambio.'
+        : 'confirmados: el número que se usó es el que recibiste de verdad' });
 
     // 3 · los % del mes. No confirmarlos NO frena: se usa el vigente. No tener ninguno SÍ frena.
     const sinValor = []; const sinConfirmar = [];

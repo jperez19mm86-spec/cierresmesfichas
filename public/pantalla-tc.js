@@ -14,6 +14,17 @@ async function cieSetTC(el, forzar){
   toast('No se guardó: '+(r.error||''));
   el.style.borderColor='var(--red)';
 }
+/* «Ese número es el real», sin volver a escribirlo. Sin esto, la única forma de sacarse el aviso
+   de encima sería retipear el mismo valor — y eso enseña a tipear sin mirar, que es lo contrario
+   de lo que el aviso busca. */
+async function tcEsElReal(mon, mes){
+  if(!confirm('¿Confirmás que ' + mon + ' de ' + mes.replace('_',' ') + ' se cambió a ese valor?\n\n'
+    + 'Lo puso el sistema solo, con el promedio del mes. Si el real es otro, escribilo en la celda en vez de confirmar.')) return;
+  const r = await api('/api/os/cierre/tc/confirmar',{method:'POST',body:JSON.stringify({moneda:mon,mes:mes})});
+  if(!r.ok) return toast('No se pudo: '+(r.error||''));
+  toast('Confirmado');
+  VIEWS.tc();
+}
 async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast('Poné el mes'); const mon=(await api('/api/os/cierre/tc')).monedas||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon[0]||'USD',mes:me,tasa:'1'})}); toast('Mes agregado'); VIEWS.tc(); }
 async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); VIEWS.tc(); }
 
@@ -31,7 +42,7 @@ let _tcMes = new Date().toISOString().slice(0,7);
    ───────────────────────────────────────────────────────────────────────────────────────── */
 VIEWS.tc = async () => {
   const meses = (await api('/api/os/tc/meses')).meses||[];
-  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], tasas=d.tasas||{};
+  const d = await api('/api/os/cierre/tc'); const monedas=d.monedas||[], tasas=d.tasas||{}, confs=d.confirmados||{};
   const uso = await api('/api/os/tc/del-mes?mes='+encodeURIComponent(_tcMes));
   const prom = (await api('/api/os/tc/divisas/promedios?mes='+encodeURIComponent(_tcMes))).promedios||[];
   const seg = await api('/api/os/tc/divisas/seguidas');
@@ -45,7 +56,19 @@ VIEWS.tc = async () => {
   const filas = monedas.slice().sort((a,b)=> (a===PROV?1:0)-(b===PROV?1:0) || a.localeCompare(b));
   const body = filas.map(mon=>{
     const esProv = mon===PROV;
-    const tds = mesesCie.map(me=>{const t=(tasas[mon]||{})[me]; return `<td><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)"></td>`;}).join('');
+    /* ⚠️ UNA CELDA CON NÚMERO NO QUIERE DECIR QUE ALGUIEN LO HAYA DECIDIDO. Al terminar el mes el
+       sistema arma la columna solo con el promedio, y lo escribe acá mismo. Desde ese momento
+       cuenta como el definitivo: los pagos en esa moneda se acreditan con él. Septiembre 2026: el
+       automático decía 1596,3923 y el real era 1679,88 — 241,74 USDT de diferencia en 7 clientes.
+       La celda sin confirmar va marcada, con un botón para decir que ese número sí es el real. */
+    const tds = mesesCie.map(me=>{
+      const t=(tasas[mon]||{})[me];
+      const sinMirar = t!=null && t!=='' && !((confs[mon]||{})[me]);
+      return `<td${sinMirar?' class="cie-nomirado"':''}><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)">`
+        + (sinMirar?`<div class="cie-nm" title="Lo puso el sistema solo: es el promedio del mes, no el que recibiste. Escribí el tuyo encima, o tocá acá si ese número es el real."
+             onclick="tcEsElReal('${esc(mon).replace(/'/g,"\\'")}','${esc(me).replace(/'/g,"\\'")}')">lo puso el sistema · <b>es el real</b></div>`:'')
+        + `</td>`;
+    }).join('');
     return `<tr${esProv?' class="cie-hv"':''}><td class="cie-p">${esc(mon)}${esProv?' <span class="cie-tag">del proveedor</span>':''}
       <span class="cie-x" title="borrar la fila ${esc(mon)}" onclick="tcBorrarMoneda('${esc(mon).replace(/'/g,"\\'")}')">✕</span></td>${tds}</tr>`;
   }).join('');

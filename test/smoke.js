@@ -1182,8 +1182,10 @@ async function main() {
     const hOs = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('cierre: la ruta del TC ya no saltea el control',
       /const forzar = !!\(req\.body \|\| \{\}\)\.forzar;/.test(hOs)
-      && /cierreStore\.FILA_PROVEEDOR, mesCierreLbl\(req\.params\.mes\), tc_proveedor_ext, forzar\)/.test(hOs)
-      && !/tc_proveedor_ext, true\)/.test(hOs));
+      // El 5º argumento (`true`) es otra cosa: dice que lo escribió una PERSONA. El que no puede
+      // volver a estar clavado es `forzar`, que es el que saltea el control del salto del 50%.
+      && /cierreStore\.FILA_PROVEEDOR, mesCierreLbl\(req\.params\.mes\), tc_proveedor_ext, forzar, true\)/.test(hOs)
+      && !/tc_proveedor_ext, true[,)]/.test(hOs));
     // Y `confirmar` viaja al cliente: sin eso la pantalla no puede preguntar nada.
     check('cierre: el pedido de confirmación llega a la pantalla',
       /confirmar: !!r\.confirmar, anterior: r\.anterior \|\| null/.test(hOs));
@@ -10202,6 +10204,48 @@ async function main() {
       /no es una foto ni un PDF/.test(osArch));
 
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
+  }
+
+  /* ── EL TC QUE PUSO EL SISTEMA Y NADIE MIRÓ ────────────────────────────────────────────────
+     Al terminar el mes, `tc-columna` arma la columna sola con el promedio y la escribe en la MISMA
+     celda donde iría el real. Desde ahí cuenta como «cargado a mano en el cierre», o sea el
+     definitivo: los pagos marcados «se valúa con el TC del mes» se acreditan con él y dejan de
+     figurar provisorios. Nadie decidió nada y el saldo ya se movió.
+     Septiembre 2026: el sistema puso 1596,3923 y el real era 1679,88 — 5,2% arriba, 241,74 USDT
+     repartidos en 7 clientes. */
+  {
+    const cie = require('../src/cierre-store');
+    cie.setTC('ZZT', 'Marzo_2026', '100', true);            // como lo escribe el sistema
+    check('TC: lo que escribe el sistema queda SIN confirmar', cie.tcConfirmado('ZZT', 'Marzo_2026') === null);
+    cie.setTC('ZZT', 'Abril_2026', '101', true, true);      // como lo escribe una persona
+    check('TC: lo que escribe una persona queda confirmado', !!cie.tcConfirmado('ZZT', 'Abril_2026'));
+    // Decir «es el real» no puede cambiar el número: si lo cambiara, confirmar sería otra cosa.
+    const conf = cie.confirmarTC('ZZT', 'Marzo_2026');
+    check('TC: se puede confirmar sin cambiar el número',
+      conf.ok && !!cie.tcConfirmado('ZZT', 'Marzo_2026') && cie.getTC().tasas.ZZT.Marzo_2026 === '100');
+    // Y escribir uno nuevo encima lo deja confirmado solo: lo acaba de tipear una persona.
+    cie.setTC('ZZT', 'Marzo_2026', '105', true, true);
+    check('TC: escribir el real encima lo deja confirmado',
+      !!cie.tcConfirmado('ZZT', 'Marzo_2026') && cie.getTC().tasas.ZZT.Marzo_2026 === '105');
+    cie.removeMonedaTC('ZZT');
+
+    // La pantalla de cierre lo dice como un paso propio, no como un renglón del que ya existe:
+    // aquél pregunta si el número ESTÁ, éste si es el REAL — y con el automático puesto, el de
+    // arriba da «listo» justo cuando hay que mirar.
+    const pasos = await get('/api/os/cierre/pasos/2026-09');
+    const tcReal = (pasos.data.pasos || []).find((x) => x.id === 'tc-real');
+    check('cierre: hay un paso que pregunta si el tipo de cambio es el real',
+      !!tcReal && /real/i.test(tcReal.titulo || ''), tcReal ? tcReal.titulo : 'no está el paso');
+    // La ruta para confirmar desde la pantalla.
+    const rConf = await axios.post(BASE + '/api/os/cierre/tc/confirmar',
+      { moneda: 'NOEXISTE', mes: 'Marzo_2026' }, { ...H(), validateStatus: () => true });
+    check('cierre: confirmar un TC que no existe se rechaza, no inventa una fila',
+      rConf.status === 400, rConf.status + '');
+    // Y la grilla marca la celda que nadie miró, con el botón para decir que es el real.
+    const tcJs = fs.readFileSync(path.join(ROOT, 'public', 'pantalla-tc.js'), 'utf8');
+    check('TC: la grilla marca las celdas que puso el sistema y deja confirmarlas',
+      /const sinMirar = t!=null && t!=='' && !\(\(confs\[mon\]\|\|\{\}\)\[me\]\)/.test(tcJs)
+      && /async function tcEsElReal\(mon, mes\)/.test(tcJs));
   }
 
   /* ── LO QUE ENCONTRÓ LA AUDITORÍA DEL 3-OCT-2026 ────────────────────────────────────────────
