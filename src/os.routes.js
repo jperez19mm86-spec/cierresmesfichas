@@ -4478,6 +4478,34 @@ function mount(app) {
       detalle: congelado ? 'los precios de este mes quedaron fijos'
         : 'sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes' });
 
+    /* ── CONTRASTAR CONTRA LOS PANELES, ANTES DE EMITIR ──────────────────────────────────────
+       El contraste compara lo que se le va a cobrar a cada cliente contra lo que REGISTRARON sus
+       paneles en el casino. Es lo único que atrapa una carga cobrada al cliente equivocado o una
+       que se cobra dos veces, y después de emitir ya no sirve de mucho: la deuda está puesta.
+
+       Hasta el 5-oct-2026 sólo se podía correr de a UN cliente, metido adentro de la vista previa
+       de su factura. El mes entero nunca se contrastaba, y en la cuenta de cada cliente quedaba
+       escrito «sin contrastar» para siempre. El servidor sabía hacerlo desde siempre
+       (`/api/os/validacion/<mes>?correr=1`) y no lo llamaba ninguna pantalla.
+
+       Va ANTES de las emisiones a propósito: es el paso que tiene sentido hacer antes, no después. */
+    let contraste = null;
+    try { contraste = crucePanel.leer(mes); } catch (e) { /* si no se puede leer, se pide correrlo */ }
+    /* Lo que importa no es si se emitió antes o después del contraste —después está bien— sino si
+       el contraste quedó VIEJO: corrido antes de la última foto, mira datos que ya cambiaron. Es
+       el mismo criterio que usa `vieja()` para las emisiones, unas líneas más abajo. */
+    const contrasteViejo = !!(contraste && contraste.validadoAt && fotoAt
+      && String(contraste.validadoAt) < String(fotoAt));
+    const dif = contraste ? Number(contraste.clientesConDiferencias || 0) : 0;
+    paso({ id: 'contraste', titulo: 'Contrastar contra los paneles', ir: 'facturacion',
+      accion: 'cruzarElMes',
+      estado: !contraste ? 'falta' : ((dif || contrasteViejo) ? 'aviso' : 'listo'),
+      detalle: !contraste
+        ? 'nunca se corrió para este mes: lo que se emita no pasa por ningún control'
+        : (dif ? dif + ' cliente(s) con diferencias contra lo que registraron sus paneles — miralos antes de emitir'
+               : 'todo lo del mes coincide con lo que registraron los paneles')
+          + (contrasteViejo ? ' · ⚠ se corrió ANTES de la última foto: volvé a correrlo' : '') });
+
     /* 5-8 · las emisiones y las facturas. El orden lo puso la dueña: lo de los VENDEDORES va al
        final, después de mandarle las facturas a los clientes — no bloquea nada y llegaba a frenar
        lo urgente, que es el consumo. Cada emisión avisa si quedó vieja. */

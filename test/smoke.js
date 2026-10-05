@@ -10206,6 +10206,33 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── CONTRASTAR CONTRA LOS PANELES, ANTES DE EMITIR ────────────────────────────────────────
+     El contraste es lo único que atrapa una carga cobrada al cliente equivocado o cobrada dos
+     veces, y después de emitir ya no sirve de mucho: la deuda está puesta. Emitir el consumo lo
+     corre solo si no hay ninguno, pero correrlo ANTES —para mirar las diferencias y recién
+     después emitir— sólo se podía de a un cliente, metido adentro de la vista previa de su
+     factura. Para el mes entero el servidor ya sabía hacerlo y no lo llamaba ninguna pantalla. */
+  {
+    const pasosC = await get('/api/os/cierre/pasos/2026-09');
+    const pc = (pasosC.data.pasos || []).find((x) => x.id === 'contraste');
+    check('cierre: hay un paso para contrastar contra los paneles', !!pc, pc ? pc.titulo : 'no está');
+    // Va ANTES de las emisiones: es el paso que tiene sentido hacer antes, no después.
+    const nEmision = (pasosC.data.pasos || []).find((x) => x.id === 'facturacion');
+    check('cierre: el contraste va antes de emitir el consumo',
+      !!pc && !!nEmision && pc.n < nEmision.n, pc && nEmision ? (pc.n + ' < ' + nEmision.n) : '—');
+    // Y se corre desde ahí mismo, sin entrar a la factura de 53 clientes de a uno.
+    check('cierre: ese paso trae su propio botón para correrlo', !!pc && pc.accion === 'cruzarElMes');
+    const osC = FUENTE_PANEL();
+    check('cierre: el botón existe y usa el mes de ESA pantalla',
+      /async function cruzarElMes\(\)/.test(osC)
+      && /const mes = _pasosMes;/.test(osC)
+      && /validacion\/' \+ encodeURIComponent\(mes\) \+ '\?correr=1/.test(osC));
+    /* Dos corridas a la vez son dos minutos al pedo y la segunda pisa a la primera: el botón se
+       traba solo mientras corre. */
+    check('cierre: no se puede largar dos veces seguidas', /if\(_cruzando\) return toast/.test(osC));
+    check('cierre: y al terminar repinta el paso', /ciePasos\(\);   \/\/ repintar/.test(osC));
+  }
+
   /* ── PAGOS RECIBIDOS: EL EQUIVALENTE Y LA BILLETERA ────────────────────────────────────────
      Faltaban las dos cosas que no se podían deducir mirando la tabla: cuántos USDT le bajó al
      cliente ese pago en pesos (hasta que no hubo TC del mes no se podía mostrar), y a cuál de las

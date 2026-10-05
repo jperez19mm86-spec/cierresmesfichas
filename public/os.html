@@ -4059,10 +4059,37 @@ async function ciePasos(){
           + '<span class="paso-ic">' + ICO[p.estado] + '</span>'
           + '<span class="paso-txt"><b>' + esc(p.titulo) + '</b>'
           +   '<span class="muted">' + esc(p.detalle||'') + '</span></span>'
-          + '<button class="' + (toca?'':'outline ') + 'small" onclick="irA(\'' + esc(p.ir) + '\')">'
+          /* Un paso puede traer su propia ACCIÓN, para los que se resuelven acá mismo en vez de
+             mandándote a otra pantalla. El primero es contrastar el mes: antes había que entrar
+             a la factura de cada cliente y apretar el botón adentro, 53 veces. */
+          + (p.accion ? '<button class="small" onclick="' + esc(p.accion) + '()">correr</button>' : '')
+          + '<button class="' + (toca&&!p.accion?'':'outline ') + 'small" onclick="irA(\'' + esc(p.ir) + '\')">'
           +   (p.estado==='listo' ? 'ver' : 'ir') + ' →</button>'
           + '</div>';
       }).join('') + '</div>';
+}
+/* ── CONTRASTAR EL MES ENTERO ────────────────────────────────────────────────────────────────
+   Compara lo que se le va a cobrar a cada cliente contra lo que registraron sus paneles en el
+   casino. Tarda: le pregunta al casino panel por panel, así que se avisa antes y se deja el
+   renglón diciendo que está trabajando — un botón que no responde por un minuto se aprieta dos
+   veces, y la segunda corrida es otro minuto al pedo. */
+let _cruzando = false;
+async function cruzarElMes(){
+  if(_cruzando) return toast('Ya se está corriendo');
+  // El mes de ESTA pantalla, que tiene su propio selector. Inventarme otra variable haría que el
+  // botón contrastara un mes distinto del que estás mirando.
+  const mes = _pasosMes;
+  if(!confirm('¿Contrastar ' + mes + ' contra los paneles?\n\nLe pregunta al casino por cada panel: puede tardar un par de minutos. No cambia ninguna deuda — sólo deja anotado qué coincide y qué no.')) return;
+  _cruzando = true;
+  toast('Contrastando… puede tardar un par de minutos');
+  try{
+    const r = await api('/api/os/validacion/' + encodeURIComponent(mes) + '?correr=1');
+    if(!r.ok) return toast('No se pudo: ' + (r.error||''));
+    const v = r.validacion || {};
+    const n = Number(v.clientesConDiferencias||0);
+    toast(n ? (n + ' cliente(s) con diferencias') : 'Todo coincide');
+  } finally { _cruzando = false; }
+  ciePasos();   // repintar: el estado del paso acaba de cambiar
 }
 function _cieFlash(el){ el.classList.add('cie-ok'); setTimeout(()=>el.classList.remove('cie-ok'),350); }
 
