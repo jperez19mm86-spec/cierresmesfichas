@@ -3330,6 +3330,7 @@ function _cmpMoneda(codigo) {
 /** Pinta la lista de comprobantes en el cuerpo de Movimientos. `estado` vacío = todos. */
 async function pintarComprobantes(estado, conFiltros) {
   const dest = document.getElementById('mov-body'); if (!dest) return;
+  await cobPersonas();   // el selector de «quién la recibió» necesita la lista antes de dibujarse
   // La lista de clientes hace falta ACÁ, no sólo en "Cuenta y pagos": es de donde sale en qué
   // moneda se lleva la cuenta de cada uno. Si se entra directo a "Por aprobar" sin pasar por la
   // otra solapa, viene vacía y todos los clientes parecen estar en USDT — incluidos los que
@@ -5615,6 +5616,7 @@ function movMas(){ _movTope += 60; MOV.cuenta(); }
 
 MOV.cuenta = async () => {
   if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
+  await cobPersonas();   // el selector de «quién la recibió» necesita la lista antes de dibujarse
   const movs = (await api('/api/os/movimientos')).movimientos||[];
   const nom = {}; _clientes.forEach(c=>{ nom[c.id]=c; });
 
@@ -5849,6 +5851,30 @@ const REP_SUBS = [['mes','📊 Resultado del mes'],['clientes','👥 Reparto por
    Cada pago se parte con los puntos que tenía ese cliente EN EL MES AL QUE ENTRA EL PAGO. Y van
    las dos caras, que son preguntas distintas: de quién ES cada peso, y quién LO RECIBIÓ. La
    diferencia entre las dos es lo que un socio le debe al otro. */
+/* Las personas del reparto, para los selectores de «quién recibió». Se piden una vez y se
+   guardan: aparecen en tres pantallas distintas y pedirlas en cada pintado es una llamada de más
+   por cada tecla. */
+let _personasRep = null;
+async function cobPersonas(){
+  if(_personasRep) return _personasRep;
+  const d = await api('/api/os/personas');
+  _personasRep = d.personas || [];
+  return _personasRep;
+}
+/* El selector de quién agarró la plata. Va vacío por defecto a propósito: preseleccionar a alguien
+   hace que se guarde ese alguien cuando en realidad nadie lo eligió.
+   ⚠️ SI LA LISTA TODAVÍA NO SE PIDIÓ, igual devuelve un <select> usable con «sin anotar». Antes
+   esta función NO EXISTÍA —una edición que falló a mitad— y las dos pantallas que la llaman
+   reventaban enteras: «Pagos y cargas» y «Por aprobar» se quedaban en «Cargando…» para siempre,
+   sin decir una palabra. Es la misma trampa que `facturar()`. */
+function cobSelRecibio(id, elegido){
+  return '<select id="' + id + '" style="font-size:12.5px">'
+    + '<option value="">— sin anotar —</option>'
+    + (_personasRep||[]).map(p => '<option value="' + esc(p.id) + '"' + (p.id===elegido?' selected':'') + '>'
+        + esc(p.nombre) + '</option>').join('')
+    + '</select>';
+}
+
 let _cobMesR = mesDeCierre();
 let _cobAbierto = '';
 function cobRIrA(m){ _cobMesR = m; VIEWS.repartocobrado(); }

@@ -10209,6 +10209,40 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── LAS FUNCIONES QUE LA PANTALLA LLAMA TIENEN QUE EXISTIR ────────────────────────────────
+     Tercera vez en dos días: `facturar()`, `cieEsInterno()` y `cobSelRecibio()`. Las tres se
+     llamaban y no estaban definidas, y las tres fallaron del peor modo posible — adentro de un
+     `async`, el error se traga solo y la pantalla se queda en «Cargando…» sin decir una palabra.
+     La de `cobSelRecibio` la metí yo y rompió «Pagos y cargas» y «Por aprobar» en producción.
+
+     Esto no es un linter: es la lista de las que las pantallas de plata necesitan sí o sí. Una
+     lista corta que se revisa de verdad vale más que un chequeo general lleno de falsos positivos
+     —lo intenté y daba 52, casi todos palabras en castellano de los comentarios. */
+  {
+    const osFn = FUENTE_PANEL();
+    const extra = ['pantalla-tc.js', 'pantalla-carga.js']
+      .map((f) => fs.readFileSync(path.join(ROOT, 'public', f), 'utf8')).join('\n');
+    const fuente = osFn + '\n' + extra;
+    const definida = (n) => new RegExp('(function\\s+' + n + '\\s*\\()|((?:const|let|var)\\s+' + n + '\\s*=)'
+      + '|(' + n + '\\s*[:=]\\s*(?:async\\s*)?(?:function|\\())').test(fuente);
+    const IMPRESCINDIBLES = [
+      'cobSelRecibio', 'cobPersonas', 'cobRecibio', 'cobRVer', 'cobRIrA',   // quién recibió la plata
+      'pintarSalteados', 'pintarConciliado',                                // qué quedó afuera al emitir
+      'cruzarElMes', 'ciePasos',                                            // contrastar contra los paneles
+      'cmpResolver', '_cmpResolver', '_cmpMoneda',                          // aprobar un comprobante
+      'regPago', 'mpArchivo', 'pagCSV', 'pagOrdenar',                                // pagos
+      'VIEWS', 'api', 'esc', 'money', 'toast', 'bannerMes', 'mesDeCierre',  // los ayudantes de todas
+    ];
+    const faltan = IMPRESCINDIBLES.filter((n) => !definida(n));
+    check('panel: todas las funciones que las pantallas de plata llaman están definidas',
+      faltan.length === 0, faltan.length ? ('FALTAN: ' + faltan.join(', ')) : IMPRESCINDIBLES.length + ' revisadas');
+
+    /* Y las dos que se quedaron en «Cargando…» piden la lista ANTES de dibujarse: el selector sin
+       lista no rompe, pero sale vacío y no se puede elegir a nadie. */
+    check('panel: las pantallas que usan el selector piden la lista antes de dibujarlo',
+      (osFn.match(/await cobPersonas\(\);   \/\/ el selector/g) || []).length === 2);
+  }
+
   /* ── 🧮 DE QUIÉN ES LO QUE COBRÉ ───────────────────────────────────────────────────────────
      El Reparto de siempre dice a quién le CORRESPONDE lo facturado. Esto dice de quién es la plata
      que YA ENTRÓ, que nunca es lo mismo: se cobra parcial, se descuentan comisiones, y un pago de
