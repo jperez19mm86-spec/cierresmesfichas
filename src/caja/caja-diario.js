@@ -150,6 +150,10 @@ function medidor() {
          persiguiendo una ficha de diferencia que el diario no supo explicar. */
       if (cuerpo && (cuerpo.movido != null || cuerpo.antes != null)) {
         resultado = { antes: cuerpo.antes, despues: cuerpo.despues, movido: cuerpo.movido };
+        /* Cuando el casino rechazó sin mover nada: lo que dijo (si dijo algo) y si el jugador estaba
+           jugando. Es lo que hace falta para saber por qué, sin volver a preguntarle al cajero. */
+        if (cuerpo.motorDijo) resultado.motorDijo = String(cuerpo.motorDijo).slice(0, 200);
+        if (cuerpo.jugando != null) resultado.jugando = cuerpo.jugando;
       }
       return jsonOriginal(cuerpo);
     };

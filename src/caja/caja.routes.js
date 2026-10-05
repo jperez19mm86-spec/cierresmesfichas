@@ -773,7 +773,24 @@ function mount(app) {
     }
     if (!fila && login) fila = await buscarEn({ search: String(login), offset: '1' });
     if (!fila) return null;
+    ultimaFila.set(String(idCuenta), { fila, at: Date.now() });
+    if (ultimaFila.size > 2000) ultimaFila.clear();
     return saldoDeFila(fila);
+  }
+  /* La última fila leída de cada cuenta: para explicar un rechazo (¿estaba jugando?) sin otra llamada. */
+  const ultimaFila = new Map();
+  const estaJugando = (f) => !!f && (f.online === '1' || f.online === 1 || f.online === true
+    || (typeof f.game === 'string' && f.game.trim() !== ''));
+  /* Lo que el casino contestó a la orden, en texto: puede venir como JSON (`errorMessage`/`error`)
+     o como la página HTML del frame. Se queda con algo legible y corto, nunca con el HTML entero. */
+  function textoDelMotor(r) {
+    const d = r && r.data;
+    if (d && typeof d === 'object') return String(d.errorMessage || d.error || d.message || '').trim();
+    if (typeof d !== 'string') return String((r && r.error) || '').trim();
+    const t = d.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const m = t.match(/(error|no se|not |cannot|can't|denied|prohib|insufficient|insuficiente|limit|в игре|ошибк)[^.]{0,140}/i);
+    return m ? m[0].trim() : '';
   }
 
 
@@ -949,6 +966,10 @@ function mount(app) {
     /* 4 · nada se movió: el motor rechazó sin decirlo */
     console.log('[caja/fichas] antes=%s despues=%s movido=%s', antes, despuesFinal, movido);
     if (movido === 0) {
+      const motorDijo = textoDelMotor(r);
+      const fJ = (ultimaFila.get(cuenta) || {}).fila;
+      const jugando = operacion === 'out' ? estaJugando(fJ) : undefined;
+      console.log('[caja/fichas] sin efecto en %s · jugando=%s · el casino dijo: %s', cuenta, jugando, motorDijo || '(nada)');
       /* 🔴 EL MENSAJE TIENE QUE DECIR LO QUE PASÓ. Antes, cualquier retiro que no moviera nada
          contestaba lo mismo —«fijate que el jugador tenga ese saldo»— incluso cuando el retiro era
          SOBRE UNA CAJA y el jugador no tenía nada que ver. Y encima el caso más común es conocido:
@@ -961,8 +982,16 @@ function mount(app) {
         : (todo
           ? 'No se pudo retirar el saldo. Se probó de las dos maneras —«todo» y el monto exacto— y '
             + 'el casino no movió nada. Puede que la cuenta tenga el retiro bloqueado.'
-          : 'No se pudo retirar. Fijate que tenga ese saldo y que la caja permita retiro parcial.');
-      return res.status(409).json({ ok: false, sinEfecto: true, error: razon, saldo: despuesFinal, antes });
+          : jugando
+            /* 🔴 4 retiros seguidos rechazados el 5-oct-2026 (E-7358): el jugador estaba jugando y su
+               saldo cambiaba entre un intento y otro. Decir eso es lo útil; «fijate que tenga saldo»
+               no lo era —tenía 28.000—. No se afirma la causa: se dice lo que se ve. */
+            ? `No se pudo retirar: ${fJ.login || 'el jugador'} está jugando en este momento y el casino no movió nada. `
+              + 'Pedile que salga del juego (que vuelva al inicio del casino) y probá de nuevo.'
+            : 'No se pudo retirar. Fijate que tenga ese saldo y que la caja permita retiro parcial.');
+      const conMotor = motorDijo && !jugando ? `${razon} El casino dijo: «${motorDijo}».` : razon;
+      return res.status(409).json({ ok: false, sinEfecto: true, error: conMotor, saldo: despuesFinal, antes,
+        motorDijo: motorDijo || undefined, jugando });
     }
 
     /* 5 · se movió algo distinto de lo pedido: se dice, no se disimula */

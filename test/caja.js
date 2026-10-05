@@ -419,6 +419,14 @@ async function main() {
       check('y una que YA existe en la página 2 se detecta igual',
         repe.ok === false && repe.ocupado === true, repe.error || '(no la detectó)');
 
+      /* Un jugador que está jugando: el casino no mueve nada y no explica. Se dice que está jugando. */
+      motor.cuentas.get('301').jugando = true;
+      const enJuego = await enviar('/api/caja/fichas', { cuenta: '301', login: 'JugadorUno', padre: '200', operacion: 'out', monto: 10, todo: false, gesto: 'jug1' });
+      motor.cuentas.get('301').jugando = false;
+      check('retiro a un jugador que está jugando: dice que está jugando y qué hacer',
+        enJuego.status === 409 && enJuego.data.jugando === true && /está jugando/.test(enJuego.data.error || '') && /salga del juego/.test(enJuego.data.error || ''),
+        enJuego.data.error);
+
       const conFiltro = (await pedir('/api/caja/cuentas?id=100&buscar=CajaMasiva7')).data;
       check('«buscar» filtra de verdad, aunque el motor ignore el parámetro',
         (conFiltro.cuentas || []).length > 0

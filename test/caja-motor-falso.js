@@ -60,6 +60,8 @@ function crearMotorFalso() {
     terminals: { ARS: String(hijosDe(c.id).length) },
     terminals_online: { ARS: '0' },
     deleted: c.borrada ? '1' : '0',
+    online: c.jugando ? '1' : '0',
+    game: c.jugando ? 'Gates of Olympus' : '',
   });
 
   const srv = http.createServer((req, res) => {
@@ -199,6 +201,8 @@ function crearMotorFalso() {
         if (cuanto <= 0) return responder({});
         if (entra && padre && padre.saldo < cuanto) return responder({});   // no alcanzan las fichas
         if (!entra && destino.saldo < cuanto) return responder({});          // no tiene ese saldo
+        /* Un jugador en pleno juego: el casino no le saca fichas y no dice nada (visto el 5-oct-2026). */
+        if (!entra && destino.jugando) return responder({});
 
         destino.saldo += entra ? cuanto : -cuanto;
         if (padre) padre.saldo += entra ? -cuanto : cuanto;
