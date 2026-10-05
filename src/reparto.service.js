@@ -113,6 +113,43 @@ function distribuir(ventasUsdt, cliente, mes, fecha) {
   };
 }
 
+/**
+ * Reparte un monto YA COBRADO entre los participantes de ese cliente.
+ *
+ * `distribuir` parte de las VENTAS y calcula el fee; acá el fee ya está — es la plata que entró y
+ * que le bajó la deuda. Lo único que se reusa, y es lo que importa, son los puntos: cada uno se
+ * lleva `monto × (sus puntos / base)`. Si el reparto de ese cliente no cierra, lo que falta queda
+ * en `sin_asignar` en vez de prorratearse solo: prorratear sería inventar una decisión comercial.
+ *
+ * ⚠️ EL MES ES EL DEL PAGO, NO EL DE HOY. Un pago de octubre que paga el cierre de septiembre se
+ * reparte con los puntos que ese cliente tenía en SEPTIEMBRE. Regla de la dueña (5-oct-2026): si
+ * cambió un porcentaje en el medio, lo que se cobró de un mes viejo sigue siendo de quien era.
+ *
+ * 🔑 INVARIANTE: Σ items + sin_asignar = monto, exacto al centavo. El último renglón se lleva el
+ * residuo, igual que en `distribuir`.
+ */
+function repartirCobrado(montoUsdt, cliente, mes, fecha) {
+  const r = repartoCliente(cliente, mes, fecha);
+  const monto = money.round(String(montoUsdt || '0'), 2);
+  const vacio = { ok: false, estado: r.estado, monto_usdt: monto, items: [], sin_asignar: '0', reparto: r };
+  // Sin base no hay proporción posible; excedido significa que el reparto suma más que el % del
+  // cliente, así que cualquier número estaría repartiendo plata que no existe.
+  if (r.estado === 'sin_base' || r.estado === 'excedido') return vacio;
+  if (r.estado === 'sin_reparto') return { ...vacio, sin_asignar: monto };
+
+  const parte = (pct) => money.round(money.mul(monto, money.div(pct, r.base)), 2);
+  const sinAsignar = money.isPos(r.resto) ? parte(r.resto) : '0';
+  const repartible = money.sub(monto, sinAsignar);
+
+  const out = []; let acum = '0';
+  r.items.forEach((it, i) => {
+    const m = i === r.items.length - 1 ? money.sub(repartible, acum) : parte(it.pct);
+    acum = money.add(acum, m);
+    out.push({ ...it, monto: m });
+  });
+  return { ok: r.estado === 'ok', estado: r.estado, monto_usdt: monto, items: out, sin_asignar: sinAsignar, reparto: r };
+}
+
 /** Los clientes cuyo reparto no cierra, con el motivo. Alimenta la pantalla y Revisión. */
 function revisar(listaClientes, mes) {
   const problemas = [];
@@ -174,4 +211,4 @@ function sembrarDesdeSplit(listaClientes, mes, { aplicar = false } = {}) {
   return { aplicado: aplicar, empresa_id: emp.id, plan, salteados };
 }
 
-module.exports = { repartoCliente, distribuir, revisar, sembrarDesdeSplit };
+module.exports = { repartoCliente, distribuir, repartirCobrado, revisar, sembrarDesdeSplit };

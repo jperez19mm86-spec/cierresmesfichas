@@ -603,6 +603,12 @@ ensureColumns('movimientos', { origen: 'TEXT', origen_ref: 'TEXT', medio: 'TEXT'
    definitivo, y los pagos se acreditaban con una estimación que nadie decidió. Septiembre 2026:
    el sistema puso 1596,3923 y el real era 1679,88 — 5,2% arriba, 241,74 USDT en 7 clientes. */
 ensureColumns('cierre_tc', { confirmado: 'TEXT' });
+
+/* `recibido_por`: QUIÉN agarró esta plata (un id de `personas`). No es lo mismo que de quién ES:
+   un pago puede ser mitad de la Empresa y mitad de los socios y haberlo cobrado Henry. Hasta el
+   5-oct-2026 eso vivía sólo en la planilla de ella («Recibe: Hen / Ale»), así que el OS podía
+   decir a quién le corresponde cada peso pero no quién lo tiene. */
+ensureColumns('movimientos', { recibido_por: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

@@ -1707,6 +1707,8 @@ function mount(app) {
          Hasta el 3-oct-2026 esto no se podía decir al aprobar —sólo en el pago cargado a mano— y
          todo caía en el mes en que se apretaba el botón. Sin `mes` se comporta igual que antes. */
       mes_cierre: /^\d{4}-\d{2}$/.test(String(b.mes || '')) ? String(b.mes) : null,
+      // Y quién la agarró, si se eligió. Vacío es un estado válido: se completa después.
+      recibido_por: b.recibido_por || null,
       divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
       notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
     const montoUsdt = enUsdt;
@@ -2470,7 +2472,7 @@ function mount(app) {
    * aparece en «Comprobantes resueltos» junto a los demás, donde antes no figuraba en ningún lado.
    */
   app.post('/api/os/movimientos/pago', wrap(async (req, res) => {
-    const { cliente_id, monto_usdt, fecha, notas, medio, archivo, mes_cierre } = req.body || {};
+    const { cliente_id, monto_usdt, fecha, notas, medio, archivo, mes_cierre, recibido_por } = req.body || {};
     /* ── SE PUEDE CARGAR EN PESOS SIN SABER LOS DÓLARES ────────────────────────────────────────
        Muchos pagos llegan en pesos y el cambio recién se acuerda al cerrar el mes. Antes acá había
        que poner USDT sí o sí: o se inventaba un número, o el pago no se cargaba y el cliente
@@ -2499,7 +2501,7 @@ function mount(app) {
        derivar. `divisa` es la de la CUENTA, que es la que resta la deuda. */
     const monedaCuenta = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
     const movimiento = movs.create({
-      cliente_id, tipo: 'pago', fecha, notas, medio, mes_cierre,
+      cliente_id, tipo: 'pago', fecha, notas, medio, mes_cierre, recibido_por: recibido_por || null,
       monto_usdt: enPesos ? null : monto_usdt,
       monto_ars: enPesos ? String(monto_ars) : null,
       tc_modo: enPesos && monedaCuenta !== 'ARS' ? 'mes' : null,
@@ -5585,6 +5587,91 @@ function mount(app) {
   }));
 
   // El reparto de UN cliente, contrastado contra su % base (lo consume el editor).
+  /* ───────── 💰 EL REPARTO DE LO COBRADO ────────────────────────────────────────────────────
+     La pantalla de Reparto dice a quién le CORRESPONDE lo facturado. Esto dice de quién es la
+     plata que YA ENTRÓ, que nunca es lo mismo: se cobra parcial, se descuentan comisiones, y un
+     pago de hoy puede estar pagando un cierre viejo.
+
+     Regla de la dueña (5-oct-2026): cada pago se parte con los puntos que tenía ese cliente EN EL
+     MES AL QUE ENTRA EL PAGO, no con los de hoy ni tapando el mes más viejo primero. Si cambió un
+     porcentaje en el medio, lo que se cobró de un mes viejo sigue siendo de quien era entonces.
+
+     Y van las DOS caras, que son preguntas distintas: de quién ES cada peso (los puntos) y quién
+     LO RECIBIÓ (`recibido_por`). La diferencia entre las dos es lo que un socio le debe al otro.
+
+     ⚠️ LO QUE NO ESTÁ EN LOS PUNTOS NO SE REPARTE SOLO. Los puntos suman el % base del cliente,
+     que es el fee de las FICHAS. Un cliente que además paga proveedores externos está pagando dos
+     conceptos con la misma transferencia, y acá no hay forma de saber qué parte es cuál. Se avisa
+     por cliente en vez de repartir de más. */
+  app.get('/api/os/reparto-cobrado', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const cs = clientes.list().clientes;
+    const porId = {}; cs.forEach((c) => { porId[c.id] = c; });
+    const nomPersona = {}; const esEmp = {};
+    personas.list().forEach((p) => { nomPersona[p.id] = p.nombre; esEmp[p.id] = !!p.es_empresa; });
+
+    // Quiénes tuvieron externos este mes: su pago mezcla dos conceptos y el reparto sólo cubre uno.
+    const conExternos = new Set();
+    try {
+      movs.list({ tipo: 'proveedor_extra' }).forEach((mv) => {
+        if (movs.mesDe(mv) === mes) conExternos.add(mv.cliente_id);
+      });
+    } catch (e) { /* si no se puede leer, se reparte igual y no se avisa */ }
+
+    const porPersona = {}; const porReceptor = {};
+    let total = '0'; let sinAsignar = '0';
+    const pagos = movs.list({ tipo: 'pago' }).filter((mv) => movs.mesDe(mv) === mes).map((mv) => {
+      const cli = porId[mv.cliente_id] || {};
+      /* SIEMPRE en USDT: es la unidad de la cuenta y la única forma de sumar a todos juntos. Un
+         pago sin esa cara —cargado en pesos sobre una cuenta en pesos y sin TC— no se puede
+         repartir, y se dice: repartir cero en silencio es peor que no repartir. */
+      const usdt = mv.monto_usdt;
+      const sinUsdt = usdt == null || usdt === '';
+      const r = sinUsdt ? null : repartoSvc.repartirCobrado(usdt, cli, mes);
+      if (r) {
+        total = money.add(total, r.monto_usdt);
+        sinAsignar = money.add(sinAsignar, r.sin_asignar);
+        r.items.forEach((it) => {
+          const a = porPersona[it.persona_id] = porPersona[it.persona_id]
+            || { persona_id: it.persona_id, nombre: it.nombre, es_empresa: it.es_empresa, monto: '0' };
+          a.monto = money.add(a.monto, it.monto);
+        });
+        const k = mv.recibido_por || '';
+        const rc = porReceptor[k] = porReceptor[k]
+          || { persona_id: k || null, nombre: k ? (nomPersona[k] || '(persona borrada)') : '(sin anotar)', monto: '0', pagos: 0 };
+        rc.monto = money.add(rc.monto, r.monto_usdt); rc.pagos += 1;
+      }
+      return {
+        id: mv.id, fecha: String(mv.fecha || mv.createdAt || '').slice(0, 10),
+        cliente: cli.nombre || cli.codigo || '(sin cliente)', codigo: cli.codigo || '',
+        usdt: sinUsdt ? null : money.round(usdt, 2),
+        via: mv.medio || null,
+        recibido_por: mv.recibido_por || '', recibido: mv.recibido_por ? (nomPersona[mv.recibido_por] || '(persona borrada)') : '',
+        estado: r ? r.estado : 'sin_usdt',
+        base: r ? r.reparto.base : null,
+        items: r ? r.items.map((it) => ({ persona_id: it.persona_id, nombre: it.nombre, pct: it.pct, monto: it.monto })) : [],
+        sin_asignar: r ? r.sin_asignar : '0',
+        mezcla_externos: conExternos.has(mv.cliente_id),
+      };
+    }).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+
+    const orden = (o) => Object.values(o).sort((a, b) => Number(b.monto) - Number(a.monto));
+    ok(res, {
+      mes, pagos,
+      porPersona: orden(porPersona).map((x) => ({ ...x, monto: money.round(x.monto, 2) })),
+      porReceptor: orden(porReceptor).map((x) => ({ ...x, monto: money.round(x.monto, 2) })),
+      total_usdt: money.round(total, 2), sin_asignar_usdt: money.round(sinAsignar, 2),
+      personas: personas.list().map((p) => ({ id: p.id, nombre: p.nombre, es_empresa: !!p.es_empresa })),
+    });
+  }));
+
+  /* Quién agarró la plata de un pago. Se corrige después a propósito: al acreditar no siempre se
+     sabe, y obligar a elegir en ese momento lleva a elegir cualquier cosa para poder seguir. */
+  app.put('/api/os/pagos/:id/recibido-por', wrap((req, res) => {
+    const r = movs.setRecibidoPor(req.params.id, (req.body || {}).persona_id || null);
+    r.ok ? ok(res, { movimiento: r.movimiento }) : err(res, 404, r.error);
+  }));
+
   app.get('/api/os/reparto/:clienteId', (req, res) => {
     const c = clientes.get(req.params.clienteId);
     if (!c) return err(res, 404, 'cliente no encontrado');

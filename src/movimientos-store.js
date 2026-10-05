@@ -34,8 +34,8 @@ function create(d) {
   // MAX+1, no COUNT: con un borrado de por medio el COUNT repite el mismo `ord`.
   const ord = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM movimientos').get().n;
   db.prepare(`INSERT INTO movimientos
-    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo,mes_cierre)
-    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo,@mescierre)`).run({
+    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo,mes_cierre,recibido_por)
+    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo,@mescierre,@recibidopor)`).run({
     id, cli: d.cliente_id || null, pan: d.panel_id || null, prov: d.proveedor_id || null, ped: d.pedido_id || null,
     tipo: d.tipo, mars: S(d.monto_ars), musdt: S(d.monto_usdt), tc: S(d.tc_momento), base: S(d.base_pct_aplicado),
     div: d.divisa || 'ARS', fecha: d.fecha || nowISO(), uid: d.usuario_id || null, notas: d.notas || '', ca: nowISO(), ord,
@@ -45,6 +45,7 @@ function create(d) {
     medio: d.medio || null,   // por dónde entró el pago: cvu | usdt | efectivo | …
     // A qué mes entra. Vacío = el de la fecha; se guarda sólo cuando alguien decidió otra cosa.
     mescierre: d.mes_cierre ? String(d.mes_cierre).slice(0, 7) : null,
+    recibidopor: d.recibido_por ? String(d.recibido_por) : null,
     // 'mes' = la cara que falta se deriva del TC del mes al leer, no se congela acá.
     tcmodo: d.tc_modo === 'mes' ? 'mes' : null,
   });
@@ -89,6 +90,14 @@ function list(filters = {}) {
  *
  * `null` lo devuelve al mes de su fecha.
  */
+/* Quién agarró la plata se puede corregir después: al acreditar no siempre se sabe, y obligar a
+   elegir en ese momento llevaría a elegir cualquier cosa para poder seguir. */
+function setRecibidoPor(id, personaId) {
+  const p = personaId ? String(personaId) : null;
+  const n = db.prepare('UPDATE movimientos SET recibido_por=? WHERE id=?').run(p, id).changes;
+  return n ? { ok: true, movimiento: get(id) } : { ok: false, error: 'no existe ese movimiento' };
+}
+
 function setMesCierre(id, mes) {
   const m = mes ? String(mes).slice(0, 7) : null;
   if (m && !/^\d{4}-\d{2}$/.test(m)) return { ok: false, error: 'mes inválido' };
@@ -105,4 +114,4 @@ function mesDe(mv) {
   return String((mv && (mv.fecha || mv.createdAt)) || '').slice(0, 7);
 }
 
-module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre };
+module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre, setRecibidoPor };

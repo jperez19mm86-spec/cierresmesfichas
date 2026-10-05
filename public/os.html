@@ -71,6 +71,7 @@ const GRUPOS = [
        y no se repiten acá, que es de lo que se trataba ordenar la barra. */
     ['movimientos:cuenta', '💳 Pagos y cargas'],
     ['pagos', '💵 Pagos recibidos'],
+    ['repartocobrado', '🧮 De quién es lo cobrado'],
     ['movimientos:historial', '🧾 Comprobantes resueltos'],
     ['cierre:vendedores', '🤝 Vendedores'],
     ['cierre:pago', '💸 Pago a proveedores'],
@@ -3418,6 +3419,9 @@ async function pintarComprobantes(estado, conFiltros) {
           + '<div class="row" style="margin:8px 0 0;align-items:flex-end;gap:8px">'
           +   '<div style="flex:0 0 auto"><label>Entra en el cierre de</label>'
           +     '<input id="cmp-mes-' + c.id + '" type="month" value="' + esc(String(c.creado_at || '').slice(0, 7)) + '"></div>'
+          /* Quién agarró la plata. Se puede dejar sin anotar y completarlo después en «De quién es
+             lo cobrado»: obligar a elegir acá lleva a elegir cualquier cosa para poder seguir. */
+          +   '<div style="flex:0 0 auto"><label>¿Quién la recibió?</label>' + cobSelRecibio('cmp-rec-' + c.id, '') + '</div>'
           +   '<div class="muted" style="flex:1 1 220px;padding-bottom:9px;font-size:12px">'
           +     'Vale para cualquiera de los botones de abajo. Cambialo si este pago descuenta de otro mes.</div>'
           + '</div>'
@@ -3610,6 +3614,7 @@ async function _cmpResolver(id, estado, codigo, opts) {
   /* El cierre al que entra el pago. Uno por tarjeta, lo leen los tres caminos. Si rechazás no se
      manda: un rechazo no crea ningún movimiento, así que no entra en ningún mes. */
   const mes0 = (document.getElementById('cmp-mes-' + id) || {}).value || undefined;
+  const rec0 = (document.getElementById('cmp-rec-' + id) || {}).value || undefined;
   // ── CON EL TC DEL MES ────────────────────────────────────────────────────────────────────
   // Se acredita en la moneda en que PAGÓ. Si escribió un monto lo usa —puede haber entrado algo
   // distinto de lo declarado— y si no, toma el declarado. El TC no se pide: lo pone el cierre.
@@ -3626,7 +3631,7 @@ async function _cmpResolver(id, estado, codigo, opts) {
     // La moneda va explícita: el servidor la compara con la que él calcula y rechaza si no coinciden.
     // Sin eso, un desajuste entre pantalla y servidor se convierte en plata mal acreditada, callado.
     const r0 = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-      body: JSON.stringify({ estado, monto: String(nm), moneda: o.divisa, tc_modo: 'mes', motivo: nota0, mes: mes0 }) });
+      body: JSON.stringify({ estado, monto: String(nm), moneda: o.divisa, tc_modo: 'mes', motivo: nota0, mes: mes0, recibido_por: rec0 }) });
     if (!r0.ok) return toast('Error: ' + (r0.error || ''));
     toast('Acreditado · se ajusta al cerrar el mes');
     return VIEWS.movimientos();
@@ -3650,7 +3655,7 @@ async function _cmpResolver(id, estado, codigo, opts) {
     + (mes0 ? ', en el cierre de ' + mes0 + '.' : '.'))) return;
   const tc = (document.getElementById('cmp-tc-' + id) || {}).value;
   const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota, mes: mes0 }) });
+    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota, mes: mes0, recibido_por: rec0 }) });
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();
@@ -5682,6 +5687,9 @@ MOV.cuenta = async () => {
           <input id="mp-fecha" type="date" value="${hoyISO()}" onchange="mpFecha()"></div>
         <div style="flex:0 0 auto"><label>Entra en el cierre de</label>
           <input id="mp-mes" type="month" value="${hoyISO().slice(0,7)}" onchange="_mpMesTocado=true"></div>
+        <!-- La misma pregunta que al aprobar un comprobante: quién agarró la plata. Las dos
+             puertas al mismo concepto tienen que pedir lo mismo, o una queda cargando a medias. -->
+        <div style="flex:0 0 auto"><label>¿Quién la recibió?</label>${cobSelRecibio('mp-rec','')}</div>
         <div class="muted" style="flex:1;font-size:12.5px;padding-bottom:9px">
           El mes arranca en el de la fecha. Cambialo si ese pago corresponde a otro cierre.</div>
       </div>
@@ -5805,7 +5813,8 @@ async function regPago(){
     monto_usdt: moneda==='USDT' ? monto : undefined,
     monto_ars:  moneda==='ARS'  ? monto : undefined,
     medio:val('mp-medio'), archivo:_mpArchivo,
-    fecha:val('mp-fecha')||undefined, mes_cierre:val('mp-mes')||undefined, avisar })});
+    fecha:val('mp-fecha')||undefined, mes_cierre:val('mp-mes')||undefined,
+    recibido_por:val('mp-rec')||undefined, avisar })});
   if(r.ok){
     _mpArchivo = null;
     // A dónde salió el aviso, dicho acá: si el bot no está en un grupo hay que enterarse ahora,
@@ -5831,6 +5840,118 @@ async function regPago(){
    por cliente y el resultado del mes son tres vistas de lo mismo. */
 const REP = {};
 const REP_SUBS = [['mes','📊 Resultado del mes'],['clientes','👥 Reparto por cliente'],['participantes','🤝 Participantes']];
+
+/* ══ 🧮 DE QUIÉN ES LO QUE COBRÉ ═════════════════════════════════════════════════════════════
+   La pantalla de Reparto dice a quién le CORRESPONDE lo facturado. Ésta dice de quién es la plata
+   que YA ENTRÓ, que nunca es lo mismo: se cobra parcial, se descuentan comisiones, y un pago de
+   hoy puede estar pagando un cierre viejo.
+
+   Cada pago se parte con los puntos que tenía ese cliente EN EL MES AL QUE ENTRA EL PAGO. Y van
+   las dos caras, que son preguntas distintas: de quién ES cada peso, y quién LO RECIBIÓ. La
+   diferencia entre las dos es lo que un socio le debe al otro. */
+let _cobMesR = mesDeCierre();
+let _cobAbierto = '';
+function cobRIrA(m){ _cobMesR = m; VIEWS.repartocobrado(); }
+function cobRVer(id){ _cobAbierto = (_cobAbierto === id ? '' : id); VIEWS.repartocobrado(); }
+
+async function cobRecibio(id, personaId){
+  const r = await api('/api/os/pagos/' + id + '/recibido-por', { method:'PUT', body: JSON.stringify({ persona_id: personaId }) });
+  if(!r.ok) return toast('No se pudo: ' + (r.error||''));
+  toast(personaId ? 'Anotado' : 'Sin anotar');
+  VIEWS.repartocobrado();
+}
+
+VIEWS.repartocobrado = async () => {
+  const main = document.getElementById('main');
+  main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  const r = await api('/api/os/reparto-cobrado?mes=' + encodeURIComponent(_cobMesR));
+  if(!r || !r.ok){ main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: '
+    + esc((r&&r.error)||'') + '</div></div>'; return; }
+
+  const personas = r.personas || [];
+  const selPersona = (f) => '<select onchange="cobRecibio(\'' + f.id + '\', this.value)" style="font-size:12px;padding:3px 6px">'
+    + '<option value="">— sin anotar —</option>'
+    + personas.map(p => '<option value="' + esc(p.id) + '"' + (p.id === f.recibido_por ? ' selected' : '') + '>'
+        + esc(p.nombre) + '</option>').join('')
+    + '</select>';
+
+  /* Los que no se pudieron repartir van arriba y con nombre: un total que calla lo que dejó
+     afuera es la forma más cara de equivocarse, porque cuadra. */
+  const rotos = (r.pagos||[]).filter(p => p.estado !== 'ok');
+  const mezclan = (r.pagos||[]).filter(p => p.mezcla_externos);
+
+  const tarjeta = (titulo, ayuda, filas, total) => '<div class="card" style="flex:1 1 320px;min-width:0">'
+    + '<h2 style="margin:0 0 2px">' + titulo + '</h2>'
+    + '<div class="muted" style="font-size:12.5px;margin-bottom:8px">' + ayuda + '</div>'
+    + (filas.length
+        ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>'
+          + filas.map(x => '<tr><td class="reptd">' + esc(x.nombre)
+              + (x.es_empresa ? ' <span class="pill" style="font-size:10px">empresa</span>' : '')
+              + (x.pagos != null ? ' <span class="muted" style="font-size:11px">· ' + x.pagos + ' pago' + (x.pagos===1?'':'s') + '</span>' : '')
+              + '</td><td class="reptd right"><b>' + money(x.monto,2) + '</b></td></tr>').join('')
+          + '</tbody><tfoot><tr><th class="reptd">Total</th><th class="reptd right">' + money(total,2) + '</th></tr></tfoot></table>'
+        : '<div class="muted">Nada este mes.</div>')
+    + '</div>';
+
+  main.innerHTML = '<div class="card">'
+    + '<h2 style="margin:0">🧮 De quién es lo que cobré</h2>'
+    + bannerMes(_cobMesR, 'cobRIrA')
+    + '<div class="muted" style="font-size:13px">Cada pago que entró, repartido con los puntos que tenía ese cliente '
+    + '<b>en el mes al que entra el pago</b>. No es lo mismo que el Reparto de siempre: aquél dice a quién le '
+    + '<b>corresponde</b> lo facturado, éste de quién es la plata que <b>ya está</b>.</div>'
+    + (Number(r.sin_asignar_usdt) ? '<div class="nota warn" style="margin-top:10px"><span class="tit">'
+        + money(r.sin_asignar_usdt,2) + ' USDT sin dueño</span>'
+        + 'Hay clientes cuyo reparto no llega a cubrir su % base. Esa parte no se prorratea sola: '
+        + 'decidir quién se la lleva es una decisión comercial, no una cuenta.</div>' : '')
+    + (mezclan.length ? '<div class="nota" style="margin-top:10px"><span class="tit">'
+        + mezclan.length + ' pago(s) de clientes que este mes también pagan proveedores externos</span>'
+        + 'Los puntos cubren el fee de las fichas. Si ese cliente paga las dos cosas con la misma '
+        + 'transferencia, parte de lo repartido acá en realidad es del proveedor.</div>' : '')
+    + '</div>'
+
+    + '<div class="row" style="gap:12px;align-items:stretch;flex-wrap:wrap">'
+    +   tarjeta('De quién es', 'Según los puntos de cada cliente en ese mes.', r.porPersona||[], r.total_usdt)
+    +   tarjeta('Quién la recibió', 'Lo que cada uno tiene en la mano. La diferencia con la otra tarjeta es lo que se deben entre ustedes.', r.porReceptor||[], r.total_usdt)
+    + '</div>'
+
+    + '<div class="card"><h2>Pago por pago</h2>'
+    + (rotos.length ? '<div class="muted" style="font-size:12.5px;margin-bottom:8px">'
+        + rotos.length + ' no se pudieron repartir del todo. Están marcados.</div>' : '')
+    + ((r.pagos||[]).length
+      ? '<div style="overflow-x:auto"><table style="min-width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+        + '<th class="reptd">Fecha</th><th class="reptd">Cliente</th>'
+        + '<th class="reptd right">Entró (USDT)</th><th class="reptd">Quién la recibió</th><th class="reptd"></th>'
+        + '</tr></thead><tbody>'
+        + (r.pagos||[]).map(f => '<tr>'
+            + '<td class="reptd">' + esc(f.fecha) + '</td>'
+            + '<td class="reptd">' + esc(f.cliente) + ' <span class="muted" style="font-size:11px">' + esc(f.codigo) + '</span>'
+            +   (f.estado !== 'ok' ? ' <span class="pill urg" style="font-size:10px" title="'
+                  + (f.estado==='sin_usdt' ? 'Este pago no tiene su cara en USDT: no se puede repartir.'
+                     : f.estado==='sin_base' ? 'Este cliente no tiene % base cargado para ese mes.'
+                     : f.estado==='sin_reparto' ? 'Este cliente no tiene reparto configurado.'
+                     : f.estado==='excedido' ? 'El reparto de este cliente suma MÁS que su % base: hay que arreglarlo antes.'
+                     : 'Al reparto de este cliente le faltan puntos por asignar.')
+                  + '">' + esc(f.estado.replace('_',' ')) + '</span>' : '')
+            + '</td>'
+            + '<td class="reptd right"><b>' + (f.usdt == null ? '<span style="color:var(--red)">sin USDT</span>' : money(f.usdt,2)) + '</b></td>'
+            + '<td class="reptd">' + selPersona(f) + '</td>'
+            + '<td class="reptd right">' + (f.items.length
+                ? '<button class="outline small" onclick="cobRVer(\'' + f.id + '\')">' + (_cobAbierto===f.id?'ocultar':'ver reparto') + '</button>' : '')
+            + '</td></tr>'
+            + (_cobAbierto===f.id ? '<tr><td class="reptd" colspan="5" style="background:var(--bg3)">'
+                + '<div style="font-size:12.5px"><b>' + esc(f.cliente) + '</b> · base ' + esc(String(f.base||'—')) + '%'
+                + ' · entró ' + money(f.usdt,2) + ' USDT</div>'
+                + '<table style="width:auto;margin-top:6px;font-size:12.5px"><tbody>'
+                + f.items.map(it => '<tr><td class="reptd">' + esc(it.nombre)
+                    + ' <span class="muted">(' + esc(it.pct) + ' de ' + esc(String(f.base)) + ')</span></td>'
+                    + '<td class="reptd right">' + money(it.monto,2) + '</td></tr>').join('')
+                + (Number(f.sin_asignar) ? '<tr><td class="reptd"><b>sin dueño</b></td><td class="reptd right"><b>'
+                    + money(f.sin_asignar,2) + '</b></td></tr>' : '')
+                + '</tbody></table></td></tr>' : '')).join('')
+        + '</tbody></table></div>'
+      : '<div class="muted">No entró ningún pago en este mes.</div>')
+    + '</div>';
+};
 
 VIEWS.reparto = () => {
   document.getElementById('main').innerHTML =

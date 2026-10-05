@@ -440,6 +440,9 @@ async function main() {
     const trozo = html3.slice(ini, fin) + '\n        : \'\')';
     const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const _cmpMoneda = () => 'USDT';
+    /* La tarjeta usa el selector de «quién recibió». Acá se mide la ESTRUCTURA del renglón, así
+       que alcanza con un <select> cualquiera: lo que importa es que ocupe un lugar en la fila. */
+    const cobSelRecibio = () => '<select><option></option></select>';
     const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
     const pend = true;
     let marca = '';
@@ -10204,6 +10207,73 @@ async function main() {
       /no es una foto ni un PDF/.test(osArch));
 
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
+  }
+
+  /* ── 🧮 DE QUIÉN ES LO QUE COBRÉ ───────────────────────────────────────────────────────────
+     El Reparto de siempre dice a quién le CORRESPONDE lo facturado. Esto dice de quién es la plata
+     que YA ENTRÓ, que nunca es lo mismo: se cobra parcial, se descuentan comisiones, y un pago de
+     hoy puede estar pagando un cierre viejo. Regla de la dueña (5-oct-2026): se parte con los
+     puntos que tenía ese cliente EN EL MES AL QUE ENTRA EL PAGO. */
+  {
+    const rc = await get('/api/os/reparto-cobrado?mes=2026-09');
+    check('cobrado: el reporte contesta con las dos caras y los pagos',
+      rc.status === 200 && rc.data.ok === true && Array.isArray(rc.data.pagos)
+      && Array.isArray(rc.data.porPersona) && Array.isArray(rc.data.porReceptor),
+      (rc.data.pagos || []).length + ' pago(s)');
+
+    /* 🔑 EL INVARIANTE: lo repartido más lo que quedó sin dueño tiene que dar EXACTO lo que entró.
+       Si no, el reporte estaría inventando o perdiendo plata, y las dos tarjetas de arriba
+       cerrarían igual porque salen de la misma suma. */
+    const sumado = (rc.data.porPersona || []).reduce((a, x) => a + Number(x.monto || 0), 0)
+      + Number(rc.data.sin_asignar_usdt || 0);
+    const repartibles = (rc.data.pagos || []).filter((p) => p.estado !== 'sin_usdt' && p.estado !== 'sin_base' && p.estado !== 'excedido');
+    const entro = repartibles.reduce((a, p) => a + Number(p.usdt || 0), 0);
+    check('cobrado: lo repartido más lo que no tiene dueño da exacto lo que entró',
+      Math.abs(sumado - entro) < 0.02, sumado.toFixed(2) + ' vs ' + entro.toFixed(2));
+    // Y lo mismo pago por pago: el último renglón se lleva el residuo, no se pierden centavos.
+    const malos = repartibles.filter((p) => Math.abs(
+      p.items.reduce((a, it) => a + Number(it.monto || 0), 0) + Number(p.sin_asignar || 0) - Number(p.usdt || 0)) > 0.011);
+    check('cobrado: cada pago cierra al centavo', malos.length === 0,
+      malos.length ? malos.map((p) => p.cliente).join(', ') : 'todos');
+
+    // Y la plata que se recibió es la misma que se repartió, mirada del otro lado.
+    const porRec = (rc.data.porReceptor || []).reduce((a, x) => a + Number(x.monto || 0), 0);
+    check('cobrado: lo que recibieron entre todos es lo mismo que entró',
+      Math.abs(porRec - entro) < 0.02, porRec.toFixed(2) + ' vs ' + entro.toFixed(2));
+
+    /* Un pago sin su cara en USDT no se puede repartir, y se DICE: repartir cero en silencio deja
+       plata afuera del informe sin que nada lo note. */
+    const sinU = (rc.data.pagos || []).filter((p) => p.estado === 'sin_usdt');
+    check('cobrado: un pago sin USDT se marca en vez de repartirse en cero',
+      sinU.every((p) => p.usdt === null && !p.items.length), sinU.length + ' sin USDT');
+
+    // Quién agarró la plata se puede corregir después: al acreditar no siempre se sabe.
+    const unPago = (rc.data.pagos || [])[0];
+    if (unPago) {
+      const puesto = await axios.put(BASE + '/api/os/pagos/' + unPago.id + '/recibido-por',
+        { persona_id: 'zz_prueba' }, { ...H(), validateStatus: () => true });
+      check('cobrado: se puede anotar quién recibió un pago ya acreditado',
+        puesto.status === 200 && puesto.data.ok === true, puesto.status + '');
+      const vuelta = await get('/api/os/reparto-cobrado?mes=2026-09');
+      const igual = (vuelta.data.pagos || []).find((p) => p.id === unPago.id);
+      check('cobrado: y queda guardado', !!igual && igual.recibido_por === 'zz_prueba',
+        igual ? igual.recibido_por : 'no apareció');
+      // Y se puede sacar: dejarlo sin anotar es un estado válido.
+      await axios.put(BASE + '/api/os/pagos/' + unPago.id + '/recibido-por',
+        { persona_id: unPago.recibido_por || null }, { ...H(), validateStatus: () => true });
+    }
+
+    const osRc = FUENTE_PANEL();
+    check('cobrado: la pantalla está en la barra y muestra las dos caras',
+      /\['repartocobrado', '🧮 De quién es lo cobrado'\]/.test(osRc)
+      && /VIEWS\.repartocobrado = async/.test(osRc)
+      && /De quién es/.test(osRc) && /Quién la recibió/.test(osRc));
+    /* Las dos puertas por donde entra un pago tienen que pedir lo mismo, o una queda cargando a
+       medias y el informe sale incompleto sin que nada avise. */
+    check('cobrado: tanto al aprobar como al cargar a mano se puede decir quién la recibió',
+      /cobSelRecibio\('cmp-rec-' \+ c\.id, ''\)/.test(osRc) && /cobSelRecibio\('mp-rec',''\)/.test(osRc)
+      && (osRc.match(/recibido_por: rec0/g) || []).length === 2
+      && /recibido_por:val\('mp-rec'\)\|\|undefined/.test(osRc));
   }
 
   /* ── CONTRASTAR CONTRA LOS PANELES, ANTES DE EMITIR ────────────────────────────────────────
