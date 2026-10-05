@@ -157,13 +157,33 @@ async function sincronizar({ soloConexion = null, soloPanel = null, dry = false 
  * —decenas de miles de nodos— y tarda cerca de un minuto. Si falla, el panel queda sin resolver y
  * la pantalla lo muestra así, con su botón para reintentar.
  */
-function resolverEnSegundoPlano(panel) {
+/* 🔴 UN AGENTE RECIÉN CREADO TODAVÍA NO ESTÁ EN EL ÁRBOL QUE DEVUELVE EL CASINO. Se baja el árbol
+   segundos después del alta, el nodo no aparece, no se guarda nada… y el log decía «el nivel ya era
+   el correcto». Pasó con GanamosAlex (creado por NahuelGanamosD en Mi Caja, 4-oct-2026): el primer
+   pedido de 500.000 fue directo y el casino lo rechazó con «Suma de entrada excede los límites».
+   Ahora, si no lo encuentra, lo dice y vuelve a probar más tarde. */
+const REINTENTOS_MIN = [2, 10, 30, 90];
+function resolverEnSegundoPlano(panel, intento = 0) {
   if (!panel || !panel.id || !panel.id_usuario) return;
   sincronizar({ soloPanel: panel.id })
     .then((r) => {
-      const c = ((r && r.nivelCorregido) || [])[0];
-      console.log(`[Árbol] ${panel.nombre}: ` + (!r || !r.ok ? 'no se pudo resolver — ' + ((r && r.error) || '')
-        : (c ? `era ${c.de} y es ${c.a}` : 'el nivel ya era el correcto')));
+      if (!r || !r.ok) {
+        console.log(`[Árbol] ${panel.nombre}: no se pudo resolver — ${(r && r.error) || ''}`);
+      } else if (!r.resueltos) {
+        const espera = REINTENTOS_MIN[intento];
+        console.log(`[Árbol] ${panel.nombre}: todavía no aparece en el árbol del casino`
+          + (espera ? ` · reintento en ${espera} min` : ' · se deja: se resuelve al cargar o con el botón'));
+        if (espera) {
+          const t = setTimeout(() => {
+            const actual = paneles.get(panel.id);
+            if (actual && !actual.arbol_at) resolverEnSegundoPlano(actual, intento + 1);
+          }, espera * 60 * 1000);
+          if (t.unref) t.unref();
+        }
+      } else {
+        const c = (r.nivelCorregido || [])[0];
+        console.log(`[Árbol] ${panel.nombre}: resuelto` + (c ? ` (era ${c.de} y es ${c.a})` : ''));
+      }
     })
     .catch((e) => console.warn('[Árbol] no se pudo resolver', panel.nombre, e.message));
 }

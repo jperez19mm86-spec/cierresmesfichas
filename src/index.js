@@ -1301,6 +1301,20 @@ app.post('/api/pedidos/:id/cargar', async (req, res) => {
     // CASCADA: cargar un Distribuidor/Agente le saca las fichas a su padre, así que se funde cada
     // eslabón de arriba hacia abajo justo antes de usarlo. Los padres terminan como estaban y solo
     // el destino queda con el monto. Si ya hubo un intento a medias, se RETOMA (no repite pasos).
+    /* 🔴 PANEL SIN ÁRBOL → SE RESUELVE ACÁ, ANTES DE MOVER NADA. Sin el camino de padres la carga va
+       directo, el casino se la quiere sacar al padre y contesta «Suma de entrada excede los
+       límites». Pasó el 5-oct-2026 con GanamosAlex: agente nuevo, su árbol no se había resuelto.
+       Tarda unos segundos (baja el árbol de esa conexión), y es mucho mejor que un rechazo. */
+    {
+      const pan = cascada.panelDe(p.sistema, p.userId);
+      const previo = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
+      if (pan && !previo.resuelto) {
+        try {
+          const rs = await require('./arbol.service').sincronizar({ soloPanel: pan.id });
+          console.log(`[Pedido] ${p.cajaUsuario}: sin árbol, se resolvió antes de cargar → ${rs && rs.ok ? `${rs.resueltos} resuelto(s)` : (rs && rs.error) || 'falló'}`);
+        } catch (e) { console.warn('[Pedido] no se pudo resolver el árbol antes de cargar:', e.message); }
+      }
+    }
     const plan = cascada.pasosDe({ sistema: p.sistema, userId: p.userId, monto: p.monto, divisa: p.divisa, cajaUsuario: p.cajaUsuario });
     // Si un padre no tiene la divisa del pedido, se avisa ANTES de mover nada.
     if (plan.bloqueo) { soltar(); return res.status(400).json({ ok: false, error: plan.bloqueo, bloqueo: true, sinLaDivisa: plan.sinLaDivisa }); }

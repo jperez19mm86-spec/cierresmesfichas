@@ -1563,9 +1563,16 @@ async function main() {
     /* Uno solo y compartido: el que lo tenía adentro de os.routes.js era justamente el motivo por
        el que el alta de Fichas se quedó sin resolver —no se podía llamar desde afuera. */
     check('árbol: el que resuelve es uno solo, en el servicio, no una copia por archivo',
-      /function resolverEnSegundoPlano\(panel\)/.test(srcArb)
+      /function resolverEnSegundoPlano\(panel(, intento = 0)?\)/.test(srcArb)
       && /resolverEnSegundoPlano,/.test(srcArb)
       && !/function _resolverJerarquia\(panel\) \{/.test(srcRt2));
+    // Un agente recién creado todavía no está en el árbol del casino: se reintenta, y se dice.
+    check('árbol: si el nodo nuevo todavía no aparece, se reintenta más tarde (no se da por bueno)',
+      /REINTENTOS_MIN = \[/.test(srcArb) && /todavía no aparece en el árbol del casino/.test(srcArb)
+      && !/el nivel ya era el correcto/.test(srcArb));
+    // Y la carga no sale directo si el panel no tiene árbol: lo resuelve antes de mover nada.
+    check('carga: un panel sin árbol se resuelve justo antes de cargar',
+      /sin árbol, se resolvió antes de cargar/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'index.js'), 'utf8')));
     // En segundo plano: baja el árbol entero y tarda; bloquear el alta sería peor.
     check('árbol: resolver no bloquea el alta ni tumba el proceso si falla',
       /sincronizar\(\{ soloPanel: panel\.id \}\)\s*\n\s*\.then/.test(srcArb)
