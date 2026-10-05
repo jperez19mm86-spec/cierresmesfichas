@@ -3168,21 +3168,40 @@ VIEWS.pagos = async () => {
     + 'oninput="pagBuscar(\'' + moneda + '\', this.value)" placeholder="🔎 buscar cliente o código" '
     + 'style="width:220px;font-size:12px">';
 
+  /* Cada moneda muestra una columna propia además de las compartidas:
+       · en PESOS, a cuántos USDT equivale ese pago — es lo que de verdad le bajó la deuda al
+         cliente, y hasta que no hubo TC del mes no se podía mostrar;
+       · en USDT, a qué BILLETERA entró. Con dos wallets activas, saber a cuál llegó cada pago
+         obligaba a abrir el comprobante de a uno. */
+  const esArs = (moneda) => moneda === 'ARS';
   const tabla = (filas, moneda) => { const conCliente = true; return !filas.length
     ? '<div class="muted">Ninguno este mes.</div>'
     : '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
       + th(moneda, 'fecha', 'Fecha')
       + (conCliente ? th(moneda, 'cliente', 'Cliente') + '<th class="reptd">Código</th>' : '')
       + th(moneda, 'monto', 'Recibido', ' right')
+      + (esArs(moneda) ? '<th class="reptd right" title="Lo que se le acreditó en la cuenta, con el tipo de cambio de ese pago">Equivale a (USDT)</th>'
+                       : '<th class="reptd">Billetera</th>')
       + (conCliente ? '<th class="reptd">Referencia</th>' : '') + '</tr></thead><tbody>'
       + vista(filas, moneda).map(f=>'<tr><td class="reptd">'+esc(f.fecha)
           + (f.mes !== f.fecha.slice(0,7) ? ' <span class="muted" style="font-size:11px">(entra en '+esc(f.mes)+')</span>' : '')
           + '</td>'
           + (conCliente ? '<td class="reptd">'+esc(f.cliente)+'</td><td class="reptd muted">'+esc(f.codigo)+'</td>' : '')
-          + '<td class="reptd right"><b>'+money(moneda==='ARS'?f.ars:f.usdt,2)+'</b>'
-          + (f.sinValuar ? ' <span style="color:var(--red);font-size:11px">sin TC</span>'
-             : (f.provisional ? ' <span class="muted" style="font-size:11px">provisorio</span>' : ''))
+          + '<td class="reptd right"><b>'+money(esArs(moneda)?f.ars:f.usdt,2)+'</b>'
+          /* Los avisos van en la columna del USDT y no en la de los pesos: los pesos que entraron
+             son exactos, lo que puede moverse es la conversión. Puestos al lado del número seguro,
+             decían que había dudas justo sobre el que no las tiene. */
+          + (esArs(moneda) ? '' : (f.sinValuar ? ' <span style="color:var(--red);font-size:11px">sin TC</span>'
+             : (f.provisional ? ' <span class="muted" style="font-size:11px">provisorio</span>' : '')))
           + '</td>'
+          + (esArs(moneda)
+              ? '<td class="reptd right">' + (f.usdt != null && f.usdt !== ''
+                  ? money(f.usdt,2) + (f.tc ? ' <span class="muted" style="font-size:11px">a ' + money(f.tc,2) + '</span>' : '')
+                  : '<span style="color:var(--red);font-size:11px">sin TC</span>')
+                + (f.sinValuar ? ' <span style="color:var(--red);font-size:11px">no bajó la deuda</span>'
+                   : (f.provisional ? ' <span class="muted" style="font-size:11px">provisorio</span>' : ''))
+                + '</td>'
+              : '<td class="reptd">' + (esc(f.billetera) || '<span class="muted">—</span>') + '</td>')
           + (conCliente ? '<td class="reptd muted" style="font-size:11px;word-break:break-all">'
               + (esc(f.referencia)||'—') + (f.archivo?' 📎':'') + '</td>' : '') + '</tr>').join('')
       + '</tbody></table>'; };
@@ -3262,14 +3281,20 @@ function pagCSV(via){
   const anon = via === 'cvu' && !!(document.getElementById('pag-anon') || {}).checked;
   const conCliente = !anon;
   const recibido = 'Recibido (' + (via==='cvu' ? 'ARS' : 'USDT') + ')';
+  /* Las mismas columnas que la pantalla: en pesos, a cuánto equivale; en USDT, a qué billetera
+     entró. El archivo anónimo —el que se manda al grupo que concilia contra el banco— sigue con
+     fecha y monto nada más: ahí el equivalente en dólares no aporta y el nombre no corresponde. */
+  const extra = via==='cvu' ? 'Equivale a (USDT)' : 'Billetera';
+  const dato = (f) => via==='cvu' ? num(f.usdt) : q(f.billetera || '');
   const cab = conCliente
-    ? ['Fecha','Entra en el cierre de','Cliente','Código',recibido,'Referencia']
+    ? ['Fecha','Entra en el cierre de','Cliente','Código',recibido,extra,'Referencia']
     : ['Fecha','Entra en el cierre de',recibido];
   const cuerpo = filas.map(f=>(conCliente
-    ? [q(f.fecha),q(f.mes),q(f.cliente),q(f.codigo),num(f[col]),q(f.referencia)]
+    ? [q(f.fecha),q(f.mes),q(f.cliente),q(f.codigo),num(f[col]),dato(f),q(f.referencia)]
     : [q(f.fecha),q(f.mes),num(f[col])]).join(';'));
   const suma = num(filas.reduce((a,f)=>a+Number(f[col]||0),0));
-  const total = conCliente ? ['','','','TOTAL',suma,''].join(';') : ['','TOTAL',suma].join(';');
+  const sumaUsdt = via==='cvu' ? num(filas.reduce((a,f)=>a+Number(f.usdt||0),0)) : '';
+  const total = conCliente ? ['','','','TOTAL',suma,sumaUsdt,''].join(';') : ['','TOTAL',suma].join(';');
   const txt = '\ufeff' + [cab.map(q).join(';'), ...cuerpo, total].join('\r\n');
   bajarArchivo('pagos-' + (via==='cvu'?'pesos':'usdt') + '-' + _pagMes
     + (anon ? '-para-el-grupo' : '') + '.csv', txt);

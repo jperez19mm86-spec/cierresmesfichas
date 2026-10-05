@@ -10206,6 +10206,33 @@ async function main() {
     if (cid) { try { await axios.delete(BASE + `/api/clientes/${cid}`, H()); } catch (e) { /* limpieza */ } }
   }
 
+  /* ── PAGOS RECIBIDOS: EL EQUIVALENTE Y LA BILLETERA ────────────────────────────────────────
+     Faltaban las dos cosas que no se podían deducir mirando la tabla: cuántos USDT le bajó al
+     cliente ese pago en pesos (hasta que no hubo TC del mes no se podía mostrar), y a cuál de las
+     billeteras entró cada USDT — con dos wallets activas había que abrir el comprobante de a uno. */
+  {
+    const pg = await get('/api/os/pagos?mes=2026-09');
+    check('pagos: cada pago dice a qué billetera entró', pg.status === 200 && pg.data.ok === true
+      && (pg.data.usdt || []).every((f) => 'billetera' in f),
+      (pg.data.usdt || []).length + ' pagos en USDT');
+    check('pagos: y el pago en pesos trae su equivalente y el TC con que se valuó',
+      (pg.data.pesos || []).every((f) => 'usdt' in f && 'tc' in f),
+      (pg.data.pesos || []).length + ' pagos en pesos');
+    const osPg = FUENTE_PANEL();
+    check('pagos: la tabla de pesos muestra el equivalente y la de USDT la billetera',
+      /Equivale a \(USDT\)/.test(osPg) && /<th class="reptd">Billetera<\/th>/.test(osPg));
+    /* El aviso de «provisorio» va en la columna del USDT, no en la de los pesos: los pesos que
+       entraron son exactos; lo que puede moverse es la conversión. */
+    check('pagos: el aviso de provisorio no cuelga del número que es exacto',
+      /Los avisos van en la columna del USDT y no en la de los pesos/.test(osPg));
+    // Y lo que se ve es lo que se baja: el Excel lleva las mismas columnas.
+    check('pagos: el Excel lleva las mismas columnas que la pantalla',
+      /const extra = via==='cvu' \? 'Equivale a \(USDT\)' : 'Billetera';/.test(osPg));
+    // Ordenar por cliente ya existía; esto es para que no se pierda en una limpieza.
+    check('pagos: se puede ordenar por cliente, no sólo por fecha',
+      /th\(moneda, 'cliente', 'Cliente'\)/.test(osPg));
+  }
+
   /* ── EL TC QUE PUSO EL SISTEMA Y NADIE MIRÓ ────────────────────────────────────────────────
      Al terminar el mes, `tc-columna` arma la columna sola con el promedio y la escribe en la MISMA
      celda donde iría el real. Desde ahí cuenta como «cargado a mano en el cierre», o sea el

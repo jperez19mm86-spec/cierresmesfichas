@@ -2247,6 +2247,9 @@ function mount(app) {
     // las referencias de los comprobantes más antiguos, en silencio.
     try { comprobantes.list({ limite: 5000 }).forEach((c) => { if (c.movimiento_id) porMov[c.movimiento_id] = c; }); }
     catch (e) { /* sin comprobantes el resumen sale igual */ }
+    // Los nombres de las billeteras, para no mostrar un id en pantalla.
+    const nomBw = {};
+    try { billeteras.list().forEach((b) => { nomBw[b.id] = b.nombre; }); } catch (e) { /* idem */ }
 
     const todos = movs.list({ tipo: 'pago' });
     /* La lista de meses con lo que entró en cada uno. Sólo el conteo no sirve para decidir a cuál
@@ -2272,6 +2275,10 @@ function mount(app) {
         id: mv.id, fecha: String(mv.fecha || mv.createdAt || '').slice(0, 10),
         mes: movs.mesDe(mv), cliente: c.nombre || c.codigo || '(sin cliente)', codigo: c.codigo || '',
         via, medio: mv.medio || null,
+        /* A QUÉ BILLETERA ENTRÓ. Sale del comprobante, que es donde se eligió al pagar. Sin esto,
+           con dos wallets activas no había forma de saber a cuál llegó cada USDT desde la pantalla
+           de pagos: había que abrir el comprobante de a uno. */
+        billetera: (cmp.billetera_id && (nomBw[cmp.billetera_id] || '(billetera borrada)')) || '',
         ars: mv.monto_ars ?? null, usdt: mv.monto_usdt ?? null,
         tc: mv.tc_usado || mv.tc_momento || null,
         provisional: !!mv.provisional, sinValuar: !!mv.sinValuar,
