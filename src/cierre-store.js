@@ -176,6 +176,18 @@ function getTC() {
   return { monedas, meses, tasas, confirmados };
 }
 
+/**
+ * La celda tal cual está, o null si no hay ninguna.
+ *
+ * La diferencia importa: «no hay celda» no es lo mismo que «hay una sin confirmar». El dólar no
+ * tiene celda porque es la unidad —no hay tipo de cambio que decidir— y si no se distinguen, el
+ * aviso de «esto lo puso el sistema» termina nombrando al dólar, que es ruido puro.
+ */
+function tcCelda(moneda, mes) {
+  return db.prepare('SELECT moneda, mes, tasa, confirmado FROM cierre_tc WHERE lower(moneda)=lower(?) AND lower(mes)=lower(?)')
+    .get(clean(moneda) || '', clean(mes) || '') || null;
+}
+
 /** ¿Alguien dijo que este TC es el real? Devuelve cuándo, o null si lo puso el sistema solo. */
 function tcConfirmado(moneda, mes) {
   const r = db.prepare('SELECT confirmado FROM cierre_tc WHERE lower(moneda)=lower(?) AND lower(mes)=lower(?)')
@@ -429,7 +441,7 @@ function setCeldas(cambios) {
 }
 
 module.exports = {
-  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR, tcConfirmado, confirmarTC,
+  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR, tcConfirmado, confirmarTC, tcCelda,
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,

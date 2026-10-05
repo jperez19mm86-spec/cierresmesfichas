@@ -4414,11 +4414,13 @@ function mount(app) {
     try {
       const colMes = mesCierreLbl(mes);
       for (const mon of usadas) {
-        // Sólo las que TIENEN número: las que faltan ya las cuenta `sinTC`. Y se pregunta por
-        // moneda y no leyendo la tabla entera, que es lo que este bloque tiene prohibido hacer:
-        // mirarla en crudo volvía a pedir el TC del dólar, que no necesita ninguno.
-        if (tcUnico.tcDelMes(mon, mes).valor == null) continue;
-        if (!cierreStore.tcConfirmado(mon, colMes)) sinMirar.push(mon);
+        /* Sólo las que TIENEN celda. Las que faltan ya las cuenta `sinTC`, y el dólar no tiene
+           celda porque es la unidad: sin esta distinción el aviso nombraba a USD y USDT, que no
+           llevan tipo de cambio que decidir. Se pregunta por moneda y no leyendo la tabla entera,
+           que es lo que este bloque tiene prohibido hacer. */
+        const celda = cierreStore.tcCelda(mon, colMes);
+        if (!celda) continue;
+        if (!celda.confirmado) sinMirar.push(mon);
       }
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
 
