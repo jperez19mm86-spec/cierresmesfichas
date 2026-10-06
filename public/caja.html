@@ -1305,6 +1305,8 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   border-radius:14px; padding:12px 14px; font-size:calc(12.5px * var(--esc)); line-height:1.55; margin-top:12px}
 .nota b{font-weight:700}
 .nota.neutra{background:var(--bg3); color:var(--mut2)}
+/* Saldo a favor: es plata del cliente, se pinta del lado bueno (verde), no como un aviso. */
+.nota.afavor{background:var(--ok-soft); color:var(--ok)}
 /* Informa algo importante sin gritar: no es una alarma, es un matiz que hay que leer. */
 .filaDom{display:flex; gap:8px; align-items:center; margin-top:10px}
 .filaDom .entrada{flex:1; min-width:0}
@@ -3066,11 +3068,31 @@ async function fichasMiCuenta(){
     `<div class="fila"><span>${esc(m.fecha || '')} · ${esc(FICHAS_MOV[m.tipo] || m.tipo || 'Movimiento')}</span><b class="num">${movMonto(m)}</b></div>`).join('');
   abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
     <div class="sub">${esc(yo().login)} · al día de hoy${c.provisional ? ' · provisorio' : ''}</div>
-    <div class="nota aviso"><b>Tu deuda: ${dosCaras('deuda')}</b></div>
+    ${fichasCabeceraSaldo(c, caraCaja, monCuenta, fmtMon, dosCaras)}
     <div class="fila"><span>Fichas cargadas</span><b class="num">${dosCaras('fichas')}</b></div>
     <div class="fila"><span>Pagos registrados</span><b class="num">${dosCaras('pagos')}</b></div>
     ${movs ? `<div class="tit" style="margin-top:14px"><h2>Últimos movimientos</h2></div>${movs}` : ''}
     <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
+/* 🔴 «TU DEUDA: USDT −150» ERA AL REVÉS DE LO QUE PASA. Un saldo negativo es plata del cliente:
+   se dice «Saldo a favor», en verde. En cero, «al día». Y la cara en la moneda de la caja va sólo si
+   tiene algo: un pago en USDT no tiene cara en pesos, y «ARS 0 · USDT 150» confundía. Si el cliente
+   es prepago, debajo va cuánto le queda para pedir (lo reservado por pedidos en curso ya descontado). */
+function fichasCabeceraSaldo(c, caraCaja, monCuenta, fmtMon, dosCaras){
+  const d = Number(c.deuda) || 0;
+  const pre = (window.__fichasEstado || {}).prepago || {};
+  const pedir = pre.prepago && !pre.error
+    ? `<div style="margin-top:4px;font-weight:400">Disponible para pedir: <b>${esc(pre.moneda)} ${fmt(pre.disponible)}</b>${
+      pre.alcanza ? ` — unas ${esc(yo().currency)} ${fmt(pre.alcanza)} en fichas` : ''}${
+      pre.reservado ? ` <span style="opacity:.75">(${esc(pre.moneda)} ${fmt(pre.reservado)} reservados por pedidos en curso)</span>` : ''}</div>` : '';
+  if (d < -0.004) {
+    const enCaja = caraCaja && Number(caraCaja.deuda) < -0.004
+      ? `${fmtMon(caraCaja.moneda, Math.abs(caraCaja.deuda))} <span style="opacity:.4;font-weight:400"> · </span>` : '';
+    return `<div class="nota afavor"><b>Saldo a favor: ${enCaja}${fmtMon(monCuenta, Math.abs(d))}</b>${pedir}</div>`;
+  }
+  if (d <= 0.004) return `<div class="nota afavor"><b>Estás al día</b>${pedir}</div>`;
+  return `<div class="nota aviso"><b>Tu deuda: ${dosCaras('deuda')}</b>${pedir}</div>`;
 }
 
 /* Registrar un pago: el cliente declara cuánto pagó y sube la captura. Va por el proxy
