@@ -443,6 +443,9 @@ async function main() {
     /* La tarjeta usa el selector de «quién recibió». Acá se mide la ESTRUCTURA del renglón, así
        que alcanza con un <select> cualquiera: lo que importa es que ocupe un lugar en la fila. */
     const cobSelRecibio = () => '<select><option></option></select>';
+    // Lo que la tarjeta usa del ámbito de la página para el prepago en pesos (acá, sin prepago).
+    const _tcAhoraCmp = null; const _esPrepagoArs = () => false;
+    const montoNum = (x) => Number(String(x).replace(/[^\d.]/g, '')) || null; const money = (x) => String(x);
     const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
     const pend = true;
     let marca = '';
