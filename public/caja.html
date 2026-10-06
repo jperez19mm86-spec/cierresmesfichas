@@ -2879,6 +2879,14 @@ function fichasOpciones(){
    a sus cajas). Los montos rápidos son los que pidió el dueño. */
 const FICHAS_RAPIDOS = [500000, 1000000, 5000000, 10000000, 20000000];
 const fichasEtiqueta = (v) => (v >= 1000000 ? (v / 1000000) + 'M' : (v / 1000) + 'K');
+/* El disponible dicho en la moneda de la CAJA (en lo que opera), con la de la cuenta al lado entre
+   paréntesis: «ARS 272.000 (USDT 170)». Si el OS no manda la conversión, va sólo la de la cuenta. */
+function fichasMontoPrepago(p, campo){
+  const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  const c = p.enCaja;
+  if (c && c.moneda && c.moneda !== p.moneda) return `${esc(c.moneda)} ${fmt(c[campo])} <span style="opacity:.75;font-weight:400">(${esc(p.moneda)} ${f(p[campo])})</span>`;
+  return `${esc(p.moneda)} ${f(p[campo])}`;
+}
 /* PREPAGO: el cliente pide contra lo que ya pagó. Se le muestra cuánto tiene y para cuántas fichas
    le alcanza (en la moneda de su caja). Vacío para los que no son prepago. */
 function fichasSaldoPrepago(){
@@ -2886,8 +2894,8 @@ function fichasSaldoPrepago(){
   if (!p.prepago || p.error) return '';
   const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
   return `<div class="nota ${p.disponible > 0 ? 'neutra' : 'aviso'}" style="margin:6px 0 10px">
-    Trabajás con <b>saldo a favor</b>: tenés <b>${esc(p.moneda)} ${f(p.disponible)}</b> para pedir${
-      p.alcanza ? ` — alcanza para unas <b>${esc(yo().currency)} ${fmt(p.alcanza)}</b> en fichas` : ''}.${
+    Tenés <b>${fichasMontoPrepago(p, 'disponible')}</b> disponibles${
+      p.alcanza ? ` — alcanzan para <b>${fmt(p.alcanza)} fichas</b>` : ''}.${
       p.reservado ? ` <span style="opacity:.75">(${esc(p.moneda)} ${f(p.reservado)} ya reservados por pedidos en curso)</span>` : ''}${
       p.disponible > 0 ? '' : ' Registrá un pago y, cuando lo aprobemos, vas a poder pedir.'}</div>`;
 }
@@ -2896,8 +2904,8 @@ function fichasSinSaldo(r){
   const p = (r && r.prepago) || {};
   const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
   return abrirHoja(`<h3 id="hojaTit">No te alcanza el saldo</h3>
-    <div class="sub">Tenés <b>${esc(p.moneda || '')} ${f(p.disponible)}</b> para pedir${
-      r && r.alcanza ? ` — alcanza para unas <b>${esc(yo().currency)} ${fmt(r.alcanza)}</b> en fichas` : ''}.</div>
+    <div class="sub">Tenés <b>${fichasMontoPrepago(p, 'disponible')}</b> disponibles${
+      r && r.alcanza ? ` — alcanzan para <b>${fmt(r.alcanza)} fichas</b>` : ''}.</div>
     <div class="nota neutra">Trabajás con saldo a favor: primero se paga y después se pide. Cuando aprobemos tu pago, el saldo se actualiza solo.</div>
     <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button>
       ${fichasPuede('puedeAvisarPago') ? '<button class="btn" onclick="fichasRegistrarPago()">Registrar un pago</button>' : ''}</div>`);
@@ -3083,9 +3091,12 @@ function fichasCabeceraSaldo(c, caraCaja, monCuenta, fmtMon, dosCaras){
   const d = Number(c.deuda) || 0;
   const pre = (window.__fichasEstado || {}).prepago || {};
   const pedir = pre.prepago && !pre.error
-    ? `<div style="margin-top:4px;font-weight:400">Disponible para pedir: <b>${esc(pre.moneda)} ${fmt(pre.disponible)}</b>${
-      pre.alcanza ? ` — unas ${esc(yo().currency)} ${fmt(pre.alcanza)} en fichas` : ''}${
+    ? `<div style="margin-top:4px;font-weight:400">Disponible para pedir: <b>${fichasMontoPrepago(pre, 'disponible')}</b>${
+      pre.alcanza ? ` — alcanzan para <b>${fmt(pre.alcanza)} fichas</b>` : ''}${
       pre.reservado ? ` <span style="opacity:.75">(${esc(pre.moneda)} ${fmt(pre.reservado)} reservados por pedidos en curso)</span>` : ''}</div>` : '';
+  if (d < -0.004 && pre.prepago && pre.enCaja && pre.enCaja.moneda !== monCuenta) {
+    return `<div class="nota afavor"><b>Saldo a favor: ${fichasMontoPrepago(pre, 'saldoAFavor')}</b>${pedir}</div>`;
+  }
   if (d < -0.004) {
     const enCaja = caraCaja && Number(caraCaja.deuda) < -0.004
       ? `${fmtMon(caraCaja.moneda, Math.abs(caraCaja.deuda))} <span style="opacity:.4;font-weight:400"> · </span>` : '';
