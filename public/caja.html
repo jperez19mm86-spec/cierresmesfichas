@@ -2877,10 +2877,34 @@ function fichasOpciones(){
    a sus cajas). Los montos rápidos son los que pidió el dueño. */
 const FICHAS_RAPIDOS = [500000, 1000000, 5000000, 10000000, 20000000];
 const fichasEtiqueta = (v) => (v >= 1000000 ? (v / 1000000) + 'M' : (v / 1000) + 'K');
+/* PREPAGO: el cliente pide contra lo que ya pagó. Se le muestra cuánto tiene y para cuántas fichas
+   le alcanza (en la moneda de su caja). Vacío para los que no son prepago. */
+function fichasSaldoPrepago(){
+  const p = (window.__fichasEstado || {}).prepago || {};
+  if (!p.prepago || p.error) return '';
+  const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return `<div class="nota ${p.disponible > 0 ? 'neutra' : 'aviso'}" style="margin:6px 0 10px">
+    Trabajás con <b>saldo a favor</b>: tenés <b>${esc(p.moneda)} ${f(p.disponible)}</b> para pedir${
+      p.alcanza ? ` — alcanza para unas <b>${esc(yo().currency)} ${fmt(p.alcanza)}</b> en fichas` : ''}.${
+      p.reservado ? ` <span style="opacity:.75">(${esc(p.moneda)} ${f(p.reservado)} ya reservados por pedidos en curso)</span>` : ''}${
+      p.disponible > 0 ? '' : ' Registrá un pago y, cuando lo aprobemos, vas a poder pedir.'}</div>`;
+}
+/* El pedido rebotó por saldo: se dice cuánto tiene, y se ofrece registrar un pago si puede. */
+function fichasSinSaldo(r){
+  const p = (r && r.prepago) || {};
+  const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  return abrirHoja(`<h3 id="hojaTit">No te alcanza el saldo</h3>
+    <div class="sub">Tenés <b>${esc(p.moneda || '')} ${f(p.disponible)}</b> para pedir${
+      r && r.alcanza ? ` — alcanza para unas <b>${esc(yo().currency)} ${fmt(r.alcanza)}</b> en fichas` : ''}.</div>
+    <div class="nota neutra">Trabajás con saldo a favor: primero se paga y después se pide. Cuando aprobemos tu pago, el saldo se actualiza solo.</div>
+    <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button>
+      ${fichasPuede('puedeAvisarPago') ? '<button class="btn" onclick="fichasRegistrarPago()">Registrar un pago</button>' : ''}</div>`);
+}
 function fichasFormPedir(){
   if (!fichasPuede('puedePedir')) return fichasNoHabilitado('pedir fichas');
   abrirHoja(`<h3 id="hojaTit">Pedir fichas</h3>
     <div class="sub">Elegí cuánto y te lo cargamos a tu cuenta.</div>
+    ${fichasSaldoPrepago()}
     <label class="campo" for="fMonto">Monto en ${esc(yo().currency)}</label>
     <input class="entrada grande num" id="fMonto" inputmode="numeric" placeholder="0" oninput="fichasRevisarMonto()">
     <div class="rapidos">
@@ -2908,10 +2932,11 @@ async function fichasEnviarPedido(){
     return abrirHoja(`<h3 id="hojaTit">¡Pedido enviado!</h3>
       <div class="sub">Ya quedó registrado.</div>
       <div class="nota aviso"><b>Pediste ${esc(yo().currency)} ${fmt(monto)}.</b> Te cargamos las fichas y te avisamos por Telegram cuando esté acreditado.</div>
-      <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
+      <div class="acciones"><button class="btn" onclick="solicitarFichas()">Listo</button></div>`);
   }
   /* No configurado / offline / error: el OS ya avisó a soporte cuando corresponde. */
   if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  if (r && r.motivo === 'sin_saldo') return fichasSinSaldo(r);
   const sinConfig = r && r.motivo === 'sin_configurar';
   return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
     <div class="sub">${sinConfig ? 'Tu cuenta todavía no está habilitada para pedir.' : 'No pudimos procesarlo en este momento.'}</div>
@@ -2939,6 +2964,7 @@ function fichasFormAgentes(){
   }
   abrirHoja(`<h3 id="hojaTit">Pedir para mis agentes</h3>
     <div class="sub">Escribí cuánto querés para cada uno. Los que dejes vacíos no se piden.</div>
+    ${fichasSaldoPrepago()}
     <div class="fila" style="display:flex;gap:8px;align-items:flex-end;margin:6px 0 10px">
       <div style="flex:1"><label class="campo" for="faTodos">Mismo monto a todos</label>
         <input class="entrada num" id="faTodos" inputmode="numeric" placeholder="0"></div>
@@ -2990,9 +3016,10 @@ async function fichasEnviarAgentes(){
       <div class="nota aviso">${r.creados.map((x) => `<b>${esc(x.cajaUsuario)}</b>: ${esc(x.divisa)} ${fmt(x.monto)}`).join('<br>')}</div>
       ${(r.rechazados || []).length ? `<div class="nota neutra">No se pidió para: ${r.rechazados.map((x) => `<b>${esc(x.usuario || nombre(x.userId))}</b> (${esc(MOT[x.motivo] || x.motivo)})`).join(', ')}.</div>` : ''}
       <div class="sub" style="margin-top:8px">Se las cargamos a cada agente y te avisamos por Telegram.</div>
-      <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
+      <div class="acciones"><button class="btn" onclick="solicitarFichas()">Listo</button></div>`);
   }
   if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  if (r && r.motivo === 'sin_saldo') return fichasSinSaldo(r);
   if (d && d.error) return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3><div class="sub">${esc(d.error)}</div>
     <div class="acciones"><button class="btn sec" onclick="fichasFormAgentes()">Volver</button></div>`);
   const sinConfig = r && r.motivo === 'sin_configurar';
@@ -3059,12 +3086,21 @@ const FICHAS_ICO_COPIAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 function fichasRegistrarPago(){
   if (!fichasPuede('puedeAvisarPago')) return fichasNoHabilitado('registrar pagos');
   PAGO_VIA = (yo().currency === 'USDT') ? 'usdt' : 'ars';   // arranca en la moneda de la caja
+  /* En qué puede pagar este cliente (lo elige el OS en su ficha). Si la de la caja no está permitida,
+     arranca en la que sí. Sin el dato (OS viejo) se ofrecen las dos, como siempre. */
+  const vias = fichasViasPago();
+  if (!vias.includes(PAGO_VIA)) PAGO_VIA = vias[0];
   PAGO_ARCH = null;
   fichasPagoPintar();
   setTimeout(() => { const m = $('pMonto'); if (m) m.focus(); }, 260);
 }
 function fichasPagoDatos(){ return (window.__fichasEstado && window.__fichasEstado.datosPago) || { ars: {}, usdt: {} }; }
-function fichasPagoVia(v){ PAGO_VIA = v; fichasPagoPintar(); }
+function fichasPagoVia(v){ if (!fichasViasPago().includes(v)) return; PAGO_VIA = v; fichasPagoPintar(); }
+function fichasViasPago(){
+  const d = (window.__fichasEstado || {}).divisasPago;
+  const v = Array.isArray(d) && d.length ? d.map((x) => (String(x).toUpperCase() === 'USDT' ? 'usdt' : 'ars')) : ['ars', 'usdt'];
+  return ['ars', 'usdt'].filter((x) => v.includes(x));
+}
 function fichasPagoQuitar(){ PAGO_ARCH = null; const i = $('pArch'); if (i) i.value = ''; fichasPagoPintar(); }
 /* Copiar un dato para pagar (CVU / dirección) SIN salir del form: el `copiar()` del panel abre la
    hoja de credenciales del jugador, que acá no corresponde. Muestra el aviso inline —y para USDT,
@@ -3137,8 +3173,8 @@ function fichasPagoPintar(){
   abrirHoja(`<h3 id="hojaTit">Registrar un pago</h3>
     <div class="sub">Avisás cuánto pagaste y subís el comprobante.</div>
     <div class="rapidos" style="margin-bottom:14px">
-      <button class="via${esUsdt ? '' : ' activo'}" onclick="fichasPagoVia('ars')">Pesos (ARS)</button>
-      <button class="via${esUsdt ? ' activo' : ''}" onclick="fichasPagoVia('usdt')">USDT</button>
+      ${fichasViasPago().includes('ars') ? `<button class="via${esUsdt ? '' : ' activo'}" onclick="fichasPagoVia('ars')">Pesos (ARS)</button>` : ''}
+      ${fichasViasPago().includes('usdt') ? `<button class="via${esUsdt ? ' activo' : ''}" onclick="fichasPagoVia('usdt')">USDT</button>` : ''}
     </div>
     ${destino ? `<div class="pago-destino">${destino}<div id="pagoCopiaAviso" hidden></div></div>` : ''}
     <label class="campo" for="pMonto">Monto en ${mon}</label>
@@ -3184,7 +3220,7 @@ async function fichasEnviarPago(){
     return abrirHoja(`<h3 id="hojaTit">¡Pago avisado!</h3>
       <div class="sub">Ya quedó registrado.</div>
       <div class="nota aviso"><b>Avisaste ${esc(divisa)} ${esc(monto)}.</b> Nuestro equipo lo revisa y, una vez aprobado, aparece en Mi cuenta.</div>
-      <div class="acciones"><button class="btn" onclick="fichasOpciones()">Listo</button></div>`);
+      <div class="acciones"><button class="btn" onclick="solicitarFichas()">Listo</button></div>`);
   }
   /* Falla: NO se rehace la pantalla —así no se pierde lo cargado ni el comprobante—; se avisa y se
      reactiva el botón. `no_habilitado` es el único caso propio; el resto es offline/error. */
