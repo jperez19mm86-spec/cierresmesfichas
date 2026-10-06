@@ -65,6 +65,8 @@ clientes.updateComercial(pre.id, { prepago: true });
   const e1 = await J('GET', '/estado-cliente?usuario=AgentePre&userId=80002');
   check('estado-cliente: 100 USDT disponibles, que alcanzan para 1.000.000 en fichas',
     e1.prepago && e1.prepago.prepago && e1.prepago.disponible === 100 && e1.prepago.alcanza === 1000000, JSON.stringify(e1.prepago));
+  check('…y dicho en la moneda de su caja: ARS 100.000 disponibles (al dólar de hoy, 1.000)',
+    e1.prepago.enCaja && e1.prepago.enCaja.moneda === 'ARS' && e1.prepago.enCaja.disponible === 100000 && e1.prepago.enCaja.saldoAFavor === 100000, JSON.stringify(e1.prepago.enCaja));
   const p2 = await J('POST', '/pedido', { usuario: 'AgentePre', userId: '80002', monto: 600000, divisa: 'ARS' });
   check('pide 600.000 (60 USDT): entra', p2.creado === true);
 

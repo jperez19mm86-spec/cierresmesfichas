@@ -218,7 +218,12 @@ function mount(app) {
     if (cliente && cliente.prepago) {
       try {
         pre = await prepago.estado(cliente);
-        if (caja) pre.alcanza = await prepago.alcanzaPara(cliente, pre, { sistema: caja.sistema, userId: caja.userId, divisa: (caja.divisas || ['ARS'])[0] });
+        if (caja) {
+          const divCaja = (caja.divisas || ['ARS'])[0];
+          const cacheTc = {};
+          pre.alcanza = await prepago.alcanzaPara(cliente, pre, { sistema: caja.sistema, userId: caja.userId, divisa: divCaja }, cacheTc);
+          pre.enCaja = await prepago.enMonedaDeCaja(cliente, pre, divCaja, cacheTc);
+        }
       } catch (e) { pre = { prepago: true, error: 'no se pudo calcular' }; }
     }
     res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente),
@@ -295,7 +300,10 @@ function mount(app) {
     const divisa = cajaDivisas.includes(b.divisa) ? b.divisa : cajaDivisas[0];
     // PREPAGO: sólo si le alcanza el saldo a favor (con su margen). A los demás no les cambia nada.
     const pp = await prepago.puedePedir(cliente, [{ sistema: caja.sistema, userId: caja.userId, monto, divisa }]);
-    if (!pp.ok) return res.json({ ok: true, creado: false, motivo: pp.motivo, prepago: pp.estado, costo: pp.costo, alcanza: pp.alcanza });
+    if (!pp.ok) {
+      const enCaja = await prepago.enMonedaDeCaja(cliente, pp.estado, divisa).catch(() => null);
+      return res.json({ ok: true, creado: false, motivo: pp.motivo, prepago: { ...(pp.estado || {}), enCaja }, costo: pp.costo, alcanza: pp.alcanza });
+    }
     const pedido = pedidos.create({
       codigo: cliente.codigo, clienteNombre: cliente.nombreVisible,
       cajaId: caja.id, cajaUsuario: caja.usuario, sistema: caja.sistema, userId: caja.userId,

@@ -98,6 +98,24 @@ async function estado(cli, cacheTc = {}) {
   };
 }
 
+/**
+ * El saldo dicho en la moneda de la CAJA (en lo que el agente opera y piensa), al tipo de cambio de
+ * ahora. La cuenta se sigue llevando en su moneda (USDT casi siempre): esto es de referencia, para
+ * que lea «tenés ARS 272.000» y no tenga que hacer la cuenta él. Pedido por el dueño, 6-oct-2026.
+ */
+async function enMonedaDeCaja(cli, est, divisa, cacheTc = {}) {
+  if (!est || !est.prepago) return null;
+  const div = String(divisa || 'ARS').toUpperCase();
+  if (div === est.moneda) return { moneda: div, saldoAFavor: est.saldoAFavor, disponible: est.disponible, reservado: est.reservado, tc: 1 };
+  // Cuántas unidades de la caja vale 1 de la cuenta: con la cuenta en USDT y la caja en ARS, el dólar cripto.
+  const tcCaja = await tcPara(div, cacheTc);               // unidades de `div` por USDT
+  const tcCuenta = await tcPara(est.moneda, cacheTc);      // unidades de la cuenta por USDT (1 si es USDT)
+  if (!tcCaja || !tcCuenta) return null;
+  const k = tcCaja / tcCuenta;
+  return { moneda: div, saldoAFavor: Math.round(est.saldoAFavor * k), disponible: Math.round(est.disponible * k),
+    reservado: Math.round(est.reservado * k), tc: r2(k) };
+}
+
 /** Cuántas fichas (en esa divisa) se pueden pedir con lo disponible, para la cuenta de ese caja. */
 async function alcanzaPara(cli, est, { sistema, userId, divisa }, cacheTc = {}) {
   if (!est || !est.prepago) return null;
@@ -131,4 +149,4 @@ async function puedePedir(cli, items) {
   return { ok: false, motivo: 'sin_saldo', estado: est, costo, alcanza };
 }
 
-module.exports = { estado, costoDe, puedePedir, alcanzaPara };
+module.exports = { estado, costoDe, puedePedir, alcanzaPara, enMonedaDeCaja };
