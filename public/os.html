@@ -3375,6 +3375,13 @@ async function pintarComprobantes(estado, conFiltros) {
     .filter(Boolean).join('&');
   const r = await api('/api/os/comprobantes' + (q ? '?' + q : ''));
   const cs = r.comprobantes || []; const c0 = r.cuentas || {};
+  /* PREPAGO EN PESOS: un pago en USDT se pasa a pesos con el dólar cripto de AHORA y ese monto queda
+     fijo como saldo (decisión del dueño, 6-oct-2026). Se trae una vez y se propone en la tarjeta. */
+  const _esPrepagoArs = (cod) => { const cl = (_clientes || []).find((x) => x.codigo === cod); return !!(cl && cl.prepago && cl.moneda_cuenta === 'ARS'); };
+  let _tcAhoraCmp = null;
+  if (cs.some((c) => c.estado === 'pendiente' && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo))) {
+    const t = await api('/api/os/tc/ahora'); _tcAhoraCmp = t && Number(t.tc) > 0 ? Number(t.tc) : null;
+  }
   // El número de pendientes va a la pestaña: es lo que hace que se vea desde cualquier pantalla.
   _cmpPend = c0.pendiente || 0; renderNav();
   const tabs = [['aprobado','✅ Aprobados',c0.aprobado||0],['rechazado','✖ Rechazados',c0.rechazado||0],['','Todos (incluye los que esperan)','']];
@@ -3490,14 +3497,20 @@ async function pintarComprobantes(estado, conFiltros) {
           +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           // La moneda de la CUENTA del cliente, que puede no ser la del pago: alguien paga en USDT
           // y se le lleva la cuenta en pesos. Lo que se acredita es lo que resta la deuda.
+          + (() => { const pp = _tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo) && montoNum(c.monto);
+              return pp ? '<div class="muted" style="font-size:12px;margin-top:4px;flex-basis:100%">💳 Cliente <b>prepago en pesos</b>: se propone el dólar cripto de ahora ('
+                + money(_tcAhoraCmp, 2) + '). ' + esc(c.monto) + ' USDT = <b>ARS ' + money(Math.round(montoNum(c.monto) * _tcAhoraCmp), 0)
+                + '</b>, que quedan fijos como saldo para pedir. Si lo cambiaste a otro valor, corregilo.</div>' : ''; })()
           +     '<div style="flex:0 0 auto"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
-          +       '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"></div>'
+          +       '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"'
+          +       ((_tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo) && montoNum(c.monto)) ? ' value="' + Math.round(montoNum(c.monto) * _tcAhoraCmp) + '"' : '') + '></div>'
           // ── EL TIPO DE CAMBIO, A MANO ──────────────────────────────────────────────────────
           // No es la cotización del día: es a cuánto se cambió ESA plata, que se acuerda con quien
           // la cambió. Si no se anota en el momento, después no se reconstruye. Es la columna
           // "Ex Rate" de la planilla, entre los pesos y los dólares.
           +     '<div style="flex:0 0 auto"><label>Tipo de cambio</label>'
-          +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"></div>'
+          +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"'
+          +       ((_tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo)) ? ' value="' + String(_tcAhoraCmp).replace('.', ',') + '"' : '') + '></div>'
           +     '<div style="flex:0 0 auto;min-width:140px"><label>Equivale a</label>'
           +       '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0;font-weight:700">—</div></div>'
           +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
@@ -3550,6 +3563,8 @@ async function pintarComprobantes(estado, conFiltros) {
           + '</div>')
       + '</div></details>';
   };
+  // Los que vienen con el cambio propuesto (prepago en pesos) muestran el «Equivale a» ya calculado.
+  if (_tcAhoraCmp) setTimeout(() => cs.forEach((c) => { const t = document.getElementById('cmp-tc-' + c.id); if (t && t.value) cmpEquiv(c.id, c.codigo); }), 0);
   dest.innerHTML = '<div class="card"><h2>🧾 ' + (estado === 'pendiente' ? 'Comprobantes por aprobar' : 'Comprobantes ya resueltos') + '</h2>'
     + '<div class="muted">Los sube el cliente desde la pantalla pública. Aprobar uno <b>registra el pago y le baja la deuda</b>, así que el monto que se acredita lo ponés vos — no se toma el que declaró el cliente.</div>'
     + (conFiltros ? '<div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">'

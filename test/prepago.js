@@ -120,6 +120,19 @@ clientes.updateComercial(pre.id, { prepago: true });
   const pFin = await J('POST', '/pedido', { usuario: 'AgentePre', userId: '80002', monto: 9000000, divisa: 'ARS' });
   check('apagado el prepago, vuelve a pedir como siempre', pFin.creado === true);
 
+  /* ── 10 · prepago EN PESOS: el pago en USDT se pasa a pesos UNA vez, y el saldo queda fijo ── */
+  const ars = nuevo('ARS1', 'AgenteArs', '80020');
+  clientes.updateComercial(ars.id, { prepago: true, moneda_cuenta: 'ARS' });
+  // Aprobado: 200 USDT al dólar de ese momento (1.000) → 200.000 pesos, guardados como pesos.
+  movs.create({ cliente_id: ars.id, tipo: 'pago', monto_ars: '200000', monto_usdt: '200', tc_momento: '1000', divisa: 'ARS', medio: 'usdt', notas: 'test' });
+  const ea = await J('GET', '/estado-cliente?usuario=AgenteArs&userId=80020');
+  check('cuenta en pesos: ARS 200.000 a favor, que alcanzan para 2.000.000 de fichas al 10%',
+    ea.prepago.moneda === 'ARS' && ea.prepago.disponible === 200000 && ea.prepago.alcanza === 2000000, JSON.stringify(ea.prepago));
+  tcSvc.tcAhora = async () => ({ tc: '2000', fuente: 'test', vivo: true });   // el dólar se duplica
+  const eb = await J('GET', '/estado-cliente?usuario=AgenteArs&userId=80020');
+  check('…y si el dólar se mueve, el saldo en pesos NO cambia', eb.prepago.disponible === 200000 && eb.prepago.alcanza === 2000000, JSON.stringify(eb.prepago));
+  tcSvc.tcAhora = async () => ({ tc: '1000', fuente: 'test', vivo: true });
+
   srv.close();
   const fallan = v.filter((x) => !x.ok).length;
   console.log(`\n${v.length - fallan}/${v.length} verificaciones pasaron`);
