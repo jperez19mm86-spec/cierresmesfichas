@@ -4984,7 +4984,8 @@ async function main() {
     const iAvisa = h6.indexOf('Puede avisar pagos');
     const iMover = h6.indexOf('Puede mover fichas');
     // El TÍTULO de la sección, no la frase suelta: el comentario que explica la mudanza la nombra.
-    const iFicha = h6.indexOf('<h2>🧾 Ficha de cobro');
+    // Desde el 6-oct-2026 la vieja «Ficha de cobro» es «🗒 Notas de la planilla» (cerrada, aparte).
+    const iFicha = h6.indexOf('<b>🗒 Notas de la planilla</b>');
     check('permisos: mover fichas está junto a avisar pagos, no en "datos de referencia"',
       iMover > 0 && iAvisa > 0 && Math.abs(iMover - iAvisa) < 1200 && iMover < iFicha,
       'avisa=' + iAvisa + ' mover=' + iMover + ' seccion-ficha=' + iFicha);

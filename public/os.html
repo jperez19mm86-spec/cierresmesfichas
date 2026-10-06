@@ -1543,6 +1543,7 @@ function editCli(id){
         </div>
         <div class="card">
           <h2>💳 Cómo paga</h2>
+          <div class="muted" style="margin:-4px 0 8px;font-size:12px">Todo lo de esta tarjeta <b>se usa de verdad</b>: decide qué puede pedir, en qué paga y cómo se lleva su cuenta.</div>
           <div class="row" style="align-items:flex-end">
             <div style="flex:0 0 220px"><label>Modo</label><select id="e-prepago" onchange="document.getElementById('e-prep-wrap').style.display=this.value==='1'?'':'none'">
               <option value="0" ${c.prepago?'':'selected'}>Postpago — carga y después paga</option>
@@ -1554,14 +1555,33 @@ function editCli(id){
               <label style="display:inline-flex;gap:5px;align-items:center;text-transform:none;font-weight:400;color:var(--text)"><input type="checkbox" style="width:auto" class="e-divpago" value="USDT" ${!c.divisas_pago||c.divisas_pago.includes('USDT')?'checked':''}> USDT</label>
             </div></div>
           </div>
+          ${_fichaPistasPlanilla(c)}
+          <div class="row" style="margin-top:6px;align-items:flex-end">
+            <!-- La moneda en que se lleva la CUENTA CORRIENTE de este cliente. No es cómo paga:
+                 puede pagar en USDT y llevarse la cuenta en pesos. En prepago conviene ARS: el saldo
+                 queda fijo en pesos (un pago en USDT se pasa a pesos una vez, al aprobarlo). -->
+            <div style="flex:0"><label>Cuenta en</label><select id="e-moneda">
+              <option value="USDT" ${c.moneda_cuenta!=='ARS'?'selected':''}>USDT</option>
+              <option value="ARS" ${c.moneda_cuenta==='ARS'?'selected':''}>ARS</option></select></div>
+            <!-- A qué billetera paga. Cada billetera avisa a SU grupo de Telegram y queda escrita
+                 en el comprobante, así se sabe dónde entró la plata. -->
+            <div style="flex:0 0 220px"><label>Paga en la billetera</label><select id="e-bw">
+              <option value="">— la principal —</option>${
+                _bws.filter(b=>b.activa||b.id===c.billetera_id).map(b=>`<option value="${b.id}" ${c.billetera_id===b.id?'selected':''}>${esc(b.nombre)}${b.activa?'':' (apagada)'}</option>`).join('')
+              }</select></div>
+            
+          </div>
           <div id="prep-estado-${c.id}" class="muted" style="margin-top:8px"></div>
           <div class="muted" style="font-size:12px;margin-top:6px">En <b>prepago</b> pide contra su saldo a favor: un pago <b>aprobado</b> lo sube, cada carga lo baja, y los pedidos pendientes lo reservan.
-            Puede pedir hasta su saldo más el margen: un % de su <b>último pago</b> (pagó 100 con 20% → puede quedar debiendo hasta 20). Sin pagos no pide. Si al cargar se movió el tipo de cambio, se carga igual y la diferencia queda como deuda.
-            <b>Puede pagar en</b> decide qué opciones de pago ve en Mi Caja y en el portal.</div>
+            Puede pedir hasta su saldo más el margen: un % de su <b>último pago</b> (pagó 100 con 20% → puede quedar debiendo hasta 20). Sin pagos no pide.
+            Con la <b>cuenta en ARS</b> el saldo queda fijo en pesos: al aprobar un pago en USDT se propone el dólar cripto de ese momento.
+            <b>Puede pagar en</b> decide qué opciones de pago ve en Mi Caja y en el portal; la <b>billetera</b> es la dirección USDT que ve al pagar.</div>
         </div>
-        <div class="card">
-          <h2>🧾 Ficha de cobro <span class="muted">(datos de referencia)</span></h2>
-          <div class="nota warn" style="margin:0 0 8px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos NO entran en ningún cálculo</b> — igual que <b>Ajuste USDT %</b>, <b>Paga proveedores</b> y <b>Permite deuda</b> de arriba: son notas para acordarse de cómo trabaja cada cliente, y por eso se sacaron de la tabla. Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
+        <!-- Lo que venía de la planilla y NUNCA entró en ningún cálculo. Queda guardado (y se puede
+             seguir editando) pero cerrado y aparte: la ficha de arriba es la que manda. -->
+        <details class="card">
+          <summary style="cursor:pointer"><b>🗒 Notas de la planilla</b> <span class="muted">— no entran en ningún cálculo</span></summary>
+          <div class="muted" style="font-size:12px;margin:8px 0">Son anotaciones de cómo trabajaba cada cliente. Lo que sí se usa está en <b>💳 Cómo paga</b>; el tipo de cambio real sale de <b>💱 Tipos de cambio</b> y el % de la ficha y la matriz del Cierre.</div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
             <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
@@ -1573,25 +1593,10 @@ function editCli(id){
             <div id="e-tcprov-wrap" style="${c.tc_aplicar==='proveedor'?'':'display:none'}"><label>TC de proveedor</label><input id="e-tcprov" value="${esc(c.tc_proveedor||'')}" placeholder="ej 1450" style="width:110px"></div>
           </div>
           <div class="row" style="margin-top:6px">
-            <!-- La moneda en que se lleva la CUENTA CORRIENTE de este cliente. No es cómo paga:
-                 puede pagar en USDT y llevarse la cuenta en pesos. -->
-            <div style="flex:0"><label>Cuenta en</label><select id="e-moneda">
-              <option value="USDT" ${c.moneda_cuenta!=='ARS'?'selected':''}>USDT</option>
-              <option value="ARS" ${c.moneda_cuenta==='ARS'?'selected':''}>ARS</option></select></div>
-            <!-- A qué billetera paga. Cada billetera avisa a SU grupo de Telegram y queda escrita
-                 en el comprobante, así se sabe dónde entró la plata. -->
-            <div style="flex:0 0 220px"><label>Paga en la billetera</label><select id="e-bw">
-              <option value="">— la principal —</option>${
-                _bws.filter(b=>b.activa||b.id===c.billetera_id).map(b=>`<option value="${b.id}" ${c.billetera_id===b.id?'selected':''}>${esc(b.nombre)}${b.activa?'':' (apagada)'}</option>`).join('')
-              }</select></div>
-            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Es la dirección USDT que ve al pedir, y el grupo al que llega su comprobante.</div>
-          </div>
-          <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Externos: cobrar +</label><input id="e-mext" value="${esc(c.margen_externos_pct||'')}" placeholder="ej 3" style="width:90px"/></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px"><b style="color:var(--gold)">⚠ Hoy no se aplica.</b> La idea era: puntos sobre el <b>costo</b> del proveedor para los que no tengan precio propio en la matriz (ej: <b>3</b> = a uno que cuesta 5 se le cobra 8). Está guardado pero <b>ningún cálculo lo usa</b>: si querés cobrarle de más a un proveedor, ponelo en la matriz del Cierre, que sí se usa.</div>
           </div>
-          <div class="muted" style="margin-top:6px">La divisa sale del catálogo (⚙ Config → 💱 Divisas). <b>Variable</b> = el cliente elige la proporción ARS/USDT en cada pago. <b>Trader</b> = el TC que te pasa tu trader ese mes. Todo esto es <b>anotación</b>: el flujo de deuda y cobro hoy lo manejan los Movimientos, a mano.</div>
-        </div>
+        </details>
         <div class="card">
           <h2>📣 Avisos por Telegram</h2>
           <div class="muted" style="margin-bottom:6px">El grupo de este cliente. Sin esto no le llega ni la factura ni el aviso de cada carga.
@@ -1645,6 +1650,18 @@ function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w)
 /* ── PERMISOS POR AGENTE (Mi Caja) ──────────────────────────────────────────────────────────────
    Una fila por cuenta del cliente (cada una es un agente que entra a adminganamos). Se guarda al
    tocar: por eso los checks no avisan «cambios sin guardar» a la ficha. */
+/* Lo que dice la planilla vieja, al lado de lo que se usa de verdad: si no coincide, se avisa para
+   decidir. No se pasa nada solo: un cliente «Anticipado» de la planilla no queda en prepago hasta
+   que lo elijas. */
+function _fichaPistasPlanilla(c){
+  const p = [];
+  const anticipado = c.momento_pago === 'anticipado' || c.disparador === 'pago_carga';
+  if (anticipado && !c.prepago) p.push('En la planilla figura <b>' + (c.momento_pago === 'anticipado' ? 'Anticipado' : 'Pago → carga') + '</b>: ¿lo pasás a <b>Prepago</b>?');
+  if (!anticipado && c.prepago && (c.momento_pago === 'acumulado' || c.momento_pago === 'invoice')) p.push('En la planilla figuraba <b>' + (c.momento_pago === 'invoice' ? 'Invoice mensual' : 'Acumulado') + '</b> y ahora está en <b>Prepago</b>.');
+  const MC = { cvu: 'Pesos (CVU)', usdt: 'USDT', variable: 'las dos (variable)', no_aplica: 'no se le cobra' };
+  if (c.moneda_cobro && MC[c.moneda_cobro] && !c.divisas_pago && (c.moneda_cobro === 'cvu' || c.moneda_cobro === 'usdt')) p.push('La planilla dice que cobra en <b>' + MC[c.moneda_cobro] + '</b>; hoy puede pagar en las dos.');
+  return p.length ? '<div class="muted" style="font-size:12px;margin-top:4px;color:var(--gold)">🗒 ' + p.join(' · ') + '</div>' : '';
+}
 /* El saldo de un cliente PREPAGO, en vivo: lo que tiene a favor, lo reservado por pedidos pendientes
    y lo que le queda para pedir con su margen. */
 async function loadPrepago(id){
