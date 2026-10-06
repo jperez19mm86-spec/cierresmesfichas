@@ -13,6 +13,16 @@ const { db } = require('./db');
 const FILE = 'sqlite:clientes';
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
+/* En qué divisas puede pagar un cliente. Devuelve ['ARS'], ['USDT'] o ['ARS','USDT']; null = las
+   dos (sin elegir, que es como estaban todos). Acepta array o texto «ARS,USDT». */
+function normDivisasPago(v) {
+  if (v == null || v === '') return null;
+  const xs = (Array.isArray(v) ? v : String(v).split(',')).map((x) => String(x).trim().toUpperCase())
+    .filter((x) => x === 'ARS' || x === 'USDT');
+  const u = ['ARS', 'USDT'].filter((x) => xs.includes(x));
+  return u.length && u.length < 2 ? u : (u.length === 2 ? u : null);
+}
+
 function load() {
   const clientes = db.prepare('SELECT * FROM clientes ORDER BY ord ASC').all().map((r) => {
     let telegram = { chatId: '', enabled: false };
@@ -65,6 +75,10 @@ function load() {
       internos_se_cobran: !!r.internos_se_cobran,
       externos_precios_de: r.externos_precios_de || null,
       avisa_pagos: r.avisa_pagos == null ? true : !!r.avisa_pagos,
+      // ⚠️ DELETE + INSERT: estas tres tienen que estar acá Y en el INSERT, o se borran para todos.
+      prepago: !!r.prepago,
+      prepago_margen_pct: r.prepago_margen_pct || null,
+      divisas_pago: normDivisasPago(r.divisas_pago),
       saldo_inicial: r.saldo_inicial || null,
       saldo_inicial_divisa: r.saldo_inicial_divisa || null,
       saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
@@ -79,11 +93,11 @@ const _saveTx = db.transaction((data) => {
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
      mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,billetera_id,
-     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte)
+     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
      @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,@bwid,
-     @accOn,@accU,@accC,@accAt,@accCorte)`);
+     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -101,6 +115,8 @@ const _saveTx = db.transaction((data) => {
     // Sin esto, guardar cualquier cliente le devolvía la sesión a todos los que se la habías
     // cortado: el guardado reescribe la tabla entera y lo que no está en la lista se pierde.
     accCorte: c.acceso_corte != null ? Number(c.acceso_corte) : null,
+    prep: c.prepago ? 1 : 0, prepMg: nn(c.prepago_margen_pct),
+    divPago: (normDivisasPago(c.divisas_pago) || []).join(',') || null,
   }));
 });
 function save(data) { _saveTx(data); }
@@ -182,6 +198,12 @@ function updateComercial(id, patch) {
   if (patch.moneda_cuenta !== undefined) c.moneda_cuenta = (String(patch.moneda_cuenta).toUpperCase() === 'ARS' ? 'ARS' : 'USDT');
   if (patch.es_vendedor !== undefined) c.es_vendedor = !!patch.es_vendedor;
   if (patch.avisa_pagos !== undefined) c.avisa_pagos = !!patch.avisa_pagos;
+  if (patch.prepago !== undefined) c.prepago = !!patch.prepago;
+  if (patch.prepago_margen_pct !== undefined) {
+    const m = String(patch.prepago_margen_pct).replace(',', '.').trim();
+    c.prepago_margen_pct = m === '' || !(Number(m) >= 0) ? null : String(Math.min(Number(m), 100));
+  }
+  if (patch.divisas_pago !== undefined) c.divisas_pago = normDivisasPago(patch.divisas_pago);
   save(data); return c;
 }
 
@@ -346,5 +368,5 @@ function importRows(rows, dryRun = false) {
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
   addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
-  permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO,
+  permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO, normDivisasPago,
 };

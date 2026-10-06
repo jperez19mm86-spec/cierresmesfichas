@@ -514,6 +514,12 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
 
+  // El saldo para pedir de un cliente PREPAGO (para la ficha). A los demás: {prepago:false}.
+  app.get('/api/os/clientes/:id/prepago', wrap(async (req, res) => {
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    ok(res, { prepago: await require('./prepago.service').estado(c) });
+  }));
   app.put('/api/os/clientes/:id/comercial', wrap((req, res) => {
     const antes = clientes.get(req.params.id);
     /* ── QUIÉN PAGA Y DE QUIÉN SON LOS PRECIOS APUNTAN A OTRO CLIENTE ────────────────────────

@@ -68,6 +68,8 @@
   <!-- Qué quiere hacer -->
   <div class="card hidden" id="cardCamino">
     <div class="cliname" id="cliName2"></div>
+    <!-- PREPAGO: el saldo para pedir, si este cliente paga primero. Vacío para los demás. -->
+    <div id="prepagoInfo" class="small" style="margin:-4px 0 10px;display:none"></div>
     <div class="q">¿Qué querés hacer?</div>
     <div class="grid">
       <div class="opt" id="optFichas" onclick="elegirCamino('fichas')">🎰 Pedir fichas<span class="small">cargar a un usuario</span></div>
@@ -205,6 +207,20 @@
         (d.puedeMoverBalance && _paneles.length >= 2) ? '' : 'none';
       // Ver la cuenta se habilita cliente por cliente: si no lo tiene, la opción no existe.
       document.getElementById('optCuenta').style.display = d.puedeVerCuenta ? '' : 'none';
+      // En qué puede pagar este cliente (elegido en su ficha): las otras opciones no se muestran.
+      const divsPago = d.divisasPago || ['ARS', 'USDT'];
+      document.querySelectorAll('#cardVia .opt[data-via]').forEach((x) => {
+        x.style.display = divsPago.includes(x.getAttribute('data-via') === 'usdt' ? 'USDT' : 'ARS') ? '' : 'none';
+      });
+      // PREPAGO: pide contra lo que ya pagó. Se le muestra cuánto tiene para pedir.
+      const pi = document.getElementById('prepagoInfo'); const pp = d.prepago || {};
+      if (pp.prepago && !pp.error) {
+        const f = (x) => Number(x || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+        pi.innerHTML = '💳 Trabajás con <b>saldo a favor</b>: tenés <b>' + esc(pp.moneda) + ' ' + f(pp.disponible) + '</b> para pedir'
+          + (pp.reservado ? ' <span style="opacity:.7">(' + esc(pp.moneda) + ' ' + f(pp.reservado) + ' ya reservados por pedidos en curso)</span>' : '')
+          + (pp.disponible > 0 ? '.' : '. Avisá un pago y, cuando lo aprobemos, vas a poder pedir.');
+        pi.style.display = '';
+      } else { pi.style.display = 'none'; pi.innerHTML = ''; }
       _ctaTok = '';
       msg.innerHTML = '';
       const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';

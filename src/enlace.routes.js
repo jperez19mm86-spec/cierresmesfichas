@@ -37,6 +37,7 @@ const billeteras = require('./billeteras-store');
 const paneles = require('./paneles-store');
 const casinoConex = require('./casino-conexiones-store');
 const arbolSvc = require('./arbol.service');
+const prepago = require('./prepago.service');
 
 // Grupo al que van los avisos de «cuenta sin configurar / necesita soporte». Lo fijó el dueño el
 // 13-sep-2026. Se puede pisar sin deploy con el config `grupoSinConfigurar`, por si el grupo cambia.
@@ -207,11 +208,21 @@ function mount(app) {
   const r = express.Router();
   r.use(autorizar);
 
-  r.get('/v1/estado-cliente', (req, res) => {
+  r.get('/v1/estado-cliente', async (req, res) => {
     // `datosPago` viaja acá para que «Registrar un pago» tenga a dónde transferir sin otra llamada.
     // La billetera USDT depende del cliente, así que lo resolvemos para pasárselo a datosDePago.
-    const { cliente } = encontrarCliente(req.query || {});
-    res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente) });
+    const { cliente, caja } = encontrarCliente(req.query || {});
+    /* PREPAGO: el saldo a favor, lo reservado por pedidos pendientes y cuánto le alcanza en fichas
+       de SU caja. Y en qué divisas puede pagar (vacío = las dos). */
+    let pre = { prepago: false };
+    if (cliente && cliente.prepago) {
+      try {
+        pre = await prepago.estado(cliente);
+        if (caja) pre.alcanza = await prepago.alcanzaPara(cliente, pre, { sistema: caja.sistema, userId: caja.userId, divisa: (caja.divisas || ['ARS'])[0] });
+      } catch (e) { pre = { prepago: true, error: 'no se pudo calcular' }; }
+    }
+    res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente),
+      divisasPago: (cliente && cliente.divisas_pago) || ['ARS', 'USDT'], prepago: pre });
   });
 
   /* ── ALTA DE UN AGENTE HECHA POR UN DISTRIBUIDOR EN MI CAJA ─────────────────────────────────
@@ -282,6 +293,9 @@ function mount(app) {
     if (!(monto > 0)) return res.status(400).json({ ok: false, error: 'monto inválido' });
     const cajaDivisas = (caja.divisas && caja.divisas.length) ? caja.divisas : ['ARS'];
     const divisa = cajaDivisas.includes(b.divisa) ? b.divisa : cajaDivisas[0];
+    // PREPAGO: sólo si le alcanza el saldo a favor (con su margen). A los demás no les cambia nada.
+    const pp = await prepago.puedePedir(cliente, [{ sistema: caja.sistema, userId: caja.userId, monto, divisa }]);
+    if (!pp.ok) return res.json({ ok: true, creado: false, motivo: pp.motivo, prepago: pp.estado, costo: pp.costo, alcanza: pp.alcanza });
     const pedido = pedidos.create({
       codigo: cliente.codigo, clienteNombre: cliente.nombreVisible,
       cajaId: caja.id, cajaUsuario: caja.usuario, sistema: caja.sistema, userId: caja.userId,
@@ -311,6 +325,19 @@ function mount(app) {
     if (!est.puedePedir) return res.json({ ok: true, creados: [], motivo: 'no_habilitado' });
     const lista = Array.isArray(b.pedidos) ? b.pedidos.slice(0, 50) : [];
     if (!lista.length) return res.status(400).json({ ok: false, error: 'no hay pedidos' });
+    /* PREPAGO: todo el lote junto tiene que entrar en lo disponible. Si no entra, no se crea ninguno
+       —pedir la mitad de un lote al azar confundiría más que decir cuánto le alcanza—. */
+    if (cliente.prepago) {
+      const items = lista.map((x) => {
+        const ag = (cliente.cajas || []).find((k) => String(k.userId) === String((x && x.userId) || '').trim()
+          && k.rol !== 'distribuidor' && norm(k.sistema) === norm(caja.sistema));
+        const divs = ag && ag.divisas && ag.divisas.length ? ag.divisas : ['ARS'];
+        return ag && Number(x.monto) > 0 ? { sistema: ag.sistema, userId: ag.userId, monto: Number(x.monto),
+          divisa: divs.includes(b.divisa) ? b.divisa : divs[0] } : null;
+      }).filter(Boolean);
+      const pp = await prepago.puedePedir(cliente, items);
+      if (!pp.ok) return res.json({ ok: true, creados: [], motivo: pp.motivo, prepago: pp.estado, costo: pp.costo });
+    }
     const creados = []; const rechazados = [];
     for (const x of lista) {
       const uid = String((x && x.userId) || '').trim();
@@ -344,6 +371,11 @@ function mount(app) {
     // Por agente (la caja con la que entró), con la llave general del cliente encima.
     if (!clientes.permisosDe(cliente, caja).pagos) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
     if (!b.archivo || !b.archivo.base64) return res.status(400).json({ ok: false, error: 'falta el comprobante' });
+    // En qué puede pagar este cliente (elegido en su ficha). Vacío = las dos.
+    const viaPago = String(b.via || '').toLowerCase() === 'usdt' ? 'USDT' : 'ARS';
+    if (cliente.divisas_pago && !cliente.divisas_pago.includes(viaPago)) {
+      return res.json({ ok: true, creado: false, motivo: 'divisa_no_habilitada', divisasPago: cliente.divisas_pago });
+    }
     /* QUIÉN LO MANDÓ Y A DÓNDE ENTRÓ. Con varios agentes por cliente, «¿quién subió esto?» se
        contestaba preguntando. Va al frente de las notas, que el panel ya muestra al revisar. Y la
        billetera, igual que el portal: sin ella, con dos billeteras no se sabe dónde entró la plata. */

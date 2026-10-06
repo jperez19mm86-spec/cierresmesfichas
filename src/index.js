@@ -683,7 +683,7 @@ app.post('/api/_restore', (req, res) => {
    pública lo necesita igual. Copiarlo era garantizar que mañana se arregle uno y no el otro. */
 function limitePublico(nombre, tope, ventanaMin) { return require('./lib/tope').porIp(nombre, tope, ventanaMin); }
 
-app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
+app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), async (req, res) => {
   const cli = clientes.getByCodigo(req.params.codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
   // Los datos para pagar y, sobre todo, los AVISOS: fuera del rango o en la red equivocada la
@@ -698,6 +698,9 @@ app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
     // Ver la cuenta se habilita cliente por cliente, con usuario y contraseña. Si no lo tiene, la
     // opción no aparece — y aunque se postee a mano, /api/cuenta/login lo rechaza igual.
     puedeVerCuenta: !!cli.acceso_habilitado,
+    // En qué puede pagar (elegido en su ficha; vacío = las dos) y, si es PREPAGO, su saldo para pedir.
+    divisasPago: cli.divisas_pago || ['ARS', 'USDT'],
+    prepago: cli.prepago ? await require('./prepago.service').estado(cli).catch(() => ({ prepago: true, error: 'no se pudo calcular' })) : { prepago: false },
     pago: {
       ars: { titular: cfg('cvuTitular'), cvu: cfg('cvuVigente'), min: cfg('arsMin'), max: cfg('arsMax'), aviso: cfg('arsAviso'), nota: cfg('cvuNota') },
       /* ── DÓNDE PAGA ESTE CLIENTE ──────────────────────────────────────────────────────────
@@ -743,7 +746,7 @@ app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), (req, res) => {
 // El cliente hace el pedido: { codigo, cajaId, monto } → queda 'pendiente'.
 /* Con tope igual que la de consultar, y por un motivo más: acá se CREA. Sin esto, cualquiera con
    un código —y los códigos son cortos— podía llenar la cola de pedidos y el teléfono de avisos. */
-app.post('/api/pedir', limitePublico('pedir-nuevo', 60, 15), (req, res) => {
+app.post('/api/pedir', limitePublico('pedir-nuevo', 60, 15), async (req, res) => {
   const { codigo, cajaId, monto, divisa } = req.body || {};
   const cli = clientes.getByCodigo(codigo);
   if (!cli) return res.status(404).json({ ok: false, error: 'Código no encontrado' });
@@ -753,6 +756,16 @@ app.post('/api/pedir', limitePublico('pedir-nuevo', 60, 15), (req, res) => {
   const div = cajaDivisas.includes(divisa) ? divisa : cajaDivisas[0]; // validar contra las divisas de la caja
   const m = Number(monto);
   if (!(m > 0)) return res.status(400).json({ ok: false, error: 'Monto inválido' });
+  // PREPAGO: sólo si le alcanza el saldo a favor (con su margen). A los demás no les cambia nada.
+  const pp = await require('./prepago.service').puedePedir(cli, [{ sistema: caja.sistema, userId: caja.userId, monto: m, divisa: div }]);
+  if (!pp.ok) {
+    const est = pp.estado || {};
+    const msg = pp.motivo === 'sin_saldo'
+      ? `No te alcanza el saldo: tenés ${est.disponible} ${est.moneda} disponibles`
+        + (pp.alcanza ? ` (alcanza para unas ${pp.alcanza.toLocaleString('es-AR')} fichas en ${div})` : '') + '. Avisá un pago y, cuando lo aprobemos, pedís.'
+      : 'No pudimos calcular tu saldo en este momento. Escribinos y lo resolvemos.';
+    return res.status(409).json({ ok: false, sinSaldo: pp.motivo === 'sin_saldo', error: msg, prepago: est, alcanza: pp.alcanza });
+  }
   const pedido = pedidos.create({
     codigo: cli.codigo, clienteNombre: cli.nombreVisible,
     cajaId: caja.id, cajaUsuario: caja.usuario, cajaEtiqueta: caja.etiqueta || '', sistema: caja.sistema, userId: caja.userId,
@@ -775,6 +788,10 @@ app.post('/api/comprobante', limitePublico('comprobante', 20, 60), async (req, r
   if (cli.avisa_pagos === false) {
     console.log(`[Comprobante] RECHAZADO: ${cli.codigo} no tiene habilitado avisar pagos`);
     return res.status(403).json({ ok: false, error: 'Tu cuenta no tiene habilitado avisar pagos por acá. Escribinos y lo cargamos nosotros.' });
+  }
+  const viaPago = String(b.via || '').toLowerCase() === 'usdt' ? 'USDT' : 'ARS';
+  if (cli.divisas_pago && !cli.divisas_pago.includes(viaPago)) {
+    return res.status(400).json({ ok: false, error: viaPago === 'USDT' ? 'Tu cuenta paga en pesos: usá el CVU.' : 'Tu cuenta paga en USDT: usá la billetera.' });
   }
   const r = comprobantes.crear({
     codigo: cli.codigo, clienteNombre: cli.nombreVisible,

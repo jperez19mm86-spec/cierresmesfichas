@@ -1542,6 +1542,24 @@ function editCli(id){
           <div id="pb-hist" class="muted"></div>
         </div>
         <div class="card">
+          <h2>💳 Cómo paga</h2>
+          <div class="row" style="align-items:flex-end">
+            <div style="flex:0 0 220px"><label>Modo</label><select id="e-prepago" onchange="document.getElementById('e-prep-wrap').style.display=this.value==='1'?'':'none'">
+              <option value="0" ${c.prepago?'':'selected'}>Postpago — carga y después paga</option>
+              <option value="1" ${c.prepago?'selected':''}>Prepago — paga y después pide</option></select></div>
+            <div id="e-prep-wrap" style="flex:0 0 160px;${c.prepago?'':'display:none'}"><label>Margen <span class="muted">(% del último pago)</span></label>
+              <input id="e-prepmg" value="${esc(c.prepago_margen_pct||'')}" placeholder="0" style="width:90px" inputmode="decimal"></div>
+            <div><label>Puede pagar en</label><div style="display:flex;gap:14px;padding:6px 2px">
+              <label style="display:inline-flex;gap:5px;align-items:center;text-transform:none;font-weight:400;color:var(--text)"><input type="checkbox" style="width:auto" class="e-divpago" value="ARS" ${!c.divisas_pago||c.divisas_pago.includes('ARS')?'checked':''}> Pesos (CVU)</label>
+              <label style="display:inline-flex;gap:5px;align-items:center;text-transform:none;font-weight:400;color:var(--text)"><input type="checkbox" style="width:auto" class="e-divpago" value="USDT" ${!c.divisas_pago||c.divisas_pago.includes('USDT')?'checked':''}> USDT</label>
+            </div></div>
+          </div>
+          <div id="prep-estado-${c.id}" class="muted" style="margin-top:8px"></div>
+          <div class="muted" style="font-size:12px;margin-top:6px">En <b>prepago</b> pide contra su saldo a favor: un pago <b>aprobado</b> lo sube, cada carga lo baja, y los pedidos pendientes lo reservan.
+            Puede pedir hasta su saldo más el margen: un % de su <b>último pago</b> (pagó 100 con 20% → puede quedar debiendo hasta 20). Sin pagos no pide. Si al cargar se movió el tipo de cambio, se carga igual y la diferencia queda como deuda.
+            <b>Puede pagar en</b> decide qué opciones de pago ve en Mi Caja y en el portal.</div>
+        </div>
+        <div class="card">
           <h2>🧾 Ficha de cobro <span class="muted">(datos de referencia)</span></h2>
           <div class="nota warn" style="margin:0 0 8px"><div class="muted"><b style="color:var(--gold)">⚠ Estos campos NO entran en ningún cálculo</b> — igual que <b>Ajuste USDT %</b>, <b>Paga proveedores</b> y <b>Permite deuda</b> de arriba: son notas para acordarse de cómo trabaja cada cliente, y por eso se sacaron de la tabla. Quedan anotados para acordarse de cómo trabaja cada cliente, pero el sistema no los mira: la moneda de cobro, el momento de pago, el disparador y el TC a aplicar no cambian lo que factura ni lo que se convierte a USDT. El tipo de cambio que se usa de verdad sale de <b>💱 Tipos de cambio</b>, y el % que se cobra de la <b>ficha del cliente</b> y la <b>matriz del Cierre</b>.</div></div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
@@ -1618,6 +1636,7 @@ function editCli(id){
   cliPintarCodigos(id);
   accEstado(id);          // si puede ver su cuenta, y con qué usuario
   loadAgentes(id);        // qué puede hacer cada agente en Mi Caja
+  loadPrepago(id);        // saldo para pedir, si es prepago
   loadCliPlat(id);
   loadCliProv(id);
 }
@@ -1626,6 +1645,18 @@ function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w)
 /* ── PERMISOS POR AGENTE (Mi Caja) ──────────────────────────────────────────────────────────────
    Una fila por cuenta del cliente (cada una es un agente que entra a adminganamos). Se guarda al
    tocar: por eso los checks no avisan «cambios sin guardar» a la ficha. */
+/* El saldo de un cliente PREPAGO, en vivo: lo que tiene a favor, lo reservado por pedidos pendientes
+   y lo que le queda para pedir con su margen. */
+async function loadPrepago(id){
+  const box=document.getElementById('prep-estado-'+id); if(!box) return;
+  const r=await api('/api/os/clientes/'+id+'/prepago');
+  const e=r&&r.prepago; if(!e||!e.prepago){ box.innerHTML=''; return; }
+  if(e.error){ box.innerHTML='<span style="color:var(--durazno)">No se pudo calcular el saldo ahora.</span>'; return; }
+  const f=(x)=>Number(x||0).toLocaleString('es-AR',{maximumFractionDigits:2});
+  box.innerHTML=`<b>Saldo a favor:</b> ${e.moneda} ${f(e.saldoAFavor)}${e.debe?` · <span style="color:var(--durazno)">debe ${e.moneda} ${f(e.debe)}</span>`:''}
+    · <b>Reservado</b> por pedidos pendientes: ${e.moneda} ${f(e.reservado)}
+    · <b style="color:var(--green)">Disponible para pedir: ${e.moneda} ${f(e.disponible)}</b>${e.margen?` <span class="muted">(incluye ${e.moneda} ${f(e.margen)} de margen: ${f(e.margenPct)}% del último pago)</span>`:''}`;
+}
 async function loadAgentes(id){
   const box=document.getElementById('agentes-'+id); if(!box) return;
   const r=await api('/api/os/clientes/'+id+'/agentes');
@@ -1800,7 +1831,9 @@ async function saveCli(id){
     billetera_id:val('e-bw'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     factura_a:val('e-facta'), externos_precios_de:val('e-exprec'),
-    saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div') })});
+    saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div'),
+    prepago:val('e-prepago')==='1', prepago_margen_pct:val('e-prepmg'),
+    divisas_pago:[...document.querySelectorAll('input.e-divpago:checked')].map(x=>x.value) })});
   // Antes no se miraba el resultado: si el guardado fallaba, igual decía "Guardado".
   if(!r||!r.ok){ toast('✗ No se pudo guardar: '+((r&&r.error)||'error')); return; }
   // El grupo de Telegram va por su propia ruta, pero se guarda con el mismo botón: para el que
