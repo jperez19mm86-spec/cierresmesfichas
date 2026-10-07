@@ -126,7 +126,8 @@ const PUBLIC = [
  *  · /api/os/*  → el OS comercial y TBS enteros: márgenes, precios, deudas, facturas.
  *  · /api/clientes y /api/systems en crudo → traen `margen_externos_pct`, `tc_proveedor`,
  *    `permite_deuda` y el usuario del casino. Ve una versión recortada por otra ruta.
- *  · aprobar comprobantes → da por cobrada plata que quizás no entró.
+ *  · aprobar comprobantes → da por cobrada plata que quizás no entró. EXCEPTO los pagos en pesos de
+ *    clientes prepago, hasta ARS 500.000, por las rutas angostas de despacho-pagos.js.
  *  · config, backup, restore, credenciales → llaves del negocio.
  */
 const OPERADOR_PUEDE = [
@@ -136,6 +137,12 @@ const OPERADOR_PUEDE = [
   // 'pendiente' un pedido que quedó tomado por un corte, y el store no lo deja si la carga vive.
   { m: 'POST', re: /^\/api\/pedidos\/[\w-]+\/(cargar|rechazar|anular|devolver-trabadas|destrabar)\/?$/ },
   { m: 'GET', re: /^\/api\/historial\/?$/ },
+  /* Los pagos en PESOS de clientes PREPAGO, hasta ARS 500.000: verlos, ver la foto, aprobar y
+     rechazar (decisión del dueño, 8-oct-2026). El servidor vuelve a comprobar cada condición en
+     despacho-pagos.js; un comprobante en USDT, de un postpago o de más del tope le da 403. */
+  { m: 'GET', re: /^\/api\/despacho\/pagos-prepago\/?$/ },
+  { m: 'GET', re: /^\/api\/despacho\/pagos-prepago\/[\w-]+\/archivo\/?$/ },
+  { m: 'POST', re: /^\/api\/despacho\/pagos-prepago\/[\w-]+\/(aprobar|rechazar)\/?$/ },
   // la lista recortada de clientes y paneles: sólo lo que hace falta para despachar
   { m: 'GET', re: /^\/api\/despacho\/(clientes|sistemas|solicitudes-caja)\/?$/ },
   // Puede PEDIR que se abra una caja, no crearla: eso lo aprueba el dueño.

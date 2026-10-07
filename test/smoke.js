@@ -7394,7 +7394,11 @@ async function main() {
       return m ? m[1] : null;
     };
     check('avisos: el de un pedido abre el panel de carga', urlDe('notifyNewPedido') === '/');
-    ['notifyNuevoComprobante', 'notifyNuevaSolicitud', 'notifyNuevoMovimiento'].forEach((fn) => {
+    // El comprobante abre el OS… salvo un pago en pesos de un prepago, que lo acepta la operadora
+    // desde su panel (8-oct-2026): ése abre el panel de despacho.
+    check('avisos: notifyNuevoComprobante abre el OS, o el panel de despacho si lo acepta la operadora',
+      /url: c\.paraDespacho \? '\/' : '\/os'/.test(src.slice(src.indexOf('function notifyNuevoComprobante'), src.indexOf('function notifyNuevoComprobante') + 900)));
+    ['notifyNuevaSolicitud', 'notifyNuevoMovimiento'].forEach((fn) => {
       check(`avisos: ${fn} abre el OS, que es donde se aprueba`, urlDe(fn) === '/os', String(urlDe(fn)));
     });
     // Y el panel de carga muestra qué está esperando en el OS, para el que ya está mirando ahí.

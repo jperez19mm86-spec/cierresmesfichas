@@ -236,6 +236,9 @@
       <div class="acciones"><button class="outline small" onclick="loadPedidos()">↻ Refrescar</button></div>
     </div>
     <div id="otrasColas"></div>
+    <!-- Pagos en pesos de clientes PREPAGO: los acepta también la operadora (hasta ARS 500.000).
+         Sólo aparece si hay alguno: aprobarlo le da saldo al cliente para pedir. -->
+    <div id="pagosPrepago"></div>
     <div id="pedidosList"><div class="empty">Cargando…</div></div>
   </div>
 </div>
@@ -792,7 +795,62 @@
       + '<div class="meta">Estas no son cargas de fichas: se aprueban en el núcleo comercial, no acá.</div></div>';
   }
 
+  /* ── PAGOS EN PESOS DE CLIENTES PREPAGO ─────────────────────────────────────────────────────
+     Los ve y los resuelve también la operadora (decisión del dueño, 8-oct-2026): hasta ARS 500.000,
+     confirmando que vio entrar la plata en el CVU. El servidor vuelve a comprobar todo. */
+  async function loadPagosPrepago() {
+    const box = document.getElementById('pagosPrepago'); if (!box) return;
+    const { body } = await api('/api/despacho/pagos-prepago');
+    const ps = (body && body.ok && body.pagos) || [];
+    if (!ps.length) { box.innerHTML = ''; return; }
+    const tope = (body.tope || 500000).toLocaleString('es-AR');
+    box.innerHTML = '<div style="margin:6px 0 14px;padding:12px;border:1px solid var(--border,#ddd);border-radius:12px">'
+      + '<div style="font-weight:700;margin-bottom:4px">💵 Pagos por aprobar <span class="meta">(' + ps.length + ')</span></div>'
+      + '<div class="meta" style="margin-bottom:8px">Clientes que pagan antes de pedir. Aprobá sólo si <b>viste entrar la plata en el CVU</b>: '
+      + 'al aprobar, el cliente ya puede pedir fichas con ese saldo. Hasta ARS ' + tope + '; lo que pase de eso lo aprueba Alexa.</div>'
+      + ps.map((p) => `
+      <div class="ped" id="pp-${p.id}">
+        <div class="montobig">ARS ${money(Number(String(p.monto).replace(/[^\d.]/g, '')) || 0)}</div>
+        <div class="who">
+          <b>${esc(p.cliente)}</b>${p.agente ? ` <span class="meta">· subió ${esc(p.agente)}</span>` : ''}<br/>
+          <span class="meta">${fmtDate(p.creado_at)}${p.referencia ? ' · ref. ' + esc(p.referencia) : ''}</span>
+          ${p.tieneArchivo ? ` · <a href="/api/despacho/pagos-prepago/${p.id}/archivo" target="_blank" rel="noopener">ver comprobante</a>` : ''}
+        </div>
+        ${p.superaTope
+          ? '<div class="meta" style="flex-basis:100%">Pasa el tope de ARS ' + tope + ': lo aprueba Alexa.</div>'
+          : `<div style="flex-basis:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+              <label class="meta" style="display:flex;gap:6px;align-items:center">Entraron ARS
+                <input id="ppm-${p.id}" ${NOFILL} value="${esc(String(p.monto))}" inputmode="decimal" style="width:120px"></label>
+              <label class="meta" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+                <input type="checkbox" id="ppv-${p.id}" style="width:auto"> Lo vi entrar en el CVU</label>
+              <button class="small" onclick="aprobarPagoPrepago('${p.id}')">✅ Aprobar</button>
+              <button class="danger small" onclick="rechazarPagoPrepago('${p.id}')">✗ Rechazar</button>
+            </div>`}
+        <div class="status" id="pps-${p.id}" style="flex-basis:100%;margin-top:4px"></div>
+      </div>`).join('') + '</div>';
+  }
+  async function aprobarPagoPrepago(id) {
+    const st = document.getElementById('pps-' + id);
+    const monto = (document.getElementById('ppm-' + id) || {}).value;
+    if (!(document.getElementById('ppv-' + id) || {}).checked) { st.innerHTML = '<span class="meta" style="color:#b45309">Tildá «Lo vi entrar en el CVU» antes de aprobar.</span>'; return; }
+    if (!confirm('¿Aprobar ARS ' + monto + '? El cliente va a poder pedir fichas con ese saldo.')) return;
+    const { body } = await api('/api/despacho/pagos-prepago/' + id + '/aprobar', { method: 'POST', body: JSON.stringify({ monto, vioEntrar: true }) });
+    if (!body || !body.ok) { st.innerHTML = '<span style="color:#b91c1c">' + esc((body && body.error) || 'No se pudo') + '</span>'; return; }
+    st.innerHTML = '<span style="color:#15803d">✅ Aprobado: ARS ' + money(body.monto) + ' para ' + esc(body.cliente) + '.</span>';
+    setTimeout(loadPagosPrepago, 2500);
+  }
+  async function rechazarPagoPrepago(id) {
+    const motivo = prompt('¿Por qué lo rechazás? (queda anotado en el comprobante)');
+    if (motivo == null) return;
+    const st = document.getElementById('pps-' + id);
+    const { body } = await api('/api/despacho/pagos-prepago/' + id + '/rechazar', { method: 'POST', body: JSON.stringify({ motivo }) });
+    if (!body || !body.ok) { st.innerHTML = '<span style="color:#b91c1c">' + esc((body && body.error) || 'No se pudo') + '</span>'; return; }
+    st.innerHTML = '<span class="meta">Rechazado.</span>';
+    setTimeout(loadPagosPrepago, 2000);
+  }
+
   async function loadPedidos() {
+    loadPagosPrepago().catch(() => {});
     const box = document.getElementById('pedidosList');
     box.innerHTML = '<div class="empty">Cargando…</div>';
     const { body } = await api('/api/pedidos?estado=pendiente');

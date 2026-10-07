@@ -150,6 +150,9 @@ app.set('sistemaParaCargar', sistemaParaCargar);
 // El aviso del comprobante lo dispara la aprobación, que vive en os.routes. Se pasa por el app en
 // vez de importarlo allá: os.routes no tiene por qué saber cómo arranca esta app.
 app.set('avisarComprobante', avisarComprobante);
+// La operadora acepta los pagos en pesos de los clientes prepago (ver despacho-pagos.js).
+// `quienEs` devuelve { rol, usuario }: acá hace falta el NOMBRE, que es lo que queda escrito.
+require('./despacho-pagos').mount(app, { quienEs: (req) => (auth.quienEs(req) || {}).usuario });
 require('./os.routes').mount(app);
 
 /* EL PUENTE con Mi Caja (servicio aparte): un contrato HTTP chico y versionado, con token propio.
@@ -807,7 +810,9 @@ app.post('/api/comprobante', limitePublico('comprobante', 20, 60), async (req, r
 
   // Aviso al teléfono, igual que con un pedido nuevo. El de Telegram va a un grupo; éste llega a
   // quien tiene el panel instalado, que es quien lo va a aprobar. Sin esto había que estar mirando.
-  push.notifyNuevoComprobante({ ...c, clienteNombre: cli.nombreVisible || cli.nombre, codigo: cli.codigo });
+  push.notifyNuevoComprobante({ ...c, clienteNombre: cli.nombreVisible || cli.nombre, codigo: cli.codigo,
+    // Un pago en pesos de un prepago lo puede aceptar la operadora: el aviso la lleva a su panel.
+    paraDespacho: require('./despacho-pagos').elegible(c).ok });
 
   // ⚠️ ACÁ NO SE AVISA AL GRUPO. Antes sí, y el mensaje decía "queda pendiente hasta que se
   // apruebe": el grupo se enteraba de algo que todavía no pasó y después nadie confirmaba si había

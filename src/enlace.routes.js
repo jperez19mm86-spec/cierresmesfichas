@@ -399,7 +399,8 @@ function mount(app) {
     const c = cr.comprobante;
     // Push al teléfono de quien aprueba (fire-and-forget, no bloquea). El aviso al grupo va cuando
     // el pago SE ACREDITA, no ahora (igual criterio que `/api/comprobante`).
-    push.notifyNuevoComprobante({ ...c, clienteNombre: cliente.nombreVisible || cliente.nombre, codigo: cliente.codigo });
+    push.notifyNuevoComprobante({ ...c, clienteNombre: cliente.nombreVisible || cliente.nombre, codigo: cliente.codigo,
+      paraDespacho: require('./despacho-pagos').elegible(c).ok });
     res.json({ ok: true, creado: true, comprobante: { id: c.id, estado: c.estado, monto: c.monto, divisa: c.divisa, archivo_bytes: c.archivo_bytes || 0 } });
   });
 

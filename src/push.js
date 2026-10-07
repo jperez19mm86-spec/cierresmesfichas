@@ -119,7 +119,9 @@ function notifyNuevoComprobante(c) {
   return sendToAll({
     title: '🧾 Nuevo comprobante de pago',
     body: `${quien} declaró ${c.divisa || ''} $${monto}`.trim(),
-    url: '/os',   // Al OS: los comprobantes se aprueban ahí, no en el panel de carga.
+    // Al OS, donde se aprueban… salvo los pagos en pesos de un prepago, que también los acepta la
+    // operadora desde su panel de despacho.
+    url: c.paraDespacho ? '/' : '/os',
     tag: 'comprobante-' + (c.id || Date.now()),
   }).catch((e) => console.warn('[Push] notifyNuevoComprobante error:', e && e.message));
 }
