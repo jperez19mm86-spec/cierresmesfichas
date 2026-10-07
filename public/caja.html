@@ -1509,6 +1509,95 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
   :root:root[data-marca="zeus"] .acc button:hover{background:linear-gradient(90deg,rgba(233,59,99,.28),rgba(40,32,50,.20) 82%)}
   /* La barra del panel muestra el logo Zeus (chico) en vez del perro. */
   :root:root[data-marca="zeus"] .top .ficha{background:url("/img/zeus.webp") center/contain no-repeat; width:72px; height:26px; border-radius:0}
+
+  /* ══ CELUAPUESTAS ══ el mismo casino que Bet30 con su logo: rojo-rosado como Zeus, sobre gris
+     azulado. Inerte hasta que el server ponga data-marca="celuapuestas" (env MARCA). */
+  :root:root[data-marca="celuapuestas"]{
+    --bg:#10121a; --bg2:#191c27; --bg3:#222634; --bg4:#2d3243;
+    --bor:#2b3042; --bor2:#3d4459;
+    --txt:#ffffff; --mut:#9ca3b8; --mut2:#d2d7e5;
+    --g:#f0678a; --g-fill:#e23c63; --g-soft:#3a1626; --g-ink:#ff9fb4;
+    --marca-barra:linear-gradient(96deg,#232838 0%,#10121a 100%);
+    --marca-accion:linear-gradient(120deg,#e8456b 0%,#c22a4d 100%);
+    --marca-grad:linear-gradient(168deg,#1f2230 0%,#0d0f16 74%);
+    --lg-halo:rgba(226,60,99,.28);
+    --dato:#67e8f9; --dato-soft:#123a4a; --info:#7fd6ef; --info-soft:#12303c;
+    --no:#fb7185; --no-soft:#3a1622; --warn:#fbbf24; --warn-soft:#2f2913; --ok:#4ade80; --ok-soft:#123227;
+  }
+  :root:root[data-marca="celuapuestas"] .tarjeta{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(226,60,99,.18), transparent 58%),
+      linear-gradient(168deg,#1f2230 0%,#0d0f16 74%);
+  }
+  :root:root[data-marca="celuapuestas"] .tarjeta .btn{background:linear-gradient(135deg,#e8456b,#c22a4d); box-shadow:0 6px 20px rgba(226,60,99,.42)}
+  :root:root[data-marca="celuapuestas"] .tarjeta .ojo{background:#262b3b; border-color:transparent; color:#fff}
+  :root:root[data-marca="celuapuestas"] .tarjeta .entrada:-webkit-autofill,
+  :root:root[data-marca="celuapuestas"] .tarjeta .entrada:-webkit-autofill:hover,
+  :root:root[data-marca="celuapuestas"] .tarjeta .entrada:-webkit-autofill:focus{
+    -webkit-box-shadow:0 0 0 100px #1f2230 inset; box-shadow:0 0 0 100px #1f2230 inset; -webkit-text-fill-color:#fff; caret-color:#fff;
+  }
+  :root:root[data-marca="celuapuestas"] .logo, :root:root[data-marca="celuapuestas"] .marca-ganamos{display:none}
+  :root:root[data-marca="celuapuestas"] .marca-celuapuestas{display:block; width:min(280px,80%); aspect-ratio:368/80; margin:8px auto 10px; background:url("/img/celuapuestas.webp") center/contain no-repeat}
+  :root:root[data-marca="celuapuestas"] .saldo{
+    background:
+      radial-gradient(110% 170% at 88% -30%, rgba(226,60,99,.16), transparent 60%),
+      linear-gradient(90deg,#252a3a 0%,#11131b 82%);
+    border-color:rgba(226,60,99,.18);
+  }
+  :root:root[data-marca="celuapuestas"] .op,
+  :root:root[data-marca="celuapuestas"] .tj{background:linear-gradient(90deg,#e23c63 0%,#7a1a36 82%)}
+  :root:root[data-marca="celuapuestas"] .diahead{background:linear-gradient(90deg, rgba(226,60,99,.26), rgba(16,18,26,.96) 60%)}
+  :root:root[data-marca="celuapuestas"] .acc button:hover{background:linear-gradient(90deg,rgba(226,60,99,.28),rgba(34,38,52,.20) 82%)}
+  :root:root[data-marca="celuapuestas"] .fila-b .bal .pm{box-shadow:0 2px 8px rgba(226,60,99,.35)}
+  :root:root[data-marca="celuapuestas"] .top{border-bottom:2px solid #e23c63}
+  :root:root[data-marca="celuapuestas"] .top .ficha{background:url("/img/celuapuestas.webp") center/contain no-repeat; width:96px; height:22px; border-radius:0}
+
+  /* ══ TÍO RICO ══ amarillo de su logo para las acciones (con letra OSCURA encima: blanco sobre
+     amarillo no se lee) y el rojo del logo para las tarjetas. Barra de arriba oscura con filete
+     amarillo, para que su texto blanco siga leyéndose. */
+  :root:root[data-marca="tiorico"]{
+    --bg:#15110a; --bg2:#201a0f; --bg3:#2b2314; --bg4:#382d19;
+    --bor:#3b301b; --bor2:#54452a;
+    --txt:#ffffff; --mut:#b9ab8d; --mut2:#e6dac0;
+    --g:#ffcf3a; --g-fill:#f5b400; --g-soft:#3a2c08; --g-ink:#ffe28f; --sobre-g:#1a1200;
+    --marca-barra:linear-gradient(96deg,#2c210b 0%,#15110a 100%);
+    --marca-accion:linear-gradient(120deg,#ffd23f 0%,#f2a900 100%);
+    --marca-grad:linear-gradient(168deg,#2a2210 0%,#120e07 74%);
+    --lg-halo:rgba(245,180,0,.28);
+    --dato:#67e8f9; --dato-soft:#123a4a; --info:#7fd6ef; --info-soft:#12303c;
+    --no:#fb7185; --no-soft:#3a1622; --warn:#fbbf24; --warn-soft:#2f2913; --ok:#4ade80; --ok-soft:#123227;
+  }
+  :root:root[data-marca="tiorico"] .top{border-bottom:2px solid #f5b400}
+  :root:root[data-marca="tiorico"] .btn:not(.sec):not(.rojo):not(.peligro),
+  :root:root[data-marca="tiorico"] .rapidos .via.activo,
+  :root:root[data-marca="tiorico"] .masinfo[aria-expanded="true"],
+  :root:root[data-marca="tiorico"] .fila-b .bal .pm{color:#1a1200}
+  :root:root[data-marca="tiorico"] .fila-b .bal .pm{box-shadow:0 2px 8px rgba(245,180,0,.35)}
+  :root:root[data-marca="tiorico"] .tarjeta{
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(245,180,0,.16), transparent 58%),
+      linear-gradient(168deg,#2a2210 0%,#120e07 74%);
+  }
+  :root:root[data-marca="tiorico"] .tarjeta .btn{background:linear-gradient(135deg,#ffd23f,#f2a900); color:#1a1200; box-shadow:0 6px 20px rgba(245,180,0,.36)}
+  :root:root[data-marca="tiorico"] .tarjeta .ojo{background:#3a2e17; border-color:transparent; color:#fff}
+  :root:root[data-marca="tiorico"] .tarjeta .entrada:-webkit-autofill,
+  :root:root[data-marca="tiorico"] .tarjeta .entrada:-webkit-autofill:hover,
+  :root:root[data-marca="tiorico"] .tarjeta .entrada:-webkit-autofill:focus{
+    -webkit-box-shadow:0 0 0 100px #2a2210 inset; box-shadow:0 0 0 100px #2a2210 inset; -webkit-text-fill-color:#fff; caret-color:#fff;
+  }
+  :root:root[data-marca="tiorico"] .logo, :root:root[data-marca="tiorico"] .marca-ganamos{display:none}
+  :root:root[data-marca="tiorico"] .marca-tiorico{display:block; width:min(220px,64%); aspect-ratio:1321/500; margin:2px auto 6px; background:url("/img/tiorico.webp") center/contain no-repeat}
+  :root:root[data-marca="tiorico"] .saldo{
+    background:
+      radial-gradient(110% 170% at 88% -30%, rgba(245,180,0,.16), transparent 60%),
+      linear-gradient(90deg,#2e2512 0%,#140f07 82%);
+    border-color:rgba(245,180,0,.2);
+  }
+  :root:root[data-marca="tiorico"] .op,
+  :root:root[data-marca="tiorico"] .tj{background:linear-gradient(90deg,#d6261f 0%,#6e140f 82%)}
+  :root:root[data-marca="tiorico"] .diahead{background:linear-gradient(90deg, rgba(245,180,0,.22), rgba(21,17,10,.96) 60%)}
+  :root:root[data-marca="tiorico"] .acc button:hover{background:linear-gradient(90deg,rgba(245,180,0,.22),rgba(43,35,20,.20) 82%)}
+  :root:root[data-marca="tiorico"] .top .ficha{background:url("/img/tiorico.webp") center/contain no-repeat; width:66px; height:26px; border-radius:0}
   </style>
 
   <!-- ══════ LOGIN ══════ -->
@@ -1522,6 +1611,8 @@ label.campo{display:block; font-size:calc(11px * var(--esc)); text-transform:upp
              tridente), que la skin muestra como fondo. -->
         <h1 class="marca-alt marca-bet30" aria-hidden="true"><span class="b">Bet</span><span class="n">30</span></h1>
         <div class="marca-alt marca-zeus" aria-hidden="true"></div>
+        <div class="marca-alt marca-celuapuestas" aria-hidden="true"></div>
+        <div class="marca-alt marca-tiorico" aria-hidden="true"></div>
       </div>
       <div class="cmp">
         <label class="campo" for="u">Tu usuario</label>
