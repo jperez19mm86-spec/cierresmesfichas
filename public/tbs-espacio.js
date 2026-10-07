@@ -19,7 +19,7 @@ let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
 VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
 // En el espacio TBS cada subpantalla es una pestaña propia: la barra de arriba ya cumple el rol
 // que cumplían los botones de adentro, y tenerlos dos veces era ruido.
-['ofertas','matriz','clientes','cuentas','resumen'].forEach(k=>{
+['ofertas','matriz','clientes','cuentas','resumen','cobros'].forEach(k=>{
   VIEWS['tbs'+k] = () => { _apiSub=k; document.getElementById('main').innerHTML = '<div id="api-body"></div>'; API[k](); };
 });
 
@@ -1817,6 +1817,122 @@ async function apiPagoProv(){
   out.innerHTML='<span class="badge warn">se cortó por las vueltas</span> probá de nuevo, sigue desde donde quedó';
 }
 
+// ───────── 💰 COBROS POR MES: todas las cuentas desde junio, y si pagó ─────────
+/* Auditar mes por mes obligaba a elegir cada mes y apretar Calcular. Acá están todos juntos: una
+   fila por cuenta (igual que el Cierre: cliente y cada caja por separado) y una columna por mes.
+   El monto es el MISMO que el Cierre y que la cuenta que se le manda; el pago es una marca a mano,
+   que se guarda con el monto de ese momento — si el mes se recalcula y cambia, la casilla avisa. */
+let _apiCob=null, _apiCobSoloPend=false;
+const _MES_N=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const cobMes=m=>_MES_N[Number(m.slice(5,7))-1]+' '+m.slice(2,4);
+API.cobros = async () => {
+  document.getElementById('api-body').innerHTML=`
+    <div class="card">
+      <h2>💰 Cobros por mes</h2>
+      <div class="muted" style="margin-bottom:8px">Lo que dice la cuenta de cada cliente, mes por mes desde junio, y si ya
+        pagó. El monto es el mismo del <b>Cierre del mes</b> y de la cuenta que se le manda. Tocá <b>Pendiente</b> para
+        marcar que pagó (y otra vez para desmarcar).</div>
+      <div class="row" style="align-items:center;gap:14px">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;font-size:13px">
+          <input type="checkbox" style="width:auto" ${_apiCobSoloPend?'checked':''} onchange="_apiCobSoloPend=this.checked;apiCobPintar()">
+          Sólo las que deben algo</label>
+        <span style="flex:1"></span>
+        <button class="outline small" onclick="apiCobCargar()">↻ Actualizar</button>
+      </div>
+      <div id="acob-body" style="margin-top:12px" class="muted">Cargando…</div>
+    </div>`;
+  apiCobCargar();
+};
+async function apiCobCargar(){
+  const el=document.getElementById('acob-body'); if(el&&!_apiCob) el.innerHTML='<div class="muted">Cargando…</div>';
+  _apiCob=await api('/api/os/api/cobros?desde=2026-06');
+  apiCobPintar();
+}
+function apiCobPintar(){
+  const r=_apiCob, out=document.getElementById('acob-body'); if(!out) return;
+  if(!r||!r.ok) return out.innerHTML=`<div class="nota err">${esc((r&&r.error)||'no se pudo cargar')}</div>`;
+  const meses=r.meses, T=r.totales;
+  const debe=x=>x&&x.entra&&Number(x.total)>0&&!x.pagado;
+  const filas=(r.filas||[]).filter(f=>!_apiCobSoloPend||meses.some(m=>debe(f.meses[m])));
+  const pendTot=meses.reduce((a,m)=>a+Number(T[m].pendiente||0),0);
+  const nPend=meses.reduce((a,m)=>a+(T[m].cuentas-T[m].pagadas),0);
+  const cobTot=meses.reduce((a,m)=>a+Number(T[m].cobrado||0),0);
+  const celda=(f,m)=>{
+    const x=f.meses[m];
+    if(!x||!(Number(x.total)>0)) return '<td class="cob-c cob-vacia">—</td>';
+    const k=`${f.clave}|${m}`, sid='acob-'+f.clave+'-'+m;
+    const id=f.es_caja?f.padre:f.clave, alc=f.es_caja?'caja':(x.con_cajas?'propio':'total');
+    const nom=esc(String(f.titulo)).replace(/'/g,"\\'");
+    if(!x.entra) return `<td class="cob-c cob-fuera" title="No entra en el cierre de ${esc(cobMes(m))}${x.motivo?': '+esc(x.motivo):''}">
+      <div class="cob-m">${money(x.total,2)}</div><div class="cob-tag">no se cobra</div></td>`;
+    return `<td class="cob-c ${x.pagado?'cob-si':'cob-no'}">
+      <div class="cob-m">${money(x.total,2)}</div>
+      <button class="cob-est" onclick="apiCobMarcar('${esc(k)}')" title="${x.pagado?'Marcado el '+esc(String(x.pagado_at||'').slice(0,10))+' · tocá para desmarcar':'Tocá para marcar que pagó'}">
+        ${x.pagado?'✓ Pagó':'Pendiente'}</button>
+      ${x.cambio?`<div class="cob-aviso" title="Cuando se marcó, la cuenta decía ${esc(money(x.pagado_monto,2))}. Después se recalculó.">⚠ se marcó con ${money(x.pagado_monto,2)}</div>`:''}
+      <div class="cob-acc">
+        <button class="cob-ic" title="Ver la cuenta de ${esc(cobMes(m))} (la misma que recibe el cliente)" onclick="apiDoc('${esc(id)}','cliente','${alc}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${m}')">Ver</button>
+        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz" onclick="apiEnviar('${esc(id)}','${nom}','${alc}',false,'${m}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${sid}')">→ Matriz</button>
+        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz y al grupo del cliente" onclick="apiEnviar('${esc(id)}','${nom}','${alc}',true,'${m}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${sid}')">→ Cliente</button>
+      </div>
+      <div class="cob-env" id="${sid}"></div>
+    </td>`;
+  };
+  out.innerHTML=`
+    <style>
+      .cob-t{border-collapse:collapse;width:100%}
+      .cob-t th,.cob-t td{vertical-align:top}
+      .cob-t th.cob-mh{text-align:center;white-space:nowrap}
+      .cob-c{text-align:center;min-width:170px;padding:8px 6px}
+      .cob-m{font-weight:800;font-size:14px}
+      .cob-est{margin-top:4px;padding:3px 10px;font-size:12px;font-weight:700;border-radius:999px;cursor:pointer;width:auto}
+      .cob-no .cob-est{background:transparent;color:var(--red);border:1px solid var(--red)}
+      .cob-si .cob-est{background:var(--green);color:#fff;border:1px solid transparent}
+      .cob-si{background:color-mix(in srgb,var(--green) 9%,transparent)}
+      .cob-fuera{opacity:.55}
+      .cob-tag{font-size:11px;color:var(--muted)}
+      .cob-vacia{color:var(--muted);text-align:center}
+      .cob-aviso{font-size:11px;color:var(--red);margin-top:3px}
+      .cob-acc{display:flex;gap:4px;justify-content:center;margin-top:5px;flex-wrap:nowrap}
+      .cob-ic{padding:2px 7px;font-size:11px;font-weight:600;white-space:nowrap;min-width:0;line-height:1.5;background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;width:auto;color:inherit}
+      .cob-env{font-size:11px;margin-top:3px}
+      .cob-t tfoot td{font-weight:700;text-align:center;white-space:nowrap}
+      .cob-t tfoot td:first-child{text-align:left}
+    </style>
+    <div class="row" style="align-items:stretch">
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Falta cobrar</label>
+        <div style="font-size:22px;font-weight:800;color:var(--red)">${money(pendTot,2)}</div>
+        <div class="muted" style="font-size:11px">USDT · ${nPend} cuenta${nPend===1?'':'s'}</div></div>
+      <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Ya cobrado</label>
+        <div style="font-size:22px;font-weight:800">${money(cobTot,2)}</div>
+        <div class="muted" style="font-size:11px">USDT · desde ${esc(cobMes(meses[0]))}</div></div>
+    </div>
+    ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
+    <div class="mx-scroll" style="margin-top:12px"><table class="cob-t"><thead><tr><th>Cuenta</th>
+      ${meses.map(m=>`<th class="cob-mh">${esc(cobMes(m))}</th>`).join('')}</tr></thead><tbody>
+    ${filas.map(f=>`<tr><td>${f.es_caja?'<span class="muted" style="font-size:11px">└ caja de '+esc(f.de)+'</span><br>':''}<b>${esc(f.titulo)}</b>
+        ${f.titulo!==f.login?`<div class="muted" style="font-size:11px">${esc(f.login)}</div>`:''}</td>
+      ${meses.map(m=>celda(f,m)).join('')}</tr>`).join('')
+      ||`<tr><td colspan="${meses.length+1}" class="empty">${_apiCobSoloPend?'Nadie debe nada. 🎉':'Sin cuentas.'}</td></tr>`}
+    </tbody><tfoot>
+      <tr><td>Facturado</td>${meses.map(m=>`<td>${money(T[m].facturado,2)}</td>`).join('')}</tr>
+      <tr><td>Cobrado</td>${meses.map(m=>`<td>${money(T[m].cobrado,2)} <span class="muted" style="font-weight:400">· ${T[m].pagadas}/${T[m].cuentas}</span></td>`).join('')}</tr>
+      <tr><td style="color:var(--red)">Falta cobrar</td>${meses.map(m=>`<td style="color:var(--red)">${money(T[m].pendiente,2)}</td>`).join('')}</tr>
+    </tfoot></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px"><b>Ver</b> abre la cuenta del mes tal cual la ve el cliente ·
+      <b>→ Matriz</b> la manda al grupo matriz · <b>→ Cliente</b> a la matriz y al grupo del cliente (pide confirmación). «No se cobra» = destildada en el Cierre de ese mes.</div>`;
+}
+async function apiCobMarcar(k){
+  const [clave,mes]=k.split('|');
+  const f=(_apiCob.filas||[]).find(x=>x.clave===clave); const x=f&&f.meses[mes]; if(!x) return;
+  const pagado=!x.pagado;
+  const q=await api('/api/os/api/cobros',{method:'POST',body:JSON.stringify({mes,clave,pagado,monto:x.total})});
+  if(!q.ok) return;                                       // api() ya avisó; no se cambia nada en pantalla
+  toast(pagado?('✓ '+f.titulo+' · '+cobMes(mes)+' pagado'):('Desmarcado: '+f.titulo+' · '+cobMes(mes)));
+  _apiCob=await api('/api/os/api/cobros?desde=2026-06');
+  apiCobPintar();
+}
+
 // ───────── CIERRE DEL MES: el total, con lo que entra y lo que no ─────────
 let _apiRes=null;
 API.resumen = async () => {
@@ -1935,8 +2051,8 @@ async function apiTgGuardar(id){
 /* SALE PARA AFUERA. Dos botones y no uno con un tilde: el que incluye al cliente tiene que ser un
    acto aparte. Con un tilde que queda puesto de la vez anterior, el segundo envío se va al chat del
    cliente sin que nadie lo haya decidido esta vez. */
-async function apiEnviar(id, nombre, alcance, alCliente){
-  const mes=document.getElementById('api-mes').value;
+async function apiEnviar(id, nombre, alcance, alCliente, mesDado, cajaId, marcaId){
+  const mes=mesDado||document.getElementById('api-mes').value;
   const cfg=await api('/api/config');
   const matriz=(cfg.apiGrupoMatriz||'').trim();
   const cs=(await api('/api/os/api/clientes')).clientes||[];
@@ -1947,10 +2063,10 @@ async function apiEnviar(id, nombre, alcance, alCliente){
   const van=[matriz?'la matriz ('+matriz+')':null, (alCliente&&chat&&chat!==matriz)?nombre+' ('+chat+')':null].filter(Boolean);
   if(!confirm('¿Mandar la cuenta de '+nombre+' de '+mes+'?\n\nVa a: '+van.join('\ny a: ')
     +'\n\nSon mensajes de verdad: no se pueden deshacer.')) return;
-  const marca=(t)=>{const e=document.getElementById('apienv-'+id); if(e) e.innerHTML=t;};
+  const marca=(t)=>{const e=document.getElementById(marcaId||('apienv-'+id)); if(e) e.innerHTML=t;};
   marca('<span class="muted">Mandando…</span>');
   const r=await api('/api/os/api/cuenta/'+encodeURIComponent(id)+'/enviar',
-    {method:'POST',body:JSON.stringify({mes, alcance, al_cliente:!!alCliente})});
+    {method:'POST',body:JSON.stringify({mes, alcance, al_cliente:!!alCliente, caja_id:cajaId||null})});
   if(!r.ok) return marca('<span class="badge err">no se envió</span> '+esc(r.error||''));
   // Se dice a QUIÉN llegó y a quién no: si uno de los dos falla, saber cuál es lo único que importa.
   marca((r.destinos||[]).map(d=>(d.ok?'<span class="badge ok">'+esc(d.quien)+'</span>':'<span class="badge err">'+esc(d.quien)+': '+esc(d.error||'')+'</span>')).join(' ')
@@ -1960,8 +2076,8 @@ async function apiEnviar(id, nombre, alcance, alCliente){
    Por eso esto pide el documento en vez de esconder columnas de lo que ya está en pantalla. */
 /* Abre la MISMA página que va a recibir el cliente. Antes esto armaba su propio HTML en el
    navegador: dos renderizadores del mismo documento que se iban a separar con el primer cambio. */
-function apiDoc(id,vista,alcance,caja){
-  const mes=document.getElementById('api-mes').value;
+function apiDoc(id,vista,alcance,caja,mesDado){
+  const mes=mesDado||document.getElementById('api-mes').value;
   const q=`?mes=${encodeURIComponent(mes)}&alcance=${alcance}${caja?'&caja_id='+encodeURIComponent(caja):''}`;
   window.open('/api/os/api/cuenta/'+encodeURIComponent(id)+'/pagina'+q,'_blank');
 }

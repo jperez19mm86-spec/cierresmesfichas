@@ -1935,7 +1935,11 @@ async function main() {
     check('oferta: la pestaña está en la barra de TBS, que es donde se trabaja',
       /\['tbsofertas','💼 Ofertas'\]/.test(navTbs), navTbs.replace(/\s+/g, ' ').slice(0, 120));
     check('oferta: y la vista tbsofertas está registrada',
-      /\['ofertas','matriz','clientes','cuentas','resumen'\]\.forEach/.test(srcUi5));
+      /\['ofertas','matriz','clientes','cuentas','resumen'[^\]]*\]\.forEach/.test(srcUi5));
+    check('cobros: la pestaña Cobros por mes está registrada y en la barra',
+      /\['ofertas',[^\]]*'cobros'\]\.forEach/.test(srcUi5) && /\['tbscobros','💰 Cobros por mes'\]/.test(navTbs));
+    check('cobros: marcar que pagó guarda el monto de ese momento',
+      /api\/os\/api\/cobros',\{method:'POST',body:JSON\.stringify\(\{mes,clave,pagado,monto:x\.total\}\)/.test(srcUi5));
     check('oferta: muestra los cambios antes de escribir',
       /API\.ofertas = async/.test(srcUi5) && /async function ofVerCambios\(id\)/.test(srcUi5)
       && /Escribir estos precios en la matriz/.test(srcUi5));

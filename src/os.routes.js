@@ -3317,6 +3317,18 @@ function mount(app) {
     ok(res, apiStore.setEnResumen(b.mes, b.clave, b.entra !== false, b.motivo));
   }));
 
+  // Cobros por mes: todas las cuentas desde junio, con el monto y si pagó.
+  app.get('/api/os/api/cobros', wrap((req, res) => {
+    const r = apiResumen.cobros({ desde: req.query.desde || '2026-06', hasta: req.query.hasta || mesTZ() });
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // Marcar / desmarcar que pagó. Se guarda con el monto que tenía la cuenta en ese momento.
+  app.post('/api/os/api/cobros', wrap((req, res) => {
+    const b = req.body || {};
+    const r = apiStore.setCobro(b.mes, b.clave, b.pagado !== false, b.monto);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+
   // Mandarle a un cliente de API su cuenta del mes por Telegram.
   // SALE PARA AFUERA: se pide confirmación en la pantalla y se manda la vista 'cliente', que por
   // construcción no lleva lo que le pagamos al proveedor ni cómo se reparte adentro.

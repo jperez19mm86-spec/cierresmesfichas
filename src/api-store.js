@@ -104,6 +104,13 @@ try { db.exec('ALTER TABLE api_cliente ADD COLUMN telegram_chat_id TEXT'); } cat
 db.exec(`CREATE TABLE IF NOT EXISTS api_resumen_fuera (
   mes TEXT NOT NULL, clave TEXT NOT NULL, motivo TEXT, at TEXT, PRIMARY KEY (mes, clave))`);
 
+// SI PAGÓ, por mes y por unidad facturable (la misma clave que el resumen: un cliente o una caja).
+// Se guarda el MONTO con que se marcó: si después se recalcula el mes y la cuenta cambia, el pago
+// marcado ya no corresponde a lo que dice la cuenta, y eso se tiene que ver — no taparse.
+// Sólo se guardan los pagados: lo que no está en la tabla, está pendiente.
+db.exec(`CREATE TABLE IF NOT EXISTS api_cobro (
+  mes TEXT NOT NULL, clave TEXT NOT NULL, monto TEXT, at TEXT, PRIMARY KEY (mes, clave))`);
+
 const nowISO = () => new Date().toISOString();
 const J = (v, def) => { try { const x = JSON.parse(v); return x == null ? def : x; } catch (e) { return def; } };
 const K = (s) => String(s || '').trim().toLowerCase();
@@ -342,8 +349,29 @@ function setEnResumen(mes, clave, entra, motivo = '') {
   return { ok: true };
 }
 
+/** Los pagos marcados de esos meses: { 'YYYY-MM': { clave: {monto, at} } }. */
+function cobros(meses) {
+  const out = {};
+  const ms = (meses || []).map((m) => String(m).slice(0, 7));
+  if (!ms.length) return out;
+  db.prepare(`SELECT mes, clave, monto, at FROM api_cobro WHERE mes IN (${ms.map(() => '?').join(',')})`)
+    .all(...ms).forEach((r) => { (out[r.mes] = out[r.mes] || {})[r.clave] = { monto: r.monto, at: r.at }; });
+  return out;
+}
+function setCobro(mes, clave, pagado, monto) {
+  const m = String(mes || '').slice(0, 7); const k = String(clave || '');
+  if (!/^\d{4}-\d{2}$/.test(m) || !k) return { ok: false, error: 'falta el mes o la cuenta' };
+  if (!pagado) db.prepare('DELETE FROM api_cobro WHERE mes=? AND clave=?').run(m, k);
+  else {
+    db.prepare(`INSERT INTO api_cobro (mes,clave,monto,at) VALUES (?,?,?,?)
+      ON CONFLICT(mes,clave) DO UPDATE SET monto=excluded.monto, at=excluded.at`)
+      .run(m, k, monto == null ? null : String(monto), nowISO());
+  }
+  return { ok: true };
+}
+
 module.exports = {
-  fueraDelResumen, setEnResumen,
+  fueraDelResumen, setEnResumen, cobros, setCobro,
   sembrar,
   listClientes, getCliente, saveCliente, removeCliente, setDeQuien, limpiarNombresViejos,
   listSellos, saveSello, removeSello,
