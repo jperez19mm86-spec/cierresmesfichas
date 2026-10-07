@@ -1910,9 +1910,16 @@ function apiCobPintar(){
     ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
     <div class="mx-scroll" style="margin-top:12px"><table class="cob-t"><thead><tr><th>Cuenta</th>
       ${meses.map(m=>`<th class="cob-mh">${esc(cobMes(m))}</th>`).join('')}</tr></thead><tbody>
-    ${filas.map(f=>`<tr><td>${f.es_caja?'<span class="muted" style="font-size:11px">└ caja de '+esc(f.de)+'</span><br>':''}<b>${esc(f.titulo)}</b>
-        ${f.titulo!==f.login?`<div class="muted" style="font-size:11px">${esc(f.login)}</div>`:''}</td>
-      ${meses.map(m=>celda(f,m)).join('')}</tr>`).join('')
+    ${filas.map(f=>{
+      // Lo que debe esta fila, más sus cajas si es la cuenta madre: es lo mismo que dice su resumen.
+      const suyas=[f,...(f.es_caja?[]:(r.filas||[]).filter(k=>k.es_caja&&k.padre===f.clave))];
+      const debeF=meses.reduce((a,m)=>a+suyas.reduce((b,k)=>b+(debe(k.meses[m])?Number(k.meses[m].total):0),0),0);
+      return `<tr><td>${f.es_caja?'<span class="muted" style="font-size:11px">└ caja de '+esc(f.de)+'</span><br>':''}<b>${esc(f.titulo)}</b>
+        ${f.titulo!==f.login?`<div class="muted" style="font-size:11px">${esc(f.login)}</div>`:''}
+        ${debeF>0?`<div style="font-size:12px;color:var(--red);margin-top:3px">Debe ${money(debeF,2)}</div>`:''}
+        <button class="cob-ic" style="margin-top:5px" title="Hoja para el cliente: los meses que debe y el total${!f.es_caja&&suyas.length>1?' (con sus cajas)':''}"
+          onclick="window.open('/api/os/api/cobros/${encodeURIComponent(f.clave)}/pagina','_blank')">📄 Resumen de deuda</button></td>
+      ${meses.map(m=>celda(f,m)).join('')}</tr>`;}).join('')
       ||`<tr><td colspan="${meses.length+1}" class="empty">${_apiCobSoloPend?'Nadie debe nada. 🎉':'Sin cuentas.'}</td></tr>`}
     </tbody><tfoot>
       <tr><td>Facturado</td>${meses.map(m=>`<td>${money(T[m].facturado,2)}</td>`).join('')}</tr>

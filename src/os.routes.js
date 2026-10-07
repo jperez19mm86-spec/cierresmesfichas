@@ -3322,6 +3322,13 @@ function mount(app) {
     const r = apiResumen.cobros({ desde: req.query.desde || '2026-06', hasta: req.query.hasta || mesTZ() });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
+  // El resumen de deuda de una cuenta: los meses pendientes y el total. Vista para el cliente.
+  app.get('/api/os/api/cobros/:clave/pagina', wrap((req, res) => {
+    const d = apiResumen.deuda({ clave: req.params.clave, desde: req.query.desde || '2026-06', hasta: mesTZ() });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.send(apiCuentaHtml.paginaDeuda(d, d.ok ? apiResumen.deudaTexto(d) : ''));
+  }));
   // Marcar / desmarcar que pagó. Se guarda con el monto que tenía la cuenta en ese momento.
   app.post('/api/os/api/cobros', wrap((req, res) => {
     const b = req.body || {};

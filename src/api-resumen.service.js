@@ -140,4 +140,47 @@ function cobros({ desde = '2026-06', hasta } = {}) {
   return { ok: true, meses, filas, totales, avisos };
 }
 
-module.exports = { resumen, comoLoLlama, cobros };
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+  'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const mesLargo = (m) => `${MESES_LARGOS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+
+/**
+ * EL RESUMEN DE DEUDA de una cuenta: lo que debe, mes por mes, y el total. Es para mandarle al
+ * cliente, así que sólo lleva lo que se le cobra — nada del proveedor ni de la empresa.
+ *
+ * Sale de cobros(), o sea del mismo número del Cierre: si un mes se marca pagado, deja de sumar
+ * acá sin hacer nada más. Si la cuenta tiene cajas, van adentro con su nombre: es lo mismo que se
+ * le cobra a esa persona. Pedir el de una caja sola da sólo esa caja.
+ */
+function deuda({ clave, desde = '2026-06', hasta } = {}) {
+  const r = cobros({ desde, hasta });
+  if (!r.ok) return r;
+  const k = String(clave || '');
+  const base = r.filas.find((f) => f.clave === k);
+  if (!base) return { ok: false, error: 'esa cuenta no tiene consumo desde ' + desde };
+  const partes = [base, ...(base.es_caja ? [] : r.filas.filter((f) => f.es_caja && f.padre === k))];
+  const conCajas = partes.length > 1;
+  const pendientes = []; const pagados = [];
+  r.meses.forEach((m) => {
+    partes.forEach((f) => {
+      const x = f.meses[m];
+      if (!x || !x.entra || !(Number(x.total) > 0)) return;
+      const linea = { mes: m, nombre: mesLargo(m), parte: conCajas ? f.titulo : null, total: x.total };
+      (x.pagado ? pagados : pendientes).push(linea);
+    });
+  });
+  return { ok: true, cuenta: base.titulo, de: base.es_caja ? base.de : null, desde: r.meses[0],
+    pendientes, pagados, total: money.round(pendientes.reduce((a, x) => money.add(a, x.total), '0'), 2) };
+}
+
+/** El mismo resumen en texto, para pegar en el chat. */
+function deudaTexto(d) {
+  const n = (x) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!d.pendientes.length) return `${d.cuenta}: no hay meses pendientes. ¡Gracias!`;
+  return [`Resumen de cuenta — ${d.cuenta}`, '',
+    ...d.pendientes.map((x) => `• ${x.nombre}${x.parte ? ' (' + x.parte + ')' : ''}: ${n(x.total)} USDT`),
+    '', `Total pendiente: ${n(d.total)} USDT`,
+    ...(d.pagados.length ? ['', 'Ya pagado: ' + d.pagados.map((x) => x.nombre + (x.parte ? ' (' + x.parte + ')' : '')).join(', ')] : [])].join('\n');
+}
+
+module.exports = { resumen, comoLoLlama, cobros, deuda, deudaTexto };

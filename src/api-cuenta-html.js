@@ -82,4 +82,36 @@ function paginaError(msg) {
     <div class="pie">Latam Games</div></body></html>`;
 }
 
-module.exports = { pagina, paginaError };
+/** El resumen de deuda (api-resumen.deuda): los meses que debe, el total y lo ya pagado. */
+function paginaDeuda(d, texto) {
+  if (!d || !d.ok) return paginaError((d && d.error) || 'No encontramos esa cuenta');
+  const conParte = d.pendientes.some((x) => x.parte) || d.pagados.some((x) => x.parte);
+  const fila = (x) => `<tr><td>${esc(x.nombre)}</td>${conParte ? `<td>${esc(x.parte || '')}</td>` : ''}
+    <td class="r">${n(x.total)}</td></tr>`;
+  const hoy = new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>${esc(d.cuenta)} — resumen de cuenta</title><style>${CSS}
+      .ok{color:#2e9e63;font-weight:700}</style></head><body>
+    <h1>${esc(d.cuenta)}${d.de ? ' <span style="color:#8c7e89;font-weight:400;font-size:14px">(caja de ' + esc(d.de) + ')</span>' : ''}</h1>
+    <div style="color:#8c7e89;margin-bottom:14px">Resumen de cuenta al ${esc(hoy)}</div>
+    ${d.pendientes.length ? `
+      <h2>Pendiente de pago</h2>
+      <table><thead><tr><th>Mes</th>${conParte ? '<th>Cuenta</th>' : ''}<th class="r">USDT</th></tr></thead>
+      <tbody>${d.pendientes.map(fila).join('')}</tbody></table>
+      <div class="tot">Total pendiente: ${n(d.total)} USDT</div>`
+    : '<div class="tot ok">No hay meses pendientes. ¡Gracias!</div>'}
+    ${d.pagados.length ? `<h2>Ya pagado</h2>
+      <table><tbody>${d.pagados.map((x) => `<tr><td>${esc(x.nombre)}</td>${conParte ? `<td>${esc(x.parte || '')}</td>` : ''}
+        <td class="r"><span class="ok">✓ pagado</span> · ${n(x.total)}</td></tr>`).join('')}</tbody></table>` : ''}
+    <div style="margin-top:18px;display:flex;gap:8px">
+      <button onclick="window.print()">Guardar como PDF</button>
+      <button id="cp" onclick="navigator.clipboard.writeText(document.getElementById('txt').value).then(()=>{this.textContent='✓ Copiado'})">Copiar texto para el chat</button>
+    </div>
+    <textarea id="txt" style="position:absolute;left:-9999px" aria-hidden="true">${esc(texto || '')}</textarea>
+    <div class="pie">Latam Games</div>
+    </body></html>`;
+}
+
+module.exports = { pagina, paginaError, paginaDeuda };
