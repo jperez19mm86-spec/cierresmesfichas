@@ -147,7 +147,15 @@ function pasosDeMovimiento({ origen, destino, divisa }) {
      el ancestro común; cruzando son dos, uno por plataforma. */
   const cruce = String(origen.sistema || '').toLowerCase() !== String(destino.sistema || '').toLowerCase();
   let i = 0;
-  if (cruce) {
+  /* ── SUPERAGENTE A SUPERAGENTE, CRUZANDO ──────────────────────────────────────────────────
+     Si los dos extremos SON el SuperAgente de su lado, no hay rama que subir ni bajar: lo que se
+     pide es mover fichas de una billetera a la otra. Tomarlos como apoyo dejaba la cadena vacía y
+     el pedido salía rechazado con «son la misma cuenta del casino» (Oscar-SA → Astrosbet.vip,
+     8-oct-2026). Es el mismo caso que dos SuperAgentes de la misma plataforma: out(A), in(B). */
+  const saASa = cruce && co.length === 1 && cd.length === 1;
+  if (saASa) {
+    i = 0;
+  } else if (cruce) {
     i = 1;                                   // el SuperAgente de cada lado: apoyo, no paso
   } else {
     while (i < co.length && i < cd.length && co[i].id === cd[i].id) i += 1;  // hasta dónde comparten
@@ -173,8 +181,9 @@ function pasosDeMovimiento({ origen, destino, divisa }) {
     cruce,
     // Dónde descansan las fichas entre las dos mitades, uno por lado. Es lo que hay que mirar si
     // el pase queda a medias, y lo que hay que comprobar que tenga saldo ANTES de sacar nada.
-    apoyoOrigen: cruce ? co[0] : null,
-    apoyoDestino: cruce ? cd[0] : null,
+    // Entre dos SuperAgentes nadie hace de apoyo: el destino RECIBE, no tiene que poner saldo.
+    apoyoOrigen: cruce && !saASa ? co[0] : null,
+    apoyoDestino: cruce && !saASa ? cd[0] : null,
     pivote: i > 0 && !cruce ? co[i - 1] : null,   // el ancestro común, cuando es uno solo
     // Serie: se toma la raíz del camino del origen para no pisarse con una carga del mismo árbol.
     superagenteId: String(co[0].id),
