@@ -185,6 +185,18 @@ check('un usuario sin cliente: no existe',
   tg.sendMessage = async () => { throw new Error('telegram caído'); };
   const nuevo3 = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist3', id: '555103' });
   check('si Telegram falla, el alta igual queda hecha (avisado:false)', nuevo3.registrado === true && nuevo3.avisado === false);
+  // «Sus agentes piden fichas» apagado en el distribuidor: el agente nuevo entra sin poder pedir.
+  const kDist = clientes.get(cli.id).cajas.find((k) => k.userId === '555100');
+  clientes.updateCaja(cli.id, kDist.id, { agentesPiden: false });
+  tg.sendMessage = async (_t, grupo, texto) => { enviados.push({ grupo, texto }); return { ok: true }; };
+  const nuevo4 = await alta({ usuario: 'DistPrueba', userId: '555100', login: 'AgDelDist4', id: '555104' });
+  const k4 = clientes.get(cli.id).cajas.find((k) => k.userId === '555104');
+  check('distribuidor con «sus agentes piden» apagado: el agente nuevo entra SIN pedir',
+    nuevo4.registrado === true && k4 && k4.permisos && k4.permisos.pedir === false && k4.permisos.pagos === false);
+  check('…y el aviso a soporte lo dice', /sin poder pedir/.test((enviados[enviados.length - 1] || {}).texto || ''));
+  const est4 = await fetch(`${U}/estado-cliente?usuario=AgDelDist4&userId=555104`, { headers: tok }).then((r) => r.json());
+  check('…y Mi Caja no le deja pedir', est4.configurado && est4.puedePedir === false);
+  clientes.updateCaja(cli.id, kDist.id, { agentesPiden: true });
   tg.sendMessage = tgOrig; cfgStore.getTelegramToken = tokOrig;
   check('datos inválidos: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"usuario":"DistPrueba","login":"x","id":"abc"}' }).then((r) => r.status)) === 400);
 

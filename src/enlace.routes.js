@@ -170,14 +170,14 @@ async function avisarSoporte(body, est, motivo) {
  *  soporte (decisión del dueño, 30-sep-2026): el agente ya existe en el casino, así que no se pide
  *  aprobación —se avisa—, pero un panel nuevo cambia lo que se le factura al cliente y alguien tiene
  *  que enterarse. Nunca se cuelga ni hace fallar el alta. */
-async function avisarAgenteNuevo({ distribuidor, login, id, sistema, divisa, cliente, conPanel }) {
+async function avisarAgenteNuevo({ distribuidor, login, id, sistema, divisa, cliente, conPanel, pide = true }) {
   const grupo = String(config.getCfg('grupoSinConfigurar') || GRUPO_SOPORTE_DEFAULT).trim();
   const tok = config.getTelegramToken();
   if (!tok || !grupo) return { enviado: false, motivo: 'telegram_no_configurado' };
   const texto =
     `🆕 <b>Agente nuevo</b>\n`
     + `<code>${escapeHtml(distribuidor)}</code> creó <b>${escapeHtml(login)}</b> (id ${escapeHtml(id)} · ${escapeHtml(sistema || '—')}, ${escapeHtml(divisa)})\n`
-    + `→ sumado a <b>${escapeHtml(cliente)}</b> con «sólo pedir fichas»\n`
+    + `→ sumado a <b>${escapeHtml(cliente)}</b> ${pide ? 'con «sólo pedir fichas»' : 'sin poder pedir (se las pide el distribuidor)'}\n`
     + `${conPanel ? 'Panel creado: entra en la facturación.' : 'Sin panel: el distribuidor ya factura por él.'}\n\n`
     + `<i>Para que pueda pagar o ver su cuenta: ficha del cliente → Qué puede hacer cada agente.</i>`;
   try {
@@ -263,11 +263,14 @@ function mount(app) {
         id_usuario: id, conexion_id: cx ? cx.id : null, divisas });
       try { arbolSvc.resolverEnSegundoPlano(panel); } catch (e) { /* queda sin resolver; la pantalla lo muestra */ }
     }
+    /* Entra con «sólo pedir»… salvo que el distribuidor tenga apagado «sus agentes piden fichas»:
+       entonces entra sin nada, y las fichas se las pide el distribuidor (8-oct-2026, LUCHO15). */
+    const agentePide = caja.agentesPiden !== false;
     clientes.addCaja(cliente.id, { usuario: login, sistema, userId: id, divisas,
-      permisos: { pedir: true, pagos: false, cuenta: false } });
+      permisos: { pedir: agentePide, pagos: false, cuenta: false } });
     console.log(`[Enlace] agente ${login} (${id}) creado por el distribuidor ${caja.usuario} → cliente ${cliente.codigo}${panel ? ' (con panel)' : ' (sólo cuenta)'}`);
     const av = await avisarAgenteNuevo({ distribuidor: caja.usuario || b.usuario || '', login, id, sistema,
-      divisa: divisas[0], cliente: cliente.nombre || cliente.codigo, conPanel: !!panel });
+      divisa: divisas[0], cliente: cliente.nombre || cliente.codigo, conPanel: !!panel, pide: agentePide });
     res.json({ ok: true, registrado: true, cliente: cliente.codigo, conPanel: !!panel, avisado: av.enviado });
   });
 

@@ -1695,7 +1695,10 @@ async function loadAgentes(id){
         <div style="min-width:180px"><b>${esc(a.usuario)}</b> <span class="badge" style="background:var(--blue);color:#fff">Distribuidor</span>
           <div class="muted" style="font-size:11px">${esc(a.sistema||'')} · ${esc(a.userId||'')} · ${esc((a.divisas||[]).join(',')||'ARS')}</div></div>
         <div style="flex:1">${chk(a,'pedir','Pedir fichas (para él y sus agentes)')}${chk(a,'pagos','Registrar pagos')}${chk(a,'cuenta','Ver cuenta y saldo')}
-          <div class="muted" style="font-size:12px">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente con «sólo pedir fichas».</div></div>
+          <div style="margin-top:4px"><label style="display:inline-flex;gap:5px;align-items:center;text-transform:none;font-size:13px;color:var(--text);font-weight:400">
+            <input type="checkbox" style="width:auto" ${a.agentesPiden!==false?'checked':''} oninput="event.stopPropagation()"
+              onchange="event.stopPropagation();setAgentesPiden('${id}','${a.id}',this.checked)"> Sus agentes piden fichas ellos mismos</label></div>
+          <div class="muted" style="font-size:12px">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente ${a.agentesPiden!==false?'con «sólo pedir fichas»':'<b>sin poder pedir</b> (las fichas se las pide él)'}. Cambiarlo no toca a los agentes que ya están: esos se ajustan en su fila.</div></div>
         <button class="small danger" onclick="quitarDistribuidor('${id}','${a.id}','${esc(a.usuario)}')">Quitar</button>
       </div>`).join('')}
     ${agts.length ? agts.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
@@ -1723,6 +1726,10 @@ async function quitarDistribuidor(clienteId, cajaId, login){
   if(!confirm('¿Quitar a '+login+' como distribuidor de este cliente? Los agentes que ya creó siguen como están; los nuevos dejan de sumarse solos.')) return;
   const r=await api('/api/clientes/'+clienteId+'/cajas/'+cajaId,{method:'DELETE'});
   if(r&&r.ok!==false){ toast('Quitado'); loadAgentes(clienteId); }
+}
+async function setAgentesPiden(clienteId, cajaId, on){
+  const r=await api('/api/os/clientes/'+clienteId+'/agentes/'+cajaId,{method:'PUT',body:JSON.stringify({agentesPiden:!!on})});
+  if(r&&r.ok){ toast(on?'Sus agentes nuevos van a poder pedir':'Sus agentes nuevos no van a poder pedir'); loadAgentes(clienteId); }
 }
 async function setPermAgente(clienteId, cajaId){
   const leer=c=>{ const el=document.querySelector(`[data-agente="${cajaId}"][data-campo="${c}"]`); return !!(el&&el.checked); };

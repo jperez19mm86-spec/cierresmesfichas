@@ -438,7 +438,8 @@ function mount(app) {
     const efectivos = clientes.permisosDe(c, k);
     return { id: k.id, usuario: k.usuario, etiqueta: k.etiqueta || '', sistema: k.sistema, userId: k.userId,
       permisos: k.permisos ? { pedir: !!k.permisos.pedir, pagos: !!k.permisos.pagos, cuenta: !!k.permisos.cuenta } : null,
-      efectivos, pagosCliente: c.avisa_pagos !== false, rol: k.rol || '', divisas: k.divisas || [] };
+      efectivos, pagosCliente: c.avisa_pagos !== false, rol: k.rol || '', divisas: k.divisas || [],
+      ...(k.rol === 'distribuidor' ? { agentesPiden: k.agentesPiden !== false } : {}) };
   };
   app.get('/api/os/clientes/:id/agentes', (req, res) => {
     const c = clientes.get(req.params.id);
@@ -447,15 +448,21 @@ function mount(app) {
   });
   app.put('/api/os/clientes/:id/agentes/:cajaId', wrap((req, res) => {
     const b = req.body || {};
-    if (!b.permisos || typeof b.permisos !== 'object') return err(res, 400, 'faltan los permisos');
-    const c0 = clientes.get(req.params.id);
-    const k0 = c0 && (c0.cajas || []).find((x) => x.id === req.params.cajaId);
+    const conPermisos = !!b.permisos && typeof b.permisos === 'object';
+    if (!conPermisos && b.agentesPiden === undefined) return err(res, 400, 'faltan los permisos');
     /* El distribuidor también puede registrar pagos y ver la cuenta (8-oct-2026, pedido del dueño):
        un cliente PREPAGO que no puede avisar su pago nunca tiene saldo para pedir. Se habilita
        acá, cuenta por cuenta, igual que a un agente; «Puede avisar pagos» del cliente sigue siendo
        la llave general. */
-    const permisos = b.permisos;
-    const k = clientes.updateCaja(req.params.id, req.params.cajaId, { permisos });
+    const patch = {};
+    if (conPermisos) patch.permisos = b.permisos;
+    if (b.agentesPiden !== undefined) {
+      const c0 = clientes.get(req.params.id);
+      const k0 = c0 && (c0.cajas || []).find((x) => x.id === req.params.cajaId);
+      if (k0 && k0.rol !== 'distribuidor') return err(res, 400, '«Sus agentes piden fichas» es sólo para un distribuidor');
+      patch.agentesPiden = !!b.agentesPiden;
+    }
+    const k = clientes.updateCaja(req.params.id, req.params.cajaId, patch);
     if (!k) return err(res, 404, 'no existe esa cuenta en este cliente');
     ok(res, { agente: agenteVista(clientes.get(req.params.id), k) });
   }));

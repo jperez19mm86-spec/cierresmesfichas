@@ -309,6 +309,9 @@ function updateCaja(clienteId, cajaId, patch) {
   if (patch.etiqueta !== undefined) k.etiqueta = String(patch.etiqueta).trim();
   if (patch.permisos !== undefined) k.permisos = patch.permisos === null ? null : normPermisos(patch.permisos);
   if (patch.rol !== undefined) k.rol = patch.rol === 'distribuidor' ? 'distribuidor' : '';
+  /* Sólo para un distribuidor: si los agentes que crea entran pudiendo pedir fichas ellos mismos
+     (sin el campo, sí — como siempre). Con «no», pide el distribuidor por ellos. */
+  if (patch.agentesPiden !== undefined) k.agentesPiden = !!patch.agentesPiden;
   save(data); return k;
 }
 /* EL NOMBRE ES DE LA CUENTA DEL CASINO, NO DE UNA PANTALLA.
