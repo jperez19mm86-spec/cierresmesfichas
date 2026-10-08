@@ -212,6 +212,14 @@ check('un usuario sin cliente: no existe',
   const propio = await fetch(`${U}/pedido`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify({ usuario: 'DistPrueba', userId: '555100', monto: 7000, divisa: 'ARS' }) }).then((r) => r.json());
   const pP = pedidosStore.get(propio.pedido && propio.pedido.id);
   check('y pide para sí mismo: el pedido va a SU cuenta', propio.creado === true && pP && pP.userId === '555100' && !pP.pedidoPor);
+  // Un distribuidor de un cliente PREPAGO tiene que poder avisar su pago (si no, nunca tiene saldo).
+  const pagoDistNo = await pagar({ usuario: 'DistPrueba', userId: '555100', via: 'ars', monto: '1000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: PNG } }).then((r) => r.json());
+  check('distribuidor sin «Registrar pagos»: no avisa (no_habilitado)', pagoDistNo.creado === false && pagoDistNo.motivo === 'no_habilitado');
+  clientes.updateCaja(cli.id, kD.id, { permisos: { pedir: true, pagos: true, cuenta: true } });
+  const pagoDistSi = await pagar({ usuario: 'DistPrueba', userId: '555100', via: 'ars', monto: '1000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: PNG } }).then((r) => r.json());
+  check('distribuidor con «Registrar pagos»: el pago entra (queda pendiente, con su nombre)', pagoDistSi.creado === true);
+  const estD2 = await fetch(`${U}/estado-cliente?usuario=DistPrueba&userId=555100`, { headers: tok }).then((r) => r.json());
+  check('y el estado lo dice: puede avisar pagos y ver la cuenta', estD2.puedeAvisarPago === true && estD2.puedeVerCuenta === true);
   // La carga al distribuidor baja por los mismos padres que la de sus agentes (escala prestada).
   const panelesStore = require('../src/paneles-store'); const cascada = require('../src/carga-cascada.service');
   const pAg = panelesStore.list({ cliente_id: cli.id }).find((p) => String(p.id_usuario) === '555101');

@@ -450,9 +450,11 @@ function mount(app) {
     if (!b.permisos || typeof b.permisos !== 'object') return err(res, 400, 'faltan los permisos');
     const c0 = clientes.get(req.params.id);
     const k0 = c0 && (c0.cajas || []).find((x) => x.id === req.params.cajaId);
-    /* Al distribuidor sólo se le habilita pedir: pagar y ver la cuenta no van con ese nivel. */
-    const permisos = k0 && k0.rol === 'distribuidor'
-      ? { pedir: !!b.permisos.pedir, pagos: false, cuenta: false } : b.permisos;
+    /* El distribuidor también puede registrar pagos y ver la cuenta (8-oct-2026, pedido del dueño):
+       un cliente PREPAGO que no puede avisar su pago nunca tiene saldo para pedir. Se habilita
+       acá, cuenta por cuenta, igual que a un agente; «Puede avisar pagos» del cliente sigue siendo
+       la llave general. */
+    const permisos = b.permisos;
     const k = clientes.updateCaja(req.params.id, req.params.cajaId, { permisos });
     if (!k) return err(res, 404, 'no existe esa cuenta en este cliente');
     ok(res, { agente: agenteVista(clientes.get(req.params.id), k) });
