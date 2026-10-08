@@ -445,9 +445,16 @@ async function main() {
       check('entra un distribuidor, con su nivel', rd.data.ok && rd.data.yo.rol === 'distribuidor', rd.data.ok ? rd.data.yo.rol : rd.data.error);
       const cs = (await pedir('/api/caja/cuentas')).data;
       check('ve sus agentes', cs.ok && (cs.cuentas || []).some((c) => c.id === '150'), JSON.stringify((cs.cuentas || []).map((c) => c.login)));
-      const ajena = (await pedir('/api/caja/cuentas?id=100')).data;
-      check('pedir la lista de otro nodo le devuelve igual SUS agentes (el id lo pone el servidor)',
-        ajena.ok && (ajena.cuentas || []).every((c) => c.id !== '200'), JSON.stringify((ajena.cuentas || []).map((c) => c.login)));
+      const ajena = await pedir('/api/caja/cuentas?id=100');
+      check('pedir la lista de un nodo que no es suyo: 403', ajena.status === 403, String(ajena.status));
+      const propia = (await pedir('/api/caja/cuentas?id=50')).data;
+      check('pedir su propio nodo: sus agentes', propia.ok && (propia.cuentas || []).some((c) => c.id === '150'), JSON.stringify(propia));
+      const cajeros = (await pedir('/api/caja/cuentas?id=150')).data;
+      const loginsCj = (cajeros.cuentas || []).map((c) => c.login).sort();
+      check('ve los CAJEROS de un agente suyo —también los que vienen sin etiqueta, como en producción— y nada más',
+        cajeros.ok && JSON.stringify(loginsCj) === JSON.stringify(['CajaDelAgenteDist', 'CajaSinEtiqueta']), JSON.stringify(loginsCj));
+      const deJugadores = await pedir('/api/caja/cuentas?id=250');
+      check('a los jugadores de esa caja no llega (403)', deJugadores.status === 403, String(deJugadores.status));
       const carga = await enviar('/api/caja/fichas', { cuenta: '150', monto: 500, operacion: 'in', padre: '100', gesto: 'd1' });
       check('carga fichas a SU agente (aunque el pedido diga otro padre)', carga.status === 200 && carga.data.ok, carga.data.error);
       const cargaAjena = await enviar('/api/caja/fichas', { cuenta: '200', monto: 10, operacion: 'in', gesto: 'd2' });
@@ -481,9 +488,31 @@ async function main() {
       check('crea un agente debajo suyo, y dice qué pasó con el OS',
         nuevo.status === 200 && nuevo.data.ok && nuevo.data.cuenta && nuevo.data.os && nuevo.data.os.registrado === false,
         JSON.stringify(nuevo.data.os || nuevo.data.error));
+      // CAJEROS para sus agentes (8-oct-2026): debajo de un agente suyo, con la regla de clave del casino.
+      const cjAjeno = await enviar('/api/caja/crear', { login: 'CajaAjenaDist', clave: 'Abcdefg1', tipo: 'cajero', padre: '100' });
+      check('NO crea un cajero debajo de un agente que no es suyo (403)', cjAjeno.status === 403, String(cjAjeno.status));
+      const cjSinPadre = await enviar('/api/caja/crear', { login: 'CajaSinPadreDist', clave: 'Abcdefg1', tipo: 'cajero' });
+      check('un cajero sin decir de qué agente: 403 (no cuelga de él mismo)', cjSinPadre.status === 403, String(cjSinPadre.status));
+      const cjFloja = await enviar('/api/caja/crear', { login: 'CajaFlojaDist', clave: '123456', tipo: 'cajero', padre: '150' });
+      check('un cajero con clave débil se frena antes de ir al casino', cjFloja.status === 400, String(cjFloja.status));
+      const cjSub = await enviar('/api/caja/crear', { login: 'SubCajaDist', clave: 'Abcdefg1', tipo: 'subcajero', padre: '150' });
+      check('sub-cajeros no (403)', cjSub.status === 403, String(cjSub.status));
+      const antesCj = motor.pedidos.length;
+      const cjOk = await enviar('/api/caja/crear', { login: 'CajaNuevaDist', clave: 'Abcdefg1', tipo: 'cajero', padre: '150', saldo: 5000 });
+      const altaCj = motor.pedidos.slice(antesCj).find((x) => x.area === 'createuser');
+      check('crea un cajero debajo de SU agente, como cajero y en cero',
+        cjOk.status === 200 && cjOk.data.ok && altaCj && String(altaCj.query.id) === '150' && String(altaCj.cuerpo.group) === '4'
+        && !motor.pedidos.slice(antesCj).some((x) => x.area === 'balance' && x.cuerpo && x.cuerpo.amount),
+        JSON.stringify(cjOk.data.error || altaCj));
+      check('…y no se avisa al OS como agente nuevo', !cjOk.data.os, JSON.stringify(cjOk.data.os));
+      // Registrar pagos y ver la cuenta: el servidor las deja pasar; el OS decide (acá apagado: offline).
+      const ctaD = await pedir('/api/caja/fichas/cuenta');
+      check('distribuidor: puede pedir su cuenta (lo decide el OS)', ctaD.status === 200 && ctaD.data.offline === true, String(ctaD.status));
+      const pagoD = await enviar('/api/caja/fichas/pago', { via: 'ars', monto: '1000', divisa: 'ARS', archivo: { nombre: 'c.png', tipo: 'image/png', base64: 'data:image/png;base64,iVBORw0KGgo=' } });
+      check('distribuidor: puede registrar un pago (lo decide el OS)', pagoD.status === 200 && pagoD.data.offline === true, String(pagoD.status));
       for (const [m, ruta, cuerpo] of [['post', '/api/caja/eliminar', { cuenta: '150', login: 'AgenteDelDist', padre: '50', confirmado: true }],
         ['post', '/api/caja/clave-de', { cuenta: '150', nueva: 'Abcdefg1' }], ['get', '/api/caja/subusuarios'],
-        ['get', '/api/caja/fichas/cuenta'], ['post', '/api/caja/fichas/pago', { monto: 1 }], ['get', '/api/caja/acceso?cuenta=150'], ['get', '/api/caja/buscar-jugador?q=Jug']]) {
+        ['get', '/api/caja/acceso?cuenta=150'], ['get', '/api/caja/buscar-jugador?q=Jug']]) {
         const x = m === 'get' ? await pedir(ruta) : await enviar(ruta, cuerpo);
         check(`distribuidor: ${ruta} está bloqueada (403)`, x.status === 403, String(x.status));
       }

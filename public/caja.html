@@ -2938,12 +2938,15 @@ function fichasOpciones(){
     pago: '<rect x="2.5" y="6" width="19" height="13" rx="3"/><path d="M2.5 10.5h19M6.5 15h3.5"/>',
     cuenta: '<path d="M5 3.5h14v17l-3.5-2-3.5 2-3.5-2-3.5 2z"/><path d="M9 8.5h6M9 12.5h6"/>',
   };
-  /* EL DISTRIBUIDOR: pide para él (y reparte) o directo para sus agentes. Pagar y ver la cuenta
-     no son de este nivel: no se le dibujan aunque el OS no lo dijera. */
+  /* EL DISTRIBUIDOR: pide para él (y reparte) o directo para sus agentes. Pagar y ver la cuenta,
+     si el OS se las habilitó (8-oct-2026: un cliente prepago sin «Registrar un pago» nunca tenía
+     saldo para pedir). */
   const ICO_AG = '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.6c2.4-.3 4.4 1.2 5 4.9"/>';
   const opciones = esDist() ? [
     fichasPuede('puedePedir') && ['fichasFormAgentes()', ICO_AG, 'Pedir para mis agentes', 'Elegí a quiénes y cuánto: se las cargamos directo a cada uno'],
     fichasPuede('puedePedir') && ['fichasFormPedir()', ICO.pedir, 'Pedir para mí', 'Te las cargamos a tu cuenta y vos se las repartís'],
+    fichasPuede('puedeAvisarPago') && ['fichasRegistrarPago()', ICO.pago, 'Registrar un pago', 'Avisar que pagaste y subir el comprobante'],
+    fichasPuede('puedeVerCuenta') && ['fichasMiCuenta()', ICO.cuenta, 'Mi cuenta', 'Lo que consumiste, lo que pagaste y lo que debés'],
   ].filter(Boolean) : [
     fichasPuede('puedePedir') && ['fichasFormPedir()', ICO.pedir, 'Pedir fichas', 'Comprar fichas para cargar a tus cajeros'],
     fichasPuede('puedeAvisarPago') && ['fichasRegistrarPago()', ICO.pago, 'Registrar un pago', 'Avisar que pagaste y subir el comprobante'],
@@ -3402,9 +3405,9 @@ function pintarUsuarios(){
     </div>`}
     <div class="busca">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
-      <input id="filtro" placeholder="${salas?'Buscar cajero o jugador…':'Buscar jugador…'}" oninput="LISTA_VISIBLES=PASO_LISTA; pintarFilas()">
+      <input id="filtro" placeholder="${esDist()?'Buscar agente…':salas?'Buscar cajero o jugador…':'Buscar jugador…'}" oninput="LISTA_VISIBLES=PASO_LISTA; pintarFilas()">
     </div>
-    <div class="tit"><h2>${salas ? 'Mis cajeros' : DENTRO ? 'Jugadores del cajero' : 'Mis jugadores'}</h2><em id="cuenta"></em></div>
+    <div class="tit"><h2>${salas ? (esDist() ? 'Mis agentes' : 'Mis cajeros') : DENTRO ? 'Jugadores del cajero' : 'Mis jugadores'}</h2><em id="cuenta"></em></div>
     <div class="lista" id="lista"></div>
     ${/* 🔴 TAMBIÉN CUANDO SE MIRAN LAS CAJAS. Antes este enlace sólo aparecía adentro de una caja,
          así que un JUGADOR borrado se podía encontrar y restaurar, pero un CAJERO borrado no
@@ -4861,7 +4864,7 @@ function tocarPermiso(id, campo){
 /* ══════ hoja ══════ */
 function abrirHoja(html){ $('hojaCuerpo').innerHTML = html; $('hoja').classList.add('abierta'); $('fondo').classList.add('abierto'); }
 function cerrarHoja(){
-  ALTA_PREVIA = null;   /* la contraseña tipeada no sobrevive a cerrar la hoja */ $('hoja').classList.remove('abierta'); $('fondo').classList.remove('abierto'); }
+  ALTA_PREVIA = null; ALTA_PADRE = null;   /* la contraseña tipeada no sobrevive a cerrar la hoja */ $('hoja').classList.remove('abierta'); $('fondo').classList.remove('abierto'); }
 
 /* El menú de acciones NO lo decide el skin: lo devuelve area=buttons&id=<nodo>. */
 function abrirNodo(id){
@@ -4926,7 +4929,10 @@ function abrirNodo(id){
                       ['Jugaron', totalPanel((TABLERO_CAJA[ACTUAL.id] || {}).active_players)]]) : ''}
       ${esDist() ? '' : `<button class="masmenos" style="margin:-4px 0 12px"
         onclick="resumenDeCaja('${ACTUAL.id}')">Ver el resumen de esta caja ›</button>`}
-      ${esDist() ? '' : `<div class="parbotones">
+      ${esDist() ? `<div class="parbotones">
+        <button class="btn" onclick="verCajerosDe('${ACTUAL.id}')">Ver sus cajeros</button>
+        <button class="btn sec" onclick="crearCajeroPara('${ACTUAL.id}')">+ Crear cajero</button>
+      </div>` : `<div class="parbotones">
         <button class="btn" onclick="entrarEn('${ACTUAL.id}')">Ver sus jugadores</button>
         <button class="btn sec" onclick="const c='${ACTUAL.id}'; entrarEn(c); altaFormulario('5')">+ Crear</button>
       </div>`}` : ''}
@@ -5439,14 +5445,26 @@ function abrirAlta(){
    es lo único que hay que cambiar. La clave NO se guarda más allá del reintento: se limpia apenas
    el alta sale bien o se cierra la hoja. */
 let ALTA_PREVIA = null;
+/* El agente para el que un DISTRIBUIDOR está creando un cajero ({id, login}). El distribuidor no
+   «entra» al agente (DENTRO lo haría ver como agente todo lo de abajo): el padre va aparte. */
+let ALTA_PADRE = null;
+
+/* El distribuidor crea cajeros para SUS agentes: elige el agente y abre el mismo formulario. */
+function crearCajeroPara(id){
+  const a = SALAS.find(s => s.id === id);
+  if (!a) return;
+  ALTA_PADRE = { id: a.id, login: a.login };
+  altaFormulario('4');
+}
 
 function altaFormulario(grupo, volviendo){
   const esAgenteNuevo = grupo === '3';          // lo crea un distribuidor
   const esSala = grupo === '4' || esAgenteNuevo;
   const p = (volviendo && ALTA_PREVIA && ALTA_PREVIA.grupo === grupo) ? ALTA_PREVIA : null;
+  const paraAgente = esDist() && grupo === '4' && ALTA_PADRE;   // cajero de un agente suyo
   abrirHoja(`
     <h3 id="hojaTit">${esAgenteNuevo ? 'Nuevo agente' : esSala ? 'Nuevo cajero' : 'Nuevo jugador'}</h3>
-    <div class="sub">${esSala ? 'Cuelga de' : 'En la caja'} <b class="mono">${bolsillo().login}</b>${
+    <div class="sub">${esSala ? 'Cuelga de' : 'En la caja'} <b class="mono">${esc(paraAgente ? ALTA_PADRE.login : bolsillo().login)}</b>${
       esAgenteNuevo ? ' y maneja su misma moneda.' : esSala ? ' y hereda sus divisas.' : '.'}</div>
     <input type="hidden" id="ngrupo" value="${grupo}">
     <label class="campo" for="nlogin">Login</label>
@@ -5455,7 +5473,7 @@ function altaFormulario(grupo, volviendo){
     <div style="height:12px"></div>
     <label class="campo" for="nclave">Contraseña</label>
     <input class="entrada mono" id="nclave" autocomplete="off" spellcheck="false" value="${p ? p.clave : ''}"
-      placeholder="${esAgenteNuevo ? '8 a 20, con mayúscula, minúscula y número' : esSala ? 'Mín. 8, con mayúscula y número' : 'La que quieras, sin espacios'}" oninput="revisarAlta()">
+      placeholder="${esAgenteNuevo || paraAgente ? '8 a 20, con mayúscula, minúscula y número' : esSala ? 'Mín. 8, con mayúscula y número' : 'La que quieras, sin espacios'}" oninput="revisarAlta()">
     <div class="tope" id="avisoNclave"></div>
     ${esSala ? '' : `<div style="height:12px"></div>
       <label class="campo" for="nbal">Balance inicial (opcional)</label>
@@ -5465,7 +5483,7 @@ function altaFormulario(grupo, volviendo){
     <div class="nota"><b>El login es único en todo el sistema</b> y queda reservado aunque se
     elimine la cuenta. Si ya está ocupado, probá con otro.</div>
     <div class="acciones">
-      <button class="btn sec" onclick="${esAgenteNuevo ? 'cerrarHoja()' : 'abrirAlta()'}">${esAgenteNuevo ? 'Cancelar' : 'Volver'}</button>
+      <button class="btn sec" onclick="${paraAgente ? `verCajerosDe('${ALTA_PADRE.id}')` : esAgenteNuevo ? 'cerrarHoja()' : 'abrirAlta()'}">${esAgenteNuevo ? 'Cancelar' : 'Volver'}</button>
       <button class="btn" id="crear" disabled onclick="crear()">${esAgenteNuevo ? 'Crear agente' : esSala ? 'Crear cajero' : 'Crear jugador'}</button>
     </div>`);
   setTimeout(() => {
@@ -5687,4 +5705,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20260930-dist5"></script>
+<script src="/caja-conexion.js?v=20261008-dist6"></script>

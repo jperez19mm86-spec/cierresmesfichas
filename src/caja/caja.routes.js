@@ -142,16 +142,30 @@ function mount(app) {
      «[Agent Cashier]» pasaban por agente, y el distribuidor podía moverles fichas. Y `group` se cree
      sólo si es un número: el motor real no lo manda, y cualquier otra cosa no es un nivel. */
   const ETIQUETAS_GRUPO = { 'super agent': '1', superagent: '1', 'super agente': '1', superagente: '1',
-    dealer: '2', distributor: '2', distribuidor: '2', diller: '2', agent: '3', agente: '3' };
-  const grupoDeFila = (f) => {
-    if (!f) return '';
-    if (f.group != null && /^\d+$/.test(String(f.group).trim())) return String(f.group).trim();
+    dealer: '2', distributor: '2', distribuidor: '2', diller: '2', agent: '3', agente: '3',
+    cashier: '4', cajero: '4' };
+  const numeroDeFila = (f) => (f && f.group != null && /^\d+$/.test(String(f.group).trim()) ? String(f.group).trim() : '');
+  const etiquetaDeFila = (f) => {
     let g = '';
     try { const a = typeof f.additional === 'string' ? JSON.parse(f.additional) : (f.additional || {}); g = String(a.group || ''); } catch (e) { g = ''; }
-    g = g.replace(/<[^>]*>/g, '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-    return ETIQUETAS_GRUPO[g] || '';
+    return g.replace(/<[^>]*>/g, '').replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  };
+  const grupoDeFila = (f) => {
+    if (!f) return '';
+    return numeroDeFila(f) || ETIQUETAS_GRUPO[etiquetaDeFila(f)] || '';
   };
   const esFilaAgente = (f) => grupoDeFila(f) === '3';
+  /* 🔑 EL CAJERO VIENE SIN ETIQUETA. Medido en producción el 8-oct-2026 (Europa, agente Bet30alex de
+     NahuelBet30D): `users` sobre un agente trae SÓLO sus cajeros, los 8 con `additional.group` vacío
+     —el motor rotula de agente para arriba—. Por eso acá cuenta como cajero la fila sin etiqueta (o
+     con grupo 4); una con etiqueta de otro nivel, no. */
+  const esFilaCajero = (f) => {
+    if (!f) return false;
+    const n = numeroDeFila(f);
+    if (n) return n === '4';
+    const g = etiquetaDeFila(f);
+    return g === '' || ETIQUETAS_GRUPO[g] === '4';
+  };
   const cacheAgentes = new Map();                      // sid → { at, ids:Set }
   async function agentesDe(req) {
     const s = req.caja; const c = cacheAgentes.get(s.sid);
@@ -213,10 +227,14 @@ function mount(app) {
       deleted_users: q.eliminados === '1' ? 'delete' : 'undelete',
       limit: String(porPagina),
     };
-    /* El distribuidor ve SUS agentes: siempre su propio nodo, filtrado a agentes más abajo. */
+    /* El distribuidor ve SUS agentes (su nodo, filtrado a agentes) o, si pide uno de sus agentes,
+       los CAJEROS de ese agente — nada más abajo (8-oct-2026). Otro id que no sea suyo: 403. */
     const soyDist = req.caja.rol === 'distribuidor';
+    const idPedido = String(q.id == null ? '' : q.id);
+    const distVeAgente = soyDist && idPedido !== '' && idPedido !== String(req.caja.id);
+    if (distVeAgente && !(await agentesDe(req)).has(idPedido)) return noEsTuyo(res);
     const query = (pagina) => ({
-      id: soyDist ? req.caja.id : (q.id || req.caja.id),
+      id: soyDist ? (distVeAgente ? idPedido : req.caja.id) : (q.id || req.caja.id),
       offset: String(pagina),
       ...(q.buscar ? { search: String(q.buscar) } : {}),
     });
@@ -248,7 +266,7 @@ function mount(app) {
       const aguja = String(q.buscar).toLowerCase();
       filas = filas.filter((f) => `${f.login || ''} ${f.name || ''}`.toLowerCase().includes(aguja));
     }
-    if (soyDist) filas = filas.filter(esFilaAgente);     // su rama trae también los cajeros de cada agente
+    if (soyDist) filas = filas.filter(distVeAgente ? esFilaCajero : esFilaAgente);   // la rama trae de todo
     ok(res, {
       cuentas: filas,
       /* Si ni con el tope alcanzó, se dice: una lista incompleta que se presenta como completa es
@@ -1127,21 +1145,25 @@ function mount(app) {
 
   app.post('/api/caja/crear', auth.requerida, wrap(async (req, res) => {
     const b = req.body || {};
-    /* AGENTES: sólo los crea un distribuidor, y un distribuidor sólo crea agentes, debajo suyo. */
+    /* AGENTES: sólo los crea un distribuidor, debajo suyo. Y un distribuidor crea agentes, o CAJEROS
+       debajo de un agente suyo (8-oct-2026) — nada más. */
     const soyDist = req.caja.rol === 'distribuidor';
-    if (soyDist && b.tipo !== 'agente') return mal(res, 'Como distribuidor sólo podés crear agentes.', 403);
+    if (soyDist && b.tipo !== 'agente' && b.tipo !== 'cajero') return mal(res, 'Como distribuidor podés crear agentes, o cajeros para tus agentes.', 403);
     if (!soyDist && b.tipo === 'agente') return mal(res, 'Los agentes los crea un distribuidor.', 403);
-    const padre = soyDist ? String(req.caja.id) : String(b.padre || req.caja.id).trim();
+    const distCajero = soyDist && b.tipo === 'cajero';
+    if (distCajero && !(await agentesDe(req)).has(String(b.padre || '').trim())) return noEsTuyo(res);
+    const padre = distCajero ? String(b.padre).trim() : soyDist ? String(req.caja.id) : String(b.padre || req.caja.id).trim();
     const login = String(b.login || '').trim();
     const clave = String(b.clave || '').trim();
     const nombre = String(b.nombre || '').trim();
-    const grupo = soyDist ? GRUPOS.agente
+    const grupo = distCajero ? GRUPOS.cajero : soyDist ? GRUPOS.agente
       : (Object.prototype.hasOwnProperty.call(GRUPOS, b.tipo) ? GRUPOS[b.tipo] : GRUPOS.jugador);
-    const saldo = b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
+    /* El cajero que crea un distribuidor nace en cero: el saldo saldría del agente, no del distribuidor. */
+    const saldo = distCajero || b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
 
     if (!login) return mal(res, 'Falta el login');
     if (!clave) return mal(res, 'Falta la contraseña');
-    if (grupo === GRUPOS.agente) { const floja = claveImperia(clave, login); if (floja) return mal(res, floja); }
+    if (grupo === GRUPOS.agente || distCajero) { const floja = claveImperia(clave, login); if (floja) return mal(res, floja); }
     if (!Number.isFinite(saldo) || saldo < 0) return mal(res, 'El saldo inicial no es un número válido');
 
     const cli = auth.clienteDe(req.caja);

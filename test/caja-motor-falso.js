@@ -25,7 +25,7 @@ function crearMotorFalso() {
 
   const poner = (c) => {
     cuentas.set(String(c.id), {
-      id: String(c.id), login: c.login, group: String(c.group),
+      id: String(c.id), login: c.login, group: c.group == null ? '' : String(c.group), etiqueta: c.etiqueta,
       padre: c.padre == null ? null : String(c.padre),
       saldo: Number(c.saldo) || 0, borrada: !!c.borrada,
       permisos: c.permisos || {},
@@ -49,11 +49,19 @@ function crearMotorFalso() {
      lo deja ver, crear y cargar SÓLO a sus agentes, y le niega todo lo demás. */
   poner({ id: '50', login: 'DistribuidorDePrueba', group: 2, padre: null, saldo: 200000 });
   poner({ id: '150', login: 'AgenteDelDist', group: 3, padre: '50', saldo: 1000 });
+  /* …y una caja de ese agente, con su jugador: el distribuidor ve y crea CAJEROS de sus agentes,
+     pero a los jugadores no llega. */
+  poner({ id: '250', login: 'CajaDelAgenteDist', group: 4, padre: '150', saldo: 300 });
+  poner({ id: '351', login: 'JugadorDelAgenteDist', group: 5, padre: '250', saldo: 0 });
+  /* Como en producción: el cajero viene SIN número y SIN etiqueta; un sub-agente, con la suya. */
+  poner({ id: '252', login: 'CajaSinEtiqueta', group: null, etiqueta: '', padre: '150', saldo: 0 });
+  poner({ id: '253', login: 'SubAgenteConEtiqueta', group: null, etiqueta: '[Subagente]', padre: '150', saldo: 0 });
 
   const hijosDe = (id) => [...cuentas.values()].filter((c) => c.padre === String(id));
 
   const comoFila = (c) => ({
     id: c.id, login: c.login, name: '', group: c.group,
+    ...(c.etiqueta != null ? { additional: JSON.stringify({ group: c.etiqueta }) } : {}),
     balances: { ARS: String(c.saldo) },
     /* Cuántos jugadores tiene esa caja. Es el dato con el que se arma el resumen de un
        sub-agente cuando el casino no se lo calcula. */
@@ -233,6 +241,9 @@ function crearMotorFalso() {
       }
 
       if (area === 'createuser' || area === 'adduser') {
+        /* Sin login es la LECTURA del formulario (Mi Caja pregunta el tope antes de crear): el motor
+           de verdad no crea nada con eso. Antes acá nacía una cuenta sin nombre. */
+        if (!cuerpo.login) return responder({ createFields: {} });
         /* Los logins son únicos en TODO el casino: la versión nueva contesta «User exists» en
            `errorMessage`, sin crear nada, aunque la cuenta sea de otra rama. */
         if (cuerpo.login && [...cuentas.values()].some((c) => String(c.login || "").toLowerCase() === String(cuerpo.login).toLowerCase())) {

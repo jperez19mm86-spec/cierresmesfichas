@@ -788,6 +788,34 @@
     if (b && !b.disabled) window.crear();
   };
 
+  /* EL DISTRIBUIDOR MIRA LOS CAJEROS DE UN AGENTE SUYO (8-oct-2026). Una hoja con la lista y el
+     saldo de cada uno, y el botón para crear otro. No entra al agente ni llega a los jugadores: el
+     servidor sólo le devuelve cajeros, y sólo de agentes suyos. */
+  window.verCajerosDe = async function verCajerosDe(agenteId) {
+    const ag = SALAS.find((s) => s.id === String(agenteId));
+    if (!ag) return;
+    ALTA_PADRE = { id: ag.id, login: ag.login };
+    const volver = `<button class="btn sec" onclick="abrirNodo('${esc(ag.id)}')">Volver</button>`;
+    abrirHoja(`<h3 id="hojaTit">Cajeros de <span class="mono">${esc(ag.login)}</span></h3>
+      <div class="sub">Buscando…</div>`);
+    olvidar(`cuentas:${ag.id}`);       // recién creado uno, que aparezca
+    const d = await traerCuentas(ag.id, true);
+    if (!$('hoja').classList.contains('abierta')) return;   // la cerró mientras esperaba
+    if (d.error) {
+      return abrirHoja(`<h3 id="hojaTit">Cajeros de <span class="mono">${esc(ag.login)}</span></h3>
+        <div class="nota">No pudimos traer la lista: ${esc(d.error)}</div>
+        <div class="acciones">${volver}</div>`);
+    }
+    const lista = d.lista || [];
+    abrirHoja(`<h3 id="hojaTit">Cajeros de <span class="mono">${esc(ag.login)}</span></h3>
+      <div class="sub">${lista.length ? `${lista.length} ${lista.length === 1 ? 'cajero' : 'cajeros'} · sus fichas` : 'Todavía no tiene cajeros.'}</div>
+      ${lista.length ? `<div class="confirmar">${lista.map((c) => `
+        <div class="fila"><span class="mono" style="color:inherit">${esc(c.login)}</span><b class="num">${esc(yo().currency)} ${fmt(c.balance)}</b></div>`).join('')}
+      </div>` : ''}
+      <div class="acciones">${volver}
+        <button class="btn" onclick="crearCajeroPara('${esc(ag.id)}')">+ Crear cajero</button></div>`);
+  };
+
   window.crear = async function crearDeVerdad() {
     if (!window.__caja_sesion) return;
     const login = ($('nlogin').value || '').trim();
@@ -811,9 +839,11 @@
        window. Escrito como `window.ALTA_PREVIA` iba a otra variable y «Probar otro nombre» abría el
        formulario vacío, perdiendo la contraseña. Ver «Las let no llegan por window». */
     ALTA_PREVIA = { grupo, login, clave, bal: bal || '' };
+    /* Un DISTRIBUIDOR creando un cajero: el padre es el agente que eligió, no DENTRO (él no entra). */
+    const paraAgente = (grupo === '4' && ALTA_PADRE) ? { ...ALTA_PADRE } : null;
 
     const r = await API.enviar('crear', {
-      padre: DENTRO ? String(DENTRO) : undefined,
+      padre: paraAgente ? String(paraAgente.id) : DENTRO ? String(DENTRO) : undefined,
       login, clave,
       tipo: grupo === '3' ? 'agente' : grupo === '4' ? 'cajero' : grupo === '8' ? 'subcajero' : 'jugador',
       saldo: bal || undefined,
@@ -886,6 +916,21 @@
         <div class="acciones">
           <button class="btn sec" onclick="compartirTexto(\`${acceso}\`)">Compartir</button>
           <button class="btn" onclick="cerrarHoja()">Listo</button>
+        </div>`);
+    }
+    /* UN CAJERO de un agente del distribuidor: no va a la lista (la suya son agentes). Se dan los
+       datos de entrada y se vuelve a los cajeros de ese agente. */
+    if (paraAgente) {
+      const acceso = `Login:${login} Contraseña:${clave}`;
+      return abrirHoja(`
+        <div class="resultado"><div class="sello">✓</div>
+          <h3>Cajero creado</h3>
+          <div class="sub"><b class="mono">${esc(login)}</b> · ID ${esc(id)} · de <b class="mono">${esc(paraAgente.login)}</b> · verificado en el casino</div></div>
+        ${filaCred('Usuario y contraseña', acceso, true)}
+        <div class="nota">Entra a este panel con ese usuario. Las fichas se las carga su agente.</div>
+        <div class="acciones">
+          <button class="btn sec" onclick="compartirTexto(\`${acceso}\`)">Compartir</button>
+          <button class="btn" onclick="verCajerosDe('${esc(paraAgente.id)}')">Listo</button>
         </div>`);
     }
     if (grupo === '4') {
