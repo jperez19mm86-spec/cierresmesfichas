@@ -1108,7 +1108,8 @@ check('sin grilla no se marca nada, en vez de romper',
   /* 13-oct-2026: el cliente tiene que poder AUDITAR su cuenta. Cada carga dice a qué login fue; la
      carga anulada queda tachada en un renglón (no un cargo y una devolución); hay filtros por tipo
      y van TODOS los movimientos, no los últimos 12. */
-  check('«Mi cuenta» dice a qué login fue cada carga', /m\.usuario/.test(pintarCuentaFn) && /class="login"/.test(pintarCuentaFn));
+  check('«Mi cuenta» dice a qué login fue cada carga, también cuando la caja tiene nombre',
+    /m\.etiqueta \? `\$\{esc\(m\.etiqueta\)\} <span class="usr">\$\{esc\(m\.usuario \|\| ''\)\}/.test(pintarCuentaFn) && /class="login"/.test(pintarCuentaFn));
   check('«Mi cuenta» junta la carga y su anulación en un renglón tachado', /m\.anula/.test(pintarCuentaFn) && /Anulada/.test(pintarCuentaFn));
   check('«Mi cuenta» filtra por tipo y va mes por mes', /fichasFiltrarCuenta/.test(pintarCuentaFn) && /debías al cierre/.test(pintarCuentaFn));
   check('«Mi cuenta» ya no corta la lista en los últimos 12', !/\.slice\(0, 12\)/.test(miCuentaFn + pintarCuentaFn));

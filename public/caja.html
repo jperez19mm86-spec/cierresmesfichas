@@ -1206,6 +1206,7 @@ details[open] .mc-mesn::before{transform:rotate(90deg)}
 .mc-fila .d{color:var(--mut); font-size:calc(12px * var(--esc))}
 .mc-fila .m{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
 .mc-fila .dv{color:var(--mut); font-size:calc(12px * var(--esc))}
+.mc-fila .login .usr{color:var(--mut); font-weight:500}
 .mc-fila .login{color:var(--g); font-weight:700; min-width:0; overflow-wrap:anywhere}
 .mc-fila .ancho{grid-column:2 / 5; min-width:0}
 .mc-fila .r{text-align:right; font-variant-numeric:tabular-nums}
@@ -3231,7 +3232,8 @@ function fichasPintarCuenta(){
     const signo = baja || Number(m[col] != null ? m[col] : m.monto) < 0 ? '− ' : '';
     let medio;
     if (m.tipo === 'carga' && m.cargado != null) medio = `<span class="m">${n2(m.cargado, 0)}</span><span class="dv">${esc(m.divisa || '')}</span>`
-      + `<span class="login">${esc(m.etiqueta || m.usuario || '—')}${m._anulada ? '<span class="mc-tag">Anulada</span>' : ''}</span>`;
+      /* Con nombre de caja va el nombre y el login SIEMPRE al lado: es lo único que no se confunde. */
+      + `<span class="login">${m.etiqueta ? `${esc(m.etiqueta)} <span class="usr">${esc(m.usuario || '')}</span>` : esc(m.usuario || '—')}${m._anulada ? '<span class="mc-tag">Anulada</span>' : ''}</span>`;
     else {
       const que = m.tipo === 'pago' ? 'Pago' + (m.medio ? ` <span style="color:var(--mut)">· ${esc(m.medio === 'cvu' ? 'transferencia' : String(m.medio).toUpperCase())}</span>` : '')
         : esc(m.notas || ({ proveedor_extra: 'Proveedores', correccion: 'Carga anulada', ajuste: 'Ajuste', bonificacion: 'A tu favor' }[m.tipo] || m.tipo));
