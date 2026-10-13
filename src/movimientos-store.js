@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { db } = require('./db');
 const { nowISO } = require('./lib/fechas');
 const valuacion = require('./valuacion');
+const pesosCancelan = require('./pesos-cancelan-pesos');
 
 const TIPOS = ['carga', 'pago', 'proveedor_extra', 'ajuste', 'correccion', 'bonificacion'];
 const newId = () => 'mov_' + crypto.randomBytes(6).toString('hex');
@@ -67,7 +68,30 @@ function create(d) {
  * algún día hiciera falta escribir uno, hay que leerlo con `getCrudo` — el valor derivado no se
  * guarda nunca, porque el día que cambie el TC del mes tiene que cambiar con él.
  */
-function get(id) { return valuacion.valuar(getCrudo(id)); }
+function get(id) { const m = valuacion.valuar(getCrudo(id)); return m ? conPesos([m])[0] : m; }
+
+/* ── LOS PESOS CANCELAN PESOS (13-oct-2026) ───────────────────────────────────────────────────
+   Un pago en pesos baja la deuda por lo que valían las cargas en pesos que salda, no por lo que
+   dio el trader (ver pesos-cancelan-pesos.js). Va ACÁ, junto a la valuación del TC del mes, por la
+   misma razón: si lo hiciera cada pantalla, el saldo diría una cosa y la factura otra.
+   Para calcularlo hacen falta TODOS los movimientos del cliente —la fila de cargas en pesos—, así
+   que se leen aparte aunque la consulta haya pedido sólo pagos o sólo un mes. */
+function conPesos(rows) {
+  const cand = rows.filter((m) => pesosCancelan.esPagoEnPesos(m)
+    && String(m.mes_cierre || m.fecha || '').slice(0, 7) >= pesosCancelan.DESDE);
+  if (!cand.length) return rows;
+  const porCliente = new Map();
+  for (const cid of new Set(cand.map((m) => m.cliente_id).filter(Boolean))) {
+    const c = db.prepare('SELECT moneda_cuenta FROM clientes WHERE id=?').get(cid);
+    if (c && c.moneda_cuenta === 'ARS') continue;      // cuenta en pesos: la deuda ya es en pesos
+    const todos = valuacion.valuarLista(db.prepare('SELECT * FROM movimientos WHERE cliente_id=?').all(cid));
+    porCliente.set(cid, pesosCancelan.aplicar(todos));
+  }
+  return rows.map((m) => {
+    const a = porCliente.get(m.cliente_id) && porCliente.get(m.cliente_id).get(m.id);
+    return a ? { ...m, monto_usdt: a.aplicado, usdt_recibido: a.recibido, dif_cambio: a.dif, pesos_saldados: a.saldado_ars } : m;
+  });
+}
 function getCrudo(id) { return db.prepare('SELECT * FROM movimientos WHERE id=?').get(id) || null; }
 
 function list(filters = {}) {
@@ -77,7 +101,7 @@ function list(filters = {}) {
   if (filters.tipo) { w.push('tipo=?'); p.push(filters.tipo); }
   if (filters.mes) { w.push('substr(fecha,1,7)=?'); p.push(filters.mes); }
   const sql = 'SELECT * FROM movimientos' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY fecha DESC';
-  return valuacion.valuarLista(db.prepare(sql).all(...p));
+  return conPesos(valuacion.valuarLista(db.prepare(sql).all(...p)));
 }
 
 /**

@@ -1960,6 +1960,7 @@ async function cliResumen(id){
         <div class="card" style="flex:1;min-width:130px;background:var(--bg3);margin:0"><label>Saldo (${esc(d.moneda||'USDT')})</label><div style="font-size:16px;font-weight:800">${money(d.total,2)}</div></div>
       </div>
       ${Number(d.esperandoTC||0)?`<div class="nota warn"><span class="tit">⏳ ${d.esperandoTC} pago(s) con el promedio del mes</span>Se ajustan solos cuando cargues el TC del cierre en 💱 Tipos de cambio.</div>`:''}
+      ${Number(d.dif_cambio||0)?`<div class="nota"><span class="tit">💱 Diferencia de cambio: ${money(d.dif_cambio,2)} USDT</span>Sus pagos en pesos saldaron las cargas en pesos a lo que valieron. Lo que el trader dio de menos lo pone la empresa (desde agosto 2026).</div>`:''}
       ${Number(d.sinValuar||0)?`<div class="nota err"><span class="tit">⚠ ${d.sinValuar} pago(s) NO entran en este saldo</span>Ese mes no tiene ningún tipo de cambio cargado.</div>`:''}
       ${Number(d.enOtraMoneda||0)?`<div class="nota err"><span class="tit">⚠ ${d.enOtraMoneda} movimiento(s) cargados en la otra moneda</span>No entran en el total: revisalos.</div>`:''}
       ${(r.movimientos||[]).length?`<table><thead><tr><th>Fecha</th><th>Concepto</th><th class="right">ARS</th><th class="right">USDT</th><th class="right">TC</th></tr></thead><tbody>
