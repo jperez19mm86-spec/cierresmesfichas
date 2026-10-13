@@ -48,6 +48,8 @@ function cuentaCorriente(cliente_id) {
   // pudieron pasar porque el mes no tiene ningún tipo de cambio. Los dos van a la pantalla: un
   // saldo provisorio se mira distinto que uno cerrado.
   let esperandoTC = 0, sinValuar = 0, sinImporte = 0;
+  // Lo que puso la empresa para que los pesos cancelen pesos (ver pesos-cancelan-pesos.js).
+  let difCambio = '0';
   for (const m of movs) {
     const u = m[col] || '0';
     // ⚠️ Se mira la columna QUE SUMA, no la que se derivó. Un pago en USDT sobre una cuenta en
@@ -72,7 +74,7 @@ function cuentaCorriente(cliente_id) {
       case 'ajuste': fichas = money.add(fichas, u); break;       // ajuste puede ser +/-
       case 'bonificacion': bonif = money.add(bonif, u); break;   // baja deuda
       case 'proveedor_extra': proveedores = money.add(proveedores, u); break;
-      case 'pago': pagos = money.add(pagos, u); break;
+      case 'pago': pagos = money.add(pagos, u); if (m.dif_cambio) difCambio = money.add(difCambio, m.dif_cambio); break;
       // 'correccion' es un tipo válido y se puede grabar, pero no movía el saldo: quedaba
       // registrada y no corregía nada. Suma como una carga (positiva o negativa).
       case 'correccion': fichas = money.add(fichas, u); break;
@@ -102,6 +104,7 @@ function cuentaCorriente(cliente_id) {
     // Pagos valuados con el TC del mes todavía abierto: el saldo es correcto pero va a moverse
     // un poco cuando se cierre. `sinValuar` es peor: esos NO están contados en el total.
     esperandoTC, sinValuar,
+    dif_cambio: money.round(difCambio, 2),
     provisional: esperandoTC > 0 || sinValuar > 0,
   };
 }

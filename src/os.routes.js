@@ -2277,7 +2277,8 @@ function mount(app) {
       const m = meses[k] = meses[k] || { pagos: 0, ars: '0', usdt: '0' };
       m.pagos += 1;
       if (mv.monto_ars) m.ars = money.add(m.ars, mv.monto_ars);
-      if (mv.monto_usdt) m.usdt = money.add(m.usdt, mv.monto_usdt);
+      const entro = mv.usdt_recibido != null ? mv.usdt_recibido : mv.monto_usdt;   // lo que entró de verdad
+      if (entro) m.usdt = money.add(m.usdt, entro);
     });
 
     const fila = (mv) => {
@@ -2296,7 +2297,9 @@ function mount(app) {
            con dos wallets activas no había forma de saber a cuál llegó cada USDT desde la pantalla
            de pagos: había que abrir el comprobante de a uno. */
         billetera: (cmp.billetera_id && (nomBw[cmp.billetera_id] || '(billetera borrada)')) || '',
-        ars: mv.monto_ars ?? null, usdt: mv.monto_usdt ?? null,
+        ars: mv.monto_ars ?? null, usdt: (mv.usdt_recibido != null ? mv.usdt_recibido : mv.monto_usdt) ?? null,
+        // Lo que saldó de su deuda, cuando no es lo mismo que lo que entró (pesos que cancelan pesos).
+        saldo_usdt: mv.usdt_recibido != null ? mv.monto_usdt : null, dif_cambio: mv.dif_cambio ?? null,
         tc: mv.tc_usado || mv.tc_momento || null,
         provisional: !!mv.provisional, sinValuar: !!mv.sinValuar,
         referencia: cmp.referencia || '', comprobante: cmp.id || null, archivo: !!(cmp.archivo_bytes),
@@ -5697,7 +5700,9 @@ function mount(app) {
          demás— y se marca `convertido`, para que en pantalla se vea que ese número se derivó y no
          es un importe que alguien escribió. Antes quedaba afuera del informe: 1 de los 18 pagos de
          septiembre, y el total decía 10.222,15 como si no faltara nada. */
-      let usdt = mv.monto_usdt;
+      // Lo que ENTRÓ, no lo que bajó la deuda: con «los pesos cancelan pesos» un pago en pesos salda
+      // más dólares de los que dio el trader, y esa diferencia la pone la empresa. Se reparte la plata real.
+      let usdt = mv.usdt_recibido != null ? mv.usdt_recibido : mv.monto_usdt;
       let convertido = null;
       if ((usdt == null || usdt === '') && mv.monto_ars != null && mv.monto_ars !== '') {
         const t = tcUnico.tcDelMes('ARS', mes);
