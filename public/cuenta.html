@@ -22,11 +22,11 @@
  */
 :root{
   --bg:#faf5fb; --bg2:#fff; --bg3:#f6eef8; --txt:#241f27; --mut:#6b6470;
-  --bor:#e7dfe9; --g:#c456ad; --rojo:#b3261e; --verde:#1e7a4b;
+  --bor:#e7dfe9; --g:#c456ad; --rojo:#b3261e; --verde:#1e7a4b; --azul:#2c5a8c;
 }
 @media (prefers-color-scheme: dark){
   :root{ --bg:#161318; --bg2:#1e1a20; --bg3:#262029; --txt:#f2eef4; --mut:#a49bab;
-    --bor:#352e38; --g:#d977c2; --rojo:#f2837a; --verde:#63c795; }
+    --bor:#352e38; --g:#d977c2; --rojo:#f2837a; --verde:#63c795; --azul:#8db4dd; }
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);
@@ -73,7 +73,12 @@ tr:last-child td{border-bottom:none}
   .cta-tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
   .cta-tile { background:var(--bg3); border-radius:9px; padding:9px 10px; min-width:0; }
   .cta-tile .v { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; }
-  .cta-tile.paga .v, .cta-baja { color:var(--green); }
+  /* Colores tranquilos (13-oct-2026, «parece un carnaval»): los PAGOS en azul; lo que no es carga
+     ni pago —abonos, ajustes, proveedores— en gris, para que no se confunda con un pago; el login
+     en negrita del color del texto; «Anulada» en gris. */
+  .cta-tile.paga .v, .cta-baja { color:var(--azul); }
+  .cta-fila.otro .ancho, .cta-fila.otro .r { color:var(--muted); }
+  .cta-fila.otro .r b { font-weight:600; }
   .cta-chips { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 4px; }
   .cta-chip { background:var(--bg3); color:var(--text); border:1px solid var(--border); border-radius:999px; padding:7px 12px; font-size:13.5px; font-weight:600; cursor:pointer; }
   .cta-chip b { margin-left:4px; opacity:.65; }
@@ -97,17 +102,25 @@ tr:last-child td{border-bottom:none}
   .cta-fila .m { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
   .cta-fila .dv { color:var(--muted); font-size:12px; }
   .cta-fila .login .usr { color:var(--muted); font-weight:500; }
-  .cta-fila .login { color:var(--gold); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .cta-fila .login { color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
   .cta-fila .ancho { grid-column:2 / 5; min-width:0; }
   .cta-fila .r { text-align:right; font-variant-numeric:tabular-nums; }
+  .cta-fila .r b { white-space:nowrap; }
   .cta-fila .r .us, .cta-fila .r .ot { display:grid; grid-template-columns:auto 34px; justify-content:end; column-gap:4px; }
   .cta-fila .r .ot { color:var(--muted); font-size:11.5px; }
   .cta-fila .r .ot span:last-child, .cta-fila .r .us span:last-child { text-align:left; }
   .cta-fila.anulada .m, .cta-fila.anulada .dv, .cta-fila.anulada .r { text-decoration:line-through; opacity:.55; }
   .cta-fila.anulada .login { opacity:.7; }
-  .cta-tag { display:inline-block; font-size:11px; font-weight:700; color:var(--red); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px; }
+  .cta-tag { display:inline-block; font-size:11px; font-weight:600; color:var(--muted); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px; }
   .cta-vacio { color:var(--muted); font-size:13px; padding:8px 0; }
   .cta-total { display:flex; justify-content:space-between; font-size:13px; padding-top:6px; font-weight:700; }
+  .cta-chip.vista { margin-left:auto; background:transparent; }
+  .cta-chip.vista[aria-pressed="true"] { border-color:var(--gold); color:var(--gold); }
+  .cta-mes-cab, details.cta-mes.compacto > summary { display:grid; grid-template-columns:minmax(0,1.3fr) 1fr 1fr 1.1fr; gap:6px; align-items:baseline; font-variant-numeric:tabular-nums; }
+  .cta-mes-cab { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:10px 0 6px; border-bottom:1px solid var(--border); }
+  .cta-mes-cab span:not(:first-child), details.cta-mes.compacto > summary > span:not(:first-child) { text-align:right; }
+  details.cta-mes.compacto .cta-mesn { font-size:14px; }
+  @media (max-width:480px) { .cta-mes-cab, details.cta-mes.compacto > summary { grid-template-columns:minmax(0,1.1fr) 1fr 1fr 1fr; font-size:12.5px; } .cta-mes-cab { font-size:10px; } }
   .cta-solo .cta-fila { grid-template-columns:48px 92px 34px minmax(0,1fr) auto; }
   .cta-tile .v { white-space:nowrap; }
   /* En el celular el login no entra al lado del monto y se cortaba («F01Z…»): va en su propia línea,
@@ -190,6 +203,9 @@ async function cargar() {
 
 let _r = null, _ctaFiltro = 'todo';
 function ctaFiltrar(f) { _ctaFiltro = f; pintar(_r); }
+/* Compactar por mes. NO se guarda en el navegador: el teléfono puede ser de otro (ver el token). */
+let _ctaCompacto = false;
+function ctaCompactar() { _ctaCompacto = !_ctaCompacto; _ctaFiltro = 'todo'; pintar(_r); }
   /* ── EL LISTADO DE LA CUENTA ─────────────────────────────────────────────────────────────────
    ⚠️ ES EL MISMO CÓDIGO EN pedir.html Y EN cuenta.html (las dos pantallas del cliente en el
    portal). Si cambia uno, cambia el otro: el suite (smoke.js) compara las dos. */
@@ -235,7 +251,8 @@ function ctaListaHTML(d, mon) {
     const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
     const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? '<span style="display:block">' + esc(String(m.fecha).slice(0, 4)) + '</span>' : '');
     const valor = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
-    return '<div class="cta-fila' + (baja ? ' cta-baja' : '') + (m._anulada ? ' anulada' : '') + '"'
+    const tipoFila = cuenta(m) ? '' : (m.tipo === 'pago' ? ' cta-baja' : ' otro');
+    return '<div class="cta-fila' + tipoFila + (m._anulada ? ' anulada' : '') + '"'
       + (m._anulada ? ' title="Se pidió el ' + dia(m.fecha) + ' y se anuló el ' + dia(m._anuladaEl) + ': no suma a la deuda"' : '') + '>'
       + '<span class="d">' + fecha + '</span>' + medio
       + '<span class="r"><span class="us"><b>' + signo + money(Math.abs(Number(valor || 0)), 2) + '</b><span class="dv">' + esc(mon) + '</span></span>' + ot + '</span></div>';
@@ -244,7 +261,8 @@ function ctaListaHTML(d, mon) {
   const n = { todo: movs.length, fichas: 0, pagos: 0, otros: 0 }; movs.forEach(m => n[grupo(m)]++);
   h += '<div class="cta-chips" role="tablist">' + [['todo', 'Todo'], ['fichas', 'Fichas'], ['pagos', 'Pagos'], ['otros', 'Ajustes']]
     .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => '<button type="button" class="cta-chip' + (_ctaFiltro === k ? ' sel' : '') + '" role="tab" aria-selected="' + (_ctaFiltro === k)
-    + '" onclick="ctaFiltrar(\'' + k + '\')">' + l + '<b>' + n[k] + '</b></button>').join('') + '</div>';
+    + '" onclick="ctaFiltrar(\'' + k + '\')">' + l + '<b>' + n[k] + '</b></button>').join('')
+    + '<button type="button" class="cta-chip vista" aria-pressed="' + _ctaCompacto + '" onclick="ctaCompactar()">' + (_ctaCompacto ? '☰ Ver detalle' : '▤ Compactar por mes') + '</button></div>';
 
   const orden = (a, b) => String(b.fecha).localeCompare(String(a.fecha));
   if (_ctaFiltro !== 'todo') {
@@ -260,14 +278,24 @@ function ctaListaHTML(d, mon) {
     const meses = Object.keys(porMes).sort();
     let acum = 0; const cierre = {};
     meses.forEach(k => { porMes[k].forEach(m => { acum += esPago(m) ? -usd(m) : usd(m); }); cierre[k] = acum; });
+    if (_ctaCompacto) h += '<div class="cta-mes-cab"><span>Mes</span><span>Se cobró</span><span>Pagaste</span><span>Debías al cierre</span></div>';
     meses.slice().reverse().forEach((k, i) => {
       const cob = porMes[k].filter(m => !esPago(m)).sort(orden), pag = porMes[k].filter(esPago).sort(orden);
       const tc = suma(cob), tp = suma(pag);
+      const detalle = '<div class="cta-cols"><div class="cta-col"><h4><span>Se te cobró</span><span>' + money(tc, 2) + '</span></h4>' + (cob.length ? cob.map(m => fila(m)).join('') : '<div class="cta-vacio">Nada este mes</div>') + '</div>'
+        + '<div class="cta-col"><h4><span>Pagaste</span><span class="cta-baja">' + (pag.length ? '− ' + money(tp, 2) : '') + '</span></h4>' + (pag.length ? pag.map(m => fila(m)).join('') : '<div class="cta-vacio">Sin pagos este mes</div>') + '</div></div>';
+      /* COMPACTAR POR MES: un renglón por mes —se cobró · pagaste · debías al cierre— y se abre el
+         que se quiera ver. */
+      if (_ctaCompacto) {
+        h += '<details class="cta-mes compacto"><summary><span class="cta-mesn">' + esc(nomMes(k)) + '</span>'
+          + '<span>' + money(tc, 2) + '</span><span class="cta-baja">' + (pag.length ? '− ' + money(tp, 2) : '—') + '</span>'
+          + '<span><b>' + (cierre[k] < 0 ? 'a favor ' : '') + money(Math.abs(cierre[k]), 2) + '</b></span></summary>' + detalle + '</details>';
+        return;
+      }
       h += '<details class="cta-mes"' + (i < 2 ? ' open' : '') + '><summary><span class="cta-mesn">' + esc(nomMes(k)) + '</span>'
         + '<span class="cta-cierre">' + (cierre[k] >= 0 ? 'debías al cierre ' : 'a favor al cierre ') + '<b>' + money(Math.abs(cierre[k]), 2) + '</b></span>'
         + '<span class="cta-mesr"><span>Se cobró ' + money(tc, 2) + '</span>' + (pag.length ? '<span class="cta-baja">Pagaste − ' + money(tp, 2) + '</span>' : '<span>Sin pagos</span>') + '</span></summary>'
-        + '<div class="cta-cols"><div class="cta-col"><h4><span>Se te cobró</span><span>' + money(tc, 2) + '</span></h4>' + (cob.length ? cob.map(m => fila(m)).join('') : '<div class="cta-vacio">Nada este mes</div>') + '</div>'
-        + '<div class="cta-col"><h4><span>Pagaste</span><span class="cta-baja">' + (pag.length ? '− ' + money(tp, 2) : '') + '</span></h4>' + (pag.length ? pag.map(m => fila(m)).join('') : '<div class="cta-vacio">Sin pagos este mes</div>') + '</div></div></details>';
+        + detalle + '</details>';
     });
   }
   return h;

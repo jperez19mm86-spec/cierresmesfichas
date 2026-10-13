@@ -7709,8 +7709,9 @@ async function main() {
       && /\(m\.tipo === 'ajuste' \|\| m\.tipo === 'bonificacion'\) && m\.notas/.test(pedirSrc)
       && /\(m\.tipo === 'ajuste' \|\| m\.tipo === 'bonificacion'\) && m\.notas/.test(ctaSrc));
     check('cuenta: los pagos y lo que está a favor van en otro color',
-      /\.cta-tile\.paga \.v, \.cta-baja \{ color:var\(--green\); \}/.test(pedirSrc) && /\.cta-tile\.paga \.v, \.cta-baja \{ color:var\(--green\); \}/.test(ctaSrc)
-      && /--green:var\(--verde\)/.test(ctaSrc));
+      // 13-oct-2026: pagos en azul; abonos, ajustes y proveedores en gris (no se confunden con un pago).
+      /\.cta-tile\.paga \.v, \.cta-baja \{ color:var\(--azul\); \}/.test(pedirSrc) && /\.cta-tile\.paga \.v, \.cta-baja \{ color:var\(--azul\); \}/.test(ctaSrc)
+      && /\.cta-fila\.otro \.ancho, \.cta-fila\.otro \.r \{ color:var\(--muted\); \}/.test(pedirSrc) && /--azul:/.test(ctaSrc));
     check('cuenta: lo que paga se muestra en la moneda de esa carga',
       /propio_monto: propio, propio_divisa: divPropia/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cuenta-cliente.js'), 'utf8'))
       && /pagas_monto: pagas, pagas_divisa: div/.test(idxSrc)
