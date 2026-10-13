@@ -494,6 +494,10 @@ ensureColumns('clientes', { avisa_pagos: 'INTEGER DEFAULT 1' });
    `divisas_pago` = en qué puede pagar ('ARS', 'USDT' o las dos, separadas por coma); vacío = las dos,
    que es como estaban todos. */
 ensureColumns('clientes', { prepago: 'INTEGER DEFAULT 0', prepago_margen_pct: 'TEXT', divisas_pago: 'TEXT' });
+/* ABONO POR CARGA (13-oct-2026): cada carga de este cliente le acredita `abona_pts` puntos a otro
+   cliente (`abona_a`), como bonificación en SU cuenta. Es lo de Fran con Ariel: Ariel paga al 14 y
+   los 2 puntos de Fran le van bajando la deuda a Fran, carga por carga. */
+ensureColumns('clientes', { abona_a: 'TEXT', abona_pts: 'TEXT' });
 
 ensureColumns('paneles', { conexion_id: 'TEXT' });
 // El sistema de pedidos escribe el nombre del panel a su manera —"463.life" donde el OS tiene

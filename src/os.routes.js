@@ -535,7 +535,7 @@ function mount(app) {
        Los dos se siguen UNA sola vez, así que un ciclo no cuelga nada; pero apuntar a sí mismo o
        a un id que no existe deja una ficha que dice algo falso y que después hay que descubrir
        mirando por qué un número no cierra. Se frena acá, que es donde se escribe. */
-    for (const campo of ['factura_a', 'externos_precios_de']) {
+    for (const campo of ['factura_a', 'externos_precios_de', 'abona_a']) {
       const v = (req.body || {})[campo];
       if (v === undefined || v === null || v === '') continue;
       if (String(v) === String(req.params.id)) return err(res, 400, `"${campo}": un cliente no puede apuntarse a sí mismo`);
@@ -4766,6 +4766,40 @@ function mount(app) {
       .filter((p) => String(p.resueltoAt || p.createdAt || '').slice(0, 7) === mes);
     const r = await deudaCargaSvc.generarMes(mes, delMes, { simular: b.aplicar !== true });
     ok(res, { ...r, simulado: b.aplicar !== true, pedidosDelMes: delMes.length });
+  }));
+
+  /**
+   * Completar los abonos de las cargas que ya pasaron (ver `deuda-carga.abonoPorCarga`).
+   *
+   * El abono nace con cada carga nueva; las de antes de prenderlo no lo tienen. Esto recorre las
+   * cargas de un cliente desde una fecha y le crea el abono a la que le falte. Idempotente por
+   * pedido: correrlo dos veces no abona dos veces. Simula salvo `aplicar: true`.
+   */
+  app.post('/api/os/clientes/:id/abonos/completar', wrap((req, res) => {
+    const b = req.body || {};
+    const cli = clientes.get(req.params.id);
+    if (!cli) return err(res, 404, 'cliente no encontrado');
+    if (!cli.abona_a || !cli.abona_pts) return err(res, 400, 'este cliente no tiene configurado a quién abona ni cuántos puntos');
+    const desde = String(b.desde || '0000-00-00').slice(0, 10);
+    const otro = clientes.get(cli.abona_a);
+    const yaAbonados = new Set(movs.list({ cliente_id: cli.abona_a, tipo: 'bonificacion' }).map((m) => m.pedido_id).filter(Boolean));
+    const cargas = movs.list({ cliente_id: cli.id, tipo: 'carga' })
+      .filter((m) => m.pedido_id && String(m.fecha || '').slice(0, 10) >= desde);
+    const out = [];
+    for (const m of cargas) {
+      if (yaAbonados.has(m.pedido_id)) { out.push({ pedido: m.pedido_id, fecha: String(m.fecha).slice(0, 10), estado: 'ya estaba' }); continue; }
+      const p = pedidosStore.get(m.pedido_id);
+      if (!p) { out.push({ pedido: m.pedido_id, estado: 'no encontré el pedido' }); continue; }
+      if (b.aplicar !== true) {
+        const usdt = m.monto_usdt != null ? money.round(money.div(money.mul(String(m.monto_usdt), String(cli.abona_pts)), String(m.base_pct_aplicado)), 2) : null;
+        out.push({ pedido: m.pedido_id, fecha: String(m.fecha).slice(0, 10), estado: 'se abonaría', usdt });
+        continue;
+      }
+      const r = deudaCargaSvc.abonoPorCarga(p, m, cli);
+      out.push({ pedido: m.pedido_id, fecha: String(m.fecha).slice(0, 10), estado: r && r.ok ? 'abonado' : ((r && r.motivo) || 'sin abono'),
+        movimiento: r && r.movimiento ? r.movimiento.id : null, usdt: r && r.movimiento ? r.movimiento.monto_usdt : null });
+    }
+    ok(res, { cliente: cli.nombre, abonaA: otro ? otro.nombre : null, puntos: cli.abona_pts, simulado: b.aplicar !== true, cargas: out });
   }));
 
   /**

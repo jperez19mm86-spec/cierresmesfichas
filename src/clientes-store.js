@@ -79,6 +79,9 @@ function load() {
       prepago: !!r.prepago,
       prepago_margen_pct: r.prepago_margen_pct || null,
       divisas_pago: normDivisasPago(r.divisas_pago),
+      // Lo mismo: abona_a/abona_pts van acá Y en el INSERT.
+      abona_a: r.abona_a || null,
+      abona_pts: r.abona_pts || null,
       saldo_inicial: r.saldo_inicial || null,
       saldo_inicial_divisa: r.saldo_inicial_divisa || null,
       saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
@@ -93,11 +96,11 @@ const _saveTx = db.transaction((data) => {
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
      mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,billetera_id,
-     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago)
+     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago,abona_a,abona_pts)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
      @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,@bwid,
-     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago)`);
+     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago,@abA,@abPts)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -117,6 +120,7 @@ const _saveTx = db.transaction((data) => {
     accCorte: c.acceso_corte != null ? Number(c.acceso_corte) : null,
     prep: c.prepago ? 1 : 0, prepMg: nn(c.prepago_margen_pct),
     divPago: (normDivisasPago(c.divisas_pago) || []).join(',') || null,
+    abA: nn(c.abona_a), abPts: nn(c.abona_pts),
   }));
 });
 function save(data) { _saveTx(data); }
@@ -204,6 +208,11 @@ function updateComercial(id, patch) {
     c.prepago_margen_pct = m === '' || !(Number(m) >= 0) ? null : String(Math.min(Number(m), 100));
   }
   if (patch.divisas_pago !== undefined) c.divisas_pago = normDivisasPago(patch.divisas_pago);
+  if (patch.abona_a !== undefined) c.abona_a = patch.abona_a === '' || patch.abona_a == null ? null : String(patch.abona_a).trim();
+  if (patch.abona_pts !== undefined) {
+    const v = String(patch.abona_pts == null ? '' : patch.abona_pts).replace(',', '.').trim();
+    c.abona_pts = v === '' || !(Number(v) > 0) ? null : String(Number(v));
+  }
   save(data); return c;
 }
 

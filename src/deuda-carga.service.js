@@ -130,7 +130,9 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
   const cli = clientes.getByCodigo(pedido.codigo);
   if (!cli) return { ok: false, motivo: `el código ${pedido.codigo} no es de ningún cliente` };
   const ya = movs.list({ cliente_id: cli.id, tipo: 'carga' }).find((m) => m.pedido_id === pedido.id);
-  if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
+  // Si la carga ya estaba pero su abono no (se prendió el abono después, o se cortó en el medio),
+  // se completa acá. Es idempotente: no duplica el que ya existe.
+  if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba', abono: abonoPorCarga(pedido, ya, cli) };
   const panel = panelDelPedido(pedido);
   const base = baseDe(cli, panel);
   const dePanel = !!(panel && panel.usa_config_cliente === false
@@ -210,7 +212,68 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
       + (dePanel ? ` · precio propio de ${panel.nombre}` : '')
       + (tc ? ` · TC ${tc}` : '') + (aviso ? ` · ${aviso}` : ''),
   });
-  return { ok: true, movimiento: mv, tc, tcModo, aviso, deuda, divisa, base, cuentaEn };
+  return { ok: true, movimiento: mv, tc, tcModo, aviso, deuda, divisa, base, cuentaEn,
+    abono: abonoPorCarga(pedido, mv, cli) };
+}
+
+/**
+ * EL ABONO DE UNA CARGA A OTRO CLIENTE.
+ *
+ * Ariel paga sus fichas al 14% y 2 de esos puntos son de Fran, que lo trajo. Pedido del dueño
+ * (13-oct-2026): «por cada carga de Ariel hazle ese abono a Fran, para que vaya descontando de su
+ * cuenta». Hasta acá se había hecho UNA vez a mano (22-08) y nunca más.
+ *
+ * Se configura en el cliente que carga: `abona_a` (a quién) y `abona_pts` (cuántos puntos). El
+ * abono es una `bonificacion` en la cuenta del otro, con la MISMA fecha, divisa y tipo de cambio que
+ * la carga: es una parte de esa misma comisión, así que no puede valer distinto por cotizarse otro
+ * día. Va atado al pedido (`pedido_id`) para que reintentar no lo duplique y anular lo encuentre.
+ *
+ * Puntos sobre la base: con base 14 y 2 puntos, el abono es 2/14 de lo que se le cobró a Ariel.
+ * Si los puntos no son menos que la base no se abona nada: sería darle más de lo que se cobró.
+ */
+function abonoPorCarga(pedido, carga, cli) {
+  if (!cli || !cli.abona_a || !cli.abona_pts || !carga) return null;
+  const otro = clientes.get(cli.abona_a);
+  if (!otro || otro.id === cli.id) return { ok: false, motivo: 'el cliente que recibe el abono no existe' };
+  const pts = String(cli.abona_pts);
+  const base = String(carga.base_pct_aplicado || '');
+  if (!money.isPos(pts) || !money.isPos(base) || Number(pts) >= Number(base)) {
+    return { ok: false, motivo: `abono de ${pts} puntos sobre una base de ${base || '—'}: no se abona` };
+  }
+  const ya = movs.list({ cliente_id: otro.id, tipo: 'bonificacion' }).find((m) => m.pedido_id === pedido.id);
+  if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
+  const parte = (v) => (v == null || v === '' ? null : money.round(money.div(money.mul(String(v), pts), base), 2));
+  const f = String(carga.fecha || pedido.resueltoAt || pedido.createdAt || '').slice(0, 10).split('-');
+  const div = String(carga.divisa || pedido.divisa || 'ARS').toUpperCase();
+  const mv = movs.create({
+    cliente_id: otro.id, tipo: 'bonificacion', pedido_id: pedido.id,
+    monto_ars: parte(carga.monto_ars), monto_usdt: parte(carga.monto_usdt),
+    tc_momento: carga.tc_momento || null, tc_modo: carga.tc_modo || null,
+    divisa: div, fecha: carga.fecha || undefined,
+    notas: `Tus ${pts.replace('.', ',')} puntos de las fichas de ${cli.nombre || cli.codigo}`
+      + (f[2] ? ` del ${f[2]}/${f[1]}` : '') + ` · ${money.fmt(String(pedido.monto || '0'), 0)} ${div}`
+      + (pedido.cajaUsuario ? ` en ${pedido.cajaUsuario}` : ''),
+  });
+  return { ok: true, movimiento: mv };
+}
+
+/** Si la carga se anula, el abono se descuenta: el otro no puede quedarse con puntos de fichas que no existen. */
+function bajaDelAbono(pedido, cli) {
+  if (!cli || !cli.abona_a) return null;
+  const otro = clientes.get(cli.abona_a);
+  if (!otro) return null;
+  const ab = movs.list({ cliente_id: otro.id, tipo: 'bonificacion' }).find((m) => m.pedido_id === pedido.id);
+  if (!ab) return null;
+  const ya = movs.list({ cliente_id: otro.id, tipo: 'ajuste' }).find((m) => m.pedido_id === pedido.id);
+  if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
+  // Un ajuste POSITIVO, del mismo tamaño y al mismo cambio: devuelve a la deuda lo que el abono bajó.
+  const mv = movs.create({
+    cliente_id: otro.id, tipo: 'ajuste', pedido_id: pedido.id,
+    monto_ars: ab.monto_ars, monto_usdt: ab.monto_usdt, tc_momento: ab.tc_momento, tc_modo: ab.tc_modo,
+    divisa: ab.divisa,
+    notas: `Se anuló esa carga de ${cli.nombre || cli.codigo}: se descuentan los puntos que se habían abonado (${ab.id})`,
+  });
+  return { ok: true, movimiento: mv };
 }
 
 /**
@@ -256,7 +319,7 @@ function porAnulacion(pedido) {
   // Idempotente igual que la carga: anular dos veces no puede acreditar dos veces.
   const yaCont = movs.list({ cliente_id: cli.id, tipo: 'correccion' })
     .find((m) => m.pedido_id === pedido.id);
-  if (yaCont) return { ok: true, movimiento: yaCont, motivo: 'ya estaba dada de baja' };
+  if (yaCont) return { ok: true, movimiento: yaCont, motivo: 'ya estaba dada de baja', abono: bajaDelAbono(pedido, cli) };
 
   const neg = (v) => (v == null || v === '' ? null : money.round(money.mul(String(v), '-1'), 2));
   const mv = movs.create({
@@ -266,7 +329,7 @@ function porAnulacion(pedido) {
     base_pct_aplicado: orig.base_pct_aplicado, divisa: orig.divisa,
     notas: `Anulación de la carga · da de baja ${orig.id}`,
   });
-  return { ok: true, movimiento: mv, dioDeBaja: orig.id };
+  return { ok: true, movimiento: mv, dioDeBaja: orig.id, abono: bajaDelAbono(pedido, cli) };
 }
 
 /**
@@ -339,4 +402,4 @@ function borrarMes(mes) {
   return { ok: true, mes: m, borrados: n };
 }
 
-module.exports = { porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia };
+module.exports = { porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia, abonoPorCarga };
