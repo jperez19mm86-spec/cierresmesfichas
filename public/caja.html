@@ -1207,15 +1207,27 @@ details[open] .mc-mesn::before{transform:rotate(90deg)}
 .mc-fila .m{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
 .mc-fila .dv{color:var(--mut); font-size:calc(12px * var(--esc))}
 .mc-fila .login .usr{color:var(--mut); font-weight:500}
-.mc-fila .login{color:var(--g); font-weight:700; min-width:0; overflow-wrap:anywhere}
+.mc-fila .login{color:var(--txt); font-weight:600; min-width:0; overflow-wrap:anywhere}
 .mc-fila .ancho{grid-column:2 / 5; min-width:0}
 .mc-fila .r{text-align:right; font-variant-numeric:tabular-nums}
 .mc-fila .r .us, .mc-fila .r .ot{display:grid; grid-template-columns:auto 34px; justify-content:end; column-gap:4px}
 .mc-fila .r .ot{color:var(--mut); font-size:calc(11.5px * var(--esc))}
 .mc-fila .r .ot span:last-child, .mc-fila .r .us span:last-child{text-align:left}
 .mc-fila.anulada .m, .mc-fila.anulada .dv, .mc-fila.anulada .r{text-decoration:line-through; opacity:.55}
-.mc-tag{display:inline-block; font-size:calc(11px * var(--esc)); font-weight:700; color:var(--no); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px}
-.mc-baja, .mc-fila.mc-baja{color:var(--ok)}
+.mc-tag{display:inline-block; font-size:calc(11px * var(--esc)); font-weight:600; color:var(--mut); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px}
+/* Colores tranquilos: los PAGOS en azul; abonos, ajustes y proveedores en gris (no son un pago). */
+.mc-baja, .mc-fila.mc-baja{color:var(--info)}
+.mc-fila.otro .ancho, .mc-fila.otro .r{color:var(--mut)}
+.mc-fila.otro .r b{font-weight:600}
+.mc-fila .r b{white-space:nowrap}
+/* Compactar por mes */
+.mc-chip.vista{margin-left:auto; background:transparent}
+.mc-chip.vista[aria-pressed="true"]{border-color:var(--g); color:var(--g)}
+.mc-mes-cab, details.mc-mes.compacto > summary{display:grid; grid-template-columns:minmax(0,1.3fr) 1fr 1fr 1.1fr; gap:6px; align-items:baseline; font-variant-numeric:tabular-nums}
+.mc-mes-cab{font-size:calc(10.5px * var(--esc)); text-transform:uppercase; letter-spacing:.05em; color:var(--mut); padding:8px 0 6px; border-bottom:1px solid var(--bor)}
+.mc-mes-cab span:not(:first-child), details.mc-mes.compacto > summary > span:not(:first-child){text-align:right}
+details.mc-mes.compacto > summary{font-size:calc(13px * var(--esc))}
+details.mc-mes.compacto .mc-mesn{font-size:calc(14px * var(--esc))}
 .mc-vacio{color:var(--mut); font-size:calc(13px * var(--esc)); padding:6px 0}
 .mc-total{display:flex; justify-content:space-between; font-size:calc(13px * var(--esc)); padding-top:6px; font-weight:700}
 .mc-solo .mc-fila{grid-template-columns:48px 92px 34px minmax(0,1fr) auto}
@@ -3198,7 +3210,8 @@ async function fichasMiCuenta(){
    para cotejarla contra el panel; una carga anulada queda tachada y no suma. Antes eran los últimos
    12 movimientos sin decir a qué login fue cada carga. En la hoja las dos listas van una abajo de
    la otra: dos columnas no entran. Los datos vienen armados del OS (cuenta-cliente.js). */
-let MC_CUENTA = null, MC_FILTRO = 'todo';
+let MC_CUENTA = null, MC_FILTRO = 'todo', MC_COMPACTO = false;
+function fichasCompactarCuenta(){ MC_COMPACTO = !MC_COMPACTO; MC_FILTRO = 'todo'; fichasPintarCuenta(); }
 function fichasFiltrarCuenta(f){ MC_FILTRO = f; fichasPintarCuenta(); }
 function fichasPintarCuenta(){
   const c = MC_CUENTA; if (!c) return;
@@ -3244,14 +3257,16 @@ function fichasPintarCuenta(){
     const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
     const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? `<span style="display:block">${esc(String(m.fecha).slice(0, 4))}</span>` : '');
     const v = m[col] != null ? m[col] : m.monto;
-    return `<div class="mc-fila${baja ? ' mc-baja' : ''}${m._anulada ? ' anulada' : ''}"${m._anulada ? ` title="Se pidió el ${dia(m.fecha)} y se anuló el ${dia(m._anuladaEl)}: no suma a la deuda"` : ''}>`
+    const tipoFila = (m.tipo === 'carga' && m.cargado != null) ? '' : (m.tipo === 'pago' ? ' mc-baja' : ' otro');
+    return `<div class="mc-fila${tipoFila}${m._anulada ? ' anulada' : ''}"${m._anulada ? ` title="Se pidió el ${dia(m.fecha)} y se anuló el ${dia(m._anuladaEl)}: no suma a la deuda"` : ''}>`
       + `<span class="d">${fecha}</span>${medio}`
       + `<span class="r"><span class="us"><b>${signo}${n2(Math.abs(Number(v || 0)), 2)}</b><span class="dv">${esc(monCuenta)}</span></span>${ot}</span></div>`;
   };
 
   const n = { todo: movs.length, fichas: 0, pagos: 0, otros: 0 }; movs.forEach(m => n[grupo(m)]++);
   let lista = `<div class="mc-chips" role="tablist">` + [['todo', 'Todo'], ['fichas', 'Fichas'], ['pagos', 'Pagos'], ['otros', 'Ajustes']]
-    .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => `<button type="button" class="mc-chip${MC_FILTRO === k ? ' sel' : ''}" role="tab" aria-selected="${MC_FILTRO === k}" onclick="fichasFiltrarCuenta('${k}')">${l}<b>${n[k]}</b></button>`).join('') + `</div>`;
+    .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => `<button type="button" class="mc-chip${MC_FILTRO === k ? ' sel' : ''}" role="tab" aria-selected="${MC_FILTRO === k}" onclick="fichasFiltrarCuenta('${k}')">${l}<b>${n[k]}</b></button>`).join('')
+    + `<button type="button" class="mc-chip vista" aria-pressed="${MC_COMPACTO}" onclick="fichasCompactarCuenta()">${MC_COMPACTO ? '☰ Ver detalle' : '▤ Compactar por mes'}</button></div>`;
   if (MC_FILTRO !== 'todo') {
     const l = movs.filter(m => grupo(m) === MC_FILTRO).sort(orden);
     lista += `<div class="mc-solo">${l.map(m => fila(m, true)).join('')}`
@@ -3261,14 +3276,21 @@ function fichasPintarCuenta(){
     const meses = Object.keys(porMes).sort();
     let acum = 0; const cierre = {};
     meses.forEach(k => { porMes[k].forEach(m => { acum += esPago(m) ? -val(m) : val(m); }); cierre[k] = acum; });
+    if (MC_COMPACTO) lista += `<div class="mc-mes-cab"><span>Mes</span><span>Se cobró</span><span>Pagaste</span><span>Debías al cierre</span></div>`;
     meses.slice().reverse().forEach((k, i) => {
       const cob = porMes[k].filter(m => !esPago(m)).sort(orden), pag = porMes[k].filter(esPago).sort(orden);
       const tc = suma(cob), tp = suma(pag);
+      const detalle = `<h4 class="mc-h"><span>Se te cobró</span><span>${n2(tc, 2)}</span></h4>${cob.length ? cob.map(m => fila(m)).join('') : '<div class="mc-vacio">Nada este mes</div>'}`
+        + `<h4 class="mc-h"><span>Pagaste</span><span class="mc-baja">${pag.length ? '− ' + n2(tp, 2) : ''}</span></h4>${pag.length ? pag.map(m => fila(m)).join('') : '<div class="mc-vacio">Sin pagos este mes</div>'}`;
+      /* Compactar por mes: un renglón por mes y se abre el que se quiera ver. */
+      if (MC_COMPACTO) {
+        lista += `<details class="mc-mes compacto"><summary><span class="mc-mesn">${esc(nomMes(k))}</span><span>${n2(tc, 2)}</span>`
+          + `<span class="mc-baja">${pag.length ? '− ' + n2(tp, 2) : '—'}</span><span><b>${cierre[k] < 0 ? 'a favor ' : ''}${n2(Math.abs(cierre[k]), 2)}</b></span></summary>${detalle}</details>`;
+        return;
+      }
       lista += `<details class="mc-mes"${i < 2 ? ' open' : ''}><summary><span class="mc-mesn">${esc(nomMes(k))}</span>`
         + `<span class="mc-cierre">${cierre[k] >= 0 ? 'debías al cierre' : 'a favor al cierre'} <b>${n2(Math.abs(cierre[k]), 2)}</b></span>`
-        + `<span class="mc-mesr"><span>Se cobró ${n2(tc, 2)}</span>${pag.length ? `<span class="mc-baja">Pagaste − ${n2(tp, 2)}</span>` : '<span>Sin pagos</span>'}</span></summary>`
-        + `<h4 class="mc-h"><span>Se te cobró</span><span>${n2(tc, 2)}</span></h4>${cob.length ? cob.map(m => fila(m)).join('') : '<div class="mc-vacio">Nada este mes</div>'}`
-        + `<h4 class="mc-h"><span>Pagaste</span><span class="mc-baja">${pag.length ? '− ' + n2(tp, 2) : ''}</span></h4>${pag.length ? pag.map(m => fila(m)).join('') : '<div class="mc-vacio">Sin pagos este mes</div>'}</details>`;
+        + `<span class="mc-mesr"><span>Se cobró ${n2(tc, 2)}</span>${pag.length ? `<span class="mc-baja">Pagaste − ${n2(tp, 2)}</span>` : '<span>Sin pagos</span>'}</span></summary>${detalle}</details>`;
     });
   }
   abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
