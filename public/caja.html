@@ -1185,6 +1185,45 @@ button{font-family:inherit}
   .hoja .tirador{display:none}
   .hoja{padding-top:18px}
 }
+
+/* ── MI CUENTA: movimientos para auditar (13-oct-2026) ── */
+.mc-chips{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 6px}
+.mc-chip{background:var(--bg3); color:var(--txt); border:1px solid var(--bor); border-radius:999px; padding:7px 12px; font-size:calc(13.5px * var(--esc)); font-weight:600; cursor:pointer}
+.mc-chip b{margin-left:4px; opacity:.65}
+.mc-chip.sel{background:var(--g); border-color:var(--g); color:var(--sobre-g)}
+.mc-chip:focus-visible, .mc-mes > summary:focus-visible{outline:2px solid var(--g); outline-offset:2px}
+details.mc-mes{border-top:1px solid var(--bor)}
+details.mc-mes > summary{list-style:none; cursor:pointer; display:grid; grid-template-columns:1fr auto; gap:3px 12px; padding:11px 0; align-items:baseline}
+details.mc-mes > summary::-webkit-details-marker{display:none}
+.mc-mesn{font-weight:700; font-size:calc(15px * var(--esc))}
+.mc-mesn::before{content:'▸'; display:inline-block; width:15px; color:var(--mut); transition:transform .15s}
+details[open] .mc-mesn::before{transform:rotate(90deg)}
+.mc-mesr{grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:3px 14px; font-size:calc(12.5px * var(--esc)); color:var(--mut); padding-left:15px}
+.mc-cierre{text-align:right; font-size:calc(12.5px * var(--esc)); color:var(--mut)}
+.mc-cierre b{color:var(--txt); font-size:calc(14px * var(--esc))}
+.mc-h{margin:8px 0 2px; font-size:calc(11px * var(--esc)); text-transform:uppercase; letter-spacing:.05em; color:var(--mut); display:flex; justify-content:space-between; font-weight:700}
+.mc-fila{display:grid; grid-template-columns:40px 92px 34px minmax(0,1fr) auto; column-gap:6px; padding:8px 0; border-bottom:1px solid var(--bor); align-items:baseline; font-size:calc(13.5px * var(--esc))}
+.mc-fila .d{color:var(--mut); font-size:calc(12px * var(--esc))}
+.mc-fila .m{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
+.mc-fila .dv{color:var(--mut); font-size:calc(12px * var(--esc))}
+.mc-fila .login{color:var(--g); font-weight:700; min-width:0; overflow-wrap:anywhere}
+.mc-fila .ancho{grid-column:2 / 5; min-width:0}
+.mc-fila .r{text-align:right; font-variant-numeric:tabular-nums}
+.mc-fila .r .us, .mc-fila .r .ot{display:grid; grid-template-columns:auto 34px; justify-content:end; column-gap:4px}
+.mc-fila .r .ot{color:var(--mut); font-size:calc(11.5px * var(--esc))}
+.mc-fila .r .ot span:last-child, .mc-fila .r .us span:last-child{text-align:left}
+.mc-fila.anulada .m, .mc-fila.anulada .dv, .mc-fila.anulada .r{text-decoration:line-through; opacity:.55}
+.mc-tag{display:inline-block; font-size:calc(11px * var(--esc)); font-weight:700; color:var(--no); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px}
+.mc-baja, .mc-fila.mc-baja{color:var(--ok)}
+.mc-vacio{color:var(--mut); font-size:calc(13px * var(--esc)); padding:6px 0}
+.mc-total{display:flex; justify-content:space-between; font-size:calc(13px * var(--esc)); padding-top:6px; font-weight:700}
+.mc-solo .mc-fila{grid-template-columns:48px 92px 34px minmax(0,1fr) auto}
+/* En el celular el login va debajo del monto, entero: es con lo que el cliente coteja. */
+@media (max-width:560px){
+  .mc-fila, .mc-solo .mc-fila{grid-template-columns:38px 84px 32px minmax(0,1fr) auto; font-size:calc(13px * var(--esc))}
+  .mc-fila .login{grid-column:2 / 5; grid-row:2; font-size:calc(12.5px * var(--esc))}
+  .mc-fila .r{grid-column:5; grid-row:1 / span 2}
+}
 @media (prefers-reduced-motion:reduce){ .hoja{transition:opacity .01s} }
 /* En claro la sombra separa la hoja del fondo y las tarjetas de la hoja. En oscuro la
    sombra no se ve, así que la separación tiene que hacerla el tono y el borde. */
@@ -3134,7 +3173,6 @@ async function fichasEnviarAgentes(){
 }
 
 /* Mi cuenta: deuda + movimientos, SIN contraseña (la sesión del casino ya identifica). */
-const FICHAS_MOV = { carga: 'Carga', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedor', correccion: 'Corrección' };
 async function fichasMiCuenta(){
   if (!fichasPuede('puedeVerCuenta')) return fichasNoHabilitado('ver la cuenta');
   abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3><div class="sub">Un momento…</div>`);
@@ -3149,31 +3187,94 @@ async function fichasMiCuenta(){
       <div class="nota neutra">Probá de nuevo en un rato. Si sigue, escribí a soporte.</div>
       <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
   }
+  MC_CUENTA = c; MC_FILTRO = 'todo';
+  fichasPintarCuenta();
+}
+
+/* ── LA CUENTA, PARA QUE EL CLIENTE LA PUEDA AUDITAR (13-oct-2026) ─────────────────────────────
+   La misma forma que en el portal (/pedir): filtros por tipo, mes por mes con lo que se cobró y lo
+   que pagó, y lo que debía al cierre de cada mes. Cada carga en una línea —monto, moneda, login—
+   para cotejarla contra el panel; una carga anulada queda tachada y no suma. Antes eran los últimos
+   12 movimientos sin decir a qué login fue cada carga. En la hoja las dos listas van una abajo de
+   la otra: dos columnas no entran. Los datos vienen armados del OS (cuenta-cliente.js). */
+let MC_CUENTA = null, MC_FILTRO = 'todo';
+function fichasFiltrarCuenta(f){ MC_FILTRO = f; fichasPintarCuenta(); }
+function fichasPintarCuenta(){
+  const c = MC_CUENTA; if (!c) return;
   /* Dos caras: la divisa de la caja (en lo que el cliente opera) y la moneda de la cuenta (USDT,
-     con la que se salda la deuda). El OS manda las dos ya calculadas —suma de las caras que cada
-     movimiento guardó a su TC—, así que acá no se convierte nada. Si la caja opera en la misma
-     moneda de la cuenta, `c.caja` viene null y se muestra una sola. */
+     con la que se salda la deuda). El OS manda las dos ya calculadas, así que acá no se convierte nada. */
   const monCuenta = c.moneda || yo().currency;
   const caraCaja = c.caja || null;                       // { moneda, deuda, fichas, pagos } | null
   const fmtMon = (mo, v) => `${esc(mo)} ${fmt(v || 0)}`;
   const dosCaras = (campo) => caraCaja
     ? `${fmtMon(caraCaja.moneda, caraCaja[campo])} <span style="opacity:.4;font-weight:400"> · </span>${fmtMon(monCuenta, c[campo])}`
     : fmtMon(monCuenta, c[campo]);
-  const caraDe = (m, mo) => mo === 'ARS' ? m.monto_ars : mo === 'USDT' ? m.monto_usdt : null;
-  const movMonto = (m) => {
-    const vCuenta = caraDe(m, monCuenta); const usd = fmtMon(monCuenta, vCuenta != null ? vCuenta : m.monto);
-    if (!caraCaja) return usd;
-    const vc = caraDe(m, caraCaja.moneda);
-    return vc != null ? `${fmtMon(caraCaja.moneda, vc)} <span style="opacity:.4;font-weight:400"> · </span>${usd}` : usd;
+  const n2 = (x, dec) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const dia = (f) => { const p = String(f || '').slice(0, 10).split('-'); return p[2] ? p[2] + '/' + p[1] : ''; };
+  const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const nomMes = (m) => { const [a, b] = String(m).split('-'); const x = MESES[Number(b) - 1]; return x ? x[0].toUpperCase() + x.slice(1) + ' ' + a : m; };
+
+  const todos = c.movimientos || [];
+  const ids = new Set(todos.map(m => m.id).filter(Boolean));
+  const bajas = {}; todos.forEach(m => { if (m.tipo === 'correccion' && m.anula && ids.has(m.anula)) bajas[m.anula] = m; });
+  const movs = todos.filter(m => !(m.tipo === 'correccion' && m.anula && ids.has(m.anula)))
+    .map(m => bajas[m.id] ? Object.assign({}, m, { _anulada: true, _anuladaEl: bajas[m.id].fecha }) : m);
+  const esPago = (m) => m.tipo === 'pago' || m.tipo === 'bonificacion';
+  const grupo = (m) => m.tipo === 'carga' ? 'fichas' : (esPago(m) ? 'pagos' : 'otros');
+  const col = monCuenta === 'ARS' ? 'monto_ars' : 'monto_usdt';
+  const val = (m) => m._anulada ? 0 : Number((m[col] != null ? m[col] : m.monto) || 0);
+  const suma = (l) => l.reduce((a, m) => a + val(m), 0);
+  const orden = (a, b) => String(b.fecha).localeCompare(String(a.fecha));
+
+  const fila = (m, conAnio) => {
+    const baja = esPago(m);
+    const signo = baja || Number(m[col] != null ? m[col] : m.monto) < 0 ? '− ' : '';
+    let medio;
+    if (m.tipo === 'carga' && m.cargado != null) medio = `<span class="m">${n2(m.cargado, 0)}</span><span class="dv">${esc(m.divisa || '')}</span>`
+      + `<span class="login">${esc(m.etiqueta || m.usuario || '—')}${m._anulada ? '<span class="mc-tag">Anulada</span>' : ''}</span>`;
+    else {
+      const que = m.tipo === 'pago' ? 'Pago' + (m.medio ? ` <span style="color:var(--mut)">· ${esc(m.medio === 'cvu' ? 'transferencia' : String(m.medio).toUpperCase())}</span>` : '')
+        : esc(m.notas || ({ proveedor_extra: 'Proveedores', correccion: 'Carga anulada', ajuste: 'Ajuste', bonificacion: 'A tu favor' }[m.tipo] || m.tipo));
+      medio = `<span class="ancho">${que}</span>`;
+    }
+    const ot = (m.propio_divisa && m.propio_divisa !== monCuenta && m.propio_monto != null)
+      ? `<span class="ot"><span>${n2(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0)}</span><span>${esc(m.propio_divisa)}</span></span>` : '';
+    const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
+    const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? `<span style="display:block">${esc(String(m.fecha).slice(0, 4))}</span>` : '');
+    const v = m[col] != null ? m[col] : m.monto;
+    return `<div class="mc-fila${baja ? ' mc-baja' : ''}${m._anulada ? ' anulada' : ''}"${m._anulada ? ` title="Se pidió el ${dia(m.fecha)} y se anuló el ${dia(m._anuladaEl)}: no suma a la deuda"` : ''}>`
+      + `<span class="d">${fecha}</span>${medio}`
+      + `<span class="r"><span class="us"><b>${signo}${n2(Math.abs(Number(v || 0)), 2)}</b><span class="dv">${esc(monCuenta)}</span></span>${ot}</span></div>`;
   };
-  const movs = (c.movimientos || []).slice(0, 12).map((m) =>
-    `<div class="fila"><span>${esc(m.fecha || '')} · ${esc(FICHAS_MOV[m.tipo] || m.tipo || 'Movimiento')}</span><b class="num">${movMonto(m)}</b></div>`).join('');
+
+  const n = { todo: movs.length, fichas: 0, pagos: 0, otros: 0 }; movs.forEach(m => n[grupo(m)]++);
+  let lista = `<div class="mc-chips" role="tablist">` + [['todo', 'Todo'], ['fichas', 'Fichas'], ['pagos', 'Pagos'], ['otros', 'Ajustes']]
+    .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => `<button type="button" class="mc-chip${MC_FILTRO === k ? ' sel' : ''}" role="tab" aria-selected="${MC_FILTRO === k}" onclick="fichasFiltrarCuenta('${k}')">${l}<b>${n[k]}</b></button>`).join('') + `</div>`;
+  if (MC_FILTRO !== 'todo') {
+    const l = movs.filter(m => grupo(m) === MC_FILTRO).sort(orden);
+    lista += `<div class="mc-solo">${l.map(m => fila(m, true)).join('')}`
+      + `<div class="mc-total"><span>${l.length} ${MC_FILTRO === 'pagos' ? 'pagos' : 'movimientos'}</span><span class="${MC_FILTRO === 'pagos' ? 'mc-baja' : ''}">${MC_FILTRO === 'pagos' ? '− ' : ''}${n2(Math.abs(suma(l)), 2)} ${esc(monCuenta)}</span></div></div>`;
+  } else {
+    const porMes = {}; movs.forEach(m => { const k = m.mes || String(m.fecha || '').slice(0, 7); (porMes[k] = porMes[k] || []).push(m); });
+    const meses = Object.keys(porMes).sort();
+    let acum = 0; const cierre = {};
+    meses.forEach(k => { porMes[k].forEach(m => { acum += esPago(m) ? -val(m) : val(m); }); cierre[k] = acum; });
+    meses.slice().reverse().forEach((k, i) => {
+      const cob = porMes[k].filter(m => !esPago(m)).sort(orden), pag = porMes[k].filter(esPago).sort(orden);
+      const tc = suma(cob), tp = suma(pag);
+      lista += `<details class="mc-mes"${i < 2 ? ' open' : ''}><summary><span class="mc-mesn">${esc(nomMes(k))}</span>`
+        + `<span class="mc-cierre">${cierre[k] >= 0 ? 'debías al cierre' : 'a favor al cierre'} <b>${n2(Math.abs(cierre[k]), 2)}</b></span>`
+        + `<span class="mc-mesr"><span>Se cobró ${n2(tc, 2)}</span>${pag.length ? `<span class="mc-baja">Pagaste − ${n2(tp, 2)}</span>` : '<span>Sin pagos</span>'}</span></summary>`
+        + `<h4 class="mc-h"><span>Se te cobró</span><span>${n2(tc, 2)}</span></h4>${cob.length ? cob.map(m => fila(m)).join('') : '<div class="mc-vacio">Nada este mes</div>'}`
+        + `<h4 class="mc-h"><span>Pagaste</span><span class="mc-baja">${pag.length ? '− ' + n2(tp, 2) : ''}</span></h4>${pag.length ? pag.map(m => fila(m)).join('') : '<div class="mc-vacio">Sin pagos este mes</div>'}</details>`;
+    });
+  }
   abrirHoja(`<h3 id="hojaTit">Mi cuenta</h3>
     <div class="sub">${esc(yo().login)} · al día de hoy${c.provisional ? ' · provisorio' : ''}</div>
     ${fichasCabeceraSaldo(c, caraCaja, monCuenta, fmtMon, dosCaras)}
     <div class="fila"><span>Fichas cargadas</span><b class="num">${dosCaras('fichas')}</b></div>
     <div class="fila"><span>Pagos registrados</span><b class="num">${dosCaras('pagos')}</b></div>
-    ${movs ? `<div class="tit" style="margin-top:14px"><h2>Últimos movimientos</h2></div>${movs}` : ''}
+    ${movs.length ? `<div class="tit" style="margin-top:14px"><h2>Movimientos</h2></div>${lista}` : ''}
     <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
 }
 

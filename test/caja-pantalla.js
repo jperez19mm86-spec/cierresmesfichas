@@ -1101,9 +1101,17 @@ check('sin grilla no se marca nada, en vez de romper',
     && !/type="password"/.test(miCuentaFn) && !/contraseña|clave/i.test(miCuentaFn));
   /* Muestra las dos caras: la divisa de la caja y la moneda de la cuenta (USDT). Las manda el OS ya
      sumadas (`c.caja`); el panel no convierte nada. Si coinciden, `c.caja` es null y va una sola. */
+  const pintarCuentaFn = (htmlCaja.match(/function fichasPintarCuenta\(\)[\s\S]*?\n\}/) || [''])[0];
   check('«Mi cuenta» muestra la divisa de la caja y también USDT, sin convertir',
-    /caraCaja = c\.caja/.test(miCuentaFn) && /monCuenta = c\.moneda/.test(miCuentaFn)
-    && /dosCaras/.test(miCuentaFn));
+    /caraCaja = c\.caja/.test(pintarCuentaFn) && /monCuenta = c\.moneda/.test(pintarCuentaFn)
+    && /dosCaras/.test(pintarCuentaFn));
+  /* 13-oct-2026: el cliente tiene que poder AUDITAR su cuenta. Cada carga dice a qué login fue; la
+     carga anulada queda tachada en un renglón (no un cargo y una devolución); hay filtros por tipo
+     y van TODOS los movimientos, no los últimos 12. */
+  check('«Mi cuenta» dice a qué login fue cada carga', /m\.usuario/.test(pintarCuentaFn) && /class="login"/.test(pintarCuentaFn));
+  check('«Mi cuenta» junta la carga y su anulación en un renglón tachado', /m\.anula/.test(pintarCuentaFn) && /Anulada/.test(pintarCuentaFn));
+  check('«Mi cuenta» filtra por tipo y va mes por mes', /fichasFiltrarCuenta/.test(pintarCuentaFn) && /debías al cierre/.test(pintarCuentaFn));
+  check('«Mi cuenta» ya no corta la lista en los últimos 12', !/\.slice\(0, 12\)/.test(miCuentaFn + pintarCuentaFn));
 
   /* 🔑 EL HUB DE DOS PUERTAS SE RETIRÓ (9-sep-2026, pedido del dueño). El cliente casi nunca pide
      fichas y sí pasa el tiempo en el panel: el panel es el único destino al entrar —de cualquier
