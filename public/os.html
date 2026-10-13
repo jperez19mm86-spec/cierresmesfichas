@@ -1519,6 +1519,12 @@ function editCli(id){
             <div><label>Precios de externos</label><select id="e-exprec"><option value="">— los suyos propios —</option>${
               _clientes.filter(v=>v.id!==id).map(v=>`<option value="${v.id}" ${c.externos_precios_de===v.id?'selected':''}>los mismos que ${esc(v.nombre)}</option>`).join('')
             }</select></div>
+            <!-- ABONO POR CARGA: los puntos del intermediario le bajan la deuda a él, carga por carga
+                 (Fran con Ariel, 13-oct-2026). -->
+            <div><label>Cada carga le abona a</label><select id="e-abona"><option value="">— a nadie —</option>${
+              _clientes.filter(v=>v.id!==id).map(v=>`<option value="${v.id}" ${c.abona_a===v.id?'selected':''}>${esc(v.nombre)}</option>`).join('')
+            }</select></div>
+            <div style="flex:0 0 110px"><label>Puntos</label><input id="e-abona-pts" inputmode="decimal" placeholder="2" value="${esc(c.abona_pts||'')}"></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">La deuda de sus cargas va a
               la cuenta de quien paga, y con <b>el % de esa persona</b>; este cliente conserva el suyo, que es lo
               que le paga a quien lo banca — la diferencia es la ganancia del intermediario. Los precios de externos
@@ -1855,6 +1861,7 @@ async function saveCli(id){
     billetera_id:val('e-bw'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     factura_a:val('e-facta'), externos_precios_de:val('e-exprec'),
+    abona_a:val('e-abona'), abona_pts:val('e-abona-pts'),
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div'),
     prepago:val('e-prepago')==='1', prepago_margen_pct:val('e-prepmg'),
     divisas_pago:[...document.querySelectorAll('input.e-divpago:checked')].map(x=>x.value) })});
