@@ -1156,8 +1156,10 @@ app.get('/api/cuenta/mio', (req, res) => {
   //
   // Lo cargado sale del PEDIDO, no de dividir el fee por el porcentaje: dividir un número ya
   // redondeado devuelve 1.999.999,93 y eso, en la pantalla del que pagó, parece un error nuestro.
+  /* ⚠️ LA CUENTA VA ENTERA. Se mandaban sólo los últimos 40 y el saldo sí sumaba todos: a Fran
+     (52 movimientos) no le aparecía su pago de 4.200 del 13-ago y la lista no cerraba con el total
+     (13-oct-2026). Un renglón que cuenta en el saldo tiene que estar a la vista. */
   const movimientos = movsStore.list({ cliente_id: cli.id })
-    .slice(0, 40)
     .map((m) => {
       let cargado = null; let usuario = null; let etiqueta = '';
       /* ADÓNDE FUERON LAS FICHAS. El cliente ve «750,36 USDT» y no sabe a cuál de sus usuarios se

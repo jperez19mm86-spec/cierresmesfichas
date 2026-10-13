@@ -425,7 +425,8 @@ function mount(app) {
     // del día), no la deuda que se cobra: esa sigue siendo `cc` en `cc.moneda`.
     const caraCaja = (monedaCaja && monedaCaja !== cc.moneda)
       ? deudaSvc.totalesEnMoneda(cliente.id, monedaCaja) : null;
-    const movimientos = movsStore.list({ cliente_id: cliente.id }).slice(0, 25).map((m) => ({
+    // Entera, como en el portal: con un tope el saldo sumaba renglones que no se veían.
+    const movimientos = movsStore.list({ cliente_id: cliente.id }).map((m) => ({
       fecha: String(m.fecha || '').slice(0, 10),
       tipo: m.tipo,
       // La cifra en la moneda de la cuenta (compatibilidad) + las dos caras guardadas, para que el
