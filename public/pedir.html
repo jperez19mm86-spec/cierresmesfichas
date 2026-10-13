@@ -48,6 +48,62 @@
           font-weight:800; font-size:15px; word-break:break-all; transition:background .2s; }
   .small { font-size:11.5px; color:var(--muted); }
   .adj { font-size:13px; }
+
+  /* ── LA CUENTA (13-oct-2026) ─────────────────────────────────────────────────────────────────
+     Saldo y tres números arriba; filtros por tipo; cada mes con lo que se cobró y lo que pagó, en
+     dos columnas en pantalla ancha y una abajo de la otra en el celular. Cada carga en una línea
+     con columnas fijas —monto, moneda, login— para que el cliente la coteje contra su panel. */
+  body.cuenta-abierta .wrap { max-width:760px; }
+  .cta-saldo { font-size:32px; font-weight:800; margin:2px 0 10px; font-variant-numeric:tabular-nums; }
+  .cta-tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .cta-tile { background:var(--bg3); border-radius:9px; padding:9px 10px; min-width:0; }
+  .cta-tile .v { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .cta-tile.paga .v, .cta-baja { color:var(--green); }
+  .cta-chips { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 4px; }
+  .cta-chip { background:var(--bg3); color:var(--text); border:1px solid var(--border); border-radius:999px; padding:7px 12px; font-size:13.5px; font-weight:600; cursor:pointer; }
+  .cta-chip b { margin-left:4px; opacity:.65; }
+  .cta-chip.sel { background:var(--gold); border-color:var(--gold); color:#fff; }
+  .cta-chip:focus-visible, .cta-mes > summary:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+  details.cta-mes { border-top:1px solid var(--border); }
+  details.cta-mes > summary { list-style:none; cursor:pointer; display:grid; grid-template-columns:1fr auto; gap:3px 12px; padding:12px 0; align-items:baseline; }
+  details.cta-mes > summary::-webkit-details-marker { display:none; }
+  .cta-mesn { font-weight:800; font-size:15px; }
+  .cta-mesn::before { content:'▸'; display:inline-block; width:16px; color:var(--muted); transition:transform .15s; }
+  details[open] .cta-mesn::before { transform:rotate(90deg); }
+  .cta-mesr { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:3px 14px; font-size:12.5px; color:var(--muted); padding-left:16px; }
+  .cta-cierre { text-align:right; font-size:12.5px; color:var(--muted); }
+  .cta-cierre b { color:var(--text); font-size:14px; }
+  .cta-cols { display:grid; grid-template-columns:1fr; gap:14px; padding:0 0 14px 16px; }
+  @media (min-width:620px) { .cta-cols { grid-template-columns:1.35fr 1fr; } }
+  .cta-col { min-width:0; }
+  .cta-col h4 { margin:0 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); display:flex; justify-content:space-between; }
+  .cta-fila { display:grid; grid-template-columns:40px 92px 34px minmax(0,1fr) auto; column-gap:6px; padding:8px 0; border-bottom:1px solid var(--border); align-items:baseline; font-size:13.5px; }
+  .cta-fila .d { color:var(--muted); font-size:12px; }
+  .cta-fila .m { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+  .cta-fila .dv { color:var(--muted); font-size:12px; }
+  .cta-fila .login .usr { color:var(--muted); font-weight:500; }
+  .cta-fila .login { color:var(--gold); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .cta-fila .ancho { grid-column:2 / 5; min-width:0; }
+  .cta-fila .r { text-align:right; font-variant-numeric:tabular-nums; }
+  .cta-fila .r .us, .cta-fila .r .ot { display:grid; grid-template-columns:auto 34px; justify-content:end; column-gap:4px; }
+  .cta-fila .r .ot { color:var(--muted); font-size:11.5px; }
+  .cta-fila .r .ot span:last-child, .cta-fila .r .us span:last-child { text-align:left; }
+  .cta-fila.anulada .m, .cta-fila.anulada .dv, .cta-fila.anulada .r { text-decoration:line-through; opacity:.55; }
+  .cta-fila.anulada .login { opacity:.7; }
+  .cta-tag { display:inline-block; font-size:11px; font-weight:700; color:var(--red); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px; }
+  .cta-vacio { color:var(--muted); font-size:13px; padding:8px 0; }
+  .cta-total { display:flex; justify-content:space-between; font-size:13px; padding-top:6px; font-weight:700; }
+  .cta-solo .cta-fila { grid-template-columns:48px 92px 34px minmax(0,1fr) auto; }
+  .cta-tile .v { white-space:nowrap; }
+  /* En el celular el login no entra al lado del monto y se cortaba («F01Z…»): va en su propia línea,
+     debajo, entero. Es el dato con el que el cliente coteja, no se puede perder. */
+  @media (max-width:560px) {
+    .cta-cols { padding-left:0; }
+    .cta-fila, .cta-solo .cta-fila { grid-template-columns:38px 84px 32px minmax(0,1fr) auto; font-size:13px; }
+    .cta-fila .login { grid-column:2 / 5; grid-row:2; white-space:normal; overflow:visible; font-size:12.5px; }
+    .cta-fila .r { grid-column:5; grid-row:1 / span 2; }
+    .cta-tile .v { font-size:14.5px; }
+  }
 </style>
 </head>
 <body>
@@ -301,34 +357,114 @@
     } catch (e) { msg.innerHTML = '<div class="msg err">Error: ' + esc(e.message) + '</div>'; }
   }
 
+  /* ── EL LISTADO DE LA CUENTA ─────────────────────────────────────────────────────────────────
+     ⚠️ ES EL MISMO CÓDIGO EN pedir.html Y EN cuenta.html (las dos pantallas del cliente en el
+     portal). Si cambia uno, cambia el otro: el suite (smoke.js) compara las dos. */
+  function ctaListaHTML(d, mon) {
+    const money = (x, n) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: n, maximumFractionDigits: n });
+    const dia = (f) => { const p = String(f || '').slice(0, 10).split('-'); return p[2] ? p[2] + '/' + p[1] : ''; };
+    const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const nomMes = (m) => { const [a, b] = String(m).split('-'); const n = MESES[Number(b) - 1]; return n ? n[0].toUpperCase() + n.slice(1) + ' ' + a : m; };
+    let h = '';
+    /* LA CARGA Y SU ANULACIÓN, EN UN SOLO RENGLÓN: se suman cero entre las dos, y mostrarlas aparte
+       parecía que se cobró algo y después se devolvió. La anulación se esconde y la carga queda
+       tachada con «Anulada»: queda el registro de que se pidió, sin deuda. */
+    const todos = d.movimientos || [];
+    const ids = new Set(todos.map(m => m.id));
+    const bajas = {}; todos.forEach(m => { if (m.tipo === 'correccion' && m.anula && ids.has(m.anula)) bajas[m.anula] = m; });
+    const movs = todos.filter(m => !(m.tipo === 'correccion' && m.anula && ids.has(m.anula)))
+      .map(m => bajas[m.id] ? Object.assign({}, m, { _anulada: true, _anuladaEl: bajas[m.id].fecha }) : m);
+    const esPago = (m) => m.tipo === 'pago' || m.tipo === 'bonificacion';
+    const grupo = (m) => m.tipo === 'carga' ? 'fichas' : (esPago(m) ? 'pagos' : 'otros');
+    // Se suma la columna de la moneda de la CUENTA: en una cuenta en pesos, los pesos.
+    const colCuenta = mon === 'ARS' ? 'monto_ars' : 'monto_usdt';
+    const usd = (m) => m._anulada ? 0 : Number(m[colCuenta] || 0);
+    const suma = (l) => l.reduce((a, m) => a + usd(m), 0);
+    const cuenta = (m) => m.tipo === 'carga' && m.cargado != null;
+
+    const fila = (m, conAnio) => {
+      const baja = esPago(m);
+      const signo = baja || Number(m.monto_usdt) < 0 ? '− ' : '';
+      let medio;
+      if (cuenta(m)) medio = '<span class="m">' + money(m.cargado, 0) + '</span><span class="dv">' + esc(m.divisa || '') + '</span>'
+        /* Si la caja tiene nombre para el cliente va el nombre, y el login SIEMPRE al lado: es lo
+           único que no se confunde entre dos cajas que se llamen parecido. */
+        + '<span class="login">' + (m.etiqueta ? esc(m.etiqueta) + ' <span class="usr">' + esc(m.usuario || '') + '</span>' : esc(m.usuario || '—'))
+        + (m._anulada ? '<span class="cta-tag">Anulada</span>' : '') + '</span>';
+      else {
+        const que = m.tipo === 'pago' ? 'Pago' + (m.medio ? ' <span class="small">· ' + esc(m.medio === 'cvu' ? 'transferencia' : String(m.medio).toUpperCase()) + '</span>' : '')
+          : esc(m.notas || ({ proveedor_extra: 'Proveedores', correccion: 'Carga anulada', ajuste: 'Ajuste', bonificacion: 'A tu favor' }[m.tipo] || m.tipo));
+        medio = '<span class="ancho">' + que + '</span>';
+      }
+      // El monto en la moneda de la carga va abajo y chico: lo que se suma es el de USDT.
+      const ot = (m.propio_divisa && m.propio_divisa !== mon && m.propio_monto != null)
+        ? '<span class="ot"><span>' + money(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0) + '</span><span>' + esc(m.propio_divisa) + '</span></span>' : '';
+      const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
+      const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? '<span style="display:block">' + esc(String(m.fecha).slice(0, 4)) + '</span>' : '');
+      const valor = mon === 'ARS' ? m.monto_ars : m.monto_usdt;
+      return '<div class="cta-fila' + (baja ? ' cta-baja' : '') + (m._anulada ? ' anulada' : '') + '"'
+        + (m._anulada ? ' title="Se pidió el ' + dia(m.fecha) + ' y se anuló el ' + dia(m._anuladaEl) + ': no suma a la deuda"' : '') + '>'
+        + '<span class="d">' + fecha + '</span>' + medio
+        + '<span class="r"><span class="us"><b>' + signo + money(Math.abs(Number(valor || 0)), 2) + '</b><span class="dv">' + esc(mon) + '</span></span>' + ot + '</span></div>';
+    };
+
+    const n = { todo: movs.length, fichas: 0, pagos: 0, otros: 0 }; movs.forEach(m => n[grupo(m)]++);
+    h += '<div class="cta-chips" role="tablist">' + [['todo', 'Todo'], ['fichas', 'Fichas'], ['pagos', 'Pagos'], ['otros', 'Ajustes']]
+      .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => '<button type="button" class="cta-chip' + (_ctaFiltro === k ? ' sel' : '') + '" role="tab" aria-selected="' + (_ctaFiltro === k)
+      + '" onclick="ctaFiltrar(\'' + k + '\')">' + l + '<b>' + n[k] + '</b></button>').join('') + '</div>';
+
+    const orden = (a, b) => String(b.fecha).localeCompare(String(a.fecha));
+    if (_ctaFiltro !== 'todo') {
+      const l = movs.filter(m => grupo(m) === _ctaFiltro).sort(orden);
+      const tot = suma(l);
+      h += '<div class="cta-solo" style="margin-top:8px">' + l.map(m => fila(m, true)).join('')
+        + '<div class="cta-total"><span>' + l.length + (_ctaFiltro === 'pagos' ? ' pagos' : ' movimientos') + '</span><span class="' + (_ctaFiltro === 'pagos' ? 'cta-baja' : '') + '">'
+        + (_ctaFiltro === 'pagos' ? '− ' : '') + money(Math.abs(tot), 2) + ' ' + esc(mon) + '</span></div></div>';
+    } else {
+      /* MES POR MES, por el mes al que pertenece cada movimiento (no el de su fecha), con lo que
+         debía al cierre: se acumula desde el más viejo y contesta «¿cuánto debía a fin de agosto?». */
+      const porMes = {}; movs.forEach(m => { const k = m.mes || String(m.fecha || '').slice(0, 7); (porMes[k] = porMes[k] || []).push(m); });
+      const meses = Object.keys(porMes).sort();
+      let acum = 0; const cierre = {};
+      meses.forEach(k => { porMes[k].forEach(m => { acum += esPago(m) ? -usd(m) : usd(m); }); cierre[k] = acum; });
+      meses.slice().reverse().forEach((k, i) => {
+        const cob = porMes[k].filter(m => !esPago(m)).sort(orden), pag = porMes[k].filter(esPago).sort(orden);
+        const tc = suma(cob), tp = suma(pag);
+        h += '<details class="cta-mes"' + (i < 2 ? ' open' : '') + '><summary><span class="cta-mesn">' + esc(nomMes(k)) + '</span>'
+          + '<span class="cta-cierre">' + (cierre[k] >= 0 ? 'debías al cierre ' : 'a favor al cierre ') + '<b>' + money(Math.abs(cierre[k]), 2) + '</b></span>'
+          + '<span class="cta-mesr"><span>Se cobró ' + money(tc, 2) + '</span>' + (pag.length ? '<span class="cta-baja">Pagaste − ' + money(tp, 2) + '</span>' : '<span>Sin pagos</span>') + '</span></summary>'
+          + '<div class="cta-cols"><div class="cta-col"><h4><span>Se te cobró</span><span>' + money(tc, 2) + '</span></h4>' + (cob.length ? cob.map(m => fila(m)).join('') : '<div class="cta-vacio">Nada este mes</div>') + '</div>'
+          + '<div class="cta-col"><h4><span>Pagaste</span><span class="cta-baja">' + (pag.length ? '− ' + money(tp, 2) : '') + '</span></h4>' + (pag.length ? pag.map(m => fila(m)).join('') : '<div class="cta-vacio">Sin pagos este mes</div>') + '</div></div></details>';
+      });
+    }
+    return h;
+  }
+
+  let _cta = null, _ctaFiltro = 'todo';
+  function ctaFiltrar(f) { _ctaFiltro = f; pintarCuenta(_cta); }
   function pintarCuenta(d) {
+    _cta = d;
+    document.body.classList.add('cuenta-abierta');
     const money = (x, n) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: n, maximumFractionDigits: n });
     const dia = (f) => { const p = String(f || '').slice(0, 10).split('-'); return p[2] ? p[2] + '/' + p[1] : ''; };
     const c = d.cuenta || {};
     const mon = c.moneda || 'USDT';
     const debe = Number(c.total || 0);
     const titulo = debe > 0 ? 'Tu saldo pendiente es' : (debe < 0 ? 'Tenés a favor' : 'Estás al día');
-    const nombre = { carga: 'Fichas', pago: 'Pago', ajuste: 'Ajuste', bonificacion: 'Bonificación', proveedor_extra: 'Proveedores',
-      correccion: 'Carga anulada' };
+    const consumo = Number(c.fichas_pendientes || 0) + Number(c.proveedores_pendientes || 0);
 
     let h = '<div class="q">' + titulo + '</div>'
-      + '<div style="font-size:32px;font-weight:800;margin:2px 0">' + money(Math.abs(debe), 2) + ' ' + esc(mon) + '</div>'
-      /* EL MISMO SALDO EN LA MONEDA EN QUE CARGA. Quien pide siempre en pesos no puede comparar
-         «858,82 USDT» con nada de lo que hizo. No es el total pasado al cambio de hoy: es la suma
-         de cada movimiento al cambio de su día. Si a alguno le falta esa cara, no se muestra:
-         un total corto se lee como un descuento. */
-      /* ⚠️ EN QUÉ MONEDA SE PAGA. Sólo una cuenta llevada en pesos se paga en pesos; las demás se
-         pagan en dólares. El monto en la otra moneda es una REFERENCIA —lo que costó cada carga en
-         la moneda en que se cobró— y hay que decirlo, o se lee como «pagá esto en pesos». */
+      + '<div class="cta-saldo">' + money(Math.abs(debe), 2) + ' ' + esc(mon) + '</div>'
+      /* EL MISMO SALDO EN LA MONEDA EN QUE CARGA, y en qué moneda se paga: sólo una cuenta en pesos
+         se paga en pesos; para las demás el monto en pesos es una referencia. */
       + (c.otra_completa && c.total_otra != null && Number(c.total_otra)
-        ? '<div style="font-size:19px;font-weight:700;opacity:.75">' + money(Math.abs(c.total_otra), 2) + ' ' + esc(c.otra_moneda || '') + '</div>'
-          + '<div class="small" style="opacity:.7">de referencia, cada movimiento al cambio de su día · se paga en ' + esc(mon) + '</div>' : '')
-      + '<div class="small" style="margin-top:6px">Consumo ' + money(c.fichas_pendientes, 2)
-      + (Number(c.proveedores_pendientes) ? ' · Proveedores ' + money(c.proveedores_pendientes, 2) : '')
-      + ' · Pagado ' + money(c.pagos, 2) + '</div>';
+        ? '<div style="font-size:17px;font-weight:700;opacity:.75;margin-top:-6px">' + money(Math.abs(c.total_otra), 2) + ' ' + esc(c.otra_moneda || '') + '</div>'
+          + '<div class="small" style="margin-bottom:10px">de referencia, cada movimiento al cambio de su día · se paga en ' + esc(mon) + '</div>' : '')
+      + '<div class="cta-tiles"><div class="cta-tile"><div class="q">Se te cobró</div><div class="v">' + money(consumo, 2) + '</div></div>'
+      + '<div class="cta-tile paga"><div class="q">Pagaste</div><div class="v">− ' + money(c.pagos, 2) + '</div></div>'
+      + '<div class="cta-tile"><div class="q">' + (debe < 0 ? 'A favor' : 'Debés') + '</div><div class="v">' + money(Math.abs(debe), 2) + '</div></div></div>';
 
-    // Lo avisado y todavía sin aprobar. Va ARRIBA de todo: es la pregunta que el cliente tiene en
-    // la cabeza cuando entra después de mandar un comprobante.
+    // Lo avisado y todavía sin aprobar: es la pregunta que tiene en la cabeza después de mandar un comprobante.
     if ((d.pendientes || []).length) {
       h += '<div class="msg" style="margin-top:12px"><b>⏳ Esperando aprobación</b>'
         + (d.pendientes || []).map(p => '<div>' + dia(p.fecha) + ' · ' + money(p.monto, 2) + ' ' + esc(p.divisa || '') + '</div>').join('')
@@ -339,84 +475,14 @@
         + ' pago(s) en pesos contados con el cambio promedio del mes. Al cerrar el mes el número se ajusta.</div></div>';
     }
 
-    /* ── UNA FILA, CUATRO DATOS ───────────────────────────────────────────────────────────────
-       Cuándo · qué fue · cuánto en pesos · cuánto en dólares. Antes cada renglón traía además el
-       %, el tipo de cambio y a qué usuario fue, todo junto: el cliente ya sabe su % y el TC no le
-       sirve para nada, y esas dos líneas tapaban los números que sí mira. */
-    const GRILLA = 'display:grid;grid-template-columns:32px 1fr auto auto;gap:7px;align-items:baseline';
-    // La moneda se dice UNA vez, en el encabezado: repetirla en cada renglón —«500.000 ARS en
-    // fichas · 75.000 ARS · 47,11 USDT»— era la mitad del ruido que había que leer.
-    /* La columna decía ARS, y una carga en guaraníes no tiene cara en pesos: salía un guion, que
-       se lee como un error. Ahora cada renglón muestra lo que paga EN SU MONEDA, con la moneda al
-       lado del número, y el equivalente en dólares. */
-    const cabecera = () => '<div style="' + GRILLA + ';padding:2px 0 4px;border-bottom:1px solid rgba(128,128,128,.25)">'
-      + '<span class="small" style="opacity:.55"></span>'
-      + '<span class="small" style="opacity:.55">Fichas</span>'
-      + '<span class="small" style="opacity:.55;text-align:right">Pagás</span>'
-      + '<span class="small" style="opacity:.55;text-align:right">USDT</span></div>';
-    const nro = (v, dec, baja, div) => (v == null || v === '') ? '<span style="opacity:.4">—</span>'
-      : '<b>' + (baja ? '− ' : '') + money(v, dec) + '</b>' + (div ? ' <span style="font-size:10.5px;opacity:.55">' + esc(div) + '</span>' : '');
-    /* Lo que RESTA —un pago, algo a favor— va en verde: en una lista donde casi todo suma, el
-       signo solo se pierde y el cliente lee un cargo donde hay un crédito. */
-    const fila = (o) => '<div style="' + GRILLA + ';padding:7px 0;border-bottom:1px solid rgba(128,128,128,.2)'
-      + (o.baja ? ';color:var(--green)' : '') + '">'
-      + '<span class="small" style="opacity:.6">' + esc(o.dia || '') + '</span>'
-      + '<span class="small">' + o.que + '</span>'
-      + '<span style="text-align:right;white-space:nowrap;font-size:13px">' + nro(o.propio, o.propio_divisa === 'USDT' ? 2 : 0, o.baja, o.propio_divisa) + '</span>'
-      + '<span style="text-align:right;white-space:nowrap;font-size:13px;opacity:.8">' + nro(o.usdt, 2, o.baja) + '</span></div>';
-
-    /* A QUÉ USUARIO FUERON. Con varias cajas es la primera pregunta. Si la caja tiene nombre para
-       el cliente va el nombre, y el login SIEMPRE abajo: es lo único que no se confunde entre dos
-       cajas que se llamen parecido. */
-    const quienCaja = (etq, usr) => (etq || usr)
-      ? '<div class="small" style="opacity:.6">' + (etq ? '<b>' + esc(etq) + '</b><div>' + esc(usr || '') + '</div>' : esc(usr || '')) + '</div>' : '';
-    const filaCarga = (x) => fila({ dia: dia(x.fecha), propio: x.pagas_monto, propio_divisa: x.pagas_divisa, usdt: x.pagas_usdt,
-      que: '<b>' + money(x.monto, 0) + '</b> <span class="small" style="opacity:.55">' + esc(x.divisa || '') + '</span>' + quienCaja(x.etiqueta, x.usuario) });
-    const filaMov = (m) => {
-      const baja = m.tipo === 'pago' || m.tipo === 'bonificacion';
-      const que = m.tipo === 'carga' && m.cargado
-        ? '<b>' + money(m.cargado, 0) + '</b> <span class="small" style="opacity:.55">' + esc(m.divisa || '') + '</span>' + quienCaja(m.etiqueta, m.usuario)
-        /* «Bonificación» es una palabra nuestra: al cliente no le dice nada. Va la nota —«tus 2
-           puntos de las fichas de Ariel»— y si no hay, algo que se entienda solo. */
-        : ((m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas ? esc(m.notas)
-          : (m.tipo === 'correccion' && m.cargado
-            ? 'da de baja la carga de ' + money(m.cargado, 0) + ' ' + esc(m.divisa || '')
-            : esc(m.tipo === 'bonificacion' ? 'A tu favor' : (nombre[m.tipo] || m.tipo))));
-      // Un ajuste se explica por su nota —«Fichas de julio 2026»— y NO por el día en que alguien
-      // lo cargó, que al cliente no le dice nada y encima lo pone fuera de lugar en la lista.
-      const esAjuste = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
-      return fila({ dia: esAjuste ? '' : dia(m.fecha), que, propio: m.propio_monto, propio_divisa: m.propio_divisa, usdt: m.monto_usdt, baja });
-    };
-
-    /* EL MES DE CADA MOVIMIENTO NO ES SIEMPRE EL DE SU FECHA. La deuda de julio se cargó en
-       septiembre: ordenada por fecha aparecía arriba, mezclada con lo de este mes. Va por el mes
-       al que pertenece, y los meses anteriores van en su propio bloque. */
-    const movs = (d.movimientos || []);
-    const mesDe = (m) => m.mes || String(m.fecha || '').slice(0, 7);
-    const delMes = movs.filter(m => mesDe(m) === d.mes && m.tipo !== 'carga');
-    /* ORDENADOS POR EL MES AL QUE PERTENECEN, no por el día en que se cargaron: la deuda de julio
-       se cargó el 15 de septiembre y por fecha salía ARRIBA de las cargas de agosto. */
-    const anteriores = movs.filter(m => mesDe(m) !== d.mes)
-      .sort((a, b) => mesDe(b).localeCompare(mesDe(a)) || String(b.fecha || '').localeCompare(String(a.fecha || '')));
-
-    if ((d.cargas || []).length || delMes.length) {
-      h += '<div class="q" style="margin-top:16px">Fichas de este mes</div>' + cabecera()
-        + (d.cargas || []).map(filaCarga).join('')
-        + delMes.map(filaMov).join('');
-    }
-    /* ⚠️ LAS ANULACIONES SE MOSTRABAN NUNCA, y eso hacía que la lista no cerrara con el total.
-       Cuando una carga se anula queda el cargo Y su contra-asiento; escondiendo el segundo, el
-       cliente ve que se le cobró algo que ya no tiene y ningún renglón que lo dé de baja. */
-    if (anteriores.length) {
-      h += '<div class="q" style="margin-top:16px">Meses anteriores</div>' + cabecera()
-        + anteriores.map(filaMov).join('');
-    }
+    h += ctaListaHTML(d, mon);
     h += '<button class="btn full" style="margin-top:16px" onclick="salirCuenta()">Salir de mi cuenta</button>';
     document.getElementById('cardCuentaDatos').innerHTML = h;
   }
 
   function salirCuenta() {
-    _ctaTok = '';
+    _ctaTok = ''; _cta = null; _ctaFiltro = 'todo';
+    document.body.classList.remove('cuenta-abierta');
     document.getElementById('cardCuentaDatos').innerHTML = '';
     show('cardCuentaDatos', false);
     show('cardCuenta', true);

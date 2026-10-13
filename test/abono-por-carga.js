@@ -60,7 +60,7 @@ const bonifs = (c) => movs.list({ cliente_id: c.id, tipo: 'bonificacion' });
   check('el abono es 2/14 de lo que se le cobró a Ariel, en pesos', b1 && b1.monto_ars === '300000', b1 && b1.monto_ars);
   check('y en dólares, con el mismo cambio que la carga',
     b1 && b1.monto_usdt === '187.5' && b1.tc_momento === r1.movimiento.tc_momento, b1 && (b1.monto_usdt + ' · TC ' + b1.tc_momento));
-  check('la nota dice de quién, de cuándo y a qué caja', b1 && /Tus 2 puntos de las fichas de ArielA del 10\/10 · 15\.000\.000 ARS en GanamosM01/.test(b1.notas), b1 && b1.notas);
+  check('la nota es corta: de quién y de cuándo', b1 && b1.notas === 'Abono de ArielA · 10/10', b1 && b1.notas);
   check('la deuda de Ariel no cambia: paga su 14 entero', r1.movimiento.monto_ars === '2100000');
 
   // 4 · reintentar no duplica

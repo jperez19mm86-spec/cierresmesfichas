@@ -426,17 +426,9 @@ function mount(app) {
     const caraCaja = (monedaCaja && monedaCaja !== cc.moneda)
       ? deudaSvc.totalesEnMoneda(cliente.id, monedaCaja) : null;
     // Entera, como en el portal: con un tope el saldo sumaba renglones que no se veían.
-    const movimientos = movsStore.list({ cliente_id: cliente.id }).map((m) => ({
-      fecha: String(m.fecha || '').slice(0, 10),
-      tipo: m.tipo,
-      // La cifra en la moneda de la cuenta (compatibilidad) + las dos caras guardadas, para que el
-      // panel muestre la divisa de la caja y USDT sin convertir nada nuevo.
-      monto: cc.moneda === 'ARS' ? (m.monto_ars || '0') : (m.monto_usdt || '0'),
-      monto_ars: m.monto_ars != null ? m.monto_ars : null,
-      monto_usdt: m.monto_usdt != null ? m.monto_usdt : null,
-      divisa: m.divisa || null,
-      notas: m.notas || null,
-    }));
+    // La MISMA lista que el portal (cuenta-cliente.js), con `monto` en la moneda de la cuenta por compatibilidad.
+    const movimientos = require('./cuenta-cliente').movimientosDe(cliente)
+      .map((m) => ({ ...m, monto: cc.moneda === 'ARS' ? (m.monto_ars || '0') : (m.monto_usdt || '0') }));
     res.json({
       ok: true, existe: true,
       codigo: cliente.codigo, nombreVisible: cliente.nombreVisible,

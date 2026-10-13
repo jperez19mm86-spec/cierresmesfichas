@@ -1159,34 +1159,7 @@ app.get('/api/cuenta/mio', (req, res) => {
   /* ⚠️ LA CUENTA VA ENTERA. Se mandaban sólo los últimos 40 y el saldo sí sumaba todos: a Fran
      (52 movimientos) no le aparecía su pago de 4.200 del 13-ago y la lista no cerraba con el total
      (13-oct-2026). Un renglón que cuenta en el saldo tiene que estar a la vista. */
-  const movimientos = movsStore.list({ cliente_id: cli.id })
-    .map((m) => {
-      let cargado = null; let usuario = null; let etiqueta = '';
-      /* ADÓNDE FUERON LAS FICHAS. El cliente ve «750,36 USDT» y no sabe a cuál de sus usuarios se
-         cargó: con tres o cuatro cajas, la pregunta «¿esto a quién fue?» llega siempre. El dato ya
-         estaba guardado en el pedido y no se le mostraba. */
-      if (m.pedido_id) {
-        try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; etiqueta = etiquetaDe(p); } } catch (e) {}
-      }
-      /* A QUÉ MES PERTENECE, que no siempre es el de su fecha. La deuda de julio se cargó en
-         septiembre: por fecha aparecía arriba de todo, entre las cargas de este mes, y ahí no
-         significa nada. Lo que manda es el mes que la emisión dejó escrito. */
-      const mesDe = m.origen_ref || m.mes_cierre || String(m.fecha || '').slice(0, 7);
-      /* ── LO QUE PAGA, EN LA MONEDA DE ESA CARGA ────────────────────────────────────────────
-         La columna decía ARS y una carga en guaraníes no tiene cara en pesos: salía un guion, que
-         al cliente le parece un error. Su costo en SU moneda es el % sobre lo cargado, que es
-         justo la cuenta que él puede rehacer. */
-      const divPropia = String(m.divisa || 'ARS').toUpperCase();
-      let propio = divPropia === 'ARS' ? m.monto_ars : (divPropia === 'USDT' ? m.monto_usdt : null);
-      if (propio == null && cargado != null && m.base_pct_aplicado) {
-        try { propio = money.round(money.pct(String(cargado), String(m.base_pct_aplicado)), 2); } catch (e) { propio = null; }
-      }
-      return { fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo, mes: mesDe,
-        propio_monto: propio, propio_divisa: divPropia,
-        monto_ars: m.monto_ars, monto_usdt: m.monto_usdt, tc: m.tc_momento,
-        divisa: m.divisa, notas: m.notas,
-        base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta };
-    });
+  const movimientos = require('./cuenta-cliente').movimientosDe(cli);
   /* Y CUÁNTO SE PAGA POR CADA UNA. La lista decía sólo las fichas que pidió —«500.000 ARS»— que es
      lo que recibió, no lo que debe: para saber cuánto le costó había que buscar el mismo día abajo,
      en movimientos. El cobro ya está calculado en su movimiento, así que viaja al lado. */

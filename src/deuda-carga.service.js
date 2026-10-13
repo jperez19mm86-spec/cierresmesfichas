@@ -250,9 +250,8 @@ function abonoPorCarga(pedido, carga, cli) {
     monto_ars: parte(carga.monto_ars), monto_usdt: parte(carga.monto_usdt),
     tc_momento: carga.tc_momento || null, tc_modo: carga.tc_modo || null,
     divisa: div, fecha: carga.fecha || undefined,
-    notas: `Tus ${pts.replace('.', ',')} puntos de las fichas de ${cli.nombre || cli.codigo}`
-      + (f[2] ? ` del ${f[2]}/${f[1]}` : '') + ` · ${money.fmt(String(pedido.monto || '0'), 0)} ${div}`
-      + (pedido.cajaUsuario ? ` en ${pedido.cajaUsuario}` : ''),
+    // Corto, a pedido del dueño (13-oct-2026): la carga de Ariel ya dice monto y login en SU cuenta.
+    notas: `Abono de ${cli.nombre || cli.codigo}` + (f[2] ? ` · ${f[2]}/${f[1]}` : ''),
   });
   return { ok: true, movimiento: mv };
 }
