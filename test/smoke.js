@@ -7583,12 +7583,14 @@ async function main() {
     const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
     check('cierre: se saltea a los clientes que ya tienen su deuda carga por carga',
       /const yaEnCuenta = deudaCargaSvc\.delMes\(mes\)/.test(rutas)
-      && /if \(ya && ya\.cargas\) \{/.test(rutas)
+      && /if \(ya && \(ya\.cargas \|\| ya\.anuladas\)\) \{/.test(rutas)   // con cargas, o con todas anuladas: igual ya está
       && /su deuda ya está: no se emite/.test(rutas));
     check('cierre: informa la conciliación en vez de corregir en silencio',
       /conciliado, yaCargaPorCarga: conciliado\.length/.test(rutas));
     check('cierre: la diferencia que muestra es contra el cálculo del mes',
-      /diferencia: money\.round\(money\.sub\(c\.fee_usdt, ya\.usdt\), 2\)/.test(rutas));
+      // en la moneda de la cuenta: USDT, o pesos si la cuenta se lleva en pesos (14-oct-2026)
+      /const calculo = enPesos \? calcArs : c\.fee_usdt;/.test(rutas)
+      && /diferencia: money\.round\(money\.sub\(calculo, enCuenta\), 2\)/.test(rutas));
 
     // ── ANULAR DA DE BAJA LA DEUDA ──
     // Anular retira las fichas: el cliente no las tiene, así que no las debe. Sin esto la deuda

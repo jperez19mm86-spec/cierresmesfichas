@@ -232,25 +232,30 @@ function extIrA(m){ _extMes = m; _extData = null; cieExternos(); }
 function pintarConciliado(id, r) {
   const box = document.getElementById(id);
   if (!box || !(r.conciliado || []).length) return;
+  // La diferencia se mira en la moneda de la cuenta: en pesos, «más de 1 USDT» son ~1.600 ARS.
+  const umbral = (f) => (f.moneda === 'ARS' ? 1600 : 1);
   const dif = (f) => Math.abs(Number(f.diferencia) || 0);
+  const pesada = (f) => dif(f) >= umbral(f);
+  const usd = (f) => (f.moneda === 'ARS' ? dif(f) / 1600 : dif(f));
   // Lo que se mira primero es lo que más se aparta; lo que difiere menos de un dólar es ruido.
-  const filas = (r.conciliado || []).slice().sort((a, b) => dif(b) - dif(a));
-  const gordas = filas.filter((f) => dif(f) >= 1);
+  const filas = (r.conciliado || []).slice().sort((a, b) => usd(b) - usd(a));
+  const gordas = filas.filter(pesada);
+  const mon = (f) => (f.moneda === 'ARS' ? ' <span class="muted" style="font-size:11px">ARS</span>' : '');
   box.innerHTML += `<div class="card" style="margin:12px 0 0;border-left:3px solid ${gordas.length ? 'var(--durazno)' : 'var(--border)'}">
     <b>${gordas.length ? '⚠️ ' : ''}${filas.length} cliente(s) ya tenían su deuda cargada carga por carga</b>
     <div class="muted" style="font-size:13px;margin:4px 0 10px">A ellos no se les emitió nada —su deuda ya está—
-      pero el cálculo del mes igual corrió. ${gordas.length
+      pero el cálculo del mes igual corrió. Las cargas anuladas ya están restadas, y las cuentas en pesos se comparan en pesos. ${gordas.length
         ? `<b>A ${gordas.length} le da distinto por más de 1 USDT</b>: eso no es redondeo, es algo para mirar.`
-        : 'Ninguno se aparta más de 1 USDT: es la diferencia normal entre el tipo de cambio del día y el del mes.'}</div>
+        : 'Ninguno se aparta más de 1 USDT: es la diferencia normal entre el tipo de cambio del momento de cada carga y el promedio del mes.'}</div>
     <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr>
       <th>Cliente</th><th class="right">Cargas</th><th class="right">En su cuenta</th>
       <th class="right">Cálculo del mes</th><th class="right">Diferencia</th></tr></thead><tbody>
       ${filas.map((f) => `<tr>
         <td><b>${esc(f.codigo || '')}</b></td>
-        <td class="right">${esc(String(f.cargas || 0))}</td>
-        <td class="right">${money(f.enCuenta_usdt, 2)}</td>
-        <td class="right">${money(f.calculoMes_usdt, 2)}</td>
-        <td class="right"${dif(f) >= 1 ? ' style="font-weight:700;color:var(--red)"' : ''}>${money(f.diferencia, 2)}</td>
+        <td class="right">${esc(String(f.cargas || 0))}${f.anuladas ? ` <span class="muted" style="font-size:11px">+${esc(String(f.anuladas))} anulada${f.anuladas > 1 ? 's' : ''}</span>` : ''}</td>
+        <td class="right">${money(f.enCuenta != null ? f.enCuenta : f.enCuenta_usdt, 2)}${mon(f)}</td>
+        <td class="right">${money(f.calculoMes != null ? f.calculoMes : f.calculoMes_usdt, 2)}${mon(f)}</td>
+        <td class="right"${pesada(f) ? ' style="font-weight:700;color:var(--red)"' : ''}>${money(f.diferencia, 2)}${mon(f)}</td>
       </tr>`).join('')}
     </tbody></table></div>
   </div>`;

@@ -282,13 +282,27 @@ function bajaDelAbono(pedido, cli) {
 function delMes(mes) {
   const m = String(mes || '').slice(0, 7);
   const out = {};
-  movs.list({}).forEach((x) => {
+  const todos = movs.list({});
+  /* ⚠️ NETO DE LAS ANULACIONES (14-oct-2026). Sumaba las cargas y no les restaba su anulación, así
+     que una carga anulada seguía contando «en su cuenta» aunque en la cuenta del cliente ya estaba
+     dada de baja: TITAN86 salía con 10.000 USDT de diferencia y MARCELO44 con 5.834 sólo por eso.
+     La anulación va atada a su carga por el pedido, y se resta aunque se haya hecho otro mes. */
+  const delMesPorPedido = {};
+  todos.forEach((x) => {
     if (x.tipo !== 'carga' || !x.pedido_id) return;
     if (String(x.fecha || '').slice(0, 7) !== m) return;
-    const o = out[x.cliente_id] = out[x.cliente_id] || { usdt: '0', ars: '0', cargas: 0 };
+    delMesPorPedido[x.pedido_id] = x.cliente_id;
+    const o = out[x.cliente_id] = out[x.cliente_id] || { usdt: '0', ars: '0', cargas: 0, anuladas: 0 };
     o.usdt = money.add(o.usdt, x.monto_usdt || '0');
     o.ars = money.add(o.ars, x.monto_ars || '0');
     o.cargas += 1;
+  });
+  todos.forEach((x) => {
+    if (x.tipo !== 'correccion' || !x.pedido_id || delMesPorPedido[x.pedido_id] !== x.cliente_id) return;
+    const o = out[x.cliente_id];
+    o.usdt = money.add(o.usdt, x.monto_usdt || '0');      // la anulación ya viene en negativo
+    o.ars = money.add(o.ars, x.monto_ars || '0');
+    o.cargas -= 1; o.anuladas += 1;
   });
   return out;
 }

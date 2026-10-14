@@ -4884,10 +4884,20 @@ function mount(app) {
     const recortados = [];   // clientes a los que les falta el TC de alguna moneda
     const lineas = (fac.clientes || []).filter((c) => !c.sinBase).map((c) => {
       const ya = yaEnCuenta[c.cliente_id];
-      if (ya && ya.cargas) {
-        conciliado.push({ cliente_id: c.cliente_id, codigo: c.codigo, cargas: ya.cargas,
+      if (ya && (ya.cargas || ya.anuladas)) {
+        /* Se compara en la moneda en que se lleva la cuenta. Ru98 lleva la cuenta en pesos: sus
+           cargas no tienen cara en dólares y la tabla decía «en su cuenta 0», una diferencia que
+           no existía. En pesos se compara contra lo que el cálculo del mes cobra en pesos. */
+        const enPesos = (clientes.get(c.cliente_id) || {}).moneda_cuenta === 'ARS';
+        const calcArs = money.sum((c.porDivisa || []).filter((d) => d.divisa === 'ARS').map((d) => d.fee || '0'));
+        const enCuenta = enPesos ? ya.ars : ya.usdt;
+        const calculo = enPesos ? calcArs : c.fee_usdt;
+        conciliado.push({ cliente_id: c.cliente_id, codigo: c.codigo, cargas: ya.cargas, anuladas: ya.anuladas || 0,
+          moneda: enPesos ? 'ARS' : 'USDT',
+          enCuenta: money.round(enCuenta, 2), calculoMes: money.round(calculo, 2),
+          // los nombres de antes, para lo que todavía los lea
           enCuenta_usdt: ya.usdt, calculoMes_usdt: c.fee_usdt,
-          diferencia: money.round(money.sub(c.fee_usdt, ya.usdt), 2) });
+          diferencia: money.round(money.sub(calculo, enCuenta), 2) });
         return null;                       // su deuda ya está: no se emite
       }
       /* ── NO SE EMITE UN TOTAL RECORTADO ──────────────────────────────────────────────────
