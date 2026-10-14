@@ -242,12 +242,18 @@ function abonoPorCarga(pedido, carga, cli) {
   }
   const ya = movs.list({ cliente_id: otro.id, tipo: 'bonificacion' }).find((m) => m.pedido_id === pedido.id);
   if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
+  /* Una carga ANULADA no abona: el otro no puede quedarse con puntos de fichas que no existen. Y
+     una de centavos (las de prueba de 1 peso) tampoco: dejaba «Abono · 0,00» en la cuenta. */
+  const anulada = movs.list({ cliente_id: cli.id, tipo: 'correccion' }).some((m) => m.pedido_id === pedido.id);
+  if (anulada) return { ok: false, motivo: 'la carga está anulada: no se abona' };
   const parte = (v) => (v == null || v === '' ? null : money.round(money.div(money.mul(String(v), pts), base), 2));
   const f = String(carga.fecha || pedido.resueltoAt || pedido.createdAt || '').slice(0, 10).split('-');
   const div = String(carga.divisa || pedido.divisa || 'ARS').toUpperCase();
+  const usd = parte(carga.monto_usdt), ars = parte(carga.monto_ars);
+  if ((usd == null || !money.isPos(usd)) && (ars == null || money.cmp(ars, '1') < 0)) return { ok: false, motivo: 'abono de centavos: no se anota' };
   const mv = movs.create({
     cliente_id: otro.id, tipo: 'bonificacion', pedido_id: pedido.id,
-    monto_ars: parte(carga.monto_ars), monto_usdt: parte(carga.monto_usdt),
+    monto_ars: ars, monto_usdt: usd,
     tc_momento: carga.tc_momento || null, tc_modo: carga.tc_modo || null,
     divisa: div, fecha: carga.fecha || undefined,
     // Corto, a pedido del dueño (13-oct-2026): la carga de Ariel ya dice monto y login en SU cuenta.

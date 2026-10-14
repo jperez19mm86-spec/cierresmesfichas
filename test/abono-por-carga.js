@@ -95,6 +95,21 @@ const bonifs = (c) => movs.list({ cliente_id: c.id, tipo: 'bonificacion' });
   const r3 = await deudaCarga.porCarga(p3, { tcFijo: '1600' });
   check('si los puntos igualan la base no se abona nada', !bonifs(fran).some((m) => m.pedido_id === p3.id) && r3.abono && !r3.abono.ok, r3.abono && r3.abono.motivo);
 
+  // 10 · una carga ya anulada, o de centavos, no abona (las de prueba de 1 peso de LaPromesa)
+  clientes.updateComercial(otro.id, { abona_a: '', abona_pts: '' });
+  const p4 = meter('ARIELA', 1000000);
+  await deudaCarga.porCarga(p4, { tcFijo: '1600' });   // abona
+  const p5 = meter('ARIELA', 2000000);
+  clientes.updateComercial(ariel.id, { abona_a: '', abona_pts: '' });
+  await deudaCarga.porCarga(p5, { tcFijo: '1600' });   // sin abono configurado
+  deudaCarga.porAnulacion(p5);
+  clientes.updateComercial(ariel.id, { abona_a: fran.id, abona_pts: '2' });
+  const r5 = await deudaCarga.porCarga(p5, { tcFijo: '1600' });   // al repasarla, ya anulada
+  check('una carga ya anulada no abona al repasarla', !bonifs(fran).some((m) => m.pedido_id === p5.id) && r5.abono && !r5.abono.ok, r5.abono && r5.abono.motivo);
+  const p6 = meter('ARIELA', 1);
+  const r6 = await deudaCarga.porCarga(p6, { tcFijo: '1600' });
+  check('una carga de 1 peso no deja un abono de 0,00', !bonifs(fran).some((m) => m.pedido_id === p6.id), r6.abono && r6.abono.motivo);
+
   console.log(`\n${ok} chequeos OK, ${fail} fallaron\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
