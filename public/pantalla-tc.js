@@ -92,8 +92,10 @@ VIEWS.tc = async () => {
       <div class="row" style="align-items:flex-end;margin-bottom:12px">
         <div style="flex:0 0 190px"><label>Mes</label><input type="month" id="tc-mes" value="${esc(_tcMes)}" onchange="_tcMes=this.value;VIEWS.tc()"></div>
         <div style="flex:1"><h2 style="margin:0">El TC que se está usando en ${esc(_tcMes)}</h2>
-          <div class="muted" style="font-size:12.5px">Con este número Facturación, Reparto y Proveedores externos pasan todo a USDT.
-            Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.</div></div>
+          <div class="muted" style="font-size:12.5px">Con este número Facturación y Proveedores externos pasan todo a USDT.
+            Manda lo <b>cargado a mano</b>; si no hay, el <b>promedio automático</b> del mes.
+            <b>En pesos argentinos es distinto:</b> lo que cargues a mano es el <b>cambio del trader</b> y vale
+            <b>sólo para los pagos en pesos</b> de ese mes; las cuentas de los clientes van siempre con el promedio.</div></div>
       </div>
       <div class="tc-tiles">
         ${usadas.map(x=>{

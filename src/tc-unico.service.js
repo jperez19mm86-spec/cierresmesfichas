@@ -71,7 +71,18 @@ function manual(divisa, mes) {
    para que no dependa de que alguien se acuerde de cargar las dos. */
 const ALIAS_DIVISA = { VES: 'VEF' };
 
-function tcDelMes(divisa, mes) {
+/* ── EN PESOS HAY DOS CAMBIOS POR MES (regla del dueño, 14-oct-2026) ───────────────────────────
+   · el PROMEDIO DEL MES (Binance/criptoya) es el de las CUENTAS: lo que se le cobra al cliente
+     —proveedores externos, el cálculo del mes, la factura—. Es `tcDelMes`.
+   · el del TRADER, el que se carga a mano en el cierre, sirve SÓLO para valuar los PAGOS en pesos
+     que entraron ese mes (y el reparto de esa plata). Es `tcPagosDelMes`.
+   Hasta acá había uno solo y el cargado a mano mandaba para todo: en septiembre 2026 el trader dio
+   1.679,88 contra un promedio de 1.596,39, y los proveedores en pesos se cobraron un 5,2% de menos
+   (589,10 USDT entre 16 clientes, cobrados aparte el 14-oct). Fuera del peso no cambia nada. */
+function tcDelMes(divisa, mes) { return _tcDelMes(divisa, mes, { cuenta: true }); }
+function tcPagosDelMes(divisa, mes) { return _tcDelMes(divisa, mes, { cuenta: false }); }
+
+function _tcDelMes(divisa, mes, op) {
   const D = String(divisa || 'ARS').toUpperCase();
   const m = String(mes || '').slice(0, 7);
   if (D === 'USD' || D === 'USDT') {
@@ -80,18 +91,18 @@ function tcDelMes(divisa, mes) {
   // Si la moneda tiene alias, se prueba primero con la suya y se cae a la del alias. Al revés no:
   // se informa con qué se resolvió, para que en pantalla no parezca que VES tenía su propio TC.
   if (ALIAS_DIVISA[D]) {
-    const propio = _tcCrudo(D, m);
+    const propio = _tcCrudo(D, m, op);
     if (propio.valor != null) return propio;
-    const alias = _tcCrudo(ALIAS_DIVISA[D], m);
+    const alias = _tcCrudo(ALIAS_DIVISA[D], m, op);
     if (alias.valor != null) {
       return { ...alias, divisa: D, fuente: `${alias.fuente} (de ${ALIAS_DIVISA[D]}: es la misma moneda)` };
     }
     return { ...propio, divisa: D };
   }
-  return _tcCrudo(D, m);
+  return _tcCrudo(D, m, op);
 }
 
-function _tcCrudo(D, m) {
+function _tcCrudo(D, m, op = { cuenta: true }) {
 
   // 🔑 El PESO se cotiza contra el dólar cripto, no contra el oficial: su promedio automático es
   // el de Binance/criptoya (tc_snapshots → tc_mes), NO el de la fuente de cotizaciones oficiales
@@ -107,7 +118,9 @@ function _tcCrudo(D, m) {
   };
 
   let valor = null; let fuente = 'SIN CARGAR';
-  if (f.manual != null) { valor = String(f.manual); fuente = 'cargado a mano en el cierre'; }
+  // En pesos, para las cuentas manda el promedio: el cargado a mano es el del trader.
+  if (esPeso && op.cuenta && f.automatico != null) { valor = String(f.automatico); fuente = 'promedio automático del mes'; }
+  else if (f.manual != null) { valor = String(f.manual); fuente = esPeso ? 'cargado a mano en el cierre (trader)' : 'cargado a mano en el cierre'; }
   else if (f.automatico != null) { valor = String(f.automatico); fuente = 'promedio automático del mes'; }
   else if (f.arsHistorico != null) { valor = String(f.arsHistorico); fuente = 'promedio histórico (ARS)'; }
 
@@ -201,4 +214,4 @@ function faltantes(mes, divisasUsadas = []) {
     .sort();
 }
 
-module.exports = { tcDelMes, tcExternos, discrepancias, resumenMes, faltantes, mesCierre };
+module.exports = { tcDelMes, tcPagosDelMes, tcExternos, discrepancias, resumenMes, faltantes, mesCierre };

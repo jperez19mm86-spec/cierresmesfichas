@@ -5705,7 +5705,7 @@ function mount(app) {
       let usdt = mv.usdt_recibido != null ? mv.usdt_recibido : mv.monto_usdt;
       let convertido = null;
       if ((usdt == null || usdt === '') && mv.monto_ars != null && mv.monto_ars !== '') {
-        const t = tcUnico.tcDelMes('ARS', mes);
+        const t = tcUnico.tcPagosDelMes('ARS', mes);   // plata que entró: el cambio del trader
         if (t.valor && money.isPos(t.valor)) {
           usdt = money.round(money.div(mv.monto_ars, t.valor), 2);
           convertido = { desde_ars: mv.monto_ars, tc: t.valor, fuente: t.fuente };

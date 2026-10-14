@@ -58,7 +58,8 @@ function valuar(m) {
   const mes = m.mes_cierre
     ? String(m.mes_cierre).slice(0, 7)
     : String(m.fecha || m.createdAt || '').slice(0, 7);
-  const t = mes ? tcUnico.tcDelMes('ARS', mes) : null;
+  // Un PAGO en pesos se vale al cambio del trader de ese mes (el cargado a mano), no al promedio.
+  const t = mes ? tcUnico.tcPagosDelMes('ARS', mes) : null;
   // `derivada` dice CUÁL de las dos caras salió de un tipo de cambio. Sin ese dato no se puede
   // avisar bien: un pago en dólares sobre una cuenta en dólares deriva la cara en pesos, que nadie
   // suma, y marcarlo como provisorio decía "este pago no entra en el saldo" sobre un pago
@@ -68,7 +69,8 @@ function valuar(m) {
     return { ...m, tc_usado: null, derivada, provisional: true, sinValuar: true };
   }
   const tc = String(t.valor);
-  const provisional = t.fuente !== ES_DEFINITIVO;
+  // En pesos la fuente dice «… (trader)»: lo que cuenta es que sea el cargado a mano.
+  const provisional = !String(t.fuente || '').startsWith(ES_DEFINITIVO);
   return {
     ...m,
     monto_ars: tieneArs ? m.monto_ars : money.round(money.mul(String(m.monto_usdt), tc), 2),
