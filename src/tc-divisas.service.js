@@ -5,7 +5,12 @@
  * de la divisa de cada panel, y los paneles usan ~36 monedas. Hasta ahora ese TC se cargaba a mano
  * mes a mes en una grilla. Guardando un snapshot por día, el promedio del mes sale solo.
  *
- * Fuente: open.er-api.com (gratis, sin clave, cubre 36 de las 38 divisas en uso).
+ * Fuente: BINANCE P2P (vía criptoya, la misma del peso) para cada moneda que cotiza; para las que
+ * Binance no tiene, open.er-api.com (oficial, gratis, sin clave).
+ *
+ * 🔑 POR QUÉ BINANCE (14-oct-2026, pedido del dueño): el oficial no es el precio al que se compra el
+ * USDT. El UYU oficial daba ~40,2 y en Binance P2P ~42,3: como el USDT sale de DIVIDIR por ese
+ * número, lo facturado en UYU se cobraba ~5% de más. Mismo motivo por el que el peso ya iba por acá.
  * exchange-rates.org NO se puede usar: está detrás de Cloudflare y bloquea la lectura automática.
  *
  * Reglas del negocio (decididas por el dueño):
@@ -20,6 +25,24 @@ const money = require('./lib/money');
 const { fechaTZ, nowISO } = require('./lib/fechas');
 
 const FUENTE_URL = 'https://open.er-api.com/v6/latest/USD';
+// criptoya: /api/usdt/<moneda>/1 → { binancep2p: { ask, ... }, ... }. Se toma el ASK de Binance P2P,
+// igual que el peso (tc.service.js): lo que cuesta COMPRAR un USDT con esa moneda.
+const BINANCE_URL = (div) => `https://criptoya.com/api/usdt/${div.toLowerCase()}/1`;
+const FUENTE_BINANCE = 'binancep2p (criptoya)';
+
+async function _binance(div) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await fetch(BINANCE_URL(div), { signal: ctrl.signal });
+    if (!r.ok) return null;
+    const j = await r.json();
+    // P2P primero; si criptoya no lo tiene para esa moneda (BRL), el spot de Binance.
+    const b = (j && (j.binancep2p || j.binance)) || null;
+    const ask = Number(b && (b.ask || b.totalAsk));
+    return Number.isFinite(ask) && ask > 0 ? money.round(String(ask), 6) : null;
+  } catch (e) { return null; } finally { clearTimeout(to); }
+}
 // USD/USDT valen 1 · ADA no se factura · ARS ver abajo 👇
 const IGNORAR = new Set(['ADA', 'USD', 'USDT', 'ARS']);
 
@@ -77,11 +100,20 @@ async function fetchTasas() {
       if (!Number.isFinite(n) || n <= 0) continue;
       tasas[div] = money.round(String(n), 6);
     }
+    const fuentes = {};
+    Object.keys(tasas).forEach((d) => { fuentes[d] = 'open.er-api.com'; });
+    // Encima, Binance P2P donde lo haya. De a varias, pero sin mandarle las 17 juntas.
+    const lista = [...quiero].filter((d) => !ALIAS[d]);
+    for (let i = 0; i < lista.length; i += 5) {
+      const lote = lista.slice(i, i + 5);
+      const vals = await Promise.all(lote.map(_binance));
+      lote.forEach((d, j) => { if (vals[j] != null) { tasas[d] = vals[j]; fuentes[d] = FUENTE_BINANCE; } });
+    }
     // VEF no existe en la fuente: se le copia VES (mismo valor, el dueño cobra igual)
     for (const [destino, origen] of Object.entries(ALIAS)) {
-      if (tasas[destino] == null && tasas[origen] != null) tasas[destino] = tasas[origen];
+      if (tasas[origen] != null) { tasas[destino] = tasas[origen]; fuentes[destino] = fuentes[origen]; }
     }
-    return { ok: true, tasas };
+    return { ok: true, tasas, fuentes };
   } catch (e) {
     return { ok: false, error: e.name === 'AbortError' ? 'timeout' : e.message };
   } finally { clearTimeout(to); }
@@ -91,7 +123,8 @@ const _guardar = db.transaction((fecha, tasas, fuente) => {
   const ins = db.prepare(`INSERT INTO tc_divisa_snapshots (fecha,divisa,tasa,fuente,createdAt)
     VALUES (?,?,?,?,?) ON CONFLICT(fecha,divisa) DO UPDATE SET tasa=excluded.tasa, fuente=excluded.fuente`);
   let n = 0;
-  for (const [div, tasa] of Object.entries(tasas)) { ins.run(fecha, div, tasa, fuente, nowISO()); n++; }
+  // `fuente` puede ser un texto (todas iguales) o un mapa por moneda.
+  for (const [div, tasa] of Object.entries(tasas)) { ins.run(fecha, div, tasa, typeof fuente === 'string' ? fuente : (fuente[div] || 'open.er-api.com'), nowISO()); n++; }
   return n;
 });
 
@@ -100,26 +133,31 @@ async function snapshotHoy(fecha) {
   const f = fecha || fechaTZ();
   const r = await fetchTasas();
   if (!r.ok) return r;
-  const n = _guardar(f, r.tasas, 'open.er-api.com');
-  return { ok: true, fecha: f, divisas: n };
+  const n = _guardar(f, r.tasas, r.fuentes || 'open.er-api.com');
+  const deBinance = Object.values(r.fuentes || {}).filter((x) => x === FUENTE_BINANCE).length;
+  return { ok: true, fecha: f, divisas: n, deBinance };
 }
 
 /** Promedio del mes de una divisa. null si no hay ningún día guardado. */
 function promedioMes(divisa, mes) {
   const d = String(divisa || '').toUpperCase();
   if (d === 'USDT' || d === 'USD') return '1';
-  const rows = db.prepare("SELECT tasa FROM tc_divisa_snapshots WHERE divisa=? AND substr(fecha,1,7)=?").all(d, mes);
+  const todas = db.prepare("SELECT tasa, fuente FROM tc_divisa_snapshots WHERE divisa=? AND substr(fecha,1,7)=?").all(d, mes);
+  // Si en el mes hay días de Binance, el promedio sale SÓLO de esos: mezclar con el oficial (5% abajo
+  // en UYU) daría un número que no es ninguno de los dos. Pasa en el mes en que se cambió de fuente.
+  const bin = todas.filter((x) => x.fuente === FUENTE_BINANCE);
+  const rows = bin.length ? bin : todas;
   if (!rows.length) return null;
   return money.round(money.div(money.sum(rows.map((x) => x.tasa)), String(rows.length)), 6);
 }
 
 /** Promedios de TODAS las divisas de un mes + cuántos días tiene cada una. */
 function promediosMes(mes) {
-  const rows = db.prepare(`SELECT divisa, COUNT(*) dias, GROUP_CONCAT(tasa) tasas
-    FROM tc_divisa_snapshots WHERE substr(fecha,1,7)=? GROUP BY divisa ORDER BY divisa`).all(mes);
-  return rows.map((r) => {
-    const vals = String(r.tasas || '').split(',').filter(Boolean);
-    return { divisa: r.divisa, dias: r.dias, promedio: vals.length ? money.round(money.div(money.sum(vals), String(vals.length)), 6) : null };
+  const divs = db.prepare('SELECT DISTINCT divisa FROM tc_divisa_snapshots WHERE substr(fecha,1,7)=? ORDER BY divisa').all(mes).map((r) => r.divisa);
+  return divs.map((d) => {
+    const todas = db.prepare("SELECT fuente FROM tc_divisa_snapshots WHERE divisa=? AND substr(fecha,1,7)=?").all(d, mes);
+    const bin = todas.filter((x) => x.fuente === FUENTE_BINANCE).length;
+    return { divisa: d, dias: bin || todas.length, promedio: promedioMes(d, mes), fuente: bin ? 'Binance P2P' : 'oficial' };
   });
 }
 
@@ -200,4 +238,4 @@ function startScheduler() {
   console.log(`[TC divisas] scheduler activo (snapshot diario ${HOUR}:00 ART)`);
 }
 
-module.exports = { fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, ultimo, startScheduler, purgarArsViejo, purgarNoSeguidas, seguidas, ALIAS, IGNORAR, BASE_SEGUIDAS };
+module.exports = { FUENTE_BINANCE, fetchTasas, snapshotHoy, promedioMes, promediosMes, listDias, ultimo, startScheduler, purgarArsViejo, purgarNoSeguidas, seguidas, ALIAS, IGNORAR, BASE_SEGUIDAS };
