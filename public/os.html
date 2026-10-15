@@ -91,7 +91,10 @@ const GRUPOS = [
   ] },
   /* Tareas en tanda contra el casino (mover jugadores de caja, …). Una sola pantalla: el catálogo
      arriba y lo que se corrió abajo. */
-  { id: 'operaciones', label: () => '🛠 Operaciones' + (_opsCorriendo ? ' <span class="nb">' + _opsCorriendo + '</span>' : ''), items: [] },
+  { id: 'operaciones', label: () => '🛠 Operaciones' + (_opsCorriendo ? ' <span class="nb">' + _opsCorriendo + '</span>' : ''), items: [
+    ['operaciones', '🛠 En tanda'],
+    ['pases', '🔀 Pases de sitio'],
+  ] },
   { id: 'ajustes', label: () => '⚙ Ajustes', items: [
     ['tc', '💱 Tipos de cambio'],
     ['config:divisas', '💱 Divisas'],
@@ -9199,6 +9202,123 @@ function opHistorial(){
     </tbody></table></div></div>`;
 }
 async function opAbrir(id){ _opAbierta = { id: id }; _opFiltro = 'fallido'; _opBusca = ''; await VIEWS.operaciones(); window.scrollTo(0, 0); }
+
+/* ───────── 🔀 PASES DE SITIO ─────────
+   Llevar jugadores de un sitio (con otro chat) a otro (con el nuestro) sin que se tengan que loguear,
+   y de paso cambiarlos de caja. Cada pase: del link → al link, de la caja → a la caja. El jugador
+   toca «<link viejo>/?pasar» y llega logueado al nuevo. Ver src/pases.service.js. */
+let _pz = null, _pzEdit = null, _pzVer = null;
+/* La línea apunta SIEMPRE al dominio propio del OS, aunque el panel se abra por la dirección de Railway:
+   es lo que queda pegado en los sitios del casino y no se puede cambiar a cada rato. */
+const PZ_BASE = /(^|\.)latamgames\.online$|^localhost$|^127\./.test(location.hostname) ? location.origin : 'https://app.latamgames.online';
+const PZ_SCRIPT = () => '<script src="' + PZ_BASE + '/pase.js" async></' + 'script>';
+
+VIEWS.pases = async () => {
+  const main = document.getElementById('main');
+  if (!_pz) main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
+  const [d, dc] = await Promise.all([api('/api/os/pases'), _ops ? Promise.resolve(_ops) : api('/api/os/operaciones')]);
+  if (!d.ok) { main.innerHTML = '<div class="card"><div class="empty">No se pudo leer: ' + esc(d.error || '') + '</div></div>'; return; }
+  if (dc && dc.ok) _ops = dc;
+  _pz = d;
+  if (_pzVer) { const e = await api('/api/os/pases/' + encodeURIComponent(_pzVer) + '/eventos'); _pz.eventos = e.ok ? e.eventos : []; }
+  pzPintar();
+};
+
+function pzCopiar(txt, btn){
+  const listo = () => { if (btn) { const t = btn.textContent; btn.textContent = '✓ Copiado'; setTimeout(() => { btn.textContent = t; }, 1400); } };
+  try { navigator.clipboard.writeText(txt).then(listo, () => pzCopiarViejo(txt, listo)); } catch (e) { pzCopiarViejo(txt, listo); }
+}
+function pzCopiarViejo(txt, listo){ const a = document.createElement('textarea'); a.value = txt; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); listo(); } catch (e) {} a.remove(); }
+
+function pzPintar(){
+  if (_tab !== 'pases') return;
+  const ps = _pz.pases || [], sitios = _pz.sitios || [];
+  const cxs = (_ops && _ops.conexiones) || [];
+  const cxNom = (id) => (cxs.find(c => c.id === id) || {}).nombre || '—';
+  const n = (x) => Number(x || 0).toLocaleString('es-AR');
+  const filas = ps.map(p => {
+    const k = p.cuenta || {};
+    const msg = 'https://' + p.sitio_viejo + '/?pasar';
+    return `<tr${p.activo ? '' : ' style="opacity:.55"'}>
+      <td><b>${esc(p.sitio_viejo)}</b> → <b>${esc(p.sitio_nuevo)}</b>
+        <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill" style="font-size:12px">${esc(msg)}</span>
+        <button class="outline small" onclick="pzCopiar('${esc(msg)}',this)">Copiar link</button></div></td>
+      <td>${esc(p.caja_origen)}${p.caja_destino ? ' → <b>' + esc(p.caja_destino) + '</b>' : ' <span class="muted">(no cambia de caja)</span>'}<div class="muted" style="font-size:11.5px">${esc(cxNom(p.conexion_id))}</div></td>
+      <td class="right" title="Se pasaron">✅ ${n(k.pasado)}</td>
+      <td class="right" title="Tocaron el link sin estar logueados (otro navegador u otro celular)">🔒 ${n(k.sin_sesion)}</td>
+      <td class="right" title="Son de otra caja: se quedaron en el sitio viejo">↪ ${n(k.fuera)}</td>
+      <td class="right" title="No se pudo cambiar de caja" ${k.error ? 'style="color:var(--red);font-weight:700"' : ''}>❌ ${n(k.error)}</td>
+      <td style="white-space:nowrap">
+        <button class="outline small" onclick="pzToggle('${p.id}',${!p.activo})">${p.activo ? '⏸ Apagar' : '▶ Prender'}</button>
+        <button class="outline small" onclick="_pzEdit='${p.id}';pzPintar()">✏️</button>
+        <button class="outline small" onclick="_pzVer=_pzVer==='${p.id}'?null:'${p.id}';VIEWS.pases()">${_pzVer === p.id ? 'Ocultar' : 'Ver'} quiénes</button>
+      </td></tr>
+      ${_pzVer === p.id ? `<tr><td colspan="7">${pzEventos(_pz.eventos || [])}</td></tr>` : ''}`;
+  }).join('');
+
+  const ed = _pzEdit && _pzEdit !== 'nuevo' ? ps.find(p => p.id === _pzEdit) : null;
+  const f = ed || { sitio_viejo: '', sitio_nuevo: '', caja_origen: '', caja_destino: '', conexion_id: (cxs.find(c => /casino/i.test(c.carga_de)) || cxs[0] || {}).id };
+  const form = _pzEdit ? `<div class="card"><h3 style="margin:0 0 10px">${ed ? 'Cambiar pase' : 'Nuevo pase'}</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+      <label>Del link (viejo)<input id="pz-viejo" value="${esc(f.sitio_viejo)}" placeholder="ganamoschat.com"></label>
+      <label>Al link (nuevo)<input id="pz-nuevo" value="${esc(f.sitio_nuevo)}" placeholder="ganamoschatt.com"></label>
+      <label>Casino<select id="pz-cx">${cxs.map(c => `<option value="${esc(c.id)}" ${c.id === f.conexion_id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select></label>
+      <label>De la caja<input id="pz-origen" value="${esc(f.caja_origen)}" placeholder="CajaF01Zeus"></label>
+      <label>A la caja <span class="muted">(vacío = no cambia)</span><input id="pz-destino" value="${esc(f.caja_destino)}" placeholder="ZeusChat02"></label>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:8px">Sólo se pasan los jugadores que cuelgan de la caja de origen. Al pasar, se los cambia a la caja de destino y se verifica en el casino.</div>
+    <div style="margin-top:10px;display:flex;gap:8px"><button onclick="pzGuardar()">${ed ? 'Guardar' : 'Crear pase'}</button>
+      <button class="outline" onclick="_pzEdit=null;pzPintar()">Cancelar</button>
+      ${ed ? `<button class="danger" style="margin-left:auto" onclick="pzBorrar('${ed.id}')">Borrar</button>` : ''}</div></div>` : '';
+
+  const linea = PZ_SCRIPT();
+  const ingles = `Hi! Please add this one line to the sites below, on every page, right before </body> (or in the site's custom scripts/header setting if there is one):\n\n${linea}\n\nSites:\n${sitios.map(s => '- ' + s).join('\n')}\n\nNotes:\n- Do not remove the current chat from any site. This script doesn't show anything on the page; it only acts when the URL has ?pasar or ?cw_pase.\n- Please tell me when it's live on each site.`;
+
+  document.getElementById('main').innerHTML = `
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+      <div><h2 style="margin:0">🔀 Pases de sitio</h2>
+        <div class="muted" style="font-size:12.5px;margin-top:3px;max-width:640px">El jugador toca el link en el chat viejo y llega al sitio nuevo <b>ya logueado</b>, sin usuario ni clave, y en su caja nueva. Funciona en el mismo navegador donde juega.</div></div>
+      ${_pzEdit ? '' : '<button onclick="_pzEdit=\'nuevo\';pzPintar()">＋ Nuevo pase</button>'}
+    </div>
+    <div style="overflow-x:auto;margin-top:12px"><table style="min-width:100%"><thead><tr><th>Links</th><th>Cajas</th><th class="right">Pasados</th><th class="right">Sin sesión</th><th class="right">Otra caja</th><th class="right">Errores</th><th></th></tr></thead><tbody>
+      ${filas || '<tr><td colspan="7" class="empty">Todavía no hay pases. Creá el primero con «＋ Nuevo pase».</td></tr>'}
+    </tbody></table></div>
+  </div>
+  ${form}
+  ${sitios.length ? `<div class="card"><h3 style="margin:0 0 4px">Para tu programador</h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:8px">Una sola línea, la misma en los ${sitios.length} sitios (los viejos y los nuevos). Si agregás un pase con un sitio nuevo, esta lista se actualiza.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="pill" style="font-size:12.5px;word-break:break-all">${esc(linea)}</span>
+      <button class="outline small" onclick="pzCopiar(PZ_SCRIPT(),this)">Copiar línea</button>
+      <button class="small" onclick="pzCopiar(document.getElementById('pz-ingles').value,this)">Copiar mensaje en inglés</button></div>
+    <div style="margin-top:8px;font-size:12.5px">${sitios.map(s => `<span class="pill" style="margin:0 4px 4px 0;display:inline-block">${esc(s)}</span>`).join('')}</div>
+    <textarea id="pz-ingles" hidden>${esc(ingles)}</textarea>
+  </div>` : ''}`;
+}
+
+function pzEventos(ev){
+  if (!ev.length) return '<div class="muted" style="padding:6px 0">Nadie tocó el link todavía.</div>';
+  const que = { pasado: '✅ se pasó', ya_pasado: '🔁 volvió a tocar', sin_sesion: '🔒 sin sesión', fuera: '↪ otra caja', error: '❌ error' };
+  return `<table style="min-width:100%;font-size:12.5px"><thead><tr><th>Cuándo</th><th>Jugador</th><th>Qué pasó</th><th>Detalle</th></tr></thead><tbody>
+    ${ev.map(e => `<tr><td>${opFecha(e.at)}</td><td>${esc(e.login || '—')}</td><td>${que[e.resultado] || esc(e.resultado)}</td><td class="muted">${esc(e.detalle || '')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function pzGuardar(){
+  const d = { sitio_viejo: val('pz-viejo'), sitio_nuevo: val('pz-nuevo'), conexion_id: val('pz-cx'), caja_origen: val('pz-origen'), caja_destino: val('pz-destino') };
+  const nuevo = _pzEdit === 'nuevo';
+  const r = await api(nuevo ? '/api/os/pases' : '/api/os/pases/' + encodeURIComponent(_pzEdit), { method: nuevo ? 'POST' : 'PUT', body: JSON.stringify(d) });
+  if (!r.ok) return;
+  toast(nuevo ? '✓ Pase creado' : '✓ Pase guardado');
+  _pzEdit = null; VIEWS.pases();
+}
+async function pzToggle(id, activo){ const r = await api('/api/os/pases/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ activo }) }); if (r.ok) VIEWS.pases(); }
+let _pzBorrarOk = null;
+async function pzBorrar(id){
+  if (_pzBorrarOk !== id) { _pzBorrarOk = id; toast('Tocá «Borrar» otra vez para confirmar'); setTimeout(() => { _pzBorrarOk = null; }, 4000); return; }
+  _pzBorrarOk = null;
+  const r = await api('/api/os/pases/' + encodeURIComponent(id), { method: 'DELETE' }); if (r.ok) { toast('Pase borrado'); _pzEdit = null; VIEWS.pases(); }
+}
 </script>
 <!-- Tipos de cambio: la misma pantalla que usa /tbs. Va acá abajo porque necesita los
      ayudantes de arriba ya definidos, y escribe VIEWS.tc antes de que arranque el panel. -->

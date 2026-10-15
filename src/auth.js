@@ -38,6 +38,11 @@ const USING_DEFAULT_PASSWORD = !process.env.PANEL_PASSWORD;
 
 // Rutas públicas (sin login): vista cliente + login + assets mínimos.
 const PUBLIC = [
+  // 🔀 PASES: el script que va pegado en los sitios del casino y sus dos puertas. Públicas porque
+  // las llama el navegador del JUGADOR desde otro dominio; lo que prueba quién es es su sesión del
+  // casino (emitir) o un código de un solo uso de 2 minutos (canjear). Ver pases.service.js.
+  /^\/pase\.js$/,
+  /^\/api\/pase\/(emitir|canjear)\/?$/,
   /^\/login\/?$/,
   /^\/api\/login\/?$/,
   /^\/api\/logout\/?$/,
