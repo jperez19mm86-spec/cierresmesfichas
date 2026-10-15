@@ -89,6 +89,9 @@ const GRUPOS = [
     ['reparto', '💰 Reparto'],
     ['accesos', '🔐 Accesos'],
   ] },
+  /* Tareas en tanda contra el casino (mover jugadores de caja, …). Una sola pantalla: el catálogo
+     arriba y lo que se corrió abajo. */
+  { id: 'operaciones', label: () => '🛠 Operaciones' + (_opsCorriendo ? ' <span class="nb">' + _opsCorriendo + '</span>' : ''), items: [] },
   { id: 'ajustes', label: () => '⚙ Ajustes', items: [
     ['tc', '💱 Tipos de cambio'],
     ['config:divisas', '💱 Divisas'],
@@ -9014,6 +9017,188 @@ let _pulTodas = false;
 function pulFiltro(t){ _pulFiltro=t; _pulTodas=false; AC.pulso(); }
 function pulMes(delta){ const el=document.getElementById('pul-mes'); if(!el)return; let [y,m]=el.value.split('-').map(Number); m+=delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;} _acMes=y+'-'+String(m).padStart(2,'0'); AC.pulso(); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+
+/* ───────── 🛠 OPERACIONES — tareas en tanda contra el casino ─────────
+   No es un lugar para pegar código: es un catálogo de operaciones ya escritas (operaciones.service.js).
+   Todas van igual: 🔍 Revisar (sólo lee) → ▶ Probar con 1 → ▶ Seguir con el resto. Lo que corre lo
+   hace el servidor: se puede cerrar la pestaña y volver; la pantalla sólo pregunta cómo va. */
+var _opsCorriendo = 0;          // `var` a propósito: la barra lo lee antes de que esta parte se ejecute
+let _ops = null, _opAbierta = null, _opFiltro = 'fallido', _opBusca = '', _opTimer = null;
+
+VIEWS.operaciones = async () => {
+  clearTimeout(_opTimer);
+  const main = document.getElementById('main');
+  if (!_ops) main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
+  const d = await api('/api/os/operaciones');
+  if (!d.ok) { main.innerHTML = '<div class="card"><div class="empty">No se pudo leer: ' + esc(d.error || '') + '</div></div>'; return; }
+  _ops = d;
+  _opsCorriendo = (d.historial || []).filter(o => o.corriendo).length;
+  if (_opAbierta && _opAbierta.id) { const r = await api('/api/os/operaciones/' + encodeURIComponent(_opAbierta.id)); _opAbierta = r.ok ? r.op : null; }
+  opPintar();
+};
+
+function opPintar(){
+  if (_tab !== 'operaciones') return;
+  const main = document.getElementById('main');
+  main.innerHTML = (_opAbierta && _opAbierta.id ? opFicha(_opAbierta) : opFormulario()) + opHistorial();
+  const corre = _opAbierta && _opAbierta.id && (_opAbierta.corriendo || ['piloto','corriendo'].includes(_opAbierta.estado));
+  if (corre) _opTimer = setTimeout(opRefrescar, 2000);
+}
+async function opRefrescar(){
+  if (_tab !== 'operaciones' || !_opAbierta || !_opAbierta.id) return;
+  const r = await api('/api/os/operaciones/' + encodeURIComponent(_opAbierta.id));
+  if (!r.ok) return;
+  const antes = _opAbierta.corriendo;
+  _opAbierta = r.op;
+  if (antes && !r.op.corriendo) { VIEWS.operaciones(); return; }   // terminó: refrescar también el historial
+  opPintar();
+}
+
+function opFormulario(){
+  const cat = (_ops.catalogo || []);
+  const def = cat.find(c => c.tipo === 'mover-jugadores') || cat[0];
+  const cxs = _ops.conexiones || [];
+  // Por defecto, la que CARGA en Casino: es la que tiene permiso de escribir y no es la sesión de Alexa_support.
+  const cxDef = (cxs.find(c => /casino/i.test(c.carga_de)) || cxs[0] || {}).id;
+  return `<div class="card">
+    <h2 style="margin:0 0 4px">🛠 ${esc(def.titulo)}</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:12px">${esc(def.descripcion)} Primero se revisa —eso no toca nada—, después se prueba con uno y recién ahí el resto.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+      <label>Casino<select id="op-cx">${cxs.map(c => `<option value="${esc(c.id)}" ${c.id === cxDef ? 'selected' : ''}>${esc(c.nombre)}${c.carga_de ? ' · carga ' + esc(c.carga_de) : ''}</option>`).join('')}</select></label>
+      <label>De la caja<input id="op-origen" placeholder="ej. CajaF01Zeus" autocomplete="off"></label>
+      <label>A la caja<input id="op-destino" placeholder="ej. ZeusChat02" autocomplete="off"></label>
+    </div>
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px">Sólo algunos jugadores <span class="muted">(si no, van todos)</span></summary>
+      <textarea id="op-solo" rows="4" style="width:100%;margin-top:6px" placeholder="Un login o ID por renglón"></textarea>
+    </details>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="op-enlinea"> Saltear a los que estén en línea</label>
+    <div style="margin-top:12px"><button onclick="opRevisar('${esc(def.tipo)}')" id="op-revisar">🔍 Revisar</button></div>
+  </div>`;
+}
+
+async function opRevisar(tipo){
+  const params = { conexion_id: val('op-cx'), origen: val('op-origen'), destino: val('op-destino'),
+    solo: (document.getElementById('op-solo') || {}).value || '', saltearEnLinea: !!(document.getElementById('op-enlinea') || {}).checked };
+  if (!params.origen || !params.destino) { toast('⚠ Falta la caja de origen o la de destino'); return; }
+  const b = document.getElementById('op-revisar'); if (b) { b.disabled = true; b.textContent = '⏳ Revisando en el casino…'; }
+  const r = await api('/api/os/operaciones/revisar', { method: 'POST', body: JSON.stringify({ tipo, params }) });
+  if (b) { b.disabled = false; b.textContent = '🔍 Revisar'; }
+  if (!r.ok) return;
+  _opAbierta = r.op; _opFiltro = 'pendiente';
+  VIEWS.operaciones();
+}
+
+const OP_ESTADO = { revisada: ['Revisada', 'warn'], piloto: ['Probando con 1…', 'warn'], esperando: ['Prueba OK — falta el resto', 'warn'],
+  corriendo: ['Corriendo…', 'warn'], pausada: ['Frenada', 'warn'], terminada: ['Terminada', 'ok'], interrumpida: ['Se cortó (reinicio)', 'err'] };
+const opN = (x) => Number(x || 0).toLocaleString('es-AR');
+const opFecha = (s) => s ? new Date(s).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+function opFicha(op){
+  const c = op.contexto || {}, rs = c.resumen || {}, k = op.cuenta || {};
+  const [lbl, cls] = OP_ESTADO[op.estado] || [op.estado, ''];
+  const total = op.total || 0, hechos = (k.hecho || 0) + (k.fallido || 0) + (k.salteado || 0);
+  const pct = total ? Math.round(hechos * 100 / total) : 0;
+  const rama = (x) => (x && x.rama || []).map(n => esc(n.nombre)).join(' › ');
+  const tile = (ico, v, t, col) => `<div style="background:var(--bg3);border-radius:8px;padding:8px 12px;min-width:92px">
+      <div style="font-size:19px;font-weight:800;${col ? 'color:' + col : ''}">${ico} ${v}</div><div class="muted" style="font-size:11.5px">${t}</div></div>`;
+  const avisos = (c.avisos || []).map(a => a.grave ? `<div class="nota err">⚠ ${esc(a.txt)}</div>` : `<div class="nota warn">${esc(a.txt)}</div>`).join('');
+
+  let acciones = '';
+  const corre = op.corriendo;
+  if (corre) acciones = `<button class="danger" onclick="opAccion('cancelar')">⏸ Frenar</button>`;
+  else if (op.estado === 'revisada') acciones = k.pendiente ? `<button onclick="opAccion('piloto')">▶ Probar con 1</button>` : '';
+  else if (['esperando', 'pausada', 'interrumpida'].includes(op.estado) && k.pendiente)
+    acciones = `<button onclick="opAccion('seguir')">▶ Seguir con los ${opN(k.pendiente)} que faltan</button>`;
+  if (!corre && k.fallido) acciones += ` <button class="outline" onclick="opAccion('reintentar')">↻ Reintentar los ${opN(k.fallido)} fallidos</button>`;
+  if (_opConfirma && !corre) {
+    const cuantos = _opConfirma === 'seguir' ? k.pendiente : k.fallido;
+    acciones = `<div class="nota warn" style="margin:0"><span class="tit">¿Muevo ${opN(cuantos)} jugadores a ${esc(c.destino && c.destino.login)}?</span>
+      ${rs.conSaldo ? 'El saldo viaja con cada uno. ' : ''}Se hace de a pocos y cada uno se confirma releyendo el casino; se puede frenar en cualquier momento.
+      <div style="margin-top:8px;display:flex;gap:8px"><button onclick="opAccion('${_opConfirma}',true)">Sí, mover ${opN(cuantos)}</button>
+      <button class="outline" onclick="_opConfirma=null;opPintar()">No</button></div></div>`;
+  }
+  const piloto = op.estado === 'esperando' ? (op.items || []).find(i => i.estado === 'hecho') : null;
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+      <div>
+        <h2 style="margin:0">${esc(op.titulo)}: ${esc(c.origen && c.origen.login)} → ${esc(c.destino && c.destino.login)}</h2>
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(c.conexion || '')} · revisada ${opFecha(op.creado)} por ${esc(op.por || '—')}</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center"><span class="badge ${cls}">${esc(lbl)}</span>
+        <button class="outline small" onclick="_opAbierta=null;VIEWS.operaciones()">✕ Cerrar</button></div>
+    </div>
+    <div style="font-size:12.5px;margin-top:10px;line-height:1.7">
+      <div><span class="muted">De:</span> ${rama(c.origen)}${c.origen && c.origen.cliente ? ' <span class="muted">· cliente ' + esc(c.origen.cliente.cliente) + '</span>' : ''}</div>
+      <div><span class="muted">A:</span> ${rama(c.destino)}${c.destino && c.destino.cliente ? ' <span class="muted">· cliente ' + esc(c.destino.cliente.cliente) + '</span>' : ''}</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      ${tile('👥', opN(rs.jugadores), 'jugadores')}
+      ${tile('💰', opN(rs.conSaldo), 'con saldo · ' + esc(rs.divisa || '') + ' ' + opN(rs.saldoTotal))}
+      ${tile('🟢', opN(rs.enLinea), 'en línea al revisar')}
+      ${tile('✅', opN(k.hecho), 'movidos', 'var(--green)')}
+      ${tile('❌', opN(k.fallido), 'fallidos', k.fallido ? 'var(--red)' : '')}
+      ${tile('⏳', opN(k.pendiente), 'faltan')}
+      ${k.salteado ? tile('⏭', opN(k.salteado), 'salteados') : ''}
+    </div>
+    ${avisos}
+    ${piloto ? `<div class="nota ok"><span class="tit">La prueba salió bien</span>${esc(piloto.login)} quedó en ${esc(c.destino.login)}, confirmado releyendo el casino.</div>` : ''}
+    <div style="margin-top:12px;background:var(--bg3);border-radius:6px;height:10px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${k.fallido ? 'var(--gold)' : 'var(--green)'};transition:width .4s"></div></div>
+    <div class="muted" style="font-size:11.5px;margin-top:3px">${opN(hechos)} de ${opN(total)} · ${pct}%${corre ? ' · se actualiza solo; podés cerrar esta pestaña, sigue en el servidor' : ''}</div>
+    <div style="margin-top:12px">${acciones}</div>
+    ${opRenglones(op)}
+  </div>`;
+}
+
+function opRenglones(op){
+  const items = op.items || [];
+  const k = op.cuenta || {};
+  const tabs = [['fallido', '❌', k.fallido], ['pendiente', '⏳', k.pendiente], ['hecho', '✅', k.hecho], ['salteado', '⏭', k.salteado], ['todos', 'Todos', items.length]]
+    .filter(([e, , n]) => e === 'todos' || n);
+  if (!tabs.some(([e]) => e === _opFiltro)) _opFiltro = tabs[0][0];
+  const q = _opBusca.toLowerCase();
+  let ver = items.filter(i => (_opFiltro === 'todos' || i.estado === _opFiltro) && (!q || String(i.login).toLowerCase().includes(q) || String(i.id).includes(q)));
+  const n = ver.length; ver = ver.slice(0, 300);
+  return `<div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${tabs.map(([e, ico, c]) => `<button class="${e === _opFiltro ? '' : 'outline'} small" onclick="_opFiltro='${e}';opPintar()">${ico} ${opN(c)}</button>`).join('')}
+      <input placeholder="Buscar jugador" value="${esc(_opBusca)}" oninput="_opBusca=this.value;clearTimeout(window._opBt);window._opBt=setTimeout(()=>{opPintar();const e=document.getElementById('op-busca');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length)}},250)" id="op-busca" style="max-width:200px;margin-left:auto">
+    </div>
+    <div style="overflow-x:auto;margin-top:6px"><table style="min-width:100%"><thead><tr><th>Jugador</th><th>ID</th><th class="right">Saldo</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
+    ${ver.map(i => `<tr><td>${esc(i.login)}${i.online ? ' 🟢' : ''}</td><td class="muted">${esc(i.id)}</td><td class="right">${i.saldo ? opN(i.saldo) : '<span class="muted">0</span>'}</td>
+      <td>${{ hecho: '✅', fallido: '❌', pendiente: '⏳', salteado: '⏭' }[i.estado] || ''} ${esc(i.estado)}</td><td style="font-size:12px">${esc(i.motivo || '')}${i.at ? ' <span class="muted">' + opFecha(i.at) + '</span>' : ''}</td></tr>`).join('')
+      || '<tr><td colspan="5" class="muted">Nada para mostrar.</td></tr>'}
+    </tbody></table></div>
+    ${n > 300 ? `<div class="muted" style="font-size:12px;margin-top:4px">Se muestran 300 de ${opN(n)}. Usá el buscador para encontrar uno.</div>` : ''}`;
+}
+
+/* «Seguir» y «Reintentar» tocan cientos de cuentas: se confirman en la misma pantalla, con el
+   número a la vista, en vez de un confirm() del navegador que se acepta sin leer. */
+let _opConfirma = null;
+async function opAccion(que, confirmado){
+  const op = _opAbierta; if (!op || !op.id) return;
+  if ((que === 'seguir' || que === 'reintentar') && !confirmado) { _opConfirma = que; opPintar(); return; }
+  _opConfirma = null;
+  const r = await api('/api/os/operaciones/' + encodeURIComponent(op.id) + '/' + que, { method: 'POST' });
+  if (!r.ok && que !== 'cancelar') return;
+  if (que === 'cancelar') toast('⏸ Frenando: termina los que estaban en curso');
+  _opFiltro = que === 'reintentar' ? 'fallido' : _opFiltro;
+  VIEWS.operaciones();
+}
+
+function opHistorial(){
+  const h = (_ops.historial || []);
+  if (!h.length) return '';
+  return `<div class="card"><h3 style="margin:0 0 8px">Lo que se corrió</h3>
+    <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>Cuándo</th><th>Qué</th><th>Estado</th><th class="right">✅</th><th class="right">❌</th><th class="right">⏳</th><th>Quién</th></tr></thead><tbody>
+    ${h.map(o => { const [lbl, cls] = OP_ESTADO[o.estado] || [o.estado, '']; const c = o.contexto || {};
+      return `<tr style="cursor:pointer" onclick="opAbrir('${esc(o.id)}')"><td>${opFecha(o.creado)}</td>
+        <td>${esc(o.titulo)}: <b>${esc(c.origen && c.origen.login)}</b> → <b>${esc(c.destino && c.destino.login)}</b></td>
+        <td><span class="badge ${cls}">${esc(lbl)}</span></td><td class="right">${opN(o.cuenta.hecho)}</td>
+        <td class="right" ${o.cuenta.fallido ? 'style="color:var(--red);font-weight:700"' : ''}>${opN(o.cuenta.fallido)}</td>
+        <td class="right">${opN(o.cuenta.pendiente)}</td><td>${esc(o.por || '—')}</td></tr>`; }).join('')}
+    </tbody></table></div></div>`;
+}
+async function opAbrir(id){ _opAbierta = { id: id }; _opFiltro = 'fallido'; _opBusca = ''; await VIEWS.operaciones(); window.scrollTo(0, 0); }
 </script>
 <!-- Tipos de cambio: la misma pantalla que usa /tbs. Va acá abajo porque necesita los
      ayudantes de arriba ya definidos, y escribe VIEWS.tc antes de que arranque el panel. -->

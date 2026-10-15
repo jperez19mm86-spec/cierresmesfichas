@@ -154,6 +154,8 @@ app.set('avisarComprobante', avisarComprobante);
 // `quienEs` devuelve { rol, usuario }: acá hace falta el NOMBRE, que es lo que queda escrito.
 require('./despacho-pagos').mount(app, { quienEs: (req) => (auth.quienEs(req) || {}).usuario });
 require('./os.routes').mount(app);
+// 🛠 Operaciones en tanda contra el casino (mover jugadores de caja, …). Sólo la dueña.
+require('./operaciones.routes').mount(app);
 
 /* EL PUENTE con Mi Caja (servicio aparte): un contrato HTTP chico y versionado, con token propio.
    Módulo aislado a propósito, para que deployar el OS no obligue a tocar Mi Caja ni al revés. */
