@@ -20,7 +20,7 @@ const nodos = new Map([
   ['501', { id: '501', login: 'juan501', padre: '10', group: '5' }],
   ['777', { id: '777', login: 'otro777', padre: '30', group: '5' }],
 ]);
-let movidas = 0;
+let movidas = 0; const cargas = [];
 const cli = {
   async apiCall(area, body = {}, q = {}) {
     if (area === 'search') {
@@ -28,6 +28,13 @@ const cli = {
       return { ok: true, data: { users: [...nodos.values()].filter((u) => u.login.toLowerCase() === s || u.id === s).map((u) => ({ id: u.id, login: u.login, group: u.group, create: u.padre })) } };
     }
     if (area === 'usersettings') { movidas++; nodos.get(q.id).padre = [...nodos.values()].find((u) => u.login === body['setting[value]']).id; return { ok: true, data: {} }; }
+    if (area === 'balance') {
+      const j = nodos.get(q.id); const caja = nodos.get(j.padre); const m = Number(body.amount);
+      cargas.push({ id: q.id, m, desde: caja.login });
+      if ((caja.saldo || 0) < m) return { ok: false, error: 'Suma de entrada excede los límites' };
+      caja.saldo -= m; j.saldoJ = (j.saldoJ || 0) + m;
+      return { ok: true, data: { successMessage: 'Success' } };
+    }
     if (area === 'breadcrumbs') { const out = []; let x = nodos.get(q.id); while (x) { out.unshift({ id: x.id, name: x.login }); x = nodos.get(x.padre); } return { ok: true, data: { userTree: out } }; }
     throw new Error('área ' + area);
   },
@@ -113,6 +120,9 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   ok(c.mostrar === false, 'a uno de otra caja no le aparece');
   c = await pases.consultar({ origin: 'https://otro.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
   ok(c.mostrar === false, 'en un sitio sin pase con botón ni se pregunta');
+  await pases.editar(p.id, { titulo: '¡Nos renovamos!', subtitulo: 'Misma plataforma, más juegos!', texto_boton: 'Entrar ya!' });
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
+  ok(c.textos && c.textos.titulo === '¡Nos renovamos!' && c.textos.boton === 'Entrar ya!', 'cada pase manda sus propios textos a la franja');
   await pases.editar(p.id, { caja_origen: 'CajaF01Zeus' }, deps);
   ok(pases.get(p.id).boton === true, 'editar otra cosa no apaga el botón');
 
@@ -128,6 +138,34 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   ok(/cuelga de OtraCaja/.test(pases.eventos(p.id)[0].detalle), 'y en «Ver quiénes» dice de qué caja era');
   await pases.editar(p.id, { todos: false });
 
+  // ── 🎁 regalo al pasarse (Zeus, 16-oct: 1000 de la caja de destino) ────────────
+  nodos.get('20').saldo = 1500;                                    // ZeusChat02 tiene para 1 regalo
+  nodos.set('601', { id: '601', login: 'nuevo601', padre: '10', group: '5' });
+  nodos.set('602', { id: '602', login: 'nuevo602', padre: '10', group: '5' });
+  SESIONES['d'.repeat(32)] = { id: '601', login: 'nuevo601', currency: 'ARS' };
+  SESIONES['e'.repeat(32)] = { id: '602', login: 'nuevo602', currency: 'ARS' };
+  await assert.rejects(pases.editar(p.id, { caja_destino: '', fichas_regalo: 1000 }, deps), /hace falta la caja de destino/);
+  ok(true, 'sin caja de destino no deja poner regalo (no sabría de dónde sacarlo)');
+  await pases.editar(p.id, { fichas_regalo: 1000 }, deps);
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'd'.repeat(32) }, deps);
+  ok(r.ir && nodos.get('601').padre === '20' && nodos.get('601').saldoJ === 1000 && nodos.get('20').saldo === 500, 'al pasarse recibe 1000 y salen de la caja de destino');
+  ok(/🎁 1000 ARS de regalo/.test(pases.eventos(p.id)[0].detalle), 'y queda escrito en «Ver quiénes»');
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'd'.repeat(32) }, deps);
+  ok(nodos.get('601').saldoJ === 1000 && cargas.filter((x) => x.id === '601').length === 1, 'si vuelve a tocar, NO se le regala otra vez');
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'e'.repeat(32) }, deps);
+  ok(r.ir && nodos.get('602').padre === '20' && !nodos.get('602').saldoJ, 'sin saldo en la caja: se pasa igual, sin regalo');
+  ok(/regalo NO dado \(Suma de entrada excede los límites\)/.test(pases.eventos(p.id)[0].detalle), 'y queda anotado para cargarlo a mano');
+  nodos.get('20').saldo = 5000;
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'e'.repeat(32) }, deps);
+  ok(nodos.get('602').saldoJ === 1000, 'si la caja ya tiene saldo y vuelve a tocar, se reintenta y lo recibe');
+  const zp = pases.list().find((x) => x.id === p.id);
+  ok(zp.regalos.dado.n === 2 && zp.regalos.dado.monto === 2000, 'la pantalla cuenta los regalos dados y el total');
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'b'.repeat(32) }, deps);
+  await pases.editar(p.id, { todos: true });
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'b'.repeat(32) }, deps);
+  ok(!nodos.get('777').saldoJ, 'uno de OTRA caja (pase «para todos») no recibe regalo: no saldría de la caja de destino');
+  await pases.editar(p.id, { todos: false, fichas_regalo: 0 });
+
   // la franja en el navegador (jsdom si está a mano)
   let JSDOM = null; try { ({ JSDOM } = require(process.env.JSDOM_DIR || 'jsdom')); } catch (e) {}
   if (JSDOM) {
@@ -135,14 +173,15 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
     const dom = new JSDOM('<body></body>', { url: 'https://casinozeuschat.com/', runScripts: 'outside-only' });
     const w = dom.window; const llamadas = [];
     w.localStorage.setItem('ig_token', 'a'.repeat(32));
-    w.fetch = async (url, op) => { llamadas.push(url.split('/api/')[1]); return { json: async () => (url.includes('consultar') ? { ok: true, mostrar: true } : { ok: true, ir: 'https://casinozeuschat.net/?cw_pase=x' }) }; };
+    w.fetch = async (url, op) => { llamadas.push(url.split('/api/')[1]); return { json: async () => (url.includes('consultar') ? { ok: true, mostrar: true, textos: { titulo: '<b>¡Nos renovamos!</b>', boton: 'Reclamar 1000 fichas gratis' } } : { ok: true, ir: 'https://casinozeuschat.net/?cw_pase=x' }) }; };
     let fueA = null;
     // casino adentro de otra página: jsdom no deja cambiar window.top, se le pone otro nombre en la copia
     w.__TOP = { location: { set href(v) { fueA = v; } } };
     w.eval(src.replace(/window\.top/g, 'window.__TOP'));
     await new Promise((r) => setTimeout(r, 50));
     const f = w.document.getElementById('lg-pase-franja');
-    ok(f && /Nos actualizamos/.test(f.textContent) && /Probá ahora/.test(f.textContent), 'la franja dice «Nos actualizamos» y «Probá ahora»');
+    ok(f && /¡Nos renovamos!/.test(f.textContent) && /Reclamar 1000 fichas gratis/.test(f.textContent) && /misma cuenta/.test(f.textContent), 'la franja usa los textos del pase (y el de siempre donde falta)');
+    ok(!f.querySelector('b'), 'un texto con HTML se muestra como texto, no se ejecuta');
     f.querySelector('[data-ir]').click();
     await new Promise((r) => setTimeout(r, 50));
     ok(llamadas.join() === 'pase/consultar,pase/emitir' && fueA === 'https://casinozeuschat.net/?cw_pase=x', 'al tocarla pide el pase y cambia la página de ARRIBA (sale del chat viejo)');

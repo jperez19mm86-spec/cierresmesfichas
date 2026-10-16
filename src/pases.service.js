@@ -41,6 +41,18 @@ ensureColumns('pase', { boton: 'INTEGER DEFAULT 0' });
 // (Zeus, 16-oct: el sitio es de un solo cliente y parte ya se había movido de caja). Los de la caja
 // de origen se cambian de caja; los demás se pasan de sitio sin tocarles la caja.
 ensureColumns('pase', { todos: 'INTEGER DEFAULT 0' });
+// Los textos de la franja, por pase (Zeus y Ganamos dicen cosas distintas). Vacío = el de siempre.
+ensureColumns('pase', { titulo: 'TEXT', subtitulo: 'TEXT', texto_boton: 'TEXT' });
+// Fichas de regalo al pasarse (Zeus, 16-oct: 1000). Salen de la CAJA DE DESTINO: el jugador cuelga
+// de ella, así que cargarle a él se lo descuenta a ella (como el «in(B)» de un movimiento cuando el
+// origen es padre del destino, ver carga-cascada). Una sola vez por jugador: tabla pase_regalo.
+ensureColumns('pase', { fichas_regalo: 'REAL DEFAULT 0' });
+db.exec(`CREATE TABLE IF NOT EXISTS pase_regalo (
+  pase_id TEXT, jugador_id TEXT, login TEXT, monto REAL, divisa TEXT,
+  estado TEXT,             -- dando | dado | fallo | dudoso
+  detalle TEXT, at TEXT,
+  PRIMARY KEY (pase_id, jugador_id)
+)`);
 db.exec(`CREATE TABLE IF NOT EXISTS pase_evento (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pase_id TEXT, sitio TEXT, jugador_id TEXT, login TEXT,
@@ -65,7 +77,7 @@ function host(s) {
 function _fila(r) {
   if (!r) return null;
   return { id: r.id, sitio_viejo: r.sitio_viejo, sitio_nuevo: r.sitio_nuevo, conexion_id: r.conexion_id,
-    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, boton: !!r.boton, todos: !!r.todos, creado: r.creado };
+    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, boton: !!r.boton, todos: !!r.todos, titulo: r.titulo || '', subtitulo: r.subtitulo || '', texto_boton: r.texto_boton || '', fichas_regalo: Number(r.fichas_regalo) || 0, creado: r.creado };
 }
 function list() {
   const filas = db.prepare('SELECT * FROM pase ORDER BY ord ASC, creado ASC').all().map(_fila);
@@ -73,14 +85,18 @@ function list() {
   const ultimo = db.prepare('SELECT pase_id, MAX(at) at FROM pase_evento GROUP BY pase_id').all();
   return filas.map((p) => {
     const c = {}; cuenta.filter((x) => x.pase_id === p.id).forEach((x) => { c[x.resultado] = x.n; });
-    return { ...p, cuenta: c, ultimo: (ultimo.find((x) => x.pase_id === p.id) || {}).at || null };
+    const reg = db.prepare(`SELECT estado, COUNT(*) n, SUM(monto) m FROM pase_regalo WHERE pase_id=? GROUP BY estado`).all(p.id);
+    const regalos = {}; reg.forEach((x) => { regalos[x.estado] = { n: x.n, monto: x.m }; });
+    return { ...p, cuenta: c, regalos, ultimo: (ultimo.find((x) => x.pase_id === p.id) || {}).at || null };
   });
 }
 function get(id) { return _fila(db.prepare('SELECT * FROM pase WHERE id=?').get(String(id))); }
 
 function _validar(d) {
   const p = { sitio_viejo: host(d.sitio_viejo), sitio_nuevo: host(d.sitio_nuevo), conexion_id: String(d.conexion_id || ''),
-    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false, boton: !!d.boton, todos: !!d.todos };
+    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false, boton: !!d.boton, todos: !!d.todos,
+    titulo: String(d.titulo || '').trim().slice(0, 60), subtitulo: String(d.subtitulo || '').trim().slice(0, 90), texto_boton: String(d.texto_boton || '').trim().slice(0, 40),
+    fichas_regalo: Math.max(0, Math.round(Number(String(d.fichas_regalo || 0).replace(',', '.')) || 0)) };
   if (!p.sitio_viejo || !p.sitio_nuevo) throw new Error('falta el link viejo o el nuevo');
   for (const h of [p.sitio_viejo, p.sitio_nuevo]) {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) throw new Error(`«${h}» no es un link completo: falta el final (.com, .net, .org…)`);
@@ -89,6 +105,8 @@ function _validar(d) {
   if (!p.caja_origen) throw new Error('falta la caja de origen: es la que dice qué jugadores se pasan');
   if (p.caja_destino && !p.conexion_id) throw new Error('para cambiar de caja hay que elegir el casino');
   if (p.caja_destino && p.caja_destino.toLowerCase() === p.caja_origen.toLowerCase()) throw new Error('la caja de origen y la de destino son la misma');
+  if (p.fichas_regalo > 0 && !p.caja_destino) throw new Error('para regalar fichas hace falta la caja de destino: salen de ella');
+  if (p.fichas_regalo > 100000) throw new Error('el regalo es de más de 100.000 fichas: ¿no sobra un cero?');
   return p;
 }
 /**
@@ -115,18 +133,18 @@ async function crear(d, deps) {
   await _cajasEnCasino(p, deps);
   const id = 'pase_' + crypto.randomBytes(5).toString('hex');
   const ord = (db.prepare('SELECT MAX(ord) m FROM pase').get().m || 0) + 1;
-  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,boton,todos,creado,ord) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, nowISO(), ord);
+  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,boton,todos,titulo,subtitulo,texto_boton,fichas_regalo,creado,ord) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, p.titulo, p.subtitulo, p.texto_boton, p.fichas_regalo, nowISO(), ord);
   _cacheCajas.clear();
   return get(id);
 }
 async function editar(id, d, deps) {
   const viejo = get(id); if (!viejo) throw new Error('ese pase no existe');
-  const p = _validar({ ...viejo, ...d, boton: d.boton !== undefined ? d.boton : viejo.boton, todos: d.todos !== undefined ? d.todos : viejo.todos });
+  const p = _validar({ ...viejo, ...d });
   // Prender o apagar no vuelve a preguntarle al casino; cambiar casino o cajas, sí.
   if (['conexion_id', 'caja_origen', 'caja_destino'].some((k) => d[k] !== undefined && String(d[k]) !== String(viejo[k] || ''))) await _cajasEnCasino(p, deps);
-  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=?, boton=?, todos=? WHERE id=?`)
-    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, id);
+  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=?, boton=?, todos=?, titulo=?, subtitulo=?, texto_boton=?, fichas_regalo=? WHERE id=?`)
+    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, p.titulo, p.subtitulo, p.texto_boton, p.fichas_regalo, id);
   _cacheCajas.clear(); _consultas.clear();
   return get(id);
 }
@@ -206,7 +224,7 @@ async function quienEs(sitio, token, fetchImpl = null) {
     const txt = await r.text();
     let j = null; try { j = JSON.parse(txt); } catch (e) { /* abajo se anota */ }
     const c = (j && j.content) || {};
-    if (c.login) return { id: String(c.id), login: String(c.login) };
+    if (c.login) return { id: String(c.id), login: String(c.login), divisa: String(c.currency || 'ARS') };
     // Que quede escrito QUÉ contestó: el 16-oct Zeus le decía que no al servidor y sí al navegador.
     console.log(`[pase] ${sitio} no reconoció la sesión: HTTP ${r.status} · ${String(txt).replace(/\s+/g, ' ').slice(0, 200)}`);
     return null;
@@ -241,6 +259,38 @@ async function _reglaDe(reglas, jug, clienteDe) {
   return null;
 }
 
+/**
+ * Carga el regalo UNA vez. Se anota «dando» ANTES de pedirlo: si el proceso se corta en el medio,
+ * queda «dudoso» a la vista y no se repite solo (regalar dos veces no se deshace). Un error claro
+ * del casino (sin saldo, etc.) queda «fallo» y se vuelve a intentar la próxima vez que toque.
+ * Devuelve el texto para el detalle del evento.
+ */
+async function _darRegalo(regla, jug, cli, destino) {
+  const ya = db.prepare('SELECT * FROM pase_regalo WHERE pase_id=? AND jugador_id=?').get(regla.id, String(jug.id));
+  if (ya && ya.estado !== 'fallo') return ya.estado === 'dado' ? '' : 'regalo en duda de un intento anterior: revisar a mano';
+  const monto = regla.fichas_regalo, divisa = jug.divisa || 'ARS';
+  // Que el que está arriba sea la caja de destino (si no, el casino se lo sacaría a otra).
+  const ops = require('./operaciones.service');
+  const yo = await ops._ayudas.buscarUsuario(cli, jug.login);
+  if (!yo || yo.padre !== destino.id) return 'regalo no dado: no cuelga de ' + destino.login;
+  db.prepare(`INSERT OR REPLACE INTO pase_regalo (pase_id,jugador_id,login,monto,divisa,estado,detalle,at) VALUES (?,?,?,?,?,'dando','',?)`)
+    .run(regla.id, String(jug.id), jug.login, monto, divisa, nowISO());
+  let r;
+  try {
+    r = await cli.apiCall('balance', { balance_currency: divisa, amount: String(monto), send: 'true', all: 'false', operation: 'in' },
+      { type: 'frame', printing: 'true', id: String(jug.id) });
+  } catch (e) { r = { ok: false, dudoso: true, error: e.message }; }
+  const d = (r && r.data) || {};
+  const bien = r && r.ok && (d.successMessage || d.dataList);
+  // Error claro del casino → «fallo» (se reintenta). Sin respuesta o respuesta rara → «dudoso».
+  const err = (r && r.error) || d.errorMessage || '';
+  const estado = bien ? 'dado' : (err && !(r && r.dudoso) ? 'fallo' : 'dudoso');
+  const det = bien ? '' : String(err || 'respuesta inesperada del casino').slice(0, 200);
+  db.prepare('UPDATE pase_regalo SET estado=?, detalle=?, at=? WHERE pase_id=? AND jugador_id=?').run(estado, det, nowISO(), regla.id, String(jug.id));
+  if (bien) return `🎁 ${monto} ${divisa} de regalo (de ${destino.login})`;
+  return estado === 'fallo' ? `regalo NO dado (${det}): cargárselo a mano o se reintenta si vuelve a tocar` : `regalo en duda (${det}): revisar a mano antes de volver a darlo`;
+}
+
 /** «cuelga de X: no se le cambió la caja», para el detalle de un pase «para todos». */
 async function _cajaActual(p, jug, clienteDe) {
   try {
@@ -266,13 +316,15 @@ async function consultar({ origin, token }, deps = {}) {
   if (!reglas.length || !/^[a-f0-9]{16,64}$/i.test(String(token || ''))) return { mostrar: false };
   const k = sitio + '|' + token;
   const ya = _consultas.get(k);
-  if (ya && ya.exp > Date.now()) return { mostrar: ya.mostrar };
+  if (ya && ya.exp > Date.now()) return ya.r;
   const jug = await quienEs(sitio, token, fetchImpl);
-  const mostrar = !!(jug && (reglas.some((p) => p.todos) || await _reglaDe(reglas, jug, clienteDe)));
+  let regla = null;
+  if (jug) { const m = await _reglaDe(reglas, jug, clienteDe); regla = m ? m.regla : reglas.find((p) => p.todos) || null; }
+  const r = regla ? { mostrar: true, textos: { titulo: regla.titulo, subtitulo: regla.subtitulo, boton: regla.texto_boton } } : { mostrar: false };
   if (_consultas.size > 20000) _consultas.clear();
   // Un «sí» o un «no es de la caja» valen 10 min; un «no reconoció la sesión» sólo 30 s (puede ser un corte).
-  _consultas.set(k, { mostrar, exp: Date.now() + (jug ? 10 * 60 * 1000 : 30 * 1000) });
-  return { mostrar };
+  _consultas.set(k, { r, exp: Date.now() + (jug ? 10 * 60 * 1000 : 30 * 1000) });
+  return r;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -316,6 +368,12 @@ async function emitir({ origin, token }, deps = {}) {
     catch (e) { motivo = e.message; }
     if (motivo) { _anotar(regla, sitio, jug, 'error', 'no se pudo cambiar de caja: ' + motivo); return { motivo: 'error' }; }
   } else if (destino) resultado = 'ya_pasado';
+
+  // Regalo: sólo si quedó en la caja de destino (así sale de ella y de ninguna otra).
+  if (regla.fichas_regalo > 0 && destino) {
+    const r = await _darRegalo(regla, jug, cli, destino);
+    if (r) nota = [nota, r].filter(Boolean).join(' · ');
+  }
 
   // ¿La sesión sirve en el sitio nuevo? (otro servidor del casino, o el cambio de caja la cerró).
   // Se lo manda igual —ya está en su caja nueva—, pero queda escrito para verlo en la pantalla.

@@ -104,7 +104,7 @@
     (function esperar() {
       var t = sesion();
       if (!t) { if (++intentos < 40) setTimeout(esperar, 3000); return; }
-      post('/api/pase/consultar', { token: t }).then(function (r) { if (r && r.mostrar) pintarFranja(); }).catch(function () {});
+      post('/api/pase/consultar', { token: t }).then(function (r) { if (r && r.mostrar) pintarFranja(r.textos || {}); }).catch(function () {});
     })();
     /* El color es el de la marca del sitio (pedido de Pedro, 16-oct): rojo en Zeus, morado en Ganamos. */
     function colores() {
@@ -112,9 +112,12 @@
         ? { fondo: '#d6202a', fondo2: '#a3121a', texto: '#b3121b' }
         : { fondo: '#7b2ff0', fondo2: '#5418b8', texto: '#5a1bc4' };
     }
-    function pintarFranja() {
+    function pintarFranja(tx) {
+      tx = tx || {};
       if (document.getElementById('lg-pase-franja')) return;
       var c = colores();
+      // Los textos se ponen con textContent (vienen de la pantalla de Pases): nunca como HTML.
+      var titulo = tx.titulo || '¡Nos actualizamos!', sub = tx.subtitulo || 'Seguí jugando con tu misma cuenta', boton = tx.boton || 'Probá ahora →';
       var f = document.createElement('div');
       f.id = 'lg-pase-franja';
       f.setAttribute('role', 'region'); f.setAttribute('aria-label', 'Aviso');
@@ -130,10 +133,13 @@
         + '@media (prefers-reduced-motion:reduce){#lg-pase-franja [data-ir]{animation:none}}</style>'
         + '<div style="display:flex;align-items:center;gap:12px;max-width:640px;margin:0 auto">'
         + '<div style="font-size:34px;line-height:1" aria-hidden="true">🎉</div>'
-        + '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:21px;letter-spacing:.2px">¡Nos actualizamos!</div>'
-        + '<div style="opacity:.95;font-size:15px;margin-top:3px">Seguí jugando con tu misma cuenta</div></div>'
+        + '<div style="flex:1;min-width:0"><div data-t style="font-weight:800;font-size:21px;letter-spacing:.2px"></div>'
+        + '<div data-s style="opacity:.95;font-size:15px;margin-top:3px"></div></div>'
         + '<button data-cerrar aria-label="Cerrar" style="align-self:flex-start;background:transparent;color:#fff;border:0;font-size:26px;line-height:1;padding:0 2px 6px 8px;cursor:pointer;opacity:.85">×</button></div>'
-        + '<button data-ir style="display:block;width:100%;max-width:640px;margin:12px auto 0;background:#fff;color:' + c.texto + ';border:0;border-radius:14px;padding:15px 18px;font:800 18px system-ui,sans-serif;cursor:pointer">Probá ahora →</button>';
+        + '<button data-ir style="display:block;width:100%;max-width:640px;margin:12px auto 0;background:#fff;color:' + c.texto + ';border:0;border-radius:14px;padding:15px 18px;font:800 18px system-ui,sans-serif;cursor:pointer"></button>';
+      f.querySelector('[data-t]').textContent = titulo;
+      f.querySelector('[data-s]').textContent = sub;
+      f.querySelector('[data-ir]').textContent = boton;
       f.querySelector('[data-ir]').onclick = function () { f.remove(); pasarAhora(sesion()); };
       f.querySelector('[data-cerrar]').onclick = function () { f.remove(); try { localStorage.setItem('lg_pase_cerrada', HOY); } catch (e) {} };
       document.body.appendChild(f);
