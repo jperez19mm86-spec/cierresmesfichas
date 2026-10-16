@@ -144,12 +144,50 @@ function _anotar(pase, sitio, jugador, resultado, detalle = '') {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Casino
 // ═══════════════════════════════════════════════════════════════════════════════
+/* ── DNS: Zeus le contesta 0.0.0.0 al resolvedor de Railway (medido el 16-oct en los registros
+   de red: «casinozeuschat.com A → 0.0.0.0»), mientras a cualquier otro le da 5.9.119.173 u
+   88.99.136.161. Los de Ganamos no. Cuando el DNS local da 0.0.0.0 o falla, se le pregunta al DNS
+   público de Google y se conecta a esa dirección con el MISMO nombre (el certificado sigue valiendo). */
+const https = require('https');
+const dnsMod = require('dns');
+const _doh = new Map();   // host → { ip, exp }
+async function _porGoogle(host) {
+  const ya = _doh.get(host);
+  if (ya && ya.exp > Date.now()) return ya.ip;
+  const r = await fetch('https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A');
+  const j = await r.json();
+  const ip = ((j && j.Answer) || []).map((a) => a.data).find((d) => /^\d+\.\d+\.\d+\.\d+$/.test(d) && d !== '0.0.0.0');
+  if (!ip) throw new Error('el DNS de Google tampoco da una dirección para ' + host);
+  _doh.set(host, { ip, exp: Date.now() + 5 * 60 * 1000 });
+  return ip;
+}
+function _lookup(host, opts, cb) {
+  dnsMod.lookup(host, { family: 4 }, (err, addr) => {
+    if (!err && addr && addr !== '0.0.0.0') return cb(null, opts && opts.all ? [{ address: addr, family: 4 }] : addr, 4);
+    _porGoogle(host).then((ip) => cb(null, opts && opts.all ? [{ address: ip, family: 4 }] : ip, 4), (e) => cb(err || e));
+  });
+}
+/** POST JSON a un sitio del casino con el DNS de respaldo. Devuelve { status, text }. */
+function _postSitio(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, lookup: _lookup, timeout: 15000 }, (res) => {
+      let txt = ''; res.setEncoding('utf8');
+      res.on('data', (c) => { txt += c; });
+      res.on('end', () => resolve({ status: res.statusCode, text: async () => txt }));
+    });
+    req.on('timeout', () => req.destroy(new Error('el sitio tardó más de 15 s')));
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 /** Quién es el dueño de esta sesión, preguntándole al propio sitio. null si no vale. */
-async function quienEs(sitio, token, fetchImpl = fetch) {
+async function quienEs(sitio, token, fetchImpl = null) {
   if (!/^[a-f0-9]{16,64}$/i.test(String(token || ''))) return null;
   const o = 'https://' + sitio;
+  const pedir = fetchImpl || ((url, op) => _postSitio(url, op.headers, op.body));
   try {
-    const r = await fetchImpl(o + '/api.php?type=query', {
+    const r = await pedir(o + '/api.php?type=query', {
       method: 'POST',
       headers: { 'User-Agent': UA, 'Content-Type': 'application/json', Origin: o, Referer: o + '/' },
       body: JSON.stringify({ cmd: 'terminalInfo', version: 9, domain: o, token }),
@@ -210,7 +248,7 @@ async function _cajaActual(p, jug, clienteDe) {
  */
 const _consultas = new Map();   // sitio|token → { mostrar, exp }
 async function consultar({ origin, token }, deps = {}) {
-  const fetchImpl = deps.fetch || fetch;
+  const fetchImpl = deps.fetch || null;
   const clienteDe = deps.clienteDe || ((id) => casinoConex.client(id));
   const sitio = host(origin);
   const reglas = list().filter((p) => p.activo && p.boton && p.sitio_viejo === sitio);
@@ -238,7 +276,7 @@ function _limpiar() { const t = Date.now(); for (const [k, v] of _codigos) if (v
  * para que la página le diga al jugador qué hacer.
  */
 async function emitir({ origin, token }, deps = {}) {
-  const fetchImpl = deps.fetch || fetch;
+  const fetchImpl = deps.fetch || null;
   const clienteDe = deps.clienteDe || ((id) => casinoConex.client(id));
   const sitio = host(origin);
   const reglas = list().filter((p) => p.activo && p.sitio_viejo === sitio);
@@ -298,4 +336,4 @@ function sitios() {
   return [...s];
 }
 
-module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, sitios, host, _codigos };
+module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, sitios, host, _codigos, _quienEs: quienEs };
