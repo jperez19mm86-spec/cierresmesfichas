@@ -154,10 +154,14 @@ async function quienEs(sitio, token, fetchImpl = fetch) {
       headers: { 'User-Agent': UA, 'Content-Type': 'application/json', Origin: o, Referer: o + '/' },
       body: JSON.stringify({ cmd: 'terminalInfo', version: 9, domain: o, token }),
     });
-    const j = await r.json();
+    const txt = await r.text();
+    let j = null; try { j = JSON.parse(txt); } catch (e) { /* abajo se anota */ }
     const c = (j && j.content) || {};
-    return c.login ? { id: String(c.id), login: String(c.login) } : null;
-  } catch (e) { return null; }
+    if (c.login) return { id: String(c.id), login: String(c.login) };
+    // Que quede escrito QUÉ contestó: el 16-oct Zeus le decía que no al servidor y sí al navegador.
+    console.log(`[pase] ${sitio} no reconoció la sesión: HTTP ${r.status} · ${String(txt).replace(/\s+/g, ' ').slice(0, 200)}`);
+    return null;
+  } catch (e) { console.log(`[pase] ${sitio} no contestó: ${e.message}`); return null; }
 }
 
 const _cacheCajas = new Map();   // conexion|login → { id, login }
@@ -217,7 +221,8 @@ async function consultar({ origin, token }, deps = {}) {
   const jug = await quienEs(sitio, token, fetchImpl);
   const mostrar = !!(jug && (reglas.some((p) => p.todos) || await _reglaDe(reglas, jug, clienteDe)));
   if (_consultas.size > 20000) _consultas.clear();
-  _consultas.set(k, { mostrar, exp: Date.now() + 10 * 60 * 1000 });
+  // Un «sí» o un «no es de la caja» valen 10 min; un «no reconoció la sesión» sólo 30 s (puede ser un corte).
+  _consultas.set(k, { mostrar, exp: Date.now() + (jug ? 10 * 60 * 1000 : 30 * 1000) });
   return { mostrar };
 }
 
