@@ -36,7 +36,9 @@ const sitiosVistos = [];
 const fetchFalso = async (url, op) => {
   sitiosVistos.push(new URL(url).hostname);
   const j = JSON.parse(op.body); const s = SESIONES[j.token];
-  return { json: async () => (s ? { status: 'success', content: s } : { status: 'fail', error: 'Autorización fallida' }) };
+  const cuerpo = s ? { status: 'success', content: s } : { status: 'fail', error: 'Autorización fallida' };
+  // El casino real contesta con un salto de línea antes del JSON (medido en Zeus el 16-oct).
+  return { status: 200, json: async () => cuerpo, text: async () => '\n' + JSON.stringify(cuerpo) };
 };
 const deps = { fetch: fetchFalso, clienteDe: () => cli };
 
