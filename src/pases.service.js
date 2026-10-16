@@ -459,4 +459,14 @@ function sitios() {
   return [...s];
 }
 
-module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, darPendientes, sitios, host, _codigos, _quienEs: quienEs };
+/** Corregir a mano el estado de un regalo (p. ej. uno que sí entró y figura como no entregado). */
+function marcarRegalo(paseId, jugadorId, estado, quien = '') {
+  if (!['dado', 'fallo'].includes(estado)) throw new Error('estado inválido');
+  const ch = db.prepare('UPDATE pase_regalo SET estado=?, detalle=?, at=? WHERE pase_id=? AND jugador_id=?')
+    .run(estado, `marcado «${estado}» a mano` + (quien ? ' por ' + quien : ''), nowISO(), String(paseId), String(jugadorId)).changes;
+  if (!ch) throw new Error('ese regalo no existe');
+  return db.prepare('SELECT * FROM pase_regalo WHERE pase_id=? AND jugador_id=?').get(String(paseId), String(jugadorId));
+}
+function regalos(paseId) { return db.prepare('SELECT * FROM pase_regalo WHERE pase_id=? ORDER BY at DESC').all(String(paseId)); }
+
+module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, darPendientes, marcarRegalo, regalos, sitios, host, _codigos, _quienEs: quienEs };

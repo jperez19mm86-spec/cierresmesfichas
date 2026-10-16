@@ -11,6 +11,7 @@
  */
 const pases = require('./pases.service');
 const { porIp } = require('./lib/tope');
+const { quienEs } = require('./auth');
 
 function mount(app) {
   const mal = (res, e, st = 400) => res.status(st).json({ ok: false, error: e.message || String(e) });
@@ -36,6 +37,10 @@ function mount(app) {
   app.post('/api/os/pases', async (req, res) => { try { res.json({ ok: true, pase: await pases.crear(req.body || {}) }); } catch (e) { mal(res, e); } });
   app.put('/api/os/pases/:id', async (req, res) => { try { res.json({ ok: true, pase: await pases.editar(req.params.id, req.body || {}) }); } catch (e) { mal(res, e); } });
   app.post('/api/os/pases/:id/regalos/pendientes', async (req, res) => { try { res.json({ ok: true, ...(await pases.darPendientes(req.params.id)) }); } catch (e) { mal(res, e); } });
+  app.get('/api/os/pases/:id/regalos', (req, res) => res.json({ ok: true, regalos: pases.regalos(req.params.id) }));
+  app.post('/api/os/pases/:id/regalos/:jugador/marcar', (req, res) => {
+    try { res.json({ ok: true, regalo: pases.marcarRegalo(req.params.id, req.params.jugador, (req.body || {}).estado, (quienEs(req) || {}).usuario) }); } catch (e) { mal(res, e); }
+  });
   app.delete('/api/os/pases/:id', (req, res) => res.json({ ok: pases.borrar(req.params.id) }));
 }
 
