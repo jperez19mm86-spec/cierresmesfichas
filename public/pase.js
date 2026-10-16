@@ -106,18 +106,34 @@
       if (!t) { if (++intentos < 40) setTimeout(esperar, 3000); return; }
       post('/api/pase/consultar', { token: t }).then(function (r) { if (r && r.mostrar) pintarFranja(); }).catch(function () {});
     })();
+    /* El color es el de la marca del sitio (pedido de Pedro, 16-oct): rojo en Zeus, morado en Ganamos. */
+    function colores() {
+      return /zeus/i.test(location.hostname)
+        ? { fondo: '#d6202a', fondo2: '#a3121a', texto: '#b3121b' }
+        : { fondo: '#7b2ff0', fondo2: '#5418b8', texto: '#5a1bc4' };
+    }
     function pintarFranja() {
       if (document.getElementById('lg-pase-franja')) return;
+      var c = colores();
       var f = document.createElement('div');
       f.id = 'lg-pase-franja';
       f.setAttribute('role', 'region'); f.setAttribute('aria-label', 'Aviso');
-      f.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483646;display:flex;align-items:center;gap:10px;'
-        + 'padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:#d6202a;color:#fff;'
-        + 'font:14px/1.3 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.25)';
-      f.innerHTML = '<div style="flex:1;min-width:0"><div style="font-weight:700">Nos actualizamos</div>'
-        + '<div style="opacity:.92;font-size:12.5px">Seguí jugando con tu misma cuenta</div></div>'
-        + '<button data-ir style="background:#fff;color:#b3121b;border:0;border-radius:9px;padding:9px 14px;font:700 14px system-ui,sans-serif;cursor:pointer;white-space:nowrap">Probá ahora</button>'
-        + '<button data-cerrar aria-label="Cerrar" style="background:transparent;color:#fff;border:0;font-size:20px;line-height:1;padding:4px 6px;cursor:pointer">×</button>';
+      f.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483646;'
+        + 'padding:calc(12px + env(safe-area-inset-top,0px)) 14px 14px;'
+        + 'background:linear-gradient(100deg,' + c.fondo + ',' + c.fondo2 + ');color:#fff;'
+        + 'font:16px/1.25 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.35);'
+        + 'border-bottom:3px solid rgba(255,255,255,.35)';
+      // Dos renglones: arriba qué pasa, abajo el botón a lo ancho (en un celular de 375 px el título
+      // no entra al lado del botón — medido en ganamoschat.com).
+      f.innerHTML = '<style>@keyframes lgLate{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,255,255,.75)}50%{transform:scale(1.03);box-shadow:0 0 0 9px rgba(255,255,255,0)}}'
+        + '#lg-pase-franja [data-ir]{animation:lgLate 1.6s ease-in-out infinite}'
+        + '@media (prefers-reduced-motion:reduce){#lg-pase-franja [data-ir]{animation:none}}</style>'
+        + '<div style="display:flex;align-items:center;gap:12px;max-width:640px;margin:0 auto">'
+        + '<div style="font-size:34px;line-height:1" aria-hidden="true">🎉</div>'
+        + '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:21px;letter-spacing:.2px">¡Nos actualizamos!</div>'
+        + '<div style="opacity:.95;font-size:15px;margin-top:3px">Seguí jugando con tu misma cuenta</div></div>'
+        + '<button data-cerrar aria-label="Cerrar" style="align-self:flex-start;background:transparent;color:#fff;border:0;font-size:26px;line-height:1;padding:0 2px 6px 8px;cursor:pointer;opacity:.85">×</button></div>'
+        + '<button data-ir style="display:block;width:100%;max-width:640px;margin:12px auto 0;background:#fff;color:' + c.texto + ';border:0;border-radius:14px;padding:15px 18px;font:800 18px system-ui,sans-serif;cursor:pointer">Probá ahora →</button>';
       f.querySelector('[data-ir]').onclick = function () { f.remove(); pasarAhora(sesion()); };
       f.querySelector('[data-cerrar]').onclick = function () { f.remove(); try { localStorage.setItem('lg_pase_cerrada', HOY); } catch (e) {} };
       document.body.appendChild(f);
