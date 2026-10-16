@@ -60,6 +60,7 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   ok(/^https:\/\/ganamoschatt\.com\/\?cw_pase=[a-f0-9]{48}$/.test(r.ir || ''), 'un jugador de la caja de origen recibe el link al sitio nuevo con un código');
   ok(!String(r.ir).includes('aaaaaaaa'), 'la sesión NO va en el link');
   ok(sitiosVistos[0] === 'ganamoschat.com', 'la sesión se valida contra el sitio de donde viene');
+  ok(sitiosVistos.includes('ganamoschatt.com'), 'y se comprueba que sirva en el sitio nuevo antes de mandarlo');
   ok(nodos.get('501').padre === '20' && movidas === 1, 'y lo pasó a la caja de destino');
 
   const cod = new URL(r.ir).searchParams.get('cw_pase');

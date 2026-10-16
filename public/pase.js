@@ -9,7 +9,17 @@
   var yo = document.currentScript && document.currentScript.src;
   var BASE = yo ? new URL(yo).origin : 'https://app.latamgames.online';
   var u; try { u = new URL(location.href); } catch (e) { return; }
-  var pasar = u.searchParams.has('pasar'), codigo = u.searchParams.get('cw_pase');
+  /* El sitio del casino LIMPIA la barra al arrancar (medido el 16-oct en ganamoschatt.com: entra con
+     ?cw_pase=… y a los segundos queda «/»), y este script lo carga el propio sitio DESPUÉS de eso.
+     Por eso se mira también el link con el que se abrió la página, que el navegador guarda tal cual. */
+  var original = null;
+  try { var nav = performance.getEntriesByType('navigation')[0]; if (nav && nav.name) original = new URL(nav.name); } catch (e) {}
+  function param(k) {
+    if (u.searchParams.has(k)) return u.searchParams.get(k);
+    if (original && original.searchParams.has(k)) return original.searchParams.get(k);
+    return null;
+  }
+  var pasar = param('pasar') !== null, codigo = param('cw_pase');
   if (!pasar && !codigo) return;
 
   // El parámetro se saca de la barra enseguida: que no quede en el historial ni se comparta.

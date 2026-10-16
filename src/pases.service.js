@@ -210,10 +210,15 @@ async function emitir({ origin, token }, deps = {}) {
     if (motivo) { _anotar(regla, sitio, jug, 'error', 'no se pudo cambiar de caja: ' + motivo); return { motivo: 'error' }; }
   } else if (destino) resultado = 'ya_pasado';
 
+  // ¿La sesión sirve en el sitio nuevo? (otro servidor del casino, o el cambio de caja la cerró).
+  // Se lo manda igual —ya está en su caja nueva—, pero queda escrito para verlo en la pantalla.
+  const enNuevo = await quienEs(regla.sitio_nuevo, token, fetchImpl);
+  const detalle = enNuevo ? '' : 'llegó sin sesión: el sitio nuevo no aceptó su sesión, va a tener que entrar con usuario y clave';
+
   _limpiar();
   const codigo = crypto.randomBytes(24).toString('hex');
   _codigos.set(codigo, { token, sitio: regla.sitio_nuevo, exp: Date.now() + VIDA_CODIGO_MS });
-  _anotar(regla, sitio, jug, resultado);
+  _anotar(regla, sitio, jug, resultado, detalle);
   return { ir: `https://${regla.sitio_nuevo}/?cw_pase=${codigo}` };
 }
 
