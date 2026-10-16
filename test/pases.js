@@ -42,11 +42,18 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
 
 (async () => {
   console.log('\n🔀 pases\n');
-  assert.throws(() => pases.crear({ sitio_viejo: 'a.com', sitio_nuevo: 'a.com', caja_origen: 'x' }), /el mismo/);
-  assert.throws(() => pases.crear({ sitio_viejo: 'a.com', sitio_nuevo: 'b.com' }), /caja de origen/);
+  await assert.rejects(pases.crear({ sitio_viejo: 'a.com', sitio_nuevo: 'a.com', caja_origen: 'x' }, deps), /el mismo/);
+  await assert.rejects(pases.crear({ sitio_viejo: 'a.com', sitio_nuevo: 'b.com' }, deps), /caja de origen/);
+  await assert.rejects(pases.crear({ sitio_viejo: 'ganamosclub', sitio_nuevo: 'b.com', caja_origen: 'CajaF01Zeus' }, deps), /no es un link completo/);
+  ok(true, 'no acepta un link sin el final (.org) — pasó el 16-oct con «ganamosclub»');
+  const otroCasino = { id: 'cx2', nombre: 'Europa_Fichas' };
+  const vacio = { async apiCall() { return { ok: true, data: { users: [] } }; } };
+  await assert.rejects(pases.crear({ sitio_viejo: 'a.com', sitio_nuevo: 'b.com', conexion_id: 'cxMal', caja_origen: 'CajaF01Zeus', caja_destino: 'ZeusChat02' },
+    { clienteDe: (id) => (id === 'cxMal' ? vacio : cli), conexiones: [{ id: 'cxMal', nombre: 'Casino_Fichas' }, otroCasino] }), /está en «Europa_Fichas»/);
+  ok(true, 'con el casino equivocado no guarda, y dice en cuál está la caja');
   ok(true, 'no deja cargar un pase sin caja de origen ni con el mismo link a los dos lados');
 
-  const p = pases.crear({ sitio_viejo: 'https://www.GanamosChat.com/', sitio_nuevo: 'ganamoschatt.com', conexion_id: 'cx', caja_origen: 'CajaF01Zeus', caja_destino: 'ZeusChat02' });
+  const p = await pases.crear({ sitio_viejo: 'https://www.GanamosChat.com/', sitio_nuevo: 'ganamoschatt.com', conexion_id: 'cx', caja_origen: 'CajaF01Zeus', caja_destino: 'ZeusChat02' }, deps);
   ok(p.sitio_viejo === 'ganamoschat.com', 'el link se guarda limpio (sin https, www ni barra)');
 
   let r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
@@ -76,14 +83,14 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   const l = pases.list()[0];
   ok(l.cuenta.pasado === 1 && l.cuenta.ya_pasado === 1 && l.cuenta.fuera === 1 && l.cuenta.sin_sesion === 2, 'la pantalla cuenta pasados, repetidos, de otra caja y sin sesión');
   ok(pases.sitios().join() === 'ganamoschat.com,ganamoschatt.com', 'y sabe en qué sitios tiene que estar pegado el script');
-  pases.editar(p.id, { activo: false }); ok(pases.sitios().length === 2, 'un pase apagado sigue en la lista de sitios (el script ahí no hace nada)'); pases.editar(p.id, { activo: true });
+  await pases.editar(p.id, { activo: false }); ok(pases.sitios().length === 2, 'un pase apagado sigue en la lista de sitios (el script ahí no hace nada)'); await pases.editar(p.id, { activo: true });
 
-  pases.editar(p.id, { activo: false });
+  await pases.editar(p.id, { activo: false });
   r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
   ok(r.motivo === 'sin_regla', 'un pase apagado no pasa a nadie');
 
   // vencimiento
-  pases.editar(p.id, { activo: true });
+  await pases.editar(p.id, { activo: true });
   r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
   const c2 = new URL(r.ir).searchParams.get('cw_pase');
   pases._codigos.get(c2).exp = Date.now() - 1;

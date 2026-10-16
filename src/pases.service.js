@@ -74,14 +74,37 @@ function _validar(d) {
   const p = { sitio_viejo: host(d.sitio_viejo), sitio_nuevo: host(d.sitio_nuevo), conexion_id: String(d.conexion_id || ''),
     caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false };
   if (!p.sitio_viejo || !p.sitio_nuevo) throw new Error('falta el link viejo o el nuevo');
+  for (const h of [p.sitio_viejo, p.sitio_nuevo]) {
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) throw new Error(`«${h}» no es un link completo: falta el final (.com, .net, .org…)`);
+  }
   if (p.sitio_viejo === p.sitio_nuevo) throw new Error('el link viejo y el nuevo son el mismo');
   if (!p.caja_origen) throw new Error('falta la caja de origen: es la que dice qué jugadores se pasan');
   if (p.caja_destino && !p.conexion_id) throw new Error('para cambiar de caja hay que elegir el casino');
   if (p.caja_destino && p.caja_destino.toLowerCase() === p.caja_origen.toLowerCase()) throw new Error('la caja de origen y la de destino son la misma');
   return p;
 }
-function crear(d) {
+/**
+ * Que las cajas existan en el casino elegido. Sin esto, un pase con el casino equivocado (pasó el
+ * 16-oct: cajas de Europa cargadas con Casino_Fichas) queda guardado y no pasa a nadie, sin aviso.
+ * Si no está, se busca en las otras conexiones para decir en cuál sí.
+ */
+async function _cajasEnCasino(p, deps = {}) {
+  const clienteDe = deps.clienteDe || ((id) => casinoConex.client(id));
+  const ops = require('./operaciones.service');
+  const cli = clienteDe(p.conexion_id);
+  if (!cli) throw new Error('ese casino no tiene credenciales');
+  for (const caja of [p.caja_origen, p.caja_destino].filter(Boolean)) {
+    if (await ops._ayudas.buscarUsuario(cli, caja)) continue;
+    const otras = (deps.conexiones || casinoConex.list463()).filter((c) => c.id !== p.conexion_id && c.activa !== false);
+    let donde = null;
+    for (const c of otras) { try { const o = clienteDe(c.id); if (o && await ops._ayudas.buscarUsuario(o, caja)) { donde = c.nombre; break; } } catch (e) { /* sigue */ } }
+    throw new Error(`la caja «${caja}» no está en ese casino` + (donde ? `: está en «${donde}». Elegí ese.` : '.'));
+  }
+}
+
+async function crear(d, deps) {
   const p = _validar(d);
+  await _cajasEnCasino(p, deps);
   const id = 'pase_' + crypto.randomBytes(5).toString('hex');
   const ord = (db.prepare('SELECT MAX(ord) m FROM pase').get().m || 0) + 1;
   db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,creado,ord) VALUES (?,?,?,?,?,?,?,?,?)`)
@@ -89,9 +112,11 @@ function crear(d) {
   _cacheCajas.clear();
   return get(id);
 }
-function editar(id, d) {
+async function editar(id, d, deps) {
   const viejo = get(id); if (!viejo) throw new Error('ese pase no existe');
   const p = _validar({ ...viejo, ...d });
+  // Prender o apagar no vuelve a preguntarle al casino; cambiar casino o cajas, sí.
+  if (['conexion_id', 'caja_origen', 'caja_destino'].some((k) => d[k] !== undefined && String(d[k]) !== String(viejo[k] || ''))) await _cajasEnCasino(p, deps);
   db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=? WHERE id=?`)
     .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, id);
   _cacheCajas.clear();

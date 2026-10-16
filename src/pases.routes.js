@@ -28,8 +28,8 @@ function mount(app) {
 
   app.get('/api/os/pases', (req, res) => res.json({ ok: true, pases: pases.list(), sitios: pases.sitios() }));
   app.get('/api/os/pases/:id/eventos', (req, res) => res.json({ ok: true, eventos: pases.eventos(req.params.id) }));
-  app.post('/api/os/pases', (req, res) => { try { res.json({ ok: true, pase: pases.crear(req.body || {}) }); } catch (e) { mal(res, e); } });
-  app.put('/api/os/pases/:id', (req, res) => { try { res.json({ ok: true, pase: pases.editar(req.params.id, req.body || {}) }); } catch (e) { mal(res, e); } });
+  app.post('/api/os/pases', async (req, res) => { try { res.json({ ok: true, pase: await pases.crear(req.body || {}) }); } catch (e) { mal(res, e); } });
+  app.put('/api/os/pases/:id', async (req, res) => { try { res.json({ ok: true, pase: await pases.editar(req.params.id, req.body || {}) }); } catch (e) { mal(res, e); } });
   app.delete('/api/os/pases/:id', (req, res) => res.json({ ok: pases.borrar(req.params.id) }));
 }
 
