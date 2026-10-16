@@ -7,6 +7,8 @@
  * no lo mueve — tiene que quedar FALLIDO, no hecho.
  */
 const assert = require('assert');
+process.env.OPERACIONES_PAUSA_MS = '0';            // en la prueba no hace falta cuidar al casino
+process.env.OPERACIONES_ESPERA_BLOQUEO_MS = '5';
 process.env.DB_PATH = require('path').join(require('os').tmpdir(), 'test-operaciones-' + Date.now() + '.sqlite');
 const ops = require('../src/operaciones.service');
 
@@ -97,6 +99,17 @@ function casinoDeMentira({ jugadores = 2500, trabado = 'j7', conSaldo = 3 } = {}
   ok(op.total === 3, '«sólo estos» se queda con los de la lista');
   ok(op.contexto.resumen.noEstan === 1 && op.contexto.avisos.some((a) => /nadie/.test(a.txt)), 'y avisa los que no cuelgan de la caja');
   ok(op.items.find((i) => i.login === 'jug2').estado === 'salteado', 'el que está en línea queda salteado');
+
+  // ── el casino bloquea por exceso de pedidos: se espera y se reintenta el mismo ──
+  const cas4 = casinoDeMentira({ jugadores: 5 });
+  let bloqueos = 2;
+  const conBloqueo = { clienteDe: () => ({ ...cas4, apiCall: async (area, body, q) => {
+    if (area === 'usersettings' && bloqueos > 0) { bloqueos--; return { ok: false, error: '<b>Su solicitud fue bloqueada porque actualizó la página con demasiada frecuencia</b>' }; }
+    return cas4.apiCall(area, body, q); } }) };
+  op = await ops.revisar({ tipo: 'mover-jugadores', params: { conexion_id: 'x', origen: 'CajaOrigen', destino: 'CajaDestino' } }, conBloqueo);
+  ops.correr(op.id, {}, conBloqueo); await ops.esperar(op.id);
+  op = ops.get(op.id);
+  ok(op.cuenta.hecho === 5 && op.cuenta.fallido === 0, 'si el casino bloquea por exceso de pedidos, espera y reintenta: ninguno queda fallido');
 
   // ── cancelar ────────────────────────────────────────────────────────────────
   const cas3 = casinoDeMentira({ jugadores: 200 });

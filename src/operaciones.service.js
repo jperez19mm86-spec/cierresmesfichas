@@ -41,7 +41,16 @@ db.prepare(`UPDATE operacion SET estado='interrumpida' WHERE estado IN ('piloto'
 const nowISO = () => new Date().toISOString();
 const nuevoId = () => 'op_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const num = (v) => Number(String(v ?? '0').replace(/,/g, '')) || 0;   // el motor escribe «7,425.00»
-const A_LA_VEZ = Number(process.env.OPERACIONES_A_LA_VEZ) || 3;
+/* De a UNO y con pausa (16-oct): de a 3 sin pausa, el casino empezó a contestar «Su solicitud fue
+   bloqueada porque actualizó la página con demasiada frecuencia» y bloqueó la cuenta un rato —
+   256 fallidos en la migración de CajaF01Zeus, y de paso los pases de los jugadores, que usan la
+   misma cuenta. Si igual bloquea, se espera y se reintenta el MISMO jugador. */
+const A_LA_VEZ = Number(process.env.OPERACIONES_A_LA_VEZ) || 1;
+const _n = (v, d) => (v === undefined || v === '' ? d : Number(v));
+const PAUSA_MS = _n(process.env.OPERACIONES_PAUSA_MS, 400);
+const ESPERA_BLOQUEO_MS = _n(process.env.OPERACIONES_ESPERA_BLOQUEO_MS, 60000);
+const esBloqueo = (t) => /demasiada frecuencia|fue bloqueada|too many requests/i.test(String(t || ''));
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Ayudas contra el motor 463
@@ -287,15 +296,21 @@ function correr(id, { cuantos = Infinity, reintentar = false } = {}, { clienteDe
     const trabajador = async () => {
       while (k < cola.length && !viva.cancelar) {
         const it = cola[k++];
-        try {
-          const motivo = await def.hacer(cli, it, op.contexto);
+        for (let intento = 1; ; intento++) {
+          let motivo;
+          try { motivo = await def.hacer(cli, it, op.contexto); } catch (e) { motivo = e.message || String(e); }
+          if (motivo && esBloqueo(motivo) && intento <= 5 && !viva.cancelar) {
+            op.esperando_casino = nowISO(); _guardar(op);
+            await dormir(ESPERA_BLOQUEO_MS * intento);           // 1, 2, 3… minutos
+            continue;
+          }
           it.estado = motivo ? 'fallido' : 'hecho';
           if (motivo) it.motivo = motivo; else delete it.motivo;
-        } catch (e) {
-          it.estado = 'fallido'; it.motivo = e.message || String(e);
+          break;
         }
         it.at = nowISO();
         tal();
+        if (PAUSA_MS) await dormir(PAUSA_MS);
       }
     };
     await Promise.all(Array.from({ length: Math.min(piloto ? 1 : A_LA_VEZ, cola.length) }, trabajador));
