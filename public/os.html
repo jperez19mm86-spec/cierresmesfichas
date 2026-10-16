@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Latam Games</title>
-<link rel="stylesheet" href="/estilos.css">
+<link rel="stylesheet" href="/estilos.css?v=20261017">
 </head>
 <body>
 <header>
@@ -4113,7 +4113,7 @@ VIEWS.cierre = () => {
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div>`)
     + `<div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({pasos:ciePasos, matriz:cieMatriz, externos:cieExternos, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
+  ({pasos:ciePasos, matriz:cieMatriz, externos:async()=>{ await cieExternos(); extGuardadas(); }, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 
@@ -4724,6 +4724,33 @@ async function todasEnviar(origen){
 // ── sub-vista §9 PROVEEDORES EXTERNOS ──
 // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
 let _extCli = '', _extMes = mesDeCierre(), _extData = null;
+/* ── 📥 LAS CUENTAS DE EXTERNOS GUARDADAS (17-oct-2026) ───────────────────────────────────────
+   Para bajar sólo la parte de proveedores externos de un cliente, de un mes pasado, tal cual se le
+   cobró (sale de la factura guardada, no de recalcular). Excel o una hoja para imprimir/PDF. */
+let _extgMes = '';
+async function extGuardadas() {
+  const cont = document.getElementById('cie-body'); if (!cont) return;
+  if (!_extgMes) { const d = new Date(); d.setMonth(d.getMonth() - 1); _extgMes = d.toISOString().slice(0, 7); }
+  let box = document.getElementById('extg-card');
+  if (!box) { box = document.createElement('div'); box.id = 'extg-card'; box.className = 'card'; cont.prepend(box); }
+  const r = await api('/api/os/externos-guardados?mes=' + encodeURIComponent(_extgMes));
+  const cs = (r && r.clientes) || [];
+  const base = '/api/os/externos-guardados/' + encodeURIComponent(_extgMes) + '/';
+  box.innerHTML = '<div class="tapa"><div><h2>📥 Cuentas de externos guardadas</h2>'
+    + '<div class="sub">Sólo los proveedores externos de cada cliente, tal cual se le cobró ese mes. Para mandarle una cuenta de un mes pasado.</div></div>'
+    + '<div class="acciones"><input type="month" id="extg-mes" value="' + esc(_extgMes) + '" onchange="_extgMes=this.value;extGuardadas()" style="width:auto">'
+    + (cs.length ? '<a class="btn outline small" href="' + base + 'todos.csv">⬇ Todos (Excel)</a>' : '') + '</div></div>'
+    + (cs.length
+      ? '<div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>Cliente</th><th class="right">Externos</th><th class="right">Renglones</th><th>Guardada</th><th></th></tr></thead><tbody>'
+        + cs.map((c) => '<tr><td><b>' + esc(c.cliente) + '</b> <span class="muted">' + esc(c.codigo) + '</span></td>'
+          + '<td class="right">' + money(c.externos_usdt, 2) + ' USDT</td><td class="right">' + esc(String(c.renglones)) + '</td>'
+          + '<td class="muted" style="white-space:nowrap">' + esc(String(c.actualizada_at || c.generada_at || '').slice(0, 10)) + '</td>'
+          + '<td style="white-space:nowrap;text-align:right"><a class="btn outline small" href="' + base + encodeURIComponent(c.cliente_id) + '.csv">⬇ Excel</a> '
+          + '<a class="btn outline small" target="_blank" rel="noopener" href="' + base + encodeURIComponent(c.cliente_id) + '.html">🖨 Ver / PDF</a></td></tr>').join('')
+        + '</tbody></table></div>'
+      : '<div class="muted">No hay cuentas de externos guardadas de ' + esc(_extgMes) + '. Se guardan al emitir el mes.</div>');
+}
+
 async function cieExternos() {
   const cont = document.getElementById('cie-body');
   const cs = (await api('/api/os/clientes')).clientes || [];

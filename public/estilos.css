@@ -231,6 +231,9 @@
      sesión— y no un fetch, que traería un archivo binario a la memoria para nada. */
   a.btn { background:var(--gold); color:#fff; border:none; border-radius:6px; padding:8px 13px;
     font-weight:700; cursor:pointer; font-size:13px; text-decoration:none; display:inline-block; }
+  /* Las descargas de 📥 Cuentas de externos guardadas: mismo aspecto que un botón «outline» chico. */
+  a.btn.outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+  a.btn.small { padding:5px 10px; font-size:12px; }
   button.danger { background:transparent; border:1px solid var(--red); color:var(--red); }
   /* ── EL BOTÓN QUE SALE PARA AFUERA ────────────────────────────────────────────────────────
      "los botones no siempre tienen otro color y eso confunde a la vista". Y era peor que eso:

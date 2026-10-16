@@ -5123,6 +5123,42 @@ function mount(app) {
       detalle: cambian, yaEnviadas: cambian.filter((x) => x.yaSalio) });
   }));
 
+  /* ── LAS CUENTAS DE EXTERNOS, TAL CUAL SE COBRARON (17-oct-2026) ──────────────────────────
+     Para descargar sólo la parte de proveedores externos de un mes pasado y mandársela al cliente.
+     Sale de la factura guardada, no de recalcular (ver externos-guardados.js). */
+  const extGuardados = require('./externos-guardados');
+  const mesOk = (m) => /^\d{4}-\d{2}$/.test(String(m || ''));
+  app.get('/api/os/externos-guardados', (req, res) => {
+    const mes = String(req.query.mes || '').slice(0, 7);
+    if (!mesOk(mes)) return err(res, 400, 'mes inválido');
+    ok(res, { mes, clientes: extGuardados.delMes(mes) });
+  });
+  app.get('/api/os/externos-guardados/:mes/todos.csv', (req, res) => {
+    if (!mesOk(req.params.mes)) return err(res, 400, 'mes inválido');
+    const c = extGuardados.csv(req.params.mes, null);
+    if (!c) return err(res, 404, 'no hay cuentas de externos guardadas de ese mes');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="externos-${req.params.mes}-todos.csv"`);
+    res.send(c);
+  });
+  app.get('/api/os/externos-guardados/:mes/:clienteId.csv', (req, res) => {
+    if (!mesOk(req.params.mes)) return err(res, 400, 'mes inválido');
+    const c = extGuardados.csv(req.params.mes, req.params.clienteId);
+    if (!c) return err(res, 404, 'ese cliente no tiene cuenta de externos guardada de ese mes');
+    const d = extGuardados.de(req.params.clienteId, req.params.mes);
+    const nombre = String((d && (d.codigo || d.cliente)) || req.params.clienteId).replace(/[^\w.-]+/g, '_');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="externos-${req.params.mes}-${nombre}.csv"`);
+    res.send(c);
+  });
+  app.get('/api/os/externos-guardados/:mes/:clienteId.html', (req, res) => {
+    if (!mesOk(req.params.mes)) return err(res, 400, 'mes inválido');
+    const h = extGuardados.html(req.params.mes, req.params.clienteId);
+    if (!h) return err(res, 404, 'ese cliente no tiene cuenta de externos guardada de ese mes');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(h);
+  });
+
   // El historial de facturas de un cliente: qué se le generó, cuándo, y si salió.
   app.get('/api/os/facturas-guardadas/:clienteId', (req, res) =>
     ok(res, { facturas: facturasGuardadas.delCliente(req.params.clienteId) }));
