@@ -114,6 +114,18 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   await pases.editar(p.id, { caja_origen: 'CajaF01Zeus' }, deps);
   ok(pases.get(p.id).boton === true, 'editar otra cosa no apaga el botón');
 
+  // ── «para todos» (Zeus, 16-oct): también los de otra caja, sin moverlos ─────────
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, deps);
+  ok(c.mostrar === false, 'sin «todos», a uno de otra caja no le aparece');
+  await pases.editar(p.id, { todos: true });
+  ok(pases.get(p.id).todos === true && pases.get(p.id).boton === true, '«todos» se prende sin apagar el botón');
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'cccccccccccccccccccccccccccccccc' }, deps);
+  ok(c.mostrar === false, 'con «todos», a una sesión que el casino no reconoce igual no le aparece');
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, deps);
+  ok(/cw_pase=/.test(r.ir || '') && nodos.get('777').padre === '30', 'con «todos», el de otra caja se pasa de sitio y NO se le cambia la caja');
+  ok(/cuelga de OtraCaja/.test(pases.eventos(p.id)[0].detalle), 'y en «Ver quiénes» dice de qué caja era');
+  await pases.editar(p.id, { todos: false });
+
   // la franja en el navegador (jsdom si está a mano)
   let JSDOM = null; try { ({ JSDOM } = require(process.env.JSDOM_DIR || 'jsdom')); } catch (e) {}
   if (JSDOM) {

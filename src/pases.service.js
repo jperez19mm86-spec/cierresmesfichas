@@ -37,6 +37,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS pase (
 // Zeus (16-oct): ahí el casino corre dentro de la página del chat viejo, la sesión vive en ese
 // recuadro y un link abierto aparte llega sin sesión. El botón está donde está la sesión.
 ensureColumns('pase', { boton: 'INTEGER DEFAULT 0' });
+// `todos`: pasar a TODOS los jugadores logueados del sitio viejo, no sólo a los de la caja de origen
+// (Zeus, 16-oct: el sitio es de un solo cliente y parte ya se había movido de caja). Los de la caja
+// de origen se cambian de caja; los demás se pasan de sitio sin tocarles la caja.
+ensureColumns('pase', { todos: 'INTEGER DEFAULT 0' });
 db.exec(`CREATE TABLE IF NOT EXISTS pase_evento (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pase_id TEXT, sitio TEXT, jugador_id TEXT, login TEXT,
@@ -61,7 +65,7 @@ function host(s) {
 function _fila(r) {
   if (!r) return null;
   return { id: r.id, sitio_viejo: r.sitio_viejo, sitio_nuevo: r.sitio_nuevo, conexion_id: r.conexion_id,
-    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, boton: !!r.boton, creado: r.creado };
+    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, boton: !!r.boton, todos: !!r.todos, creado: r.creado };
 }
 function list() {
   const filas = db.prepare('SELECT * FROM pase ORDER BY ord ASC, creado ASC').all().map(_fila);
@@ -76,7 +80,7 @@ function get(id) { return _fila(db.prepare('SELECT * FROM pase WHERE id=?').get(
 
 function _validar(d) {
   const p = { sitio_viejo: host(d.sitio_viejo), sitio_nuevo: host(d.sitio_nuevo), conexion_id: String(d.conexion_id || ''),
-    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false, boton: !!d.boton };
+    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false, boton: !!d.boton, todos: !!d.todos };
   if (!p.sitio_viejo || !p.sitio_nuevo) throw new Error('falta el link viejo o el nuevo');
   for (const h of [p.sitio_viejo, p.sitio_nuevo]) {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) throw new Error(`«${h}» no es un link completo: falta el final (.com, .net, .org…)`);
@@ -111,18 +115,18 @@ async function crear(d, deps) {
   await _cajasEnCasino(p, deps);
   const id = 'pase_' + crypto.randomBytes(5).toString('hex');
   const ord = (db.prepare('SELECT MAX(ord) m FROM pase').get().m || 0) + 1;
-  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,boton,creado,ord) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, nowISO(), ord);
+  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,boton,todos,creado,ord) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, nowISO(), ord);
   _cacheCajas.clear();
   return get(id);
 }
 async function editar(id, d, deps) {
   const viejo = get(id); if (!viejo) throw new Error('ese pase no existe');
-  const p = _validar({ ...viejo, ...d, boton: d.boton !== undefined ? d.boton : viejo.boton });
+  const p = _validar({ ...viejo, ...d, boton: d.boton !== undefined ? d.boton : viejo.boton, todos: d.todos !== undefined ? d.todos : viejo.todos });
   // Prender o apagar no vuelve a preguntarle al casino; cambiar casino o cajas, sí.
   if (['conexion_id', 'caja_origen', 'caja_destino'].some((k) => d[k] !== undefined && String(d[k]) !== String(viejo[k] || ''))) await _cajasEnCasino(p, deps);
-  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=?, boton=? WHERE id=?`)
-    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, id);
+  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=?, boton=?, todos=? WHERE id=?`)
+    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, p.todos ? 1 : 0, id);
   _cacheCajas.clear(); _consultas.clear();
   return get(id);
 }
@@ -184,6 +188,17 @@ async function _reglaDe(reglas, jug, clienteDe) {
   return null;
 }
 
+/** «cuelga de X: no se le cambió la caja», para el detalle de un pase «para todos». */
+async function _cajaActual(p, jug, clienteDe) {
+  try {
+    const ops = require('./operaciones.service');
+    const cli = clienteDe(p.conexion_id);
+    const yo = cli && await ops._ayudas.buscarUsuario(cli, jug.login);
+    const padre = yo && yo.padre && await ops._ayudas.buscarUsuario(cli, yo.padre);
+    return `cuelga de ${padre ? padre.login : (yo ? yo.padre : 'otra caja')}: no se le cambió la caja`;
+  } catch (e) { return 'de otra caja: no se le cambió la caja'; }
+}
+
 /**
  * ¿Le mostramos el botón a este jugador? Lo pregunta pase.js en CADA carga del casino en los sitios
  * viejos, así que: sin pase con botón en ese sitio no se le pregunta nada al casino, y la respuesta
@@ -200,7 +215,7 @@ async function consultar({ origin, token }, deps = {}) {
   const ya = _consultas.get(k);
   if (ya && ya.exp > Date.now()) return { mostrar: ya.mostrar };
   const jug = await quienEs(sitio, token, fetchImpl);
-  const mostrar = !!(jug && await _reglaDe(reglas, jug, clienteDe));
+  const mostrar = !!(jug && (reglas.some((p) => p.todos) || await _reglaDe(reglas, jug, clienteDe)));
   if (_consultas.size > 20000) _consultas.clear();
   _consultas.set(k, { mostrar, exp: Date.now() + 10 * 60 * 1000 });
   return { mostrar };
@@ -227,8 +242,15 @@ async function emitir({ origin, token }, deps = {}) {
   const jug = await quienEs(sitio, token, fetchImpl);
   if (!jug) { _anotar(reglas[0], sitio, null, 'sin_sesion'); return { motivo: 'sin_sesion' }; }
 
-  const m = await _reglaDe(reglas, jug, clienteDe);
-  if (!m) { _anotar(reglas[0], sitio, jug, 'fuera'); return { motivo: 'fuera' }; }
+  let m = await _reglaDe(reglas, jug, clienteDe);
+  let nota = '';
+  if (!m) {
+    const paraTodos = reglas.find((p) => p.todos);
+    if (!paraTodos) { _anotar(reglas[0], sitio, jug, 'fuera'); return { motivo: 'fuera' }; }
+    // Pase «para todos»: es de otra caja (o ya lo movieron) → se pasa de sitio sin tocarle la caja.
+    m = { regla: paraTodos, padre: null, cli: null, destino: null };
+    nota = await _cajaActual(paraTodos, jug, clienteDe);
+  }
   const { regla, padre, cli, destino } = m;
 
   // Cambio de caja, si la regla lo pide y todavía no se hizo.
@@ -244,7 +266,7 @@ async function emitir({ origin, token }, deps = {}) {
   // ¿La sesión sirve en el sitio nuevo? (otro servidor del casino, o el cambio de caja la cerró).
   // Se lo manda igual —ya está en su caja nueva—, pero queda escrito para verlo en la pantalla.
   const enNuevo = await quienEs(regla.sitio_nuevo, token, fetchImpl);
-  const detalle = enNuevo ? '' : 'llegó sin sesión: el sitio nuevo no aceptó su sesión, va a tener que entrar con usuario y clave';
+  const detalle = [nota, enNuevo ? '' : 'llegó sin sesión: el sitio nuevo no aceptó su sesión, va a tener que entrar con usuario y clave'].filter(Boolean).join(' · ');
 
   _limpiar();
   const codigo = crypto.randomBytes(24).toString('hex');

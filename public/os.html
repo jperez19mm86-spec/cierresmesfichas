@@ -9243,7 +9243,7 @@ function pzPintar(){
       <td><b>${esc(p.sitio_viejo)}</b> → <b>${esc(p.sitio_nuevo)}</b>
         <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill" style="font-size:12px">${esc(msg)}</span>
         <button class="outline small" onclick="pzCopiar('${esc(msg)}',this)">Copiar link</button></div>
-        ${p.boton ? '<div style="margin-top:5px"><span class="badge ok" title="A los jugadores de la caja de origen les aparece «Nos actualizamos · Probá ahora» adentro del casino">🔘 Botón en el casino</span></div>' : ''}</td>
+        ${p.boton || p.todos ? '<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">' + (p.boton ? '<span class="badge ok" title="Les aparece «Nos actualizamos · Probá ahora» adentro del casino">🔘 Botón en el casino</span>' : '') + (p.todos ? '<span class="badge warn" title="Se pasan todos los logueados del sitio; sólo los de la caja de origen cambian de caja">👥 Todos los del sitio</span>' : '') + '</div>' : ''}</td>
       <td>${esc(p.caja_origen)}${p.caja_destino ? ' → <b>' + esc(p.caja_destino) + '</b>' : ' <span class="muted">(no cambia de caja)</span>'}<div class="muted" style="font-size:11.5px">${esc(cxNom(p.conexion_id))}</div></td>
       <td class="right" title="Se pasaron">✅ ${n(k.pasado)}</td>
       <td class="right" title="Tocaron el link sin estar logueados (otro navegador u otro celular)">🔒 ${n(k.sin_sesion)}</td>
@@ -9269,7 +9269,9 @@ function pzPintar(){
     </div>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px"><input type="checkbox" id="pz-boton" ${f.boton ? 'checked' : ''} style="margin-top:3px">
       <span><b>Mostrar botón adentro del casino</b> — a los jugadores de la caja de origen les aparece arriba «Nos actualizamos · Probá ahora». Sirve cuando el casino corre adentro de la página del chat viejo (Zeus), donde el link llega sin sesión.</span></label>
-    <div class="muted" style="font-size:12px;margin-top:8px">Sólo se pasan los jugadores que cuelgan de la caja de origen. Al pasar, se los cambia a la caja de destino y se verifica en el casino.</div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:13px"><input type="checkbox" id="pz-todos" ${f.todos ? 'checked' : ''} style="margin-top:3px">
+      <span><b>Pasar a todos los jugadores del sitio</b> — no sólo a los de la caja de origen. Para un sitio que es de un solo cliente: los de la caja de origen se cambian de caja; los que ya están en otra (por ejemplo, ya migrados) se pasan de sitio sin tocarles la caja.</span></label>
+    <div class="muted" style="font-size:12px;margin-top:8px">Sin «todos», sólo se pasan los jugadores que cuelgan de la caja de origen. Al pasar, se los cambia a la caja de destino y se verifica en el casino.</div>
     <div style="margin-top:10px;display:flex;gap:8px"><button onclick="pzGuardar()">${ed ? 'Guardar' : 'Crear pase'}</button>
       <button class="outline" onclick="_pzEdit=null;pzPintar()">Cancelar</button>
       ${ed ? `<button class="danger" style="margin-left:auto" onclick="pzBorrar('${ed.id}')">Borrar</button>` : ''}</div></div>` : '';
@@ -9308,7 +9310,7 @@ function pzEventos(ev){
 }
 
 async function pzGuardar(){
-  const d = { sitio_viejo: val('pz-viejo'), sitio_nuevo: val('pz-nuevo'), conexion_id: val('pz-cx'), caja_origen: val('pz-origen'), caja_destino: val('pz-destino'), boton: !!(document.getElementById('pz-boton') || {}).checked };
+  const d = { sitio_viejo: val('pz-viejo'), sitio_nuevo: val('pz-nuevo'), conexion_id: val('pz-cx'), caja_origen: val('pz-origen'), caja_destino: val('pz-destino'), boton: !!(document.getElementById('pz-boton') || {}).checked, todos: !!(document.getElementById('pz-todos') || {}).checked };
   const nuevo = _pzEdit === 'nuevo';
   const r = await api(nuevo ? '/api/os/pases' : '/api/os/pases/' + encodeURIComponent(_pzEdit), { method: nuevo ? 'POST' : 'PUT', body: JSON.stringify(d) });
   if (!r.ok) return;
