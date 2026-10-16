@@ -151,15 +151,26 @@ function _anotar(pase, sitio, jugador, resultado, detalle = '') {
 const https = require('https');
 const dnsMod = require('dns');
 const _doh = new Map();   // host → { ip, exp }
+/* Ojo: Google le pasa al DNS de Zeus la ZONA de quien pregunta, y Zeus también bloquea las de
+   Google Cloud (donde corre Railway): «0.0.0.0» otra vez. Por eso se le pide a Google que pregunte
+   como desde Argentina (de donde juegan), y si no, a Cloudflare, que no manda zona. Medido 16-oct:
+   los dos dan 88.99.136.161 y la sesión vale ahí igual que en 5.9.119.173. */
+const _DOH = [
+  (h) => ['https://dns.google/resolve?type=A&edns_client_subnet=181.0.0.0/24&name=' + encodeURIComponent(h), {}],
+  (h) => ['https://cloudflare-dns.com/dns-query?type=A&name=' + encodeURIComponent(h), { headers: { accept: 'application/dns-json' } }],
+];
 async function _porGoogle(host) {
   const ya = _doh.get(host);
   if (ya && ya.exp > Date.now()) return ya.ip;
-  const r = await fetch('https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A');
-  const j = await r.json();
-  const ip = ((j && j.Answer) || []).map((a) => a.data).find((d) => /^\d+\.\d+\.\d+\.\d+$/.test(d) && d !== '0.0.0.0');
-  if (!ip) throw new Error('el DNS de Google tampoco da una dirección para ' + host);
-  _doh.set(host, { ip, exp: Date.now() + 5 * 60 * 1000 });
-  return ip;
+  for (const armar of _DOH) {
+    try {
+      const [url, op] = armar(host);
+      const j = await (await fetch(url, op)).json();
+      const ip = ((j && j.Answer) || []).map((a) => a.data).find((d) => /^\d+\.\d+\.\d+\.\d+$/.test(d) && d !== '0.0.0.0');
+      if (ip) { _doh.set(host, { ip, exp: Date.now() + 5 * 60 * 1000 }); return ip; }
+    } catch (e) { /* se prueba el siguiente */ }
+  }
+  throw new Error('ni Google ni Cloudflare dan una dirección para ' + host);
 }
 function _lookup(host, opts, cb) {
   dnsMod.lookup(host, { family: 4 }, (err, addr) => {
