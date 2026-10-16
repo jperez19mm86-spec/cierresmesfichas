@@ -386,7 +386,9 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
       if (div === 'ARS') out.totalArs = money.add(out.totalArs, deuda);
       continue;
     }
-    const r = await porCarga(p, { tcFijo: tc });
+    // Una carga que no se puede anotar (ej. sin importe) no corta la corrida: queda en «saltados».
+    let r;
+    try { r = await porCarga(p, { tcFijo: tc }); } catch (e) { out.saltados.push({ pedido: p.id, motivo: 'error: ' + e.message }); continue; }
     if (!r.ok) { out.saltados.push({ pedido: p.id, motivo: r.motivo }); continue; }
     if (r.motivo === 'ya estaba') { out.yaEstaban += 1; continue; }
     out.generados.push({ pedido: p.id, movimiento: r.movimiento.id, tc: r.tc,

@@ -6657,7 +6657,7 @@ async function main() {
       && /intcob: c\.internos_se_cobran \? 1 : 0/.test(cs2),
       'sin el INSERT, un cliente nuevo lo pierde en silencio');
     {  // y un «no» se guarda como no: con String(false) quedaba "false", que se grababa como 1
-      const cliSt = require('../src/clientes-store'); const cliI = cliSt.createCliente({ codigo: 'ZZINT', nombre: 'ZZINT' });
+      const cliSt = require('../src/clientes-store'); const cliI = cliSt.createCliente({ codigo: 'ZZINT' + Date.now(), nombre: 'ZZINT' });
       cliSt.updateComercial(cliI.id, { internos_se_cobran: true });
       const si = cliSt.get(cliI.id).internos_se_cobran;
       cliSt.updateComercial(cliI.id, { internos_se_cobran: false });
@@ -10537,7 +10537,7 @@ async function main() {
     // La pantalla: que exista, que esté en la barra y que el total sea el de lo que se ve.
     const hCob = FUENTE_PANEL();
     check('cobranzas: la pantalla está en la barra, en Cuentas',
-      /\['cobranzas', '💰 Cobranzas'\]/.test(hCob) && /VIEWS\.cobranzas = async/.test(hCob));
+      /\['cobranzas', '⏳ Cobranzas'\]/.test(hCob) && /VIEWS\.cobranzas = async/.test(hCob));
     /* El total de abajo suma las filas VISIBLES. Si filtrás por un cliente y el pie siguiera
        sumando a todos, el renglón del total diría otra cosa que la tabla de arriba. */
     check('cobranzas: el total de abajo es el de lo que se está viendo',

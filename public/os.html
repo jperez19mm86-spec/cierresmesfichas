@@ -63,7 +63,7 @@ const GRUPOS = [
     ['facturacion', '🧾 Consumo (fichas)'],
     ['cierre:externos', '🏷 Proveedores externos'],
     ['foto', '📸 Foto del mes'],
-    ['cobranzas', '💰 Cobranzas'],
+    ['cobranzas', '⏳ Cobranzas'],
     ['movimientos:cliente', '📒 Cuenta del cliente'],
     /* Estas dos NO son "pendiente" y "resuelto" de la misma cosa. La primera es el libro de la
        cuenta: cargas, pagos y ajustes de todos los clientes. La segunda son los comprobantes que
@@ -72,21 +72,21 @@ const GRUPOS = [
     ['movimientos:cuenta', '💳 Pagos y cargas'],
     ['pagos', '💵 Pagos recibidos'],
     ['repartocobrado', '🧮 De quién es lo cobrado'],
-    ['movimientos:historial', '🧾 Comprobantes resueltos'],
+    ['movimientos:historial', '🗂 Comprobantes resueltos'],
     ['cierre:vendedores', '🤝 Vendedores'],
     ['cierre:pago', '💸 Pago a proveedores'],
   ] },
   { id: 'numeros', label: () => '📊 Reportes', items: [
     ['acumulado:pulso', '📊 Movimientos mensuales'],
-    ['acumulado:detalle', '📒 Diario'],
+    ['acumulado:detalle', '📅 Diario'],
     ['reportes', '🎰 Consulta al casino'],
   ] },
   { id: 'padron', label: () => '👥 Clientes', items: [
     ['clientes', '👥 Clientes y paneles'],
     ['altaCliente', '✨ Nuevo cliente'],
-    ['proveedores', '🏷 Proveedores'],
-    ['cierre:matriz', '🧮 Matriz de %'],
-    ['reparto', '💰 Reparto'],
+    ['proveedores', '🎮 Proveedores'],
+    ['cierre:matriz', '🔢 Matriz de %'],
+    ['reparto', '🥧 Reparto'],
     ['accesos', '🔐 Accesos'],
   ] },
   /* Tareas en tanda contra el casino (mover jugadores de caja, …). Una sola pantalla: el catálogo
@@ -97,8 +97,8 @@ const GRUPOS = [
   ] },
   { id: 'ajustes', label: () => '⚙ Ajustes', items: [
     ['tc', '💱 Tipos de cambio'],
-    ['config:divisas', '💱 Divisas'],
-    ['config:pagos', '💳 Medios de pago'],
+    ['config:divisas', '🌎 Divisas'],
+    ['config:pagos', '🏦 Medios de pago'],
     ['config:telegram', '📣 Telegram'],
     ['config:casino', '🎰 Casino'],
     ['config:revision', '🩺 Revisión'],
@@ -1759,7 +1759,7 @@ async function fillDivisas(curCsv){
   const sel=new Set(String(curCsv||'').split(/[,\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean));
   const arr=(d.divisas)||[];
   box.innerHTML = arr.length ? arr.map(x=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap" title="${esc(x.nombre||'')}"><input type="checkbox" class="e-div" value="${esc(x.codigo)}" ${sel.has(x.codigo)?'checked':''}> ${esc(x.codigo)}</label>`).join('')
-    : '<span class="muted">Sin divisas activas — agregá en ⚙ Config → 💱 Divisas.</span>';
+    : '<span class="muted">Sin divisas activas — agregá en ⚙ Config → 🌎 Divisas.</span>';
 }
 // ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
 async function loadCliPlat(id){
@@ -2023,7 +2023,7 @@ async function cliResumen(id){
 }
 
 // ───────── CONFIG ▸ SOCIOS ─────────
-// El catálogo de participantes (que era "Socios") vive ahora en 💰 Reparto → REP.participantes.
+// El catálogo de participantes (que era "Socios") vive ahora en 🥧 Reparto → REP.participantes.
 
 // ───────── PANELES (viven adentro de Clientes) ─────────
 // La pestaña se sacó: los paneles se ven y se crean desplegando ▸ la fila de su cliente. Se deja
@@ -2176,7 +2176,7 @@ async function delPanel(id){
   VIEWS.clientes();
 }
 
-// Participaciones se fue a 💰 Reparto → REP.clientes: el % de cada participante ahora se
+// Participaciones se fue a 🥧 Reparto → REP.clientes: el % de cada participante ahora se
 // carga contra el % base del cliente, no como porción de un profit LATAM que ya no existe.
 
 // ───────── 📸 FOTO DEL MES ─────────
@@ -3172,7 +3172,7 @@ VIEWS.cobranzas = async () => {
 
   main.innerHTML = `
     <div class="card">
-      <h2>💰 Cobranzas</h2>
+      <h2>⏳ Cobranzas</h2>
       <div class="muted" style="margin-bottom:10px">Quién debe, y de cuándo viene. <b>Antes de ${esc(nomMes(r.mes_anterior))}</b>
         es lo que quedó sin cobrar de meses ya cerrados — por ahí se empieza.
         El total de cada cliente es el mismo que muestra su cuenta: acá sólo está partido por mes.</div>
@@ -4107,7 +4107,7 @@ const CIE_STYLE = `<style>
 VIEWS.cierre = () => {
   // el TC vive en su propia pestaña (arriba): tenerlo también acá hacía DOS solapas con el mismo nombre
   // "Vincular proveedores" se fue a la pestaña 🏷 Proveedores: era la otra mitad de esa tabla.
-  const subs = [['pasos','🗓 Cerrar el mes'],['matriz','🧮 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
+  const subs = [['pasos','🗓 Cerrar el mes'],['matriz','🔢 Matriz %'],['externos','🧾 Factura de externos'],['vendedores','🤝 Cuenta de vendedores'],['pago','💸 Pago a proveedores']];
   document.getElementById('main').innerHTML = CIE_STYLE
     + (_subsArriba() ? '' : `<div class="card" style="padding:10px 14px"><div style="display:flex;gap:6px;flex-wrap:wrap">
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
@@ -5428,7 +5428,7 @@ function cruceCard(c){
   return `<div class="card" style="margin:0 0 12px;border-left:3px solid var(--gold)">
     <b>Cruce de ${esc(c.mes)}: lo que una pantalla no ve sola</b>
     <div class="muted" style="margin-top:4px"><b>🏷 Proveedores</b> mira que el nombre del casino resuelva a una fila.
-      <b>🧮 Matriz</b> mira a qué clientes se les cobra esa fila. Que una esté en verde no dice nada de la otra.</div>
+      <b>🔢 Matriz</b> mira a qué clientes se les cobra esa fila. Que una esté en verde no dice nada de la otra.</div>
     ${tabla('💸 '+nadie.length+' proveedor(es) dieron ganancia y no se le cobran a NADIE','#e66',
       'Están vinculados y el casino los reporta, pero ningún cliente tiene valor en esa fila: esa ganancia se paga y no se cobra.',nadie,'Lo reporta')}
     ${tabla('⚠ '+sinCosto.length+' con ganancia y sin costo cargado','var(--gold)',
@@ -5601,7 +5601,7 @@ VIEWS.movimientos = async () => {
     ['cuenta', '💳 Cuenta y pagos'],
     ['cliente', '📒 Cuenta del cliente'],
     ['pendientes', '⏳ Por aprobar' + (_cmpPend ? ' (' + _cmpPend + ')' : '')],
-    ['historial', '🧾 Comprobantes resueltos'],
+    ['historial', '🗂 Comprobantes resueltos'],
   ];
   document.getElementById('main').innerHTML =
     (_subsArriba() ? '' :
@@ -6292,9 +6292,9 @@ async function delPersona(id){ if(!confirm('¿Eliminar participante?'))return; a
 
 // ───────── CONFIG (hub: socios · participaciones · split) ─────────
 function renderCfgHeader(){
-  // Socios, Participaciones y Tabla Split se fueron a 💰 Reparto: las tres eran la misma
+  // Socios, Participaciones y Tabla Split se fueron a 🥧 Reparto: las tres eran la misma
   // pregunta (cómo se divide lo que paga un cliente) partida en tres pantallas.
-  const subs=[['revision','🩺 Revisión'],['backup','🛟 Copia de seguridad'],['divisas','💱 Divisas'],['pagos','💳 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
+  const subs=[['revision','🩺 Revisión'],['backup','🛟 Copia de seguridad'],['divisas','🌎 Divisas'],['pagos','🏦 Medios de pago'],['telegram','📣 Telegram'],['casino','🎰 Casino'],['importar','📥 Importar planilla']];
   return (_subsArriba() ? '' :
     `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`+
     subs.map(([k,l])=>`<button class="${k===_cfgSub?'':'outline'} small" onclick="cfgSub('${k}')">${l}</button>`).join('')+
@@ -6455,7 +6455,7 @@ function cfgSub(s){ _cfgSub=s; document.getElementById('main').innerHTML = rende
 // ───────── CONFIG ▸ TABLA SPLIT ─────────
 // La Tabla Split se JUBILÓ (§12): era el 1er paso del reparto viejo — por cada % base, cuánto
 // iba a Empresa y cuánto a LATAM. Ahora el reparto es de un paso y la Empresa es un
-// participante más. Sus datos siguen en la base y 💰 Reparto los usa para sembrar; la pantalla
+// participante más. Sus datos siguen en la base y 🥧 Reparto los usa para sembrar; la pantalla
 // de edición se sacó porque tocarla ya no cambiaría ningún cálculo.
 
 // ───────── CONFIG ▸ DIVISAS (catálogo editable v3.0) ─────────
@@ -6513,7 +6513,7 @@ CFG.pagos = async () => {
       }).join('')}
       </tbody></table>
     </div>
-    <div class="card"><h2>💳 Medios de pago (global)</h2>
+    <div class="card"><h2>🏦 Medios de pago (global)</h2>
       <div class="muted" style="margin-bottom:8px">Un solo lugar para todos los clientes. Cuando un cliente elige CVU o USDT, el sistema le muestra estos datos + la nota/advertencia.</div>
       <h3 style="margin:6px 0">CVU (ARS)</h3>
       <div class="row" style="align-items:flex-end">
@@ -8701,7 +8701,7 @@ let _acMes='', _acData=null, _acView=null, _acCxs=[], _acSub='pulso';
 const AC = {};
 
 VIEWS.acumulado = async () => {
-  const subs=[['pulso','📊 Movimientos mensuales'],['detalle','📒 Diario']];
+  const subs=[['pulso','📊 Movimientos mensuales'],['detalle','📅 Diario']];
   document.getElementById('main').innerHTML =
     (_subsArriba() ? '' :
       `<div class="card" style="padding:10px 12px;margin-bottom:12px"><div style="display:flex;gap:6px;flex-wrap:wrap">`
