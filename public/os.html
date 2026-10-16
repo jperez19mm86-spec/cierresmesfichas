@@ -9245,7 +9245,8 @@ function pzPintar(){
         <button class="outline small" onclick="pzCopiar('${esc(msg)}',this)">Copiar link</button></div>
         ${p.boton || p.todos ? '<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">' + (p.boton ? '<span class="badge ok" title="Les aparece «Nos actualizamos · Probá ahora» adentro del casino">🔘 Botón en el casino</span>' : '') + (p.todos ? '<span class="badge warn" title="Se pasan todos los logueados del sitio; sólo los de la caja de origen cambian de caja">👥 Todos los del sitio</span>' : '') + '</div>' : ''}
         ${p.fichas_regalo ? (() => { const g = p.regalos || {}; const dados = (g.dado || {}).n || 0; const mal = ((g.fallo || {}).n || 0) + ((g.dudoso || {}).n || 0) + ((g.dando || {}).n || 0);
-          return '<div style="margin-top:5px;font-size:12.5px">🎁 ' + n(p.fichas_regalo) + ' de regalo · <b>' + n(dados) + '</b> dados' + (dados ? ' (' + n((g.dado || {}).monto) + ' en total)' : '') + (mal ? ' · <span style="color:var(--red);font-weight:700">' + n(mal) + ' a revisar</span>' : '') + '</div>'; })() : ''}</td>
+          return '<div style="margin-top:5px;font-size:12.5px">🎁 ' + n(p.fichas_regalo) + ' de regalo · <b>' + n(dados) + '</b> dados' + (dados ? ' (' + n((g.dado || {}).monto) + ' en total)' : '') + (mal ? ' · <span style="color:var(--red);font-weight:700">' + n(mal) + ' a revisar</span>' : '') + '</div>'
+            + ((g.fallo || {}).n ? '<button class="outline small" style="margin-top:4px" onclick="pzRegalosPendientes(\'' + p.id + '\',this)">🎁 Dar los ' + n(g.fallo.n) + ' regalos pendientes</button>' : ''); })() : ''}</td>
       <td>${esc(p.caja_origen)}${p.caja_destino ? ' → <b>' + esc(p.caja_destino) + '</b>' : ' <span class="muted">(no cambia de caja)</span>'}<div class="muted" style="font-size:11.5px">${esc(cxNom(p.conexion_id))}</div></td>
       <td class="right" title="Se pasaron">✅ ${n(k.pasado)}</td>
       <td class="right" title="Tocaron el link sin estar logueados (otro navegador u otro celular)">🔒 ${n(k.sin_sesion)}</td>
@@ -9327,6 +9328,12 @@ async function pzGuardar(){
   if (!r.ok) return;
   toast(nuevo ? '✓ Pase creado' : '✓ Pase guardado');
   _pzEdit = null; VIEWS.pases();
+}
+async function pzRegalosPendientes(id, btn){
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Cargando en el casino…'; }
+  const r = await api('/api/os/pases/' + encodeURIComponent(id) + '/regalos/pendientes', { method: 'POST' });
+  if (r.ok) toast(`🎁 ${r.dados} dados` + (r.fallidos ? ` · ${r.fallidos} no entraron` : '') + (r.dudosos ? ` · ${r.dudosos} a revisar` : ''));
+  VIEWS.pases();
 }
 async function pzToggle(id, activo){ const r = await api('/api/os/pases/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ activo }) }); if (r.ok) VIEWS.pases(); }
 let _pzBorrarOk = null;

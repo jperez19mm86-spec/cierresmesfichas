@@ -20,7 +20,7 @@ const nodos = new Map([
   ['501', { id: '501', login: 'juan501', padre: '10', group: '5' }],
   ['777', { id: '777', login: 'otro777', padre: '30', group: '5' }],
 ]);
-let movidas = 0; const cargas = [];
+let movidas = 0; const cargas = []; let sinPermiso = false;
 const cli = {
   async apiCall(area, body = {}, q = {}) {
     if (area === 'search') {
@@ -28,9 +28,15 @@ const cli = {
       return { ok: true, data: { users: [...nodos.values()].filter((u) => u.login.toLowerCase() === s || u.id === s).map((u) => ({ id: u.id, login: u.login, group: u.group, create: u.padre })) } };
     }
     if (area === 'usersettings') { movidas++; nodos.get(q.id).padre = [...nodos.values()].find((u) => u.login === body['setting[value]']).id; return { ok: true, data: {} }; }
+    if (area === 'statisticstable') {
+      const rows = [...nodos.values()].filter((u) => u.padre === q.id && (!q.search || u.login === q.search))
+        .map((u) => ({ id: u.id, login: u.login, balance: String((u.saldoJ || 0).toFixed(2)) }));
+      return { ok: true, data: { total: rows.length, rows } };
+    }
     if (area === 'balance') {
       const j = nodos.get(q.id); const caja = nodos.get(j.padre); const m = Number(body.amount);
       cargas.push({ id: q.id, m, desde: caja.login });
+      if (sinPermiso) return { ok: true, data: { successMessage: 'Success' } };   // como Alexa_support el 16-oct
       if ((caja.saldo || 0) < m) return { ok: false, error: 'Suma de entrada excede los límites' };
       caja.saldo -= m; j.saldoJ = (j.saldoJ || 0) + m;
       return { ok: true, data: { successMessage: 'Success' } };
@@ -160,6 +166,18 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   ok(nodos.get('602').saldoJ === 1000, 'si la caja ya tiene saldo y vuelve a tocar, se reintenta y lo recibe');
   const zp = pases.list().find((x) => x.id === p.id);
   ok(zp.regalos.dado.n === 2 && zp.regalos.dado.monto === 2000, 'la pantalla cuenta los regalos dados y el total');
+  // el caso del 16-oct: una conexión SIN permiso → el casino dice «Success» y no carga nada
+  sinPermiso = true;
+  nodos.set('603', { id: '603', login: 'paula603', padre: '10', group: '5' });
+  SESIONES['f'.repeat(32)] = { id: '603', login: 'paula603', currency: 'ARS' };
+  r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'f'.repeat(32) }, deps);
+  ok(r.ir && !nodos.get('603').saldoJ && /regalo NO dado \(el casino contestó que sí pero el saldo no se movió/.test(pases.eventos(p.id)[0].detalle),
+    'si el casino dice «Success» pero el saldo no sube, NO cuenta como dado (pasó con Alexa_support)');
+  sinPermiso = false;
+  const dp = await pases.darPendientes(p.id, deps);
+  ok(dp.dados === 1 && nodos.get('603').saldoJ === 1000, '«Dar los regalos pendientes» se lo carga sin que vuelva a tocar nada');
+  const dp2 = await pases.darPendientes(p.id, deps);
+  ok(dp2.dados === 0 && nodos.get('603').saldoJ === 1000, 'apretarlo otra vez no regala de nuevo');
   r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'b'.repeat(32) }, deps);
   await pases.editar(p.id, { todos: true });
   r = await pases.emitir({ origin: 'https://ganamoschat.com', token: 'b'.repeat(32) }, deps);

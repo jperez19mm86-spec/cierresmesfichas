@@ -60,6 +60,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS pase_evento (
   detalle TEXT, at TEXT
 )`);
 
+/* 16-oct: los primeros regalos se «dieron» con la conexión de Alexa_support, que NO puede cambiar
+   saldos: el casino contestó «Success» y no movió nada (PaulaTips quedó con 16). Se marcan como no
+   entregados, una sola vez, para darlos con «Dar los regalos pendientes». */
+{
+  const { db: _db } = require('./db');
+  const hecho = _db.prepare("SELECT value FROM meta WHERE key='pase_regalo_mig_16oct'").get();
+  if (!hecho) {
+    _db.prepare("UPDATE pase_regalo SET estado='fallo', detalle='se dio con una cuenta sin permiso para cargar: no entró' WHERE estado='dado'").run();
+    _db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('pase_regalo_mig_16oct', ?)").run(new Date().toISOString());
+  }
+}
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 const VIDA_CODIGO_MS = 2 * 60 * 1000;
 const nowISO = () => new Date().toISOString();
@@ -265,30 +277,72 @@ async function _reglaDe(reglas, jug, clienteDe) {
  * del casino (sin saldo, etc.) queda «fallo» y se vuelve a intentar la próxima vez que toque.
  * Devuelve el texto para el detalle del evento.
  */
+/** Saldo de un jugador leído en el casino (la lista de su caja). null si no se pudo leer. */
+async function _saldo(cli, cajaId, jug, divisa) {
+  try {
+    const r = await cli.apiCall('statisticstable', {}, { id: String(cajaId), template: 'users', safe_content: '1',
+      without_filters: '1', search: String(jug.login), limit: '50' });
+    const row = ((r.data && r.data.rows) || []).find((x) => String(x.id) === String(jug.id));
+    if (!row) return null;
+    const v = Number(String(row.balance ?? '').replace(/,/g, ''));
+    return Number.isFinite(v) ? v : null;
+  } catch (e) { return null; }
+}
+
 async function _darRegalo(regla, jug, cli, destino) {
   const ya = db.prepare('SELECT * FROM pase_regalo WHERE pase_id=? AND jugador_id=?').get(regla.id, String(jug.id));
   if (ya && ya.estado !== 'fallo') return ya.estado === 'dado' ? '' : 'regalo en duda de un intento anterior: revisar a mano';
-  const monto = regla.fichas_regalo, divisa = jug.divisa || 'ARS';
+  const monto = regla.fichas_regalo, divisa = jug.divisa || (ya && ya.divisa) || 'ARS';
   // Que el que está arriba sea la caja de destino (si no, el casino se lo sacaría a otra).
   const ops = require('./operaciones.service');
   const yo = await ops._ayudas.buscarUsuario(cli, jug.login);
   if (!yo || yo.padre !== destino.id) return 'regalo no dado: no cuelga de ' + destino.login;
   db.prepare(`INSERT OR REPLACE INTO pase_regalo (pase_id,jugador_id,login,monto,divisa,estado,detalle,at) VALUES (?,?,?,?,?,'dando','',?)`)
     .run(regla.id, String(jug.id), jug.login, monto, divisa, nowISO());
+  /* NO se confía en la respuesta: con una cuenta sin permiso el casino contesta «Success» y no carga
+     nada (16-oct). Se lee el saldo antes y después. */
+  const antes = await _saldo(cli, destino.id, jug, divisa);
   let r;
   try {
     r = await cli.apiCall('balance', { balance_currency: divisa, amount: String(monto), send: 'true', all: 'false', operation: 'in' },
       { type: 'frame', printing: 'true', id: String(jug.id) });
   } catch (e) { r = { ok: false, dudoso: true, error: e.message }; }
+  const despues = await _saldo(cli, destino.id, jug, divisa);
   const d = (r && r.data) || {};
-  const bien = r && r.ok && (d.successMessage || d.dataList);
-  // Error claro del casino → «fallo» (se reintenta). Sin respuesta o respuesta rara → «dudoso».
   const err = (r && r.error) || d.errorMessage || '';
-  const estado = bien ? 'dado' : (err && !(r && r.dudoso) ? 'fallo' : 'dudoso');
-  const det = bien ? '' : String(err || 'respuesta inesperada del casino').slice(0, 200);
-  db.prepare('UPDATE pase_regalo SET estado=?, detalle=?, at=? WHERE pase_id=? AND jugador_id=?').run(estado, det, nowISO(), regla.id, String(jug.id));
-  if (bien) return `🎁 ${monto} ${divisa} de regalo (de ${destino.login})`;
-  return estado === 'fallo' ? `regalo NO dado (${det}): cargárselo a mano o se reintenta si vuelve a tocar` : `regalo en duda (${det}): revisar a mano antes de volver a darlo`;
+  let estado, det;
+  if (antes != null && despues != null) {
+    const subio = Math.round((despues - antes) * 100) / 100;
+    if (subio >= monto - 0.01 && subio <= monto + 0.01) { estado = 'dado'; det = ''; }
+    else if (subio === 0) { estado = 'fallo'; det = err || 'el casino contestó que sí pero el saldo no se movió (¿la conexión puede cargar?)'; }
+    else { estado = 'dudoso'; det = `el saldo cambió ${subio} en vez de ${monto} (quizás estaba jugando): revisar a mano`; }
+  } else {
+    estado = 'dudoso'; det = 'no se pudo leer el saldo para confirmar: revisar a mano';
+  }
+  db.prepare('UPDATE pase_regalo SET estado=?, detalle=?, at=? WHERE pase_id=? AND jugador_id=?').run(estado, det.slice(0, 200), nowISO(), regla.id, String(jug.id));
+  if (estado === 'dado') return `🎁 ${monto} ${divisa} de regalo (de ${destino.login})`;
+  return estado === 'fallo' ? `regalo NO dado (${det})` : `regalo en duda (${det})`;
+}
+
+/**
+ * «Dar los regalos pendientes»: vuelve a intentar los que quedaron sin entregar (`fallo`) sin que
+ * el jugador tenga que tocar nada — ya se pasó y la franja no le vuelve a aparecer.
+ */
+async function darPendientes(paseId, deps = {}) {
+  const clienteDe = deps.clienteDe || ((id) => casinoConex.client(id));
+  const regla = list().find((p) => p.id === paseId);
+  if (!regla) throw new Error('ese pase no existe');
+  if (!(regla.fichas_regalo > 0) || !regla.caja_destino) throw new Error('este pase no tiene regalo');
+  const cli = clienteDe(regla.conexion_id);
+  if (!cli) throw new Error('el casino del pase no tiene credenciales');
+  const destino = await _caja(cli, regla.conexion_id, regla.caja_destino);
+  const filas = db.prepare("SELECT * FROM pase_regalo WHERE pase_id=? AND estado='fallo'").all(paseId);
+  const out = { dados: 0, fallidos: 0, dudosos: 0 };
+  for (const f of filas) {
+    const t = await _darRegalo(regla, { id: f.jugador_id, login: f.login, divisa: f.divisa }, cli, destino);
+    if (/^🎁/.test(t)) out.dados++; else if (/en duda/.test(t)) out.dudosos++; else out.fallidos++;
+  }
+  return out;
 }
 
 /** «cuelga de X: no se le cambió la caja», para el detalle de un pase «para todos». */
@@ -405,4 +459,4 @@ function sitios() {
   return [...s];
 }
 
-module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, sitios, host, _codigos, _quienEs: quienEs };
+module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, darPendientes, sitios, host, _codigos, _quienEs: quienEs };

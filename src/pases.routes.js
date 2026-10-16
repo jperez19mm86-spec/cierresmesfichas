@@ -35,6 +35,7 @@ function mount(app) {
   app.get('/api/os/pases/:id/eventos', (req, res) => res.json({ ok: true, eventos: pases.eventos(req.params.id) }));
   app.post('/api/os/pases', async (req, res) => { try { res.json({ ok: true, pase: await pases.crear(req.body || {}) }); } catch (e) { mal(res, e); } });
   app.put('/api/os/pases/:id', async (req, res) => { try { res.json({ ok: true, pase: await pases.editar(req.params.id, req.body || {}) }); } catch (e) { mal(res, e); } });
+  app.post('/api/os/pases/:id/regalos/pendientes', async (req, res) => { try { res.json({ ok: true, ...(await pases.darPendientes(req.params.id)) }); } catch (e) { mal(res, e); } });
   app.delete('/api/os/pases/:id', (req, res) => res.json({ ok: pases.borrar(req.params.id) }));
 }
 
