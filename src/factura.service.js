@@ -561,7 +561,8 @@ function crearLink(factura) {
 /** La factura de un token. Cuenta el acceso: sirve para saber si el cliente la abrió. */
 function porToken(token) {
   const r = db.prepare('SELECT * FROM factura_link WHERE token=?').get(String(token || ''));
-  if (!r) return null;
+  // La tabla la comparten otros documentos (vend:, api:, chat:); por /factura sólo se abren facturas.
+  if (!r || String(r.cliente_id || '').includes(':')) return null;
   if (r.revocado) return { revocado: true };
   db.prepare('UPDATE factura_link SET accesos=accesos+1, ultimo_acceso=? WHERE token=?')
     .run(new Date().toISOString(), r.token);

@@ -1669,7 +1669,7 @@ function avisarPagoALaMatriz(res, avisoId) {
   });
 }
 
-app.post('/chat/aviso', (req, res) => {
+app.post('/chat/aviso', limitePublico('chat-aviso', 20, 60), (req, res) => {
   const chatStore = require('./chat-externo.store');
   const b = req.body || {};
   const q = chatStore.quienEntra(b.usuario);
@@ -1690,7 +1690,8 @@ app.post('/chat/aviso', (req, res) => {
 
 /* LOS ACCESOS, DETRÁS DE LA CLAVE. Al portal se entra con el nombre de una caja: la contraseña del
    panel no puede estar del otro lado de esa puerta. */
-app.post('/chat/accesos', (req, res) => {
+// Con tope: devuelve claves de paneles, no se puede dejar probar claves en serie.
+app.post('/chat/accesos', limitePublico('chat-accesos', 10, 15), (req, res) => {
   const chatStore = require('./chat-externo.store');
   const b = req.body || {};
   const q = chatStore.quienEntra(b.usuario);
@@ -1700,7 +1701,7 @@ app.post('/chat/accesos', (req, res) => {
   res.json(r);
 });
 
-app.post('/chat/nuevo', (req, res) => {
+app.post('/chat/nuevo', limitePublico('chat-nuevo', 10, 60), (req, res) => {
   const chatStore = require('./chat-externo.store');
   const b = req.body || {};
   const q = chatStore.quienEntra(b.usuario);

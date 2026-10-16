@@ -2198,7 +2198,8 @@ function accesosDe(clienteId, clave) {
   const id = String(clienteId || '');
   const guardada = String(destino(id).clave_portal || '');
   if (!guardada) return { ok: false, error: 'Todavía no tenés clave para ver los accesos. Pedínosla y te la damos.' };
-  if (String(clave || '').trim() !== guardada) return { ok: false, error: 'Esa clave no es' };
+  const a = Buffer.from(String(clave || '').trim()); const b = Buffer.from(guardada);
+  if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) return { ok: false, error: 'Esa clave no es' };
   return {
     ok: true,
     cajas: list().filter((p) => p.cliente_id === id && p.activo && (p.usuario_admin || p.clave_admin))

@@ -193,9 +193,11 @@ function updateComercial(id, patch) {
   // ── v3.0 ficha de cliente ──
   ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor',
     'saldo_inicial', 'saldo_inicial_divisa', 'saldo_inicial_mov_id', 'margen_externos_pct', 'vendedor_id', 'externos_modo',
-    'factura_a', 'externos_precios_de', 'internos_se_cobran'].forEach((k) => {
+    'factura_a', 'externos_precios_de'].forEach((k) => {
     if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
   });
+  // Sí/no: con String(), un `false` quedaba «"false"» y se guardaba como 1 (se cobraban SL/SL2/XG).
+  if (patch.internos_se_cobran !== undefined) c.internos_se_cobran = [true, 1, '1', 'true', 'si', 'sí'].includes(typeof patch.internos_se_cobran === 'string' ? patch.internos_se_cobran.trim().toLowerCase() : patch.internos_se_cobran);
   // A qué billetera paga. Vacío = la principal.
   if (patch.billetera_id !== undefined) c.billetera_id = patch.billetera_id === '' ? null : String(patch.billetera_id).trim();
   if (patch.mover_balance !== undefined) c.mover_balance = !!patch.mover_balance;

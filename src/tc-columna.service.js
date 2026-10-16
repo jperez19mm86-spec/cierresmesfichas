@@ -14,11 +14,10 @@
  *  · NO toca ARS_OF. Ese es el TC que factura el PROVEEDOR: no sale de ninguna cotización, sale
  *    de su factura, y adivinarlo sería inventar lo que pagamos.
  *
- * El peso va aparte: su promedio es el de Binance/criptoya (tc_snapshots), no el de la fuente de
- * cotizaciones oficiales que alimenta al resto — la diferencia medida fue 6,1%.
+ *  · NO toca el peso (ARS). Desde el 14-oct-2026 su casilla es el cambio del TRADER, que vale sólo
+ *    para los pagos en pesos y se carga a mano; la cuenta usa el promedio sin pasar por la casilla.
  */
 const cierre = require('./cierre-store');
-const tcArs = require('./tc-store');
 const tcDivisas = require('./tc-divisas.service');
 const { mesCierre, mesTZ } = require('./lib/fechas');
 
@@ -45,10 +44,11 @@ function armarColumna(mesISO, { pisar = false } = {}) {
     return Object.entries(fila).some(([k, v]) => k.toLowerCase() === columna.toLowerCase() && v != null && v !== '');
   };
 
-  // ARS del promedio cripto + el resto de la fuente de cotizaciones.
+  // Las divisas, de la fuente de cotizaciones.
   const candidatos = [];
-  const ars = tcArs.promedioMes(m);
-  if (ars) candidatos.push({ divisa: 'ARS', valor: String(ars), dias: null, fuente: 'Binance/criptoya' });
+  // El peso NO: desde el 14-oct su casilla es la del TRADER (sólo para pagos) y se carga a mano. Si se
+  // la llenaba con el promedio, los pagos en pesos se valuaban con el promedio como si fuera el del
+  // trader. Sin casilla, la cuenta usa el promedio igual (tc-unico) y los pagos quedan «provisorios».
   tcDivisas.promediosMes(m).forEach((r) => {
     if (r.promedio == null) return;
     candidatos.push({ divisa: String(r.divisa).toUpperCase(), valor: String(r.promedio), dias: r.dias, fuente: 'cotizaciones' });

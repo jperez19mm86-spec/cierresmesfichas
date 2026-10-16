@@ -111,10 +111,6 @@ function _tbsCliente(conexionId) {
   return { cli, nombre: cx.nombre, id: cx.id };
 }
 
-function basePctEfectivo(cliente, panel, mes = mesTZ()) {
-  return externosSvc.baseDelMes(cliente, mes, panel).valor;
-}
-
 function mount(app) {
   splitBase.seedIfEmpty();
   // Los paquetes de la oferta comercial, una sola vez. Si ya hay alguno no se toca nada.
@@ -188,6 +184,10 @@ function mount(app) {
       es_vendedor: c.es_vendedor, vendedor_id: c.vendedor_id, externos_modo: c.externos_modo, saldo_inicial: c.saldo_inicial,
       factura_a: c.factura_a, externos_precios_de: c.externos_precios_de,
       internos_se_cobran: !!c.internos_se_cobran,
+      // ⚠️ Lo mismo: sin estos, Guardar la ficha apagaba el prepago, le sacaba el abono por carga y le
+      // volvía a habilitar las dos divisas de pago (auditoría 17-oct). Toda clave que manda saveCli va acá.
+      prepago: !!c.prepago, prepago_margen_pct: c.prepago_margen_pct, divisas_pago: c.divisas_pago,
+      abona_a: c.abona_a || null, abona_pts: c.abona_pts || null,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
@@ -5844,4 +5844,4 @@ function mount(app) {
   console.log('[OS] rutas comerciales/financieras montadas (/api/os/*)');
 }
 
-module.exports = { mount, basePctEfectivo };
+module.exports = { mount };

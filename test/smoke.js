@@ -6653,9 +6653,16 @@ async function main() {
     const cs2 = fs.readFileSync(path.join(ROOT, 'src', 'clientes-store.js'), 'utf8');
     check('internos: la excepción se guarda y se lee de la ficha',
       /internos_se_cobran: !!r\.internos_se_cobran/.test(cs2)
-      && /'externos_precios_de', 'internos_se_cobran'\]/.test(cs2)
+      && /if \(patch\.internos_se_cobran !== undefined\) c\.internos_se_cobran = \[true, 1, '1', 'true'/.test(cs2)
       && /intcob: c\.internos_se_cobran \? 1 : 0/.test(cs2),
       'sin el INSERT, un cliente nuevo lo pierde en silencio');
+    {  // y un «no» se guarda como no: con String(false) quedaba "false", que se grababa como 1
+      const cliSt = require('../src/clientes-store'); const cliI = cliSt.createCliente({ codigo: 'ZZINT', nombre: 'ZZINT' });
+      cliSt.updateComercial(cliI.id, { internos_se_cobran: true });
+      const si = cliSt.get(cliI.id).internos_se_cobran;
+      cliSt.updateComercial(cliI.id, { internos_se_cobran: false });
+      check('internos: apagar la excepción la apaga', si === true && cliSt.get(cliI.id).internos_se_cobran === false);
+    }
     const h12 = FUENTE_PANEL();
     check('internos: la pantalla avisa cuando el cliente es la excepción',
       /A este cliente SÍ se le cobran los internos/.test(h12),
