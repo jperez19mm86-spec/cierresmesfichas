@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Latam Games · Nuestro chat</title>
+<link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+<header>
+  <h1><img src="/logo.png" alt="Latam Games" class="hd-logo"
+    onerror="this.outerHTML='<span>Latam Games</span>'"> <small id="hd-sub">Nuestro chat — lo que se le cobra a cada cliente</small></h1>
+  <div id="hd-nav" style="display:flex; gap:8px; flex:0 0 auto; flex-wrap:nowrap; align-items:center"></div>
+</header>
+<nav class="nav" id="nav"></nav>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<style>
+  .nc-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px }
+  .nc-tile{ background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:12px 14px }
+  .nc-tile .k{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em }
+  .nc-tile .v{ font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:3px }
+  .nc-tile .s{ font-size:12.5px; color:var(--muted); margin-top:2px }
+  .nc-tile.rojo{ border-color:#e9b9c1; background:var(--rosa-bg) } .nc-tile.rojo .v{ color:var(--rosa) }
+  .nc-tile.verde .v{ color:var(--verde2) }
+  .señal.verde{ background:#e3f3ea; color:#2c6b4c } .señal.gris{ background:var(--bg3); color:var(--muted) }
+  .nc-caja-h{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; margin-bottom:8px }
+  .nc-caja-h b{ font-size:14px } .nc-caja-h .muted{ font-size:12.5px }
+  .nc-form{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px 12px; margin-top:8px }
+  .nc-form label{ display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); text-transform:none; margin:0 }
+  .nc-form input, .nc-form select{ font-size:14px }
+  .nc-tabla{ width:100%; border-collapse:collapse; font-size:13.5px }
+  .nc-tabla th{ text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--border) }
+  .nc-tabla td{ padding:8px; border-bottom:1px solid var(--border); vertical-align:top }
+  .nc-tabla td.n, .nc-tabla th.n{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap }
+  .nc-hash{ font-family:var(--mono); font-size:12px; color:var(--muted); overflow-wrap:anywhere }
+  .nc-estado{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 14px; border-radius:12px; margin-bottom:12px; background:var(--bg2); border:1px solid var(--border) }
+  .nc-estado .t{ font-weight:700 } .nc-estado .acciones{ margin:0 0 0 auto }
+  .nc-sel{ display:flex; gap:8px; align-items:center; margin:0 0 12px; flex-wrap:wrap }
+  @media (max-width:640px){ .nc-tabla .opc{ display:none } main{ padding:12px } }
+</style>
+
+<script>
+/* ── /nuestro-chat — SU PROPIO ARCHIVO ─────────────────────────────────────────────────────────
+   Lo que se le cobra a cada cliente por NUESTRO chat: mantenimiento fijo por caja, instalación
+   opcional y un % sobre las cargas o sobre la ganancia del casino. No es Chat Externo (el chat de
+   otro, donde la mitad es del proveedor): acá no hay costo ni margen y la plata va a su propia
+   wallet. Por eso es otro archivo, con otra cuenta: un cambio de allá no puede romper esto.
+   Los ayudantes de abajo se copian a propósito (ver /tbs). */
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function usdt(n){ return money(n,2) + ' USDT'; }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+async function api(path, opts={}){
+  let r;
+  try { r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts)); }
+  catch(e){ const msg='se cortó la conexión con el servidor. Lo que ya se había guardado quedó guardado: volvé a intentar.'; toast('⚠ '+msg); return { ok:false, error:msg }; }
+  if(r.status===401){ location.href='/login'; return {ok:false}; }
+  let b={}; try{ b=await r.json(); }catch(e){ if(!r.ok){ const msg='el servidor cortó la llamada ('+r.status+').'; toast('⚠ '+msg); return { ok:false, error:msg }; } }
+  if(!b.ok && b.error && !opts.silencioso) toast('⚠ '+b.error);
+  return b;
+}
+const post = (path, body) => api(path, { method:'POST', body: JSON.stringify(body||{}) });
+function logout(){ fetch('/api/logout',{method:'POST'}).finally(()=>location.href='/login'); }
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const nomMes = (m) => { const [y,mm] = String(m||'').split('-'); return (MESES[Number(mm)-1]||m) + ' ' + y; };
+const fecha = (t) => t ? new Date(t).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+const dia = (t) => { if (!t) return ''; const f = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t); if (f) return Number(f[3]) + '/' + Number(f[2]);   // una fecha sola (el alta) no tiene hora: no se corre de día
+  return new Date(t).toLocaleDateString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',day:'numeric',month:'numeric'}); };
+const BASE = { cargas:'las cargas', ganancia:'la ganancia del casino' };
+
+/* Lo plegado sobrevive al repintado. */
+const _ab = new Set();
+function plegable(id, titulo, resumen, señales, cuerpo){
+  return `<details class="plegable"${_ab.has(id)?' open':''} data-pleg="${esc(id)}">
+    <summary class="fila"><span class="chev" aria-hidden="true"></span><span class="nom">${titulo}</span>
+      ${señales||''}${resumen?`<span class="cifra">${resumen}</span>`:''}</summary>
+    <div class="cuerpo">${cuerpo}</div></details>`;
+}
+document.addEventListener('toggle', (e) => { const d = e.target; if (d.dataset && d.dataset.pleg) { if (d.open) _ab.add(d.dataset.pleg); else _ab.delete(d.dataset.pleg); } }, true);
+const señal = (clase, txt, title) => `<span class="señal ${clase}"${title?` title="${esc(title)}"`:''}>${esc(txt)}</span>`;
+
+/* ── EL DETALLE DE UNA CAJA (lo usan En curso y Cobros) ───────────────────────────────────── */
+function datosCaja(c){
+  const filas = [];
+  filas.push(['Mantenimiento', usdt(c.mantMes) + (c.dias < c.diasMes ? `<div class="tc">${c.dias} de ${c.diasMes} días (desde el ${dia(c.desde)}) · ${money(c.mant,0)} el mes entero</div>` : '')]);
+  if (c.instMes) filas.push(['Instalación', usdt(c.instMes) + '<div class="tc">una sola vez</div>']);
+  const sinDato = (c.avisos||[]).find(a => a.tipo === 'sin-datos'), sinTc = (c.avisos||[]).find(a => a.tipo === 'sin-tc');
+  const baseTxt = sinDato ? '<span class="tc falta">sin datos del casino</span>'
+    : `${money(c.baseValor,0)} ${esc(c.moneda)}` + (c.moneda !== 'USDT' ? (sinTc ? `<div class="tc falta">falta el cambio de ${esc(c.moneda)}</div>` : `<div class="tc">al cambio ${money(c.tc,2)} = ${usdt(c.baseUsdt)}</div>`) : '');
+  filas.push([c.base === 'cargas' ? 'Cargas del mes' : 'Ganancia del casino', baseTxt]);
+  filas.push([money(c.pct,1) + ' % de ' + BASE[c.base], c.variable == null ? '<span class="tc falta">no se puede calcular</span>' : (c.base === 'ganancia' && c.baseValor <= 0 ? usdt(0) + '<div class="tc">el mes dio pérdida: el % es cero</div>' : usdt(c.variable))]);
+  return `<div class="subcaja"><div class="nc-caja-h"><b>${esc(c.caja)}</b>${c.sitio?`<span class="muted">${esc(c.sitio)}</span>`:''}${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}</div>
+    <div class="subdatos">${filas.map(([k,v]) => `<div><span class="k">${k}</span><span class="v">${v}</span></div>`).join('')}
+      <div><span class="k"><b>Esta caja</b></span><span class="v fuerte">${c.total == null ? '—' : usdt(c.total)}</span></div></div>
+    ${(c.avisos||[]).filter(a => a.tipo !== 'negativo').map(a => `<div class="nota-suave${a.tipo==='sin-datos'?' rosa':''}">${esc(a.texto)}</div>`).join('')}</div>`;
+}
+
+const VIEWS = {};
+const TABS = [['curso','📈 Este mes'], ['cobros','🧾 Cobros'], ['pagos','💸 Pagos'], '|', ['clientes','👥 Clientes y cajas'], ['config','⚙ Config']];
+let _tab = 'curso';
+
+/* ── 📈 ESTE MES: lo que va a pagar cada uno si el mes terminara hoy ──────────────────────── */
+VIEWS.curso = async () => {
+  const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Calculando…</div>';
+  const r = await api('/api/nuestro-chat/tablero'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
+  const T = r.totales;
+  m.innerHTML = `
+    <div class="totalote"><div class="k">${esc(nomMes(r.mes))} · si el mes terminara hoy</div><div class="v">${usdt(T.total)}</div>
+      <dl><div><dt>Mantenimiento (${T.cajas} cajas)</dt><dd>${usdt(T.mant)}</dd></div>
+        <div><dt>% sobre cargas y ganancia</dt><dd>${usdt(T.variable)}</dd></div>
+        ${T.inst ? `<div><dt>Instalaciones</dt><dd>${usdt(T.inst)}</dd></div>` : ''}</dl>
+      <div class="cuantos">${T.clientes} clientes${T.sinCalcular ? ` (${T.sinCalcular} todavía no se ${T.sinCalcular === 1 ? 'puede' : 'pueden'} calcular: no suman)` : ''} · los datos del casino llegan hasta ayer (${dia(r.datosHasta)}). El cobro se arma solo el 1 de ${esc(MESES[(Number(r.mes.slice(5))%12)])}.</div></div>
+    ${r.clientes.map((cl) => plegable('cu.'+cl.id, esc(cl.nombre),
+        cl.total == null ? '<b>—</b>' : `<b>${money(cl.total)}</b><span class="u">USDT</span>`,
+        (cl.avisos||[]).map(a => señal(a.tipo==='sin-datos'?'rosa':'durazno', a.corto, a.texto)).join(''),
+        `<div class="sublista">${cl.cajas.map(datosCaja).join('')}</div>`)).join('')}`;
+};
+
+/* ── 🧾 COBROS: el del mes pasado (armado el día 1) y los de antes ───────────────────────── */
+let _mesCobro = null;
+VIEWS.cobros = async () => {
+  const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Cargando…</div>';
+  const r = await api('/api/nuestro-chat/cobros' + (_mesCobro ? '?mes=' + _mesCobro : '')); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
+  _mesCobro = r.mes; const E = r.estado || {}, T = r.totales || {};
+  const estado = E.enviado ? `<span class="t">✅ Se mandó el ${fecha(E.enviado)}</span><span class="muted">Los recordatorios salen solos a los ${(r.recordatorios||[3,7]).join(' y ')} días.</span>`
+    : E.frenado ? `<span class="t">⏸ No sale solo</span><span class="muted">Lo frenaste: sale cuando toques «Mandar todos».</span>
+        <div class="acciones"><button data-acc="mandar">Mandar todos</button><button class="outline small" data-acc="soltar">Que salga solo</button></div>`
+    : E.armado ? `<span class="t">🕙 Armado el ${fecha(E.armado)} · sale solo el ${fecha(E.saleSolo)}</span><span class="muted">Revisalo; si está bien, mandalo ya.</span>
+        <div class="acciones"><button data-acc="mandar">Mandar todos</button><button class="outline small" data-acc="frenar">No mandar solo</button></div>`
+    : `<span class="t">Todavía no se armó</span><span class="muted">Se arma solo el día 1.</span>`;
+  const lab = { pagado:['verde','✓ Pagó'], pendiente:['gris','Esperando el pago'], vencido:['rosa','Vencido'], 'no-sale':['rosa','No sale'], 'sin-enviar':['gris','Sin mandar'] };
+  m.innerHTML = `
+    <div class="nc-sel"><label style="text-transform:none;margin:0">Mes <select data-mes>${(r.meses||[r.mes]).map(x => `<option value="${x}"${x===r.mes?' selected':''}>${esc(nomMes(x))}</option>`).join('')}</select></label></div>
+    <div class="nc-estado">${estado}</div>
+    <div class="nc-tiles">
+      <div class="nc-tile"><div class="k">Se cobra</div><div class="v">${money(T.total)}</div><div class="s">USDT · ${T.clientes} clientes</div></div>
+      <div class="nc-tile verde"><div class="k">Ya pagaron</div><div class="v">${money(T.cobrado)}</div><div class="s">${T.nPagaron} de ${T.clientes}</div></div>
+      <div class="nc-tile"><div class="k">Falta</div><div class="v">${money(T.pendiente)}</div><div class="s">USDT</div></div>
+      ${T.vencido ? `<div class="nc-tile rojo"><div class="k">Vencido</div><div class="v">${money(T.vencido)}</div><div class="s">${T.nVencidos} ${T.nVencidos===1?'cliente':'clientes'}</div></div>` : ''}
+    </div>
+    ${(r.problemas||[]).length ? `<div class="nota-suave rosa" style="margin:0 0 12px"><b>${r.problemas.length === 1 ? 'Un cliente no sale' : r.problemas.length + ' clientes no salen'} hasta que lo arregles:</b> ${r.problemas.map(p => esc(p.cliente) + ' (' + esc(p.texto) + ')').join(' · ')}</div>` : ''}
+    ${r.clientes.map((cl) => {
+      const [c, t] = lab[cl.estado] || ['gris', cl.estado];
+      const extra = cl.estado === 'vencido' ? ` ${cl.diasVencido} días` : '';
+      const pago = cl.pagos && cl.pagos.length ? `<div class="subcaja" style="margin-top:9px"><div class="subdatos">${cl.pagos.map(p => `<div><span class="k">Pagó ${fecha(p.t)} · ${esc(p.red)} · ${esc(p.como)}</span><span class="v">${usdt(p.monto)}</span></div><div><span class="k"></span><span class="nc-hash">${esc(p.hash)}</span></div>`).join('')}</div></div>` : '';
+      const rec = (cl.recordatorios||[]).length ? `<div class="muted" style="font-size:12.5px;margin-top:8px">Recordatorios: ${cl.recordatorios.map(x => x.dias + ' días (' + dia(x.t) + ')').join(' · ')}</div>` : '';
+      const envio = cl.envio ? (cl.envio.ok ? `<div class="muted" style="font-size:12.5px;margin-top:8px">Se le mandó por Telegram el ${fecha(cl.envio.t)}</div>` : `<div class="nota-suave rosa">No le llegó: ${esc(cl.envio.error)}</div>`) : '';
+      return plegable('co.'+r.mes+'.'+cl.id, esc(cl.nombre), `<b>${money(cl.exacto)}</b><span class="u">USDT</span>`,
+        señal(c, t + extra) + (cl.problema ? señal('rosa', cl.problema) : ''),
+        `<dl class="datos"><div><dt>A pagar</dt><dd>${usdt(cl.exacto)}<div class="tc" style="font-weight:400;font-size:12.5px;color:var(--muted)">${usdt(cl.total)} + ${money(cl.exacto - cl.total)} de centavos que identifican su pago</div></dd></div>
+          ${cl.pagado ? `<div><dt>Pagó</dt><dd class="bien">${usdt(cl.pagado)}</dd></div>` : ''}
+          ${cl.debe > 0 && cl.pagado ? `<div><dt>Le falta</dt><dd class="mal">${usdt(cl.debe)}</dd></div>` : ''}
+          <div><dt>Vence</dt><dd>${dia(cl.vence)}</dd></div></dl>
+        <div class="sublista">${cl.cajas.map(datosCaja).join('')}</div>${pago}${envio}${rec}
+        <div class="acciones"><button class="outline small" data-copiar="${esc(cl.link)}">Copiar su link de pago</button>${cl.estado !== 'pagado' && E.enviado ? `<button class="outline small" data-recordar="${esc(cl.id)}">Mandarle un recordatorio ahora</button>` : ''}</div>`);
+    }).join('')}`;
+};
+
+/* ── 💸 PAGOS: lo que entró a las wallets, leído de la blockchain ────────────────────────── */
+VIEWS.pagos = async () => {
+  const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Leyendo las wallets…</div>';
+  const r = await api('/api/nuestro-chat/pagos'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
+  const sin = r.movs.filter(x => x.estado === 'sin-identificar'), cq = r.cuadre || {};
+  const fila = (x) => `<tr><td>${fecha(x.t)}<div class="muted" style="font-size:12px">${esc(x.red)}</div></td>
+    <td class="n"><b>${money(x.monto)}</b></td>
+    <td>${x.estado === 'sin-identificar' ? `<b style="color:var(--rosa)">Sin identificar</b><div class="muted" style="font-size:12px">${esc(x.porque||'no coincide con ningún cobro')}</div>`
+      : `<b>${esc(x.cliente)}</b> · ${esc(nomMes(x.mes))}<div class="muted" style="font-size:12px">${esc(x.como)}${x.parcial ? ' · le faltan ' + usdt(x.falta) : ''}</div>`}</td>
+    <td class="opc"><div class="nc-hash">${esc(x.hash)}</div><div class="muted" style="font-size:12px">desde ${esc(x.de)}</div></td>
+    <td>${x.estado === 'sin-identificar' ? `<button class="small" data-asignar="${esc(x.id)}">Asignar…</button>` : `<a class="muted" style="font-size:12.5px" href="${esc(x.ver)}" target="_blank" rel="noopener">Ver ↗</a>`}</td></tr>`;
+  m.innerHTML = `
+    <div class="nc-tiles">${r.wallets.map(w => `<div class="nc-tile"><div class="k">Wallet ${esc(w.red)}</div><div class="v">${w.saldo == null ? '—' : money(w.saldo)}</div>
+      <div class="s nc-hash" title="${esc(w.direccion)}">${esc(w.direccion.slice(0,8) + '…' + w.direccion.slice(-6))}</div><div class="s">leída ${fecha(w.leido)}</div></div>`).join('')}
+      <div class="nc-tile ${cq.entro === cq.registrado ? 'verde' : 'rojo'}"><div class="k">¿Cuadra ${esc(MESES[Number(String(cq.mes).slice(5))-1]||'')}?</div><div class="v">${cq.entro === cq.registrado ? '✓ Sí' : '✗ No'}</div>
+        <div class="s">entró ${money(cq.entro)} · de cobros ${money(cq.registrado)}</div></div></div>
+    ${sin.length ? `<div class="nota-suave rosa" style="margin:0 0 12px"><b>${sin.length === 1 ? 'Una transferencia no coincide' : sin.length + ' transferencias no coinciden'} con ningún cobro.</b> Tocá «Asignar…» y elegí de quién es.</div>` : ''}
+    <div class="card" style="padding:6px 10px"><table class="nc-tabla"><thead><tr><th>Cuándo</th><th class="n">USDT</th><th>De quién</th><th class="opc">Transferencia</th><th></th></tr></thead>
+      <tbody>${sin.concat(r.movs.filter(x => x.estado !== 'sin-identificar')).map(fila).join('') || '<tr><td colspan="5" class="muted">Todavía no entró nada.</td></tr>'}</tbody></table></div>
+    <div class="muted" style="font-size:12.5px">Las wallets se leen solas cada 2 minutos, solo para mirar: el sistema no tiene sus claves y no puede mover nada.</div>`;
+};
+
+/* ── 👥 CLIENTES Y CAJAS: las condiciones de cada uno ────────────────────────────────────── */
+VIEWS.clientes = async () => {
+  const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Cargando…</div>';
+  const r = await api('/api/nuestro-chat/clientes'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
+  const opc = (v, lista) => lista.map(([k,l]) => `<option value="${k}"${String(v)===String(k)?' selected':''}>${l}</option>`).join('');
+  const caja = (cl, c) => `<div class="subcaja" data-caja="${esc(c.id)}" data-cliente="${esc(cl.id)}"><div class="nc-caja-h"><b>${esc(c.caja)}</b><span class="muted">${esc(c.sitio||'sin sitio')}</span>${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}${c.activa?'':señal('gris','dada de baja')}</div>
+    <div class="nc-form">
+      <label>Caja del casino<input data-k="caja" value="${esc(c.caja)}"></label>
+      <label>Sitio del chat<input data-k="sitio" value="${esc(c.sitio||'')}" placeholder="casinozeuschat.net"></label>
+      <label>Desde<input type="date" data-k="desde" value="${esc(c.desde)}"></label>
+      <label>Mantenimiento (USD por mes)<input type="number" min="0" step="1" data-k="mant" value="${esc(c.mant)}"></label>
+      <label>Instalación (una vez)<select data-k="inst">${opc(c.inst, [[0,'No se cobra'],[50,'50 USD']])}</select></label>
+      <label>Se cobra sobre<select data-k="base">${opc(c.base, [['cargas','las cargas'],['ganancia','la ganancia del casino']])}</select></label>
+      <label>%<input type="number" min="1" max="3" step="0.1" data-k="pct" value="${esc(c.pct)}"></label>
+    </div>
+    ${c.instCobrada ? `<div class="muted" style="font-size:12.5px;margin-top:6px">La instalación ya se cobró en ${esc(nomMes(c.instCobrada))}.</div>` : ''}
+    <div class="acciones"><button class="small" data-guardar>Guardar</button>${c.activa ? '<button class="outline small" data-baja>Dar de baja</button>' : ''}</div></div>`;
+  m.innerHTML = `
+    <div class="muted" style="margin:0 0 12px">Cada caja tiene sus condiciones. Lo que cambies vale desde el cobro que viene; lo ya cobrado no se toca.</div>
+    ${r.clientes.map(cl => plegable('cl.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${esc(cl.codigo)}</small>`,
+      `<b>${cl.cajas.filter(c=>c.activa).length}</b><span class="u">${cl.cajas.filter(c=>c.activa).length===1?'caja':'cajas'}</span>`,
+      cl.tg ? '' : señal('durazno','sin grupo de Telegram','Sin grupo no le llega el cobro: cargalo abajo'),
+      `<div class="nc-form" style="margin-bottom:10px"><label>Grupo de Telegram (id)<input data-tg="${esc(cl.id)}" value="${esc(cl.tg||'')}" placeholder="-100…"></label>
+         <label>Su link de pago<input readonly value="${esc(cl.link)}" data-sel></label></div>
+       <div class="sublista">${cl.cajas.map(c => caja(cl, c)).join('')}</div>
+       <div class="acciones"><button class="outline small" data-nueva="${esc(cl.id)}">+ Agregar caja</button><button class="outline small" data-guardar-tg="${esc(cl.id)}">Guardar el grupo</button></div>`)).join('')}
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Sumar un cliente</h2></div>
+      <div class="nc-form"><label>Cliente del OS<select id="nc-nuevo">${opc('', [['','Elegí…']].concat((r.disponibles||[]).map(x => [x.id, esc(x.nombre)])))}</select></label></div>
+      <div class="acciones"><button data-sumar>Sumar</button></div></div>`;
+};
+
+/* ── ⚙ CONFIG ─────────────────────────────────────────────────────────────────────────────── */
+VIEWS.config = async () => {
+  const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Cargando…</div>';
+  const r = await api('/api/nuestro-chat/config'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
+  const c = r.config;
+  m.innerHTML = `
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Las wallets de este cobro</h2></div>
+      <div class="muted" style="font-size:13px;margin-top:4px">Solo la dirección pública: el sistema las lee para ver qué entró, nunca tiene sus claves. Tienen que ser wallets nuevas, sólo para esto: si entra otra plata, no cuadra.</div>
+      <div class="nc-form"><label>TRC20 (Tron)<input id="cf-trc" value="${esc(c.trc20||'')}" placeholder="T…"></label><label>BEP20 (BNB Chain)<input id="cf-bep" value="${esc(c.bep20||'')}" placeholder="0x…"></label></div></div>
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Para cajas nuevas</h2></div>
+      <div class="nc-form"><label>Mantenimiento (USD)<input id="cf-mant" type="number" value="${esc(c.mant)}"></label><label>Instalación (USD)<input id="cf-inst" type="number" value="${esc(c.inst)}"></label>
+        <label>%<input id="cf-pct" type="number" step="0.1" min="1" max="3" value="${esc(c.pct)}"></label>
+        <label>Se cobra sobre<select id="cf-base"><option value="cargas"${c.base==='cargas'?' selected':''}>las cargas</option><option value="ganancia"${c.base==='ganancia'?' selected':''}>la ganancia del casino</option></select></label></div></div>
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Cuándo</h2></div>
+      <div class="nc-form"><label>Se arma el día<input type="number" value="1" disabled></label><label>Sale solo (horas después)<input id="cf-espera" type="number" min="0" value="${esc(c.esperaHoras)}"></label>
+        <label>Vence a los (días)<input id="cf-vence" type="number" min="1" value="${esc(c.venceDias)}"></label><label>Recordatorios (días después)<input id="cf-rec" value="${esc((c.recordatorios||[]).join(', '))}"></label></div></div>
+    <div class="acciones"><button data-guardar-cfg>Guardar</button></div>`;
+};
+
+/* ── LAS ACCIONES (todo por data-*: ningún dato adentro de un onclick) ─────────────────────── */
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('button,[data-sel]'); if (!b) return;
+  if (b.dataset.sel !== undefined) { b.select(); return; }
+  if (b.dataset.copiar) { try { await navigator.clipboard.writeText(b.dataset.copiar); toast('Link copiado'); } catch (_) { toast(b.dataset.copiar); } return; }
+  const acc = b.dataset.acc;
+  if (acc) { const r = await post('/api/nuestro-chat/cobros/' + acc, { mes:_mesCobro }); if (r.ok) { toast(acc === 'mandar' ? 'Mandado a ' + (r.mandados||0) + ' clientes' : acc === 'frenar' ? 'No sale solo: lo mandás vos' : 'Sale solo'); VIEWS.cobros(); } return; }
+  if (b.dataset.recordar) { const r = await post('/api/nuestro-chat/cobros/recordar', { mes:_mesCobro, cliente:b.dataset.recordar }); if (r.ok) toast('Recordatorio mandado'); return; }
+  if (b.dataset.asignar) {   // en el mismo renglón: la lista de los que deben, y Asignar
+    const r0 = await api('/api/nuestro-chat/cobros/abiertos'); const td = b.closest('td');
+    td.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap"><select data-asig-sel>${(r0.abiertos||[]).map(x => `<option value="${esc(x.cliente)}|${esc(x.mes)}">${esc(x.nombre)} · ${esc(nomMes(x.mes))} · debe ${money(x.debe)}</option>`).join('')}</select>
+      <button class="small" data-asig-ok="${esc(b.dataset.asignar)}">Asignar</button></div>`;
+    return; }
+  if (b.dataset.asigOk) { const [cliente, mes] = b.closest('td').querySelector('[data-asig-sel]').value.split('|');
+    const r = await post('/api/nuestro-chat/pagos/' + encodeURIComponent(b.dataset.asigOk) + '/asignar', { cliente, mes }); if (r.ok) { toast('Asignada'); VIEWS.pagos(); } return; }
+  if (b.dataset.guardar !== undefined) {
+    const box = b.closest('[data-caja]'); const d = { id: box.dataset.caja, cliente: box.dataset.cliente };
+    box.querySelectorAll('[data-k]').forEach(i => { d[i.dataset.k] = i.value; });
+    if (Number(d.pct) < 1 || Number(d.pct) > 3) { toast('El % va entre 1 y 3'); return; }
+    const r = await post('/api/nuestro-chat/cajas', d); if (r.ok) { toast('Guardado'); VIEWS.clientes(); } return; }
+  if (b.dataset.baja !== undefined) { const box = b.closest('[data-caja]'); if (!confirm('¿Dar de baja esta caja? Se le cobra hasta hoy, proporcional.')) return;
+    const r = await post('/api/nuestro-chat/cajas/' + encodeURIComponent(box.dataset.caja) + '/baja', {}); if (r.ok) { toast('Dada de baja'); VIEWS.clientes(); } return; }
+  if (b.dataset.nueva) { const r = await post('/api/nuestro-chat/cajas', { cliente: b.dataset.nueva, nueva: true }); if (r.ok) { _ab.add('cl.' + b.dataset.nueva); VIEWS.clientes(); } return; }
+  if (b.dataset.guardarTg) { const i = document.querySelector('[data-tg="' + CSS.escape(b.dataset.guardarTg) + '"]'); const r = await post('/api/nuestro-chat/clientes/' + encodeURIComponent(b.dataset.guardarTg), { tg: i.value.trim() }); if (r.ok) { toast('Grupo guardado'); VIEWS.clientes(); } return; }
+  if (b.dataset.sumar !== undefined) { const v = document.getElementById('nc-nuevo').value; if (!v) { toast('Elegí el cliente'); return; } const r = await post('/api/nuestro-chat/clientes', { cliente: v }); if (r.ok) { _ab.add('cl.' + v); VIEWS.clientes(); } return; }
+  if (b.dataset.guardarCfg !== undefined) {
+    const v = (id) => document.getElementById(id).value.trim();
+    const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), mant: v('cf-mant'), inst: v('cf-inst'), pct: v('cf-pct'), base: v('cf-base'), esperaHoras: v('cf-espera'), venceDias: v('cf-vence'), recordatorios: v('cf-rec') });
+    if (r.ok) toast('Guardado'); return; }
+});
+document.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.mes !== undefined) { _mesCobro = e.target.value; VIEWS.cobros(); } });
+
+function renderNav(){
+  const otros = [['/','🎰 Fichas'], ['/os','📊 Panel'], ['/tbs','🔌 TBS'], ['/chat-externo','💬 Chat externo']];
+  document.getElementById('hd-nav').innerHTML = otros.map(([h,l])=>`<a href="${h}" style="text-decoration:none"><button class="outline small" style="white-space:nowrap">${l}</button></a>`).join('')
+    + '<button class="outline small" onclick="logout()" style="white-space:nowrap">🚪 Salir</button>';
+  document.getElementById('nav').innerHTML = TABS.map(t => t==='|' ? '<span class="navsep"></span>'
+    : `<button class="navbtn ${t[0]===_tab?'active':''}" data-ir="${t[0]}">${t[1]}</button>`).join('');
+}
+document.getElementById('nav').addEventListener('click', (e) => { const b = e.target.closest('[data-ir]'); if (b) go(b.dataset.ir); });
+function go(t){ _tab = t; renderNav(); VIEWS[t](); }
+renderNav(); go('curso');
+</script>
+</body>
+</html>

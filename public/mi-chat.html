@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<title>Tu cuenta del chat</title>
+<link rel="stylesheet" href="/estilos.css">
+<style>
+  body{ background:#f6f0f6 }
+  .mc{ max-width:520px; margin:0 auto; padding:18px 16px 40px }
+  .mc h1{ font-size:19px; margin:4px 0 2px } .mc .sub{ color:var(--muted); font-size:13.5px; margin-bottom:14px }
+  .mc-redes{ display:flex; gap:8px; margin:12px 0 }
+  .mc-redes button{ flex:1; padding:12px; font-size:15px; font-weight:700; border-radius:12px; background:var(--bg2); color:var(--text); border:2px solid var(--border) }
+  .mc-redes button[aria-pressed="true"]{ border-color:var(--uva); background:#f7e6f2; color:var(--uva) }
+  .mc-dir{ display:flex; gap:8px; align-items:center; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-top:8px }
+  .mc-dir code{ flex:1; background:none; padding:0; font-size:13px; overflow-wrap:anywhere }
+  .mc-qr{ display:flex; justify-content:center; margin:14px 0 4px } .mc-qr canvas, .mc-qr img{ border:8px solid #fff; border-radius:8px }
+  .mc-monto{ display:flex; gap:8px; align-items:center; justify-content:space-between; background:#fff4e5; border:1px solid #f1d9b3; color:#7a4b12; border-radius:10px; padding:10px 12px; margin-top:8px; font-size:14px }
+  .mc-monto b{ font-size:18px; font-variant-numeric:tabular-nums }
+  .mc-espera{ display:flex; gap:10px; align-items:center; padding:12px 14px; border-radius:12px; background:var(--bg2); border:1px solid var(--border); margin:12px 0; font-size:14px }
+  .mc-espera.ok{ background:#e3f3ea; border-color:#bfe2cd; color:#235c40; font-weight:700 }
+  .mc-punto{ width:10px; height:10px; border-radius:50%; background:var(--gold); animation:mcl 1.2s ease-in-out infinite; flex:0 0 auto }
+  @keyframes mcl{ 50%{ opacity:.25 } } @media (prefers-reduced-motion:reduce){ .mc-punto{ animation:none } }
+  .mc input{ font-size:15px }
+  .mc .chico{ font-size:12.5px; color:var(--muted) }
+</style>
+</head>
+<body>
+<div class="mc" id="app"><div class="card muted">Cargando…</div></div>
+<div class="toast" id="toast"></div>
+<script src="/qrcode.min.js"></script>
+<script>
+/* ── /mi-chat — LO QUE VE EL CLIENTE ───────────────────────────────────────────────────────────
+   Entra con su link de pago (lo que le llega por Telegram) o con el usuario de su caja. Ve cuánto
+   paga, a dónde, y se entera solo cuando el pago llegó: no tiene que mandar captura. Los centavos
+   del monto son los que dicen que esa transferencia es suya, por eso se insiste en «exactamente». */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n,d=2){ return Number(n||0).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const nomMes = (m) => { const [y,mm] = String(m||'').split('-'); return (MESES[Number(mm)-1]||m) + ' ' + y; };
+const dia = (t) => t ? new Date(t).toLocaleDateString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',day:'numeric',month:'long'}) : '';
+async function pedir(path, body){ try { const r = await fetch(path, { method: body ? 'POST' : 'GET', headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined }); return await r.json(); } catch (e) { return { ok:false, error:'Se cortó la conexión. Probá de nuevo.' }; } }
+
+const token = (location.pathname.match(/^\/mi-chat\/([A-Za-z0-9_-]{12,})/) || [])[1] || new URLSearchParams(location.search).get('t') || '';
+let D = null, red = null, _vigilando = null;
+
+function pintarEntrar(error){
+  document.getElementById('app').innerHTML = `<h1>Tu cuenta del chat</h1><div class="sub">Escribí el usuario de tu caja para ver lo que tenés que pagar.</div>
+    <div class="card"><label style="text-transform:none;margin:0">Usuario de tu caja<input id="mc-u" autocomplete="username" autocapitalize="none"></label>
+      ${error ? `<div class="nota-suave rosa">${esc(error)}</div>` : ''}<div class="acciones"><button id="mc-entrar" style="width:100%;padding:12px">Entrar</button></div></div>`;
+  document.getElementById('mc-entrar').addEventListener('click', async () => { const u = document.getElementById('mc-u').value.trim(); if (!u) return;
+    const r = await pedir('/mi-chat/entrar', { usuario: u }); if (!r.ok) return pintarEntrar(r.error || 'No encontramos esa caja.'); D = r; pintar(); vigilar(); });
+}
+
+function pintar(){
+  const a = D.abierto, w = D.wallets || [];
+  if (!red && w.length) red = w[0].red;
+  const W = w.find(x => x.red === red) || {};
+  const detalle = a ? `<details class="cajas" style="margin-top:10px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Qué incluye</summary>
+      <div class="sublista">${a.cajas.map(c => `<div class="subcaja"><div class="cn">${esc(c.caja)}${c.sitio?`<small>${esc(c.sitio)}</small>`:''}</div><div class="subdatos">
+        <div><span class="k">Mantenimiento${c.dias < c.diasMes ? ` (${c.dias} de ${c.diasMes} días)` : ''}</span><span class="v">${money(c.mantMes)}</span></div>
+        ${c.instMes ? `<div><span class="k">Instalación</span><span class="v">${money(c.instMes)}</span></div>` : ''}
+        <div><span class="k">${money(c.pct,1)} % de ${c.base === 'cargas' ? 'tus cargas' : 'tu ganancia'} (${money(c.baseValor,0)} ${esc(c.moneda)})</span><span class="v">${money(c.variable)}</span></div></div></div>`).join('')}</div></details>` : '';
+  document.getElementById('app').innerHTML = `
+    <h1>${esc(D.cliente.nombre)}</h1><div class="sub">Tu cuenta del chat</div>
+    ${a ? `<div class="totalote"><div class="k">${esc(nomMes(a.mes))} · ${a.estado === 'vencido' ? 'venció' : 'vence'} el ${esc(dia(a.vence))}</div><div class="v">${money(a.exacto)} USDT</div>
+        ${a.pagado && a.debe > 0.01 ? `<div class="cuantos">Ya recibimos ${money(a.pagado)} · te faltan ${money(a.debe)}</div>` : ''}</div>
+      ${a.estado === 'pagado' ? '' : `<div class="card">
+        <div style="font-weight:700">1. Elegí la red</div>
+        <div class="mc-redes">${w.map(x => `<button data-red="${esc(x.red)}" aria-pressed="${x.red===red}">${esc(x.red)}</button>`).join('')}</div>
+        <div style="font-weight:700;margin-top:6px">2. Mandá exactamente</div>
+        <div class="mc-monto"><b>${money(a.debe || a.exacto)} USDT</b><button class="outline small" data-copiar="${esc(String((a.debe||a.exacto).toFixed(2)))}">Copiar</button></div>
+        <div class="chico" style="margin-top:6px">Con los centavos: así sabemos que es tuyo y se acredita solo.</div>
+        <div style="font-weight:700;margin-top:14px">3. A esta dirección ${esc(red)}</div>
+        <div class="mc-qr" id="mc-qr" aria-label="Código QR de la dirección"></div>
+        <div class="mc-dir"><code>${esc(W.direccion||'')}</code><button class="outline small" data-copiar="${esc(W.direccion||'')}">Copiar</button></div>
+        <div class="chico" style="margin-top:6px">Solo USDT por la red ${esc(red)}. Si mandás por otra red, la plata se pierde.</div>
+      </div>`}
+      <div class="mc-espera${a.estado==='pagado'?' ok':''}">${a.estado === 'pagado' ? '✓ ¡Listo! Recibimos tu pago. Gracias.' : `<span class="mc-punto" aria-hidden="true"></span><span>Esperando tu pago. Cuando llegue lo vas a ver acá, en unos minutos, sin mandar nada.</span>`}</div>
+      ${a.estado === 'pagado' ? '' : `<details class="cajas"><summary class="abrir"><span class="chev" aria-hidden="true"></span>¿Ya pagaste y no aparece?</summary>
+        <div class="card" style="margin-top:8px"><label style="text-transform:none;margin:0">Pegá el código de la transferencia (hash)<input id="mc-hash" placeholder="0x… o el código de Tron" autocapitalize="none"></label>
+          <div class="acciones"><button id="mc-verif" style="width:100%">Revisar</button></div><div id="mc-hres"></div></div></details>`}
+      ${detalle}`
+    : `<div class="mc-espera ok">✓ No tenés nada pendiente.</div>`}
+    ${(D.pagados||[]).length ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Lo que ya pagaste</summary>
+      <div class="subcaja" style="margin-top:8px"><div class="subdatos">${D.pagados.map(p => `<div><span class="k">${esc(nomMes(p.mes))} · ${esc(dia(p.t))} · ${esc(p.red)}</span><span class="v">${money(p.monto)}</span></div>`).join('')}</div></div></details>` : ''}`;
+  const qr = document.getElementById('mc-qr');
+  if (qr && W.direccion && window.QRCode) { try { new QRCode(qr, { text: W.direccion, width: 170, height: 170, correctLevel: QRCode.CorrectLevel.M }); } catch (e) {} }
+}
+
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.red) { red = b.dataset.red; pintar(); return; }
+  if (b.dataset.copiar) { try { await navigator.clipboard.writeText(b.dataset.copiar); toast('Copiado'); } catch (_) { toast(b.dataset.copiar); } return; }
+  if (b.id === 'mc-verif') {
+    const h = document.getElementById('mc-hash').value.trim(), out = document.getElementById('mc-hres'); if (!h) return;
+    b.disabled = true; b.textContent = 'Revisando…';
+    const r = await pedir('/mi-chat/hash', { token: D.token, mes: D.abierto.mes, hash: h });
+    b.disabled = false; b.textContent = 'Revisar';
+    if (r.ok && r.estado === 'pagado') { D = r.cuenta; pintar(); toast('¡Pago encontrado!'); return; }
+    out.innerHTML = `<div class="nota-suave${r.ok ? '' : ' rosa'}">${esc(r.ok ? r.texto : (r.error || 'No se pudo revisar.'))}</div>`;
+  }
+});
+
+/* Mientras espera, pregunta cada 30 s si ya llegó (el servidor lee la wallet cada 2 min). */
+function vigilar(){ clearInterval(_vigilando); _vigilando = setInterval(async () => {
+  if (!D || !D.abierto || D.abierto.estado === 'pagado' || document.hidden) return;
+  const r = await pedir('/mi-chat/cuenta?t=' + encodeURIComponent(D.token)); if (r.ok && r.abierto && r.abierto.estado !== D.abierto.estado) { D = r; pintar(); if (r.abierto.estado === 'pagado') toast('¡Recibimos tu pago!'); }
+}, 30000); }
+
+(async () => { if (!token) return pintarEntrar(); const r = await pedir('/mi-chat/cuenta?t=' + encodeURIComponent(token)); if (!r.ok) return pintarEntrar(r.error); D = r; pintar(); vigilar(); })();
+</script>
+</body>
+</html>
