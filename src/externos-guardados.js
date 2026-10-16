@@ -39,7 +39,7 @@ function de(clienteId, mes) {
   if (!e || !(e.items || []).length) return null;
   const c = f.datos.cliente || {};
   const cero = (v) => Math.abs(Number(v) || 0) < 0.005;
-  const grupos = (e.porPanel || []).filter((g) => !(cero(g.usdt) && cero(g.monto)));
+  const grupos = (e.porPanel || []).filter((g) => !cero(g.usdt)); // lo que da 0,00 USDT no se cobra: no se muestra
   // login → sus monedas, el login que más deja primero
   const porLogin = new Map();
   grupos.forEach((g) => { if (!porLogin.has(g.panel)) porLogin.set(g.panel, { login: g.panel, usdt: 0, monedas: [] }); const l = porLogin.get(g.panel); l.monedas.push(g); l.usdt += Number(g.usdt) || 0; });
