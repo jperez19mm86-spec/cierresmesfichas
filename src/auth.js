@@ -42,7 +42,7 @@ const PUBLIC = [
   // las llama el navegador del JUGADOR desde otro dominio; lo que prueba quién es es su sesión del
   // casino (emitir) o un código de un solo uso de 2 minutos (canjear). Ver pases.service.js.
   /^\/pase\.js$/,
-  /^\/api\/pase\/(emitir|canjear)\/?$/,
+  /^\/api\/pase\/(emitir|canjear|consultar)\/?$/,
   /^\/login\/?$/,
   /^\/api\/login\/?$/,
   /^\/api\/logout\/?$/,

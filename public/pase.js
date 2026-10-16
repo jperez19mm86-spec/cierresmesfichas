@@ -20,7 +20,7 @@
     return null;
   }
   var pasar = param('pasar') !== null, codigo = param('cw_pase');
-  if (!pasar && !codigo) return;
+  if (!pasar && !codigo) { franja(); return; }
 
   // El parámetro se saca de la barra enseguida: que no quede en el historial ni se comparta.
   u.searchParams.delete('pasar'); u.searchParams.delete('cw_pase');
@@ -46,7 +46,7 @@
         + (girando ? '<div style="width:34px;height:34px;margin:0 auto 14px;border:4px solid #e7e0ee;border-top-color:#7b3fe4;border-radius:50%;animation:lgp 0.8s linear infinite"></div><style>@keyframes lgp{to{transform:rotate(360deg)}}</style>' : '')
         + '<div style="font-weight:700;font-size:18px;margin-bottom:6px">' + titulo + '</div>'
         + '<div style="color:#4a4257">' + texto + '</div>'
-        + (girando ? '' : '<button style="margin-top:16px;background:#7b3fe4;color:#fff;border:0;border-radius:10px;padding:11px 20px;font:600 15px system-ui,sans-serif;cursor:pointer">Entendido</button>')
+        + (girando ? '' : '<button style="margin-top:16px;background:#d6202a;color:#fff;border:0;border-radius:10px;padding:11px 20px;font:600 15px system-ui,sans-serif;cursor:pointer">Entendido</button>')
         + '</div>';
       var b = caja.querySelector('button'); if (b) b.onclick = function () { caja.remove(); caja = null; };
     }
@@ -66,15 +66,61 @@
   }
 
   // ── EN EL SITIO VIEJO: pedir el pase con la sesión que el jugador ya tiene ──
-  var token = null; try { token = localStorage.getItem('ig_token'); } catch (e) {}
   // Sin sesión igual se pregunta: así el servidor lo cuenta y la pantalla de Pases dice cuántos
   // tocaron el link sin estar logueados (otro navegador, otro celular).
+  pasarAhora(sesion());
+
+  function sesion() { try { return localStorage.getItem('ig_token'); } catch (e) { return null; } }
+
+  /* Ir al sitio nuevo. Si el casino corre ADENTRO de otra página (Zeus: dentro del chat viejo), hay
+     que cambiar la página de arriba, no el recuadro; si esa página no lo deja, se abre aparte. El
+     código va en el link, así que llega logueado igual. */
+  function ir(url) {
+    if (window.top === window) { location.replace(url); return; }
+    try { window.top.location.href = url; return; } catch (e) {}
+    var w = null; try { w = window.open(url, '_blank'); } catch (e) {}
+    if (!w) location.href = url;
+  }
+
+  function pasarAhora(token) {
   aviso('Te estamos llevando al sitio nuevo…', 'No cierres esta pantalla.', true);
   post('/api/pase/emitir', { token: token }).then(function (r) {
-    if (r && r.ir) { location.replace(r.ir); return; }
+    if (r && r.ir) { ir(r.ir); return; }
     var m = (r && r.motivo) || 'error';
     if (m === 'sin_sesion') aviso('Primero entrá a tu cuenta', 'Iniciá sesión en este sitio y después tocá el link de nuevo.', false);
     else if (m === 'fuera' || m === 'sin_regla') aviso('Seguí jugando acá', 'Tu cuenta sigue en este sitio, no tenés que hacer nada.', false);
     else aviso('No pudimos pasarte ahora', 'Probá de nuevo en unos minutos.', false);
   }).catch(function () { aviso('No pudimos pasarte ahora', 'Revisá tu conexión y tocá el link de nuevo.', false); });
+  }
+
+  /* ── LA FRANJA «Nos actualizamos · Probá ahora», adentro del casino ──
+     Sólo si el pase de este sitio tiene el botón prendido y el jugador es de su caja (lo decide el
+     servidor). La sesión puede aparecer después de cargar (se loguea, o el sitio la rehace), así que
+     se la espera un rato. Si la cierra, no vuelve en el día. */
+  function franja() {
+    var HOY = new Date().toISOString().slice(0, 10);
+    try { if (localStorage.getItem('lg_pase_cerrada') === HOY) return; } catch (e) {}
+    var intentos = 0;
+    (function esperar() {
+      var t = sesion();
+      if (!t) { if (++intentos < 40) setTimeout(esperar, 3000); return; }
+      post('/api/pase/consultar', { token: t }).then(function (r) { if (r && r.mostrar) pintarFranja(); }).catch(function () {});
+    })();
+    function pintarFranja() {
+      if (document.getElementById('lg-pase-franja')) return;
+      var f = document.createElement('div');
+      f.id = 'lg-pase-franja';
+      f.setAttribute('role', 'region'); f.setAttribute('aria-label', 'Aviso');
+      f.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483646;display:flex;align-items:center;gap:10px;'
+        + 'padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:#d6202a;color:#fff;'
+        + 'font:14px/1.3 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+      f.innerHTML = '<div style="flex:1;min-width:0"><div style="font-weight:700">Nos actualizamos</div>'
+        + '<div style="opacity:.92;font-size:12.5px">Seguí jugando con tu misma cuenta</div></div>'
+        + '<button data-ir style="background:#fff;color:#b3121b;border:0;border-radius:9px;padding:9px 14px;font:700 14px system-ui,sans-serif;cursor:pointer;white-space:nowrap">Probá ahora</button>'
+        + '<button data-cerrar aria-label="Cerrar" style="background:transparent;color:#fff;border:0;font-size:20px;line-height:1;padding:4px 6px;cursor:pointer">×</button>';
+      f.querySelector('[data-ir]').onclick = function () { f.remove(); pasarAhora(sesion()); };
+      f.querySelector('[data-cerrar]').onclick = function () { f.remove(); try { localStorage.setItem('lg_pase_cerrada', HOY); } catch (e) {} };
+      document.body.appendChild(f);
+    }
+  }
 })();

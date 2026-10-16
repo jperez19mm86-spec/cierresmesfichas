@@ -97,5 +97,42 @@ const deps = { fetch: fetchFalso, clienteDe: () => cli };
   pases._codigos.get(c2).exp = Date.now() - 1;
   ok(pases.canjear({ origin: 'https://ganamoschatt.com', codigo: c2 }) === null, 'un código vencido no sirve');
 
+  // ── el botón adentro del casino (Zeus, 16-oct) ───────────────────────────────
+  let c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
+  ok(c.mostrar === false, 'sin el botón prendido en el pase, la franja no aparece');
+  await pases.editar(p.id, { boton: true });
+  ok(pases.get(p.id).boton === true, 'el botón se prende por pase');
+  const antes = sitiosVistos.length;
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
+  ok(c.mostrar === true, 'a un jugador del pase le aparece');
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
+  ok(c.mostrar === true && sitiosVistos.length === antes + 1, 'la segunda vez no se le pregunta al casino (guardado 10 min)');
+  c = await pases.consultar({ origin: 'https://ganamoschat.com', token: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }, deps);
+  ok(c.mostrar === false, 'a uno de otra caja no le aparece');
+  c = await pases.consultar({ origin: 'https://otro.com', token: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, deps);
+  ok(c.mostrar === false, 'en un sitio sin pase con botón ni se pregunta');
+  await pases.editar(p.id, { caja_origen: 'CajaF01Zeus' }, deps);
+  ok(pases.get(p.id).boton === true, 'editar otra cosa no apaga el botón');
+
+  // la franja en el navegador (jsdom si está a mano)
+  let JSDOM = null; try { ({ JSDOM } = require(process.env.JSDOM_DIR || 'jsdom')); } catch (e) {}
+  if (JSDOM) {
+    const fs = require('fs'); const src = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'pase.js'), 'utf8');
+    const dom = new JSDOM('<body></body>', { url: 'https://casinozeuschat.com/', runScripts: 'outside-only' });
+    const w = dom.window; const llamadas = [];
+    w.localStorage.setItem('ig_token', 'a'.repeat(32));
+    w.fetch = async (url, op) => { llamadas.push(url.split('/api/')[1]); return { json: async () => (url.includes('consultar') ? { ok: true, mostrar: true } : { ok: true, ir: 'https://casinozeuschat.net/?cw_pase=x' }) }; };
+    let fueA = null;
+    // casino adentro de otra página: jsdom no deja cambiar window.top, se le pone otro nombre en la copia
+    w.__TOP = { location: { set href(v) { fueA = v; } } };
+    w.eval(src.replace(/window\.top/g, 'window.__TOP'));
+    await new Promise((r) => setTimeout(r, 50));
+    const f = w.document.getElementById('lg-pase-franja');
+    ok(f && /Nos actualizamos/.test(f.textContent) && /Probá ahora/.test(f.textContent), 'la franja dice «Nos actualizamos» y «Probá ahora»');
+    f.querySelector('[data-ir]').click();
+    await new Promise((r) => setTimeout(r, 50));
+    ok(llamadas.join() === 'pase/consultar,pase/emitir' && fueA === 'https://casinozeuschat.net/?cw_pase=x', 'al tocarla pide el pase y cambia la página de ARRIBA (sale del chat viejo)');
+  } else console.log('  (sin jsdom: se saltea la prueba de la franja en el navegador)');
+
   console.log(`\n${n} chequeos OK\n`);
 })().catch((e) => { console.error('❌', e); process.exit(1); });

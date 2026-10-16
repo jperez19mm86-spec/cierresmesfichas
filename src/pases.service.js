@@ -22,7 +22,7 @@
  * servidor se reinicia en esos 2 minutos, el jugador toca el link de nuevo.
  */
 const crypto = require('crypto');
-const { db } = require('./db');
+const { db, ensureColumns } = require('./db');
 const casinoConex = require('./casino-conexiones-store');
 
 db.exec(`CREATE TABLE IF NOT EXISTS pase (
@@ -33,6 +33,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS pase (
   activo INTEGER DEFAULT 1,
   creado TEXT, ord INTEGER
 )`);
+// `boton`: además del link, mostrar «Nos actualizamos · Probá ahora» ADENTRO del casino. Nació con
+// Zeus (16-oct): ahí el casino corre dentro de la página del chat viejo, la sesión vive en ese
+// recuadro y un link abierto aparte llega sin sesión. El botón está donde está la sesión.
+ensureColumns('pase', { boton: 'INTEGER DEFAULT 0' });
 db.exec(`CREATE TABLE IF NOT EXISTS pase_evento (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pase_id TEXT, sitio TEXT, jugador_id TEXT, login TEXT,
@@ -57,7 +61,7 @@ function host(s) {
 function _fila(r) {
   if (!r) return null;
   return { id: r.id, sitio_viejo: r.sitio_viejo, sitio_nuevo: r.sitio_nuevo, conexion_id: r.conexion_id,
-    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, creado: r.creado };
+    caja_origen: r.caja_origen || '', caja_destino: r.caja_destino || '', activo: !!r.activo, boton: !!r.boton, creado: r.creado };
 }
 function list() {
   const filas = db.prepare('SELECT * FROM pase ORDER BY ord ASC, creado ASC').all().map(_fila);
@@ -72,7 +76,7 @@ function get(id) { return _fila(db.prepare('SELECT * FROM pase WHERE id=?').get(
 
 function _validar(d) {
   const p = { sitio_viejo: host(d.sitio_viejo), sitio_nuevo: host(d.sitio_nuevo), conexion_id: String(d.conexion_id || ''),
-    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false };
+    caja_origen: String(d.caja_origen || '').trim(), caja_destino: String(d.caja_destino || '').trim(), activo: d.activo !== false, boton: !!d.boton };
   if (!p.sitio_viejo || !p.sitio_nuevo) throw new Error('falta el link viejo o el nuevo');
   for (const h of [p.sitio_viejo, p.sitio_nuevo]) {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) throw new Error(`«${h}» no es un link completo: falta el final (.com, .net, .org…)`);
@@ -107,19 +111,19 @@ async function crear(d, deps) {
   await _cajasEnCasino(p, deps);
   const id = 'pase_' + crypto.randomBytes(5).toString('hex');
   const ord = (db.prepare('SELECT MAX(ord) m FROM pase').get().m || 0) + 1;
-  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,creado,ord) VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, nowISO(), ord);
+  db.prepare(`INSERT INTO pase (id,sitio_viejo,sitio_nuevo,conexion_id,caja_origen,caja_destino,activo,boton,creado,ord) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, nowISO(), ord);
   _cacheCajas.clear();
   return get(id);
 }
 async function editar(id, d, deps) {
   const viejo = get(id); if (!viejo) throw new Error('ese pase no existe');
-  const p = _validar({ ...viejo, ...d });
+  const p = _validar({ ...viejo, ...d, boton: d.boton !== undefined ? d.boton : viejo.boton });
   // Prender o apagar no vuelve a preguntarle al casino; cambiar casino o cajas, sí.
   if (['conexion_id', 'caja_origen', 'caja_destino'].some((k) => d[k] !== undefined && String(d[k]) !== String(viejo[k] || ''))) await _cajasEnCasino(p, deps);
-  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=? WHERE id=?`)
-    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, id);
-  _cacheCajas.clear();
+  db.prepare(`UPDATE pase SET sitio_viejo=?, sitio_nuevo=?, conexion_id=?, caja_origen=?, caja_destino=?, activo=?, boton=? WHERE id=?`)
+    .run(p.sitio_viejo, p.sitio_nuevo, p.conexion_id, p.caja_origen, p.caja_destino, p.activo ? 1 : 0, p.boton ? 1 : 0, id);
+  _cacheCajas.clear(); _consultas.clear();
   return get(id);
 }
 function borrar(id) { return db.prepare('DELETE FROM pase WHERE id=?').run(String(id)).changes > 0; }
@@ -163,6 +167,45 @@ async function _caja(cli, conexionId, login) {
   return c;
 }
 
+/** Qué pase le toca a un jugador: el de la caja de la que cuelga (o a la que ya se pasó). */
+async function _reglaDe(reglas, jug, clienteDe) {
+  const ops = require('./operaciones.service');
+  for (const p of reglas) {
+    try {
+      const cli = clienteDe(p.conexion_id);
+      if (!cli) continue;
+      const yo = await ops._ayudas.buscarUsuario(cli, jug.login);
+      if (!yo) continue;
+      const origen = await _caja(cli, p.conexion_id, p.caja_origen);
+      const destino = p.caja_destino ? await _caja(cli, p.conexion_id, p.caja_destino) : null;
+      if (yo.padre === origen.id || (destino && yo.padre === destino.id)) return { regla: p, padre: yo.padre, cli, origen, destino };
+    } catch (e) { /* se prueba la regla siguiente */ }
+  }
+  return null;
+}
+
+/**
+ * ¿Le mostramos el botón a este jugador? Lo pregunta pase.js en CADA carga del casino en los sitios
+ * viejos, así que: sin pase con botón en ese sitio no se le pregunta nada al casino, y la respuesta
+ * se guarda 10 minutos por sesión (el jugador cambia de página todo el tiempo).
+ */
+const _consultas = new Map();   // sitio|token → { mostrar, exp }
+async function consultar({ origin, token }, deps = {}) {
+  const fetchImpl = deps.fetch || fetch;
+  const clienteDe = deps.clienteDe || ((id) => casinoConex.client(id));
+  const sitio = host(origin);
+  const reglas = list().filter((p) => p.activo && p.boton && p.sitio_viejo === sitio);
+  if (!reglas.length || !/^[a-f0-9]{16,64}$/i.test(String(token || ''))) return { mostrar: false };
+  const k = sitio + '|' + token;
+  const ya = _consultas.get(k);
+  if (ya && ya.exp > Date.now()) return { mostrar: ya.mostrar };
+  const jug = await quienEs(sitio, token, fetchImpl);
+  const mostrar = !!(jug && await _reglaDe(reglas, jug, clienteDe));
+  if (_consultas.size > 20000) _consultas.clear();
+  _consultas.set(k, { mostrar, exp: Date.now() + 10 * 60 * 1000 });
+  return { mostrar };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // El pase
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -184,21 +227,9 @@ async function emitir({ origin, token }, deps = {}) {
   const jug = await quienEs(sitio, token, fetchImpl);
   if (!jug) { _anotar(reglas[0], sitio, null, 'sin_sesion'); return { motivo: 'sin_sesion' }; }
 
-  // Qué regla le toca: la de la caja de la que cuelga (o a la que ya se pasó).
-  let regla = null, padre = null, cli = null, origen = null, destino = null;
-  for (const p of reglas) {
-    try {
-      cli = clienteDe(p.conexion_id);
-      if (!cli) continue;
-      const ops = require('./operaciones.service');
-      const yo = await ops._ayudas.buscarUsuario(cli, jug.login);
-      if (!yo) continue;
-      origen = await _caja(cli, p.conexion_id, p.caja_origen);
-      destino = p.caja_destino ? await _caja(cli, p.conexion_id, p.caja_destino) : null;
-      if (yo.padre === origen.id || (destino && yo.padre === destino.id)) { regla = p; padre = yo.padre; break; }
-    } catch (e) { /* se prueba la regla siguiente */ }
-  }
-  if (!regla) { _anotar(reglas[0], sitio, jug, 'fuera'); return { motivo: 'fuera' }; }
+  const m = await _reglaDe(reglas, jug, clienteDe);
+  if (!m) { _anotar(reglas[0], sitio, jug, 'fuera'); return { motivo: 'fuera' }; }
+  const { regla, padre, cli, destino } = m;
 
   // Cambio de caja, si la regla lo pide y todavía no se hizo.
   let resultado = 'pasado';
@@ -240,4 +271,4 @@ function sitios() {
   return [...s];
 }
 
-module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, sitios, host, _codigos };
+module.exports = { list, get, crear, editar, borrar, eventos, emitir, canjear, consultar, sitios, host, _codigos };

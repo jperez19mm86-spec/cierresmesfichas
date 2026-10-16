@@ -20,6 +20,11 @@ function mount(app) {
     try { res.json({ ok: true, ...(await pases.emitir({ origin: origen(req), token: (req.body || {}).token })) }); }
     catch (e) { console.error('[pase]', e.message); res.json({ ok: true, motivo: 'error' }); }
   });
+  // ¿Mostrar «Nos actualizamos · Probá ahora» adentro del casino? Tope alto: va en cada carga.
+  app.post('/api/pase/consultar', porIp('pase-consultar', 120, 1), async (req, res) => {
+    try { res.json({ ok: true, ...(await pases.consultar({ origin: origen(req), token: (req.body || {}).token })) }); }
+    catch (e) { res.json({ ok: true, mostrar: false }); }
+  });
   app.post('/api/pase/canjear', porIp('pase-canjear', 30, 1), (req, res) => {
     const r = pases.canjear({ origin: origen(req), codigo: (req.body || {}).codigo });
     if (!r) return res.status(404).json({ ok: false, error: 'el link ya se usó o venció' });
