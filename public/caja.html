@@ -2984,6 +2984,15 @@ function fichasNoHabilitado(que){
     <div class="acciones"><button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
 }
 
+/* Suspendido o con la deuda en el tope (lo decide el OS, bloqueo-pedir.js): se dice qué pasa y,
+   si es por lo que debe, se ofrece registrar el pago ahí mismo. */
+function fichasBloqueado(r){
+  const tope = r && r.bloqueo === 'tope_deuda';
+  abrirHoja(`<h3 id="hojaTit">${tope ? 'Tenés un saldo pendiente' : 'Tu cuenta está pausada'}</h3>
+    <div class="nota aviso">${esc((r && r.mensaje) || 'Por ahora no podés pedir fichas. Escribí a soporte.')}</div>
+    <div class="acciones">${tope && fichasPuede('puedeAvisarPago') ? '<button class="btn" onclick="fichasRegistrarPago()">Registrar un pago</button>' : ''}<button class="btn sec" onclick="fichasOpciones()">Volver</button></div>`);
+}
+
 function fichasOpciones(){
   const ICO = {
     pedir: '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>',
@@ -3092,6 +3101,7 @@ async function fichasEnviarPedido(){
   }
   /* No configurado / offline / error: el OS ya avisó a soporte cuando corresponde. */
   if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  if (r && r.motivo === 'bloqueado') return fichasBloqueado(r);
   if (r && r.motivo === 'sin_saldo') return fichasSinSaldo(r);
   const sinConfig = r && r.motivo === 'sin_configurar';
   return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3>
@@ -3175,6 +3185,7 @@ async function fichasEnviarAgentes(){
       <div class="acciones"><button class="btn" onclick="solicitarFichas()">Listo</button></div>`);
   }
   if (r && r.motivo === 'no_habilitado') return fichasNoHabilitado('pedir fichas');
+  if (r && r.motivo === 'bloqueado') return fichasBloqueado(r);
   if (r && r.motivo === 'sin_saldo') return fichasSinSaldo(r);
   if (d && d.error) return abrirHoja(`<h3 id="hojaTit">No se pudo enviar</h3><div class="sub">${esc(d.error)}</div>
     <div class="acciones"><button class="btn sec" onclick="fichasFormAgentes()">Volver</button></div>`);
