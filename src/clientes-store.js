@@ -82,6 +82,9 @@ function load() {
       // Lo mismo: abona_a/abona_pts van acá Y en el INSERT.
       abona_a: r.abona_a || null,
       abona_pts: r.abona_pts || null,
+      // Lo mismo: van acá Y en el INSERT.
+      tc_cargas: r.tc_cargas === 'promedio' || r.tc_cargas === 'momento' ? r.tc_cargas : null,
+      tope_deuda: r.tope_deuda || null,
       saldo_inicial: r.saldo_inicial || null,
       saldo_inicial_divisa: r.saldo_inicial_divisa || null,
       saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
@@ -96,11 +99,11 @@ const _saveTx = db.transaction((data) => {
     (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
      divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
      mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,billetera_id,
-     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago,abona_a,abona_pts)
+     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago,abona_a,abona_pts,tc_cargas,tope_deuda)
     VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
      @dfi,@mco,@mpa,@dis,@tca,@tcp,
      @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,@bwid,
-     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago,@abA,@abPts)`);
+     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago,@abA,@abPts,@tcCar,@tope)`);
   const nn = (v) => (v != null && v !== '' ? String(v) : null);
   (data.clientes || []).forEach((c, i) => ins.run({
     id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
@@ -121,6 +124,7 @@ const _saveTx = db.transaction((data) => {
     prep: c.prepago ? 1 : 0, prepMg: nn(c.prepago_margen_pct),
     divPago: (normDivisasPago(c.divisas_pago) || []).join(',') || null,
     abA: nn(c.abona_a), abPts: nn(c.abona_pts),
+    tcCar: c.tc_cargas === 'promedio' || c.tc_cargas === 'momento' ? c.tc_cargas : null, tope: nn(c.tope_deuda),
   }));
 });
 function save(data) { _saveTx(data); }
@@ -215,7 +219,26 @@ function updateComercial(id, patch) {
     const v = String(patch.abona_pts == null ? '' : patch.abona_pts).replace(',', '.').trim();
     c.abona_pts = v === '' || !(Number(v) > 0) ? null : String(Number(v));
   }
+  if (patch.tc_cargas !== undefined) c.tc_cargas = patch.tc_cargas === 'promedio' || patch.tc_cargas === 'momento' ? patch.tc_cargas : null;
+  if (patch.tope_deuda !== undefined) {
+    const n = require('./lib/monto').parseMonto(patch.tope_deuda);   // «1.500.000» y «1500,5» como los tipea una persona
+    c.tope_deuda = n && n > 0 ? String(n) : null;
+  }
   save(data); return c;
+}
+
+/**
+ * CON QUÉ CAMBIO SE PASAN SUS CARGAS A DÓLARES (regla del dueño, 18-oct-2026).
+ *  · 'promedio' — se le manda la cuenta a fin de mes: cada carga vale con el promedio del mes de
+ *    su moneda, y mientras el mes está abierto es provisoria.
+ *  · 'momento'  — va pagando durante el mes: cada carga vale con el cambio del momento en que se hizo.
+ * Sin elegir: prepago o «anticipado» (planilla) → momento; el resto → promedio.
+ * Una cuenta en pesos no pasa sus cargas en pesos a nada: se le debita en pesos.
+ */
+function tcCargasDe(c) {
+  if (!c) return 'promedio';
+  if (c.tc_cargas === 'promedio' || c.tc_cargas === 'momento') return c.tc_cargas;
+  return c.prepago || String(c.momento_pago || '').toLowerCase() === 'anticipado' ? 'momento' : 'promedio';
 }
 
 function removeCliente(id) {
@@ -382,5 +405,5 @@ function importRows(rows, dryRun = false) {
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
   addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
-  permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO, normDivisasPago,
+  permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO, normDivisasPago, tcCargasDe,
 };

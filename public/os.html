@@ -1586,13 +1586,23 @@ function editCli(id){
               <option value="">— la principal —</option>${
                 _bws.filter(b=>b.activa||b.id===c.billetera_id).map(b=>`<option value="${b.id}" ${c.billetera_id===b.id?'selected':''}>${esc(b.nombre)}${b.activa?'':' (apagada)'}</option>`).join('')
               }</select></div>
-            
+          </div>
+          <div class="row" style="margin-top:6px;align-items:flex-end">
+            <!-- Regla del dueño (18-oct-2026). Vacío = según el modo: prepago o «anticipado» → del momento; el resto → promedio. -->
+            <div style="flex:0 0 300px"><label>Cambio de sus cargas</label><select id="e-tccargas">
+              <option value="" ${!c.tc_cargas?'selected':''}>Automático — ${(c.prepago||String(c.momento_pago||'').toLowerCase()==='anticipado')?'del momento':'promedio del mes'}</option>
+              <option value="promedio" ${c.tc_cargas==='promedio'?'selected':''}>Promedio del mes — le mandamos la cuenta a fin de mes</option>
+              <option value="momento" ${c.tc_cargas==='momento'?'selected':''}>Del momento — va pagando durante el mes</option></select></div>
+            <div style="flex:0 0 200px"><label>Tope de deuda <span class="muted">(${c.moneda_cuenta==='ARS'?'ARS':'USDT'})</span></label>
+              <input id="e-tope" value="${esc(c.tope_deuda||'')}" placeholder="sin tope" inputmode="decimal"></div>
           </div>
           <div id="prep-estado-${c.id}" class="muted" style="margin-top:8px"></div>
           <div class="muted" style="font-size:12px;margin-top:6px">En <b>prepago</b> pide contra su saldo a favor: un pago <b>aprobado</b> lo sube, cada carga lo baja, y los pedidos pendientes lo reservan.
             Puede pedir hasta su saldo más el margen: un % de su <b>último pago</b> (pagó 100 con 20% → puede quedar debiendo hasta 20). Sin pagos no pide.
             Con la <b>cuenta en ARS</b> el saldo queda fijo en pesos: al aprobar un pago en USDT se propone el dólar cripto de ese momento.
-            <b>Puede pagar en</b> decide qué opciones de pago ve en Mi Caja y en el portal; la <b>billetera</b> es la dirección USDT que ve al pagar.</div>
+            <b>Puede pagar en</b> decide qué opciones de pago ve en Mi Caja y en el portal; la <b>billetera</b> es la dirección USDT que ve al pagar.
+            <br><b>Cambio de sus cargas</b>: con el <b>promedio del mes</b> cada carga se pasa a dólares con el promedio de su moneda (el de la factura) y queda provisoria hasta que termina el mes; <b>del momento</b> la deja fija con el cambio del día que se cargó. Una cuenta en ARS no pasa sus pesos a nada; las fichas en otra moneda le quedan como deuda en USDT aparte.
+            <br><b>Tope de deuda</b>: si su deuda llega a ese monto, no puede pedir fichas (portal, Mi Caja y chat) hasta acreditar. Un cliente <b>suspendido</b> no puede pedir nunca.</div>
         </div>
         <!-- Lo que venía de la planilla y NUNCA entró en ningún cálculo. Queda guardado (y se puede
              seguir editando) pero cerrado y aparte: la ficha de arriba es la que manda. -->
@@ -1872,7 +1882,7 @@ async function saveCli(id){
     billetera_id:val('e-bw'),
     es_vendedor:val('e-esvend')==='1', vendedor_id:val('e-vend'), avisa_pagos:val('e-avisa')==='1',
     factura_a:val('e-facta'), externos_precios_de:val('e-exprec'),
-    abona_a:val('e-abona'), abona_pts:val('e-abona-pts'),
+    abona_a:val('e-abona'), abona_pts:val('e-abona-pts'), tc_cargas:val('e-tccargas'), tope_deuda:val('e-tope'),
     saldo_inicial:val('e-saldoini'), saldo_inicial_divisa:val('e-saldoini-div'),
     prepago:val('e-prepago')==='1', prepago_margen_pct:val('e-prepmg'),
     divisas_pago:[...document.querySelectorAll('input.e-divpago:checked')].map(x=>x.value) })});
@@ -3502,7 +3512,8 @@ async function pintarComprobantes(estado, conFiltros) {
              septiembre el 2 de octubre dejaba septiembre figurando sin cobrar. */
           + '<div class="row" style="margin:8px 0 0;align-items:flex-end;gap:8px">'
           +   '<div style="flex:0 0 auto"><label>Entra en el cierre de</label>'
-          +     '<input id="cmp-mes-' + c.id + '" type="month" value="' + esc(String(c.creado_at || '').slice(0, 7)) + '"></div>'
+          +     '<input id="cmp-mes-' + c.id + '" type="month" value="' + esc(mesSugerido(c.creado_at, (_clientes || []).find((x) => x.codigo === c.codigo))) + '">'
+          +     (mesSugerido(c.creado_at, (_clientes || []).find((x) => x.codigo === c.codigo)) !== String(c.creado_at || '').slice(0, 7) ? '<div class="muted" style="font-size:11.5px">Entró a principio de mes: va a la cuenta del mes anterior.</div>' : '') + '</div>'
           /* Quién agarró la plata. Se puede dejar sin anotar y completarlo después en «De quién es
              lo cobrado»: obligar a elegir acá lleva a elegir cualquier cosa para poder seguir. */
           +   '<div style="flex:0 0 auto"><label>¿Quién la recibió?</label>' + cobSelRecibio('cmp-rec-' + c.id, '') + '</div>'
@@ -5783,7 +5794,7 @@ MOV.cuenta = async () => {
         un pago en efectivo, una transferencia que llegó por otro lado. Baja la deuda igual que aprobar uno,
         y el comprobante queda guardado como respaldo. <b>El aviso a los grupos no sale solo</b>: se marca abajo.</div>
       <div class="row" style="align-items:flex-end">
-        <div><label>Cliente</label><select id="mp-cli">
+        <div><label>Cliente</label><select id="mp-cli" onchange="mpFecha()">
           <!-- Arrancaba en el primero por orden alfabético: apretar «Registrar» sin tocar nada
                le cargaba el pago a un cliente que nadie eligió. -->
           <option value="">— elegí el cliente —</option>${cliOpts}</select></div>
@@ -5811,7 +5822,7 @@ MOV.cuenta = async () => {
              puertas al mismo concepto tienen que pedir lo mismo, o una queda cargando a medias. -->
         <div style="flex:0 0 auto"><label>¿Quién la recibió?</label>${cobSelRecibio('mp-rec','')}</div>
         <div class="muted" style="flex:1;font-size:12.5px;padding-bottom:9px">
-          El mes arranca en el de la fecha. Cambialo si ese pago corresponde a otro cierre.</div>
+          El mes arranca en el de la fecha; a los clientes con cuenta a fin de mes, un pago de los primeros ${DIAS_PAGO_MES_ANTERIOR} días va al mes anterior. Cambialo si corresponde a otro cierre.</div>
       </div>
       <!-- El comprobante: acá no había forma de adjuntarlo, así que un pago cargado a mano quedaba
            sin respaldo. Es opcional —un pago en efectivo no tiene— pero se pide. -->
@@ -5904,7 +5915,21 @@ function mpMoneda(){
 }
 function mpFecha(){
   const f = val('mp-fecha'), m = document.getElementById('mp-mes');
-  if(m && f && !_mpMesTocado) m.value = f.slice(0,7);
+  if(m && f && !_mpMesTocado) m.value = mesSugerido(f, (_clientes||[]).find(x=>x.id===val('mp-cli')));
+}
+/* A QUÉ CIERRE VA UN PAGO, de entrada (pedido del dueño, 18-oct-2026): al cliente que se le manda la
+   cuenta a fin de mes, lo que paga en los primeros días del mes siguiente es el pago de ESA cuenta.
+   Hasta el día DIAS_PAGO_MES_ANTERIOR va al mes anterior; después, al de su fecha. Se puede cambiar. */
+const DIAS_PAGO_MES_ANTERIOR = 5;
+function _vaAlPromedio(c){ if(!c) return false; if(c.tc_cargas) return c.tc_cargas==='promedio'; return !(c.prepago || String(c.momento_pago||'').toLowerCase()==='anticipado'); }
+function mesSugerido(fecha, cli){
+  // `fecha` puede venir con hora en UTC (creado_at): se pasa a la hora de acá antes de mirar el día.
+  let d = String(fecha||'');
+  if(d.length > 10){ const t = new Date(new Date(d).getTime() - 3*3600e3); d = t.toISOString().slice(0,10); }
+  const mes = d.slice(0,7), dia = Number(d.slice(8,10));
+  if(!/^\d{4}-\d{2}$/.test(mes) || !_vaAlPromedio(cli) || !(dia <= DIAS_PAGO_MES_ANTERIOR)) return mes;
+  const [a,m] = mes.split('-').map(Number); const p = m===1 ? [a-1,12] : [a,m-1];
+  return p[0] + '-' + String(p[1]).padStart(2,'0');
 }
 function mpArchivo(input){
   const f = input.files && input.files[0];

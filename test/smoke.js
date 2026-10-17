@@ -447,6 +447,7 @@ async function main() {
     const _tcAhoraCmp = null; const _esPrepagoArs = () => false;
     const montoNum = (x) => Number(String(x).replace(/[^\d.]/g, '')) || null; const money = (x) => String(x);
     const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
+    const mesSugerido = (f) => String(f || '').slice(0, 7); const _clientes = [];
     const pend = true;
     let marca = '';
     try { marca = eval('(function(){return \'\' ' + trozo + ';})()'); } catch (e) { marca = 'ERROR ' + e.message; }
@@ -1322,9 +1323,12 @@ async function main() {
     check('carga con TC: ahora sí genera la deuda',
       conTC.ok === true && !!conTC.movimiento, conTC.ok ? 'movimiento creado' : conTC.motivo);
     // 10% de 1.000.000 ZZK = 100.000 ZZK ÷ 4000 = 25 USDT
+    // Desde el 18-oct un cliente con cuenta a fin de mes guarda la deuda en su moneda y la pasa a
+    // dólares al leer, con el promedio del mes: se mira lo LEÍDO, no lo guardado.
+    const leidoTC = conTC.movimiento ? movsStore.get(conTC.movimiento.id) : {};
     check('carga con TC: la comisión queda bien calculada',
-      conTC.movimiento && conTC.movimiento.monto_usdt === '25',
-      '10% de 1.000.000 ZZK a 4000 → ' + (conTC.movimiento || {}).monto_usdt + ' USDT');
+      Number(leidoTC.monto_usdt) === 25,
+      '10% de 1.000.000 ZZK a 4000 → ' + leidoTC.monto_usdt + ' USDT');
 
     // 5 · y el aviso de Revisión desaparece solo, sin que nadie lo tache
     const rev2 = revisionSvc.revisar(mesPrueba);
@@ -1346,7 +1350,7 @@ async function main() {
        definitivo del cierre, esa carga pasa a valer lo que corresponde, sola. */
     const srcCarga = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'deuda-carga.service.js'), 'utf8');
     check('carga en pesos sin cotización viva: se valúa con el TC del mes, no se pierde',
-      /\} else if \(divisa === 'ARS'\) \{[\s\S]{0,600}?tcModo = 'mes';/.test(srcCarga)
+      /\} else \{[\s\S]{0,700}?tcModo = 'mes';[\s\S]{0,120}?sin cotización del momento/.test(srcCarga)
       && /tc_modo: tcModo,/.test(srcCarga));
     /* Y hay que enterarse EN EL MOMENTO, no sólo al revisar el mes. Las fichas ya salieron: la
        carga sigue estando bien, pero la comisión no quedó en la cuenta. Antes el único rastro era
@@ -7560,7 +7564,7 @@ async function main() {
       /return \(t && t\.valor && money\.isPos\(String\(t\.valor\)\)\) \? String\(t\.valor\) : null/.test(src));
     // El TC se congela SÓLO para las cuentas en dólares: una cuenta en pesos no convierte nada.
     check('deuda por carga: sólo congela TC si la cuenta es en dólares',
-      /if \(cuentaEn === 'USDT'\)/.test(src));
+      /const enPesosDirecto = cuentaEn === 'ARS' && divisa === 'ARS';/.test(src) && /if \(!enPesosDirecto\)/.test(src));
     check('deuda por carga: una cuenta en pesos no necesita TC',
       /cli\.moneda_cuenta === 'ARS' \? 'ARS' : 'USDT'/.test(src));
     // Y si la fuente no contesta NO se congela con una cotización vieja: se vería igual de bien y
@@ -7574,12 +7578,12 @@ async function main() {
        nunca. El contador que existía para pescarlo (`enOtraMoneda`) pide que la OTRA columna tenga
        algo, así que con las dos vacías no lo veía. */
     check('deuda por carga: sin TC no se graba una carga sin importe',
-      /return \{ ok: false, sinTC: true, divisa,/.test(src)
+      /\(\{ ok: false, sinTC: true, divisa,/.test(src)
       && /no hay tipo de cambio de \$\{divisa\} para pasar la comisión a dólares/.test(src)
       && !/falta pasarla a dólares/.test(src));
     // El peso era la única divisa sin respaldo: las demás caen al TC del mes dentro de tcDelDia.
     check('deuda por carga: el peso sin cotización viva se valúa con el TC del mes',
-      /\} else if \(divisa === 'ARS'\) \{/.test(src) && /tcModo = 'mes';/.test(src));
+      /sin cotización del momento: se valúa con el promedio del mes/.test(src) && /tcModo = 'mes';/.test(src));
     // Idempotente por pedido: la ruta de cargar se puede reintentar.
     check('deuda por carga: el mismo pedido no cobra dos veces',
       /m\.pedido_id === pedido\.id/.test(src) && /ya estaba/.test(src));

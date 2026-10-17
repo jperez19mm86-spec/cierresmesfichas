@@ -188,6 +188,7 @@ function mount(app) {
       // volvía a habilitar las dos divisas de pago (auditoría 17-oct). Toda clave que manda saveCli va acá.
       prepago: !!c.prepago, prepago_margen_pct: c.prepago_margen_pct, divisas_pago: c.divisas_pago,
       abona_a: c.abona_a || null, abona_pts: c.abona_pts || null,
+      tc_cargas: c.tc_cargas || null, tope_deuda: c.tope_deuda || null,
       saldo_inicial_divisa: c.saldo_inicial_divisa, saldo_inicial_mov_id: c.saldo_inicial_mov_id,
       precio_base_pct: historial.getVigente('cliente', c.id, 'precio_base_pct'),
       paneles: paneles.list({ cliente_id: c.id }).length,
@@ -4778,6 +4779,14 @@ function mount(app) {
    * cargas de un cliente desde una fecha y le crea el abono a la que le falte. Idempotente por
    * pedido: correrlo dos veces no abona dos veces. Simula salvo `aplicar: true`.
    */
+  /* Pasar al PROMEDIO del mes las cargas ya anotadas de los clientes con cuenta a fin de mes
+     (regla del 18-oct-2026). Simula salvo `aplicar: true`. */
+  app.post('/api/os/deuda/pasar-al-promedio', wrap((req, res) => {
+    const b = req.body || {};
+    if (!/^\d{4}-\d{2}$/.test(String(b.mes || ''))) return err(res, 400, 'mes inválido (YYYY-MM)');
+    ok(res, deudaCargaSvc.pasarAlPromedio(b.mes, { aplicar: b.aplicar === true }));
+  }));
+
   app.post('/api/os/clientes/:id/abonos/completar', wrap((req, res) => {
     const b = req.body || {};
     const cli = clientes.get(req.params.id);

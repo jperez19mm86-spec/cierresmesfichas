@@ -27,7 +27,7 @@ function create(d) {
      regalada. Quien lo arregla de verdad es deuda-carga.service (no llega hasta acá); esto es el
      respaldo, para que ningún camino nuevo lo vuelva a meter en silencio.
      Sólo se exige para 'carga': un ajuste o una corrección en cero son válidos. */
-  if (d.tipo === 'carga' && _vacio(d.monto_ars) && _vacio(d.monto_usdt)) {
+  if (d.tipo === 'carga' && _vacio(d.monto_ars) && _vacio(d.monto_usdt) && _vacio(d.monto_local)) {
     throw new Error('una carga no se puede guardar sin importe en ninguna de las dos monedas'
       + (d.divisa ? ` (divisa ${d.divisa})` : ''));
   }
@@ -35,8 +35,8 @@ function create(d) {
   // MAX+1, no COUNT: con un borrado de por medio el COUNT repite el mismo `ord`.
   const ord = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM movimientos').get().n;
   db.prepare(`INSERT INTO movimientos
-    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo,mes_cierre,recibido_por)
-    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo,@mescierre,@recibidopor)`).run({
+    (id,cliente_id,panel_id,proveedor_id,pedido_id,tipo,monto_ars,monto_usdt,tc_momento,base_pct_aplicado,divisa,fecha,usuario_id,notas,createdAt,ord,origen,origen_ref,medio,tc_modo,mes_cierre,recibido_por,monto_local)
+    VALUES (@id,@cli,@pan,@prov,@ped,@tipo,@mars,@musdt,@tc,@base,@div,@fecha,@uid,@notas,@ca,@ord,@origen,@oref,@medio,@tcmodo,@mescierre,@recibidopor,@mlocal)`).run({
     id, cli: d.cliente_id || null, pan: d.panel_id || null, prov: d.proveedor_id || null, ped: d.pedido_id || null,
     tipo: d.tipo, mars: S(d.monto_ars), musdt: S(d.monto_usdt), tc: S(d.tc_momento), base: S(d.base_pct_aplicado),
     div: d.divisa || 'ARS', fecha: d.fecha || nowISO(), uid: d.usuario_id || null, notas: d.notas || '', ca: nowISO(), ord,
@@ -49,6 +49,7 @@ function create(d) {
     recibidopor: d.recibido_por ? String(d.recibido_por) : null,
     // 'mes' = la cara que falta se deriva del TC del mes al leer, no se congela acá.
     tcmodo: d.tc_modo === 'mes' ? 'mes' : null,
+    mlocal: S(d.monto_local),
   });
   // Devuelve lo que se GUARDÓ, sin derivar: quien acaba de escribir tiene que ver su escritura.
   return getCrudo(id);
@@ -99,7 +100,9 @@ function list(filters = {}) {
   if (filters.cliente_id) { w.push('cliente_id=?'); p.push(filters.cliente_id); }
   if (filters.panel_id) { w.push('panel_id=?'); p.push(filters.panel_id); }
   if (filters.tipo) { w.push('tipo=?'); p.push(filters.tipo); }
-  if (filters.mes) { w.push('substr(fecha,1,7)=?'); p.push(filters.mes); }
+  // El MES DE CIERRE si se eligió, si no el de la fecha: la misma regla que `mesDe`. Con la fecha
+  // sola, el pago del 2-oct asignado a septiembre salía en «pagos de octubre» (auditoría 17-oct).
+  if (filters.mes) { w.push("COALESCE(NULLIF(substr(mes_cierre,1,7),''), substr(COALESCE(fecha,createdAt),1,7))=?"); p.push(filters.mes); }
   const sql = 'SELECT * FROM movimientos' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY fecha DESC';
   return conPesos(valuacion.valuarLista(db.prepare(sql).all(...p)));
 }

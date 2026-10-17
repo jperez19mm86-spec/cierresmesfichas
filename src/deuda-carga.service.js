@@ -42,6 +42,7 @@ const historial = require('./historial');
 const tcStore = require('./tc-store');
 const tcDivisas = require('./tc-divisas.service');
 const tcUnico = require('./tc-unico.service');
+const { fechaTZ } = require('./lib/fechas');
 const paneles = require('./paneles-store');
 
 /**
@@ -105,12 +106,15 @@ function panelDelPedido(pedido) {
  * sin que nada lo avisara (verificado en producción, 1-sep-2026). El precio propio del panel es
  * MÁS específico que el del cliente, así que le gana.
  */
-function baseDe(cli, panel = null) {
+function baseDe(cli, panel = null, fecha = undefined) {
+  /* EL % QUE REGÍA EL DÍA DE LA CARGA (auditoría 17-oct-2026). Sin fecha usaba el de hoy, y
+     regenerar un mes viejo lo cobraba con el % actual. En una carga en vivo es lo mismo. */
+  const dia = fecha ? fechaTZ(new Date(fecha)) : undefined;
   if (panel && panel.usa_config_cliente === false) {
-    const ov = historial.getVigente('panel', panel.id, 'precio_base_pct');
+    const ov = historial.getVigente('panel', panel.id, 'precio_base_pct', dia);
     if (ov != null && ov !== '') return String(ov);
   }
-  const h = historial.getVigente('cliente', cli.id, 'precio_base_pct');
+  const h = historial.getVigente('cliente', cli.id, 'precio_base_pct', dia);
   const v = h != null && h !== '' ? h : cli.precio_base_pct;
   return v != null && v !== '' ? String(v) : null;
 }
@@ -134,10 +138,12 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
   // se completa acá. Es idempotente: no duplica el que ya existe.
   if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba', abono: abonoPorCarga(pedido, ya, cli) };
   const panel = panelDelPedido(pedido);
-  const base = baseDe(cli, panel);
+  const cuando = pedido.resueltoAt || pedido.createdAt || undefined;
+  const base = baseDe(cli, panel, cuando);
+  const diaCarga = cuando ? fechaTZ(new Date(cuando)) : undefined;
   const dePanel = !!(panel && panel.usa_config_cliente === false
-    && historial.getVigente('panel', panel.id, 'precio_base_pct') != null
-    && historial.getVigente('panel', panel.id, 'precio_base_pct') !== '');
+    && historial.getVigente('panel', panel.id, 'precio_base_pct', diaCarga) != null
+    && historial.getVigente('panel', panel.id, 'precio_base_pct', diaCarga) !== '');
   if (base == null) return { ok: false, motivo: `${cli.nombre || cli.codigo} no tiene % base cargado` };
   if (!money.isPos(String(base))) return { ok: false, motivo: 'base en cero: no genera deuda' };
 
@@ -149,14 +155,36 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
   const deuda = money.round(money.pct(monto, base), 2);
 
   const cuentaEn = cli.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT';
-  let enUsdt = null; let tc = null; let aviso = null; let tcModo = null;
+  let enUsdt = null; let tc = null; let aviso = null; let tcModo = null; let local = null;
+  /* QUÉ CAMBIO (regla del dueño, 18-oct-2026; ver clientes-store.tcCargasDe):
+     · cuenta en pesos y carga en pesos → se debita en pesos, no hay cambio.
+     · cualquier otra moneda genera deuda en DÓLARES, también en una cuenta en pesos.
+     · a quien se le manda la cuenta a fin de mes → promedio del mes (se deriva al leer).
+     · a quien va pagando → el cambio del momento.
+     `tcFijo` (generar hacia atrás con el TC del día) fuerza el del momento. */
+  const enPesosDirecto = cuentaEn === 'ARS' && divisa === 'ARS';
+  const modo = clientes.tcCargasDe(cli);
+  const mesCarga = String(pedido.resueltoAt || pedido.createdAt || new Date().toISOString()).slice(0, 7);
+  /* ⚠️ Una moneda que no es el peso ni el dólar y no tiene NINGÚN cambio en el mes no se graba: la
+     comisión no se podría pasar a dólares y quedaría sumando cero. Va a 🩺 Revisión como «carga sin
+     su comisión registrada» y entra cuando se carga el cambio y se genera la deuda del mes. */
+  const sinCambioDelMes = () => {
+    const t = tcUnico.tcDelMes(divisa, mesCarga);
+    return !(t && t.valor && money.isPos(String(t.valor)));
+  };
+  const sinTC = () => ({ ok: false, sinTC: true, divisa,
+    motivo: `no hay tipo de cambio de ${divisa} para pasar la comisión a dólares. `
+      + `Cargalo en 💱 Tipos de cambio y volvé a generar la deuda del mes.` });
 
-  if (cuentaEn === 'USDT') {
+  if (!enPesosDirecto) {
     if (divisa === 'USDT' || divisa === 'USD') {
       enUsdt = deuda;                       // ya está en dólares, no hay nada que convertir
+    } else if (modo === 'promedio' && !tcFijo) {
+      if (divisa !== 'ARS' && sinCambioDelMes()) return sinTC();
+      tcModo = 'mes';
+      if (divisa !== 'ARS') local = deuda;  // el peso ya tiene su columna
     } else {
-      // `tcFijo` lo pasa la generación hacia atrás: es el TC del día de esa carga, no el de hoy.
-      // Y `tcAhora` es SÓLO del peso: para cualquier otra divisa hay que ir a la suya.
+      // `tcAhora` es SÓLO del peso: para cualquier otra divisa hay que ir a la suya.
       let r = null;
       if (tcFijo) r = { tc: tcFijo, vivo: true };
       else if (divisa === 'ARS') r = await tcSvc.tcAhora().catch(() => null);
@@ -166,32 +194,14 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
       if (r && r.vivo && money.isPos(String(r.tc))) {
         tc = String(r.tc);
         enUsdt = money.round(money.div(deuda, tc), 2);
-      } else if (divisa === 'ARS') {
-        /* EL PESO ERA LA ÚNICA DIVISA SIN RESPALDO. Las demás pasan por `tcDelDia`, que si no tiene
-           la foto del día cae al TC del mes; el peso iba sólo por la cotización viva y si esa
-           fallaba se quedaba sin la cara en dólares para siempre.
-           No se congela un promedio como si fuera la cotización del momento: se marca `tc_modo`
-           = 'mes' y la cara en dólares se DERIVA al leer (valuacion.js). El día que se carga el TC
-           definitivo del cierre, esta carga pasa a valer lo que corresponde, sola. */
-        tcModo = 'mes';
-        aviso = 'sin cotización del momento: se valúa con el tipo de cambio del mes';
       } else {
-        /* ⚠️ ACÁ SE PERDÍA LA PLATA.
-           Con la cuenta en dólares y una carga en una moneda que no es el peso ni el dólar, la
-           cara en pesos queda en null por definición (`divisa === 'ARS' ? deuda : null`). Si
-           además no hay tipo de cambio para esa moneda, la otra cara también queda en null: el
-           movimiento se grababa con las DOS columnas vacías. Esa comisión no se cobraba nunca, la
-           cuenta corriente cerraba perfecta, y el único rastro quedaba en el texto de las notas.
-           Y el contador que existe para pescar esto (deuda.service) sólo mira cuando la OTRA
-           columna tiene algo: con las dos vacías no lo veía.
-
-           No se graba. La carga queda sin deuda y aparece en 🩺 Revisión como "carga despachada
-           sin deuda registrada" — una lista que se calcula comparando pedidos contra movimientos,
-           así que se borra sola en cuanto la deuda se genera. Cargando el TC de esa moneda y
-           apretando "Generar la deuda del mes", entra. */
-        return { ok: false, sinTC: true, divisa,
-          motivo: `no hay tipo de cambio de ${divisa} para pasar la comisión a dólares. `
-            + `Cargalo en 💱 Tipos de cambio y volvé a generar la deuda del mes.` };
+        /* Sin cotización del momento no se inventa una: se marca `tc_modo='mes'` y la cara en
+           dólares se deriva al leer con el promedio del mes (valuacion.js). Antes, en una moneda
+           que no era el peso, acá se perdía la comisión: las dos columnas quedaban vacías. */
+        if (divisa !== 'ARS' && sinCambioDelMes()) return sinTC();
+        tcModo = 'mes';
+        if (divisa !== 'ARS') local = deuda;
+        aviso = 'sin cotización del momento: se valúa con el promedio del mes';
       }
     }
   }
@@ -203,6 +213,7 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
     panel_id: panel ? panel.id : null,
     monto_ars: divisa === 'ARS' ? deuda : null,
     monto_usdt: enUsdt,
+    monto_local: local,
     tc_momento: tc,
     tc_modo: tcModo,
     base_pct_aplicado: String(base),
@@ -210,7 +221,7 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
     fecha: pedido.resueltoAt || pedido.createdAt || undefined,
     notas: `Fichas · ${base}% de ${money.fmt(monto, 0)} ${divisa}`
       + (dePanel ? ` · precio propio de ${panel.nombre}` : '')
-      + (tc ? ` · TC ${tc}` : '') + (aviso ? ` · ${aviso}` : ''),
+      + (tc ? ` · TC ${tc}` : '') + (tcModo === 'mes' && !aviso ? ' · promedio del mes' : '') + (aviso ? ` · ${aviso}` : ''),
   });
   return { ok: true, movimiento: mv, tc, tcModo, aviso, deuda, divisa, base, cuentaEn,
     abono: abonoPorCarga(pedido, mv, cli) };
@@ -231,8 +242,11 @@ async function porCarga(pedido, { tcFijo = null } = {}) {
  * Puntos sobre la base: con base 14 y 2 puntos, el abono es 2/14 de lo que se le cobró a Ariel.
  * Si los puntos no son menos que la base no se abona nada: sería darle más de lo que se cobró.
  */
-function abonoPorCarga(pedido, carga, cli) {
-  if (!cli || !cli.abona_a || !cli.abona_pts || !carga) return null;
+function abonoPorCarga(pedido, cargaLeida, cli) {
+  if (!cli || !cli.abona_a || !cli.abona_pts || !cargaLeida) return null;
+  // Lo GUARDADO, no lo valuado: si la carga va al promedio del mes, su cara en dólares todavía se
+  // mueve y el abono tiene que moverse con ella, no quedar congelado en el valor de hoy.
+  const carga = movs.getCrudo(cargaLeida.id) || cargaLeida;
   const otro = clientes.get(cli.abona_a);
   if (!otro || otro.id === cli.id) return { ok: false, motivo: 'el cliente que recibe el abono no existe' };
   const pts = String(cli.abona_pts);
@@ -249,12 +263,12 @@ function abonoPorCarga(pedido, carga, cli) {
   const parte = (v) => (v == null || v === '' ? null : money.round(money.div(money.mul(String(v), pts), base), 2));
   const f = String(carga.fecha || pedido.resueltoAt || pedido.createdAt || '').slice(0, 10).split('-');
   const div = String(carga.divisa || pedido.divisa || 'ARS').toUpperCase();
-  const usd = parte(carga.monto_usdt), ars = parte(carga.monto_ars);
-  if ((usd == null || !money.isPos(usd)) && (ars == null || money.cmp(ars, '1') < 0)) return { ok: false, motivo: 'abono de centavos: no se anota' };
+  const usd = parte(carga.monto_usdt), ars = parte(carga.monto_ars), loc = parte(carga.monto_local);
+  if ((usd == null || !money.isPos(usd)) && (ars == null || money.cmp(ars, '1') < 0) && (loc == null || money.cmp(loc, '1') < 0)) return { ok: false, motivo: 'abono de centavos: no se anota' };
   const mv = movs.create({
     cliente_id: otro.id, tipo: 'bonificacion', pedido_id: pedido.id,
-    monto_ars: ars, monto_usdt: usd,
-    tc_momento: carga.tc_momento || null, tc_modo: carga.tc_modo || null,
+    monto_ars: ars, monto_usdt: usd, monto_local: loc,
+    tc_momento: carga.tc_momento || null, tc_modo: carga.tc_modo || null, mes_cierre: carga.mes_cierre || null,
     divisa: div, fecha: carga.fecha || undefined,
     // Corto, a pedido del dueño (13-oct-2026): la carga de Ariel ya dice monto y login en SU cuenta.
     notas: `Abono de ${cli.nombre || cli.codigo}` + (f[2] ? ` · ${f[2]}/${f[1]}` : ''),
@@ -272,9 +286,11 @@ function bajaDelAbono(pedido, cli) {
   const ya = movs.list({ cliente_id: otro.id, tipo: 'ajuste' }).find((m) => m.pedido_id === pedido.id);
   if (ya) return { ok: true, movimiento: ya, motivo: 'ya estaba' };
   // Un ajuste POSITIVO, del mismo tamaño y al mismo cambio: devuelve a la deuda lo que el abono bajó.
+  const abc = movs.getCrudo(ab.id) || ab;   // lo guardado: si va al promedio, se deriva igual que el abono
   const mv = movs.create({
     cliente_id: otro.id, tipo: 'ajuste', pedido_id: pedido.id,
-    monto_ars: ab.monto_ars, monto_usdt: ab.monto_usdt, tc_momento: ab.tc_momento, tc_modo: ab.tc_modo,
+    monto_ars: abc.monto_ars, monto_usdt: abc.monto_usdt, monto_local: abc.monto_local, tc_momento: abc.tc_momento, tc_modo: abc.tc_modo,
+    mes_cierre: abc.tc_modo === 'mes' ? (abc.mes_cierre || String(abc.fecha || '').slice(0, 7)) : null,
     divisa: ab.divisa,
     notas: `Se anuló esa carga de ${cli.nombre || cli.codigo}: se descuentan los puntos que se habían abonado (${ab.id})`,
   });
@@ -341,9 +357,14 @@ function porAnulacion(pedido) {
   if (yaCont) return { ok: true, movimiento: yaCont, motivo: 'ya estaba dada de baja', abono: bajaDelAbono(pedido, cli) };
 
   const neg = (v) => (v == null || v === '' ? null : money.round(money.mul(String(v), '-1'), 2));
+  // Lo guardado, no lo valuado (ver abonoPorCarga). Si la carga va al promedio de su mes, la baja
+  // también, y del MISMO mes aunque se anule en otro: si no, quedaría una diferencia de cambio.
+  const cr = movs.getCrudo(orig.id) || orig;
+  const mesCarga = cr.tc_modo === 'mes' ? (cr.mes_cierre || String(cr.fecha || '').slice(0, 7)) : null;
   const mv = movs.create({
     cliente_id: cli.id, tipo: 'correccion', pedido_id: pedido.id,
-    monto_ars: neg(orig.monto_ars), monto_usdt: neg(orig.monto_usdt),
+    monto_ars: neg(cr.monto_ars), monto_usdt: neg(cr.monto_usdt), monto_local: neg(cr.monto_local),
+    tc_modo: cr.tc_modo || null, mes_cierre: mesCarga,
     tc_momento: orig.tc_momento,          // el de la carga, no el de hoy
     base_pct_aplicado: orig.base_pct_aplicado, divisa: orig.divisa,
     notas: `Anulación de la carga · da de baja ${orig.id}`,
@@ -370,18 +391,22 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
     if (String(p.estado) !== 'cargado') continue;
     const f = String(p.resueltoAt || p.createdAt || '');
     if (f.slice(0, 7) !== m) continue;
-    const tc = tcDelDia(f, p.divisa);
+    const cli = clientes.getByCodigo(p.codigo);
+    const div = String(p.divisa || 'ARS').toUpperCase();
+    // Misma regla que la carga en vivo: a fin de mes → promedio del mes; va pagando → el TC de su día.
+    const alPromedio = !!cli && clientes.tcCargasDe(cli) === 'promedio';
+    const tcProm = alPromedio ? (tcUnico.tcDelMes(div, m) || {}).valor || null : null;
+    const tc = alPromedio ? null : tcDelDia(f, p.divisa);
     if (simular) {
-      const cli = clientes.getByCodigo(p.codigo);
-      // Con el panel, igual que la corrida de verdad. Sin esto la simulación mostraba el % del
-      // cliente y después se aplicaba el del panel: el número que se mira para decidir no era el
-      // que iba a quedar.
-      const base = cli ? baseDe(cli, panelDelPedido(p)) : null;
+      // Con el panel y el % de ese día, igual que la corrida de verdad: el número que se mira para
+      // decidir tiene que ser el que va a quedar.
+      const base = cli ? baseDe(cli, panelDelPedido(p), f || undefined) : null;
       if (!cli || base == null || !money.isPos(String(base))) { out.saltados.push({ pedido: p.id, motivo: 'sin cliente o sin base' }); continue; }
       const deuda = money.round(money.pct(String(p.monto || '0'), base), 2);
-      const div = String(p.divisa || 'ARS').toUpperCase();
-      const enUsdt = (div === 'USDT' || div === 'USD') ? deuda : (tc ? money.round(money.div(deuda, tc), 2) : null);
-      out.generados.push({ pedido: p.id, cliente: cli.codigo, fecha: f.slice(0, 10), divisa: div, deuda, tc, usdt: enUsdt });
+      const enPesos = cli.moneda_cuenta === 'ARS' && div === 'ARS';
+      const conv = tc || tcProm;
+      const enUsdt = enPesos ? null : (div === 'USDT' || div === 'USD') ? deuda : (conv ? money.round(money.div(deuda, conv), 2) : null);
+      out.generados.push({ pedido: p.id, cliente: cli.codigo, fecha: f.slice(0, 10), divisa: div, deuda, tc: conv, alPromedio, usdt: enUsdt });
       if (enUsdt) out.totalUsdt = money.add(out.totalUsdt, enUsdt);
       if (div === 'ARS') out.totalArs = money.add(out.totalArs, deuda);
       continue;
@@ -391,10 +416,11 @@ async function generarMes(mes, pedidosDelMes, { simular = false } = {}) {
     try { r = await porCarga(p, { tcFijo: tc }); } catch (e) { out.saltados.push({ pedido: p.id, motivo: 'error: ' + e.message }); continue; }
     if (!r.ok) { out.saltados.push({ pedido: p.id, motivo: r.motivo }); continue; }
     if (r.motivo === 'ya estaba') { out.yaEstaban += 1; continue; }
-    out.generados.push({ pedido: p.id, movimiento: r.movimiento.id, tc: r.tc,
-      usdt: r.movimiento.monto_usdt, ars: r.movimiento.monto_ars });
-    if (r.movimiento.monto_usdt) out.totalUsdt = money.add(out.totalUsdt, r.movimiento.monto_usdt);
-    if (r.movimiento.monto_ars) out.totalArs = money.add(out.totalArs, r.movimiento.monto_ars);
+    const leido = movs.get(r.movimiento.id) || r.movimiento;   // al promedio, la cara en dólares se deriva al leer
+    out.generados.push({ pedido: p.id, movimiento: r.movimiento.id, tc: r.tc || leido.tc_usado || null,
+      usdt: leido.monto_usdt, ars: leido.monto_ars });
+    if (leido.monto_usdt) out.totalUsdt = money.add(out.totalUsdt, leido.monto_usdt);
+    if (leido.monto_ars) out.totalArs = money.add(out.totalArs, leido.monto_ars);
   }
   out.totalUsdt = money.round(out.totalUsdt, 2);
   out.totalArs = money.round(out.totalArs, 2);
@@ -423,4 +449,85 @@ function borrarMes(mes) {
   return { ok: true, mes: m, borrados: n };
 }
 
-module.exports = { porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia, abonoPorCarga };
+
+/**
+ * PASAR AL PROMEDIO LAS CARGAS YA ANOTADAS DE UN MES (18-oct-2026).
+ *
+ * La regla nueva (clientes-store.tcCargasDe) vale desde que se sube; las cargas de octubre de los
+ * clientes con cuenta a fin de mes ya estaban con el cambio del momento. Esto las rehace al promedio:
+ * por cada carga, una nueva con la deuda en su moneda y `tc_modo='mes'`, y se borra la vieja (los
+ * movimientos se insertan y se borran, nunca se editan). Lo que va atado al mismo pedido —el abono a
+ * otro cliente, la anulación y la baja del abono— se rehace igual, para que siga sumando cero.
+ *
+ * Sin `aplicar` no escribe nada: devuelve cuánto debe cada cliente antes y después.
+ */
+function pasarAlPromedio(mes, { aplicar = false } = {}) {
+  const m = String(mes || '').slice(0, 7);
+  const pedidos = require('./pedidos-store');
+  const todos = movs.list({});
+  const crudo = (x) => movs.getCrudo(x.id) || x;
+  const porCliente = {};
+  const fila = (cli) => (porCliente[cli.id] = porCliente[cli.id] || { cliente: cli.codigo, nombre: cli.nombre || cli.codigo, cargas: 0, antes: '0', despues: '0' });
+  const hechos = [];
+  for (const c of clientes.list().clientes) {
+    if (clientes.tcCargasDe(c) !== 'promedio' || c.moneda_cuenta === 'ARS') continue;
+    const cargas = todos.filter((x) => x.cliente_id === c.id && x.tipo === 'carga' && x.pedido_id
+      && String(x.fecha || '').slice(0, 7) === m).map(crudo)
+      .filter((x) => x.tc_modo !== 'mes' && !['USD', 'USDT'].includes(String(x.divisa || '').toUpperCase()));
+    for (const k of cargas) {
+      const D = String(k.divisa || 'ARS').toUpperCase();
+      let local = D === 'ARS' ? k.monto_ars : null;
+      if (D !== 'ARS') {
+        const ped = pedidos.get(k.pedido_id);
+        if (!ped || !k.base_pct_aplicado) continue;   // sin de dónde sacar la deuda en su moneda: se deja
+        local = money.round(money.pct(String(ped.monto), String(k.base_pct_aplicado)), 2);
+      }
+      if (local == null || local === '') continue;
+      const t = tcUnico.tcDelMes(D, m);
+      if (!(t && t.valor && money.isPos(String(t.valor)))) continue;
+      const nuevoUsd = money.round(money.div(String(local), String(t.valor)), 2);
+      // Lo atado al mismo pedido, en este cliente y en el que recibe el abono.
+      const atados = todos.filter((x) => x.pedido_id === k.pedido_id && x.id !== k.id
+        && ['correccion', 'bonificacion', 'ajuste'].includes(x.tipo)).map(crudo).filter((x) => x.tc_modo !== 'mes');
+      const f = fila(c); f.cargas += 1;
+      f.antes = money.add(f.antes, k.monto_usdt || '0'); f.despues = money.add(f.despues, nuevoUsd);
+      atados.filter((x) => x.cliente_id === c.id).forEach((x) => {   // la anulación de esta misma carga
+        f.antes = money.add(f.antes, x.monto_usdt || '0'); f.despues = money.sub(f.despues, nuevoUsd);
+      });
+      atados.filter((x) => x.cliente_id !== c.id).forEach((x) => {   // el abono (y su baja) en el otro
+        const o = clientes.get(x.cliente_id); if (!o) return;
+        const fo = fila(o); const pts = money.div(String(x.monto_usdt || '0'), String(k.monto_usdt || '1'));
+        const nuevo = money.round(money.mul(nuevoUsd, pts), 2);
+        const sg = x.tipo === 'bonificacion' ? '-1' : '1';
+        fo.antes = money.add(fo.antes, money.mul(String(x.monto_usdt || '0'), sg)); fo.despues = money.add(fo.despues, money.mul(nuevo, sg));
+      });
+      if (!aplicar) continue;
+      const rehacer = (x, factor) => {
+        const loc = (v) => (v == null || v === '' ? null : money.round(money.mul(String(v), factor), 2));
+        const mv = movs.create({
+          cliente_id: x.cliente_id, panel_id: x.panel_id, pedido_id: x.pedido_id, tipo: x.tipo,
+          monto_ars: D === 'ARS' ? loc(local) : null, monto_usdt: null, monto_local: D === 'ARS' ? null : loc(local),
+          tc_modo: 'mes', mes_cierre: x.tipo === 'carga' ? (x.mes_cierre || null) : m,
+          base_pct_aplicado: x.base_pct_aplicado, divisa: x.divisa, fecha: x.fecha, usuario_id: x.usuario_id,
+          notas: String(x.notas || '').replace(/ · TC [\d.,]+/, '') + ' · promedio del mes',
+          origen: x.origen, origen_ref: x.origen_ref, medio: x.medio, recibido_por: x.recibido_por,
+        });
+        movs.remove(x.id);
+        return mv.id;
+      };
+      const nuevo = rehacer(k, '1');
+      atados.forEach((x) => {
+        // factor = qué parte de la carga es: -1 la anulación; ±pts/base el abono y su baja.
+        const fac = x.cliente_id === c.id ? '-1'
+          : money.round(money.div(String(x.monto_usdt || '0'), String(k.monto_usdt || '1')), 6);
+        rehacer(x, fac);
+      });
+      hechos.push({ cliente: c.codigo, carga: k.id, nueva: nuevo, atados: atados.length });
+    }
+  }
+  const lista = Object.values(porCliente).map((x) => ({ ...x, antes: money.round(x.antes, 2), despues: money.round(x.despues, 2),
+    diferencia: money.round(money.sub(x.despues, x.antes), 2) })).sort((a, b) => Math.abs(Number(b.diferencia)) - Math.abs(Number(a.diferencia)));
+  return { ok: true, mes: m, aplicado: !!aplicar, clientes: lista, cargas: lista.reduce((t, x) => t + x.cargas, 0), hechos: aplicar ? hechos : undefined };
+}
+
+module.exports = { pasarAlPromedio, porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia, abonoPorCarga };

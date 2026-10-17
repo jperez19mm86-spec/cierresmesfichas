@@ -50,7 +50,15 @@ function cuentaCorriente(cliente_id) {
   let esperandoTC = 0, sinValuar = 0, sinImporte = 0;
   // Lo que puso la empresa para que los pesos cancelen pesos (ver pesos-cancelan-pesos.js).
   let difCambio = '0';
+  /* Regla del dueño (18-oct-2026): en una cuenta en PESOS, las fichas en cualquier otra moneda generan
+     deuda en DÓLARES. Esa deuda no se mezcla con los pesos: se lleva aparte y se muestra aparte. */
+  let aparteUsdt = '0';
   for (const m of movs) {
+    if (moneda === 'ARS' && (m.monto_ars == null || m.monto_ars === '') && m.monto_usdt != null && m.monto_usdt !== ''
+      && String(m.divisa || 'ARS').toUpperCase() !== 'ARS' && m.tipo !== 'pago') {
+      aparteUsdt = m.tipo === 'bonificacion' ? money.sub(aparteUsdt, m.monto_usdt) : money.add(aparteUsdt, m.monto_usdt);
+      continue;
+    }
     const u = m[col] || '0';
     // ⚠️ Se mira la columna QUE SUMA, no la que se derivó. Un pago en USDT sobre una cuenta en
     // USDT no depende de ningún tipo de cambio aunque tenga tc_modo='mes': la cara en pesos se
@@ -105,6 +113,8 @@ function cuentaCorriente(cliente_id) {
     // un poco cuando se cierre. `sinValuar` es peor: esos NO están contados en el total.
     esperandoTC, sinValuar,
     dif_cambio: money.round(difCambio, 2),
+    // Sólo en cuentas en pesos: lo que debe en dólares por fichas en otras monedas. Va aparte del total.
+    aparte_usdt: money.round(aparteUsdt, 2),
     provisional: esperandoTC > 0 || sinValuar > 0,
   };
 }

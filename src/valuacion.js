@@ -25,6 +25,7 @@
  */
 const money = require('./lib/money');
 const tcUnico = require('./tc-unico.service');
+const { mesTZ } = require('./lib/fechas');
 
 /** Sólo el TC cargado a mano en el cierre es el definitivo; el resto es un promedio provisorio. */
 const ES_DEFINITIVO = 'cargado a mano en el cierre';
@@ -42,6 +43,7 @@ const ES_DEFINITIVO = 'cargado a mano en el cierre';
  */
 function valuar(m) {
   if (!m || m.tc_modo !== 'mes') return m;
+  if (m.tipo !== 'pago') return valuarCarga(m);
   const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
   // Ya tiene las dos caras: no hay nada que derivar. Pasa cuando se le fijó el TC después.
@@ -76,6 +78,35 @@ function valuar(m) {
     monto_ars: tieneArs ? m.monto_ars : money.round(money.mul(String(m.monto_usdt), tc), 2),
     monto_usdt: tieneUsdt ? m.monto_usdt : money.round(money.div(String(m.monto_ars), tc), 2),
     tc_usado: tc, tcFuente: t.fuente, derivada, provisional, sinValuar: false,
+  };
+}
+
+/**
+ * ── LAS CARGAS DE QUIEN RECIBE LA CUENTA A FIN DE MES (18-oct-2026) ─────────────────────────────
+ * Regla del dueño: al cliente que se le manda la cuenta al cierre, sus cargas valen con el PROMEDIO
+ * del mes de su moneda —el mismo de la factura—, no con el cambio del momento. Se guarda la deuda en
+ * la moneda de la carga (`monto_ars` si es el peso, `monto_local` si es otra) y la cara en dólares se
+ * deriva acá, con `tcDelMes` (el de las cuentas, no el del trader). Mientras el mes está abierto el
+ * promedio se mueve: queda `provisional`. Lo mismo vale para lo que acompaña a esa carga y copia su
+ * modo: el abono a otro cliente, la anulación y la baja del abono.
+ */
+function valuarCarga(m) {
+  const D = String(m.divisa || 'ARS').toUpperCase();
+  const local = D === 'ARS' ? m.monto_ars : m.monto_local;
+  const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
+  if (tieneUsdt || local == null || String(local) === '') return m;
+  const mes = m.mes_cierre ? String(m.mes_cierre).slice(0, 7) : String(m.fecha || m.createdAt || '').slice(0, 7);
+  const t = mes ? tcUnico.tcDelMes(D, mes) : null;
+  if (!t || !t.valor || !money.isPos(String(t.valor))) {
+    return { ...m, tc_usado: null, derivada: 'monto_usdt', provisional: true, sinValuar: true };
+  }
+  const tc = String(t.valor);
+  return {
+    ...m,
+    monto_usdt: money.round(money.div(String(local), tc), 2),
+    tc_usado: tc, tcFuente: t.fuente, derivada: 'monto_usdt',
+    // El promedio de un mes que todavía no terminó cambia todos los días.
+    provisional: mes >= mesTZ(), sinValuar: false,
   };
 }
 

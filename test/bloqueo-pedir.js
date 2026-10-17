@@ -1,0 +1,26 @@
+/** bloqueo-pedir.js — suspendido no pide; con la deuda en el tope, tampoco (18-oct-2026). */
+process.env.DB_PATH = require('path').join(require('os').tmpdir(), `test-bq-${Date.now()}.sqlite`);
+require('../src/db');
+const clientes = require('../src/clientes-store');
+const movs = require('../src/movimientos-store');
+const { bloqueo } = require('../src/bloqueo-pedir');
+let ok = 0, fail = 0;
+const check = (t, c, x) => { if (c) { ok++; console.log('✅ ' + t); } else { fail++; console.log('❌ ' + t + (x != null ? '  → ' + x : '')); } };
+console.log('\n⛔ cuándo no se puede pedir\n');
+const c = clientes.createCliente({ codigo: 'BQ', nombre: 'Bq' });
+check('un cliente normal pide', bloqueo(clientes.get(c.id)) === null);
+clientes.updateComercial(c.id, { estado: 'suspendido' });
+const b1 = bloqueo(clientes.get(c.id));
+check('suspendido no pide', b1 && b1.motivo === 'suspendido', JSON.stringify(b1));
+clientes.updateComercial(c.id, { estado: 'activo', tope_deuda: '1.000' });
+check('el tope se lee como lo tipea una persona («1.000» = mil)', clientes.get(c.id).tope_deuda === '1000', clientes.get(c.id).tope_deuda);
+movs.create({ cliente_id: c.id, tipo: 'carga', monto_usdt: '999.99', divisa: 'USDT' });
+check('debajo del tope pide', bloqueo(clientes.get(c.id)) === null);
+movs.create({ cliente_id: c.id, tipo: 'carga', monto_usdt: '0.01', divisa: 'USDT' });
+const b2 = bloqueo(clientes.get(c.id));
+check('al llegar al tope no pide, y le dice cuánto acreditar', b2 && b2.motivo === 'tope_deuda' && /1\.000,00 USDT pendientes/.test(b2.mensaje), b2 && b2.mensaje);
+movs.create({ cliente_id: c.id, tipo: 'pago', monto_usdt: '500', divisa: 'USDT' });
+check('cuando paga, vuelve a pedir', bloqueo(clientes.get(c.id)) === null);
+clientes.updateComercial(c.id, { tope_deuda: '' });
+check('sin tope, nunca lo frena', clientes.get(c.id).tope_deuda === null);
+console.log(`\n${ok} chequeos OK, ${fail} fallaron\n`); process.exit(fail ? 1 : 0);

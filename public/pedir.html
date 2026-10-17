@@ -290,6 +290,8 @@
           + (pp.disponible > 0 ? '.' : '. Avisá un pago y, cuando lo aprobemos, vas a poder pedir.');
         pi.style.display = '';
       } else { pi.style.display = 'none'; pi.innerHTML = ''; }
+      // Suspendido o con la deuda en el tope: se lo decimos antes de que arme el pedido.
+      if (d.bloqueo && d.bloqueo.mensaje) { pi.innerHTML = '⛔ ' + esc(d.bloqueo.mensaje); pi.style.display = ''; }
       _ctaTok = '';
       msg.innerHTML = '';
       const quien = '👤 ' + d.cliente.nombreVisible + ' (' + d.cliente.codigo + ')';

@@ -498,6 +498,9 @@ ensureColumns('clientes', { prepago: 'INTEGER DEFAULT 0', prepago_margen_pct: 'T
    cliente (`abona_a`), como bonificación en SU cuenta. Es lo de Fran con Ariel: Ariel paga al 14 y
    los 2 puntos de Fran le van bajando la deuda a Fran, carga por carga. */
 ensureColumns('clientes', { abona_a: 'TEXT', abona_pts: 'TEXT' });
+// Con qué cambio se pasan sus cargas a dólares ('promedio' | 'momento'; vacío = según cómo paga) y
+// hasta cuánto puede deber antes de que el sistema le frene los pedidos (18-oct-2026).
+ensureColumns('clientes', { tc_cargas: 'TEXT', tope_deuda: 'TEXT' });
 
 ensureColumns('paneles', { conexion_id: 'TEXT' });
 // El sistema de pedidos escribe el nombre del panel a su manera —"463.life" donde el OS tiene
@@ -617,6 +620,9 @@ ensureColumns('cierre_tc', { confirmado: 'TEXT' });
    5-oct-2026 eso vivía sólo en la planilla de ella («Recibe: Hen / Ale»), así que el OS podía
    decir a quién le corresponde cada peso pero no quién lo tiene. */
 ensureColumns('movimientos', { recibido_por: 'TEXT' });
+// La deuda en la moneda de la carga cuando no es el peso (PYG, UYU…): con el cambio del mes la cara
+// en dólares se deriva al leer, y hace falta de dónde partir.
+ensureColumns('movimientos', { monto_local: 'TEXT' });
 // 🔒 EL CANDADO CONTRA EL DOBLE COBRO, en la BASE y no en el código: un cliente no puede
 // tener dos movimientos del mismo origen para el mismo mes. Es PARCIAL (solo donde origen no
 // es nulo) para no tocar nada de lo cargado a mano, que puede repetirse legítimamente.

@@ -38,6 +38,7 @@ const paneles = require('./paneles-store');
 const casinoConex = require('./casino-conexiones-store');
 const arbolSvc = require('./arbol.service');
 const prepago = require('./prepago.service');
+const bloqueoPedir = require('./bloqueo-pedir');
 
 // Grupo al que van los avisos de «cuenta sin configurar / necesita soporte». Lo fijó el dueño el
 // 13-sep-2026. Se puede pisar sin deploy con el config `grupoSinConfigurar`, por si el grupo cambia.
@@ -227,7 +228,8 @@ function mount(app) {
       } catch (e) { pre = { prepago: true, error: 'no se pudo calcular' }; }
     }
     res.json({ ok: true, ...estadoDe(req.query || {}), datosPago: datosDePago(cliente),
-      divisasPago: (cliente && cliente.divisas_pago) || ['ARS', 'USDT'], prepago: pre });
+      divisasPago: (cliente && cliente.divisas_pago) || ['ARS', 'USDT'], prepago: pre,
+      bloqueo: cliente ? bloqueoPedir.bloqueo(cliente) : null });
   });
 
   /* ── ALTA DE UN AGENTE HECHA POR UN DISTRIBUIDOR EN MI CAJA ─────────────────────────────────
@@ -297,6 +299,8 @@ function mount(app) {
     }
     // Este agente puede no tener permiso de pedir aunque el cliente esté configurado.
     if (!est.puedePedir) return res.json({ ok: true, creado: false, motivo: 'no_habilitado' });
+    const bq = bloqueoPedir.bloqueo(cliente);
+    if (bq) return res.json({ ok: true, creado: false, motivo: 'bloqueado', bloqueo: bq.motivo, mensaje: bq.mensaje });
     const monto = Number(b.monto);
     if (!(monto > 0)) return res.status(400).json({ ok: false, error: 'monto inválido' });
     const cajaDivisas = (caja.divisas && caja.divisas.length) ? caja.divisas : ['ARS'];
@@ -334,6 +338,8 @@ function mount(app) {
       return res.json({ ok: true, creados: [], motivo: 'sin_configurar', motivosFaltantes: est.motivosFaltantes, avisado: av.enviado });
     }
     if (!est.puedePedir) return res.json({ ok: true, creados: [], motivo: 'no_habilitado' });
+    const bq = bloqueoPedir.bloqueo(cliente);
+    if (bq) return res.json({ ok: true, creados: [], motivo: 'bloqueado', bloqueo: bq.motivo, mensaje: bq.mensaje });
     const lista = Array.isArray(b.pedidos) ? b.pedidos.slice(0, 50) : [];
     if (!lista.length) return res.status(400).json({ ok: false, error: 'no hay pedidos' });
     /* PREPAGO: todo el lote junto tiene que entrar en lo disponible. Si no entra, no se crea ninguno

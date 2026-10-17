@@ -705,6 +705,8 @@ app.get('/api/pedir/:codigo', limitePublico('pedir', 120, 15), async (req, res) 
     // Ver la cuenta se habilita cliente por cliente, con usuario y contraseña. Si no lo tiene, la
     // opción no aparece — y aunque se postee a mano, /api/cuenta/login lo rechaza igual.
     puedeVerCuenta: !!cli.acceso_habilitado,
+    // Si no puede pedir (suspendido o con la deuda en el tope), el portal lo dice antes de que lo intente.
+    bloqueo: require('./bloqueo-pedir').bloqueo(cli),
     // En qué puede pagar (elegido en su ficha; vacío = las dos) y, si es PREPAGO, su saldo para pedir.
     divisasPago: cli.divisas_pago || ['ARS', 'USDT'],
     prepago: cli.prepago ? await require('./prepago.service').estado(cli).catch(() => ({ prepago: true, error: 'no se pudo calcular' })) : { prepago: false },
@@ -763,6 +765,9 @@ app.post('/api/pedir', limitePublico('pedir-nuevo', 60, 15), async (req, res) =>
   const div = cajaDivisas.includes(divisa) ? divisa : cajaDivisas[0]; // validar contra las divisas de la caja
   const m = Number(monto);
   if (!(m > 0)) return res.status(400).json({ ok: false, error: 'Monto inválido' });
+  // Suspendido o con la deuda en el tope: no pide (bloqueo-pedir.js).
+  const bq = require('./bloqueo-pedir').bloqueo(cli);
+  if (bq) return res.status(409).json({ ok: false, bloqueado: bq.motivo, error: bq.mensaje });
   // PREPAGO: sólo si le alcanza el saldo a favor (con su margen). A los demás no les cambia nada.
   const pp = await require('./prepago.service').puedePedir(cli, [{ sistema: caja.sistema, userId: caja.userId, monto: m, divisa: div }]);
   if (!pp.ok) {
