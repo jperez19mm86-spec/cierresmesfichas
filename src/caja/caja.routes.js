@@ -196,7 +196,57 @@ function mount(app) {
     if (!x || x === String(req.caja.id)) return true;
     return (await agentesDe(req)).has(x);
   }
+  /* CUÁNTOS CAJEROS TIENE CADA AGENTE (8-oct-2026). La fila del agente viene con `terminals` vacío
+     —el motor cuenta jugadores sólo en la caja—, así que la lista del distribuidor decía «0 · 0».
+     Se le pregunta al motor por cada agente (lo mismo que «Ver sus cajeros») y se suman los de sus
+     cajeros. De a 4 a la vez, un minuto en memoria por sesión; si una falla, esa fila va sin dato.
+     🔑 VA APARTE de la lista, no adentro: cada agente es ~0,5 s más de casino (medido el 18-oct
+     con GanamosLucho), y con 20 agentes la lista tardaría 2–3 s en abrir. Así sale al instante y
+     los números llegan después. */
+  const cacheResumenAg = new Map();                    // `${sid}:${agente}` → { at, r }
+  const sumaDivisas = (v) => {
+    if (v == null || v === '') return 0;
+    if (typeof v !== 'object') return Number(v) || 0;
+    return Object.values(v).reduce((a, x) => a + (Number(String(x).replace(/,/g, '')) || 0), 0);
+  };
+  async function resumenCajeros(req, agenteId) {
+    const clave = `${req.caja.sid}:${agenteId}`;
+    const c = cacheResumenAg.get(clave);
+    if (c && Date.now() - c.at < 60 * 1000) return c.r;
+    const cli = auth.clienteDe(req.caja);
+    const r = await cli.apiCall('users', { ...rangoBarato(), inactive_users: 'all', deleted_users: 'undelete', limit: '1000' },
+      { id: String(agenteId), offset: '1' });
+    if (!esJson(r)) return null;
+    const cajeros = sinFilaTotal(r.data.users).filter(esFilaCajero);
+    const out = { cajeros: cajeros.length,
+      jugadores: cajeros.reduce((a, f) => a + sumaDivisas(f.terminals), 0),
+      conectados: cajeros.reduce((a, f) => a + sumaDivisas(f.terminals_online), 0) };
+    if (cacheResumenAg.size > 2000) cacheResumenAg.clear();
+    cacheResumenAg.set(clave, { at: Date.now(), r: out });
+    return out;
+  }
+  async function conResumenCajeros(req, filas) {
+    const cola = filas.slice(0, 100);                  // más que eso, sin dato
+    const trabajar = async () => {
+      for (let f = cola.shift(); f; f = cola.shift()) {
+        // eslint-disable-next-line no-await-in-loop
+        try { const r = await resumenCajeros(req, f.id); if (r) f.resumenCajeros = r; } catch (e) { /* sin dato */ }
+      }
+    };
+    await Promise.all([trabajar(), trabajar(), trabajar(), trabajar()]);
+    return filas;
+  }
   const noEsTuyo = (res) => res.status(403).json({ ok: false, error: 'Esa cuenta no es un agente tuyo.', noPermitido: true });
+
+  /* El distribuidor: cuántos cajeros, jugadores y conectados tiene cada agente suyo. */
+  app.get('/api/caja/resumen-agentes', auth.requerida, wrap(async (req, res) => {
+    if (req.caja.rol !== 'distribuidor') return ok(res, { agentes: {} });
+    const filas = [...(await agentesDe(req))].map((id) => ({ id }));
+    await conResumenCajeros(req, filas);
+    const agentes = {};
+    filas.forEach((f) => { if (f.resumenCajeros) agentes[f.id] = f.resumenCajeros; });
+    ok(res, { agentes });
+  }));
 
   /* ══════ las cuentas que cuelgan de un nodo ══════ */
 
@@ -1213,6 +1263,7 @@ function mount(app) {
        «sólo pedir fichas» y el Telegram del cliente. Es de buena fe: si el OS no contesta, el agente
        igual quedó creado en el casino y se avisa en la respuesta, sin fallar el alta. */
     let os = null;
+    if (distCajero) cacheResumenAg.delete(`${req.caja.sid}:${padre}`);   // cambió cuántos cajeros tiene
     if (grupo === GRUPOS.agente) {
       cacheAgentes.delete(req.caja.sid);             // tiene un agente más
       const r = await llamarEnlace('agente-nuevo', { method: 'POST',

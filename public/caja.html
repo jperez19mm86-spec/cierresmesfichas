@@ -3646,7 +3646,7 @@ function pintarFilas(){
       /* Íconos en vez de «6 jugadores · 0 conectados»: la fila se lee de un vistazo y
          entran los dos datos sin que el renglón se corte en teléfonos angostos. El
          título de cada uno lo dice en palabras para quien use lector de pantalla. */
-      ? `${x.name ? x.name + ' ' : ''}<span class="meta" title="${x.terminals} jugadores"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11a3 3 0 100-6M18.5 19c0-2.2-.8-3.9-2.1-4.8"/></svg>${x.terminals}</span><span class="meta" title="${x.terminals_online} conectados"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 12.5a9.5 9.5 0 0114 0"/><path d="M8 15.8a5.4 5.4 0 018 0"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/></svg>${x.terminals_online}</span>`
+      ? `${x.name ? x.name + ' ' : ''}${esDist() ? (x.cajeros == null ? '' : `<span class="meta" title="${x.cajeros} ${x.cajeros === 1 ? 'cajero' : 'cajeros'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="17" height="11" rx="2"/><path d="M7 9V5.5h7V9M7 13h2M11 13h2M15 13h2M7 16.5h10"/></svg>${x.cajeros}</span>`) : ''}${esDist() && x.cajeros == null ? '' : `<span class="meta" title="${x.terminals} jugadores"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11a3 3 0 100-6M18.5 19c0-2.2-.8-3.9-2.1-4.8"/></svg>${x.terminals}</span>${esDist() ? '' : `<span class="meta" title="${x.terminals_online} conectados"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 12.5a9.5 9.5 0 0114 0"/><path d="M8 15.8a5.4 5.4 0 018 0"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/></svg>${x.terminals_online}</span>`}`}`
       /* 🔴 El motor NO da el último ingreso acá: `last` viene vacío en los 200 jugadores
          medidos, igual que `ips`. Lo único real es `online`.
          Antes, sin dato, iba el ID. Se sacó: al cajero no le dice nada —él busca por nombre— y
@@ -5032,7 +5032,7 @@ function abrirNodo(id){
   abrirHoja(`
     <h3 id="hojaTit" class="mono">${esc(ACTUAL.login)}</h3>
     <div class="sub">${esSala
-      ? (esDist() ? 'Agente' : `${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`)
+      ? (esDist() ? (ACTUAL.cajeros == null ? 'Agente' : `Agente · ${ACTUAL.cajeros} ${ACTUAL.cajeros === 1 ? 'cajero' : 'cajeros'} · ${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`) : `${ACTUAL.terminals} ${ACTUAL.terminals === 1 ? 'jugador' : 'jugadores'}`)
       : `${estado ? `<span class="punto ${ACTUAL.jugando ? 'jugando' : 'on'}"></span>${estado} · ` : ''}${
           yo().currency} ${fmt(ACTUAL.balance)}`}</div>
     ${(() => {
@@ -5841,4 +5841,4 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarHoja
 </script>
 
 <!-- Enchufa la app al motor. Va último: pisa lo que hace falta. -->
-<script src="/caja-conexion.js?v=20261008-dist6"></script>
+<script src="/caja-conexion.js?v=20261018-cajeros1"></script>

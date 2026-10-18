@@ -305,6 +305,7 @@ const RUTAS_DISTRIBUIDOR = new Set([
   /* Pedir fichas al OS, para sí o para sus agentes; y registrar pagos y ver su cuenta (8-oct-2026:
      un cliente PREPAGO que no puede avisar su pago nunca tiene saldo para pedir). Qué puede de todo
      esto lo decide el OS por su cuenta (interruptores en la ficha del cliente) y lo hace cumplir. */
+  'GET /api/caja/resumen-agentes',
   'GET /api/caja/fichas/estado',
   'POST /api/caja/fichas/pedir',
   'POST /api/caja/fichas/pedir-agentes',

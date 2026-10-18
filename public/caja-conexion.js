@@ -142,6 +142,11 @@
     return n.toFixed(1).replace('.', ',') + '%';
   };
 
+  const deResumen = (r) => ({
+    cajeros: Number(r.cajeros) || 0,
+    terminals: Number(r.jugadores) || 0,
+    terminals_online: Number(r.conectados) || 0,
+  });
   const aCuenta = (u, esSala) => ({
     id: String(u.id),
     login: u.login,
@@ -156,6 +161,8 @@
       terminals_online: cuantos(u.terminals_online),
       terminals_game: cuantos(u.terminals_game),
     } : { sala: null }),
+    /* Un AGENTE en la lista del distribuidor: el motor no le cuenta nada (ver `sumarCajeros`). */
+    ...(u.resumenCajeros ? deResumen(u.resumenCajeros) : {}),
   });
 
   /* ══════ 0 · LA FECHA DE VERDAD ══════
@@ -463,10 +470,33 @@
     });
   }
 
+  /* EL DISTRIBUIDOR: la lista de agentes sale sin esperar, y cuántos cajeros, jugadores y
+     conectados tiene cada uno llegan después (el servidor los cuenta, ~0,5 s por agente). Mientras
+     tanto la fila no muestra números: un 0 que no es cierto es peor que nada. */
+  let resumenAgentes = null;                 // { at, agentes }
+  let resumenPidiendo = false;
+  const ponerResumen = (lista, ag) => lista.forEach((s) => { if (ag[s.id]) Object.assign(s, deResumen(ag[s.id])); });
+  /* 🔴 SIN BUCLE: `pintar()` vuelve a pasar por `volcar`, que llama acá. Con el dato fresco se
+     aplica en silencio sobre la lista que se está armando; sólo cuando LLEGA uno nuevo se
+     redibuja, una vez. */
+  function sumarCajeros(lista) {
+    if (resumenAgentes && Date.now() - resumenAgentes.at < 60 * 1000) return ponerResumen(lista, resumenAgentes.agentes);
+    if (resumenPidiendo) return;
+    resumenPidiendo = true;
+    API.pedir('resumen-agentes').then((r) => {
+      resumenPidiendo = false;
+      if (!r || !r.ok) return;
+      resumenAgentes = { at: Date.now(), agentes: r.agentes || {} };
+      ponerResumen(SALAS, resumenAgentes.agentes);
+      if (typeof pintar === 'function') pintar();
+    }, () => { resumenPidiendo = false; });
+  }
+
   function volcar(d, nodo, esSala, alTerminar) {
     if (!d.ok) { ORIGEN = 'error'; ultimoError = d.error; }
     else {
       const lista = (d.cuentas || []).map((u) => aCuenta(u, esSala));
+      if (esSala && esDist() && lista.length) sumarCajeros(lista);
       if (esSala) SALAS = lista;
       else { lista.forEach((x) => { x.sala = nodo; }); TERMINALES = lista; }
       ORIGEN = 'servidor';
@@ -921,6 +951,7 @@
     /* UN CAJERO de un agente del distribuidor: no va a la lista (la suya son agentes). Se dan los
        datos de entrada y se vuelve a los cajeros de ese agente. */
     if (paraAgente) {
+      resumenAgentes = null;             // cambió cuántos cajeros tiene ese agente
       const acceso = `Login:${login} Contraseña:${clave}`;
       return abrirHoja(`
         <div class="resultado"><div class="sello">✓</div>

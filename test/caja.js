@@ -445,6 +445,11 @@ async function main() {
       check('entra un distribuidor, con su nivel', rd.data.ok && rd.data.yo.rol === 'distribuidor', rd.data.ok ? rd.data.yo.rol : rd.data.error);
       const cs = (await pedir('/api/caja/cuentas')).data;
       check('ve sus agentes', cs.ok && (cs.cuentas || []).some((c) => c.id === '150'), JSON.stringify((cs.cuentas || []).map((c) => c.login)));
+      const rs = (await pedir('/api/caja/resumen-agentes')).data;
+      const r150 = (rs.agentes || {})['150'];
+      check('cuántos cajeros tiene cada agente, y sus jugadores sumados (el motor no se los cuenta), aparte de la lista',
+        rs.ok && r150 && r150.cajeros === 2 && r150.jugadores === 1 && !(cs.cuentas || []).some((c) => c.resumenCajeros),
+        JSON.stringify(rs));
       const ajena = await pedir('/api/caja/cuentas?id=100');
       check('pedir la lista de un nodo que no es suyo: 403', ajena.status === 403, String(ajena.status));
       const propia = (await pedir('/api/caja/cuentas?id=50')).data;
@@ -505,6 +510,9 @@ async function main() {
         && !motor.pedidos.slice(antesCj).some((x) => x.area === 'balance' && x.cuerpo && x.cuerpo.amount),
         JSON.stringify(cjOk.data.error || altaCj));
       check('…y no se avisa al OS como agente nuevo', !cjOk.data.os, JSON.stringify(cjOk.data.os));
+      const rs2 = (await pedir('/api/caja/resumen-agentes')).data;
+      check('…y el conteo de cajeros de ese agente se actualiza en el acto (no espera el minuto)',
+        ((rs2.agentes || {})['150'] || {}).cajeros === 3, JSON.stringify(rs2.agentes));
       // Registrar pagos y ver la cuenta: el servidor las deja pasar; el OS decide (acá apagado: offline).
       const ctaD = await pedir('/api/caja/fichas/cuenta');
       check('distribuidor: puede pedir su cuenta (lo decide el OS)', ctaD.status === 200 && ctaD.data.offline === true, String(ctaD.status));
