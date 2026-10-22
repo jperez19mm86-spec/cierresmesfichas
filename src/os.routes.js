@@ -4446,8 +4446,7 @@ function mount(app) {
          proveedor (1508,77) otra. Este paso se llama "el TC del proveedor": mira el del proveedor. */
       hayARS = usadas.has('ARS');
       if (hayARS) {
-        const t = tcStore.getMes(mes);
-        faltaProv = !(t && t.tc_proveedor_ext != null && String(t.tc_proveedor_ext) !== '');
+        faltaProv = !tcUnico.tcProveedorDelMes(mes);
       }
     } catch (e) { /* si no se puede leer, no se frena el resto */ }
     /* ── ⚠️ EL TC QUE PUSO EL SISTEMA Y NADIE MIRÓ ────────────────────────────────────────

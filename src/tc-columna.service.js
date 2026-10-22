@@ -19,7 +19,7 @@
  */
 const cierre = require('./cierre-store');
 const tcDivisas = require('./tc-divisas.service');
-const { mesCierre, mesTZ } = require('./lib/fechas');
+const { mesCierre, mesTZ, esColumnaDe } = require('./lib/fechas');
 
 /** El mes anterior al que se le pasa. '2026-08' → '2026-07' */
 function mesAnterior(iso) {
@@ -41,7 +41,7 @@ function armarColumna(mesISO, { pisar = false } = {}) {
   const yaHay = cierre.getTC().tasas;
   const tiene = (mon) => {
     const fila = yaHay[mon] || {};
-    return Object.entries(fila).some(([k, v]) => k.toLowerCase() === columna.toLowerCase() && v != null && v !== '');
+    return Object.entries(fila).some(([k, v]) => esColumnaDe(k, m) && v != null && v !== '');
   };
 
   // Las divisas, de la fuente de cotizaciones.

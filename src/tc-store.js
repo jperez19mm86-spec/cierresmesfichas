@@ -1,7 +1,7 @@
 /**
  * tc-store.js — tipos de cambio (sección 3.3 + tablas TC_SNAPSHOTS / TC_MES).
  *  - tc_snapshots: 1 fila por consulta (cron diario 18:00). fuente = criptoya/binance.
- *  - tc_mes: tc_cliente = promedio de los snapshots del mes (auto); tc_proveedor_ext = factura (manual);
+ *  - tc_mes: tc_cliente = promedio de los snapshots del mes (auto); tc_proveedor_ext = se lee de la grilla (ARS_OF);
  *    diferencia_tc = proveedor_ext - cliente (pérdida/ganancia empresa).
  */
 const crypto = require('crypto');
@@ -55,8 +55,22 @@ function haySnapshotEn(fecha, hora) {
   return !!db.prepare('SELECT 1 FROM tc_snapshots WHERE fecha=? AND substr(hora,1,2)=? LIMIT 1').get(fecha, h);
 }
 
-function getMes(mes) { return db.prepare('SELECT * FROM tc_mes WHERE mes=?').get(mes) || null; }
-function listMeses() { return db.prepare('SELECT * FROM tc_mes ORDER BY mes DESC').all(); }
+/* El TC del proveedor ya no se guarda acá: vive en la grilla del cierre (fila ARS_OF). Se lee de
+   ahí para que esta tabla no pueda decir otro número. La columna tc_proveedor_ext queda en la base
+   con lo último que se copió, pero nadie la lee. */
+const provDe = (mes) => require('./cierre-store').tasaDelMes('ARS_OF', mes);
+const conProveedor = (r) => (r ? { ...r, tc_proveedor_ext: provDe(r.mes) } : r);
+// Un mes con el del proveedor cargado y sin cotizaciones todavía no tiene fila: se muestra igual.
+const soloProveedor = (mes) => { const p = provDe(mes); return p ? { mes, tc_cliente: null, tc_proveedor_ext: p, diferencia_tc: null, cerrado: 0, updatedAt: null } : null; };
+function getMes(mes) { return conProveedor(db.prepare('SELECT * FROM tc_mes WHERE mes=?').get(mes)) || soloProveedor(mes); }
+function listMeses() {
+  const filas = db.prepare('SELECT * FROM tc_mes ORDER BY mes DESC').all().map(conProveedor);
+  const hay = new Set(filas.map((r) => r.mes));
+  const { mesISO } = require('./lib/fechas');
+  const extra = Object.keys(require('./cierre-store').getTC().tasas.ARS_OF || {})
+    .map(mesISO).filter((m) => m && !hay.has(m)).map(soloProveedor).filter(Boolean);
+  return filas.concat(extra).sort((x, y) => (x.mes < y.mes ? 1 : x.mes > y.mes ? -1 : 0));
+}
 
 /** Recalcula tc_cliente (promedio) y la diferencia, preservando el tc_proveedor_ext manual. */
 function recomputeMes(mes) {
@@ -71,16 +85,4 @@ function recomputeMes(mes) {
   return getMes(mes);
 }
 
-/** Ingreso manual del TC de factura del proveedor externo → cierra el mes. */
-function setTcProveedor(mes, tc_proveedor_ext) {
-  const prom = promedioMes(mes);
-  const tp = money.round(tc_proveedor_ext, 4);
-  const dif = prom ? money.sub(tp, prom) : null;
-  db.prepare(`INSERT INTO tc_mes (mes,tc_cliente,tc_proveedor_ext,diferencia_tc,cerrado,updatedAt)
-    VALUES (?,?,?,?,1,?)
-    ON CONFLICT(mes) DO UPDATE SET tc_proveedor_ext=excluded.tc_proveedor_ext, tc_cliente=excluded.tc_cliente, diferencia_tc=excluded.diferencia_tc, cerrado=1, updatedAt=excluded.updatedAt`)
-    .run(mes, prom, tp, dif, nowISO());
-  return getMes(mes);
-}
-
-module.exports = { get, addSnapshot, listSnapshots, ultimoTC, promedioMes, haySnapshotEn, getMes, listMeses, recomputeMes, setTcProveedor };
+module.exports = { get, addSnapshot, listSnapshots, ultimoTC, promedioMes, haySnapshotEn, getMes, listMeses, recomputeMes };

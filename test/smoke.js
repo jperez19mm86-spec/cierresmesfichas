@@ -143,7 +143,7 @@ async function main() {
     // El TC de externos NO es el del cliente: en pesos manda el del proveedor, salvo SL2 y BVS.
     const tcArs = require('../src/tc-store'); const tcU = require('../src/tc-unico.service');
     tcArs.addSnapshot({ tc_ars_usdt: '1574.42', fecha: '2026-04-15', hora: '18:00' });
-    tcArs.setTcProveedor('2026-04', '1473.5');
+    require('../src/cierre-store').setTC('ARS_OF', 'Abril_2026', '1473.5', true);   // vive en la grilla
     check('TC externos: en ARS manda el del proveedor', tcU.tcExternos('ARS', '2026-04', 'RUBYPLAY OP').valor === '1473.5',
       tcU.tcExternos('ARS', '2026-04', 'RUBYPLAY OP').valor);
     check('TC externos: SL2 va con el promedio del mes', tcU.tcExternos('ARS', '2026-04', 'PRAGMATIC SL2').valor === '1574.42',
@@ -6252,12 +6252,12 @@ async function main() {
        1485,44 y el promedio 1574,42: como se divide por él, la factura sale con menos dólares y el
        total cuadra igual. El paso se llama "el TC del proveedor": tiene que mirar el del proveedor. */
     check('cierre: el paso del TC también mira el del PROVEEDOR (ARS_OF), no sólo el general',
-      /tcStore\.getMes\(mes\)/.test(pasos) && /tc_proveedor_ext/.test(pasos),
+      /tcUnico\.tcProveedorDelMes\(mes\)/.test(pasos),
       'sin esto el paso da verde y lo que se cobra en pesos se valúa con el promedio');
     const tcu = require('../src/tc-unico.service');
     check('cierre: tcExternos y tcDelMes son preguntas distintas',
       typeof tcu.tcExternos === 'function' && typeof tcu.tcDelMes === 'function'
-      && String(tcu.tcExternos).includes('tc_proveedor_ext'));
+      && String(tcu.tcExternos).includes('tcProveedorDelMes'));
     /* Y CADA CUENTA USA LA SUYA (regla del dueño, 4-ago-2026): al CLIENTE se le cobra siempre con
        el promedio del mes; el VENDEDOR y el pago a proveedores van con el del proveedor, porque
        eso es lo que se paga de verdad. La diferencia entre las dos tasas es margen, no un costo a

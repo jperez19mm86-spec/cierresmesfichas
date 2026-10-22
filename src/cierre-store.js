@@ -9,7 +9,7 @@
  */
 const { db } = require('./db');
 const money = require('./lib/money');
-const { mesISO } = require('./lib/fechas');
+const { esColumnaDe } = require('./lib/fechas');
 
 const clean = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim());
 
@@ -188,6 +188,20 @@ function tcCelda(moneda, mes) {
     .get(clean(moneda) || '', clean(mes) || '') || null;
 }
 
+/**
+ * El TC de una fila de la grilla para un mes en ISO ('2026-07'), o null si no hay uno usable.
+ * Lo cargado a mano que no es un número positivo cuenta como QUE NO HAY: así cae al automático y
+ * aparece en los avisos de «sin tipo de cambio», en vez de dividir por 0 y facturar cero.
+ */
+function tasaDelMes(moneda, iso) {
+  const fila = getTC().tasas[String(moneda || '').toUpperCase()];
+  if (!fila) return null;
+  for (const [m, tasa] of Object.entries(fila)) {
+    if (esColumnaDe(m, iso)) return money.isPos(tasa) ? String(tasa) : null;
+  }
+  return null;
+}
+
 /** ¿Alguien dijo que este TC es el real? Devuelve cuándo, o null si lo puso el sistema solo. */
 function tcConfirmado(moneda, mes) {
   const r = db.prepare('SELECT confirmado FROM cierre_tc WHERE lower(moneda)=lower(?) AND lower(mes)=lower(?)')
@@ -241,13 +255,8 @@ function setTC(moneda, mes, tasa, forzar = false, confirmado = false) {
   const sello = confirmado ? new Date().toISOString() : null;
   db.prepare(`INSERT INTO cierre_tc (moneda,mes,tasa,confirmado) VALUES (?,?,?,?)
     ON CONFLICT(moneda,mes) DO UPDATE SET tasa=excluded.tasa, confirmado=excluded.confirmado`).run(m, me, t, sello);
-  // ARS_OF ES el TC del proveedor: el mismo número que la tarjeta "Cierre mensual". Estaban en
-  // dos tablas distintas y se habían separado — julio tenía 1473,5 en una y nada en la otra, y la
-  // factura de externos lee la otra. Se escribe en las dos de una vez para que no vuelva a pasar.
-  if (m.toUpperCase() === FILA_PROVEEDOR) {
-    const iso = mesISO(me);
-    if (iso) { try { require('./tc-store').setTcProveedor(iso, t); } catch (e) { /* no romper la carga por esto */ } }
-  }
+  // ARS_OF ES el TC del proveedor y vive SÓLO acá. Hasta el 22-oct se copiaba también a
+  // tc_mes.tc_proveedor_ext, y borrar o renombrar en la grilla no llegaba a la copia.
   return { ok: true };
 }
 
@@ -441,7 +450,7 @@ function setCeldas(cambios) {
 }
 
 module.exports = {
-  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR, tcConfirmado, confirmarTC, tcCelda,
+  removeMesTC, removeMonedaTC, renombrarMesTC, FILA_PROVEEDOR, tcConfirmado, confirmarTC, tcCelda, tasaDelMes,
   getMatriz, setCelda, setCeldas, addProveedor, setBase, removeProveedor,
   addCliente, setDescuento, removeCliente, renombrarCliente, inconsistencias, getTC, setTC, importar,
   getLinks, setLink, autoVincular, getClienteColumna, agregarFaltantesDeCatalogo, igualarVendorsADescuento,

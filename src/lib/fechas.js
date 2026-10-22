@@ -39,6 +39,15 @@ function mesCierre(iso) {
 }
 
 /** 'Julio_2026' → '2026-07'. Tolera 'JULIO_26' y 'julio_2026'; null si no se entiende. */
+/** ¿La columna `label` de la grilla es la del mes `iso`? Vale «Julio_2026» y «Julio_26», con o sin
+ *  mayúsculas. Es la única forma de buscar un mes en la grilla: antes había dos, y una no reconocía
+ *  «Julio_26» y podía armar una segunda columna para el mismo mes. */
+function esColumnaDe(label, iso) {
+  const k = String(label || '').trim().toLowerCase();
+  const largo = mesCierre(iso).toLowerCase();
+  return k === largo || k === largo.replace(/_20/, '_');
+}
+
 function mesISO(label) {
   const m = /^\s*([A-Za-zÁÉÍÓÚáéíóúÑñ]+)[_\s-]+(\d{2}|\d{4})\s*$/.exec(String(label || ''));
   if (!m) return null;
@@ -48,4 +57,4 @@ function mesISO(label) {
   return `${y}-${String(i + 1).padStart(2, '0')}`;
 }
 
-module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum, fechaUTC, mesUTC, ayerUTC, MESES_ES, mesCierre, mesISO };
+module.exports = { TZ, partsTZ, nowISO, fechaTZ, horaTZ, mesTZ, mesDe, horaNum, fechaUTC, mesUTC, ayerUTC, MESES_ES, mesCierre, mesISO, esColumnaDe };

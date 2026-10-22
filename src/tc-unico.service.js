@@ -30,27 +30,13 @@ const tcDivisas = require('./tc-divisas.service');
 const cierre = require('./cierre-store');
 const money = require('./lib/money');
 
-const K = (s) => String(s || '').trim().toLowerCase();
 const { mesCierre } = require('./lib/fechas');   // '2026-07' → 'Julio_2026'
 
 /** El TC cargado a mano en el cierre. Tolera cómo se escribió el mes (Julio_2026, JULIO_26…). */
-function manual(divisa, mes) {
-  const D = String(divisa || '').toUpperCase();
-  const t = cierre.getTC();
-  const fila = t.tasas[D];
-  if (!fila) return null;
-  const buscado = K(mesCierre(mes));
-  const corto = buscado.replace(/_20/, '_');
-  for (const [m, tasa] of Object.entries(fila)) {
-    const k = K(m);
-    if (k === buscado || k === corto) {
-      // Si lo cargado a mano no es un número usable, se trata como QUE NO HAY: así cae al automático
-      // y aparece en los avisos de 'sin tipo de cambio', en vez de dividir por 0 y facturar cero.
-      return money.isPos(tasa) ? String(tasa) : null;
-    }
-  }
-  return null;
-}
+const manual = (divisa, mes) => cierre.tasaDelMes(divisa, mes);
+
+/** El TC del proveedor de un mes: la fila ARS_OF de la grilla, el único lugar donde vive. */
+const tcProveedorDelMes = (mes) => cierre.tasaDelMes(cierre.FILA_PROVEEDOR, String(mes).slice(0, 7));
 
 /**
  * EL TC de una divisa para un mes.
@@ -137,7 +123,7 @@ function _tcCrudo(D, m, op = { cuenta: true }) {
  * ⭐ EL TC DE LOS PROVEEDORES EXTERNOS — que NO es el mismo que el del cliente.
  *
  * Regla del dueño (4-ago-2026): en PESOS, los proveedores externos se liquidan con el
- * **tipo de cambio que informa el proveedor** (`tc_mes.tc_proveedor_ext`, la columna
+ * **tipo de cambio que informa el proveedor** (la fila ARS_OF de la grilla del cierre, la columna
  * "TC PROVEEDOR (FACTURA)"), no con el promedio del mes. Julio: proveedor 1.473,5 contra
  * cliente 1.574,42 — un 6,4% de diferencia, y como se DIVIDE por él, mueve la factura un 6,85%.
  *
@@ -164,8 +150,8 @@ function tcExternos(divisa, mes, nombreProveedor) {
   if (/(^|[\s_])(SL2|BVS)([\s_]|$)/i.test(String(nombreProveedor || ''))) {
     return { ...base, fuente: base.fuente + ' (SL2/BVS van con el promedio del mes)' };
   }
-  const prov = (tcArs.getMes(String(mes).slice(0, 7)) || {}).tc_proveedor_ext;
-  if (prov != null && prov !== '' && money.isPos(String(prov))) {
+  const prov = tcProveedorDelMes(mes);
+  if (prov) {
     return { valor: String(prov), fuente: 'TC del proveedor (factura)', divisa: D, mes: String(mes).slice(0, 7), fuentes: base.fuentes, conflicto: base.conflicto };
   }
   return { ...base, fuente: base.fuente + ' ⚠ sin TC de proveedor cargado para este mes' };
@@ -208,4 +194,4 @@ function faltantes(mes, divisasUsadas = []) {
     .sort();
 }
 
-module.exports = { tcDelMes, tcPagosDelMes, tcExternos, discrepancias, resumenMes, faltantes, mesCierre };
+module.exports = { tcDelMes, tcPagosDelMes, tcExternos, tcProveedorDelMes, discrepancias, resumenMes, faltantes, mesCierre };
