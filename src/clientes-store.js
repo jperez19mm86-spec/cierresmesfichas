@@ -23,109 +23,119 @@ function normDivisasPago(v) {
   return u.length && u.length < 2 ? u : (u.length === 2 ? u : null);
 }
 
-function load() {
-  const clientes = db.prepare('SELECT * FROM clientes ORDER BY ord ASC').all().map((r) => {
-    let telegram = { chatId: '', enabled: false };
-    let cajas = [];
-    try { if (r.telegram) telegram = JSON.parse(r.telegram); } catch (e) {}
-    try { if (r.cajas) cajas = JSON.parse(r.cajas); } catch (e) {}
-    if (!telegram) telegram = { chatId: '', enabled: false };
-    if (!Array.isArray(telegram.copias)) telegram.copias = [];
-    return {
-      id: r.id, codigo: r.codigo, nombreVisible: r.nombreVisible, createdAt: r.createdAt, telegram, cajas,
-      // comercial (OS v3)
-      nombre: r.nombre || r.nombreVisible || '',
-      estado: r.estado || 'activo',
-      paga_proveedores: !!r.paga_proveedores,
-      permite_deuda: !!r.permite_deuda,
-      mezcla_pago_usdt: r.mezcla_pago_usdt || null,
-      ajuste_usdt_pct: r.ajuste_usdt_pct || null,
-      fecha_alta: r.fecha_alta || r.createdAt || null,
-      // v3.0 ficha de cliente
-      divisa_fichas: r.divisa_fichas || null,
-      moneda_cobro: r.moneda_cobro || null,
-      momento_pago: r.momento_pago || null,
-      disparador: r.disparador || null,
-      tc_aplicar: r.tc_aplicar || null,
-      tc_proveedor: r.tc_proveedor || null,
-      // v3.0 §7-10 (planilla). OJO: si un campo falta ACÁ, save() lo reinserta como null
-      // aunque esté bien en el INSTERT → se borra solo al guardar cualquier otro cliente.
-      mover_balance: !!r.mover_balance,
-      // ⚠️ EL ACCESO VIAJA ACÁ AUNQUE NADIE LO LEA DE ESTE OBJETO. El store guarda con DELETE +
-      // INSERT: una columna que load() no trae, el próximo guardado de CUALQUIER cliente la deja
-      // en NULL PARA TODOS. Estas cuatro se estaban perdiendo — o sea que editar un cliente
-      // borraba la contraseña de todos los que tenían acceso a ver su cuenta, en silencio.
-      // `acceso_clave` es el hash, nunca la clave; se copia tal cual y no se muestra en ningún lado.
-      acceso_habilitado: r.acceso_habilitado ? 1 : 0,
-      acceso_usuario: r.acceso_usuario || null,
-      acceso_clave: r.acceso_clave || null,
-      acceso_at: r.acceso_at || null,
-      acceso_corte: r.acceso_corte != null ? Number(r.acceso_corte) : null,
-      // Vacío = USDT: es como estaban todos antes de que esto existiera.
-      moneda_cuenta: (r.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'),
-      // A qué billetera paga. Vacío = la principal, que es lo que había con una sola dirección.
-      billetera_id: r.billetera_id || null,
-      margen_externos_pct: r.margen_externos_pct || null,
-      es_vendedor: !!r.es_vendedor,
-      // ⚠️ El store guarda con DELETE + INSERT: si load() no trae una columna, el próximo
-      // guardado de CUALQUIER cliente la deja en NULL para todos. Pasó con externos_modo.
-      externos_modo: r.externos_modo || null,
-      vendedor_id: r.vendedor_id || null,
-      factura_a: r.factura_a || null,
-      internos_se_cobran: !!r.internos_se_cobran,
-      externos_precios_de: r.externos_precios_de || null,
-      avisa_pagos: r.avisa_pagos == null ? true : !!r.avisa_pagos,
-      // ⚠️ DELETE + INSERT: estas tres tienen que estar acá Y en el INSERT, o se borran para todos.
-      prepago: !!r.prepago,
-      prepago_margen_pct: r.prepago_margen_pct || null,
-      divisas_pago: normDivisasPago(r.divisas_pago),
-      // Lo mismo: abona_a/abona_pts van acá Y en el INSERT.
-      abona_a: r.abona_a || null,
-      abona_pts: r.abona_pts || null,
-      // Lo mismo: van acá Y en el INSERT.
-      tc_cargas: r.tc_cargas === 'promedio' || r.tc_cargas === 'momento' ? r.tc_cargas : null,
-      tope_deuda: r.tope_deuda || null,
-      saldo_inicial: r.saldo_inicial || null,
-      saldo_inicial_divisa: r.saldo_inicial_divisa || null,
-      saldo_inicial_mov_id: r.saldo_inicial_mov_id || null,
-    };
-  });
-  return { clientes };
+/* ── LAS COLUMNAS, ESCRITAS UNA SOLA VEZ ─────────────────────────────────────────────────────
+   Cada fila es [columna de la tabla, cómo se lee al objeto, cómo se guarda desde el objeto], en el
+   orden en que el objeto tiene sus claves. load() y el guardado salen de esta misma lista: antes
+   eran dos listas a mano y una columna que faltaba en una se perdía para TODOS los clientes en el
+   próximo guardado (pasó con externos_modo y con el acceso). `ord` no va acá: es el orden de la
+   lista y lo maneja el guardado. test/clientes-de-a-uno.js compara esta lista con la tabla real. */
+const nn = (v) => (v != null && v !== '' ? String(v) : null);
+const sino = (v) => (v ? 1 : 0);
+const tcCar = (v) => (v === 'promedio' || v === 'momento' ? v : null);
+const COLUMNAS = [
+  ['id', (r) => r.id, (c) => c.id],
+  ['codigo', (r) => r.codigo, (c) => c.codigo],
+  ['nombreVisible', (r) => r.nombreVisible, (c) => c.nombreVisible || ''],
+  ['createdAt', (r) => r.createdAt, (c) => c.createdAt || null],
+  ['telegram', (r) => {
+    let t = { chatId: '', enabled: false };
+    try { if (r.telegram) t = JSON.parse(r.telegram); } catch (e) {}
+    if (!t) t = { chatId: '', enabled: false };
+    if (!Array.isArray(t.copias)) t.copias = [];
+    return t;
+  }, (c) => JSON.stringify(c.telegram || { chatId: '', enabled: false })],
+  ['cajas', (r) => { let k = []; try { if (r.cajas) k = JSON.parse(r.cajas); } catch (e) {} return k; },
+    (c) => JSON.stringify(c.cajas || [])],
+  // comercial (OS v3)
+  ['nombre', (r) => r.nombre || r.nombreVisible || '', (c) => c.nombre || c.nombreVisible || ''],
+  ['estado', (r) => r.estado || 'activo', (c) => c.estado || 'activo'],
+  ['paga_proveedores', (r) => !!r.paga_proveedores, (c) => sino(c.paga_proveedores)],
+  ['permite_deuda', (r) => !!r.permite_deuda, (c) => sino(c.permite_deuda)],
+  ['mezcla_pago_usdt', (r) => r.mezcla_pago_usdt || null, (c) => nn(c.mezcla_pago_usdt)],
+  ['ajuste_usdt_pct', (r) => r.ajuste_usdt_pct || null, (c) => nn(c.ajuste_usdt_pct)],
+  ['fecha_alta', (r) => r.fecha_alta || r.createdAt || null, (c) => c.fecha_alta || c.createdAt || null],
+  // v3.0 ficha de cliente
+  ['divisa_fichas', (r) => r.divisa_fichas || null, (c) => nn(c.divisa_fichas)],
+  ['moneda_cobro', (r) => r.moneda_cobro || null, (c) => nn(c.moneda_cobro)],
+  ['momento_pago', (r) => r.momento_pago || null, (c) => nn(c.momento_pago)],
+  ['disparador', (r) => r.disparador || null, (c) => nn(c.disparador)],
+  ['tc_aplicar', (r) => r.tc_aplicar || null, (c) => nn(c.tc_aplicar)],
+  ['tc_proveedor', (r) => r.tc_proveedor || null, (c) => nn(c.tc_proveedor)],
+  // v3.0 §7-10 (planilla)
+  ['mover_balance', (r) => !!r.mover_balance, (c) => sino(c.mover_balance)],
+  /* El acceso viaja acá aunque nadie lo lea de este objeto: lo escribe src/cliente-acceso.js con
+     su propio UPDATE. `acceso_clave` es el hash, nunca la clave, y no se muestra en ningún lado. */
+  ['acceso_habilitado', (r) => (r.acceso_habilitado ? 1 : 0), (c) => sino(c.acceso_habilitado)],
+  ['acceso_usuario', (r) => r.acceso_usuario || null, (c) => nn(c.acceso_usuario)],
+  ['acceso_clave', (r) => r.acceso_clave || null, (c) => nn(c.acceso_clave)],
+  ['acceso_at', (r) => r.acceso_at || null, (c) => nn(c.acceso_at)],
+  ['acceso_corte', (r) => (r.acceso_corte != null ? Number(r.acceso_corte) : null),
+    (c) => (c.acceso_corte != null ? Number(c.acceso_corte) : null)],
+  // Vacío = USDT: es como estaban todos antes de que esto existiera.
+  ['moneda_cuenta', (r) => (r.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT'), (c) => (c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT')],
+  // A qué billetera paga. Vacío = la principal, que es lo que había con una sola dirección.
+  ['billetera_id', (r) => r.billetera_id || null, (c) => nn(c.billetera_id)],
+  ['margen_externos_pct', (r) => r.margen_externos_pct || null, (c) => nn(c.margen_externos_pct)],
+  ['es_vendedor', (r) => !!r.es_vendedor, (c) => sino(c.es_vendedor)],
+  ['externos_modo', (r) => r.externos_modo || null, (c) => nn(c.externos_modo)],
+  ['vendedor_id', (r) => r.vendedor_id || null, (c) => nn(c.vendedor_id)],
+  ['factura_a', (r) => r.factura_a || null, (c) => nn(c.factura_a)],
+  ['internos_se_cobran', (r) => !!r.internos_se_cobran, (c) => sino(c.internos_se_cobran)],
+  ['externos_precios_de', (r) => r.externos_precios_de || null, (c) => nn(c.externos_precios_de)],
+  ['avisa_pagos', (r) => (r.avisa_pagos == null ? true : !!r.avisa_pagos), (c) => (c.avisa_pagos === false ? 0 : 1)],
+  ['prepago', (r) => !!r.prepago, (c) => sino(c.prepago)],
+  ['prepago_margen_pct', (r) => r.prepago_margen_pct || null, (c) => nn(c.prepago_margen_pct)],
+  ['divisas_pago', (r) => normDivisasPago(r.divisas_pago), (c) => (normDivisasPago(c.divisas_pago) || []).join(',') || null],
+  ['abona_a', (r) => r.abona_a || null, (c) => nn(c.abona_a)],
+  ['abona_pts', (r) => r.abona_pts || null, (c) => nn(c.abona_pts)],
+  ['tc_cargas', (r) => tcCar(r.tc_cargas), (c) => tcCar(c.tc_cargas)],
+  ['tope_deuda', (r) => r.tope_deuda || null, (c) => nn(c.tope_deuda)],
+  ['saldo_inicial', (r) => r.saldo_inicial || null, (c) => nn(c.saldo_inicial)],
+  ['saldo_inicial_divisa', (r) => r.saldo_inicial_divisa || null, (c) => nn(c.saldo_inicial_divisa)],
+  ['saldo_inicial_mov_id', (r) => r.saldo_inicial_mov_id || null, (c) => nn(c.saldo_inicial_mov_id)],
+];
+const NOMBRES = COLUMNAS.map(([col]) => col);
+
+function deFila(r) {
+  const c = {};
+  for (const [col, leer] of COLUMNAS) c[col] = leer(r);
+  return c;
+}
+function aFila(c) {
+  const f = {};
+  for (const [col, , guardar] of COLUMNAS) f[col] = guardar(c);
+  return f;
 }
 
+function load() {
+  return { clientes: db.prepare('SELECT * FROM clientes ORDER BY ord ASC').all().map(deFila) };
+}
+
+/* ── EL CLIENTE SE GUARDA DE A UNO ──────────────────────────────────────────────────────────
+   Antes cada guardado borraba la tabla entera y volvía a insertar a todos. Ahora se escribe sólo
+   la fila del cliente que cambió; los demás no se tocan, y una columna que esta lista no conozca
+   queda como estaba en vez de pasar a NULL. Un cliente nuevo va al final de la lista. */
+const _upsert = db.prepare(`INSERT INTO clientes (${NOMBRES.join(',')},ord)
+  VALUES (${NOMBRES.map((n) => '@' + n).join(',')},@ord)
+  ON CONFLICT(id) DO UPDATE SET ${NOMBRES.filter((n) => n !== 'id').map((n) => `${n}=excluded.${n}`).join(',')}`);
+const _proxOrd = db.prepare('SELECT COALESCE(MAX(ord), -1) + 1 AS n FROM clientes');
+function saveCliente(c) { _upsert.run({ ...aFila(c), ord: _proxOrd.get().n }); }
+
+/* La lista ENTERA (restaurar una copia, importar la planilla): queda exactamente esa lista. Se
+   escriben sólo las filas que cambiaron, se borran las que no vienen, y el orden es el de la lista. */
 const _saveTx = db.transaction((data) => {
-  db.prepare('DELETE FROM clientes').run();
-  const ins = db.prepare(`INSERT INTO clientes
-    (id,codigo,nombreVisible,createdAt,telegram,cajas,ord,nombre,estado,paga_proveedores,permite_deuda,mezcla_pago_usdt,ajuste_usdt_pct,fecha_alta,
-     divisa_fichas,moneda_cobro,momento_pago,disparador,tc_aplicar,tc_proveedor,
-     mover_balance,saldo_inicial,saldo_inicial_divisa,saldo_inicial_mov_id,margen_externos_pct,es_vendedor,vendedor_id,externos_modo,factura_a,externos_precios_de,internos_se_cobran,avisa_pagos,moneda_cuenta,billetera_id,
-     acceso_habilitado,acceso_usuario,acceso_clave,acceso_at,acceso_corte,prepago,prepago_margen_pct,divisas_pago,abona_a,abona_pts,tc_cargas,tope_deuda)
-    VALUES (@id,@codigo,@nombreVisible,@createdAt,@telegram,@cajas,@ord,@nombre,@estado,@pp,@pd,@mez,@aj,@fa,
-     @dfi,@mco,@mpa,@dis,@tca,@tcp,
-     @mb,@sini,@sdiv,@smov,@mext,@esv,@vend,@exmodo,@facta,@exprec,@intcob,@avisa,@mcta,@bwid,
-     @accOn,@accU,@accC,@accAt,@accCorte,@prep,@prepMg,@divPago,@abA,@abPts,@tcCar,@tope)`);
-  const nn = (v) => (v != null && v !== '' ? String(v) : null);
-  (data.clientes || []).forEach((c, i) => ins.run({
-    id: c.id, codigo: c.codigo, nombreVisible: c.nombreVisible || '', createdAt: c.createdAt || null,
-    telegram: JSON.stringify(c.telegram || { chatId: '', enabled: false }),
-    cajas: JSON.stringify(c.cajas || []), ord: i,
-    nombre: c.nombre || c.nombreVisible || '', estado: c.estado || 'activo',
-    pp: c.paga_proveedores ? 1 : 0, pd: c.permite_deuda ? 1 : 0,
-    mez: nn(c.mezcla_pago_usdt), aj: nn(c.ajuste_usdt_pct), fa: c.fecha_alta || c.createdAt || null,
-    dfi: nn(c.divisa_fichas), mco: nn(c.moneda_cobro), mpa: nn(c.momento_pago), dis: nn(c.disparador), tca: nn(c.tc_aplicar), tcp: nn(c.tc_proveedor),
-    mcta: c.moneda_cuenta === 'ARS' ? 'ARS' : 'USDT', bwid: nn(c.billetera_id),
-    mb: c.mover_balance ? 1 : 0, mext: nn(c.margen_externos_pct), esv: c.es_vendedor ? 1 : 0, vend: nn(c.vendedor_id), exmodo: nn(c.externos_modo), sini: nn(c.saldo_inicial), sdiv: nn(c.saldo_inicial_divisa), smov: nn(c.saldo_inicial_mov_id),
-    facta: nn(c.factura_a), exprec: nn(c.externos_precios_de), intcob: c.internos_se_cobran ? 1 : 0,
-    avisa: (c.avisa_pagos === false) ? 0 : 1,
-    accOn: c.acceso_habilitado ? 1 : 0, accU: nn(c.acceso_usuario), accC: nn(c.acceso_clave), accAt: nn(c.acceso_at),
-    // Sin esto, guardar cualquier cliente le devolvía la sesión a todos los que se la habías
-    // cortado: el guardado reescribe la tabla entera y lo que no está en la lista se pierde.
-    accCorte: c.acceso_corte != null ? Number(c.acceso_corte) : null,
-    prep: c.prepago ? 1 : 0, prepMg: nn(c.prepago_margen_pct),
-    divPago: (normDivisasPago(c.divisas_pago) || []).join(',') || null,
-    abA: nn(c.abona_a), abPts: nn(c.abona_pts),
-    tcCar: c.tc_cargas === 'promedio' || c.tc_cargas === 'momento' ? c.tc_cargas : null, tope: nn(c.tope_deuda),
-  }));
+  const lista = data.clientes || [];
+  const antes = new Map(db.prepare('SELECT * FROM clientes').all().map((r) => [r.id, r]));
+  const vienen = new Set(lista.map((c) => c.id));
+  const del = db.prepare('DELETE FROM clientes WHERE id=?');
+  for (const id of antes.keys()) if (!vienen.has(id)) del.run(id);
+  const setOrd = db.prepare('UPDATE clientes SET ord=? WHERE id=?');
+  lista.forEach((c, i) => {
+    const f = aFila(c); const r = antes.get(c.id);
+    if (!r) { _upsert.run({ ...f, ord: i }); return; }
+    if (NOMBRES.some((n) => f[n] !== r[n])) _upsert.run({ ...f, ord: i });
+    if (r.ord !== i) setOrd.run(i, c.id);
+  });
 });
 function save(data) { _saveTx(data); }
 
@@ -164,7 +174,7 @@ function createCliente({ codigo, nombreVisible, nombre }) {
     mover_balance: false, margen_externos_pct: null, es_vendedor: false, vendedor_id: null,
     factura_a: null, externos_precios_de: null, avisa_pagos: true, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
   };
-  data.clientes.push(cliente); save(data); return cliente;
+  saveCliente(cliente); return cliente;
 }
 
 function updateCliente(id, patch) {
@@ -180,7 +190,7 @@ function updateCliente(id, patch) {
   }
   if (patch.nombreVisible !== undefined) c.nombreVisible = String(patch.nombreVisible).trim();
   if (patch.nombre !== undefined) c.nombre = String(patch.nombre).trim();
-  save(data); return c;
+  saveCliente(c); return c;
 }
 
 /** Campos comerciales del OS v3 (NO precio_base, que va por historial). */
@@ -224,7 +234,7 @@ function updateComercial(id, patch) {
     const n = require('./lib/monto').parseMonto(patch.tope_deuda);   // «1.500.000» y «1500,5» como los tipea una persona
     c.tope_deuda = n && n > 0 ? String(n) : null;
   }
-  save(data); return c;
+  saveCliente(c); return c;
 }
 
 /**
@@ -242,10 +252,7 @@ function tcCargasDe(c) {
 }
 
 function removeCliente(id) {
-  const data = load();
-  const before = data.clientes.length;
-  data.clientes = data.clientes.filter((c) => c.id !== id);
-  save(data); return data.clientes.length < before;
+  return db.prepare('DELETE FROM clientes WHERE id=?').run(id).changes > 0;
 }
 
 function setTelegram(id, patch) {
@@ -263,7 +270,7 @@ function setTelegram(id, patch) {
     const crudo = Array.isArray(patch.copias) ? patch.copias : String(patch.copias || '').split(/[,\s]+/);
     c.telegram.copias = [...new Set(crudo.map((x) => String(x || '').trim()).filter(Boolean))];
   }
-  save(data); return c;
+  saveCliente(c); return c;
 }
 
 // ─────────── Cajas (operativo /pedir) ───────────
@@ -288,7 +295,7 @@ function addCaja(clienteId, caja) {
        ya incluye el de sus agentes: facturarlo junto a ellos sería cobrar dos veces). '' = agente. */
     rol: caja.rol === 'distribuidor' ? 'distribuidor' : '',
   };
-  c.cajas.push(k); save(data); return k;
+  c.cajas.push(k); saveCliente(c); return k;
 }
 
 /* ── PERMISOS POR AGENTE ─────────────────────────────────────────────────────────────────────
@@ -316,17 +323,18 @@ function permisosDe(cliente, caja) {
 /* El día que esto se sube, los agentes que ya operaban no pierden nada: a cada caja SIN permisos se
    le escribe lo que podía hacer hasta ese momento (todo; los pagos siguen dependiendo de la llave
    del cliente). Sólo toca las que no tienen: correrlo dos veces no cambia nada. */
-function congelarPermisosActuales() {
+const congelarPermisosActuales = db.transaction(() => {
   const data = load(); let n = 0;
   for (const c of data.clientes) {
+    let toca = false;
     for (const k of (c.cajas || [])) {
       if (k.permisos) continue;
-      k.permisos = { pedir: true, pagos: true, cuenta: true }; n += 1;
+      k.permisos = { pedir: true, pagos: true, cuenta: true }; n += 1; toca = true;
     }
+    if (toca) saveCliente(c);
   }
-  if (n) save(data);
   return n;
-}
+});
 function updateCaja(clienteId, cajaId, patch) {
   const data = load();
   const c = data.clientes.find((x) => x.id === clienteId);
@@ -346,30 +354,33 @@ function updateCaja(clienteId, cajaId, patch) {
   /* Sólo para un distribuidor: si los agentes que crea entran pudiendo pedir fichas ellos mismos
      (sin el campo, sí — como siempre). Con «no», pide el distribuidor por ellos. */
   if (patch.agentesPiden !== undefined) k.agentesPiden = !!patch.agentesPiden;
-  save(data); return k;
+  saveCliente(c); return k;
 }
 /* EL NOMBRE ES DE LA CUENTA DEL CASINO, NO DE UNA PANTALLA.
    Se guarda en la caja, pero en TODAS las cajas de esa cuenta (sistema + id del casino): Marcelo y
    JJ comparten Celuapuestas-SA y LuWinCasino-SA a propósito, y el cliente tiene que ver el mismo
    nombre desde cualquiera de las dos. Fichas y el OS escriben por acá, así nunca quedan distintos. */
-function setEtiquetaCuenta(sistema, userId, etiqueta) {
+const setEtiquetaCuenta = db.transaction((sistema, userId, etiqueta) => {
   if (!userId) return 0;
   const data = load();
   const v = String(etiqueta == null ? '' : etiqueta).trim();
   let n = 0;
-  data.clientes.forEach((c) => (c.cajas || []).forEach((k) => {
-    if (String(k.userId) === String(userId) && (k.sistema || '') === (sistema || '')) { k.etiqueta = v; n++; }
-  }));
-  if (n) save(data);
+  data.clientes.forEach((c) => {
+    let toca = false;
+    (c.cajas || []).forEach((k) => {
+      if (String(k.userId) === String(userId) && (k.sistema || '') === (sistema || '')) { k.etiqueta = v; n++; toca = true; }
+    });
+    if (toca) saveCliente(c);
+  });
   return n;
-}
+});
 function removeCaja(clienteId, cajaId) {
   const data = load();
   const c = data.clientes.find((x) => x.id === clienteId);
   if (!c) return false;
   const before = c.cajas.length;
   c.cajas = c.cajas.filter((k) => k.id !== cajaId);
-  save(data); return c.cajas.length < before;
+  saveCliente(c); return c.cajas.length < before;
 }
 
 function importRows(rows, dryRun = false) {
@@ -397,13 +408,13 @@ function importRows(rows, dryRun = false) {
     if (caja) { Object.assign(caja, payload); summary.cajasActualizadas++; }
     else { cliente.cajas.push({ id: newId('k'), notas: '', ...payload }); summary.cajasAgregadas++; }
   }
-  if (!dryRun) save(data);
+  if (!dryRun) db.transaction(() => data.clientes.filter((c) => touched.has(c.id)).forEach(saveCliente))();
   summary.totalClientes = data.clientes.length;
   return summary;
 }
 
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
-  addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE,
+  addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE, COLUMNAS,
   permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO, normDivisasPago, tcCargasDe,
 };

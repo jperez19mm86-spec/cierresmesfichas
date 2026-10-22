@@ -5250,26 +5250,20 @@ async function main() {
     check('cuenta: el pendiente NO se descuenta del saldo',
       /Todavía no está descontado/.test(ped) && /Todavía no está descontado/.test(cta2));
 
-    // ── EL STORE DE CLIENTES BORRA LO QUE NO SABE QUE EXISTE ────────────────────────────────
-    // Guarda con DELETE + INSERT: una columna de la tabla que el INSERT no menciona queda en NULL
-    // PARA TODOS los clientes en cuanto se guarde cualquiera. Pasó de verdad con las cuatro
-    // columnas del acceso: dar de alta un cliente borraba la contraseña de todos los que podían
-    // ver su cuenta, sin un error, sin un log, sin nada.
-    //
-    // El check compara la tabla REAL contra el INSERT, así que cubre también la próxima columna
-    // que alguien agregue. Es el único que puede atajar esto: no hay pantalla donde se note.
+    // ── EL STORE DE CLIENTES CONOCE TODAS LAS COLUMNAS ─────────────────────────────────────
+    // Hasta el 22-oct guardaba con DELETE + INSERT y una columna que faltaba en el INSERT quedaba en
+    // NULL PARA TODOS (pasó con las cuatro del acceso). Ahora guarda de a uno y lee y escribe con
+    // una sola lista, COLUMNAS; esto la compara con la tabla REAL. Ver test/clientes-de-a-uno.js.
     {
       const { db: dbc } = require('../src/db');
-      const cols = dbc.prepare('PRAGMA table_info(clientes)').all().map((x) => x.name);
-      const st = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'clientes-store.js'), 'utf8');
-      const lista = (st.match(/INSERT INTO clientes\s*\n?\s*\(([\s\S]*?)\)\s*\n\s*VALUES/) || [])[1] || '';
-      const enInsert = lista.replace(/\s/g, '').split(',').filter(Boolean);
-      const faltan = cols.filter((c) => !enInsert.includes(c));
+      const cols = dbc.prepare('PRAGMA table_info(clientes)').all().map((x) => x.name).filter((c) => c !== 'ord');
+      const enStore = (require('../src/clientes-store').COLUMNAS || []).map(([c]) => c);
+      const faltan = cols.filter((c) => !enStore.includes(c));
       check('clientes: el guardado no pierde ninguna columna de la tabla',
-        enInsert.length > 0 && faltan.length === 0,
-        enInsert.length === 0 ? 'la regex no encontró el INSERT — el check no está mirando nada'
-          : faltan.length ? 'se perderían: ' + faltan.join(', ')
-          : enInsert.length + ' columnas, ninguna se pierde');
+        enStore.length > 0 && faltan.length === 0,
+        enStore.length === 0 ? 'el store no exporta COLUMNAS — el check no está mirando nada'
+          : faltan.length ? 'el store no conoce: ' + faltan.join(', ')
+          : enStore.length + ' columnas, ninguna se pierde');
     }
 
     // Y la comprobación de verdad: dar acceso, guardar OTRO cliente, y que la clave siga sirviendo.
@@ -5277,7 +5271,7 @@ async function main() {
       const r6 = await post('/api/os/clientes/' + cli.id + '/acceso', { usuario: 'probaacceso' + Date.now() });
       const clave = r6.data && r6.data.clave; const usr = r6.data && r6.data.usuario;
       check('acceso: se genera usuario y clave', !!clave && !!usr, JSON.stringify(r6.data.error || ''));
-      // Guardar cualquier cliente dispara el DELETE + INSERT de TODA la tabla.
+      // Guardar otro cliente no puede tocar el acceso de este.
       await put('/api/os/clientes/' + cli.id + '/comercial', { estado: 'activo' });
       const r7 = await post('/api/cuenta/login', { usuario: usr, clave });
       check('acceso: sobrevive a que se guarde un cliente',
@@ -6656,10 +6650,9 @@ async function main() {
       /internosSeCobran: !!cli\.internos_se_cobran/.test(ext2));
     const cs2 = fs.readFileSync(path.join(ROOT, 'src', 'clientes-store.js'), 'utf8');
     check('internos: la excepción se guarda y se lee de la ficha',
-      /internos_se_cobran: !!r\.internos_se_cobran/.test(cs2)
-      && /if \(patch\.internos_se_cobran !== undefined\) c\.internos_se_cobran = \[true, 1, '1', 'true'/.test(cs2)
-      && /intcob: c\.internos_se_cobran \? 1 : 0/.test(cs2),
-      'sin el INSERT, un cliente nuevo lo pierde en silencio');
+      require('../src/clientes-store').COLUMNAS.some(([col]) => col === 'internos_se_cobran')
+      && /if \(patch\.internos_se_cobran !== undefined\) c\.internos_se_cobran = \[true, 1, '1', 'true'/.test(cs2),
+      'sin la columna en COLUMNAS, un cliente nuevo lo pierde en silencio');
     {  // y un «no» se guarda como no: con String(false) quedaba "false", que se grababa como 1
       const cliSt = require('../src/clientes-store'); const cliI = cliSt.createCliente({ codigo: 'ZZINT' + Date.now(), nombre: 'ZZINT' });
       cliSt.updateComercial(cliI.id, { internos_se_cobran: true });
