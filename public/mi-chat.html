@@ -63,7 +63,7 @@ function pintar(){
         ${(c.lineas||[]).map(l => `<div><span class="k">${esc(l.k)}${l.nota ? `<br><small>${esc(l.nota)}</small>` : ''}</span><span class="v">${money(l.v)}</span></div>`).join('')}</div></div>`).join('')}</div></details>` : '';
   const pz = D.pesos && a ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Prefiero pagar en pesos</summary>
       <div class="card" style="margin-top:8px"><div class="mc-monto"><b>$ ${money(D.pesos.ars, 0)}</b><button class="outline small" data-copiar="${esc(String(D.pesos.ars))}">Copiar</button></div>
-        <div class="chico" style="margin-top:6px">Al dólar de ahora (${money(D.pesos.tc)}). Vale hasta hoy a las 23:59: si pagás otro día, entrá de nuevo y fijate el monto.</div>
+        <div class="chico" style="margin-top:6px">Al dólar de ahora (${money(D.pesos.tc)}), con ${money(D.pesos.comision,0)} % más por pagar en pesos. Vale hasta hoy a las 23:59: si pagás otro día, entrá de nuevo y fijate el monto.</div>
         <div class="mc-dir"><code>${esc(D.pesos.alias)}</code><button class="outline small" data-copiar="${esc(D.pesos.alias)}">Copiar</button></div>
         <div class="chico" style="margin-top:6px">A nombre de ${esc(D.pesos.titular)}.</div>
         <label style="text-transform:none;margin:12px 0 0">Subí la captura de la transferencia<input type="file" id="mc-cap" accept="image/*"></label>

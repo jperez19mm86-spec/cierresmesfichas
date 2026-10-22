@@ -187,7 +187,7 @@ VIEWS.pagos = async () => {
       <div class="muted" style="font-size:12.5px;margin:4px 0 8px">Los pesos no se pueden leer solos: mirá la captura contra la cuenta y aprobalo. Se acredita al cambio que vio el cliente cuando pagó.</div>
       ${pz.map(x => `<div class="subcaja" style="margin-bottom:8px"><div class="nc-caja-h"><b>${esc(x.cliente)}</b><span class="muted">${esc(x.que)} · ${fecha(x.t)}</span></div>
         <div class="subdatos"><div><span class="k">Mandó</span><span class="v fuerte">$ ${money(x.ars,0)}</span></div>
-          <div><span class="k">Al cambio de ese momento (${money(x.tc,2)})</span><span class="v">${usdt(x.usdt)}</span></div>
+          <div><span class="k">Salda (al cambio ${money(x.tc,2)}, sin el ${money(x.com,0)} % de comisión)</span><span class="v">${usdt(x.usdt)}</span></div>
           <div><span class="k">A la cuenta</span><span class="v">${esc(x.alias)}</span></div></div>
         <div class="acciones"><button class="small" data-pesos-ok="${esc(x.id)}">Aprobar</button><button class="outline small" data-pesos-no="${esc(x.id)}">Rechazar</button><span class="muted" style="font-size:12.5px">📎 ${esc(x.captura)}</span></div></div>`).join('')}</div>` : ''}
     ${sin.length ? `<div class="nota-suave rosa" style="margin:0 0 12px"><b>${sin.length === 1 ? 'Una transferencia no coincide' : sin.length + ' transferencias no coinciden'} con ningún cobro.</b> Tocá «Asignar…» y elegí de quién es.</div>` : ''}
@@ -269,7 +269,7 @@ VIEWS.clientes = async () => {
       `<b>${cl.cajas.filter(c=>c.activa).length}</b><span class="u">${cl.cajas.filter(c=>c.activa).length===1?'caja':'cajas'}</span>`,
       (cl.tg ? '' : señal('durazno','sin grupo de Telegram','Sin grupo no le llega el cobro: cargalo abajo')) + (cl.cajas.some(c => c.pct !== 2) ? señal('gris', 'al ' + [...new Set(cl.cajas.map(c => money(c.pct,1).replace(',0','')))].join(' / ') + ' %') : ''),
       `<div class="nc-form" style="margin-bottom:10px"><label>Grupo de Telegram (id)<input data-tg="${esc(cl.id)}" value="${esc(cl.tg||'')}" placeholder="-100…"></label>
-         <label>Puede pagar en pesos<select data-pesos="${esc(cl.id)}">${opc(cl.pesos ? 1 : 0, [[0,'No, solo USDT'],[1,'Sí, también en pesos']])}</select></label>
+         <label>Puede pagar en pesos${r.pesosOn ? '' : ' (apagado en Config)'}<select data-pesos="${esc(cl.id)}"${r.pesosOn ? '' : ' disabled'}>${opc(cl.pesos ? 1 : 0, [[0,'No, solo USDT'],[1,'Sí, también en pesos']])}</select></label>
          <label>Su link de pago<input readonly value="${esc(cl.link)}" data-sel></label></div>
        <div class="sublista">${cl.cajas.map(c => caja(cl, c)).join('')}</div>
        <div class="acciones"><button class="outline small" data-nueva="${esc(cl.id)}">+ Agregar caja</button><button class="outline small" data-guardar-tg="${esc(cl.id)}">Guardar el grupo y los pesos</button><a href="${esc(cl.ver||cl.link)}" target="_blank" rel="noopener"><button class="outline small">Ver lo que ve el cliente ↗</button></a></div>`)).join('')}
@@ -287,9 +287,11 @@ VIEWS.config = async () => {
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Las wallets del chat</h2></div>
       <div class="muted" style="font-size:13px;margin-top:4px">Solo la dirección pública: el sistema las lee para ver qué entró, nunca tiene sus claves. Son solo para el chat: si entra otra plata, no cuadra.</div>
       <div class="nc-form"><label>TRC20 (Tron)<input id="cf-trc" value="${esc(c.trc20||'')}" placeholder="T…"></label><label>BEP20 (BNB Chain)<input id="cf-bep" value="${esc(c.bep20||'')}" placeholder="0x…"></label></div></div>
-    <div class="card"><div class="tapa"><h2 style="font-size:15px">Pagos en pesos</h2></div>
-      <div class="muted" style="font-size:13px;margin-top:4px">Solo para los clientes que tengan «puede pagar en pesos». El link le muestra cuántos pesos son al dólar de ese momento (Binance), que vale ese día; después lo aprobás vos con la captura.</div>
-      <div class="nc-form"><label>Alias o CVU<input id="cf-alias" value="${esc(c.alias||'')}" placeholder="lgchat.pagos"></label><label>Titular<input id="cf-titular" value="${esc(c.titular||'')}"></label></div></div>
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Pagos en pesos ${c.pesosOn ? señal('verde','prendido') : señal('gris','apagado')}</h2></div>
+      <div class="muted" style="font-size:13px;margin-top:4px">Por ahora el chat se cobra solo en USDT. Esto queda listo para cuando lo quieras usar: a los clientes que tengan «puede pagar en pesos», el link les muestra cuántos pesos son al dólar de ese momento (Binance) más la comisión, que vale ese día; después lo aprobás vos con la captura.</div>
+      <div class="nc-form"><label>Pagos en pesos<select id="cf-pesos-on"><option value="0"${c.pesosOn?'':' selected'}>Apagado: solo USDT</option><option value="1"${c.pesosOn?' selected':''}>Prendido</option></select></label>
+        <label>Comisión por pagar en pesos (%)<input id="cf-pesos-com" type="number" min="0" max="20" step="0.5" value="${esc(c.pesosComision)}"></label>
+        <label>Alias o CVU<input id="cf-alias" value="${esc(c.alias||'')}" placeholder="lgchat.pagos"></label><label>Titular<input id="cf-titular" value="${esc(c.titular||'')}"></label></div></div>
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Para cajas nuevas</h2></div>
       <div class="nc-form"><label>Entrada (USD)<input id="cf-entrada" type="number" value="${esc(c.entrada)}"></label><label>Mantenimiento (USD por mes)<input id="cf-mant" type="number" value="${esc(c.mant)}"></label>
         <label>% de la ganancia<input id="cf-pct" type="number" step="0.5" min="1" max="4" value="${esc(c.pct)}"></label></div></div>
@@ -355,7 +357,7 @@ document.addEventListener('click', async (e) => {
   if (b.dataset.guardarCfg !== undefined) {
     const v = (id) => document.getElementById(id).value.trim();
     if (!(Number(v('cf-pct')) >= 1 && Number(v('cf-pct')) <= 4)) { toast('El % va entre 1 y 4'); return; }
-    const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), entrada: v('cf-entrada'), mant: v('cf-mant'), pct: v('cf-pct'), esperaHoras: v('cf-espera'), venceDia: v('cf-vence'), recordatorios: v('cf-rec'), cartelTexto: v('cf-cartel'), alias: v('cf-alias'), titular: v('cf-titular'), programador: v('cf-prog'), repartoProg: v('cf-reparto'), repartoBase: v('cf-rbase') });
+    const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), entrada: v('cf-entrada'), mant: v('cf-mant'), pct: v('cf-pct'), esperaHoras: v('cf-espera'), venceDia: v('cf-vence'), recordatorios: v('cf-rec'), cartelTexto: v('cf-cartel'), alias: v('cf-alias'), titular: v('cf-titular'), pesosOn: v('cf-pesos-on') === '1', pesosComision: v('cf-pesos-com'), programador: v('cf-prog'), repartoProg: v('cf-reparto'), repartoBase: v('cf-rbase') });
     if (r.ok) toast('Guardado'); return; }
 });
 document.addEventListener('change', (e) => {
