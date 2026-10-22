@@ -374,6 +374,19 @@ const setEtiquetaCuenta = db.transaction((sistema, userId, etiqueta) => {
   });
   return n;
 });
+/* Pasa una caja de un cliente a otro tal cual: mismo id, permisos, nombre para el cliente y montos.
+   Es lo que pasa al mover un panel; crear una caja nueva le hacía perder todo eso al agente. */
+const moverCaja = db.transaction((deId, aId, cajaId) => {
+  const de = get(deId); const a = get(aId);
+  if (!de || !a) return null;
+  const k = (de.cajas || []).find((x) => x.id === cajaId);
+  if (!k) return null;
+  de.cajas = de.cajas.filter((x) => x.id !== cajaId);
+  a.cajas = (a.cajas || []).concat([k]);
+  saveCliente(de); saveCliente(a);
+  return k;
+});
+
 function removeCaja(clienteId, cajaId) {
   const data = load();
   const c = data.clientes.find((x) => x.id === clienteId);
@@ -415,6 +428,6 @@ function importRows(rows, dryRun = false) {
 
 module.exports = {
   list, get, getByCodigo, createCliente, updateCliente, updateComercial, removeCliente, setTelegram,
-  addCaja, updateCaja, setEtiquetaCuenta, removeCaja, importRows, parseMontos, parseDivisas, seed: save, FILE, COLUMNAS,
+  addCaja, updateCaja, setEtiquetaCuenta, removeCaja, moverCaja, importRows, parseMontos, parseDivisas, seed: save, FILE, COLUMNAS,
   permisosDe, congelarPermisosActuales, PERMISOS_POR_DEFECTO, normDivisasPago, tcCargasDe,
 };

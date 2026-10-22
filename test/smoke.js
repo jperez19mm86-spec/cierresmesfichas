@@ -1568,10 +1568,13 @@ async function main() {
        panel, y ese panel nacía sin árbol. Nadie lo iba a buscar: se enteraba la dueña cuando la
        primera carga fallaba con «Suma de entrada excede los límites», que no nombra el problema.
        27-sep-2026: NahuelBet30 y NahuelZeus, los únicos 2 de 221 sin resolver, salieron por ahí. */
+    // El espejo caja → panel vive en cuenta-espejo.js desde el 22-oct; index.js lo llama.
     const srcIdx2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
+    const srcEsp = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cuenta-espejo.js'), 'utf8');
     check('árbol: y también cuando la caja se crea del lado de Fichas',
-      /const nuevo = paneles\.create\(\{ cliente_id: clienteId, nombre: caja\.usuario/.test(srcIdx2)
-      && /require\('\.\/arbol\.service'\)\.resolverEnSegundoPlano\(nuevo\);/.test(srcIdx2));
+      /require\('\.\/cuenta-espejo'\)\.cajaAPanel\(clienteId, caja\)/.test(srcIdx2)
+      && /const nuevo = paneles\.create\(\{ cliente_id: clienteId, nombre: caja\.usuario/.test(srcEsp)
+      && /require\('\.\/arbol\.service'\)\.resolverEnSegundoPlano\(nuevo\);/.test(srcEsp));
     /* Uno solo y compartido: el que lo tenía adentro de os.routes.js era justamente el motivo por
        el que el alta de Fichas se quedó sin resolver —no se podía llamar desde afuera. */
     check('árbol: el que resuelve es uno solo, en el servicio, no una copia por archivo',
@@ -6758,11 +6761,12 @@ async function main() {
      de externos. Se atan por (userId, sistema), que es lo que identifica la cuenta en el casino. */
   {
     const ro = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const esp6 = fs.readFileSync(path.join(ROOT, 'src', 'cuenta-espejo.js'), 'utf8');
     check('cajas: cambiar el panel en el OS actualiza la caja, no sólo la crea',
-      /clientes\.updateCaja\(destino, ya\.id, \{ usuario: nom, divisas: p\.divisas \}\)/.test(ro),
+      /clientes\.updateCaja\(a, ya\.id, \{ usuario: login, divisas: p\.divisas \}\)/.test(esp6),
       'antes sólo creaba: si ya existía, el cambio no llegaba a Fichas');
     check('cajas: guardar un panel dispara el espejo',
-      /const caja = _espejarCaja\(p\);/.test(ro));
+      /const caja = _espejarCaja\(p, null, antes && antes\.cliente_id\);/.test(ro));
     check('cajas: los montos rápidos y el grupo son de Fichas y no se pisan',
       /los montos rápidos y el grupo son de\n\s+Fichas y no se tocan/.test(ro));
     const ix = fs.readFileSync(path.join(ROOT, 'src', 'index.js'), 'utf8');

@@ -107,22 +107,27 @@ function revisar(mes) {
       '🧮 Cierre de Mes → 🔗 Vincular proveedores', sinVinc.slice(0, 40));
   }
 
-  // 7) LA MISMA CUENTA ANOTADA EN DOS LADOS: `cajas` (operativo) y `paneles` (comercial)
-  const dobles = [];
-  for (const c of cs) {
-    const cajas = (c.cajas || []).map((k) => String(k.usuario || '').trim().toLowerCase()).filter(Boolean);
-    if (!cajas.length) continue;
-    const pans = paneles.list({ cliente_id: c.id }).map((p) => String(p.usuario || '').trim().toLowerCase()).filter(Boolean);
-    const soloEnCajas = cajas.filter((u) => !pans.includes(u));
-    const soloEnPaneles = pans.filter((u) => !cajas.includes(u));
-    if (soloEnCajas.length || soloEnPaneles.length) {
-      dobles.push(`${c.nombre || c.codigo}: ${soloEnCajas.length ? `solo en cajas → ${soloEnCajas.join(', ')}` : ''}${(soloEnCajas.length && soloEnPaneles.length) ? ' · ' : ''}${soloEnPaneles.length ? `solo en paneles → ${soloEnPaneles.join(', ')}` : ''}`);
-    }
+  // 7) LA MISMA CUENTA ANOTADA EN DOS LADOS: `cajas` (operativo) y `paneles` (comercial).
+  //    Se compara por cuenta del casino (sistema + id), no por nombre: por nombre daba avisos falsos
+  //    (43 paneles sin `usuario`) y se le escapaba la segunda «Betpalace-SA» de CARLOS777, que tiene
+  //    caja y no panel. Ver cuenta-espejo.diferencias().
+  const dif = require('./cuenta-espejo').diferencias();
+  const cta = (x) => `${x.usuario || '(sin nombre)'} [${x.sistema || ''} ${x.id}]`;
+  if (dif.sinPanel.length) {
+    push(AVISO, `${dif.sinPanel.length} cuenta(s) con caja y sin panel`,
+      'Lo que se factura sale de Paneles: lo que mueva una cuenta que sólo está en Cajas no se le cobra a nadie.',
+      'Clientes → Paneles', dif.sinPanel.map((x) => `${x.cliente}: ${cta(x)}`));
   }
-  if (dobles.length) {
-    push(AVISO, `${dobles.length} cliente(s) con las cuentas anotadas distinto en Cajas y en Paneles`,
-      'La misma cuenta del casino se anota en dos lugares. Lo que se factura sale de Paneles: lo que esté solo en Cajas no se le cobra a nadie.',
-      'Paneles (comercial) y Clientes → Cajas (operativo)', dobles);
+  const otras = [
+    ...dif.enOtroCliente.map((x) => `${x.cliente}: ${cta(x)} — la caja está acá y el panel en ${x.panelEn}`),
+    ...dif.distintas.map((x) => `${x.cliente}: ${cta(x)} — en el panel es «${x.panel}» (${x.divisasPanel}), en la caja (${x.divisasCaja})`),
+    ...dif.sinCaja.map((x) => `${x.cliente}: ${cta(x)} — tiene panel y no caja: no puede pedir por Mi Caja`),
+    ...dif.sinId.map((x) => `${x.cliente}: ${x.usuario} — la caja no tiene id del casino`),
+  ];
+  if (otras.length) {
+    push(AVISO, `${otras.length} cuenta(s) anotadas distinto en Cajas y en Paneles`,
+      'Es la misma cuenta del casino anotada en dos lugares; tienen que decir lo mismo.',
+      'Paneles (comercial) y Clientes → Cajas (operativo)', otras);
   }
 
   // 8) LO QUE DICE EL CASINO vs LO QUE DICEN LOS PEDIDOS

@@ -805,22 +805,8 @@ function mount(app) {
      GAF-D — puesto en PYG en el OS y ofreciendo ARS en Fichas — y con otros 68 paneles.
      Se copia lo que describe a la cuenta (nombre y divisas); los montos rápidos y el grupo son de
      Fichas y no se tocan. */
-  const _espejarCaja = (p, clienteDestino) => {
-    if (!p || !p.id_usuario) return false;
-    const destino = clienteDestino || p.cliente_id;
-    if (!destino) return false;
-    const c = clientes.get(destino); if (!c) return false;
-    const ya = (c.cajas || []).find((k) => String(k.userId) === String(p.id_usuario) && (k.sistema || '') === (p.sistema || ''));
-    if (ya) {
-      const nom = p.usuario || p.nombre;
-      const mismas = (ya.divisas || []).slice().sort().join(',') === (p.divisas || []).slice().sort().join(',');
-      if (mismas && String(ya.usuario || '') === String(nom || '')) return false;
-      clientes.updateCaja(destino, ya.id, { usuario: nom, divisas: p.divisas });
-      return 'actualizada';
-    }
-    clientes.addCaja(destino, { usuario: p.usuario || p.nombre, sistema: p.sistema, userId: p.id_usuario, divisas: p.divisas, montosRapidos: [], grupoId: '' });
-    return true;
-  };
+  // La caja y el panel son la misma cuenta: la regla de qué se copia vive en cuenta-espejo.js.
+  const _espejarCaja = (p, clienteDestino, desde) => require('./cuenta-espejo').panelACaja(p, { destino: clienteDestino, desde });
   /* ── UN PANEL NUEVO SE RESUELVE SOLO ─────────────────────────────────────────────────────────
      El nivel con el que nace un panel es una ELECCIÓN: en el alta manual sale del desplegable, y al
      aprobar una caja está escrito fijo como 'SuperAgente'. La cascada de carga le cree, y un panel
@@ -870,14 +856,16 @@ function mount(app) {
       const mal = _revisarDivisas(cambios, paneles.get(req.params.id));
       if (mal) return err(res, 400, mal);
     }
+    const antes = paneles.get(req.params.id);
     const p = paneles.update(req.params.id, cambios); if (!p) return err(res, 404, 'no encontrado');
     if (etiqueta !== undefined) {
       if (!p.id_usuario) return err(res, 400, 'este panel no está linkeado a una cuenta del casino: no hay caja donde poner el nombre');
       clientes.setEtiquetaCuenta(p.sistema, p.id_usuario, etiqueta);
     }
     // Lo que se cambia acá tiene que llegar a Fichas: es la misma cuenta del casino.
-    const caja = _espejarCaja(p);
-    ok(res, { panel: p, caja: caja === 'actualizada' ? 'actualizada' : (caja ? 'creada' : 'sin cambios') });
+    // Si se movió a otro cliente, la caja se muda con él (no nace otra y queda la vieja).
+    const caja = _espejarCaja(p, null, antes && antes.cliente_id);
+    ok(res, { panel: p, caja: caja === 'actualizada' || caja === 'movida' ? caja : (caja ? 'creada' : 'sin cambios') });
   }));
   // Qué monedas MUEVE cada panel de verdad, contra las que tiene guardadas.
   app.get('/api/os/paneles/divisas', (req, res) => {
@@ -1402,6 +1390,23 @@ function mount(app) {
       }
     }
     ok(res, { dry, creadas, actualizadas, ya, detalle: detalle.slice(0, 100) });
+  }));
+  /* ── COMPLETAR EL USUARIO DE LOS PANELES (fase 1, paso 4a, 22-oct-2026) ─────────────────────────
+     Los paneles que se crearon desde el árbol del casino guardaron el login sólo en `nombre` y
+     dejaron `usuario` vacío. Todo el que necesita el login lee «usuario, y si no, nombre», así que
+     llenarlo con el nombre no cambia ninguna carga ni ninguna cuenta; lo que cambia es que caja y
+     panel dicen lo mismo en los dos campos. Simula por defecto; con {aplicar:true} escribe, y sólo
+     toca los que siguen vacíos. */
+  app.post('/api/os/paneles/completar-usuario', wrap((req, res) => {
+    const aplicar = !!(req.body && req.body.aplicar);
+    const faltan = paneles.list().filter((p) => p.id_usuario && !String(p.usuario || '').trim() && String(p.nombre || '').trim());
+    const lista = faltan.map((p) => ({ panel_id: p.id, cliente_id: p.cliente_id, sistema: p.sistema, id_usuario: p.id_usuario, usuario: p.nombre }));
+    let escritos = 0;
+    if (aplicar) {
+      const up = db.prepare("UPDATE paneles SET usuario=? WHERE id=? AND (usuario IS NULL OR trim(usuario)='')");
+      db.transaction(() => { for (const x of lista) escritos += up.run(String(x.usuario).trim(), x.panel_id).changes; })();
+    }
+    ok(res, { aplicar, paneles: lista.length, escritos, lista });
   }));
   app.put('/api/os/paneles/:id/precio-base', wrap((req, res) => {
     const { valor, tipo_cambio, vigente_desde, notas } = req.body || {};
