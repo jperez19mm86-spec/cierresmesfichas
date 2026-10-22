@@ -60,13 +60,13 @@ function pintar(){
   const W = w.find(x => x.red === red) || {};
   const detalle = a ? `<details class="cajas" style="margin-top:10px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Qué incluye</summary>
       <div class="sublista">${a.cajas.map(c => `<div class="subcaja"><div class="cn">${esc(c.caja)}${c.sitio?`<small>${esc(c.sitio)}</small>`:''}</div><div class="subdatos">
-        <div><span class="k">Mantenimiento${c.dias < c.diasMes ? ` (${c.dias} de ${c.diasMes} días)` : ''}</span><span class="v">${money(c.mantMes)}</span></div>
-        ${c.instMes ? `<div><span class="k">Instalación</span><span class="v">${money(c.instMes)}</span></div>` : ''}
-        <div><span class="k">${money(c.pct,1)} % de ${c.base === 'cargas' ? 'tus cargas' : 'tu ganancia'} (${money(c.baseValor,0)} ${esc(c.moneda)})</span><span class="v">${money(c.variable)}</span></div></div></div>`).join('')}</div></details>` : '';
+        ${(c.lineas||[]).map(l => `<div><span class="k">${esc(l.k)}${l.nota ? `<br><small>${esc(l.nota)}</small>` : ''}</span><span class="v">${money(l.v)}</span></div>`).join('')}</div></div>`).join('')}</div></details>` : '';
   document.getElementById('app').innerHTML = `
     <h1>${esc(D.cliente.nombre)}</h1><div class="sub">Tu cuenta del chat</div>
-    ${a ? `<div class="totalote"><div class="k">${esc(nomMes(a.mes))} · ${a.estado === 'vencido' ? 'venció' : 'vence'} el ${esc(dia(a.vence))}</div><div class="v">${money(a.exacto)} USDT</div>
-        ${a.pagado && a.debe > 0.01 ? `<div class="cuantos">Ya recibimos ${money(a.pagado)} · te faltan ${money(a.debe)}</div>` : ''}</div>
+    ${a ? `<div class="totalote"><div class="k">${esc(a.titulo)} · ${a.estado === 'vencido' ? 'venció' : 'vence'} el ${esc(dia(a.vence))}</div><div class="v">${money(a.exacto)} USDT</div>
+        ${a.pagado && a.debe > 0.01 ? `<div class="cuantos">Ya recibimos ${money(a.pagado)} · te faltan ${money(a.debe)}</div>` : ''}
+        ${D.otros ? `<div class="cuantos">Después de este tenés ${D.otros === 1 ? 'otro pago pendiente' : D.otros + ' pagos pendientes'}: te aparece${D.otros === 1 ? '' : 'n'} acá cuando pagues este.</div>` : ''}</div>
+      ${a.estado === 'vencido' ? `<div class="nota-suave rosa" style="margin:0 0 12px">Venció el ${esc(dia(a.vence))}. Mientras tanto, en el panel del chat no vas a poder usar Publicidad, Bonos, Métricas ni Referidos. Tus jugadores y tus cargas siguen andando normal.</div>` : ''}
       ${a.estado === 'pagado' ? '' : `<div class="card">
         <div style="font-weight:700">1. Elegí la red</div>
         <div class="mc-redes">${w.map(x => `<button data-red="${esc(x.red)}" aria-pressed="${x.red===red}">${esc(x.red)}</button>`).join('')}</div>
@@ -85,7 +85,7 @@ function pintar(){
       ${detalle}`
     : `<div class="mc-espera ok">✓ No tenés nada pendiente.</div>`}
     ${(D.pagados||[]).length ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Lo que ya pagaste</summary>
-      <div class="subcaja" style="margin-top:8px"><div class="subdatos">${D.pagados.map(p => `<div><span class="k">${esc(nomMes(p.mes))} · ${esc(dia(p.t))} · ${esc(p.red)}</span><span class="v">${money(p.monto)}</span></div>`).join('')}</div></div></details>` : ''}`;
+      <div class="subcaja" style="margin-top:8px"><div class="subdatos">${D.pagados.map(p => `<div><span class="k">${esc(p.titulo || nomMes(p.mes))} · ${esc(dia(p.t))} · ${esc(p.red)}</span><span class="v">${money(p.monto)}</span></div>`).join('')}</div></div></details>` : ''}`;
   const qr = document.getElementById('mc-qr');
   if (qr && W.direccion && window.QRCode) { try { new QRCode(qr, { text: W.direccion, width: 170, height: 170, correctLevel: QRCode.CorrectLevel.M }); } catch (e) {} }
 }
@@ -97,7 +97,7 @@ document.addEventListener('click', async (e) => {
   if (b.id === 'mc-verif') {
     const h = document.getElementById('mc-hash').value.trim(), out = document.getElementById('mc-hres'); if (!h) return;
     b.disabled = true; b.textContent = 'Revisando…';
-    const r = await pedir('/mi-chat/hash', { token: D.token, mes: D.abierto.mes, hash: h });
+    const r = await pedir('/mi-chat/hash', { token: D.token, doc: D.abierto.id, hash: h });
     b.disabled = false; b.textContent = 'Revisar';
     if (r.ok && r.estado === 'pagado') { D = r.cuenta; pintar(); toast('¡Pago encontrado!'); return; }
     out.innerHTML = `<div class="nota-suave${r.ok ? '' : ' rosa'}">${esc(r.ok ? r.texto : (r.error || 'No se pudo revisar.'))}</div>`;
