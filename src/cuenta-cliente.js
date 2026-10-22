@@ -14,6 +14,7 @@
  * diferencia de cambio que pone la empresa (ver pesos-cancelan-pesos.js).
  */
 const movsStore = require('./movimientos-store');
+const { mesDe } = require('./lib/mes-de');
 const pedidos = require('./pedidos-store');
 const money = require('./lib/money');
 
@@ -31,7 +32,8 @@ function movimientosDe(cli) {
       try { const p = pedidos.get(m.pedido_id); if (p) { cargado = p.monto; usuario = p.cajaUsuario || null; etiqueta = etiquetaDe(p); } } catch (e) { /* sin pedido, sin login */ }
     }
     // A qué mes pertenece, que no siempre es el de su fecha: la deuda de julio se cargó en septiembre.
-    const mes = m.origen_ref || m.mes_cierre || String(m.fecha || '').slice(0, 7);
+    // `origen_ref` primero: es el mes al que se anotó a propósito (la deuda vieja cargada después).
+    const mes = m.origen_ref || mesDe(m);
     // Lo que paga en la moneda de esa carga: en guaraníes no hay cara en pesos.
     const divPropia = String(m.divisa || 'ARS').toUpperCase();
     let propio = divPropia === 'ARS' ? m.monto_ars : (divPropia === 'USDT' ? m.monto_usdt : null);

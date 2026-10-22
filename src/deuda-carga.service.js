@@ -43,6 +43,7 @@ const tcStore = require('./tc-store');
 const tcDivisas = require('./tc-divisas.service');
 const tcUnico = require('./tc-unico.service');
 const { fechaTZ } = require('./lib/fechas');
+const { mesDe } = require('./lib/mes-de');
 const paneles = require('./paneles-store');
 
 /**
@@ -290,7 +291,7 @@ function bajaDelAbono(pedido, cli) {
   const mv = movs.create({
     cliente_id: otro.id, tipo: 'ajuste', pedido_id: pedido.id,
     monto_ars: abc.monto_ars, monto_usdt: abc.monto_usdt, monto_local: abc.monto_local, tc_momento: abc.tc_momento, tc_modo: abc.tc_modo,
-    mes_cierre: abc.tc_modo === 'mes' ? (abc.mes_cierre || String(abc.fecha || '').slice(0, 7)) : null,
+    mes_cierre: abc.tc_modo === 'mes' ? mesDe(abc) : null,
     divisa: ab.divisa,
     notas: `Se anuló esa carga de ${cli.nombre || cli.codigo}: se descuentan los puntos que se habían abonado (${ab.id})`,
   });
@@ -360,7 +361,7 @@ function porAnulacion(pedido) {
   // Lo guardado, no lo valuado (ver abonoPorCarga). Si la carga va al promedio de su mes, la baja
   // también, y del MISMO mes aunque se anule en otro: si no, quedaría una diferencia de cambio.
   const cr = movs.getCrudo(orig.id) || orig;
-  const mesCarga = cr.tc_modo === 'mes' ? (cr.mes_cierre || String(cr.fecha || '').slice(0, 7)) : null;
+  const mesCarga = cr.tc_modo === 'mes' ? mesDe(cr) : null;
   const mv = movs.create({
     cliente_id: cli.id, tipo: 'correccion', pedido_id: pedido.id,
     monto_ars: neg(cr.monto_ars), monto_usdt: neg(cr.monto_usdt), monto_local: neg(cr.monto_local),

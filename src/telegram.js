@@ -189,7 +189,7 @@ function anulacionText({ cajaUsuario, cajaEtiqueta, divisa, monto }) {
     + 'Las fichas se retiraron de la cuenta.';
 }
 
-function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+const { escTexto: escapeHtml } = require('./lib/html');
 
 /**
  * El nombre de una cuenta del casino, dentro de un mensaje de Telegram.

@@ -119,8 +119,8 @@ function documento({ cuenta, mes, vista = 'interno', alcance = 'total', caja_id 
  */
 function aTexto(doc, { titulo = null, link = null } = {}) {
   if (!doc || !doc.ok) return '';
-  const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const { escTexto: esc } = require('./lib/html');
+  const { plata: n } = require('./lib/formato');
   const [y, m] = String(doc.mes || '').split('-');
   const mesNom = MESES_ES[Number(m) - 1] ? `${MESES_ES[Number(m) - 1]}-${y}` : String(doc.mes);
   const L = [];

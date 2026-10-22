@@ -9,7 +9,7 @@ const config = require('./config-store');
 const money = require('./lib/money');
 
 const LINE = '━━━━━━━━━━━━━━━━━━';
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const { escTexto: esc } = require('./lib/html');
 
 /** Mensaje de carga acreditada con desglose USDT + deuda acumulada (sección 4.1). */
 function msgCarga({ panel, carga, basePct, montoDivisa, divisa, tc, equivUsdt, deuda }) {

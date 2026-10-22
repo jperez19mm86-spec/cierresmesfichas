@@ -6341,16 +6341,18 @@ async function main() {
      130.000 al mismo cierre daban distinto (82,04 y 81,91), y el de septiembre seguía CAMBIANDO
      todos los días con el promedio del mes en curso — el cierre de agosto nunca cuajaba. */
   {
+    // La regla vive en lib/mes-de.js (test/reglas-comunes.js); acá, que valuación la use.
     const v = fs.readFileSync(path.join(ROOT, 'src', 'valuacion.js'), 'utf8');
+    const { mesDe: mesDeRegla } = require('../src/lib/mes-de');
     check('valuación: usa el mes de CIERRE cuando el movimiento lo tiene',
-      /m\.mes_cierre\s*\n?\s*\? String\(m\.mes_cierre\)/.test(v),
+      /require\('\.\/lib\/mes-de'\)/.test(v) && (v.match(/const mes = mesDe\(m\);/g) || []).length === 2
+      && mesDeRegla({ mes_cierre: '2026-08', fecha: '2026-09-03' }) === '2026-08',
       'con el de la fecha, un pago de septiembre puesto en agosto se valúa con septiembre');
     check('valuación: sin mes de cierre sigue usando la fecha',
-      /: String\(m\.fecha \|\| m\.createdAt/.test(v));
+      mesDeRegla({ fecha: '2026-09-03', createdAt: '2026-10-01' }) === '2026-09');
     // Y la misma regla que usa el resto del sistema, para que no puedan decidir distinto.
-    const ms = fs.readFileSync(path.join(ROOT, 'src', 'movimientos-store.js'), 'utf8');
     check('valuación: `mesDe` dice lo mismo en un solo lugar',
-      /function mesDe/.test(ms) && /mv\.mes_cierre/.test(ms));
+      require('../src/movimientos-store').mesDe === mesDeRegla);
   }
 
   /* ── UN DOCUMENTO QUE SALE PARA AFUERA NO ADIVINA DE QUÉ MES ES ──────────────────────────────
@@ -7698,7 +7700,7 @@ async function main() {
        La deuda de julio se cargó en septiembre: por fecha salía arriba de todo, entre las cargas
        de este mes, donde no significa nada. El mes lo manda `origen_ref`, no la fecha. */
     check('cuenta: el mes de un movimiento sale de su emisión, no de su fecha',
-      /const mes = m\.origen_ref \|\| m\.mes_cierre \|\| String\(m\.fecha \|\| ''\)\.slice\(0, 7\)/.test(
+      /const mes = m\.origen_ref \|\| mesDe\(m\);/.test(
         require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cuenta-cliente.js'), 'utf8')));
     /* La moneda va UNA vez, arriba de la columna. Repetirla en cada renglón —«500.000 ARS en
        fichas · 75.000 ARS · 47,11 USDT»— era la mitad del ruido. */

@@ -25,13 +25,11 @@
  */
 const money = require('./lib/money');
 
-const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const { esc } = require('./lib/html');
+const { plata: n } = require('./lib/formato');
 const pctTxt = (x) => String(x).replace(/\.0+$/, '') + '%';
 
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
-  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const { MESES } = require('./lib/formato');
 const mesLargo = (m) => {
   const [y, mm] = String(m || '').split('-');
   return MESES[Number(mm) - 1] ? `${MESES[Number(mm) - 1]} de ${y}` : String(m || '');

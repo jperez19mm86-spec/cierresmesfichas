@@ -30,7 +30,7 @@ const ayerUTC = () => fechaUTC(new Date(Date.now() - 86400000));   // día anter
 // ── Cómo se llaman los meses en la grilla del cierre ──────────────────────────────────────
 // La planilla original los escribe 'Julio_2026', no en ISO. Vive acá y no en un servicio para
 // que lo puedan usar los dos lados sin que se requieran entre ellos.
-const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const { MESES_MAY: MESES_ES } = require('./formato');
 
 /** '2026-07' → 'Julio_2026' */
 function mesCierre(iso) {

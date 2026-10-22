@@ -3242,7 +3242,7 @@ function mount(app) {
     if (!dest.chatId) return err(res, 400, 'Ese cliente no tiene grupo de Telegram configurado');
 
     const m = ofertas.paraMostrar(o);
-    const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const { escTexto: esc } = require('./lib/html');
     const pct = (x) => String(x).replace(/\.0+$/, '').replace('.', ',') + '%';
     const lineas = ['<b>Oferta comercial</b>'];
     if (m.titulo) lineas.push(esc(m.titulo));

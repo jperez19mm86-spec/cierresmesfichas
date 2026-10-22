@@ -45,7 +45,7 @@ const bloqueoPedir = require('./bloqueo-pedir');
 const GRUPO_SOPORTE_DEFAULT = '-4660535312';
 
 const norm = (s) => String(s == null ? '' : s).trim().toLowerCase();
-const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const { escTexto: escapeHtml } = require('./lib/html');
 
 /**
  * Del usuario del casino al cliente del OS. Los dos padrones NO comparten códigos, pero SÍ el nodo

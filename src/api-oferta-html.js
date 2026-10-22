@@ -33,8 +33,7 @@
  * El orden lo pone `paraMostrar`: de menor a mayor precio de entrada. El Básico es lo que más se
  * vende —es barato y es la puerta— y va arriba, con el bloque destacado. Abajo del todo, lo caro.
  */
-const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const { esc } = require('./lib/html');
 /* 17.5 → "17,5%". El documento está en castellano y el decimal va con coma; el punto lo pone el
    motor, que escribe en inglés. */
 const pct = (x) => String(x).replace(/\.0+$/, '').replace('.', ',') + '%';

@@ -34,7 +34,7 @@ const money = require('./lib/money');
 const DESDE = '2026-08';
 const lleno = (v) => v != null && String(v) !== '';
 
-const mesDe = (m) => String(m.mes_cierre || m.fecha || m.createdAt || '').slice(0, 7);
+const { mesDe } = require('./lib/mes-de');
 
 /** ¿Es un pago hecho en pesos? La cara en dólares se derivó de los pesos, o entró por CVU/efectivo. */
 function esPagoEnPesos(m) {

@@ -140,8 +140,7 @@ function cobros({ desde = '2026-06', hasta } = {}) {
   return { ok: true, meses, filas, totales, avisos };
 }
 
-const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
-  'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const { MESES: MESES_LARGOS } = require('./lib/formato');
 const mesLargo = (m) => `${MESES_LARGOS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 
 /**

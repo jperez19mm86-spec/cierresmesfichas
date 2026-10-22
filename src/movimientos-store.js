@@ -8,6 +8,8 @@
  */
 const crypto = require('crypto');
 const { db } = require('./db');
+// A qué mes entra: la regla vive en lib/mes-de.js; se re-exporta abajo porque media base la llama así.
+const { mesDe, MES_SQL } = require('./lib/mes-de');
 const { nowISO } = require('./lib/fechas');
 const valuacion = require('./valuacion');
 const pesosCancelan = require('./pesos-cancelan-pesos');
@@ -79,7 +81,7 @@ function get(id) { const m = valuacion.valuar(getCrudo(id)); return m ? conPesos
    que se leen aparte aunque la consulta haya pedido sólo pagos o sólo un mes. */
 function conPesos(rows) {
   const cand = rows.filter((m) => pesosCancelan.esPagoEnPesos(m)
-    && String(m.mes_cierre || m.fecha || '').slice(0, 7) >= pesosCancelan.DESDE);
+    && mesDe(m) >= pesosCancelan.DESDE);
   if (!cand.length) return rows;
   const porCliente = new Map();
   for (const cid of new Set(cand.map((m) => m.cliente_id).filter(Boolean))) {
@@ -102,7 +104,7 @@ function list(filters = {}) {
   if (filters.tipo) { w.push('tipo=?'); p.push(filters.tipo); }
   // El MES DE CIERRE si se eligió, si no el de la fecha: la misma regla que `mesDe`. Con la fecha
   // sola, el pago del 2-oct asignado a septiembre salía en «pagos de octubre» (auditoría 17-oct).
-  if (filters.mes) { w.push("COALESCE(NULLIF(substr(mes_cierre,1,7),''), substr(COALESCE(fecha,createdAt),1,7))=?"); p.push(filters.mes); }
+  if (filters.mes) { w.push(MES_SQL + '=?'); p.push(filters.mes); }
   const sql = 'SELECT * FROM movimientos' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY fecha DESC';
   return conPesos(valuacion.valuarLista(db.prepare(sql).all(...p)));
 }
@@ -136,9 +138,5 @@ function remove(id) { return db.prepare('DELETE FROM movimientos WHERE id=?').ru
 
 /* A QUÉ MES pertenece un movimiento. Vive acá y no en cada pantalla: si la cuenta corriente lo
    decidiera distinto que la factura, el mismo pago aparecería en dos meses según dónde se mire. */
-function mesDe(mv) {
-  if (mv && mv.mes_cierre) return String(mv.mes_cierre).slice(0, 7);
-  return String((mv && (mv.fecha || mv.createdAt)) || '').slice(0, 7);
-}
 
 module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre, setRecibidoPor };

@@ -25,15 +25,13 @@ const { fechaTZ, horaNum, TZ } = require('./lib/fechas');
 /* La referencia la escribe el cliente en un formulario público. Un `<` suelto rompe el mensaje
    entero cuando Telegram lo parsea como HTML, y el aviso no llega: se escapa todo lo que venga de
    afuera. */
-const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const { escTexto: esc } = require('./lib/html');
 
 /* El interruptor. Existe porque el suite hace POST de verdad contra /chat/aviso y sin esto cada
    check mandaría un mensaje al grupo de la matriz. Se prende en test/smoke.js y en el taller. */
 const APAGADO = () => String(process.env.CHAT_AVISOS_OFF || '') === '1';
 
-const MES_LARGO = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
-  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const MES_LARGO = ['', ...require('./lib/formato').MESES];   // índice = número de mes
 /* SIEMPRE «agosto 2026», nunca «2026-08» ni «agosto» pelado. Dos formas de escribir el mismo mes
    en dos pantallas es exactamente lo que hace que nadie note que son meses distintos. */
 const mesLindo = (m) => {

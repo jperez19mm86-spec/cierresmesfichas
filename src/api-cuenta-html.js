@@ -15,9 +15,8 @@
  */
 const money = require('./lib/money');
 
-const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const { esc } = require('./lib/html');
+const { plata: n } = require('./lib/formato');
 
 const CSS = `
   body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:26px;color:#2b2230;

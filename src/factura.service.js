@@ -26,7 +26,7 @@ const money = require('./lib/money');
 const crypto = require('crypto');
 const { db } = require('./db');
 
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const { MESES } = require('./lib/formato');
 const nombreMes = (m) => {
   const [y, mm] = String(m).split('-');
   return `${MESES[Number(mm) - 1] || m} de ${y}`;
@@ -425,7 +425,7 @@ function aTexto(f0, { detalle = false } = {}) {
   const f = conUsdtPorPanel(f0);
   const L = [];
   const $ = (x) => money.fmt(x, 2);
-  const esc = (x) => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const { escTexto: esc } = require('./lib/html');
 
   L.push(`🧾 <b>${esc(f.cliente.nombre)}</b> — ${esc(f.mesNombre)}`);
   L.push('');

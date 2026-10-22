@@ -56,13 +56,7 @@ function esInterno(proveedor) {
   return FAMILIAS_INTERNAS.includes(String(partes[partes.length - 1] || '').toUpperCase());
 }
 
-const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-/** '2026-07' → 'Julio_2026'. Los meses del cierre se llaman así, no en ISO. */
-function mesCierre(iso) {
-  const [y, m] = String(iso || '').split('-');
-  return MESES[Number(m) - 1] ? `${MESES[Number(m) - 1]}_${y}` : String(iso);
-}
+const { mesCierre } = require('./lib/fechas');   // '2026-07' → 'Julio_2026'
 /** Primer y último día del mes ISO, que es lo que pide el casino. */
 function rango(iso) {
   const [y, m] = String(iso).split('-').map(Number);

@@ -12,10 +12,10 @@
 const facturasGuardadas = require('./facturas-guardadas');
 const clientes = require('./clientes-store');
 
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const { MESES } = require('./lib/formato');
 const nomMes = (m) => { const [a, b] = String(m).split('-'); const n = MESES[Number(b) - 1]; return n ? n[0].toUpperCase() + n.slice(1) + ' ' + a : m; };
 const num = (v, dec) => (v == null || v === '' ? '' : Number(v).toLocaleString('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec }));
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const { escTodo: esc } = require('./lib/html');
 // Una celda de CSV: si trae «;», comillas o saltos, va entre comillas.
 const celda = (v) => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 

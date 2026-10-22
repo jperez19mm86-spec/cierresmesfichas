@@ -26,6 +26,7 @@
 const money = require('./lib/money');
 const tcUnico = require('./tc-unico.service');
 const { mesTZ } = require('./lib/fechas');
+const { mesDe } = require('./lib/mes-de');
 
 /** Sólo el TC cargado a mano en el cierre es el definitivo; el resto es un promedio provisorio. */
 const ES_DEFINITIVO = 'cargado a mano en el cierre';
@@ -55,11 +56,9 @@ function valuar(m) {
      se mueve. Con el de la fecha pasaban dos cosas, las dos malas: dos pagos idénticos de 130.000
      al mismo cierre daban distinto (82,04 y 81,91), y el de septiembre seguía CAMBIANDO todos los
      días con el promedio del mes en curso, así que el cierre de agosto nunca terminaba de cuajar.
-     La regla es la misma que `movimientos-store.mesDe`; se repite acá porque ese módulo importa a
-     éste y no puede haber ida y vuelta. */
-  const mes = m.mes_cierre
-    ? String(m.mes_cierre).slice(0, 7)
-    : String(m.fecha || m.createdAt || '').slice(0, 7);
+     La regla vive en lib/mes-de.js, que no depende de nadie: así la usan este módulo y
+     movimientos-store sin requerirse entre ellos. */
+  const mes = mesDe(m);
   // Un PAGO en pesos se vale al cambio del trader de ese mes (el cargado a mano), no al promedio.
   const t = mes ? tcUnico.tcPagosDelMes('ARS', mes) : null;
   // `derivada` dice CUÁL de las dos caras salió de un tipo de cambio. Sin ese dato no se puede
@@ -95,7 +94,7 @@ function valuarCarga(m) {
   const local = D === 'ARS' ? m.monto_ars : m.monto_local;
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
   if (tieneUsdt || local == null || String(local) === '') return m;
-  const mes = m.mes_cierre ? String(m.mes_cierre).slice(0, 7) : String(m.fecha || m.createdAt || '').slice(0, 7);
+  const mes = mesDe(m);
   const t = mes ? tcUnico.tcDelMes(D, mes) : null;
   if (!t || !t.valor || !money.isPos(String(t.valor))) {
     return { ...m, tc_usado: null, derivada: 'monto_usdt', provisional: true, sinValuar: true };

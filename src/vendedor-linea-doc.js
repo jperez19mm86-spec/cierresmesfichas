@@ -19,10 +19,8 @@ const { db } = require('./db');
 
 const PREFIJO = 'vend:';
 
-const esc = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const n = (x, d = 2) => Number(x || 0).toLocaleString('es-AR',
-  { minimumFractionDigits: d, maximumFractionDigits: d });
+const { esc } = require('./lib/html');
+const { plata: n } = require('./lib/formato');
 
 /** Guarda (o refresca) el link de un vendedor para un mes. El token NO cambia: si ya se mandó, anda. */
 function crearLink(doc) {

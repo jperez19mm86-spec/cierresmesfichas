@@ -11,8 +11,7 @@
  */
 const money = require('./lib/money');
 
-const esc = (x) => String(x == null ? '' : x)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const { esc } = require('./lib/html');
 const $ = (x) => money.fmt(x, 2);
 
 function pagina({ factura: f0, actualizado_at, token }) {

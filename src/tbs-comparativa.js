@@ -23,8 +23,7 @@
 const tbsDiario = require('./tbs-diario-store');
 const apiStore = require('./api-store');
 
-const MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
-  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const MESES = ['', ...require('./lib/formato').MESES];   // índice = número de mes
 
 const dd = (f) => String(f).slice(8, 10);
 const nombreMes = (m) => MESES[Number(String(m).slice(5, 7))] || String(m);

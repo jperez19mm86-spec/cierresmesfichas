@@ -30,14 +30,8 @@ const tcDivisas = require('./tc-divisas.service');
 const cierre = require('./cierre-store');
 const money = require('./lib/money');
 
-const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const K = (s) => String(s || '').trim().toLowerCase();
-
-/** '2026-07' → 'Julio_2026'. Los meses del cierre se llaman así, no en ISO. */
-function mesCierre(iso) {
-  const [y, m] = String(iso || '').split('-');
-  return MESES[Number(m) - 1] ? `${MESES[Number(m) - 1]}_${y}` : String(iso);
-}
+const { mesCierre } = require('./lib/fechas');   // '2026-07' → 'Julio_2026'
 
 /** El TC cargado a mano en el cierre. Tolera cómo se escribió el mes (Julio_2026, JULIO_26…). */
 function manual(divisa, mes) {

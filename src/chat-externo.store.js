@@ -910,8 +910,7 @@ const normConcepto = (v) => (CONCEPTOS.includes(String(v || '').trim().toLowerCa
 
 /* 'YYYY-MM' → 'agosto'. A mano y no con Date: pasar 'YYYY-MM' por Date se corre de mes según la
    zona horaria, y el mes equivocado en la cara del cliente es una llamada. */
-const MESES_LARGOS = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
-  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const MESES_LARGOS = ['', ...require('./lib/formato').MESES];   // índice = número de mes
 const mesEnLetras = (m) => MESES_LARGOS[Number(String(m || '').slice(5, 7))] || String(m || '');
 
 function wallets() {
