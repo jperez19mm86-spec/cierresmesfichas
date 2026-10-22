@@ -61,12 +61,23 @@ function pintar(){
   const detalle = a ? `<details class="cajas" style="margin-top:10px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Qué incluye</summary>
       <div class="sublista">${a.cajas.map(c => `<div class="subcaja"><div class="cn">${esc(c.caja)}${c.sitio?`<small>${esc(c.sitio)}</small>`:''}</div><div class="subdatos">
         ${(c.lineas||[]).map(l => `<div><span class="k">${esc(l.k)}${l.nota ? `<br><small>${esc(l.nota)}</small>` : ''}</span><span class="v">${money(l.v)}</span></div>`).join('')}</div></div>`).join('')}</div></details>` : '';
+  const pz = D.pesos && a ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Prefiero pagar en pesos</summary>
+      <div class="card" style="margin-top:8px"><div class="mc-monto"><b>$ ${money(D.pesos.ars, 0)}</b><button class="outline small" data-copiar="${esc(String(D.pesos.ars))}">Copiar</button></div>
+        <div class="chico" style="margin-top:6px">Al dólar de ahora (${money(D.pesos.tc)}). Vale hasta hoy a las 23:59: si pagás otro día, entrá de nuevo y fijate el monto.</div>
+        <div class="mc-dir"><code>${esc(D.pesos.alias)}</code><button class="outline small" data-copiar="${esc(D.pesos.alias)}">Copiar</button></div>
+        <div class="chico" style="margin-top:6px">A nombre de ${esc(D.pesos.titular)}.</div>
+        <label style="text-transform:none;margin:12px 0 0">Subí la captura de la transferencia<input type="file" id="mc-cap" accept="image/*"></label>
+        <div class="acciones"><button id="mc-pesos" style="width:100%">Avisar que pagué</button></div>
+        <div class="chico">Los pagos en pesos se revisan a mano: te avisamos por tu grupo cuando quede acreditado.</div></div></details>` : '';
+  const cuenta = (D.cobros||[]).length ? `<details class="cajas" style="margin-top:12px"${D.abrirCuenta ? ' open' : ''}><summary class="abrir"><span class="chev" aria-hidden="true"></span>Toda tu cuenta</summary>
+      <div class="subcaja" style="margin-top:8px"><div class="subdatos">${D.cobros.map(c => `<div><span class="k">${esc(c.titulo)}<br><small>${c.estado === 'pagado' ? '✓ pagado' : c.estado === 'vencido' ? 'venció el ' + esc(dia(c.vence)) : 'vence el ' + esc(dia(c.vence))}</small></span><span class="v"${c.estado === 'vencido' ? ' style="color:var(--rosa)"' : ''}>${money(c.estado === 'pagado' ? c.exacto : c.debe)}</span></div>`).join('')}
+        <div><span class="k"><b>Debés en total</b></span><span class="v fuerte">${money(D.debeTotal)} USDT</span></div></div></div></details>` : '';
   document.getElementById('app').innerHTML = `
-    <h1>${esc(D.cliente.nombre)}</h1><div class="sub">Tu cuenta del chat</div>
+    <h1>${esc(D.cliente.nombre)}</h1><div class="sub">Tu cuenta del chat${D.debeTotal > 0.01 ? ` · debés ${money(D.debeTotal)} USDT en total` : ''}</div>
     ${a ? `<div class="totalote"><div class="k">${esc(a.titulo)} · ${a.estado === 'vencido' ? 'venció' : 'vence'} el ${esc(dia(a.vence))}</div><div class="v">${money(a.exacto)} USDT</div>
         ${a.pagado && a.debe > 0.01 ? `<div class="cuantos">Ya recibimos ${money(a.pagado)} · te faltan ${money(a.debe)}</div>` : ''}
         ${D.otros ? `<div class="cuantos">Después de este tenés ${D.otros === 1 ? 'otro pago pendiente' : D.otros + ' pagos pendientes'}: te aparece${D.otros === 1 ? '' : 'n'} acá cuando pagues este.</div>` : ''}</div>
-      ${a.estado === 'vencido' ? `<div class="nota-suave rosa" style="margin:0 0 12px">Venció el ${esc(dia(a.vence))}. Mientras tanto, en el panel del chat no vas a poder usar Publicidad, Bonos, Métricas ni Referidos. Tus jugadores y tus cargas siguen andando normal.</div>` : ''}
+      ${a.estado === 'vencido' && D.cartel ? `<div class="nota-suave rosa" style="margin:0 0 12px">Venció el ${esc(dia(a.vence))}. Mientras tanto, en el panel del chat no vas a poder usar Publicidad, Bonos, Métricas ni Referidos. Tus jugadores y tus cargas siguen andando normal.</div>` : ''}
       ${a.estado === 'pagado' ? '' : `<div class="card">
         <div style="font-weight:700">1. Elegí la red</div>
         <div class="mc-redes">${w.map(x => `<button data-red="${esc(x.red)}" aria-pressed="${x.red===red}">${esc(x.red)}</button>`).join('')}</div>
@@ -78,12 +89,13 @@ function pintar(){
         <div class="mc-dir"><code>${esc(W.direccion||'')}</code><button class="outline small" data-copiar="${esc(W.direccion||'')}">Copiar</button></div>
         <div class="chico" style="margin-top:6px">Solo USDT por la red ${esc(red)}. Si mandás por otra red, la plata se pierde.</div>
       </div>`}
-      <div class="mc-espera${a.estado==='pagado'?' ok':''}">${a.estado === 'pagado' ? '✓ ¡Listo! Recibimos tu pago. Gracias.' : `<span class="mc-punto" aria-hidden="true"></span><span>Esperando tu pago. Cuando llegue lo vas a ver acá, en unos minutos, sin mandar nada.</span>`}</div>
+      <div class="mc-espera${a.estado==='pagado'?' ok':''}">${a.estado === 'pagado' ? '✓ ¡Listo! Recibimos tu pago. Gracias.' : `<span class="mc-punto" aria-hidden="true"></span><span>${a.revisando ? 'Recibimos tu aviso de pago en pesos: lo estamos revisando y te avisamos por tu grupo.' : 'Esperando tu pago. Cuando llegue lo vas a ver acá, en unos minutos, sin mandar nada.'}</span>`}</div>
       ${a.estado === 'pagado' ? '' : `<details class="cajas"><summary class="abrir"><span class="chev" aria-hidden="true"></span>¿Ya pagaste y no aparece?</summary>
         <div class="card" style="margin-top:8px"><label style="text-transform:none;margin:0">Pegá el código de la transferencia (hash)<input id="mc-hash" placeholder="0x… o el código de Tron" autocapitalize="none"></label>
           <div class="acciones"><button id="mc-verif" style="width:100%">Revisar</button></div><div id="mc-hres"></div></div></details>`}
-      ${detalle}`
+      ${detalle}${pz}`
     : `<div class="mc-espera ok">✓ No tenés nada pendiente.</div>`}
+    ${cuenta}
     ${(D.pagados||[]).length ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Lo que ya pagaste</summary>
       <div class="subcaja" style="margin-top:8px"><div class="subdatos">${D.pagados.map(p => `<div><span class="k">${esc(p.titulo || nomMes(p.mes))} · ${esc(dia(p.t))} · ${esc(p.red)}</span><span class="v">${money(p.monto)}</span></div>`).join('')}</div></div></details>` : ''}`;
   const qr = document.getElementById('mc-qr');
@@ -94,6 +106,9 @@ document.addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.red) { red = b.dataset.red; pintar(); return; }
   if (b.dataset.copiar) { try { await navigator.clipboard.writeText(b.dataset.copiar); toast('Copiado'); } catch (_) { toast(b.dataset.copiar); } return; }
+  if (b.id === 'mc-pesos') { const f = document.getElementById('mc-cap'); if (!f.files.length) { toast('Elegí la captura primero'); return; }
+    b.disabled = true; const r = await pedir('/mi-chat/pesos', { token: D.token, doc: D.abierto.id, ars: D.pesos.ars, tc: D.pesos.tc, captura: f.files[0].name });
+    b.disabled = false; if (r.ok) { D = r.cuenta; pintar(); toast('Listo: lo revisamos y te avisamos'); } return; }
   if (b.id === 'mc-verif') {
     const h = document.getElementById('mc-hash').value.trim(), out = document.getElementById('mc-hres'); if (!h) return;
     b.disabled = true; b.textContent = 'Revisando…';

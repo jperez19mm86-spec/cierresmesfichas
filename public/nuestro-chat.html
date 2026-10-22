@@ -163,7 +163,7 @@ VIEWS.cobros = async () => {
       return plegable('co.'+r.mes+'.'+cl.id, esc(cl.nombre), `<b>${money(cl.exacto)}</b><span class="u">USDT</span>`,
         señal(c, t + extra) + (K.activo ? señal('rosa','🔒 cartel') : '') + (cl.problema ? señal('rosa', cl.problema) : ''),
         `${cl.docs.map(doc).join('')}${cartel}${envio}${rec}
-        <div class="acciones"><button class="outline small" data-copiar="${esc(cl.link)}">Copiar su link de pago</button>${cl.estado !== 'pagado' && E.enviado ? `<button class="outline small" data-recordar="${esc(cl.id)}">Mandarle un recordatorio ahora</button>` : ''}</div>`);
+        <div class="acciones"><a href="${esc(cl.ver||cl.link)}" target="_blank" rel="noopener"><button class="outline small">Ver lo que ve el cliente ↗</button></a><button class="outline small" data-copiar="${esc(cl.link)}">Copiar su link de pago</button>${cl.estado !== 'pagado' && E.enviado ? `<button class="outline small" data-recordar="${esc(cl.id)}">Mandarle un recordatorio ahora</button>` : ''}</div>`);
     }).join('')}`;
 };
 
@@ -171,7 +171,7 @@ VIEWS.cobros = async () => {
 VIEWS.pagos = async () => {
   const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Leyendo las wallets…</div>';
   const r = await api('/api/nuestro-chat/pagos'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
-  const sin = r.movs.filter(x => x.estado === 'sin-identificar'), cq = r.cuadre || {};
+  const sin = r.movs.filter(x => x.estado === 'sin-identificar'), cq = r.cuadre || {}, pz = r.pesos || [];
   const fila = (x) => `<tr><td>${fecha(x.t)}<div class="muted" style="font-size:12px">${esc(x.red)}</div></td>
     <td class="n"><b>${money(x.monto)}</b></td>
     <td>${x.estado === 'sin-identificar' ? `<b style="color:var(--rosa)">Sin identificar</b><div class="muted" style="font-size:12px">${esc(x.porque||'no coincide con ningún cobro')}</div>`
@@ -183,6 +183,13 @@ VIEWS.pagos = async () => {
       <div class="s nc-hash" title="${esc(w.direccion)}">${esc(w.direccion.slice(0,8) + '…' + w.direccion.slice(-6))}</div><div class="s">leída ${fecha(w.leido)}</div></div>`).join('')}
       <div class="nc-tile ${cq.entro === cq.registrado ? 'verde' : 'rojo'}"><div class="k">¿Cuadra ${esc(MESES[Number(String(cq.mes).slice(5))-1]||'')}?</div><div class="v">${cq.entro === cq.registrado ? '✓ Sí' : '✗ No'}</div>
         <div class="s">entró ${money(cq.entro)} · de cobros ${money(cq.registrado)}</div></div></div>
+    ${pz.length ? `<div class="card"><div class="tapa"><h2 style="font-size:15px">Pagos en pesos para revisar</h2></div>
+      <div class="muted" style="font-size:12.5px;margin:4px 0 8px">Los pesos no se pueden leer solos: mirá la captura contra la cuenta y aprobalo. Se acredita al cambio que vio el cliente cuando pagó.</div>
+      ${pz.map(x => `<div class="subcaja" style="margin-bottom:8px"><div class="nc-caja-h"><b>${esc(x.cliente)}</b><span class="muted">${esc(x.que)} · ${fecha(x.t)}</span></div>
+        <div class="subdatos"><div><span class="k">Mandó</span><span class="v fuerte">$ ${money(x.ars,0)}</span></div>
+          <div><span class="k">Al cambio de ese momento (${money(x.tc,2)})</span><span class="v">${usdt(x.usdt)}</span></div>
+          <div><span class="k">A la cuenta</span><span class="v">${esc(x.alias)}</span></div></div>
+        <div class="acciones"><button class="small" data-pesos-ok="${esc(x.id)}">Aprobar</button><button class="outline small" data-pesos-no="${esc(x.id)}">Rechazar</button><span class="muted" style="font-size:12.5px">📎 ${esc(x.captura)}</span></div></div>`).join('')}</div>` : ''}
     ${sin.length ? `<div class="nota-suave rosa" style="margin:0 0 12px"><b>${sin.length === 1 ? 'Una transferencia no coincide' : sin.length + ' transferencias no coinciden'} con ningún cobro.</b> Tocá «Asignar…» y elegí de quién es.</div>` : ''}
     <div class="card" style="padding:6px 10px"><table class="nc-tabla"><thead><tr><th>Cuándo</th><th class="n">USDT</th><th>De quién</th><th class="opc">Transferencia</th><th></th></tr></thead>
       <tbody>${sin.concat(r.movs.filter(x => x.estado !== 'sin-identificar')).map(fila).join('') || '<tr><td colspan="5" class="muted">Todavía no entró nada.</td></tr>'}</tbody></table></div>
@@ -243,11 +250,13 @@ VIEWS.clientes = async () => {
   const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Cargando…</div>';
   const r = await api('/api/nuestro-chat/clientes'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
   const opc = (v, lista) => lista.map(([k,l]) => `<option value="${k}"${String(v)===String(k)?' selected':''}>${l}</option>`).join('');
-  const caja = (cl, c) => `<div class="subcaja" data-caja="${esc(c.id)}" data-cliente="${esc(cl.id)}"><div class="nc-caja-h"><b>${esc(c.caja)}</b><span class="muted">${esc(c.sitio||'sin sitio')}</span>${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}${c.activa?'':señal('gris','dada de baja')}</div>
+  const caja = (cl, c) => `<div class="subcaja" data-caja="${esc(c.id)}" data-cliente="${esc(cl.id)}"><div class="nc-caja-h"><b>${esc(c.caja)}</b><span class="muted">${esc(c.sitio||'sin sitio')}</span>${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}${c.activa?'':señal('gris','dada de baja')}${c.activa && !c.desde?señal('durazno','sin empezar'):''}</div>
+    ${c.activa && !c.desde ? `<div class="nota-suave" style="margin:0 0 8px">Todavía no empezó: no se le cobra nada. Cuando el chat quede andando, tocá «Empezó hoy» (o poné la fecha) y ahí sale el cobro de la entrada, que vence a los 5 días.
+      <div class="acciones" style="margin-top:8px"><button class="small" data-empezo>Empezó hoy</button></div></div>` : ''}
     <div class="nc-form">
       <label>Caja en Imperia<input data-k="caja" value="${esc(c.caja)}"></label>
       <label>Sitio del chat<input data-k="sitio" value="${esc(c.sitio||'')}" placeholder="casinozeuschat.net"></label>
-      <label>Desde<input type="date" data-k="desde" value="${esc(c.desde)}"></label>
+      <label>Empezó a funcionar<input type="date" data-k="desde" value="${esc(c.desde||'')}"></label>
       <label>Entrada (una vez)<select data-k="entrada">${opc(c.entrada, [[200,'200 USD (ese mes sin mantenimiento)'],[0,'No se cobra']])}</select></label>
       <label>Mantenimiento (USD por mes)<input type="number" min="0" step="1" data-k="mant" value="${esc(c.mant)}"></label>
       <label>% de la ganancia<input type="number" min="1" max="4" step="0.5" data-k="pct" value="${esc(c.pct)}"></label>
@@ -255,14 +264,15 @@ VIEWS.clientes = async () => {
     ${c.entradaCobrada ? `<div class="muted" style="font-size:12.5px;margin-top:6px">La entrada ya se cobró el ${dia(c.entradaCobrada)}.</div>` : ''}
     <div class="acciones"><button class="small" data-guardar>Guardar</button>${c.activa ? '<button class="outline small" data-baja>Dar de baja</button>' : ''}</div></div>`;
   m.innerHTML = `
-    <div class="muted" style="margin:0 0 12px">Cada caja tiene sus condiciones. Lo que cambies vale desde el cobro que viene; lo ya cobrado no se toca. Al sumar una caja con entrada, el cobro de la entrada sale en el momento.</div>
+    <div class="muted" style="margin:0 0 12px">Cada caja tiene sus condiciones. Lo que cambies vale desde el cobro que viene; lo ya cobrado no se toca. Una caja nueva queda «sin empezar» hasta que marques el día que empezó a funcionar: desde ese día corre todo, y la entrada vence a los 5 días.</div>
     ${r.clientes.map(cl => plegable('cl.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${esc(cl.codigo)}</small>`,
       `<b>${cl.cajas.filter(c=>c.activa).length}</b><span class="u">${cl.cajas.filter(c=>c.activa).length===1?'caja':'cajas'}</span>`,
       (cl.tg ? '' : señal('durazno','sin grupo de Telegram','Sin grupo no le llega el cobro: cargalo abajo')) + (cl.cajas.some(c => c.pct !== 2) ? señal('gris', 'al ' + [...new Set(cl.cajas.map(c => money(c.pct,1).replace(',0','')))].join(' / ') + ' %') : ''),
       `<div class="nc-form" style="margin-bottom:10px"><label>Grupo de Telegram (id)<input data-tg="${esc(cl.id)}" value="${esc(cl.tg||'')}" placeholder="-100…"></label>
+         <label>Puede pagar en pesos<select data-pesos="${esc(cl.id)}">${opc(cl.pesos ? 1 : 0, [[0,'No, solo USDT'],[1,'Sí, también en pesos']])}</select></label>
          <label>Su link de pago<input readonly value="${esc(cl.link)}" data-sel></label></div>
        <div class="sublista">${cl.cajas.map(c => caja(cl, c)).join('')}</div>
-       <div class="acciones"><button class="outline small" data-nueva="${esc(cl.id)}">+ Agregar caja</button><button class="outline small" data-guardar-tg="${esc(cl.id)}">Guardar el grupo</button></div>`)).join('')}
+       <div class="acciones"><button class="outline small" data-nueva="${esc(cl.id)}">+ Agregar caja</button><button class="outline small" data-guardar-tg="${esc(cl.id)}">Guardar el grupo y los pesos</button><a href="${esc(cl.ver||cl.link)}" target="_blank" rel="noopener"><button class="outline small">Ver lo que ve el cliente ↗</button></a></div>`)).join('')}
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Sumar un cliente</h2></div>
       <div class="nc-form"><label>Cliente del OS<select id="nc-nuevo">${opc('', [['','Elegí…']].concat((r.disponibles||[]).map(x => [x.id, esc(x.nombre)])))}</select></label></div>
       <div class="acciones"><button data-sumar>Sumar</button></div></div>`;
@@ -277,6 +287,9 @@ VIEWS.config = async () => {
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Las wallets del chat</h2></div>
       <div class="muted" style="font-size:13px;margin-top:4px">Solo la dirección pública: el sistema las lee para ver qué entró, nunca tiene sus claves. Son solo para el chat: si entra otra plata, no cuadra.</div>
       <div class="nc-form"><label>TRC20 (Tron)<input id="cf-trc" value="${esc(c.trc20||'')}" placeholder="T…"></label><label>BEP20 (BNB Chain)<input id="cf-bep" value="${esc(c.bep20||'')}" placeholder="0x…"></label></div></div>
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">Pagos en pesos</h2></div>
+      <div class="muted" style="font-size:13px;margin-top:4px">Solo para los clientes que tengan «puede pagar en pesos». El link le muestra cuántos pesos son al dólar de ese momento (Binance), que vale ese día; después lo aprobás vos con la captura.</div>
+      <div class="nc-form"><label>Alias o CVU<input id="cf-alias" value="${esc(c.alias||'')}" placeholder="lgchat.pagos"></label><label>Titular<input id="cf-titular" value="${esc(c.titular||'')}"></label></div></div>
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Para cajas nuevas</h2></div>
       <div class="nc-form"><label>Entrada (USD)<input id="cf-entrada" type="number" value="${esc(c.entrada)}"></label><label>Mantenimiento (USD por mes)<input id="cf-mant" type="number" value="${esc(c.mant)}"></label>
         <label>% de la ganancia<input id="cf-pct" type="number" step="0.5" min="1" max="4" value="${esc(c.pct)}"></label></div></div>
@@ -284,7 +297,9 @@ VIEWS.config = async () => {
       <div class="nc-form"><label>Se arma el día<input type="number" value="1" disabled></label><label>Sale solo (horas después)<input id="cf-espera" type="number" min="0" value="${esc(c.esperaHoras)}"></label>
         <label>Vence el día<input id="cf-vence" type="number" min="1" max="28" value="${esc(c.venceDia)}"></label><label>Recordatorios (días del mes)<input id="cf-rec" value="${esc((c.recordatorios||[]).join(', '))}"></label>
         <label style="grid-column:1/-1">Lo que dice el cartel en el panel<input id="cf-cartel" maxlength="140" value="${esc(c.cartelTexto)}"></label></div>
-      <div class="muted" style="font-size:12.5px;margin-top:6px">El cartel aparece al día siguiente del vencimiento y solo en Publicidad, Bonos, Métricas y Referidos. Los chats, las cargas y los retiros no se tocan nunca.</div></div>
+      <div class="muted" style="font-size:12.5px;margin-top:6px">El cartel aparece al día siguiente del vencimiento y solo en Publicidad, Bonos, Métricas y Referidos, con un aviso que salta cada 30 minutos. Los chats, las cargas y los retiros no se tocan nunca.</div></div>
+    <div class="card"><div class="tapa"><h2 style="font-size:15px">El cambio</h2></div>
+      <div class="muted" style="font-size:13px;margin-top:4px">La ganancia de una caja en pesos, guaraníes u otra moneda se pasa a dólares con el <b>promedio del mes</b> de esa moneda (el mismo de Tipos de cambio, que sale de Binance). Si falta, ese cobro no sale hasta que lo cargues.</div></div>
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Reparto</h2></div>
       <div class="nc-form"><label>Nombre de tu programador<input id="cf-prog" value="${esc(c.programador)}"></label><label>Su parte (%)<input id="cf-reparto" type="number" min="0" max="100" value="${esc(c.repartoProg)}"></label>
         <label>Se reparte<select id="cf-rbase"><option value="neto"${c.repartoBase==='neto'?' selected':''}>lo que queda después de los gastos</option><option value="bruto"${c.repartoBase==='bruto'?' selected':''}>todo lo que entró (cada uno se queda con los gastos que pagó)</option></select></label></div></div>
@@ -302,6 +317,8 @@ document.addEventListener('click', async (e) => {
   if (b.dataset.prorroga) { const f = document.querySelector('[data-prorroga-f="' + CSS.escape(b.dataset.prorroga) + '"]').value; if (!f) { toast('Elegí hasta qué día'); return; }
     const r = await post('/api/nuestro-chat/cobros/prorroga', { cliente:b.dataset.prorroga, hasta:f }); if (r.ok) { toast('Sin cartel hasta el ' + dia(f)); VIEWS.cobros(); } return; }
   if (b.dataset.prorrogaQuitar) { const r = await post('/api/nuestro-chat/cobros/prorroga', { cliente:b.dataset.prorrogaQuitar, hasta:null }); if (r.ok) { toast('Prórroga sacada'); VIEWS.cobros(); } return; }
+  if (b.dataset.pesosOk || b.dataset.pesosNo) { const id = b.dataset.pesosOk || b.dataset.pesosNo, si = !!b.dataset.pesosOk;
+    const r = await post('/api/nuestro-chat/pesos/' + encodeURIComponent(id) + '/' + (si ? 'aprobar' : 'rechazar'), {}); if (r.ok) { toast(si ? 'Aprobado: se le avisa al cliente' : 'Rechazado: se le avisa al cliente'); VIEWS.pagos(); } return; }
   if (b.dataset.asignar) {   // en el mismo renglón: la lista de los que deben, y Asignar
     const r0 = await api('/api/nuestro-chat/cobros/abiertos'); const td = b.closest('td');
     td.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap"><select data-asig-sel>${(r0.abiertos||[]).map(x => `<option value="${esc(x.doc)}">${esc(x.nombre)} · ${esc(x.titulo)} · debe ${money(x.debe)}</option>`).join('')}</select>
@@ -330,13 +347,15 @@ document.addEventListener('click', async (e) => {
   if (b.dataset.baja !== undefined) { const box = b.closest('[data-caja]');
     if (b.dataset.seguro !== '1') { b.dataset.seguro = '1'; b.textContent = '¿Seguro? Tocá de nuevo'; setTimeout(() => { b.dataset.seguro = ''; b.textContent = 'Dar de baja'; }, 3000); return; }
     const r = await post('/api/nuestro-chat/cajas/' + encodeURIComponent(box.dataset.caja) + '/baja', {}); if (r.ok) { toast('Dada de baja: el mes ya pagado no se devuelve'); VIEWS.clientes(); } return; }
+  if (b.dataset.empezo !== undefined) { const box = b.closest('[data-caja]'); const r = await post('/api/nuestro-chat/cajas/' + encodeURIComponent(box.dataset.caja) + '/empezo', { cliente: box.dataset.cliente, fecha: hoyISO() });
+    if (r.ok) { toast('Empezó hoy: salió el cobro de la entrada'); VIEWS.clientes(); } return; }
   if (b.dataset.nueva) { const r = await post('/api/nuestro-chat/cajas', { cliente: b.dataset.nueva, nueva: true }); if (r.ok) { _ab.add('cl.' + b.dataset.nueva); VIEWS.clientes(); } return; }
-  if (b.dataset.guardarTg) { const i = document.querySelector('[data-tg="' + CSS.escape(b.dataset.guardarTg) + '"]'); const r = await post('/api/nuestro-chat/clientes/' + encodeURIComponent(b.dataset.guardarTg), { tg: i.value.trim() }); if (r.ok) { toast('Grupo guardado'); VIEWS.clientes(); } return; }
+  if (b.dataset.guardarTg) { const i = document.querySelector('[data-tg="' + CSS.escape(b.dataset.guardarTg) + '"]'); const pz = document.querySelector('[data-pesos="' + CSS.escape(b.dataset.guardarTg) + '"]'); const r = await post('/api/nuestro-chat/clientes/' + encodeURIComponent(b.dataset.guardarTg), { tg: i.value.trim(), pesos: pz.value === '1' }); if (r.ok) { toast('Grupo guardado'); VIEWS.clientes(); } return; }
   if (b.dataset.sumar !== undefined) { const v = document.getElementById('nc-nuevo').value; if (!v) { toast('Elegí el cliente'); return; } const r = await post('/api/nuestro-chat/clientes', { cliente: v }); if (r.ok) { _ab.add('cl.' + v); VIEWS.clientes(); } return; }
   if (b.dataset.guardarCfg !== undefined) {
     const v = (id) => document.getElementById(id).value.trim();
     if (!(Number(v('cf-pct')) >= 1 && Number(v('cf-pct')) <= 4)) { toast('El % va entre 1 y 4'); return; }
-    const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), entrada: v('cf-entrada'), mant: v('cf-mant'), pct: v('cf-pct'), esperaHoras: v('cf-espera'), venceDia: v('cf-vence'), recordatorios: v('cf-rec'), cartelTexto: v('cf-cartel'), programador: v('cf-prog'), repartoProg: v('cf-reparto'), repartoBase: v('cf-rbase') });
+    const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), entrada: v('cf-entrada'), mant: v('cf-mant'), pct: v('cf-pct'), esperaHoras: v('cf-espera'), venceDia: v('cf-vence'), recordatorios: v('cf-rec'), cartelTexto: v('cf-cartel'), alias: v('cf-alias'), titular: v('cf-titular'), programador: v('cf-prog'), repartoProg: v('cf-reparto'), repartoBase: v('cf-rbase') });
     if (r.ok) toast('Guardado'); return; }
 });
 document.addEventListener('change', (e) => {
