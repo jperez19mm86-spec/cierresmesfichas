@@ -8,7 +8,7 @@
  */
 const fs = require('fs'); const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../public/os.html'), 'utf8');
-const rutas = fs.readFileSync(path.join(__dirname, '../src/os.routes.js'), 'utf8');
+const rutas = require('./lib/texto-rutas')();
 let ok = 0, fail = 0;
 const check = (t, c, x) => { if (c) { ok++; console.log('✅ ' + t); } else { fail++; console.log('❌ ' + t + (x ? '  → ' + x : '')); } };
 console.log('\n🗂 guardar la ficha no borra nada\n');

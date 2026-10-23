@@ -889,7 +889,7 @@ async function main() {
     }
 
     // Se anota DESPUÉS de mandarla: una descarga que se cortó no cuenta como copia hecha.
-    const hOs = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const hOs = require('./lib/texto-rutas')();
     check('backup: la fecha se anota recién cuando la descarga terminó',
       /res\.on\('finish', \(\) => \{ try \{ backup\.registrar\(snap\)/.test(hOs));
     // El error va en texto plano: navegando, un JSON de error se bajaría como archivo y parecería
@@ -1186,7 +1186,7 @@ async function main() {
     cs.removeMonedaTC(MON); cs.removeMonedaTC(MON2);
 
     // La ruta ya NO pasa forzar en true fijo: lo manda la pantalla, y sólo con un sí explícito.
-    const hOs = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const hOs = require('./lib/texto-rutas')();
     check('cierre: la ruta del TC ya no saltea el control',
       /const forzar = !!\(req\.body \|\| \{\}\)\.forzar;/.test(hOs)
       // El 5º argumento (`true`) es otra cosa: dice que lo escribió una PERSONA. El que no puede
@@ -1375,7 +1375,7 @@ async function main() {
      botón que emite a los 45 juntos, no viajaban y la factura salía igual. */
   {
     const srcExt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'externos.service.js'), 'utf8');
-    const srcRt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const srcRt = require('./lib/texto-rutas')();
     const srcUi = FUENTE_PANEL();
     const srcFac = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'factura-html.js'), 'utf8');
 
@@ -1534,7 +1534,7 @@ async function main() {
     check('árbol: se puede mirar qué cambiaría sin escribir nada',
       /if \(!dry\) \{\s*\n\s*paneles\.setJerarquia/.test(srcArb) && /dry: !!dry/.test(srcArb));
 
-    const srcRt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const srcRt2 = require('./lib/texto-rutas')();
     /* ── LA SESIÓN DEL CASINO SE REUSA ───────────────────────────────────────────────────────
        El motor deja UNA sesión por usuario, y las dos conexiones de lectura van con la cuenta de
        la dueña (a ese nivel no hay api_token). Cuando `client()` devolvía uno nuevo cada vez, cada
@@ -1781,7 +1781,7 @@ async function main() {
 
     /* La ruta va aparte de `saveCliente` a propósito: aquélla reescribe login, agente y notas con
        lo que venga en el cuerpo, así que mandarle sólo el nombre los borraría. */
-    const srcRt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const srcRt4 = require('./lib/texto-rutas')();
     check('nombre TBS: se guarda por su propia ruta, no por la que reescribe toda la cuenta',
       /app\.put\('\/api\/os\/api\/clientes\/:id\/nombre'/.test(srcRt4)
       && /apiStore\.setDeQuien/.test(srcRt4)
@@ -1928,7 +1928,7 @@ async function main() {
     apiSt2.removeCliente(CID);
 
     // La ruta del documento tiene su propio cinturón: esto sale a un cliente y no hay vuelta atrás.
-    const srcRt5 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const srcRt5 = require('./lib/texto-rutas')();
     check('oferta: la ruta del documento frena si detecta un dato interno',
       /el documento traía datos internos: NO se generó/.test(srcRt5));
     /* TBS dejó de vivir adentro de os.html el 6-sep-2026: su barra está en tbs.html y sus
@@ -2765,7 +2765,7 @@ async function main() {
 
     check('chat: el aviso de mantenimiento nombra la caja igual que la cuenta del mes',
       /soloDominio\(cajaAv && cajaAv\.link_jugadores\) \|\| b\.panel/.test(
-        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8')));
+        require('./lib/texto-rutas')()));
     check('chat: soloDominio saca el esquema, el www y la barra',
       chDoc.soloDominio('https://www.Ganamos-PY.com/') === 'Ganamos-PY.com'
       && chDoc.soloDominio('') === '' && chDoc.soloDominio(null) === '');
@@ -2981,7 +2981,7 @@ async function main() {
        salida NO puede ser anular el pago: anular mueve el saldo y pierde el historial. Se reenvía. */
     check('reenvío: los avisos ya resueltos se pueden ver y volver a mandar',
       (() => {
-        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const rt = require('./lib/texto-rutas')();
         const o = FUENTE_PANEL();
         return /avisos\/:id\/avisar-proveedor/.test(rt)
           && /avisosResueltos: chat\.avisosResueltos/.test(rt)
@@ -2989,7 +2989,7 @@ async function main() {
       })());
     check('reenvío: sólo del mantenimiento —el % lo pagás vos y se avisa al registrarlo—',
       /ese aviso no es del mantenimiento/.test(
-        require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8')));
+        require('./lib/texto-rutas')()));
     check('reenvío: y la lista de resueltos trae de qué era y qué cajas',
       (() => {
         const r = ch.avisosResueltos(5);
@@ -3072,7 +3072,7 @@ async function main() {
       })());
     check('mantenimiento: se le reenvía al aprobar, y DESPUÉS de contestar',
       (() => {
-        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const rt = require('./lib/texto-rutas')();
         return /av\.concepto === 'mantenimiento'/.test(rt)
           && /res\.on\('finish'[\s\S]{0,220}avisarMantenimientoCobrado/.test(rt)
           // y el aviso se lee ANTES de resolverlo: al aprobarlo cambia de estado
@@ -3150,7 +3150,7 @@ async function main() {
     check('chat: y el mensaje manda al portal, con el usuario de siempre',
       /Todo el detalle y adónde pagar:\nhttps:\/\/x\/chat\nIngresá con tu usuario de siempre\./.test(tgLink),
       'un token suelto en un grupo de Telegram muestra un mes viejo si se abre en diciembre');
-    const rutaEnv = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutaEnv = require('./lib/texto-rutas')();
     check('chat: la ruta que manda le pasa el portal y las cajas, no el token',
       /textoTelegram\(mes, movsTg, portal, cajasTg,\s*\n\s*chat\.comoPagar\([^)]*\), dv\)/.test(rutaEnv));
     /* ── LOS TRES CHOQUES DE MANDAR DOS DEL MISMO MES ────────────────────────────────────────
@@ -3169,7 +3169,7 @@ async function main() {
       'si el de guaraníes salía y el de pesos fallaba, quedaba como que no salió nada');
     check('divisa: la hoja se puede pedir de UNA cuenta, y suma caja por caja',
       (() => {
-        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const rt = require('./lib/texto-rutas')();
         return /_hojaCliente\(mes, clienteId, divisa\)/.test(rt)
           // ⚠️ re-suma `cobra` panel por panel: recalcular el % de la ganancia junta da un centavo
           // distinto por el redondeo de cada caja, y la hoja deja de cerrar contra su detalle.
@@ -3182,7 +3182,7 @@ async function main() {
        742,10 abajo, y el que la lee no tiene forma de saber cuál de los dos es el suyo. */
     check('divisa: la hoja de una cuenta cierra consigo misma, no con el total del cliente',
       (() => {
-        const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+        const rt = require('./lib/texto-rutas')();
         const ix = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'index.js'), 'utf8');
         return /saldo: _saldoDe\(todo, dvP\)/.test(rt) && /cobradoMes: _cobradoDe\(esteMes, dvP\)/.test(rt)
           && /movsMes: _movsDe\(esteMes, dvP\)/.test(rt)
@@ -3552,7 +3552,7 @@ async function main() {
       '«te pagué 1.050» sin decir de qué ni adónde obliga a preguntar las dos cosas');
     check('proveedor: sin grupo cargado no se manda, y se dice por qué',
       (() => { ch.setProveedorAcceso({ grupo: '' }); return true; })());
-    const rutasPP = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutasPP = require('./lib/texto-rutas')();
     check('proveedor: el aviso sale DESPUÉS de registrar el pago',
       /res\.on\('finish'[\s\S]{0,200}avisarPagoAlProveedor/.test(rutasPP),
       'que Telegram falle no puede hacer que la pantalla diga que no se guardó');
@@ -3763,7 +3763,7 @@ async function main() {
       && provDoc.pagos.every((x) => 'fecha' in x && 'destino' in x && 'concepto' in x));
     check('proveedor: puede mirar meses anteriores',
       Array.isArray(ch.mesesDelProveedor()));
-    const rutasSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutasSrc = require('./lib/texto-rutas')();
     check('proveedor: la ruta tiene un cinturón que frena una respuesta con datos internos',
       /_sinMargen/.test(rutasSrc) && /se frenó una respuesta que llevaba datos internos/.test(rutasSrc));
     const provHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'proveedor.html'), 'utf8');
@@ -4382,7 +4382,7 @@ async function main() {
     check('chat: cada pantalla del espacio elige sus tarjetas de un solo lugar',
       /const SUB_CHAT = \{/.test(uiCh) && /cuentas: \['cierre','cuenta'\]/.test(uiCh));
     // El espacio de adentro pide login; /chat (sin guión) es el portal público del cliente.
-    const rutasCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutasCh = require('./lib/texto-rutas')();
     const authCh = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'auth.js'), 'utf8');
     /* Se mira la LISTA DE RUTAS PÚBLICAS, no el archivo entero: auth.js ahora hace un require de
        chat-externo.store para leer el acceso del proveedor, y buscar el texto suelto hacía saltar
@@ -4710,7 +4710,7 @@ async function main() {
     check('tbs diario: dice qué días ya están', tbsd.diasCapturados('2020-01').join() === dia);
     // La captura ya no pide ni guarda el total del árbol: 53 monedas por día de cuentas que no son
     // nuestras, para una pregunta que es sobre nuestros clientes.
-    const rtT = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rtT = require('./lib/texto-rutas')();
     check('tbs diario: la captura no guarda el total del árbol',
       !/agente_id: 'TOTAL'/.test(rtT));
     check('tbs diario: se puede borrar un día para rehacerlo', tbsd.borrarDia(dia) >= 1
@@ -4733,12 +4733,12 @@ async function main() {
     check('tbs diario: el tiempo sale de lo medido, no de una constante',
       tbsd.msPromedio() === 3000, 'promedio=' + tbsd.msPromedio());
     tbsd.borrarDia('2020-01-02');
-    const rtP = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rtP = require('./lib/texto-rutas')();
     check('tbs diario: el plan estima con el promedio medido',
       /const ms = tbsDiario\.msPromedio\(\);/.test(rtP)
       && /segundos_estimados: ms \? Math\.ceil\(\(faltan\.length \* ms\) \/ 1000\) : null/.test(rtP));
     // No se piden días que todavía no pasaron: vendrían vacíos y habría que rehacerlos.
-    const rt4 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rt4 = require('./lib/texto-rutas')();
     check('tbs diario: el plan no pide días del futuro',
       /Math\.min\(ult, hoy\)/.test(rt4));
     // La captura vive en el SERVICIO: el cron nocturno y el botón piden lo mismo, y dos copias de
@@ -4927,7 +4927,7 @@ async function main() {
       !!conMov && conMov.acreditado != null && !!conMov.acreditado_moneda,
       JSON.stringify(conMov ? { dec: conMov.monto, acr: conMov.acreditado, mon: conMov.acreditado_moneda } : null));
     // En la moneda en que PAGÓ: comparar 205.000 contra 300.000 es inmediato; contra USDT no.
-    const rt3 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rt3 = require('./lib/texto-rutas')();
     check('comprobantes: lo acreditado viene en la moneda del comprobante',
       /const enUsdt = c\.via === 'usdt';[\s\S]{0,200}const propio = enUsdt \? m\.monto_usdt : m\.monto_ars/.test(rt3));
     const h8 = FUENTE_PANEL();
@@ -5068,7 +5068,7 @@ async function main() {
     check('limpiar espejos: sólo borra lo que tiene par del lado principal',
       /AND EXISTS \(SELECT 1 FROM reporte_diario p WHERE p\.conexion_id=\?/.test(rd)
       && /sinPar: total - conPar/.test(rd));
-    const rt2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rt2 = require('./lib/texto-rutas')();
     check('limpiar espejos: la ruta exige confirmar:true para borrar',
       /const simular = !\(\(req\.body \|\| \{\}\)\.confirmar === true\)/.test(rt2));
     // Y de punta a punta: sin confirmar no puede borrar nada.
@@ -5196,7 +5196,7 @@ async function main() {
       check('cuenta del cliente: lo cargado sale del pedido, no de dividir el fee',
         /pedidos\.get\(m\.pedido_id\)/.test(idx3));
       // El saldo anterior se explica solo: "deuda antes de 08/26", sin fecha ni jerga interna.
-      const rt = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+      const rt = require('./lib/texto-rutas')();
       // Se mira lo que se ASIGNA, no el texto del archivo: el comentario de al lado cita la
       // etiqueta vieja justamente para explicar por qué cambió, y buscarla ahí daría rojo siempre.
       check('saldo anterior: la etiqueta dice el período, no jerga interna',
@@ -5655,7 +5655,7 @@ async function main() {
     check('API/matriz: se puede vaciar', cfg.getApiGrupoMatriz() === '');
     // La regla que importa: mandar al cliente tiene que ser un pedido EXPLÍCITO. Si alcanzara con
     // que el cliente tenga grupo cargado, cargarle el grupo a alguien lo pondría a recibir facturas.
-    const src = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const src = require('./lib/texto-rutas')();
     check('API/matriz: al cliente sólo con al_cliente === true', /const alCliente = b\.al_cliente === true;/.test(src));
     check('API/matriz: la matriz entra sola cuando está cargada', /if \(matriz\) destinos\.push/.test(src));
     check('API/matriz: no se manda dos veces si el cliente ES la matriz', /chatCli !== matriz/.test(src));
@@ -6244,7 +6244,7 @@ async function main() {
     const tc = require('../src/tc-unico.service');
     check('cierre: el dólar no necesita TC del proveedor',
       tc.tcDelMes('USD', '2026-08').valor === '1' && tc.tcDelMes('USDT', '2026-08').valor === '1');
-    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const pasos = rutas.slice(rutas.indexOf("app.get('/api/os/cierre/pasos/:mes'"),
       rutas.indexOf("app.get('/api/os/validacion/:mes'"));
     check('cierre: el aviso de TC sale de tcDelMes, no de la tabla en crudo',
@@ -6284,7 +6284,7 @@ async function main() {
      de agosto quedaron con el viejo, y la única forma de actualizarlas era re-emitir el mes, que
      toca la deuda. Ahora se rehacen solas, sin tocar un movimiento. */
   {
-    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const reg = rutas.slice(rutas.indexOf("app.post('/api/os/facturas-guardadas/:mes/regenerar'"),
       rutas.indexOf('// El historial de facturas de un cliente'));
     check('facturas: se pueden regenerar las de un mes sin tocar la deuda',
@@ -6370,7 +6370,7 @@ async function main() {
       /const mes = _facCtx\.mes/.test(env) && !/val\('fac-mes'\)/.test(env));
     check('factura: sin mes no manda nada',
       /if \(!mes\) return toast/.test(env));
-    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const ruta = rutas.slice(rutas.indexOf("app.post('/api/os/factura/:clienteId/enviar'"),
       rutas.indexOf("app.post('/api/os/factura/:clienteId/enviar'") + 900);
     check('factura: el servidor tampoco cae al mes actual al enviar',
@@ -6529,7 +6529,7 @@ async function main() {
       /primero hay que emitirlo/.test(String(pv && pv.detalle)), String(pv && pv.detalle));
 
     // El grupo interno es una configuración más, no un id escrito en el código.
-    const rutasE = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutasE = require('./lib/texto-rutas')();
     check('envío interno: el grupo sale de la configuración, no está escrito en el código',
       /tgChatInterno/.test(rutasE) && !/-5461524792/.test(rutasE),
       'un chatId pegado en el código no se puede cambiar sin un deploy');
@@ -6557,7 +6557,7 @@ async function main() {
      nombre del chico, así que la cuenta quedaba partida: el consumo en uno y los proveedores en
      el otro. Y como la deuda lleva un solo renglón por cliente y mes, hay que SUMARLOS. */
   {
-    const rutasFA = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutasFA = require('./lib/texto-rutas')();
     const emi = rutasFA.slice(rutasFA.indexOf("app.post('/api/os/emision/externos'"),
       rutasFA.indexOf("app.post('/api/os/emision/vendedores'"));
     check('externos: la emisión respeta factura_a',
@@ -6670,7 +6670,7 @@ async function main() {
       /A este cliente SÍ se le cobran los internos/.test(h12),
       'es al revés de la regla general: sin decirlo, el número no se entiende');
     // Y el campo llega a la pantalla desde la ficha.
-    const r2 = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const r2 = require('./lib/texto-rutas')();
     check('internos: la excepción viaja en la ficha del cliente',
       /internos_se_cobran: !!c\.internos_se_cobran/.test(r2));
   }
@@ -6686,7 +6686,7 @@ async function main() {
       JSON.stringify(x.data).slice(0, 80));
     x = await get('/api/os/emision/externos/2026-1/simular');
     check('simular: un mes mal escrito se rechaza', x.status === 400);
-    const rs = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rs = require('./lib/texto-rutas')();
     const sim = rs.slice(rs.indexOf("app.get('/api/os/emision/externos/:mes/simular'"),
       rs.indexOf("app.get('/api/os/emision/detalle/:mes'"));
     check('simular: no escribe: ni emite, ni anula, ni guarda',
@@ -6748,7 +6748,7 @@ async function main() {
     check('pagos: el total de arriba también sigue al filtro',
       /filtrado por «/.test(h15), 'un total que no coincide con la tabla que está abajo es peor que no tenerlo');
     // Y la lista de meses dice cuánto entró, no sólo cuántos pagos.
-    const rp = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rp = require('./lib/texto-rutas')();
     check('pagos: cada mes muestra lo que entró en pesos y en USDT',
       /meses\[k\] = meses\[k\] \|\| \{ pagos: 0, ars: '0', usdt: '0' \}/.test(rp),
       '«54 pagos» no dice si fueron 13 millones o 300 mil');
@@ -6760,7 +6760,7 @@ async function main() {
      caja creada en Fichas no aparecía en el OS, así que no entraba ni en la Foto ni en la factura
      de externos. Se atan por (userId, sistema), que es lo que identifica la cuenta en el casino. */
   {
-    const ro = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const ro = require('./lib/texto-rutas')();
     const esp6 = fs.readFileSync(path.join(ROOT, 'src', 'cuenta-espejo.js'), 'utf8');
     check('cajas: cambiar el panel en el OS actualiza la caja, no sólo la crea',
       /clientes\.updateCaja\(a, ya\.id, \{ usuario: login, divisas: p\.divisas \}\)/.test(esp6),
@@ -6802,7 +6802,7 @@ async function main() {
        y el cliente puede pedir en una que su caja no acepta. */
     check('divisas: la regla marca las que sobran por nivel',
       /deMasPorNivel: variasSinPoder/.test(ps));
-    const ro2 = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const ro2 = require('./lib/texto-rutas')();
     check('divisas: un panel que no es SuperAgente no puede guardar varias',
       /function _revisarDivisas\(body, actual\)/.test(ro2)
       && /maneja UNA sola moneda/.test(ro2));
@@ -6917,7 +6917,7 @@ async function main() {
     check('pagos: el encabezado del Excel nombra la moneda que corresponde',
       /const recibido = 'Recibido \(' \+ \(via==='cvu' \? 'ARS' : 'USDT'\)/.test(csv));
     // Y lo que sale de verdad para afuera, del lado del servidor, sigue sin nombres.
-    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const env = rutas.slice(rutas.indexOf("app.post('/api/os/pagos/:mes/enviar'"),
       rutas.indexOf("app.post('/api/os/pagos/:mes/enviar'") + 1800);
     check('pagos: el resumen al grupo va sólo con fecha y monto',
@@ -6978,7 +6978,7 @@ async function main() {
      73 paneles en CADA emisión eran 78 segundos al pedo, y si el proxy cortaba antes, la pantalla
      quedaba colgada. Se lee lo guardado; sólo se sale a preguntar si no hay o si se pide. */
   {
-    const rutas = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const emi = rutas.slice(rutas.indexOf("app.post('/api/os/emision/facturacion'"),
       rutas.indexOf("app.post('/api/os/emision/externos'"));
     check('emisión: el cruce se lee de lo guardado antes de salir a preguntar',
@@ -7197,7 +7197,7 @@ async function main() {
   // Hoy son 13: se sumó el grupo interno (Cuentas Imperium). El número está a propósito — agregar
   // una clave sin darle su casillero en la pantalla la vuelve a dejar sin dónde escribirse.
   {
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const html = FUENTE_PANEL();
     const claves = (rutas.match(/const PAGOS_KEYS = \[([\s\S]*?)\];/) || [])[1] || '';
     const lista = [...claves.matchAll(/'([a-zA-Z]+)'/g)].map((m) => m[1]);
@@ -7525,7 +7525,7 @@ async function main() {
     // Nunca decir cuál de los dos falló: confirma qué usuarios existen.
     check('acceso: el login no dice si falló el usuario o la clave',
       /Usuario o contraseña incorrectos/.test(idx));
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     check('acceso: dos clientes no pueden tener el mismo usuario', /ya lo tiene otro cliente/.test(
       require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'cliente-acceso.js'), 'utf8')));
     check('acceso: hay ruta para prenderlo desde el OS', /clientes\/:id\/acceso/.test(rutas));
@@ -7590,7 +7590,7 @@ async function main() {
     // ── EL CIERRE DEL MES NO VUELVE A COBRAR LO QUE YA ESTÁ ──
     // Es el riesgo grande de todo esto: emitir el mes sobre un consumo que ya está en la cuenta
     // cobra lo mismo dos veces, y cuadra en todas las pantallas.
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     check('cierre: se saltea a los clientes que ya tienen su deuda carga por carga',
       /const yaEnCuenta = deudaCargaSvc\.delMes\(mes\)/.test(rutas)
       && /if \(ya && \(ya\.cargas \|\| ya\.anuladas\)\) \{/.test(rutas)   // con cargas, o con todas anuladas: igual ya está
@@ -7634,7 +7634,7 @@ async function main() {
   // esta base y el sistema viejo devuelve 401: la facturación mensual ENTERA cortaba con un error
   // y no se podía emitir nada. Nadie lo notó porque nadie había intentado facturar desde entonces.
   {
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     check('facturación: si el puente falla, usa los pedidos de acá', /avisoPuente = /.test(rutas));
     check('facturación: y lo dice en vez de disimularlo', /avisoPuente,/.test(rutas));
     // NO es un fallback silencioso: las dos fuentes son excluyentes, o los pedidos están allá o
@@ -7762,7 +7762,7 @@ async function main() {
     check('cuenta: no convierte de una moneda a la otra',
       !/tcUnico|tc-unico|tcDelMes/.test(src));
 
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     // Lo que resta la deuda es la cara de SU moneda; la otra queda guardada igual.
     check('cuenta: el comprobante se acredita en la moneda del cliente',
       /const moneda = cli\.moneda_cuenta === 'ARS' \? 'ARS' : 'USDT'/.test(rutas)
@@ -7785,7 +7785,7 @@ async function main() {
     // Es como la dueña lo lleva en su planilla: cada renglón tiene los pesos, el TC y los dólares.
     // Y el TC de un pago NO es la cotización del día — es a cuánto se cambió ESA plata, acordado
     // con quien la cambió. Si no se anota en el momento, después no se reconstruye.
-    const rutas2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas2 = require('./lib/texto-rutas')();
     check('pago: se guardan las dos caras y el tipo de cambio',
       /monto_usdt: enUsdt, monto_ars: enArs, tc_momento: tc/.test(rutas2));
     check('pago: con TC se completa la otra cara sola',
@@ -7836,7 +7836,7 @@ async function main() {
     // había pasado, y después nadie confirmaba si pasó.
     const rutaCrear = idx.slice(idx.indexOf("app.post('/api/comprobante'"), idx.indexOf('async function avisarComprobante'));
     check('comprobante: al RECIBIRLO ya no se avisa al grupo', !/avisarComprobante\(/.test(rutaCrear));
-    const rutas = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutas = require('./lib/texto-rutas')();
     const resolver = rutas.slice(rutas.indexOf("comprobantes/:id/resolver"), rutas.indexOf('LA FOTO DEL MES'));
     check('comprobante: al APROBARLO sí se avisa', /avisarComprobante/.test(resolver));
     check('comprobante: el aviso no puede tumbar un pago ya registrado',
@@ -7901,7 +7901,7 @@ async function main() {
       (idx.match(/pedidos\.marcarAviso/g) || []).length >= 4, String((idx.match(/pedidos\.marcarAviso/g) || []).length));
     // La factura NO necesita esto: se manda con un botón y el resultado vuelve a la pantalla en el
     // momento. El problema del silencio es de los avisos automáticos, no de los que uno dispara.
-    const rutasF = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'os.routes.js'), 'utf8');
+    const rutasF = require('./lib/texto-rutas')();
     check('factura: el envío informa el resultado en el momento',
       /no tiene grupo de Telegram, ni él ni su vendedor/.test(rutasF));
 
@@ -9280,7 +9280,7 @@ async function main() {
       && /if \(!esMio\[f\.cliente_id\]\) return;/.test(srcVen));
     /* Si el papel de un vendedor se rompe, no se ve hasta que alguien lo abre: el botón sigue ahí
        y la ventana sale en blanco. */
-    const srcRut = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const srcRut = require('./lib/texto-rutas')();
     check('vendedores: y el corte por cliente viaja también en el link',
       /porCliente: r\.porCliente/.test(srcRut));
     /* ── TRES GRUPOS DE TELEGRAM, Y NO SON EL MISMO ──────────────────────────────────────────
@@ -9318,7 +9318,7 @@ async function main() {
      al confirmar se manda lo que quedó (`texto`). */
   {
     const uiPrev = FUENTE_PANEL();
-    const rutPrev = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutPrev = require('./lib/texto-rutas')();
     check('envíos: se puede ver el mensaje antes de mandarlo, y editarlo',
       /async function enviarConPrevia/.test(uiPrev) && /soloTexto:true/.test(uiPrev));
     check('envíos: y los tres que salen para afuera pasan por ahí',
@@ -9394,7 +9394,7 @@ async function main() {
      del teléfono y un TC de algún lado — y ése no es el que después anota el sistema. */
   {
     const uiCg = FUENTE_PANEL();
-    const rutCg = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutCg = require('./lib/texto-rutas')();
     check('carga: la cuenta la hace el servidor con las funciones de la carga real',
       /\/api\/os\/carga\/calcular/.test(rutCg)
       && /deudaCargaSvc\.baseDe\(cli, panel\)/.test(rutCg)
@@ -10096,7 +10096,7 @@ async function main() {
     /* ⚠️ Y LA LISTA DE CLIENTES TIENE QUE MANDARLA. El modal se dibuja con lo que viaja en esa
        lista: sin el campo, el selector sale en «la principal» y el próximo Guardar se la borra.
        Es el mismo agujero que ya se tapó con externos_modo. */
-    const rutBw = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutBw = require('./lib/texto-rutas')();
     /* ⚠️ Y LA MIGRACIÓN CORRE DESPUÉS DEL require. Estaba antes, y como es una const, al arrancar
        tiraba «Cannot access before initialization»: el catch lo tapaba y la billetera de
        Configuración nunca se migró. La primera cargada a mano quedó de principal y los clientes
@@ -10117,7 +10117,7 @@ async function main() {
      esas fichas había que ir a buscar el pedido. Con varias cajas —y más si alguna se mudó de
      cliente, como GanamosM01, que era de Ariel y se cobró a Fran— es la primera pregunta. */
   {
-    const rutFi = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutFi = require('./lib/texto-rutas')();
     const osFi = fs.readFileSync(path.join(ROOT, 'public', 'os.html'), 'utf8');
     check('cuenta del OS: cada movimiento de carga trae las fichas y su caja',
       /cargado, caja, caja_etiqueta: cajaEtiqueta,/.test(rutFi)
@@ -10137,7 +10137,7 @@ async function main() {
       /_cmpMoneda\(c\.codigo\) === String\(c\.divisa \|\| 'ARS'\)\.toUpperCase\(\)/.test(osPago)
       && /¿Cuánto entró\?/.test(osPago));
     // Y el servidor lo acepta sin TC: acredita la moneda del pago y no inventa la otra cara.
-    const rutPago = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutPago = require('./lib/texto-rutas')();
     check('comprobante: sin TC se acredita igual, sin inventar la otra cara',
       /const tcNum = !porElMes && b\.tc != null && String\(b\.tc\)\.trim\(\) !== '' \? parseMonto\(b\.tc\) : null;/.test(rutPago)
       && /else \{ enUsdt = monto; if \(tc\) enArs = money\.mul\(monto, tc\)|else \{ enUsdt = monto; if \(tc\) enArs = money\.round\(money\.mul\(monto, tc\), 2\); \}/.test(rutPago));
@@ -10203,7 +10203,7 @@ async function main() {
        en la base del server, que corre aparte, así que esto se mira en el código que lo entrega:
        el tipo sale de los BYTES, lo que no es foto ni PDF va como descarga, y van las dos cabeceras
        que impiden que se ejecute igual. */
-    const rutArch = fs.readFileSync(path.join(ROOT, 'src', 'os.routes.js'), 'utf8');
+    const rutArch = require('./lib/texto-rutas')();
     const bloqueArch = rutArch.slice(rutArch.indexOf("app.get('/api/os/comprobantes/:id/archivo'"),
       rutArch.indexOf("app.post('/api/os/comprobantes/:id/resolver'"));
     check('comprobante: el tipo con que se entrega sale de los bytes, no del que lo subió',

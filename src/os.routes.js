@@ -2,6 +2,8 @@
  * os.routes.js — endpoints del núcleo comercial/financiero (LATAM Games OS v3).
  * Se montan DESPUÉS del gate de auth de la MATRIZ (todo /api/os/* requiere sesión de admin).
  * mount(app) también siembra split_base y arranca el scheduler de TC.
+ * Desde la fase 2 las rutas viven partidas por tema en src/rutas/ (lo compartido, en
+ * src/rutas/comun.js). Acá quedan el arranque, y el orden en que se montan los sectores.
  */
 const clientes = require('./clientes-store');
 const personas = require('./personas-store');
@@ -33,7 +35,6 @@ const { rolDe } = require('./auth');
 const apiResumen = require('./api-resumen.service');
 const tgDestino = require('./telegram-destino');
 const { mesCierre: mesCierreLbl } = require('./lib/fechas');
-const notify = require('./notify.service');
 const casinoConex = require('./casino-conexiones-store');
 const acumSvc = require('./acumulado.service');
 const reporteDiarioStore = require('./reporte-diario-store');
@@ -75,10 +76,7 @@ const chatDoc = require('./chat-doc');
 const { db } = require('./db');
 const money = require('./lib/money');
 const { fechaTZ, mesTZ, fechaUTC, mesUTC } = require('./lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
-
-const ok = (res, extra = {}) => res.json(Object.assign({ ok: true }, extra));
-const err = (res, code, msg, extra) => res.status(code).json({ ok: false, error: msg, ...(extra || {}) });
-const wrap = (fn) => async (req, res) => { try { await fn(req, res); } catch (e) { err(res, 400, e.message); } };
+const { ok, err, wrap, html, _espejarCaja, _facturacionDe, _urlPublica } = require('./rutas/comun');
 
 // Cache del árbol de nodos por conexión (algunas cuentas GOD ven decenas de miles de nodos y
 // el pull al casino tarda ~20s). Se cachea unos minutos para que cambiar de nivel sea instantáneo.
@@ -140,22 +138,6 @@ function mount(app) {
   setTimeout(_devengar, 20 * 1000);
   setInterval(_devengar, 30 * 60 * 1000);
 
-  // Panel del OS (HTML estático, detrás del gate de auth)
-  const path = require('path');
-  /* ── EL NAVEGADOR NO PUEDE QUEDARSE CON UNA COPIA VIEJA ──────────────────────────────────────
-     `express.static` no manda ningún Cache-Control, y sin él el navegador aplica su propia regla:
-     reutiliza la respuesta un rato SIN preguntar si cambió. Para un archivo que se reescribe en
-     cada despliegue eso significa que un cambio ya desplegado no aparece — y desde la pantalla se
-     ve idéntico a que no se hubiera subido. Pasó de verdad: la pestaña nueva estaba en el servidor
-     y en la pantalla no.
-
-     `no-cache` NO quiere decir "no guardes": quiere decir "guardala, pero preguntá siempre si
-     cambió". Con el ETag que ya manda express, la pregunta se contesta con un 304 sin cuerpo, así
-     que no cuesta ancho de banda — sólo un viaje corto. Es lo correcto para un HTML que cambia. */
-  const html = (res, archivo) => {
-    res.setHeader('Cache-Control', 'no-cache');
-    res.sendFile(path.join(__dirname, '..', 'public', archivo));
-  };
   app.get('/os', (_req, res) => html(res, 'os.html'));
   /* TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
      proveedores y otro cierre de mes. Desde el 6-sep-2026 también es su propio ARCHIVO.
@@ -167,7 +149,6 @@ function mount(app) {
   /* El chat tiene su propio espacio, con la misma pantalla y otra barra. Ojo con el nombre: `/chat`
      es el portal PÚBLICO del cliente y no lleva login; éste es el de adentro y sí. */
   app.get('/chat-externo', (_req, res) => html(res, 'os.html'));
-
   // ───────── CLIENTES (comercial) ─────────
   app.get('/api/os/clientes', (_req, res) => {
     const list = clientes.list().clientes.map((c) => ({
@@ -196,7 +177,6 @@ function mount(app) {
     }));
     ok(res, { clientes: list });
   });
-
   // ───────── CATÁLOGO DE DIVISAS (v3.0) ─────────
   // ── QUÉ VERSIÓN ESTÁ CORRIENDO ────────────────────────────────────────────────────────────
   // Sin esto, saber si un cambio ya subió era buscar algún texto nuevo en la pantalla — y varias
@@ -216,7 +196,6 @@ function mount(app) {
   app.post('/api/os/divisas', wrap((req, res) => { const b = req.body || {}; ok(res, { divisa: divisasStore.upsert({ codigo: b.codigo, nombre: b.nombre, activa: b.activa }) }); }));
   app.put('/api/os/divisas/:codigo/activa', wrap((req, res) => ok(res, { ok: divisasStore.setActiva(req.params.codigo, !!(req.body && req.body.activa)) })));
   app.delete('/api/os/divisas/:codigo', (req, res) => divisasStore.remove(req.params.codigo) ? ok(res) : err(res, 404, 'no encontrada'));
-
   // ───────── MEDIOS DE PAGO GLOBALES (v3.0): CVU + dirección USDT + notas ─────────
   // Los datos con los que el cliente paga, y los avisos de seguridad que tiene que leer ANTES de
   // transferir. Los avisos no son decorativos: fuera del rango o en la red equivocada, la plata
@@ -244,7 +223,6 @@ function mount(app) {
     }
     ok(res, { bot: !!tok, destinos: out });
   }));
-
   /**
    * Todos los grupos configurados, comprobados de una. Sólo LEE.
    *
@@ -278,7 +256,6 @@ function mount(app) {
     grupos.sort((a, b) => (a.ok === b.ok ? 0 : (a.ok ? 1 : -1)));
     ok(res, { bot: true, grupos, rotos: grupos.filter((g) => !g.ok).length });
   }));
-
   /* ── DIVISAS QUE NO SE CONSULTAN ──────────────────────────────────────────────────────────
    * La lista de monedas que la Foto del mes no pregunta nunca, aunque el casino las tenga
    * habilitadas. No borra nada: los paneles conservan su lista tal como vino del casino, y esto
@@ -289,10 +266,8 @@ function mount(app) {
     const r = configStore.setDivisasIgnoradas(b.divisas === undefined ? '' : b.divisas);
     ok(res, { divisas: r.divisasIgnoradas });
   }));
-
   app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
   app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
-
   // ALTA de cliente desde el OS (código + nombre). Los campos comerciales se editan luego.
   app.post('/api/os/clientes', wrap((req, res) => {
     const codigo = String((req.body && req.body.codigo) || '').trim();
@@ -314,7 +289,6 @@ function mount(app) {
     ids.forEach((id) => { if (clientes.updateComercial(id, { avisa_pagos: valor })) n++; });
     ok(res, { cambiados: n, valor });
   }));
-
   /**
    * 🔒 NO SE CAMBIA LA MONEDA DE LA CUENTA SI YA HAY MOVIMIENTOS EN LA OTRA.
    *
@@ -336,7 +310,6 @@ function mount(app) {
       + `cargados en ${actual}. Cambiar la moneda no los convierte —sólo deja de sumarlos— y el saldo `
       + `quedaría en cero como si se hubiera perdido plata. Cerrá la cuenta en ${actual} con un ajuste y después cambiala.`;
   }
-
   /**
    * ── LA CUENTA PROPIA DE UN CLIENTE ───────────────────────────────────────────────────────────
    * Prenderla devuelve la clave EN CLARO UNA SOLA VEZ. No hay forma de volver a verla: lo que se
@@ -355,7 +328,6 @@ function mount(app) {
     // La clave viaja UNA vez en esta respuesta. La pantalla la muestra y avisa que no vuelve.
     ok(res, { ...r, acceso: acceso.estado(req.params.id) });
   }));
-
   /* ── LOS ACCESOS DE TODOS, EN UNA PANTALLA ──────────────────────────────────────────────────
      Darle acceso a 45 clientes de a uno —abrir la ficha, buscar el botón, copiar la clave, cerrar—
      son 45 idas y vueltas, y en el medio se pierde la cuenta de quién ya tiene y quién no. Acá
@@ -374,7 +346,6 @@ function mount(app) {
     configStore.setCfg('logoPng', d);
     ok(res, { propio: true, bytes });
   }));
-
   app.get('/api/os/accesos', (_req, res) => {
     const conChat = new Set(chat.list().filter((p) => p.activo && p.cliente_id).map((p) => p.cliente_id));
     const filas = clientes.list().clientes.map((c) => {
@@ -392,7 +363,6 @@ function mount(app) {
     });
     ok(res, { clientes: filas });
   });
-
   /* Dar acceso a varios de una. La clave viaja UNA vez en esta respuesta: se guarda cifrada y no se
      puede volver a mostrar, así que la pantalla la muestra y avisa que no vuelve. */
   app.post('/api/os/accesos/generar', wrap((req, res) => {
@@ -409,13 +379,11 @@ function mount(app) {
     }
     ok(res, { generadas: hechos.length, claves: hechos, fallaron });
   }));
-
   app.post('/api/os/accesos/quitar', wrap((req, res) => {
     const ids = Array.isArray((req.body || {}).ids) ? req.body.ids : [];
     ids.forEach((id) => acceso.deshabilitar(id));
     ok(res, { quitados: ids.length });
   }));
-
   /* Qué puede hacer cada uno, para varios a la vez. Sólo estos dos campos: son permisos, y el resto
      de la ficha del cliente son números que no se tocan en masa. */
   app.post('/api/os/accesos/permiso', wrap((req, res) => {
@@ -431,7 +399,6 @@ function mount(app) {
     }
     ok(res, { cambiados: ids.length, campo: b.campo, valor });
   }));
-
   /* ── PERMISOS POR AGENTE (Mi Caja) ──────────────────────────────────────────────────────────
      Cada caja del cliente es la cuenta de un agente en el casino. Acá se decide qué puede hacer
      cada uno en Mi Caja: pedir fichas, registrar pagos, ver la cuenta. Ver clientes.permisosDe. */
@@ -510,11 +477,9 @@ function mount(app) {
         permisos: { pedir: false, pagos: false, cuenta: false } });
     ok(res, { agente: agenteVista(clientes.get(c.id), caja) });
   }));
-
   app.post('/api/os/agentes/congelar', wrap((_req, res) => {
     ok(res, { congeladas: clientes.congelarPermisosActuales() });
   }));
-
   app.put('/api/os/accesos/:id/usuario', wrap((req, res) => {
     const u = String((req.body || {}).usuario || '').trim();
     if (!u) return err(res, 400, 'falta el usuario');
@@ -523,7 +488,6 @@ function mount(app) {
     const r = acceso.habilitar(req.params.id, { usuario: u, clave: (req.body || {}).clave });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   // El saldo para pedir de un cliente PREPAGO (para la ficha). A los demás: {prepago:false}.
   app.get('/api/os/clientes/:id/prepago', wrap(async (req, res) => {
     const c = clientes.get(req.params.id);
@@ -615,7 +579,6 @@ function mount(app) {
   app.get('/api/os/clientes/:id/precio-base/historial', (req, res) =>
     ok(res, { historial: historial.listValores('cliente', req.params.id, 'precio_base_pct') }));
   app.get('/api/os/clientes/:id/cuenta', (req, res) => ok(res, { cuenta: deudaSvc.cuentaCorriente(req.params.id) }));
-
   /* ───────── 💰 COBRANZAS: QUIÉN DEBE, Y DE CUÁNDO ──────────────────────────────────────────
      Lo que no había en ninguna pantalla: todos los clientes juntos, con el saldo ABIERTO POR MES.
      «Cuenta del cliente» muestra uno por vez y «Cuenta y pagos» muestra el total de todos sumado;
@@ -686,7 +649,6 @@ function mount(app) {
     filas.sort((a, b) => b.total - a.total);
     ok(res, { mes, mes_anterior: prev, filas, totales });
   });
-
   // PERFIL del cliente: header + historial de % (vigencias) + resumen MES A MES (cargas/fee/pagos/profit reales).
   app.get('/api/os/clientes/:id/perfil', wrap(async (req, res) => {
     const c = clientes.get(req.params.id); if (!c) return err(res, 404, 'cliente no encontrado');
@@ -772,7 +734,6 @@ function mount(app) {
       movimientos: cuentaMovs,
     });
   }));
-
   // ───────── PERSONAS ─────────
   app.get('/api/os/personas', (_req, res) => ok(res, { personas: personas.list() }));
   app.post('/api/os/personas', wrap((req, res) => ok(res, { persona: personas.create(req.body || {}) })));
@@ -780,7 +741,6 @@ function mount(app) {
     const p = personas.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrada'); ok(res, { persona: p });
   }));
   app.delete('/api/os/personas/:id', (req, res) => personas.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrada'));
-
   // ───────── PANELES ─────────
   app.get('/api/os/paneles', (req, res) => {
     /* El nombre para el cliente NO se guarda en el panel: vive en la caja de esa cuenta del casino,
@@ -796,17 +756,6 @@ function mount(app) {
     }));
     ok(res, { paneles: list });
   });
-  // Espeja un panel del OS → CAJA operativa (para /pedir y las cargas de fichas). Idempotente por (userId, sistema).
-  // `clienteDestino` deja mandar la caja a OTRO cliente que el dueño del panel. Pasa de verdad:
-  // un panel figura a nombre del vendedor pero las fichas las pide el cliente final, o al revés.
-  // Por defecto va al dueño del panel, que es lo que corresponde casi siempre.
-  /* ⚠️ Y SI YA EXISTE, SE ACTUALIZA. Antes sólo creaba: cambiar las divisas de un panel en el OS
-     no llegaba nunca a Fichas, y el cliente seguía pudiendo pedir sólo en las viejas. Pasó con
-     GAF-D — puesto en PYG en el OS y ofreciendo ARS en Fichas — y con otros 68 paneles.
-     Se copia lo que describe a la cuenta (nombre y divisas); los montos rápidos y el grupo son de
-     Fichas y no se tocan. */
-  // La caja y el panel son la misma cuenta: la regla de qué se copia vive en cuenta-espejo.js.
-  const _espejarCaja = (p, clienteDestino, desde) => require('./cuenta-espejo').panelACaja(p, { destino: clienteDestino, desde });
   /* ── UN PANEL NUEVO SE RESUELVE SOLO ─────────────────────────────────────────────────────────
      El nivel con el que nace un panel es una ELECCIÓN: en el alta manual sale del desplegable, y al
      aprobar una caja está escrito fijo como 'SuperAgente'. La cascada de carga le cree, y un panel
@@ -823,7 +772,6 @@ function mount(app) {
      necesita exactamente esto. Tenerlo acá adentro era la razón por la que aquel camino se quedó
      sin resolver: no se podía llamar desde afuera. */
   const _resolverJerarquia = (panel) => arbolSvc.resolverEnSegundoPlano(panel);
-
   /* ── SÓLO LOS SUPERAGENTES MANEJAN VARIAS MONEDAS ────────────────────────────────────────────
      Regla de la dueña (5-sep-2026): un distribuidor —y todo lo que cuelga de él— maneja UNA sola,
      la suya. Y si un distribuidor está en USD, sus agentes y cajas también.
@@ -838,7 +786,6 @@ function mount(app) {
     return `un ${nivel || 'panel que no es SuperAgente'} maneja UNA sola moneda, y vinieron ${d.length}: `
       + d.join(', ') + '. Sólo los SuperAgentes llevan varias.';
   }
-
   app.post('/api/os/paneles', wrap((req, res) => {
     const mal = _revisarDivisas(req.body || {}, null);
     if (mal) return err(res, 400, mal);
@@ -951,7 +898,6 @@ function mount(app) {
     }
     ok(res, { total, desde, devueltos: tanda.length, hay_mas: desde + tanda.length < total, paneles: filas });
   }));
-
   /**
    * ── LOS SUPERAGENTES, PARA ELEGIR DE CUÁLES SE SACAN LOS DISTRIBUIDORES ───────────────────────
    *
@@ -989,7 +935,6 @@ function mount(app) {
     }));
     ok(res, { conexiones });
   });
-
   /** Marca o desmarca de una todos los distribuidores que cuelgan de un superagente. */
   app.post('/api/os/paneles/foto-distribuidores', wrap((req, res) => {
     const b = req.body || {};
@@ -1001,7 +946,6 @@ function mount(app) {
     });
     ok(res, { cambiados: hechos.length, paneles: hechos, en_foto: val });
   }));
-
   /**
    * ── LOS PANELES QUE NADIE PUEDE PEDIR ────────────────────────────────────────────────────────
    *
@@ -1045,7 +989,6 @@ function mount(app) {
       totalFaltan: out.reduce((a, x) => a + x.faltan.length, 0),
       totalHuerfanas: out.reduce((a, x) => a + x.huerfanas.length, 0) });
   });
-
   /** Crea las cajas que falten. Se pide panel por panel: crear todas de una es una decisión grande. */
   app.post('/api/os/cajas-faltantes', wrap((req, res) => {
     // Se acepta [{panel_id, cliente_id}] o la forma corta [id]: el destino por defecto es el dueño.
@@ -1068,7 +1011,6 @@ function mount(app) {
     });
     ok(res, { creadas: hechas.length, hechas, saltadas });
   }));
-
   /**
    * ── TRAER LOS PEDIDOS DEL SISTEMA EN LÍNEA ───────────────────────────────────────────────────
    *
@@ -1150,7 +1092,6 @@ function mount(app) {
     });
     ok(res, { importados: creados, yaEstaban: repetidos.length, sinCliente });
   }));
-
   /**
    * ── SOLICITUDES PARA ABRIR UNA CAJA ──────────────────────────────────────────────────────────
    * Las crea quien despacha; las aprueba el dueño. Ver src/solicitudes-caja.js para el porqué.
@@ -1161,7 +1102,6 @@ function mount(app) {
     ok(res, { solicitudes: filas.map((s) => ({ ...s, cliente: (porId[s.cliente_id] || {}).nombre || '(borrado)' })),
       pendientes: solicitudes.pendientes() });
   });
-
   /**
    * Aprobar: se verifica el nodo CONTRA EL CASINO antes de crear nada.
    *
@@ -1215,7 +1155,6 @@ function mount(app) {
       motivo: `panel y caja creados para ${cli.nombre}` });
     ok(res, { panel, divisas, aviso });
   }));
-
   /**
    * ── MOVER FICHAS ENTRE PANELES DE UN CLIENTE ─────────────────────────────────────────────────
    * El cliente pide, acá se aprueba y recién ahí se ejecuta. El porqué está en
@@ -1241,7 +1180,6 @@ function mount(app) {
       counts: movPanel.counts(),
     });
   });
-
   /**
    * Aprobar y ejecutar. La MISMA ruta reintenta uno que quedó a medias: el estado del que se lo
    * toma decide si hay que hacer las dos mitades o sólo la que falta. Un botón menos y, sobre todo,
@@ -1265,7 +1203,6 @@ function mount(app) {
     const r = chat.setProveedorAcceso(req.body || {});   // usuario, clave, generar y grupo
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   app.get('/api/os/proveedor/meses', (_req, res) => ok(res, { meses: chat.mesesDelProveedor() }));
   app.get('/api/os/proveedor/mes', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
@@ -1277,7 +1214,6 @@ function mount(app) {
     }
     ok(res, d);
   });
-
   /* ── EL PASE ENTRE PLATAFORMAS, QUE LO ORIGINA ELLA ──────────────────────────────────────
      Los movimientos de siempre los pide el cliente desde su pantalla. Un pase no: cruza de Casino
      a Europa, y el cliente ni se entera de que existen dos plataformas (recibe un grupo opaco a
@@ -1301,7 +1237,6 @@ function mount(app) {
       sistemaParaCargar: req.app.get('sistemaParaCargar'), por: 'admin', log: console.log });
     return r.ok ? ok(res, r) : err(res, r.status || 502, r.error, { quedoAMedias: !!r.quedoAMedias, id: cr.movimiento.id });
   }));
-
   /* A qué paneles se le puede pasar el saldo de éste: los del MISMO cliente en la OTRA plataforma.
      Se resuelve en el servidor y no en la pantalla porque esconder una opción no impide postear. */
   app.get('/api/os/movimientos-panel/destinos/:panelId', (req, res) => {
@@ -1314,7 +1249,6 @@ function mount(app) {
     ok(res, { origen: { id: o.id, nombre: o.nombre, sistema: o.sistema, divisas: o.divisas || [] },
       destinos: otros.map((p) => ({ id: p.id, nombre: p.nombre, sistema: p.sistema, divisas: p.divisas || [] })) });
   });
-
   app.post('/api/os/movimientos-panel/:id/ejecutar', wrap(async (req, res) => {
     const r = await movPanelSvc.ejecutar(req.params.id, {
       sistemaParaCargar: req.app.get('sistemaParaCargar'),
@@ -1325,19 +1259,16 @@ function mount(app) {
     return res.status(r.status || 400).json({ ok: false, error: r.error,
       mitad: r.mitad || null, quedoAMedias: !!r.quedoAMedias });
   }));
-
   app.post('/api/os/movimientos-panel/:id/rechazar', wrap((req, res) => {
     const r = movPanel.rechazar(req.params.id, (req.body || {}).motivo, rolDe(req) || 'admin');
     if (!r) return err(res, 404, 'no encontré ese movimiento');
     return r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   /** Destrabar uno que quedó tomado porque el server se reinició en el medio. */
   app.post('/api/os/movimientos-panel/:id/destrabar', wrap((req, res) => {
     const r = movPanel.destrabar(req.params.id);
     return r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   app.post('/api/os/solicitudes-caja/:id/rechazar', wrap((req, res) => {
     const s = solicitudes.get(req.params.id);
     if (!s) return err(res, 404, 'no encontré esa solicitud');
@@ -1345,7 +1276,6 @@ function mount(app) {
     ok(res, { solicitud: solicitudes.resolver(s.id, { estado: 'rechazada',
       motivo: String((req.body || {}).motivo || '').trim() || 'sin motivo' }) });
   }));
-
   // Dejar en un panel SOLO las monedas que usa. Es una decisión, así que se pide explícita.
   app.post('/api/os/paneles/divisas/ajustar', wrap((req, res) => {
     const b = req.body || {};
@@ -1357,7 +1287,6 @@ function mount(app) {
     });
     ok(res, { ajustados: hechos.length, hechos });
   }));
-
   app.delete('/api/os/paneles/:id', (req, res) => {
     const p = paneles.get(req.params.id);
     const borrado = paneles.remove(req.params.id);
@@ -1413,7 +1342,6 @@ function mount(app) {
     const v = historial.setValor('panel', req.params.id, 'precio_base_pct', { valor, tipo_cambio, vigente_desde, notas });
     ok(res, { precio_base_pct: v });
   }));
-
   // ───────── PARTICIPACIONES ─────────
   /* ── LAS BILLETERAS ───────────────────────────────────────────────────────────────────────
      Cada una con sus direcciones (una por red) y SU grupo de Telegram. Un cliente apunta a una;
@@ -1432,7 +1360,6 @@ function mount(app) {
     const r = billeteras.borrar(req.params.id);
     r.ok ? ok(res, r) : err(res, 409, r.error);
   }));
-
   app.get('/api/os/participaciones', (req, res) => {
     const { cliente_id, panel_id } = req.query;
     if (!cliente_id) return err(res, 400, 'cliente_id requerido');
@@ -1459,7 +1386,6 @@ function mount(app) {
   }));
   app.get('/api/os/participaciones/historial', (req, res) =>
     ok(res, { historial: participaciones.listHistorial(req.query.cliente_id, req.query.panel_id || null) }));
-
   // ───────── SPLIT_BASE (JUBILADA — §12) ─────────
   // Era el 1er paso del reparto viejo: por cada % base, cuánto iba a Empresa y cuánto a LATAM.
   // Ahora el reparto es de un solo paso y la Empresa es un participante más (reparto.service).
@@ -1467,7 +1393,6 @@ function mount(app) {
   // pre-cargar el reparto de cada cliente. Se sacaron el PUT y el DELETE a propósito —
   // editarla ya no cambiaría ningún cálculo, así que dejarlos era una trampa.
   app.get('/api/os/split-base', (_req, res) => ok(res, { split_base: splitBase.list(), jubilada: true }));
-
   // ───────── PROVEEDORES ─────────
   app.get('/api/os/proveedores', (_req, res) => ok(res, { proveedores: proveedores.list() }));
   app.post('/api/os/proveedores', wrap((req, res) => ok(res, { proveedor: proveedores.create(req.body || {}) })));
@@ -1584,7 +1509,6 @@ function mount(app) {
     const vendors = req.query.vendors ? String(req.query.vendors).split(',').map((s) => s.trim()).filter(Boolean) : ['SL', 'XG'];
     ok(res, cierreStore.igualarVendorsADescuento(vendors));
   }));
-
   // El % de proveedor POR CLIENTE vive en la MATRIZ del Cierre (cierre_pct), que es la que usa
   // Proveedores externos. Acá vivía un SEGUNDO motor que calculaba lo mismo con otros porcentajes,
   // leyendo tablas propias (cliente_proveedores / panel_proveedores). No lo llamaba ninguna pantalla
@@ -1946,7 +1870,6 @@ function mount(app) {
       nodosEnLaGlobal: porNodo.size, comparados: filas.length,
       iguales: filas.filter((x) => x.dif !== undefined && Math.abs(x.dif) < 0.01).length, filas });
   }));
-
   /** La extracción nueva: una llamada por divisa. Con guardar:false no escribe nada. */
   app.post('/api/os/estadisticas/capturar-global', wrap(async (req, res) => {
     const b = req.body || {};
@@ -1974,7 +1897,6 @@ function mount(app) {
     ok(res, { ...r, totalDivisas: divisas.length, desde, devueltos: tanda.length,
       hay_mas: desde + tanda.length < divisas.length });
   }));
-
   /**
    * En qué nivel está agrupando cada casino AHORA. Es lo que decide qué vuelta sale al apretar
    * "sacar": el nivel no se elige desde el OS, se lee. Sin esto hay que apretar para enterarse.
@@ -1993,7 +1915,6 @@ function mount(app) {
     }
     ok(res, { conexiones: out });
   }));
-
   /**
    * La factura de proveedores como hoja, para imprimir o mandar.
    *
@@ -2004,7 +1925,6 @@ function mount(app) {
     const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
     res.type('html').send(pagoProvHtml.hoja(r));
   }));
-
   /**
    * Qué meses de TBS ya están guardados. Es el equivalente de "Meses con foto" del comercial: hasta
    * ahora la precarga de TBS existía pero no se veía, así que para saber si un mes estaba sacado
@@ -2016,7 +1936,6 @@ function mount(app) {
       GROUP BY mes ORDER BY mes DESC`).all();
     ok(res, { meses: filas });
   }));
-
   /**
    * Rehacer el caché del pago a proveedores desde la Foto, a mano.
    *
@@ -2032,7 +1951,6 @@ function mount(app) {
       .map((c) => ({ conexion: c.nombre, ...estadMes.rehacerPagoGeneralDesdeFoto(c.id, mes) }));
     ok(res, { mes, conexiones: salida });
   }));
-
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
   // ───────── TIPOS DE CAMBIO ─────────
   app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
@@ -2047,7 +1965,6 @@ function mount(app) {
     if (req.query.divisa) return ok(res, tcUnico.tcDelMes(req.query.divisa, mes));
     ok(res, { mes, ars: tcUnico.tcDelMes('ARS', mes), monedas: tcUnico.resumenMes(mes), discrepancias: tcUnico.discrepancias(mes) });
   });
-
   // ── TC del resto de las divisas (ARS sale de Binance, arriba) ──
   // Snapshot diario automático; acá se puede forzar y consultar el promedio del mes.
   app.post('/api/os/tc/divisas/snapshot', wrap(async (req, res) => {
@@ -2091,7 +2008,6 @@ function mount(app) {
     const r = cierreStore.renombrarMesTC(b.de, b.a);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   // El TC del proveedor entra SIEMPRE por acá: `setTC` lo escribe en la grilla (fila ARS_OF) y en
   // tc_mes de una sola vez. Guardarlo directo en tc_mes es lo que había dejado los dos lados
   // distintos — julio con 1473,5 en uno y vacío en el otro.
@@ -2112,7 +2028,6 @@ function mount(app) {
     if (!r.ok) return err(res, 400, r.error, { confirmar: !!r.confirmar, anterior: r.anterior || null });
     ok(res, { mes: tcStore.getMes(req.params.mes) });
   }));
-
   // ───────── CONGELAR LA MATRIZ DE UN MES ─────────
   // Los precios cambian (costo del proveedor y % del cliente). Sin congelar, tocar un precio hoy
   // cambia lo que calcula un mes YA FACTURADO y deja de poder auditarse.
@@ -2141,7 +2056,6 @@ function mount(app) {
     const r = cierreMesSvc.descongelar(req.params.mes);
     r.ok ? ok(res, r) : err(res, 404, 'ese mes no estaba congelado');
   });
-
   // El casino tarda 50-120s por reporte. Las ganancias quedan cacheadas: un mes cerrado no cambia.
   app.get('/api/os/externos/_cache', (_req, res) => ok(res, { meses: ganCache.resumen(), vigenciaMesEnCursoMin: ganCache.VIGENCIA_MIN }));
   // Llenar el cache de a UN panel: el reporte entero se pasa del timeout, pero un panel solo entra
@@ -2171,7 +2085,6 @@ function mount(app) {
     ok(res, { panel: p.nombre, mes, divisas: hechas });
   }));
   app.delete('/api/os/externos/_cache', (req, res) => ok(res, ganCache.limpiar(req.query.mes || null)));
-
   // ───────── §9 PROVEEDORES EXTERNOS ─────────
   // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
   app.get('/api/os/externos/:cliente', wrap(async (req, res) => {
@@ -2246,7 +2159,6 @@ function mount(app) {
       });
     ok(res, { mes, prev, clientes: lista });
   }));
-
   /**
    * ── 💵 LOS PAGOS QUE ENTRARON, POR MES ──────────────────────────────────────────────────────
    *
@@ -2328,7 +2240,6 @@ function mount(app) {
       },
     });
   }));
-
   /**
    * El resumen de PESOS al grupo donde llegan los comprobantes.
    *
@@ -2369,7 +2280,6 @@ function mount(app) {
     r.ok ? ok(res, { enviado: filas.length, total: money.round(total, 2), chat })
          : err(res, 502, r.error || 'Telegram no aceptó el mensaje');
   }));
-
   // ───────── MOVIMIENTOS ─────────
   app.get('/api/os/movimientos', (req, res) => ok(res, { movimientos: movs.list({ cliente_id: req.query.cliente_id, tipo: req.query.tipo, mes: req.query.mes }) }));
   app.post('/api/os/movimientos', wrap((req, res) => ok(res, { movimiento: movs.create(req.body || {}) })));
@@ -2393,18 +2303,15 @@ function mount(app) {
     } catch (e) { /* el pago se borra igual */ }
     return movs.remove(req.params.id) ? ok(res, { comprobante }) : err(res, 404, 'no encontrado');
   });
-
   // ───────── IMPORTAR LA PLANILLA "BASE DE DATOS CLIENTES" (v3.0) ─────────
   // Flujo obligado: previsualizar → revisar → aplicar con el hash de esa previsualización.
   // Nada se escribe sin haber mirado antes qué cambia, y siempre queda el snapshot para deshacer.
   app.get('/api/os/import/snapshot', (_req, res) => ok(res, { snapshot: importSheet.snapshot() }));
-
   /* ── LA COPIA DE SEGURIDAD DE TODA LA BASE ──────────────────────────────────────────────────
      Van bajo /api/os/* a propósito: esa rama es sólo del dueño (auth.js:81 es lista blanca, y el
      operador no la tiene). El archivo trae las contraseñas del casino adentro — ver el comentario
      de backup.service.js. */
   app.get('/api/os/backup/inventario', (_req, res) => ok(res, backup.inventario()));
-
   app.get('/api/os/backup/archivo', async (_req, res) => {
     let snap;
     try { snap = await backup.snapshot(); }
@@ -2419,7 +2326,6 @@ function mount(app) {
     // Después de mandarla: si la descarga se cortó antes, no cuenta como copia hecha.
     res.on('finish', () => { try { backup.registrar(snap); } catch (e) { console.warn('[Backup]', e.message); } });
   });
-
   app.post('/api/os/import/sheet', wrap(async (req, res) => {
     const { sheetId, dryRun, confirmHash, incluirBasePct, incluirTelegram } = req.body || {};
     const opts = { sheetId: sheetId || importSheet.SHEET_ID_DEFAULT, incluirBasePct: !!incluirBasePct, incluirTelegram: !!incluirTelegram };
@@ -2427,13 +2333,11 @@ function mount(app) {
     const r = await importSheet.aplicar({ ...opts, confirmHash, historial });
     ok(res, { resultado: r });
   }));
-
   app.post('/api/os/import/rollback', wrap((req, res) => {
     const { snapshot, force } = req.body || {};
     if (!force) return err(res, 400, 'para deshacer hay que mandar force:true');
     ok(res, { restaurado: importSheet.restaurar(snapshot) });
   }));
-
   // SALDO ANTERIOR (v3.0): la deuda que el cliente ya traía antes de que el sistema empiece a
   // facturar. La cuenta corriente se arma SOLO con movimientos (deuda.service.js), así que la
   // columna `saldo_inicial` por sí sola no suma nada: hay que materializarla como un movimiento
@@ -2472,7 +2376,6 @@ function mount(app) {
     clientes.updateComercial(cli.id, { saldo_inicial: String(monto), saldo_inicial_divisa: div, saldo_inicial_mov_id: movimiento.id });
     ok(res, { movimiento_id: movimiento.id, monto_usdt: montoUsdt, tc: tcUsado, deuda: deudaSvc.cuentaCorriente(cli.id) });
   }));
-
   // La CARGA COMERCIAL a mano se sacó (2-ago).
   //
   // Calculaba el fee de una venta y lo sumaba a la deuda. Ahora eso lo hace la Factura de consumo,
@@ -2570,12 +2473,10 @@ function mount(app) {
        devuelve el de cobranzas, que es el que puede fallar por falta de grupo configurado. */
     ok(res, { movimiento, deuda: despues, comprobante, aviso: avisoCobranzas, avisado: avisar });
   }));
-
   // ───────── HISTORIAL / AUDITORÍA ─────────
   app.get('/api/os/historial', (req, res) => ok(res, {
     historial: historial.listHistorial({ entidad_tipo: req.query.entidad_tipo, entidad_id: req.query.entidad_id, campo: req.query.campo }),
   }));
-
   // ───────── CASINO (conexiones api_token + lectura de nodos) ─────────
   // Se agrega `paneles`: cuántos cuelgan de esta conexión. Config las quiere TODAS (hay que poder
   // editar la de carga), pero la Foto y el pago a proveedores sólo deben mirar las que facturan —
@@ -2590,7 +2491,6 @@ function mount(app) {
     const c = casinoConex.update(req.params.id, req.body || {}); if (!c) return err(res, 404, 'conexión no encontrada'); ok(res, { conexion: c });
   }));
   app.delete('/api/os/casino/conexiones/:id', (req, res) => casinoConex.remove(req.params.id) ? ok(res) : err(res, 404, 'conexión no encontrada'));
-
   // ───────── 💸 CUÁNTO LE PAGAMOS A LOS PROVEEDORES (punto 8) ─────────
   // El otro lado de la factura de externos: aquella cobra `ganancia × (celda − base)` al cliente,
   // ésta paga `ganancia × costo` al proveedor. Consulta el casino, así que tarda.
@@ -2616,7 +2516,6 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 502, r.error,
       { reintentable: !!r.reintentable, requiereConfirmar: !!r.requiereConfirmar });
   }));
-
   // ── EL ARCHIVO DE LO QUE SE ENVIÓ ────────────────────────────────────────────────────────────
   //
   // /hoja recalcula y sirve para mirar; esto CONGELA. La diferencia importa: entre que se manda un
@@ -2655,11 +2554,9 @@ function mount(app) {
     });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   app.get('/api/os/documentos', wrap(async (req, res) => ok(res, {
     documentos: documentos.list({ tipo: req.query.tipo || null, mes: req.query.mes || null }),
   })));
-
   // Los BYTES guardados, tal cual. No se re-renderiza ni se le agrega nada: cualquier agregado, por
   // chico que sea, ya no es el documento que se envió.
   app.get('/api/os/documentos/:id', wrap(async (req, res) => {
@@ -2667,7 +2564,6 @@ function mount(app) {
     if (!d) return err(res, 404, 'no encontré ese documento');
     res.type('html').send(d.html);
   }));
-
   // El CSV congelado. Si el documento es viejo y no lo tiene guardado, se regenera del JSON — que
   // es lo que había antes y sigue siendo correcto para esos.
   app.get('/api/os/documentos/:id/planilla.csv', wrap(async (req, res) => {
@@ -2680,7 +2576,6 @@ function mount(app) {
       `attachment; filename="pago-proveedores-${d.mes}-v${d.version}.csv"`);
     res.send('\ufeff' + texto);
   }));
-
   // ── BAJAR EL ARCHIVO ─────────────────────────────────────────────────────────────────────────
   // Todo esto vive en el volumen de Railway, y /api/_backup no dumpea las tablas del OS: si se
   // pierde el volumen, se pierde el documento. Que se pueda bajar el .html a mano es la copia de
@@ -2693,7 +2588,6 @@ function mount(app) {
       `attachment; filename="pago-proveedores-${d.mes}-v${d.version}.html"`);
     res.send(d.html);
   }));
-
   // La comprobación del hash, para poder afirmar que el archivo no se tocó.
   app.get('/api/os/documentos/:id/verificar', wrap(async (req, res) => {
     const d = documentos.contenido(req.params.id);
@@ -2701,7 +2595,6 @@ function mount(app) {
     ok(res, { id: d.id, tipo: d.tipo, mes: d.mes, version: d.version, emitido_at: d.emitido_at,
       hash: d.hash, intacto: d.intacto, bytes: Buffer.byteLength(d.html, 'utf8') });
   }));
-
   app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {
     const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
     if (!r.ok) return err(res, 400, r.error);
@@ -2709,7 +2602,6 @@ function mount(app) {
     res.setHeader('Content-Disposition', `attachment; filename="pago-proveedores-${r.mes}.csv"`);
     res.send('﻿' + pagoProv.csv(r));   // BOM: si no, Excel rompe los acentos
   }));
-
   // TBS: los 53 grupos de proveedores con su id, para poder mapearlos contra la matriz.
   app.get('/api/os/tbs/grupos', wrap(async (_req, res) => {
     const cx = casinoConex.list().find((c) => c.motor === 'tbs' && c.activa);
@@ -2719,7 +2611,6 @@ function mount(app) {
     const r = await cli.grupos();
     r.ok ? ok(res, { conexion: cx.nombre, ...r }) : err(res, 502, r.error, { diag: r.diag || [] });
   }));
-
   // ───────── 🔌 API (TBS) — el otro negocio ─────────
   // Padrón APARTE del de fichas: otros clientes, otros %, y el % es POR SELLO.
   app.get('/api/os/api/clientes', (_req, res) => ok(res, { clientes: apiStore.listClientes() }));
@@ -2738,9 +2629,7 @@ function mount(app) {
     const r = apiStore.limpiarNombresViejos(req.params.id);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   app.get('/api/os/api/sellos', (_req, res) => ok(res, { sellos: apiStore.listSellos() }));
-
   /* ── OFERTAS COMERCIALES ─────────────────────────────────────────────────────────────────────
      La oferta ES el precio: se arma una vez, se manda como documento y al aceptarla escribe la
      matriz. Antes se cotizaba en una hoja aparte y después había que volver a tipear los mismos
@@ -2773,7 +2662,6 @@ function mount(app) {
   app.delete('/api/os/chat/paneles/:id', wrap((req, res) => ok(res, chat.quitar(req.params.id))));
   app.get('/api/os/chat/cierre', (req, res) => ok(res, chat.cierre(String(req.query.mes || '').slice(0, 7) || mesTZ())));
   app.get('/api/os/chat/mensualidades', (req, res) => ok(res, chat.mensualidadesDe(req.query.fecha || fechaTZ())));
-
   /* ── EL MES AGRUPADO POR CLIENTE ────────────────────────────────────────────────────────────
      La cuenta se la mandás al CLIENTE, no al panel: uno con tres paneles paga una sola cuenta. */
   app.get('/api/os/chat/por-cliente', (req, res) => {
@@ -2797,14 +2685,12 @@ function mount(app) {
       avisosResueltos: chat.avisosResueltos(12),
     });
   });
-
   // A dónde se le manda la cuenta de ESTE servicio (grupo propio, ver la tabla chat_cliente).
   app.get('/api/os/chat/destino/:clienteId', (req, res) => ok(res, { destino: chat.destino(req.params.clienteId) }));
   app.put('/api/os/chat/destino/:clienteId', wrap((req, res) => {
     const r = chat.setDestino({ ...(req.body || {}), cliente_id: req.params.clienteId });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   /* ── LAS DOS HOJAS ──────────────────────────────────────────────────────────────────────────
      La del cliente sale de `paraCliente`, que NO arrastra el costo ni el margen; la del proveedor
      sale de `paraProveedor`, que no arrastra lo que le cobrás a cada cliente. El chequeo de abajo
@@ -2853,11 +2739,9 @@ function mount(app) {
   }
   const _movsDe = (esteMes, dv) => (esteMes ? esteMes.movs : [])
     .filter((m) => !dv || String(m.divisa || '').toUpperCase() === dv);
-
   function _sinDatosInternos(html) {
     return !/margen|costo|pct_costo|te cuesta|paga:/i.test(html);
   }
-
   app.get('/api/os/chat/doc/cliente/:clienteId', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
     const doc = _hojaCliente(mes, req.params.clienteId, req.query.divisa);
@@ -2879,13 +2763,11 @@ function mount(app) {
     if (!_sinDatosInternos(html)) return err(res, 500, 'la hoja traía datos internos: NO se generó. Avisá que esto pasó.');
     res.type('text/html; charset=utf-8').send(html);
   });
-
   app.get('/api/os/chat/doc/proveedor', (req, res) => {
     const mes = String(req.query.mes || '').slice(0, 7) || mesTZ();
     const doc = chatDoc.paraProveedor(chat.porCliente(mes), { mes, mantenimiento: chat.deudaProveedor(mes).mantenimiento });
     res.type('text/html; charset=utf-8').send(chatDoc.htmlProveedor(doc));
   });
-
   /* ── MANDARLE LA CUENTA AL CLIENTE ──────────────────────────────────────────────────────────
      Sale para AFUERA: se manda de verdad. El link guarda la hoja YA PROYECTADA, así que lo que el
      cliente abre es lo mismo que viste vos, aunque después cambie un tipo de cambio. */
@@ -2935,7 +2817,6 @@ function mount(app) {
       : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`,
         { url, token: l.token, idas });
   }));
-
   // El link sin mandarlo: para copiarlo y pegarlo donde ella quiera.
   app.post('/api/os/chat/link/:clienteId', wrap((req, res) => {
     const mes = String((req.body || {}).mes || '').slice(0, 7) || mesTZ();
@@ -2944,7 +2825,6 @@ function mount(app) {
     const l = chatDoc.crearLink(doc, req.params.clienteId);
     ok(res, { url: _urlPublica(req) + '/chat/' + l.token, token: l.token, actualizado: l.actualizado });
   }));
-
   /* ── LA CUENTA DEL CHAT, QUE ES OTRA CUENTA ─────────────────────────────────────────────────
      No pasa por `movimientos` ni por el cierre del mes: esta plata no es toda de ella —la mitad se
      le paga al proveedor—, se cobra en otra wallet y se habla en otro grupo. Ver el comentario de
@@ -2985,7 +2865,6 @@ function mount(app) {
     });
   });
   app.delete('/api/os/chat/movs/:id', wrap((req, res) => ok(res, chat.borrarMov(req.params.id))));
-
   /* ── LOS AVISOS DE PAGO DEL CLIENTE ─────────────────────────────────────────────────────────
      Suben la captura desde su hoja. No mueven el saldo hasta que se aprueban acá. */
   app.get('/api/os/chat/avisos', (_req, res) => ok(res, {
@@ -3105,7 +2984,6 @@ function mount(app) {
     r.ok ? ok(res, { avisado: idas.length, idas })
       : err(res, 502, `salió a ${idas.length - fallaron.length} de ${idas.length}: ${r.error}`, { idas });
   }));
-
   /* ── LO QUE LE PAGASTE AL PROVEEDOR ─────────────────────────────────────────────────────────
      Antes un mes pagado y uno impago se veían idénticos. */
   app.post('/api/os/chat/pagos', wrap((req, res) => {
@@ -3129,14 +3007,12 @@ function mount(app) {
     x.ok ? ok(res, x) : err(res, 502, x.error);
   }));
   app.delete('/api/os/chat/pagos/:id', wrap((req, res) => ok(res, chat.borrarPago(req.params.id))));
-
   app.get('/api/os/api/paquetes', (_req, res) => ok(res, { paquetes: ofertas.listPaquetes() }));
   app.post('/api/os/api/paquetes', wrap((req, res) => {
     const r = ofertas.savePaquete(req.body || {});
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.delete('/api/os/api/paquetes/:id', wrap((req, res) => ok(res, ofertas.removePaquete(req.params.id))));
-
   /* Armar una oferta con un solo número: la base. Devuelve las líneas listas para editar y
      guardar — no escribe nada. Ver el porqué de la tarifa en api-ofertas-store.js. */
   /* ── CUÁNTO MOVIÓ CADA SELLO ────────────────────────────────────────────────────────────────
@@ -3157,7 +3033,6 @@ function mount(app) {
     const total = Object.values(ggr).reduce((a, b) => a + b, 0);
     ok(res, { mes, total, ggr, cuentas: (r.cuentas || []).length });
   }));
-
   app.get('/api/os/api/oferta-desde-base', (req, res) => {
     const r = ofertas.armarDesdeBase(req.query.base, {
       puntos: req.query.puntos, minExt: req.query.min_ext, maxExt: req.query.max_ext,
@@ -3165,7 +3040,6 @@ function mount(app) {
     if (r.error) return res.status(400).json({ ok: false, error: r.error });
     ok(res, r);
   });
-
   /* Recomponer los paquetes por lo que cuesta cada proveedor. Sin `aplicar` sólo dice qué
      movería: esto cambia lo que el cliente ve agrupado en el documento, así que se mira antes. */
   app.post('/api/os/api/paquetes/recomponer', wrap((req, res) => {
@@ -3177,7 +3051,6 @@ function mount(app) {
     if (r.error) return err(res, 400, r.error);
     ok(res, r);
   }));
-
   /* ── EN QUÉ SECCIÓN SE MUESTRA CADA PROVEEDOR ───────────────────────────────────────────────
      Sólo afecta al documento: el sello, su costo y lo que se factura no se tocan. Sirve para las
      bolsas mezcladas de TBS, donde un sello trae una mesa en vivo y dos catálogos de slots. */
@@ -3187,7 +3060,6 @@ function mount(app) {
     const r = ofertas.setSeccion(b.prov, b.paquete_id);
     r.ok ? ok(res, { ...r, secciones: ofertas.listSecciones() }) : err(res, 400, r.error);
   }));
-
   app.get('/api/os/api/ofertas', (_req, res) => ok(res, { ofertas: ofertas.listOfertas() }));
   app.get('/api/os/api/ofertas/:id', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
@@ -3199,7 +3071,6 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.delete('/api/os/api/ofertas/:id', wrap((req, res) => ok(res, ofertas.removeOferta(req.params.id))));
-
   /* El precio de UN sello, a mano. Vacío lo devuelve al precio de su paquete. */
   app.put('/api/os/api/ofertas/:id/precio', wrap((req, res) => {
     const o = ofertas.getOferta(req.params.id);
@@ -3208,7 +3079,6 @@ function mount(app) {
     const r = ofertas.precioDeSello(o, b.sello, b.pct);
     r.ok ? ok(res, { ...r, mostrar: ofertas.paraMostrar(r.oferta) }) : err(res, 400, r.error);
   }));
-
   /* Qué proveedores NO van en esta oferta. Ruta propia y no `saveOferta` entero: destildar una
      casilla no tiene por qué reescribir las líneas de precio, y si la pantalla mandara una lista
      vieja de líneas junto con la casilla, pisaría precios sin que nadie lo pidiera. */
@@ -3219,7 +3089,6 @@ function mount(app) {
     const r = ofertas.saveOferta({ ...o, excluidos: Array.isArray(b.excluidos) ? b.excluidos : [] });
     r.ok ? ok(res, { ...r, mostrar: ofertas.paraMostrar(r.oferta) }) : err(res, 400, r.error);
   }));
-
   // Qué cambiaría en la matriz. NO escribe: se mira antes de tocar precios que ya se facturan.
   app.get('/api/os/api/ofertas/:id/diff', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
@@ -3288,7 +3157,6 @@ function mount(app) {
     if (!r.ok) return err(res, 502, r.error || 'Telegram no lo aceptó');
     ok(res, { enviado: true, heredado: dest.heredado, de: dest.de });
   }));
-
   app.get('/api/os/api/ofertas/:id/doc', (req, res) => {
     const o = ofertas.getOferta(req.params.id);
     if (!o) return err(res, 404, 'no existe esa oferta');
@@ -3300,7 +3168,6 @@ function mount(app) {
     }
     res.type('text/html; charset=utf-8').send(html);
   });
-
   app.post('/api/os/api/ofertas/:id/aplicar', wrap((req, res) => {
     const o = ofertas.getOferta(req.params.id);
     if (!o) return err(res, 404, 'no existe esa oferta');
@@ -3312,7 +3179,6 @@ function mount(app) {
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   app.delete('/api/os/api/sellos/:nombre', wrap((req, res) => ok(res, apiStore.removeSello(req.params.nombre))));
-
   // Sembrar el padrón y la matriz de una. Idempotente: no pisa lo cargado salvo que se pida.
   app.post('/api/os/api/sembrar', wrap((req, res) => ok(res, apiStore.sembrar(req.body || {}))));
   app.get('/api/os/api/matriz', (_req, res) => ok(res, apiStore.matriz()));
@@ -3326,10 +3192,8 @@ function mount(app) {
   // el GGR que llegue cae en "sinPrecio", que se ve — no se factura por las dudas ni desaparece.
   app.delete('/api/os/api/pct/:cliente/:sello', wrap((req, res) =>
     ok(res, apiStore.removePct(req.params.cliente, req.params.sello))));
-
   // Lo que se le paga al proveedor contra lo que el sello cuesta. No necesita TBS.
   app.get('/api/os/api/revision', (_req, res) => ok(res, apiCuenta.revisarCostos()));
-
   // El cierre del mes de API: una fila por cuenta, y el dueño elige cuáles entran en el total.
   app.get('/api/os/api/resumen', wrap((req, res) => {
     const r = apiResumen.resumen({ mes: String(req.query.mes || mesTZ()).slice(0, 7) });
@@ -3340,7 +3204,6 @@ function mount(app) {
     if (!b.mes || !b.clave) return err(res, 400, 'falta el mes o la clave');
     ok(res, apiStore.setEnResumen(b.mes, b.clave, b.entra !== false, b.motivo));
   }));
-
   // Cobros por mes: todas las cuentas desde junio, con el monto y si pagó.
   app.get('/api/os/api/cobros', wrap((req, res) => {
     const r = apiResumen.cobros({ desde: req.query.desde || '2026-06', hasta: req.query.hasta || mesTZ() });
@@ -3359,7 +3222,6 @@ function mount(app) {
     const r = apiStore.setCobro(b.mes, b.clave, b.pagado !== false, b.monto);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   // Mandarle a un cliente de API su cuenta del mes por Telegram.
   // SALE PARA AFUERA: se pide confirmación en la pantalla y se manda la vista 'cliente', que por
   // construcción no lleva lo que le pagamos al proveedor ni cómo se reparte adentro.
@@ -3425,7 +3287,6 @@ function mount(app) {
     ok(res, { enviado: true, partes: partes.length, total_usdt: doc.usdt_cliente, destinos: hechos,
       aviso: fallaron.length ? `se mandó a ${hechos.length - fallaron.length} de ${hechos.length}: falló ${fallaron.map((x) => x.quien).join(', ')}` : null });
   }));
-
   // La MISMA página que va a ver el cliente, pero detrás del login. Un solo renderizador y dos
   // puertas: si el dueño revisa una cosa y el cliente ve otra, nadie se entera hasta el reclamo.
   app.get('/api/os/api/cuenta/:clienteId/pagina', wrap((req, res) => {
@@ -3440,7 +3301,6 @@ function mount(app) {
     res.setHeader('Cache-Control', 'no-store, private');
     res.send(d.ok ? apiCuentaHtml.pagina(d, { nota: 'Vista previa' }) : apiCuentaHtml.paginaError(d.error));
   }));
-
   // El documento de UNA cuenta. La vista 'cliente' se arma acá, en el servidor, con lista blanca:
   // lo que le pagamos al proveedor no puede viajar al navegador y esconderse con CSS.
   app.get('/api/os/api/cuenta/:clienteId', wrap((req, res) => {
@@ -3454,7 +3314,6 @@ function mount(app) {
       caja_id: req.query.caja_id || null });
     d.ok ? ok(res, d) : err(res, 404, d.error);
   }));
-
   // Las DOS cuentas del mes de API: la del cliente y la del proveedor, del mismo GGR.
   app.post('/api/os/api/precargar', wrap(async (req, res) => {
     const b = req.body || {};
@@ -3466,7 +3325,6 @@ function mount(app) {
     const r = apiCuenta.cuentas({ mes: req.query.mes || mesTZ(), cliente_id: req.query.cliente_id || null });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
-
   // TBS: el árbol de cuentas aplanado. Sin el id de cada cuenta no se le puede pedir el profit.
   app.get('/api/os/tbs/arbol', wrap(async (req, res) => {
     const cx = casinoConex.list().find((c) => c.motor === 'tbs' && c.activa);
@@ -3482,7 +3340,6 @@ function mount(app) {
     });
     r.ok ? ok(res, { conexion: cx.nombre, mes, ...r }) : err(res, 502, r.error);
   }));
-
   /**
    * TBS: el profit de unos agentes puntuales, por grupo de proveedores y por moneda.
    * Es la base para calcular cuánto se le paga a cada proveedor (punto 8).
@@ -3523,7 +3380,6 @@ function mount(app) {
     if (!r.ok) return err(res, 502, r.error);
     ok(res, { conexion: t.nombre, mes, desde, hasta, porDivisa: r.porDivisa });
   }));
-
   /**
    * ── EL REPORTE DIARIO DE TBS ──────────────────────────────────────────────────────────────
    * Casino y Europa tienen su acumulado diario y de ahí sale el Pulso. TBS no lo tenía porque cada
@@ -3552,7 +3408,6 @@ function mount(app) {
       segundos_estimados: ms ? Math.ceil((faltan.length * ms) / 1000) : null,
       medido_en: listos.length });
   });
-
   app.post('/api/os/tbs/diario/capturar', wrap(async (req, res) => {
     // La lógica vive en el servicio: el cron nocturno pide exactamente lo mismo, y dos copias de
     // "cómo se arma un día" es cómo una se queda vieja — se arregla la que se ve y la otra sigue
@@ -3564,14 +3419,12 @@ function mount(app) {
     });
     r.ok ? ok(res, r) : err(res, r.error && /falta la fecha|conexión/.test(r.error) ? 400 : 502, r.error);
   }));
-
   app.get('/api/os/tbs/diario', (req, res) => ok(res, tbsDiario.delMes(req.query.mes || mesTZ())));
   app.post('/api/os/tbs/diario/borrar-dia', wrap((req, res) => {
     const fecha = String((req.body || {}).fecha || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return err(res, 400, 'falta la fecha (YYYY-MM-DD)');
     ok(res, { fecha, borradas: tbsDiario.borrarDia(fecha) });
   }));
-
   /* ── LA COMPARATIVA QUE SE MANDA POR TELEGRAM ────────────────────────────────────────────────
      Es el mensaje que la dueña venía escribiendo a mano cuando le preguntan por un cliente. El
      texto lo arma el SERVIDOR con los datos de la base: si la pantalla mandara el texto ya hecho,
@@ -3582,7 +3435,6 @@ function mount(app) {
     if (!d.ok) return err(res, 400, d.error);
     ok(res, { ...d, texto: tbsComparativa.texto(d), plano: tbsComparativa.textoPlano(d) });
   });
-
   /* Va SÓLO al grupo interno (⚙ Config → Telegram). Es una decisión, no una limitación: la dueña
      lo usa para contestarle a su gente, y un clic de más no puede terminar en el chat de un
      cliente con los números de otro. El día que haga falta mandárselo a un cliente, se agrega
@@ -3606,7 +3458,6 @@ function mount(app) {
     console.log(`[TBS] comparativa ${d.mesAnt}→${d.mes} (${d.filas.length} cuentas) al grupo ${chat}`);
     ok(res, { enviado: true, partes: partes.length, cuentas: d.filas.length, chat });
   }));
-
   /* ⚠️ `fresco`: éste y sólo éste entra de nuevo al casino. Probar es preguntar si las
      credenciales sirven HOY — con la sesión guardada viva, una contraseña cambiada diría "anda". */
   app.post('/api/os/casino/conexiones/:id/test', wrap(async (req, res) => {
@@ -3653,7 +3504,6 @@ function mount(app) {
       saltos: pasos.length - 1,    // cuántas transferencias hay que hacer
     });
   });
-
   // total propio de un nodo
   app.get('/api/os/casino/conexiones/:id/nodo/:nodeId', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
@@ -3710,7 +3560,6 @@ function mount(app) {
     const filas = nodos.filter((n) => n.nivel === nivel).map((n) => ({ id: n.id, login: n.login, in: n.in, out: n.out, profit: n.profit, rtp: n.rtp }));
     ok(res, { groupBy: group, filas, soloActivos });
   }));
-
   // REPORTE DE PROVEEDORES: profit/bet/win/rtp por proveedor, en UNA o VARIAS monedas, vista
   // 'general' (toda la plataforma) o 'superagent'. on_bets + reports_group_by=provider_label.
   // ?view=general|superagent  ?currencies=ARS,USD,BRL  ?from=&to=  ?template=
@@ -3736,7 +3585,6 @@ function mount(app) {
     }
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
-
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores-nodo', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     if (!req.query.nodo) return err(res, 400, 'falta ?nodo=<id de usuario del casino>');
@@ -3748,7 +3596,6 @@ function mount(app) {
     }
     ok(res, { nodo: String(req.query.nodo), from: req.query.from, to: req.query.to, monedas });
   }));
-
   // Los selectores de la pantalla de reportes del casino, con su name y sus opciones: ahí está el
   // nombre del campo que controla la agrupación (Group by = Dealer).
   app.get('/api/os/casino/conexiones/:id/campos-reportes', wrap(async (req, res) => {
@@ -3756,7 +3603,6 @@ function mount(app) {
     const r = await cli.camposDeReportes();
     r.ok ? ok(res, r) : err(res, 502, r.error);
   }));
-
   // SONDA CRUDA: POST a cualquier área del casino con la sesión ya abierta. Para reproducir lo que
   // hace la pantalla del casino al cambiar una opción. No la usa ningún cálculo.
   app.post('/api/os/casino/conexiones/:id/sonda-cruda', wrap(async (req, res) => {
@@ -3764,7 +3610,6 @@ function mount(app) {
     const b = req.body || {};
     ok(res, await cli.sondaCruda({ area: b.area || 'info', params: b.params || {}, query: b.query || {} }));
   }));
-
   // SONDA: corre el reporte con parámetros crudos. Solo para investigar cómo pedirle al casino que
   // abra por distribuidor; no lo usa ningún cálculo.
   app.post('/api/os/casino/conexiones/:id/sonda-reporte', wrap(async (req, res) => {
@@ -3776,14 +3621,12 @@ function mount(app) {
     // puede diagnosticar nada. Tirar el error pelado dejaba "devolvió un error" y nada más.
     r.ok ? ok(res, r) : err(res, 502, r.error, { debug: r.debug || null });
   }));
-
   // Las plantillas de reporte guardadas en el casino: la agrupación sale de ahí, no de un parámetro.
   app.get('/api/os/casino/conexiones/:id/plantillas', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const r = await cli.plantillas();
     r.ok ? ok(res, r) : err(res, 502, r.error);
   }));
-
   app.get('/api/os/casino/conexiones/:id/reporte-proveedores', wrap(async (req, res) => {
     const cli = casinoConex.client(req.params.id); if (!cli) return err(res, 404, 'conexión no encontrada');
     const ug = req.query.ug != null ? req.query.ug : (req.query.view === 'superagent' ? 'superagent' : ''); // ?ug= override p/ probar valores
@@ -3794,7 +3637,6 @@ function mount(app) {
     });
     r.ok ? ok(res, { from: r.from, to: r.to, view: ug ? 'superagent' : 'general', monedas: r.monedas }) : err(res, 502, r.error);
   }));
-
   // REPORTE MENSUAL "matriz estilo Alexa": días × superagente × {in,out,profit} + totales + RTP.
   // Corre el reporte diario por cada día del mes (login 1 vez, batches de 5).
   app.get('/api/os/casino/conexiones/:id/reporte-mensual', wrap(async (req, res) => {
@@ -3805,7 +3647,6 @@ function mount(app) {
     const mes = req.query.mes || mesUTC(); // acumulado = datos del casino (UTC)
     ok(res, { ...reporteDiarioStore.getMatriz(req.params.id, group, mes, req.query.moneda || 'ARS'), errores: [] });
   }));
-
   // ───────── ACUMULADO (solapa que se llena día a día — datos GUARDADOS) ─────────
   // Ver el acumulado del mes (rápido, desde la DB; no consulta el casino).
   app.get('/api/os/casino/conexiones/:id/acumulado', (req, res) => {
@@ -3814,7 +3655,6 @@ function mount(app) {
   // 📊 EL PULSO: el resumen y las alertas del mes, desde el acumulado guardado (no toca el casino).
   app.get('/api/os/pulso', wrap((req, res) => ok(res, pulsoSvc.pulso({ mes: req.query.mes }))));
   app.get('/api/os/pulso/tendencia', wrap((req, res) => ok(res, pulsoSvc.tendencia({ hasta: req.query.mes, meses: Number(req.query.meses) || 6 }))));
-
   // Ver el acumulado del mes de TODAS las conexiones juntas (todos los GOD en simultáneo).
   app.get('/api/os/casino/acumulado-todos', (req, res) => {
     ok(res, reporteDiarioStore.getMatrizTodos(req.query.group || 'superagent', req.query.mes || mesUTC(), req.query.moneda || 'ARS'));
@@ -3867,7 +3707,6 @@ function mount(app) {
     const r = await acumSvc.captureMes(req.params.id, mes, group, 8, null, force);
     r.ok ? ok(res, { capturados: r.capturados, faltan: r.faltan, total: r.total, ya_tenia: r.ya_tenia }) : err(res, 502, r.error);
   }));
-
   // ───────── PANEL ↔ CASINO (stats reales por nodo linkeado) ─────────
   app.get('/api/os/paneles/:id/casino', wrap(async (req, res) => {
     const p = paneles.get(req.params.id); if (!p) return err(res, 404, 'panel no encontrado');
@@ -3876,312 +3715,6 @@ function mount(app) {
     const r = await cli.totalNodo({ nodeId: p.id_usuario, from: req.query.from, to: req.query.to });
     r.ok ? ok(res, { nodo: r.nodo }) : err(res, 502, r.error);
   }));
-
-  // ───────── FACTURACIÓN ─────────
-  //
-  // ⭐ LO QUE SE COBRA SALE DE LOS PEDIDOS, no del casino (decisión del dueño).
-  // Son dos números distintos por diseño: el casino informa todo lo que entró a los paneles
-  // (incluidas cargas hechas por fuera del sistema, bonos y movimientos internos), y los pedidos
-  // son lo que se le vendió al cliente. Se factura lo vendido.
-  //
-  // El casino se sigue trayendo AL LADO, como control: si los dos números se separan mucho, o falta
-  // cargar pedidos o hubo cargas por fuera. Pero si el casino no responde, se factura igual —
-  // antes una caída del casino dejaba sin facturar.
-  // EL CÁLCULO DE LA FACTURACIÓN, en una función: lo usan la pantalla y la emisión a la deuda.
-  // Si cada una lo calculara por su lado, el número que se muestra y el que se cobra podrían
-  // separarse — que es exactamente lo que veníamos de arreglar en todo lo demás.
-  async function _facturacionDe(mes, opciones = {}) {
-    opciones = opciones || {};
-    const from = opciones.from || `${mes}-01 00:00:00`;
-    // El 'hasta' sale del MES elegido, no de hoy: si no, facturar un mes cerrado suma todo lo que
-    // pasó después (pedir junio en agosto traía junio+julio+agosto en una sola línea, rotulada 'Junio').
-    const _ultDia = new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0)).getUTCDate();
-    const to = opciones.to || `${mes}-${String(_ultDia).padStart(2, '0')} 23:59:59`;
-    const conControl = opciones.control !== false;
-
-    // 1) LA BASE DE COBRO: los pedidos cargados del mes, por cliente y por moneda.
-    //
-    // Los pedidos se toman en el SISTEMA EN LÍNEA, no acá. Si el puente está configurado se traen
-    // de allá, ya traducidos a clientes de este lado (los dos padrones usan códigos distintos: allá
-    // "M526", acá "Marcelo"). Si no está configurado, se usan los pedidos locales — que en el OS
-    // normalmente son cero, y por eso la factura salía vacía.
-    let ventasCli = {}; let huerfanas = []; let origen = 'pedidos locales';
-    let avisoPuente = null;
-    const puente = ventasOnline.getConfig();
-    // ── SI EL PUENTE FALLA, SE USAN LOS PEDIDOS DE ACÁ ──────────────────────────────────────────
-    //
-    // El puente traía los pedidos del sistema viejo. Desde la migración los 848 pedidos viven en
-    // esta base, y el sistema viejo ya no autentica: devolvía 401 y esta función cortaba con un
-    // error, o sea que la facturación mensual ENTERA estaba caída y no se podía emitir nada.
-    //
-    // No es un fallback silencioso —eso sí podría duplicar— porque las dos fuentes son
-    // excluyentes: o los pedidos están allá o están acá. Se usa lo de acá y se dice que el puente
-    // falló, para que quede claro de dónde salió el número y para que alguien lo apague.
-    if (puente && puente.url) {
-      const vo = await ventasOnline.ventasDelMes(mes);
-      if (!vo.ok) {
-        avisoPuente = `el puente al sistema en línea no contestó (${vo.error}). Se usaron los pedidos `
-          + 'de este sistema, que desde la migración son los buenos. Conviene apagar el puente en Config.';
-        console.warn('[Facturación] ' + avisoPuente);
-      } else {
-      ventasCli = vo.porCliente;
-      huerfanas = (vo.sinMapeo || []).map((x) => ({ codigo: x.codigo, pedidos: x.count, porDivisa: Object.entries(x.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })) }));
-      origen = 'pedidos del sistema en línea';
-      }
-    }
-    let ruteadas = []; let sinCobrar = []; let paraRevisar = [];
-    if (!Object.keys(ventasCli).length) {
-      /* El ruteo lo decide cada panel (`consumo_a`), no el código a secas: hay paneles que son de
-         la misma persona con otra cuenta (los de JJ son de Marcelo, los de Ariel de Fran) y hay
-         paneles de tránsito de un vendedor donde cobrar sería cobrar dos veces la misma entrega.
-         Lo que se ruteó distinto y lo que no se cobra se devuelve, para que no pase en silencio. */
-      const r = pedidosStore.ventasDelMesPorCliente(mes);
-      ventasCli = r.porCliente;
-      ruteadas = r.ruteadas; sinCobrar = r.sinCobrar; paraRevisar = r.paraRevisar;
-      huerfanas = huerfanas.concat((r.sinCliente || []).map((x) => ({
-        codigo: x.codigo, pedidos: x.count,
-        porDivisa: Object.entries(x.porDivisa).map(([d, m]) => ({ divisa: d, monto: money.round(String(m), 2) })),
-      })));
-    }
-
-    // 2) EL CONTROL: lo que dice el casino. Si falla, se informa y se sigue.
-    //
-    // ⚡ Sale del ACUMULADO GUARDADO, no del casino en vivo. El cron nocturno ya baja esto todas
-    // las noches a `reporte_diario`; preguntárselo otra vez al casino en cada pantallazo tardaba
-    // ~70s (bajaba el árbol ENTERO de las dos conexiones) para llegar al mismo número. Un mes
-    // cerrado además no cambia más, así que consultarlo de nuevo no aporta nada.
-    // Se va en vivo solo si se pide `?vivo=1` o si el rango de fechas no es un mes completo
-    // (el acumulado está guardado por mes, no puede contestar un rango arbitrario).
-    const linked = paneles.list().filter((p) => p.conexion_id && p.id_usuario);
-    const nodeMap = {}; const errores = [];
-    let controlDe = 'acumulado guardado'; let cobertura = null;
-    if (conControl) {
-      const rangoPropio = !!(opciones.from || opciones.to);
-      const vivo = !!opciones.vivo || rangoPropio;
-      if (!vivo) {
-        const keys = linked.map((p) => ({ conexion_id: p.conexion_id, grp: 'superagent', sa_id: String(p.id_usuario) }));
-        const filas = reporteDiarioStore.filasPanelesMes(keys, mes);
-        for (const f of filas) {
-          const m = nodeMap[f.conexion_id] = nodeMap[f.conexion_id] || {};
-          const n = m[String(f.sa_id)] = m[String(f.sa_id)] || { montos: {} };
-          const div = String(f.moneda || 'ARS');
-          n.montos[div] = n.montos[div] || { in: '0' };
-          n.montos[div].in = money.add(n.montos[div].in, String(f.in_amt || 0));
-        }
-        cobertura = reporteDiarioStore.diasCapturados(mes);
-        // Un mes a medio capturar mostraría el control más chico de lo que es y parecería un desvío.
-        if (!cobertura.dias) errores.push(`el acumulado de ${mes} está vacío: el control no dice nada (capturalo en 📒 Acumulado, o pedí ?vivo=1)`);
-      } else {
-        controlDe = rangoPropio ? 'casino en vivo (rango propio)' : 'casino en vivo (pedido)';
-        const byConn = {};
-        linked.forEach((p) => { (byConn[p.conexion_id] = byConn[p.conexion_id] || []).push(p); });
-        for (const cid of Object.keys(byConn)) {
-          const cli = casinoConex.client(cid); if (!cli) { errores.push(`conexión ${cid} no disponible`); continue; }
-          try {
-            const r = await cli.nodos({ from, to, soloActivos: true, multiMoneda: true });
-            if (!r.ok) { errores.push(`conexión ${cid}: ${r.error}`); continue; }
-            const m = {}; r.nodos.forEach((n) => { m[String(n.id)] = n; }); nodeMap[cid] = m;
-          } catch (e) { errores.push(`conexión ${cid}: ${String((e && e.message) || e)}`); }
-        }
-      }
-    }
-
-    // Las cargas del mes, una sola vez: sirven para saber a quién se le facturó lo que entró a cada
-    // panel, que es lo que distingue "faltan pedidos" de "sus cargas van a otra cuenta".
-    let detalleMes = [];
-    try { detalleMes = pedidosStore.detalleDelMes(mes); } catch (e) { /* el aviso sale igual, sin el detalle */ }
-
-    const _tc = tcUnico.tcDelMes('ARS', mes);
-    const tc = _tc.valor;
-    const out = []; const sinBase = new Set(); const sinTC = new Set();
-    const sinPedidos = [];      // tienen movimiento en el casino pero NO se les vendió nada
-    const enCero = [];          // el % base dice 0: se les factura cero y parece correcto
-    // ⚠️ Ventas cuyo código NO corresponde a ningún cliente. Con los pedidos como base de cobro,
-    // eso es plata vendida que no se le factura a nadie y que no aparece por ningún lado.
-    // Verificado en producción: "Mclain" y "CharlyS2" con 170.000.000 cargados, sin cliente.
-    // Pasa cuando se renombra el código de un cliente y los pedidos viejos quedan con el anterior.
-    let totVend = '0', totFee = '0', totCasino = '0';
-    let cmpVend = '0', cmpCasino = '0';   // solo los clientes que SÍ tienen pedidos
-
-    // ⚠️ LOS VENDEDORES NO VAN EN ESTA FACTURA. No pagan un % de lo que cargan: pagan el COSTO
-    // REAL de los proveedores que usen, y eso se liquida en 🧮 Cierre de Mes → 🤝 Vendedores.
-    // Estando acá aparecían como "sin % base — van al 0%" (los 6 en rojo: David, IGLatam, Sarah,
-    // Alexa, Carlos, Henry), se les facturaba cero, y su movimiento del casino igual se sumaba al
-    // control: el total decía que la venta difería un 66% de lo que el casino registró, mezclando
-    // plata que esta factura no cobra por diseño.
-    const vendedores = [];
-    for (const c of clientes.list().clientes) {
-      const v = ventasCli[c.id] || null;
-      const cps = linked.filter((p) => p.cliente_id === c.id);
-      /* ── UN VENDEDOR TAMBIÉN CONSUME ────────────────────────────────────────────────────────
-         Antes se los salteaba enteros, y con eso se perdían las cargas que llevan SU código —
-         las que carga para sí mismo, no las que pasan hacia sus clientes. Medido jun-ago 2026:
-         364.965 USDT que no generaban deuda a nadie. Julian tenía 4 cargas propias en M7Martin-SA
-         y David 8 en sus paneles, todas con su código y ninguna de paso.
-         Lo que separa una cosa de la otra es el CÓDIGO del pedido, que ya viene resuelto: lo que
-         va hacia un cliente lleva el código del cliente y se le factura a él.
-         Y lo que decide si al vendedor se le cobra es su % base: en 0 no se le cobra nada, que es
-         el caso de IGLatam (regla de la dueña: «IGLatamYa no se cobra, sólo lo que se cobran a los
-         usuarios abajo»). Se lo sigue listando aparte para que se vea que es vendedor. */
-      if (c.es_vendedor && (v || cps.length)) vendedores.push(c.nombre || c.nombreVisible || c.codigo);
-      if (c.es_vendedor && !v) continue;          // vendedor sin cargas propias: nada que facturar
-
-      // el % del MES que se está facturando. Los pedidos son por CLIENTE, así que el precio propio
-      // de un panel no se puede aplicar acá: si un cliente tiene paneles con precios distintos, hay
-      // que unificarlos o cobrarle esa diferencia aparte.
-      const rb = externosSvc.baseDelMes(c, mes);
-      const base = rb.valor || '0';
-
-      // ── lo vendido, moneda por moneda ──
-      let vendUsdt = '0', feeUsdt = '0'; const porDivisa = []; const sinTCCliente = [];
-      for (const [div, monto] of Object.entries((v && v.porDivisa) || {})) {
-        const t = tcUnico.tcDelMes(div, mes);
-        const fee = money.pct(String(monto), base);
-        /* La lista global `sinTC` dice QUÉ monedas faltan; la del cliente dice A QUIÉN le faltan.
-           Sin esa segunda, la emisión no puede saltear al cliente afectado y le emite el total
-           recortado — y como emitir es idempotente por cliente+mes, la parte que falta ya no se
-           puede agregar salvo anulando el mes entero. */
-        if (!t.valor) { sinTC.add(div); sinTCCliente.push(div);
-          porDivisa.push({ divisa: div, vendido: String(monto), tc: null }); continue; }
-        vendUsdt = money.add(vendUsdt, money.div(String(monto), t.valor));
-        feeUsdt = money.add(feeUsdt, money.div(fee, t.valor));
-        porDivisa.push({ divisa: div, vendido: money.round(monto, 2), fee: money.round(fee, 2), tc: t.valor, vendidoUsdt: money.round(money.div(String(monto), t.valor), 2) });
-      }
-
-      // ── el control del casino ──
-      let casinoUsdt = '0'; let hayCasino = false;
-      for (const p of cps) {
-        const node = (nodeMap[p.conexion_id] || {})[String(p.id_usuario)];
-        if (!node) continue;
-        hayCasino = true;
-        const montos = (node.montos && Object.keys(node.montos).length) ? node.montos : { ARS: { in: node.in } };
-        for (const [div, x] of Object.entries(montos)) {
-          const t = tcUnico.tcDelMes(div, mes);
-          if (t.valor) casinoUsdt = money.add(casinoUsdt, money.div(x.in || '0', t.valor));
-        }
-      }
-
-      if (!v && !hayCasino) continue;                       // ni vendido ni movimiento: no aparece
-      if (rb.valor == null && v) sinBase.add(c.nombre || c.nombreVisible || c.codigo);
-      // Base CERO no es lo mismo que base sin cargar: acá el número está puesto, dice cero, y la
-      // factura sale en cero "correctamente". Si fue un olvido, nada lo iba a delatar.
-      if (rb.valor != null && !money.isPos(base) && (v || money.isPos(casinoUsdt))) {
-        enCero.push({ nombre: c.nombre || c.nombreVisible || c.codigo, vendido_usdt: money.round(vendUsdt, 2), casino_usdt: money.round(casinoUsdt, 2) });
-      }
-
-      /* Movimiento en el casino pero CERO pedidos: se avisa, porque una factura en cero pasa
-         desapercibida. Pero NO siempre falta algo: si los paneles de este cliente recibieron cargas
-         que se le facturan a OTRO —los de JJ llevan el código de Marcelo, los de Ariel el de Fran—
-         entonces está bien que él no tenga pedidos, y decir "faltan pedidos" manda a buscar algo
-         que no existe. Se dice a quién se le facturaron. */
-      if (!v && hayCasino && money.isPos(casinoUsdt)) {
-        const nodos = new Set(cps.map((p) => String(p.id_usuario)));
-        const aOtro = {};
-        for (const d of (detalleMes || [])) {
-          if (!nodos.has(String(d.userId))) continue;
-          const dest = clientes.list().clientes.find((x) => String(x.codigo).toLowerCase() === String(d.codigo).toLowerCase());
-          if (!dest || dest.id === c.id) continue;
-          const k = dest.nombre || dest.codigo;
-          aOtro[k] = (aOtro[k] || 0) + 1;
-        }
-        /* Y lo que decide si esto es normal o no: ¿cuándo fue la última vez que a estos paneles les
-           entró una carga? El `in` del nodo es lo que depositan los JUGADORES, y eso sigue pasando
-           mientras les quede saldo — un cliente que compró en julio y no en agosto tiene movimiento
-           en agosto sin deberle nada a nadie. Distinto es un panel al que NUNCA le entró una carga
-           por el sistema y aun así tiene jugadores depositando: ahí las fichas entran por otro lado.
-           Verificado: Luis compró 9.856.250 en julio y nada en agosto; los paneles de Ivan y Raul
-           no recibieron una sola carga en toda la historia. */
-        let ultimaCarga = null;
-        try {
-          for (const d of pedidosStore.detalleDelMes(null)) {
-            if (!nodos.has(String(d.userId))) continue;
-            if (!ultimaCarga || d.iso > ultimaCarga.iso) ultimaCarga = { iso: d.iso, mes: String(d.iso).slice(0, 7), codigo: d.codigo };
-          }
-        } catch (e) { /* sin esto el aviso sale igual, sólo que sin poder distinguir */ }
-        sinPedidos.push({
-          codigo: c.codigo, nombre: c.nombre || c.nombreVisible,
-          casino_usdt: money.round(casinoUsdt, 2),
-          seFacturanA: Object.entries(aOtro).map(([n, k]) => ({ cliente: n, cargas: k })),
-          ultimaCarga,
-        });
-      }
-
-      // lo que quedó a mitad de anular: las fichas están puestas pero la vuelta no se confirmó
-      let anulandoUsdt = '0';
-      for (const [div, monto] of Object.entries((v && v.anulando && v.anulando.porDivisa) || {})) {
-        const t = tcUnico.tcDelMes(div, mes);
-        if (t.valor) anulandoUsdt = money.add(anulandoUsdt, money.div(String(monto), t.valor));
-      }
-
-      const dif = money.isPos(casinoUsdt) ? money.round(money.mul(money.div(money.sub(vendUsdt, casinoUsdt), casinoUsdt), '100'), 1) : null;
-      out.push({
-        cliente_id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, moneda: 'USDT',
-        base, baseFuente: rb.fuente, sinBase: rb.valor == null,
-        pedidos: (v && v.count) || 0,
-        vendido_usdt: money.round(vendUsdt, 2),
-        fee_usdt: money.round(feeUsdt, 2),
-        casino_usdt: money.round(casinoUsdt, 2),
-        dif_pct: dif,
-        anulando: (v && v.anulando && v.anulando.count) ? { count: v.anulando.count, usdt: money.round(anulandoUsdt, 2) } : null,
-        porDivisa,
-        sinTC: sinTCCliente,          // las monedas de ESTE cliente que no se pudieron pasar a USDT
-        paneles: cps.map((p) => p.nombre),
-        // Con qué código(s) se pidieron estas cargas. La factura lo necesita para traer el detalle
-        // de los MISMOS pedidos que forman el total: si eligiera por su cuenta, las líneas podrían
-        // no sumar el número de arriba.
-        codigos: (v && v.codigos) || [c.codigo],
-      });
-      totVend = money.add(totVend, vendUsdt);
-      totFee = money.add(totFee, feeUsdt);
-      totCasino = money.add(totCasino, casinoUsdt);
-      // El total contra el total no dice nada cuando hay clientes que cargan por fuera del
-      // sistema: Titan solo son 1,96M de los 3,3M del control, y arrastra el promedio a -66%
-      // sin que haya nada mal. Este otro total compara SOLO a los que sí pasan por pedidos, que
-      // es donde un desvío significa de verdad que algo no cuadra.
-      if (v && v.count) { cmpVend = money.add(cmpVend, vendUsdt); cmpCasino = money.add(cmpCasino, casinoUsdt); }
-    }
-
-    out.sort((a, b) => Number(b.fee_usdt) - Number(a.fee_usdt));
-
-    // Lo vendido que quedó sin dueño: códigos del sistema en línea que no están mapeados a
-    // ningún cliente de acá. Es plata vendida que no se le factura a nadie, así que se informa
-    // con el monto para poder mapearla o crear el cliente.
-    for (const h of huerfanas) {
-      let u = '0';
-      for (const d of h.porDivisa) {
-        const t = tcUnico.tcDelMes(d.divisa, mes);
-        if (t.valor) u = money.add(u, money.div(String(d.monto), t.valor));
-      }
-      h.usdt = money.round(u, 2);
-    }
-    huerfanas.sort((a, b) => Number(b.usdt) - Number(a.usdt));
-
-    return {
-      mes, from, to, tc, tcFuente: _tc.fuente, tcConflicto: _tc.conflicto, moneda: 'USDT',
-      fuente: 'pedidos cargados', control: conControl ? controlDe : 'apagado', cobertura,
-      origen, avisoPuente, sinBase: [...sinBase], sinTC: [...sinTC], sinPedidos, enCero, huerfanas,
-      /* Los vendedores que DE VERDAD quedaron afuera: los que no aparecen en la tabla. Desde que un
-         vendedor con % base sí se factura por sus propias cargas, listarlos a todos como "afuera
-         por diseño" era mentira en pantalla — David y Julian estaban ahí Y facturando. */
-      vendedores: vendedores.filter((n) => !out.some((c) => (c.nombre || c.codigo) === n)),
-      // Cargas que se le facturaron a otro (por la marca del panel) y cargas que no se cobran.
-      ruteadas, sinCobrar, paraRevisar,
-      totales: {
-        vendido_usdt: money.round(totVend, 2),
-        fee_usdt: money.round(totFee, 2),
-        casino_usdt: money.round(totCasino, 2),
-        dif_pct: money.isPos(totCasino) ? money.round(money.mul(money.div(money.sub(totVend, totCasino), totCasino), '100'), 1) : null,
-        // Comparable = solo los clientes que pasan por pedidos. Es el número que dice si la
-        // facturación cuadra; el otro mezcla a los que cargan por fuera del sistema.
-        cmp_vendido_usdt: money.round(cmpVend, 2),
-        cmp_casino_usdt: money.round(cmpCasino, 2),
-        cmp_dif_pct: money.isPos(cmpCasino) ? money.round(money.mul(money.div(money.sub(cmpVend, cmpCasino), cmpCasino), '100'), 1) : null,
-        fuera_usdt: money.round(money.sub(totCasino, cmpCasino), 2),
-      },
-      clientes: out, errores,
-    };
-  }
-
   app.get('/api/os/facturacion', wrap(async (req, res) => {
     ok(res, await _facturacionDe(req.query.mes || mesTZ(), {
       from: req.query.from, to: req.query.to,
@@ -4189,8 +3722,6 @@ function mount(app) {
       vivo: req.query.vivo === '1',   // forzar la consulta al casino en vez del acumulado guardado
     }));
   }));
-
-
   // Borrar un pedido: para sacar los sembrados de prueba o los creados por error.
   // ⚠️ Los pedidos son la base de lo que se cobra, así que borrar uno CAMBIA la facturación del mes.
   // Por eso se niega si ese pedido ya generó un movimiento, y si el mes ya se emitió a la deuda.
@@ -4207,8 +3738,6 @@ function mount(app) {
     console.log(`[Pedido] BORRADO ${p.id} · ${p.codigo} · ${p.divisa} ${p.monto} · estado ${p.estado}`);
     ok(res, r);
   });
-
-
   // ───────── PUENTE con el sistema en línea (de donde salen los pedidos) ─────────
   app.get('/api/os/ventas-online/config', (_req, res) => ok(res, { config: ventasOnline.getConfig() }));
   app.put('/api/os/ventas-online/config', wrap((req, res) => ok(res, { config: ventasOnline.setConfig(req.body || {}) })));
@@ -4308,7 +3837,6 @@ function mount(app) {
     ok(res, { cliente: { id: cli.id, codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
       cuenta: deudaSvc.cuentaCorriente(cli.id), meses: filas });
   });
-
   /* ── MARCAR UNA DIFERENCIA COMO YA MIRADA ────────────────────────────────────────────────────
      Muchas diferencias tienen una explicación que sólo conoce quien las hizo: una prueba, una
      reposición, una carga a mano. Sin poder anotarlo, el mismo aviso sale todos los meses y termina
@@ -4327,7 +3855,6 @@ function mount(app) {
   }));
   app.delete('/api/os/validacion/resolver/:clave', (req, res) =>
     ok(res, crucePanel.desresolver(decodeURIComponent(req.params.clave))));
-
   /* ⭐ ¿ESTÁ LISTO PARA CERRAR ESTE MES?
      No alcanza con que la Factura de consumo dé un número: cerrar un mes son varias cosas y una se
      olvida. Agosto tenía la foto completa (210/210) y la factura de externos sin emitir, y nada
@@ -4390,7 +3917,6 @@ function mount(app) {
 
     ok(res, { mes, listo, falta, puedeCerrar: !falta.length });
   }));
-
   /**
    * ── CERRAR EL MES: LOS PASOS, EN ORDEN ──────────────────────────────────────────────────────
    *
@@ -4617,7 +4143,6 @@ function mount(app) {
     ok(res, { mes, pasos, falta: falta.length, avisos: pasos.filter((p) => p.estado === 'aviso').length,
       siguiente: (falta[0] || null), puedeCerrar: !falta.length });
   }));
-
   // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
   // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
   app.get('/api/os/validacion/:mes', wrap(async (req, res) => {
@@ -4628,7 +4153,6 @@ function mount(app) {
     }
     ok(res, { validacion: crucePanel.leer(req.params.mes) });
   }));
-
   /* ── TODAS LAS CUENTAS DEL MES, JUNTAS ───────────────────────────────────────────────────────
      La pantalla de externos muestra un cliente por vez: para ver los 28 hay que entrar 28 veces y
      esperar el minuto que tarda cada consulta al casino. Y para mandarlas al grupo interno hacen
@@ -4696,7 +4220,6 @@ function mount(app) {
       total_ahora: money.round(money.sum(filas.map((f) => f.ahora)), 2),
       salieron: cambian.filter((f) => f.facturaSalio).length });
   }));
-
   app.get('/api/os/emision/detalle/:mes', wrap((req, res) => {
     const mes = String(req.params.mes || '').slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(mes)) return err(res, 400, 'mes inválido');
@@ -4713,7 +4236,6 @@ function mount(app) {
     ok(res, { mes, externos: armar('externos'), vendedores: armar('vendedores'),
       enviado: enviosStore.delMes(mes), chat: String(configStore.getCfg('tgChatInterno') || '').trim() || null });
   }));
-
   /* ── Y SE MANDAN AL GRUPO INTERNO ────────────────────────────────────────────────────────────
      «Cuentas Imperium» es interno: ahí SÍ van los nombres, al revés del resumen de pesos, que va
      al grupo donde concilian contra el banco. Son dos grupos y dos criterios distintos; no se
@@ -4755,7 +4277,6 @@ function mount(app) {
       quien: (req.usuario && req.usuario.usuario) || 'admin' });
     ok(res, { enviado: filas.length, total, chat, ...marca });
   }));
-
   app.get('/api/os/emision/:mes', (req, res) => ok(res, emision.emitido(req.params.mes)));
   /**
    * Generar hacia atrás la deuda de las cargas de un mes.
@@ -4775,7 +4296,6 @@ function mount(app) {
     const r = await deudaCargaSvc.generarMes(mes, delMes, { simular: b.aplicar !== true });
     ok(res, { ...r, simulado: b.aplicar !== true, pedidosDelMes: delMes.length });
   }));
-
   /**
    * Completar los abonos de las cargas que ya pasaron (ver `deuda-carga.abonoPorCarga`).
    *
@@ -4790,7 +4310,6 @@ function mount(app) {
     if (!/^\d{4}-\d{2}$/.test(String(b.mes || ''))) return err(res, 400, 'mes inválido (YYYY-MM)');
     ok(res, deudaCargaSvc.pasarAlPromedio(b.mes, { aplicar: b.aplicar === true }));
   }));
-
   app.post('/api/os/clientes/:id/abonos/completar', wrap((req, res) => {
     const b = req.body || {};
     const cli = clientes.get(req.params.id);
@@ -4817,7 +4336,6 @@ function mount(app) {
     }
     ok(res, { cliente: cli.nombre, abonaA: otro ? otro.nombre : null, puntos: cli.abona_pts, simulado: b.aplicar !== true, cargas: out });
   }));
-
   /**
    * Borrar la deuda generada por cargas de un mes, para poder rehacerla.
    *
@@ -4829,7 +4347,6 @@ function mount(app) {
     if (b.confirmar !== true) return err(res, 400, 'esto borra movimientos de la cuenta: mandá confirmar:true');
     ok(res, deudaCargaSvc.borrarMes(String(b.mes || mesTZ()).slice(0, 7)));
   }));
-
   app.post('/api/os/emision/facturacion', wrap(async (req, res) => {
     const mes = String((req.body && req.body.mes) || mesTZ()).slice(0, 7);
 
@@ -5012,7 +4529,6 @@ function mount(app) {
     if (!out.ok) return err(res, 400, out.error);
     ok(res, { ...out, sinBase, fallaron, ruteadas });
   }));
-
   /**
    * Lo que paga cada VENDEDOR por los proveedores que usó, a la deuda.
    *
@@ -5054,20 +4570,10 @@ function mount(app) {
     if (!out.ok) return err(res, 400, out.error);
     ok(res, { ...out, sinCosto, fallaron });
   }));
-
   app.delete('/api/os/emision/:origen/:mes', (req, res) => {
     const r = emision.anular({ mes: req.params.mes, origen: req.params.origen });
     r.ok ? ok(res, r) : err(res, 400, r.error);
   });
-
-  /** La URL pública de este servicio, para armar los links que se le mandan al cliente. */
-  function _urlPublica(req) {
-    const cfg = configStore.getUrlPublica();
-    if (cfg) return cfg;
-    const host = process.env.RAILWAY_PUBLIC_DOMAIN || (req && req.get && req.get('host')) || 'localhost';
-    return /^https?:\/\//.test(host) ? host.replace(/\/+$/, '') : 'https://' + host;
-  }
-
   // ───────── 📄 LA FACTURA DEL MES, para mandársela al cliente ─────────
   // Junta las DOS facturas (consumo y proveedores externos) en un documento, más la cuenta
   // corriente. No recalcula: pide los mismos números que muestran las pantallas, para que lo
@@ -5079,7 +4585,6 @@ function mount(app) {
     const linea = (fac.clientes || []).find((c) => c.cliente_id === clienteId) || null;
     return facturaSvc.armar({ clienteId, mes, consumo: linea, conExternos, conCruce });
   }
-
   /* Registrar que la factura salió del sistema. Se llama al imprimir y al copiar, que son las dos
      formas en que se venía usando y las dos que no dejaban ningún rastro. */
   app.post('/api/os/factura/:clienteId/registrar', wrap(async (req, res) => {
@@ -5094,7 +4599,6 @@ function mount(app) {
     const r = facturasGuardadas.guardar(f, { como, quien: (req.usuario && req.usuario.usuario) || 'admin' });
     ok(res, r);
   }));
-
   /**
    * ── VOLVER A GENERAR LAS FACTURAS YA GUARDADAS DE UN MES ────────────────────────────────────
    *
@@ -5135,7 +4639,6 @@ function mount(app) {
       cambian: cambian.length, iguales: iguales.length, fallaron,
       detalle: cambian, yaEnviadas: cambian.filter((x) => x.yaSalio) });
   }));
-
   /* ── LAS CUENTAS DE EXTERNOS, TAL CUAL SE COBRARON (17-oct-2026) ──────────────────────────
      Para descargar sólo la parte de proveedores externos de un mes pasado y mandársela al cliente.
      Sale de la factura guardada, no de recalcular (ver externos-guardados.js). */
@@ -5171,18 +4674,15 @@ function mount(app) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(h);
   });
-
   // El historial de facturas de un cliente: qué se le generó, cuándo, y si salió.
   app.get('/api/os/facturas-guardadas/:clienteId', (req, res) =>
     ok(res, { facturas: facturasGuardadas.delCliente(req.params.clienteId) }));
-
   // La factura guardada de un mes, tal cual se generó.
   app.get('/api/os/facturas-guardadas/:clienteId/:mes', (req, res) => {
     const f = facturasGuardadas.get(req.params.clienteId, req.params.mes);
     if (!f) return err(res, 404, 'no hay ninguna factura guardada de ese mes');
     ok(res, { factura: f });
   });
-
   app.get('/api/os/factura/:clienteId', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     /* Si ya se generó una factura de ese mes, se muestra ESA y no un recálculo: es lo que se le
@@ -5215,9 +4715,6 @@ function mount(app) {
     if (!f.ok) return err(res, 404, f.error);
     ok(res, { ...f, texto: facturaSvc.aTexto(f), textoConDetalle: facturaSvc.aTexto(f, { detalle: true }) });
   }));
-
-
-
   // El LINK con el que el cliente ve el desglose completo. Por Telegram le va el resumen y esto.
   app.post('/api/os/factura/:clienteId/link', wrap(async (req, res) => {
     // Igual que enviar: el link se le pasa al cliente, así que tampoco puede adivinar el mes.
@@ -5318,7 +4815,6 @@ function mount(app) {
     out.sort((a, b) => Number(b.totalMes_usdt) - Number(a.totalMes_usdt));
     ok(res, { mes, conExternos, facturas: out });
   }));
-
   // ───────── 🤝 VENDEDORES ─────────
   // Un vendedor no paga un % sobre lo que carga: paga AL COSTO por los proveedores que use, en
   // sus paneles y en los de sus clientes. Es una cuenta interna, no una factura.
@@ -5504,7 +5000,6 @@ function mount(app) {
       avisos,
     });
   }));
-
   /* CONFIRMAR EL % DE UN CLIENTE PARA UN MES. Se pregunta UNA vez por mes y por cliente, antes de
      la primera carga: es el momento en que alguien sabe si cambió.
 
@@ -5530,7 +5025,6 @@ function mount(app) {
     const dsp = ((clientes.get(cli.id).cajas || []).find((k) => String(k.id) === String(caja.id)) || {}).divisas || [];
     ok(res, { resultado: r || 'sin cambios', antes, ahora: dsp, panel: panel.nombre });
   }));
-
   app.post('/api/os/carga/base', wrap((req, res) => {
     const b = req.body || {};
     const cli = clientes.get(b.cliente_id) || clientes.getByCodigo(b.cliente_id);
@@ -5554,7 +5048,6 @@ function mount(app) {
     const g = externosSvc.confirmarBase(cli.nombre, mes, pct);
     ok(res, { mes, pct, cambio: !!vigencia, antes: antes == null ? null : String(antes), confirmada: g });
   }));
-
   app.get('/api/os/vendedores/:nombre/rama-proveedores', wrap(async (req, res) => {
     const mes = String(req.query.mes || mesTZ()).slice(0, 7);
     const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
@@ -5708,14 +5201,12 @@ function mount(app) {
       _nota: 'Todo en USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. Cada moneda se pasa a USDT con SU tipo de cambio (ver tcPorDivisa) — "ventas_total" es la suma ya convertida, no un monto en moneda local. Un solo paso: cada participante cobra SUS PUNTOS del % base del cliente (§12). "sin_asignar" = puntos del base que todavía no tienen dueño.',
     });
   });
-
   // Sembrar el reparto de los clientes desde la vieja Tabla Split (Empresa) — ver reparto.service.
   app.post('/api/os/reparto/sembrar', wrap((req, res) => {
     const mes = req.body && req.body.mes ? String(req.body.mes).slice(0, 7) : mesTZ();
     const aplicar = !!(req.body && req.body.aplicar);
     ok(res, repartoSvc.sembrarDesdeSplit(clientes.list().clientes, mes, { aplicar }));
   }));
-
   // El reparto de UN cliente, contrastado contra su % base (lo consume el editor).
   /* ───────── 💰 EL REPARTO DE LO COBRADO ────────────────────────────────────────────────────
      La pantalla de Reparto dice a quién le CORRESPONDE lo facturado. Esto dice de quién es la
@@ -5809,21 +5300,18 @@ function mount(app) {
       personas: personas.list().map((p) => ({ id: p.id, nombre: p.nombre, es_empresa: !!p.es_empresa })),
     });
   }));
-
   /* Quién agarró la plata de un pago. Se corrige después a propósito: al acreditar no siempre se
      sabe, y obligar a elegir en ese momento lleva a elegir cualquier cosa para poder seguir. */
   app.put('/api/os/pagos/:id/recibido-por', wrap((req, res) => {
     const r = movs.setRecibidoPor(req.params.id, (req.body || {}).persona_id || null);
     r.ok ? ok(res, { movimiento: r.movimiento }) : err(res, 404, r.error);
   }));
-
   app.get('/api/os/reparto/:clienteId', (req, res) => {
     const c = clientes.get(req.params.clienteId);
     if (!c) return err(res, 404, 'cliente no encontrado');
     const mes = req.query.mes ? String(req.query.mes).slice(0, 7) : mesTZ();
     ok(res, { cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible }, mes, reparto: repartoSvc.repartoCliente(c, mes) });
   });
-
   // DEV/DEMO: sembrar VENTAS de prueba = pedidos 'cargado' directo en la DB (NO toca el casino, no hace
   // carga real). Para ver Facturación/Reparto con datos en pruebas; en el live ya están los pedidos reales.
   // body: { items:[{codigo, monto, userId?, cajaUsuario?, sistema?, divisa?}], reset?:bool }
@@ -5847,7 +5335,6 @@ function mount(app) {
     }
     ok(res, { creados: ids.length, ids, _nota: 'Pedidos de prueba marcados "cargado" sin tocar el casino (siembra DB).' });
   }));
-
   // Diario: STUB (depende de la API del panel)
   app.get('/api/os/reportes/diario', (req, res) => ok(res, {
     fecha: req.query.fecha || fechaTZ(), pendiente: true,
