@@ -3173,7 +3173,7 @@ async function main() {
         return /_hojaCliente\(mes, clienteId, divisa\)/.test(rt)
           // ⚠️ re-suma `cobra` panel por panel: recalcular el % de la ganancia junta da un centavo
           // distinto por el redondeo de cada caja, y la hoja deja de cerrar contra su detalle.
-          && /paneles\.reduce\(\(a, p\) => require\('\.\/lib\/money'\)\.add\(a, p\.cobra/.test(rt)
+          && /paneles\.reduce\(\(a, p\) => require\('\.\.\/lib\/money'\)\.add\(a, p\.cobra/.test(rt)
           // y `sinTC` se recalcula: es del cliente entero y pondría el cartel en la cuenta que no lo tiene
           && /sinTC: paneles\.some/.test(rt);
       })());
