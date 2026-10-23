@@ -66,7 +66,7 @@ function pintar(){
   const W = w.find(x => x.red === red) || {};
   /* Una fila por caja: el que tiene varias ve cuánto paga cada una. Cómo se calculó, plegado. */
   const suma = (c, cat) => (c.lineas||[]).filter(l => l.cat === cat).reduce((x, l) => x + (l.v || 0), 0);
-  const tabla = (cajas) => { const cols = [['entrada','Entrada'], ['mant','Mantenimiento'], ['variable','% de tu ganancia']].filter(([k]) => cajas.some(c => suma(c, k) || (k === 'variable' && (c.lineas||[]).some(l => l.cat === k))));
+  const tabla = (cajas) => { const cols = [['entrada','Conexión'], ['mant','Mantenimiento'], ['variable','% de tu ganancia']].filter(([k]) => cajas.some(c => suma(c, k) || (k === 'variable' && (c.lineas||[]).some(l => l.cat === k))));
     const notas = cajas.flatMap(c => (c.lineas||[]).filter(l => l.nota).map(l => `<div><b>${esc(c.caja)}</b> · ${esc(l.k)}: ${esc(l.nota)}</div>`));
     return `<table class="mc-tabla"><thead><tr><th>${cajas.length === 1 ? 'Caja' : 'Tus ' + cajas.length + ' cajas'}</th>${cols.map(([, t]) => `<th class="n">${t}</th>`).join('')}<th class="n">USDT</th></tr></thead>
       <tbody>${cajas.map(c => `<tr><td><b>${esc(c.caja)}</b>${c.sitio ? `<div class="chico">${esc(c.sitio)}</div>` : ''}</td>${cols.map(([k]) => `<td class="n">${money(suma(c, k))}</td>`).join('')}<td class="n"><b>${money(c.total)}</b></td></tr>`).join('')}</tbody>
@@ -75,7 +75,7 @@ function pintar(){
   const detalle = a ? `<details class="cajas" style="margin-top:10px"${a.cajas.length > 1 ? ' open' : ''}><summary class="abrir"><span class="chev" aria-hidden="true"></span>Qué estás pagando</summary>${tabla(a.cajas)}${a.exacto - a.total > 0.004 ? `<div class="chico" style="margin-top:4px">+ ${money(a.exacto - a.total)} de centavos que identifican tu pago = ${money(a.exacto)} USDT.</div>` : ''}</details>` : '';
   const cajas = (D.cajas||[]).length ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Tus cajas y lo que pagan</summary>
       <table class="mc-tabla"><tbody>${D.cajas.map(c => `<tr><td><b>${esc(c.caja)}</b><div class="chico">${esc(c.sitio||'')}</div></td>
-        <td class="n">${c.desde ? `${money(c.mant,0)} USD por mes<div class="chico">+ ${money(c.pct,1).replace(',0','')} % de su ganancia · desde ${esc(dia(c.desde))}</div>` : '<span class="chico">todavía no empezó: no se cobra</span>'}</td></tr>`).join('')}</tbody></table>
+        <td class="n">${c.desde ? `${money(c.mant,0)} USD por mes<div class="chico">+ ${money(c.pct,1).replace(',0','')} % de su ganancia · ${c.desde > c.hoy ? 'empieza el' : 'desde'} ${esc(dia(c.desde))}</div>` : '<span class="chico">todavía no empezó: no se cobra</span>'}</td></tr>`).join('')}</tbody></table>
       <div class="chico" style="margin-top:6px">El mantenimiento se paga por adelantado el día 1; el % es sobre la ganancia del mes que terminó (si dio pérdida, es cero).</div></details>` : '';
   const pz = D.pesos && a ? `<details class="cajas" style="margin-top:12px"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Prefiero pagar en pesos</summary>
       <div class="card" style="margin-top:8px"><div class="mc-monto"><b>$ ${money(D.pesos.ars, 0)}</b><button class="outline small" data-copiar="${esc(String(D.pesos.ars))}">Copiar</button></div>
