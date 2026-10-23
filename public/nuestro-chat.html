@@ -42,6 +42,14 @@
   .nc-par{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:14px }
   .nc-par > div{ background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:12px 14px }
   .nc-par h3{ margin:0 0 6px; font-size:14px } .nc-par .grande{ font-size:22px; font-weight:800; font-variant-numeric:tabular-nums }
+  .nc-cajas{ margin-top:10px } .nc-cajas .nc-tabla tfoot td{ border-top:1px solid var(--border); border-bottom:0 }
+  .nc-notas{ display:flex; flex-direction:column; gap:4px; margin-top:6px; font-size:12.5px }
+  .nc-buscar{ max-width:320px }
+  .nc-chips{ display:flex; gap:6px; flex-wrap:wrap }
+  .nc-chips button{ background:var(--bg2); color:var(--text); border:1px solid var(--border); border-radius:20px; padding:5px 11px; font-size:12.5px; font-weight:600 }
+  .nc-chips button[aria-pressed="true"]{ background:var(--uva); border-color:var(--uva); color:#fff }
+  .nc-resumen{ display:flex; gap:14px; flex-wrap:wrap; align-items:baseline; font-size:13.5px; margin:4px 0 2px }
+  .nc-resumen b{ font-variant-numeric:tabular-nums }
   .nc-corte{ background:var(--rosa-bg); border:1px solid #e9b9c1; color:var(--rosa); border-radius:10px; padding:10px 12px; margin-top:10px; font-size:13px }
   @media (max-width:640px){ .nc-tabla .opc{ display:none } main{ padding:12px } }
 </style>
@@ -92,12 +100,32 @@ document.addEventListener('toggle', (e) => { const d = e.target; if (d.dataset &
 const señal = (clase, txt, title) => `<span class="señal ${clase}"${title?` title="${esc(title)}"`:''}>${esc(txt)}</span>`;
 
 /* ── EL DETALLE DE UNA CAJA: los renglones vienen armados del servidor ─────────────────────── */
-function datosCaja(c){
-  const filas = (c.lineas||[]).map(l => `<div><span class="k">${esc(l.k)}</span><span class="v">${l.falta ? `<span class="tc falta">${esc(l.falta)}</span>` : usdt(l.v)}${l.nota ? `<div class="tc">${esc(l.nota)}</div>` : ''}</span></div>`).join('');
-  return `<div class="subcaja"><div class="nc-caja-h"><b>${esc(c.caja)}</b>${c.sitio?`<span class="muted">${esc(c.sitio)}</span>`:''}${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}</div>
-    <div class="subdatos">${filas}<div><span class="k"><b>Esta caja</b></span><span class="v fuerte">${c.total == null ? '—' : usdt(c.total)}</span></div></div>
-    ${(c.avisos||[]).map(a => `<div class="nota-suave${a.tipo==='sin-datos'?' rosa':''}">${esc(a.texto)}</div>`).join('')}</div>`;
+function datosCaja(c){ return tablaCajas([c]); }
+/* Una fila por caja: un cliente con cinco cajas se lee de un vistazo. Cómo se calculó cada % va
+   plegado abajo; lo que falta (sin datos, sin cambio) se ve en la fila, no escondido. */
+function tablaCajas(cajas){
+  const suma = (c, cat) => (c.lineas||[]).filter(l => l.cat === cat).reduce((a, l) => a + (l.v || 0), 0);
+  const falta = (c) => (c.lineas||[]).find(l => l.falta);
+  const pctDe = (c) => { const l = (c.lineas||[]).find(x => /%/.test(x.k)); const m = l && /^([\d.,]+) %/.exec(l.k); return m ? m[1] + ' %' : ''; };
+  const cols = [['entrada','Entrada'], ['mant','Mantenimiento'], ['variable','% ganancia']].filter(([k]) => cajas.some(c => suma(c, k) || (k === 'variable' && (falta(c) || pctDe(c)))));
+  const fila = (c) => `<tr><td><b>${esc(c.caja)}</b>${c.sitio ? `<div class="muted" style="font-size:12px">${esc(c.sitio)}</div>` : ''}</td>
+    ${cols.map(([k]) => `<td class="n">${k === 'variable' && falta(c) ? `<span class="tc falta" style="font-size:12px">${esc(falta(c).falta)}</span>` : money(suma(c, k))}${k === 'variable' && pctDe(c) && !falta(c) ? `<div class="muted" style="font-size:11.5px">${esc(pctDe(c))}</div>` : ''}</td>`).join('')}
+    <td class="n"><b>${c.total == null ? '—' : money(c.total)}</b></td></tr>`;
+  const notas = cajas.flatMap(c => (c.lineas||[]).filter(l => l.nota).map(l => `<div><b>${esc(c.caja)}</b> · ${esc(l.k)}: ${esc(l.nota)}</div>`));
+  const avisos = cajas.flatMap(c => (c.avisos||[]).map(a => a.texto)).filter((x, i, A) => A.indexOf(x) === i);
+  const tot = cajas.some(c => c.total == null) ? null : cajas.reduce((a, c) => a + c.total, 0);
+  return `<div class="nc-cajas"><table class="nc-tabla"><thead><tr><th>${cajas.length === 1 ? 'Caja' : cajas.length + ' cajas'}</th>${cols.map(([, t]) => `<th class="n">${t}</th>`).join('')}<th class="n">USDT</th></tr></thead>
+    <tbody>${cajas.map(fila).join('')}</tbody>
+    ${cajas.length > 1 ? `<tfoot><tr><td><b>Total</b></td>${cols.map(([k]) => `<td class="n">${money(cajas.reduce((a, c) => a + suma(c, k), 0))}</td>`).join('')}<td class="n"><b>${tot == null ? '—' : money(tot)}</b></td></tr></tfoot>` : ''}</table>
+    ${notas.length ? `<details class="cajas"><summary class="abrir"><span class="chev" aria-hidden="true"></span>Cómo se calculó el %</summary><div class="muted nc-notas">${notas.join('')}</div></details>` : ''}
+    ${avisos.map(t => `<div class="nota-suave">${esc(t)}</div>`).join('')}</div>`;
 }
+
+/* Buscar y filtrar: con cincuenta clientes, encontrar al que debe no puede ser bajar mirando. */
+const _bus = { cobros:'', curso:'', clientes:'' }; let _filtro = 'todos', _ver = 20;
+const coincide = (cl, q) => !q || (cl.nombre + ' ' + (cl.codigo||'') + ' ' + (cl.cajas || (cl.docs||[]).flatMap(d => d.cajas)).map(c => c.caja + ' ' + (c.sitio||'')).join(' ')).toLowerCase().includes(q.toLowerCase());
+const buscador = (vista, ph) => `<input type="search" class="nc-buscar" data-buscar="${vista}" value="${esc(_bus[vista])}" placeholder="${esc(ph)}" aria-label="${esc(ph)}">`;
+const verMas = (total) => total > _ver ? `<div class="acciones" style="justify-content:center"><button class="outline small" data-ver-mas>Ver ${Math.min(20, total - _ver)} más (${total - _ver} sin mostrar)</button></div>` : '';
 
 const VIEWS = {};
 const TABS = [['curso','📈 Este mes'], ['cobros','🧾 Cobros'], ['pagos','💸 Pagos'], ['cuenta','📒 Cuenta del chat'], '|', ['clientes','👥 Clientes y cajas'], ['config','⚙ Config']];
@@ -114,10 +142,11 @@ VIEWS.curso = async () => {
         <div><dt>% de la ganancia de ${esc(MESES[Number(r.mes.slice(5))-1])}</dt><dd>${usdt(T.variable)}</dd></div></dl>
       <div class="cuantos">${T.clientes} clientes${T.sinCalcular ? ` (${T.sinCalcular} todavía no se ${T.sinCalcular === 1 ? 'puede' : 'pueden'} calcular: no suman)` : ''} · la ganancia de Imperia llega hasta ayer (${dia(r.datosHasta)}).
         ${E.n ? ` Este mes además entraron ${E.n} ${E.n===1?'caja nueva':'cajas nuevas'}: ${usdt(E.total)} de entrada.` : ''}</div></div>
-    ${r.clientes.map((cl) => plegable('cu.'+cl.id, esc(cl.nombre),
+    <div class="nc-sel">${buscador('curso', 'Buscar cliente o caja')}</div>
+    ${(() => { const L = r.clientes.filter(cl => coincide(cl, _bus.curso)); return L.slice(0, _ver).map((cl) => plegable('cu.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${cl.cajas.length} ${cl.cajas.length===1?'caja':'cajas'}</small>`,
         cl.total == null ? '<b>—</b>' : `<b>${money(cl.total)}</b><span class="u">USDT</span>`,
         (cl.avisos||[]).map(a => señal(a.tipo==='sin-datos'?'rosa':'durazno', a.corto, a.texto)).join(''),
-        `<div class="sublista">${cl.cajas.map(datosCaja).join('')}</div>`)).join('')}`;
+        tablaCajas(cl.cajas))).join('') + verMas(L.length) || '<div class="card muted">Ningún cliente coincide.</div>'; })()}`;
 };
 
 /* ── 🧾 COBROS: lo que salió en el mes (el del día 1 y las entradas), quién pagó y a quién le sale el cartel ── */
@@ -134,12 +163,12 @@ VIEWS.cobros = async () => {
     : `<span class="t">Todavía no se armó</span><span class="muted">Se arma solo el día 1.</span>`;
   const lab = { pagado:['verde','✓ Pagó'], pendiente:['gris','Esperando el pago'], vencido:['rosa','Vencido'], 'no-sale':['rosa','No sale'], 'sin-enviar':['gris','Sin mandar'] };
   const doc = (d) => `<div class="subcaja" style="margin-bottom:8px"><div class="nc-caja-h"><b>${esc(d.titulo)}</b><span class="muted">vence ${dia(d.vence)}</span>
-      ${d.estado === 'pagado' ? señal('verde','✓ pagado') : d.estado === 'vencido' ? señal('rosa','vencido') : ''}</div>
-    <div class="subdatos"><div><span class="k">A pagar (con los centavos que identifican su pago)</span><span class="v fuerte">${usdt(d.exacto)}</span></div>
-      ${d.pagado ? `<div><span class="k">Pagó</span><span class="v" style="color:var(--verde2)">${usdt(d.pagado)}</span></div>` : ''}
-      ${d.debe > 0.01 && d.pagado ? `<div><span class="k">Le falta</span><span class="v" style="color:var(--rosa)">${usdt(d.debe)}</span></div>` : ''}
-      ${(d.pagos||[]).map(p => `<div><span class="k">${fecha(p.t)} · ${esc(p.red)} · ${esc(p.como)}</span><span class="v nc-hash">${esc(p.hash.slice(0,10))}…</span></div>`).join('')}</div>
-    <div class="sublista" style="margin-top:8px">${d.cajas.map(datosCaja).join('')}</div></div>`;
+      ${d.estado === 'pagado' ? señal('verde','✓ pagado') : d.estado === 'vencido' ? señal('rosa','vencido') : señal('gris','esperando')}</div>
+    <div class="nc-resumen"><span>A pagar <b>${usdt(d.exacto)}</b></span>${d.pagado ? `<span style="color:var(--verde2)">Pagó <b>${usdt(d.pagado)}</b></span>` : ''}${d.debe > 0.01 && d.pagado ? `<span style="color:var(--rosa)">Le falta <b>${usdt(d.debe)}</b></span>` : ''}</div>
+    ${(d.pagos||[]).map(p => `<div class="muted" style="font-size:12px">${fecha(p.t)} · ${esc(p.red)} · ${esc(p.como)} · <span class="nc-hash">${esc(p.hash.slice(0,10))}…</span></div>`).join('')}
+    ${tablaCajas(d.cajas)}</div>`;
+  const F = { todos:['Todos', () => true], deben:['Deben', c => c.estado === 'pendiente' || c.estado === 'vencido'], vencidos:['Vencidos', c => c.estado === 'vencido'], cartel:['Con cartel', c => c.cartel && c.cartel.activo], pagaron:['Pagaron', c => c.estado === 'pagado'] };
+  const lista = r.clientes.filter(F[_filtro][1]).filter(cl => coincide(cl, _bus.cobros));
   m.innerHTML = `
     <div class="nc-sel"><label style="text-transform:none;margin:0">Mes <select data-mes>${(r.meses||[r.mes]).map(x => `<option value="${x}"${x===r.mes?' selected':''}>${esc(nomMes(x))}</option>`).join('')}</select></label></div>
     <div class="nc-estado">${estado}</div>
@@ -150,7 +179,9 @@ VIEWS.cobros = async () => {
       ${T.vencido ? `<div class="nc-tile rojo"><div class="k">Vencido</div><div class="v">${money(T.vencido)}</div><div class="s">${T.nVencidos} ${T.nVencidos===1?'cliente':'clientes'} · ${T.nCartel} con el cartel</div></div>` : ''}
     </div>
     ${(r.problemas||[]).length ? `<div class="nota-suave rosa" style="margin:0 0 12px"><b>${r.problemas.length === 1 ? 'Un cliente no sale' : r.problemas.length + ' clientes no salen'} hasta que lo arregles:</b> ${r.problemas.map(p => esc(p.cliente) + ' (' + esc(p.texto) + ')').join(' · ')}</div>` : ''}
-    ${r.clientes.map((cl) => {
+    <div class="nc-sel"><div class="nc-chips">${Object.entries(F).map(([k, [t, f]]) => `<button data-filtro="${k}" aria-pressed="${k===_filtro}">${t} · ${r.clientes.filter(f).length}</button>`).join('')}</div>${buscador('cobros', 'Buscar cliente o caja')}</div>
+    ${lista.length ? '' : '<div class="card muted">Ningún cliente en esta lista.</div>'}
+    ${lista.slice(0, _ver).map((cl) => {
       const [c, t] = lab[cl.estado] || ['gris', cl.estado];
       const extra = cl.estado === 'vencido' ? ` hace ${cl.diasVencido} ${cl.diasVencido===1?'día':'días'}` : '';
       const K = cl.cartel || {};
@@ -160,11 +191,12 @@ VIEWS.cobros = async () => {
         : K.desde && cl.estado !== 'pagado' ? `<div class="muted" style="font-size:12.5px;margin-top:8px">Si no paga, el cartel le aparece el ${dia(K.desde)}.</div>` : '';
       const rec = (cl.recordatorios||[]).length ? `<div class="muted" style="font-size:12.5px;margin-top:8px">Recordatorios: ${cl.recordatorios.map(x => 'día ' + x.dia + ' (' + (x.ok ? 'llegó' : 'no llegó') + ')').join(' · ')}</div>` : '';
       const envio = cl.envio ? (cl.envio.ok ? `<div class="muted" style="font-size:12.5px;margin-top:8px">Se le mandó por Telegram el ${fecha(cl.envio.t)}</div>` : `<div class="nota-suave rosa">No le llegó: ${esc(cl.envio.error)}</div>`) : '';
-      return plegable('co.'+r.mes+'.'+cl.id, esc(cl.nombre), `<b>${money(cl.exacto)}</b><span class="u">USDT</span>`,
+      const nCajas = new Set(cl.docs.flatMap(d => d.cajas.map(x => x.caja))).size;
+      return plegable('co.'+r.mes+'.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${nCajas} ${nCajas===1?'caja':'cajas'}</small>`, `<b>${money(cl.estado === 'pagado' ? cl.exacto : cl.debe)}</b><span class="u">${cl.estado === 'pagado' ? 'USDT' : 'debe'}</span>`,
         señal(c, t + extra) + (K.activo ? señal('rosa','🔒 cartel') : '') + (cl.problema ? señal('rosa', cl.problema) : ''),
-        `${cl.docs.map(doc).join('')}${cartel}${envio}${rec}
+        `${cartel}${cl.docs.map(doc).join('')}${envio}${rec}
         <div class="acciones"><a href="${esc(cl.ver||cl.link)}" target="_blank" rel="noopener"><button class="outline small">Ver lo que ve el cliente ↗</button></a><button class="outline small" data-copiar="${esc(cl.link)}">Copiar su link de pago</button>${cl.estado !== 'pagado' && E.enviado ? `<button class="outline small" data-recordar="${esc(cl.id)}">Mandarle un recordatorio ahora</button>` : ''}</div>`);
-    }).join('')}`;
+    }).join('')}${verMas(lista.length)}`;
 };
 
 /* ── 💸 PAGOS: lo que entró a las wallets, leído de la red ────────────────────────────────── */
@@ -250,6 +282,11 @@ VIEWS.clientes = async () => {
   const m = document.getElementById('main'); m.innerHTML = '<div class="card muted">Cargando…</div>';
   const r = await api('/api/nuestro-chat/clientes'); if (!r.ok) { m.innerHTML = '<div class="card">No se pudo leer.</div>'; return; }
   const opc = (v, lista) => lista.map(([k,l]) => `<option value="${k}"${String(v)===String(k)?' selected':''}>${l}</option>`).join('');
+  const filaCaja = (cl, c) => `<tr><td><b>${esc(c.caja)}</b><div class="muted" style="font-size:12px">${esc(c.sitio||'sin sitio')}</div></td>
+      <td>${!c.activa ? señal('gris','de baja') : c.desde ? 'desde ' + dia(c.desde) : señal('durazno','sin empezar')}</td>
+      <td class="n opc">${c.entrada ? money(c.entrada,0) + (c.entradaCobrada ? ' ✓' : '') : '—'}</td><td class="n">${money(c.mant,0)}</td><td class="n">${money(c.pct,1).replace(',0','')} %</td>
+      <td class="n"><button class="outline small" data-editar="${esc(c.id)}">${c.activa && !c.desde ? 'Empezar…' : 'Editar'}</button></td></tr>
+    <tr data-form-de="${esc(c.id)}"${_ab.has('ed.' + c.id) ? '' : ' hidden'}><td colspan="6">${caja(cl, c)}</td></tr>`;
   const caja = (cl, c) => `<div class="subcaja" data-caja="${esc(c.id)}" data-cliente="${esc(cl.id)}"><div class="nc-caja-h"><b>${esc(c.caja)}</b><span class="muted">${esc(c.sitio||'sin sitio')}</span>${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}${c.activa?'':señal('gris','dada de baja')}${c.activa && !c.desde?señal('durazno','sin empezar'):''}</div>
     ${c.activa && !c.desde ? `<div class="nota-suave" style="margin:0 0 8px">Todavía no empezó: no se le cobra nada. Cuando el chat quede andando, tocá «Empezó hoy» (o poné la fecha) y ahí sale el cobro de la entrada, que vence a los 5 días.
       <div class="acciones" style="margin-top:8px"><button class="small" data-empezo>Empezó hoy</button></div></div>` : ''}
@@ -265,13 +302,15 @@ VIEWS.clientes = async () => {
     <div class="acciones"><button class="small" data-guardar>Guardar</button>${c.activa ? '<button class="outline small" data-baja>Dar de baja</button>' : ''}</div></div>`;
   m.innerHTML = `
     <div class="muted" style="margin:0 0 12px">Cada caja tiene sus condiciones. Lo que cambies vale desde el cobro que viene; lo ya cobrado no se toca. Una caja nueva queda «sin empezar» hasta que marques el día que empezó a funcionar: desde ese día corre todo, y la entrada vence a los 5 días.</div>
-    ${r.clientes.map(cl => plegable('cl.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${esc(cl.codigo)}</small>`,
+    <div class="nc-sel">${buscador('clientes', 'Buscar cliente o caja')}</div>
+    ${r.clientes.filter(cl => coincide(cl, _bus.clientes)).slice(0, _ver).map(cl => plegable('cl.'+cl.id, esc(cl.nombre) + ` <small class="muted" style="font-weight:400">${esc(cl.codigo)}</small>`,
       `<b>${cl.cajas.filter(c=>c.activa).length}</b><span class="u">${cl.cajas.filter(c=>c.activa).length===1?'caja':'cajas'}</span>`,
       (cl.tg ? '' : señal('durazno','sin grupo de Telegram','Sin grupo no le llega el cobro: cargalo abajo')) + (cl.cajas.some(c => c.pct !== 2) ? señal('gris', 'al ' + [...new Set(cl.cajas.map(c => money(c.pct,1).replace(',0','')))].join(' / ') + ' %') : ''),
       `<div class="nc-form" style="margin-bottom:10px"><label>Grupo de Telegram (id)<input data-tg="${esc(cl.id)}" value="${esc(cl.tg||'')}" placeholder="-100…"></label>
          <label>Puede pagar en pesos${r.pesosOn ? '' : ' (apagado en Config)'}<select data-pesos="${esc(cl.id)}"${r.pesosOn ? '' : ' disabled'}>${opc(cl.pesos ? 1 : 0, [[0,'No, solo USDT'],[1,'Sí, también en pesos']])}</select></label>
          <label>Su link de pago<input readonly value="${esc(cl.link)}" data-sel></label></div>
-       <div class="sublista">${cl.cajas.map(c => caja(cl, c)).join('')}</div>
+       <table class="nc-tabla"><thead><tr><th>Caja</th><th>Estado</th><th class="n opc">Entrada</th><th class="n">Por mes</th><th class="n">% ganancia</th><th></th></tr></thead>
+         <tbody>${cl.cajas.map(c => filaCaja(cl, c)).join('')}</tbody></table>
        <div class="acciones"><button class="outline small" data-nueva="${esc(cl.id)}">+ Agregar caja</button><button class="outline small" data-guardar-tg="${esc(cl.id)}">Guardar el grupo y los pesos</button><a href="${esc(cl.ver||cl.link)}" target="_blank" rel="noopener"><button class="outline small">Ver lo que ve el cliente ↗</button></a></div>`)).join('')}
     <div class="card"><div class="tapa"><h2 style="font-size:15px">Sumar un cliente</h2></div>
       <div class="nc-form"><label>Cliente del OS<select id="nc-nuevo">${opc('', [['','Elegí…']].concat((r.disponibles||[]).map(x => [x.id, esc(x.nombre)])))}</select></label></div>
@@ -349,6 +388,10 @@ document.addEventListener('click', async (e) => {
   if (b.dataset.baja !== undefined) { const box = b.closest('[data-caja]');
     if (b.dataset.seguro !== '1') { b.dataset.seguro = '1'; b.textContent = '¿Seguro? Tocá de nuevo'; setTimeout(() => { b.dataset.seguro = ''; b.textContent = 'Dar de baja'; }, 3000); return; }
     const r = await post('/api/nuestro-chat/cajas/' + encodeURIComponent(box.dataset.caja) + '/baja', {}); if (r.ok) { toast('Dada de baja: el mes ya pagado no se devuelve'); VIEWS.clientes(); } return; }
+  if (b.dataset.editar) { const tr = document.querySelector('[data-form-de="' + CSS.escape(b.dataset.editar) + '"]'); tr.hidden = !tr.hidden;
+    if (tr.hidden) _ab.delete('ed.' + b.dataset.editar); else _ab.add('ed.' + b.dataset.editar); return; }
+  if (b.dataset.filtro) { _filtro = b.dataset.filtro; _ver = 20; VIEWS.cobros(); return; }
+  if (b.dataset.verMas !== undefined) { _ver += 20; VIEWS[_tab](); return; }
   if (b.dataset.empezo !== undefined) { const box = b.closest('[data-caja]'); const r = await post('/api/nuestro-chat/cajas/' + encodeURIComponent(box.dataset.caja) + '/empezo', { cliente: box.dataset.cliente, fecha: hoyISO() });
     if (r.ok) { toast('Empezó hoy: salió el cobro de la entrada'); VIEWS.clientes(); } return; }
   if (b.dataset.nueva) { const r = await post('/api/nuestro-chat/cajas', { cliente: b.dataset.nueva, nueva: true }); if (r.ok) { _ab.add('cl.' + b.dataset.nueva); VIEWS.clientes(); } return; }
@@ -360,6 +403,10 @@ document.addEventListener('click', async (e) => {
     const r = await post('/api/nuestro-chat/config', { trc20: v('cf-trc'), bep20: v('cf-bep'), entrada: v('cf-entrada'), mant: v('cf-mant'), pct: v('cf-pct'), esperaHoras: v('cf-espera'), venceDia: v('cf-vence'), recordatorios: v('cf-rec'), cartelTexto: v('cf-cartel'), alias: v('cf-alias'), titular: v('cf-titular'), pesosOn: v('cf-pesos-on') === '1', pesosComision: v('cf-pesos-com'), programador: v('cf-prog'), repartoProg: v('cf-reparto'), repartoBase: v('cf-rbase') });
     if (r.ok) toast('Guardado'); return; }
 });
+/* El buscador filtra al escribir, sin perder el foco ni el cursor. */
+let _tBus = null;
+document.addEventListener('input', (e) => { const v = e.target.dataset && e.target.dataset.buscar; if (!v) return; _bus[v] = e.target.value; _ver = 20;
+  clearTimeout(_tBus); _tBus = setTimeout(async () => { const pos = e.target.selectionStart; await VIEWS[v](); const i = document.querySelector('[data-buscar="' + v + '"]'); if (i) { i.focus(); try { i.setSelectionRange(pos, pos); } catch (_) {} } }, 250); });
 document.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.mes !== undefined) { _mesCobro = e.target.value; VIEWS.cobros(); }
   if (e.target.dataset && e.target.dataset.mesCuenta !== undefined) { _mesCuenta = e.target.value; VIEWS.cuenta(); }
@@ -373,7 +420,7 @@ function renderNav(){
     : `<button class="navbtn ${t[0]===_tab?'active':''}" data-ir="${t[0]}">${t[1]}</button>`).join('');
 }
 document.getElementById('nav').addEventListener('click', (e) => { const b = e.target.closest('[data-ir]'); if (b) go(b.dataset.ir); });
-function go(t){ _tab = t; renderNav(); VIEWS[t](); }
+function go(t){ _tab = t; _ver = 20; renderNav(); VIEWS[t](); }
 renderNav(); go(location.hash && VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'curso');
 </script>
 </body>
