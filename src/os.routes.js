@@ -8,9 +8,7 @@
 const clientes = require('./clientes-store');
 const personas = require('./personas-store');
 const paneles = require('./paneles-store');
-const participaciones = require('./participaciones-store');
 const splitBase = require('./split-base-store');
-const proveedores = require('./proveedores-store');
 const tcStore = require('./tc-store');
 const movs = require('./movimientos-store');
 const historial = require('./historial');
@@ -28,7 +26,6 @@ const { parseMonto } = require('./lib/monto');
 const apiCuenta = require('./api-cuenta.service');
 const apiCuentaDoc = require('./api-cuenta-doc');
 const apiCuentaHtml = require('./api-cuenta-html');
-const vendedorLineaDoc = require('./vendedor-linea-doc');
 const pagoProvHtml = require('./pago-proveedores-html');
 const documentos = require('./documentos');
 const { rolDe } = require('./auth');
@@ -58,17 +55,14 @@ const facturaSvc = require('./factura.service');
 const crucePanel = require('./cruce-panel.service');
 const facturasGuardadas = require('./facturas-guardadas');
 const enviosStore = require('./envios-store');
-const vendedoresSvc = require('./vendedores.service');
 const clientesCascada = require('./clientes-cascada');
 const cierreMesSvc = require('./cierre-mes.service');
 const ganCache = require('./ganancias-cache');
-const divisasStore = require('./divisas-store');
 const configStore = require('./config-store');
 const telegram = require('./telegram');
 const billeteras = require('./billeteras-store');
 const tipoArchivo = require('./lib/tipo-archivo');
 const importSheet = require('./import-sheet.service');
-const backup = require('./backup.service');
 const ofertas = require('./api-ofertas-store');
 const ofertaHtml = require('./api-oferta-html');
 const chat = require('./chat-externo.store');
@@ -90,15 +84,6 @@ async function _nodosCacheados(cli, key, from, to, cur, soloActivos = false) {
   return r.nodos;
 }
 
-/**
- * Base % efectivo de un cliente/panel PARA UN MES.
- * Es un atajo a `externosSvc.baseDelMes`, que es la única función que resuelve este número en todo
- * el sistema. Antes cada pantalla lo hacía a su manera y el mismo cliente-mes daba tres resultados.
- * Siempre hay que pasarle el mes que se está facturando; si no, factura con el % de hoy.
- */
-// Cuándo levantó ESTE proceso. Cambia en cada despliegue, sirva o no la variable de git.
-const ARRANQUE = new Date().toISOString();
-
 /* La conexión con motor TBS y su cliente. Estaba repetido en cada ruta que le habla, y la tercera
    copia es donde uno se olvida de comprobar que tenga credenciales. */
 function _tbsCliente(conexionId) {
@@ -108,6 +93,15 @@ function _tbsCliente(conexionId) {
   if (!cli) return { error: `la conexión "${cx.nombre}" no tiene credenciales cargadas` };
   return { cli, nombre: cx.nombre, id: cx.id };
 }
+
+/* Las rutas, partidas por tema en src/rutas/ (fase 2). El orden importa: Express atiende con la
+   primera que coincide, y cada archivo conserva el orden que tenían sus rutas acá. */
+const SECTORES = [
+  require('./rutas/ajustes.routes'),
+  require('./rutas/cambios.routes'),
+  require('./rutas/reparto.routes'),
+  require('./rutas/proveedores.routes'),
+];
 
 function mount(app) {
   splitBase.seedIfEmpty();
@@ -138,7 +132,6 @@ function mount(app) {
   setTimeout(_devengar, 20 * 1000);
   setInterval(_devengar, 30 * 60 * 1000);
 
-  app.get('/os', (_req, res) => html(res, 'os.html'));
   /* TBS es su propio espacio de trabajo, no una pestaña del comercial: otros clientes, otros
      proveedores y otro cierre de mes. Desde el 6-sep-2026 también es su propio ARCHIVO.
      Antes servía el mismo os.html y se armaba distinto según la URL: 10.000 líneas para tres
@@ -177,97 +170,6 @@ function mount(app) {
     }));
     ok(res, { clientes: list });
   });
-  // ───────── CATÁLOGO DE DIVISAS (v3.0) ─────────
-  // ── QUÉ VERSIÓN ESTÁ CORRIENDO ────────────────────────────────────────────────────────────
-  // Sin esto, saber si un cambio ya subió era buscar algún texto nuevo en la pantalla — y varias
-  // veces esa sonda dio verde con el código VIEJO todavía arriba, porque el texto que buscaba ya
-  // existía. Un cambio que no toca ninguna pantalla no tenía forma de comprobarse.
-  //
-  // ⚠️ Y OJO CON LA SONDA: pedirle a /api/os/loquesea sin ruta devuelve 401 del middleware de
-  // sesión, no un 404. O sea que "responde algo con forma de API" NO prueba que la ruta exista.
-  // Lo que prueba es el CONTENIDO: si vuelve `arranque`, la ruta está.
-  app.get('/api/os/version', (_req, res) => ok(res, {
-    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || null,
-    mensaje: process.env.RAILWAY_GIT_COMMIT_MESSAGE || null,
-    despliegue: process.env.RAILWAY_DEPLOYMENT_ID || null,
-    arranque: ARRANQUE,
-  }));
-  app.get('/api/os/divisas', (req, res) => ok(res, { divisas: req.query.activas === '1' ? divisasStore.listActivas() : divisasStore.list() }));
-  app.post('/api/os/divisas', wrap((req, res) => { const b = req.body || {}; ok(res, { divisa: divisasStore.upsert({ codigo: b.codigo, nombre: b.nombre, activa: b.activa }) }); }));
-  app.put('/api/os/divisas/:codigo/activa', wrap((req, res) => ok(res, { ok: divisasStore.setActiva(req.params.codigo, !!(req.body && req.body.activa)) })));
-  app.delete('/api/os/divisas/:codigo', (req, res) => divisasStore.remove(req.params.codigo) ? ok(res) : err(res, 404, 'no encontrada'));
-  // ───────── MEDIOS DE PAGO GLOBALES (v3.0): CVU + dirección USDT + notas ─────────
-  // Los datos con los que el cliente paga, y los avisos de seguridad que tiene que leer ANTES de
-  // transferir. Los avisos no son decorativos: fuera del rango o en la red equivocada, la plata
-  // se pierde y no se recupera.
-  const PAGOS_KEYS = [
-    'cvuVigente', 'cvuTitular', 'cvuNota', 'arsMin', 'arsMax', 'arsAviso',
-    'usdtAddress', 'usdtRed', 'usdtNota', 'usdtAviso',
-    'tgChatArs', 'tgChatUsdt',   // a qué grupo de Telegram avisa cada camino
-    // El grupo INTERNO («Cuentas Imperium»): ahí van las cuentas de externos y de vendedores al
-    // cerrar el mes. No es de clientes — por eso esos mensajes sí llevan nombres.
-    'tgChatInterno',
-  ];
-  /**
-   * ¿A qué grupo llegan los avisos de pago, y el bot llega ahí? Sólo LEE (getChat): no manda un
-   * mensaje de prueba a un grupo real. Existe porque un comprobante no llegó y no había forma de
-   * saber si el problema era el id, el bot o el permiso.
-   */
-  app.get('/api/os/config/pagos/probar', wrap(async (_req, res) => {
-    const tok = configStore.getTelegramToken();
-    const out = [];
-    for (const k of ['tgChatArs', 'tgChatUsdt', 'tgChatInterno']) {
-      const chat = String(configStore.getCfg(k) || '').trim();
-      if (!chat) { out.push({ clave: k, chat: null, ok: false, error: 'no hay grupo configurado' }); continue; }
-      out.push({ clave: k, chat, ...(await telegram.verChat(tok, chat)) });
-    }
-    ok(res, { bot: !!tok, destinos: out });
-  }));
-  /**
-   * Todos los grupos configurados, comprobados de una. Sólo LEE.
-   *
-   * Un grupo que dejó de existir no avisa: los envíos fallan de a uno, en silencio, y lo que se
-   * nota meses después es que a un cliente "no le llegan las facturas". Esto los encuentra a todos
-   * juntos, y sin escribirle a ninguno.
-   */
-  app.get('/api/os/telegram/probar-grupos', wrap(async (_req, res) => {
-    const tok = configStore.getTelegramToken();
-    if (!tok) return ok(res, { bot: false, grupos: [] });
-    // Un mismo grupo puede estar en varios clientes (los vendedores lo prestan): se prueba UNA vez
-    // y se dice quiénes dependen de él, que es lo que importa para saber a quién le afecta.
-    const porChat = new Map();
-    clientes.list().clientes.forEach((c) => {
-      const id = String(((c.telegram || {}).chatId) || '').trim();
-      if (!id) return;
-      const g = porChat.get(id) || { chat: id, clientes: [], encendidos: 0 };
-      g.clientes.push(c.nombre || c.codigo);
-      if ((c.telegram || {}).enabled) g.encendidos += 1;
-      porChat.set(id, g);
-    });
-    ['tgChatArs', 'tgChatUsdt', 'tgChatInterno'].forEach((k) => {
-      const id = String(configStore.getCfg(k) || '').trim();
-      if (!id) return;
-      const g = porChat.get(id) || { chat: id, clientes: [], encendidos: 0 };
-      g.clientes.push(`(avisos de pago: ${k})`);
-      porChat.set(id, g);
-    });
-    const grupos = [];
-    for (const g of porChat.values()) grupos.push({ ...g, ...(await telegram.verChat(tok, g.chat)) });
-    grupos.sort((a, b) => (a.ok === b.ok ? 0 : (a.ok ? 1 : -1)));
-    ok(res, { bot: true, grupos, rotos: grupos.filter((g) => !g.ok).length });
-  }));
-  /* ── DIVISAS QUE NO SE CONSULTAN ──────────────────────────────────────────────────────────
-   * La lista de monedas que la Foto del mes no pregunta nunca, aunque el casino las tenga
-   * habilitadas. No borra nada: los paneles conservan su lista tal como vino del casino, y esto
-   * sólo filtra al momento de armar el plan. Sacar una de acá la devuelve al mes siguiente. */
-  app.get('/api/os/config/divisas-ignoradas', (_req, res) => ok(res, { divisas: configStore.getDivisasIgnoradas() }));
-  app.put('/api/os/config/divisas-ignoradas', wrap((req, res) => {
-    const b = req.body || {};
-    const r = configStore.setDivisasIgnoradas(b.divisas === undefined ? '' : b.divisas);
-    ok(res, { divisas: r.divisasIgnoradas });
-  }));
-  app.get('/api/os/config/pagos', (_req, res) => { const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); });
-  app.put('/api/os/config/pagos', wrap((req, res) => { const b = req.body || {}; PAGOS_KEYS.forEach((k) => { if (b[k] !== undefined) configStore.setCfg(k, String(b[k])); }); const o = {}; PAGOS_KEYS.forEach((k) => { o[k] = configStore.getCfg(k) || ''; }); ok(res, { pagos: o }); }));
   // ALTA de cliente desde el OS (código + nombre). Los campos comerciales se editan luego.
   app.post('/api/os/clientes', wrap((req, res) => {
     const codigo = String((req.body && req.body.codigo) || '').trim();
@@ -327,24 +229,6 @@ function mount(app) {
     if (!r.ok) return err(res, 400, r.error);
     // La clave viaja UNA vez en esta respuesta. La pantalla la muestra y avisa que no vuelve.
     ok(res, { ...r, acceso: acceso.estado(req.params.id) });
-  }));
-  /* ── LOS ACCESOS DE TODOS, EN UNA PANTALLA ──────────────────────────────────────────────────
-     Darle acceso a 45 clientes de a uno —abrir la ficha, buscar el botón, copiar la clave, cerrar—
-     son 45 idas y vueltas, y en el medio se pierde la cuenta de quién ya tiene y quién no. Acá
-     salen todos juntos con lo que puede hacer cada uno, y las acciones valen para los que marques. */
-  /* Subir un logo propio. Tope chico a propósito: es un logo, no una foto — y viaja en cada
-     pantalla que lo muestre. */
-  app.get('/api/os/logo', (_req, res) => ok(res, { propio: !!configStore.getCfg('logoPng') }));
-  app.put('/api/os/logo', wrap((req, res) => {
-    const b = req.body || {};
-    if (b.quitar === true) { configStore.setCfg('logoPng', ''); return ok(res, { propio: false }); }
-    const d = String(b.dataUri || '');
-    const m = /^data:(image\/(png|jpeg|jpg|webp|svg\+xml));base64,(.+)$/.exec(d);
-    if (!m) return err(res, 400, 'Tiene que ser una imagen PNG, JPG, WEBP o SVG.');
-    const bytes = Math.floor((m[3].length * 3) / 4);
-    if (bytes > 400 * 1024) return err(res, 400, `Ese archivo pesa ${Math.round(bytes / 1024)} KB. El logo tiene que pesar menos de 400 KB: se carga en cada pantalla.`);
-    configStore.setCfg('logoPng', d);
-    ok(res, { propio: true, bytes });
   }));
   app.get('/api/os/accesos', (_req, res) => {
     const conChat = new Set(chat.list().filter((p) => p.activo && p.cliente_id).map((p) => p.cliente_id));
@@ -1360,89 +1244,6 @@ function mount(app) {
     const r = billeteras.borrar(req.params.id);
     r.ok ? ok(res, r) : err(res, 409, r.error);
   }));
-  app.get('/api/os/participaciones', (req, res) => {
-    const { cliente_id, panel_id } = req.query;
-    if (!cliente_id) return err(res, 400, 'cliente_id requerido');
-    ok(res, {
-      efectivo: participaciones.repartoEfectivo(cliente_id, panel_id || null),
-      vigente: participaciones.listVigente(cliente_id, panel_id || null),
-    });
-  });
-  app.post('/api/os/participaciones', wrap((req, res) => {
-    const { cliente_id, panel_id, items, vigente_desde, mes, parcial } = req.body || {};
-    if (!cliente_id || !Array.isArray(items)) return err(res, 400, 'cliente_id + items[] requeridos');
-    // §12: el reparto cierra contra el % BASE del cliente, no contra 100. `parcial:true` deja
-    // guardar un reparto a medio configurar — los puntos que faltan quedan visibles como
-    // "sin asignar" en vez de bloquear el guardado y perder lo ya cargado.
-    const c = clientes.get(cliente_id);
-    if (!c) return err(res, 404, 'cliente no encontrado');
-    const base = externosSvc.baseDelMes(c, mes || mesTZ()).valor;
-    if (base == null || base === '') return err(res, 400, `${c.codigo} no tiene % base cargado: sin eso no hay contra qué cerrar el reparto`);
-    const suma = money.sum(items.map((i) => i.porcentaje));
-    if (money.cmp(suma, base) > 0) return err(res, 400, `El reparto suma ${suma}% y la base es ${base}%: se estaría repartiendo más de lo que paga el cliente`);
-    if (!parcial && money.cmp(suma, base) !== 0) return err(res, 400, `El reparto debe sumar el ${base}% de base (suma ${suma}%)`);
-    const r = participaciones.setReparto(cliente_id, panel_id || null, items, vigente_desde, { esperado: suma });
-    ok(res, { reparto: r, base, suma: money.round(suma, 4), resto: money.round(money.sub(base, suma), 4) });
-  }));
-  app.get('/api/os/participaciones/historial', (req, res) =>
-    ok(res, { historial: participaciones.listHistorial(req.query.cliente_id, req.query.panel_id || null) }));
-  // ───────── SPLIT_BASE (JUBILADA — §12) ─────────
-  // Era el 1er paso del reparto viejo: por cada % base, cuánto iba a Empresa y cuánto a LATAM.
-  // Ahora el reparto es de un solo paso y la Empresa es un participante más (reparto.service).
-  // Queda SOLO LECTURA: los datos siguen en la base y `sembrarDesdeSplit` los usa para
-  // pre-cargar el reparto de cada cliente. Se sacaron el PUT y el DELETE a propósito —
-  // editarla ya no cambiaría ningún cálculo, así que dejarlos era una trampa.
-  app.get('/api/os/split-base', (_req, res) => ok(res, { split_base: splitBase.list(), jubilada: true }));
-  // ───────── PROVEEDORES ─────────
-  app.get('/api/os/proveedores', (_req, res) => ok(res, { proveedores: proveedores.list() }));
-  app.post('/api/os/proveedores', wrap((req, res) => ok(res, { proveedor: proveedores.create(req.body || {}) })));
-  app.put('/api/os/proveedores/:id', wrap((req, res) => {
-    const p = proveedores.update(req.params.id, req.body || {}); if (!p) return err(res, 404, 'no encontrado'); ok(res, { proveedor: p });
-  }));
-  app.delete('/api/os/proveedores/:id', (req, res) => proveedores.remove(req.params.id) ? ok(res) : err(res, 404, 'no encontrado'));
-  // Importar el catálogo desde el REPORTE de proveedores (los que aparecen en el cierre): 1 entrada
-  // por (provider|label|vendor). ?conexion=<id>|todas (default todas) — UNIÓN de conexiones activas,
-  // dedupe por codigo (misma marca en Europa y Casino = 1 sola). No pisa los que ya tienen % costo.
-  app.post('/api/os/proveedores/importar-reporte', wrap(async (req, res) => {
-    const q = Object.assign({}, req.query, req.body || {});
-    const conexion = q.conexion || 'todas';
-    const to = q.to || (fechaTZ() + ' 23:59:59');
-    const from = q.from || (fechaTZ(new Date(Date.now() - 45 * 864e5)) + ' 00:00:00'); // default: últimos 45 días
-    const curs = String(q.currencies || 'ARS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
-    const conns = casinoConex.list463();   // importar proveedores usa el reporte del engine 463
-    const ids = conexion === 'todas' ? conns.filter((c) => c.activa).map((c) => c.id) : [conexion];
-    if (!ids.length) return err(res, 400, 'No hay conexiones de casino activas para importar.');
-    const seen = new Map(); // codigo(label|vendor) → nombre(label) — identidad = PROVEEDOR + VENDOR
-    const porConexion = [];
-    for (const id of ids) {
-      const cx = conns.find((c) => c.id === id);
-      const cli = casinoConex.client(id);
-      if (!cli) { porConexion.push({ id, nombre: cx && cx.nombre, ok: false, error: 'conexión no encontrada' }); continue; }
-      const errs = []; let filas = 0;
-      for (const cur of curs) {
-        const r = await cli.reporteProveedores({ from, to, currency: cur, userGroupBy: '' }); // vista GENERAL (agrega por proveedor)
-        if (!r.ok) { errs.push(cur + ': ' + r.error); continue; }
-        for (const f of (r.filas || [])) {
-          const label = String(f.label == null ? '' : f.label).trim();   // PROVEEDOR (la marca)
-          const vendor = String(f.vendor == null ? '' : f.vendor).trim(); // VENDOR
-          const codigo = `${label}|${vendor}`; // identidad = PROVEEDOR + VENDOR (sin el "Sistema"/provider)
-          if (!codigo.replace(/[|\s]/g, '')) continue; // fila sin datos
-          const nombre = label || vendor || String(f.provider == null ? '' : f.provider).trim() || codigo;
-          if (!seen.has(codigo)) seen.set(codigo, nombre);
-          filas++;
-        }
-      }
-      porConexion.push({ id, nombre: cx && cx.nombre, ok: errs.length === 0, filas, error: errs.join('; ') || undefined });
-    }
-    const entries = [...seen.entries()].map(([codigo, nombre]) => ({ codigo, nombre }));
-    // 'todas' = refresco total → limpia entradas del reporte sin % costo (identidad vieja / ya no aparecen)
-    const stats = proveedores.importarCatalogo(entries, { limpiarSinCosto: conexion === 'todas' });
-    ok(res, {
-      from, to, ...stats, total: entries.length, porConexion,
-      // para el dropdown de alta manual (shape {code,label,sub} que ya usa el front)
-      proveedores: entries.map((e) => ({ code: e.codigo, label: e.nombre, sub: true })),
-    });
-  }));
   // ───────── CIERRE DE MES (matriz % proveedor×cliente, réplica editable de la planilla) ─────────
   app.get('/api/os/cierre/matriz', (_req, res) => ok(res, cierreStore.getMatriz()));
   app.get('/api/os/cierre/tc', (_req, res) => ok(res, cierreStore.getTC()));
@@ -1916,16 +1717,6 @@ function mount(app) {
     ok(res, { conexiones: out });
   }));
   /**
-   * La factura de proveedores como hoja, para imprimir o mandar.
-   *
-   * ⚠️ Va DETRÁS DEL LOGIN, sin token público como la cuenta de un cliente: dice cuánto se le paga
-   * a cada proveedor y a qué costo, o sea el margen del negocio.
-   */
-  app.get('/api/os/pago-proveedores/hoja', wrap(async (req, res) => {
-    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
-    res.type('html').send(pagoProvHtml.hoja(r));
-  }));
-  /**
    * Qué meses de TBS ya están guardados. Es el equivalente de "Meses con foto" del comercial: hasta
    * ahora la precarga de TBS existía pero no se veía, así que para saber si un mes estaba sacado
    * había que apretar y esperar.
@@ -1952,46 +1743,6 @@ function mount(app) {
     ok(res, { mes, conexiones: salida });
   }));
   app.delete('/api/os/estadisticas/:mes', (req, res) => { estadMes.borrarMes(req.params.mes); ok(res); });
-  // ───────── TIPOS DE CAMBIO ─────────
-  app.get('/api/os/tc/ahora', wrap(async (_req, res) => ok(res, await tcSvc.tcAhora())));
-  app.post('/api/os/tc/snapshot', wrap(async (_req, res) => {
-    const r = await tcSvc.snapshotNow(); r.ok ? ok(res, { snapshot: r.snapshot }) : err(res, 502, r.error);
-  }));
-  app.get('/api/os/tc/snapshots', (req, res) => ok(res, { snapshots: tcStore.listSnapshots(req.query.mes) }));
-  app.get('/api/os/tc/meses', (_req, res) => ok(res, { meses: tcStore.listMeses() }));
-  // EL tipo de cambio de un mes, resuelto con la regla única + dónde las fuentes no coinciden.
-  app.get('/api/os/tc/del-mes', (req, res) => {
-    const mes = req.query.mes || mesTZ();
-    if (req.query.divisa) return ok(res, tcUnico.tcDelMes(req.query.divisa, mes));
-    ok(res, { mes, ars: tcUnico.tcDelMes('ARS', mes), monedas: tcUnico.resumenMes(mes), discrepancias: tcUnico.discrepancias(mes) });
-  });
-  // ── TC del resto de las divisas (ARS sale de Binance, arriba) ──
-  // Snapshot diario automático; acá se puede forzar y consultar el promedio del mes.
-  app.post('/api/os/tc/divisas/snapshot', wrap(async (req, res) => {
-    const r = await tcDivisas.snapshotHoy(req.body && req.body.fecha);
-    r.ok ? ok(res, { fecha: r.fecha, divisas: r.divisas }) : err(res, 502, r.error);
-  }));
-  app.get('/api/os/tc/divisas/promedios', (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
-    const lista = tcDivisas.promediosMes(mes);
-    // ARS no sale de esta fuente: se toma el promedio de los snapshots de Binance
-    const ars = tcStore.promedioMes(mes);
-    if (ars) lista.unshift({ divisa: 'ARS', dias: tcStore.listSnapshots(mes).length, promedio: ars, fuente: 'binance/criptoya' });
-    ok(res, { mes, promedios: lista });
-  });
-  // Qué monedas se siguen (salen de las filas de la grilla) + limpiar lo que sobró.
-  app.get('/api/os/tc/divisas/seguidas', (_req, res) => ok(res, { monedas: [...tcDivisas.seguidas()].sort(), piso: tcDivisas.BASE_SEGUIDAS }));
-  app.post('/api/os/tc/divisas/purgar', wrap((_req, res) => ok(res, { borradas: tcDivisas.purgarNoSeguidas(), monedas: [...tcDivisas.seguidas()].sort() })));
-  app.get('/api/os/tc/divisas/dias', (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
-    ok(res, { mes, dias: tcDivisas.listDias(mes, req.query.divisa) });
-  });
-  // La columna del mes en la grilla, armada con los promedios que se juntaron.
-  app.post('/api/os/tc/columna', wrap((req, res) => {
-    const b = req.body || {};
-    const r = tcColumna.armarColumna(b.mes || mesTZ(), { pisar: !!b.pisar });
-    r.ok ? ok(res, r) : err(res, 400, r.error);
-  }));
   // Borrar / renombrar una columna entera de la grilla.
   app.delete('/api/os/cierre/tc/mes/:mes', wrap((req, res) => {
     const r = cierreStore.removeMesTC(req.params.mes);
@@ -2007,26 +1758,6 @@ function mount(app) {
     const b = req.body || {};
     const r = cierreStore.renombrarMesTC(b.de, b.a);
     r.ok ? ok(res, r) : err(res, 400, r.error);
-  }));
-  // El TC del proveedor entra SIEMPRE por acá: `setTC` lo escribe en la grilla (fila ARS_OF) y en
-  // tc_mes de una sola vez. Guardarlo directo en tc_mes es lo que había dejado los dos lados
-  // distintos — julio con 1473,5 en uno y vacío en el otro.
-  app.put('/api/os/tc/mes/:mes', wrap((req, res) => {
-    const { tc_proveedor_ext } = req.body || {};
-    if (tc_proveedor_ext === undefined) return err(res, 400, 'falta tc_proveedor_ext');
-    /* ⚠️ EL CUARTO ARGUMENTO ES `forzar`, Y ESTABA EN `true` FIJO.
-       `setTC` tiene un control que compara contra lo que esa misma moneda venía valiendo y frena
-       un salto de más del 50% — está justo para el caso de escribir "1.473" pensando en 1473, que
-       es un número válido (uno coma cuatro siete tres) y por eso el control de formato lo deja
-       pasar. Ese TC es el divisor de TODO lo que se le paga a los proveedores externos en pesos:
-       con 1,473 en vez de 1473, el resultado sale mil veces más grande.
-       Con `true` fijo, la única pantalla donde se carga ese número lo salteaba siempre. Ahora
-       `forzar` llega de la pantalla, que primero muestra la pregunta. */
-    const forzar = !!(req.body || {}).forzar;
-    const r = cierreStore.setTC(cierreStore.FILA_PROVEEDOR, mesCierreLbl(req.params.mes), tc_proveedor_ext, forzar, true);
-    // `confirmar` y `anterior` viajan al cliente: sin eso la pantalla no puede preguntar nada.
-    if (!r.ok) return err(res, 400, r.error, { confirmar: !!r.confirmar, anterior: r.anterior || null });
-    ok(res, { mes: tcStore.getMes(req.params.mes) });
   }));
   // ───────── CONGELAR LA MATRIZ DE UN MES ─────────
   // Los precios cambian (costo del proveedor y % del cliente). Sin congelar, tocar un precio hoy
@@ -2307,25 +2038,6 @@ function mount(app) {
   // Flujo obligado: previsualizar → revisar → aplicar con el hash de esa previsualización.
   // Nada se escribe sin haber mirado antes qué cambia, y siempre queda el snapshot para deshacer.
   app.get('/api/os/import/snapshot', (_req, res) => ok(res, { snapshot: importSheet.snapshot() }));
-  /* ── LA COPIA DE SEGURIDAD DE TODA LA BASE ──────────────────────────────────────────────────
-     Van bajo /api/os/* a propósito: esa rama es sólo del dueño (auth.js:81 es lista blanca, y el
-     operador no la tiene). El archivo trae las contraseñas del casino adentro — ver el comentario
-     de backup.service.js. */
-  app.get('/api/os/backup/inventario', (_req, res) => ok(res, backup.inventario()));
-  app.get('/api/os/backup/archivo', async (_req, res) => {
-    let snap;
-    try { snap = await backup.snapshot(); }
-    // Se responde el error EN TEXTO y no como JSON: esto se abre navegando, no con fetch, así que
-    // un JSON de error se bajaría como archivo y parecería una copia.
-    catch (e) { return res.status(500).type('text/plain; charset=utf-8')
-      .send('No se pudo generar la copia: ' + e.message); }
-    res.setHeader('Content-Type', 'application/vnd.sqlite3');
-    res.setHeader('Content-Disposition', `attachment; filename="${snap.nombre}"`);
-    res.setHeader('Content-Length', snap.bytes);
-    res.send(snap.buffer);
-    // Después de mandarla: si la descarga se cortó antes, no cuenta como copia hecha.
-    res.on('finish', () => { try { backup.registrar(snap); } catch (e) { console.warn('[Backup]', e.message); } });
-  });
   app.post('/api/os/import/sheet', wrap(async (req, res) => {
     const { sheetId, dryRun, confirmHash, incluirBasePct, incluirTelegram } = req.body || {};
     const opts = { sheetId: sheetId || importSheet.SHEET_ID_DEFAULT, incluirBasePct: !!incluirBasePct, incluirTelegram: !!incluirTelegram };
@@ -2473,10 +2185,6 @@ function mount(app) {
        devuelve el de cobranzas, que es el que puede fallar por falta de grupo configurado. */
     ok(res, { movimiento, deuda: despues, comprobante, aviso: avisoCobranzas, avisado: avisar });
   }));
-  // ───────── HISTORIAL / AUDITORÍA ─────────
-  app.get('/api/os/historial', (req, res) => ok(res, {
-    historial: historial.listHistorial({ entidad_tipo: req.query.entidad_tipo, entidad_id: req.query.entidad_id, campo: req.query.campo }),
-  }));
   // ───────── CASINO (conexiones api_token + lectura de nodos) ─────────
   // Se agrega `paneles`: cuántos cuelgan de esta conexión. Config las quiere TODAS (hay que poder
   // editar la de carga), pero la Foto y el pago a proveedores sólo deben mirar las que facturan —
@@ -2491,31 +2199,6 @@ function mount(app) {
     const c = casinoConex.update(req.params.id, req.body || {}); if (!c) return err(res, 404, 'conexión no encontrada'); ok(res, { conexion: c });
   }));
   app.delete('/api/os/casino/conexiones/:id', (req, res) => casinoConex.remove(req.params.id) ? ok(res) : err(res, 404, 'conexión no encontrada'));
-  // ───────── 💸 CUÁNTO LE PAGAMOS A LOS PROVEEDORES (punto 8) ─────────
-  // El otro lado de la factura de externos: aquella cobra `ganancia × (celda − base)` al cliente,
-  // ésta paga `ganancia × costo` al proveedor. Consulta el casino, así que tarda.
-  app.get('/api/os/pago-proveedores', wrap(async (req, res) => {
-    const r = await pagoProv.reporte({
-      mes: req.query.mes || mesTZ(),
-      monedas: req.query.monedas ? String(req.query.monedas).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean) : null,
-      refrescar: req.query.refrescar === '1',
-    });
-    r.ok ? ok(res, r) : err(res, 400, r.error);
-  }));
-  // El CSV con el mismo formato que el dueño ya usaba a mano.
-  // Traer el mes de a pedazos y dejarlo guardado. El reporte entero no entra en una sola
-  // request; esto se llama varias veces (una por panel, y TBS de a tandas de grupos) y despues
-  // el reporte sale de lo guardado.
-  app.post('/api/os/pago-proveedores/precargar', wrap(async (req, res) => {
-    const b = req.body || {};
-    const r = await pagoProv.precargar({
-      confirmar: !!b.confirmar,
-      mes: b.mes || mesTZ(), conexion_id: b.conexion_id,
-      desde: Number(b.desde) || 0, limite: Number(b.limite) || 12, refrescar: !!b.refrescar,
-    });
-    r.ok ? ok(res, r) : err(res, 502, r.error,
-      { reintentable: !!r.reintentable, requiereConfirmar: !!r.requiereConfirmar });
-  }));
   // ── EL ARCHIVO DE LO QUE SE ENVIÓ ────────────────────────────────────────────────────────────
   //
   // /hoja recalcula y sirve para mirar; esto CONGELA. La diferencia importa: entre que se manda un
@@ -2594,13 +2277,6 @@ function mount(app) {
     if (!d) return err(res, 404, 'no encontré ese documento');
     ok(res, { id: d.id, tipo: d.tipo, mes: d.mes, version: d.version, emitido_at: d.emitido_at,
       hash: d.hash, intacto: d.intacto, bytes: Buffer.byteLength(d.html, 'utf8') });
-  }));
-  app.get('/api/os/pago-proveedores/planilla.csv', wrap(async (req, res) => {
-    const r = await pagoProv.reporte({ mes: req.query.mes || mesTZ(), refrescar: req.query.refrescar === '1' });
-    if (!r.ok) return err(res, 400, r.error);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="pago-proveedores-${r.mes}.csv"`);
-    res.send('﻿' + pagoProv.csv(r));   // BOM: si no, Excel rompe los acentos
   }));
   // TBS: los 53 grupos de proveedores con su id, para poder mapearlos contra la matriz.
   app.get('/api/os/tbs/grupos', wrap(async (_req, res) => {
@@ -4815,16 +4491,6 @@ function mount(app) {
     out.sort((a, b) => Number(b.totalMes_usdt) - Number(a.totalMes_usdt));
     ok(res, { mes, conExternos, facturas: out });
   }));
-  // ───────── 🤝 VENDEDORES ─────────
-  // Un vendedor no paga un % sobre lo que carga: paga AL COSTO por los proveedores que use, en
-  // sus paneles y en los de sus clientes. Es una cuenta interna, no una factura.
-  app.get('/api/os/vendedores', (_req, res) => ok(res, { vendedores: vendedoresSvc.lista() }));
-  /* El costo de proveedores del mes, repartido sin superponer. Ver el comentario grande en
-     vendedores.service: el número de un vendedor incluye el de los que tiene abajo. */
-  app.get('/api/os/vendedores-reparto/:mes', wrap(async (req, res) => {
-    const r = await vendedoresSvc.repartoCosto(req.params.mes);
-    r.ok ? ok(res, r) : err(res, 502, r.error);
-  }));
   /* Lo que movió TODA la línea de un vendedor, proveedor por proveedor: el movimiento por divisa,
      el costo real de ese proveedor, y el equivalente en dólares con el TC de cada divisa. Es lo que
      lleva el papel del vendedor — su cuenta propia (`/:id`) es sólo la rebanada de sus paneles. */
@@ -5048,63 +4714,6 @@ function mount(app) {
     const g = externosSvc.confirmarBase(cli.nombre, mes, pct);
     ok(res, { mes, pct, cambio: !!vigencia, antes: antes == null ? null : String(antes), confirmada: g });
   }));
-  app.get('/api/os/vendedores/:nombre/rama-proveedores', wrap(async (req, res) => {
-    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
-    const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
-    r.ok ? ok(res, r) : err(res, 404, r.error);
-  }));
-  /* Y mandarla al grupo interno, igual que las cuentas de TBS. Va a «Cuentas Imperium»
-     (`tgChatInterno`), que NO es el grupo de la matriz —donde van las de TBS— ni el de los avisos
-     del chat: son tres grupos distintos y confundirlos manda la cuenta de un vendedor a donde no
-     va. El detalle por proveedor viaja en el mensaje: son muchas líneas, pero `partir` las corta
-     en varios mensajes y así no hace falta abrir nada para verlo. */
-  app.post('/api/os/vendedores/:nombre/rama-proveedores/enviar', wrap(async (req, res) => {
-    const mes = String((req.body || {}).mes || req.query.mes || mesTZ()).slice(0, 7);
-    const chat = String(configStore.getCfg('tgChatInterno') || '').trim();
-    const tok = configStore.getTelegramToken();
-    if (!tok) return err(res, 400, 'el bot de Telegram no está configurado');
-    if (!chat) return err(res, 400, 'no hay grupo interno cargado en Config → Medios de pago (Cuentas Imperium)');
-    const r = await vendedoresSvc.ramaPorProveedor(req.params.nombre, mes);
-    if (!r.ok) return err(res, 404, r.error);
-    if (!(r.proveedores || []).length) return err(res, 400, `${r.vendedor} no movió nada en ${mes}: no hay nada que mandar`);
-
-    const fmt = (x, d) => Number(x || 0).toLocaleString('es-AR',
-      { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d });
-    const E = telegram.escapeHtml;
-
-    /* UN MENSAJE CORTO Y UN LINK, como la cuenta de TBS. La primera versión mandaba las ~150 líneas
-       del detalle adentro del mensaje, cortadas en varios: llega, pero se lee mal y ensucia el
-       grupo. Telegram no puede mostrar una tabla con el movimiento de cada divisa y su tipo de
-       cambio, que es justo lo que hay que mirar. */
-    const mesNom = mesCierreLbl(mes).replace('_', ' ');
-    const l = vendedorLineaDoc.crearLink({ ok: true, vendedor: r.vendedor, mes, mesNombre: mesNom,
-      proveedores: r.proveedores, porCliente: r.porCliente, clientes: r.clientes, totalUsdt: r.totalUsdt });
-    const url = `${_urlPublica(req)}/linea/${l.token}`;
-    const texto = [`🤝 <b>Cuenta de vendedor ${E(mesNom)}</b>`,
-      `<b>${E(r.vendedor)}</b>`, '',
-      `💵 <b>Total: ${fmt(r.totalUsdt)} USD</b>`, '',
-      `<i>${r.proveedores.length} proveedores · ${(r.clientes || []).length} cuentas en su línea</i>`, '',
-      `📄 <a href="${E(url)}">Ver el detalle por proveedor y divisa</a>`].join('\n');
-    const cuerpo = (req.body && req.body.texto != null && String(req.body.texto).trim())
-      ? String(req.body.texto) : texto;
-    if (req.body && req.body.soloTexto) {
-      return ok(res, { previsualizacion: true, texto: cuerpo, chat, destino: 'Cuentas Imperium',
-        link: url, proveedores: r.proveedores.length, total_usdt: r.totalUsdt });
-    }
-    const x = await telegram.sendMessage(tok, chat, cuerpo);
-    if (!x.ok) return err(res, 502, x.error || 'Telegram no aceptó el mensaje');
-    console.log(`[vendedores] línea de ${r.vendedor} (${mes}) → Cuentas Imperium: ${url}`);
-    ok(res, { enviado: true, vendedor: r.vendedor, mes, chat, link: url,
-      proveedores: r.proveedores.length, total_usdt: r.totalUsdt });
-  }));
-  app.get('/api/os/vendedores/:id', wrap(async (req, res) => {
-    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
-    // la facturación se calcula UNA vez y se reparte: el vendedor y sus clientes salen de ahí
-    const fac = await _facturacionDe(mes, { control: false });
-    if (fac.ok === false) return err(res, 502, fac.error);
-    const r = await vendedoresSvc.cuenta({ vendedorId: req.params.id, mes, facturacion: fac, conProveedores: req.query.proveedores !== '0' });
-    r.ok ? ok(res, r) : err(res, 404, r.error);
-  }));
   // ───────── REPORTES ─────────
   // Mensual (parcial, real): arma desde movimientos + tc_mes. Lo que falta (IN/OUT/RTP/profit) = API del panel.
   app.get('/api/os/reportes/mensual', (req, res) => {
@@ -5201,145 +4810,19 @@ function mount(app) {
       _nota: 'Todo en USDT, de las VENTAS DE FICHAS reales (pedidos cargados) del mes. Cada moneda se pasa a USDT con SU tipo de cambio (ver tcPorDivisa) — "ventas_total" es la suma ya convertida, no un monto en moneda local. Un solo paso: cada participante cobra SUS PUNTOS del % base del cliente (§12). "sin_asignar" = puntos del base que todavía no tienen dueño.',
     });
   });
-  // Sembrar el reparto de los clientes desde la vieja Tabla Split (Empresa) — ver reparto.service.
-  app.post('/api/os/reparto/sembrar', wrap((req, res) => {
-    const mes = req.body && req.body.mes ? String(req.body.mes).slice(0, 7) : mesTZ();
-    const aplicar = !!(req.body && req.body.aplicar);
-    ok(res, repartoSvc.sembrarDesdeSplit(clientes.list().clientes, mes, { aplicar }));
-  }));
-  // El reparto de UN cliente, contrastado contra su % base (lo consume el editor).
-  /* ───────── 💰 EL REPARTO DE LO COBRADO ────────────────────────────────────────────────────
-     La pantalla de Reparto dice a quién le CORRESPONDE lo facturado. Esto dice de quién es la
-     plata que YA ENTRÓ, que nunca es lo mismo: se cobra parcial, se descuentan comisiones, y un
-     pago de hoy puede estar pagando un cierre viejo.
-
-     Regla de la dueña (5-oct-2026): cada pago se parte con los puntos que tenía ese cliente EN EL
-     MES AL QUE ENTRA EL PAGO, no con los de hoy ni tapando el mes más viejo primero. Si cambió un
-     porcentaje en el medio, lo que se cobró de un mes viejo sigue siendo de quien era entonces.
-
-     Y van las DOS caras, que son preguntas distintas: de quién ES cada peso (los puntos) y quién
-     LO RECIBIÓ (`recibido_por`). La diferencia entre las dos es lo que un socio le debe al otro.
-
-     ⚠️ LO QUE NO ESTÁ EN LOS PUNTOS NO SE REPARTE SOLO. Los puntos suman el % base del cliente,
-     que es el fee de las FICHAS. Un cliente que además paga proveedores externos está pagando dos
-     conceptos con la misma transferencia, y acá no hay forma de saber qué parte es cuál. Se avisa
-     por cliente en vez de repartir de más. */
-  app.get('/api/os/reparto-cobrado', wrap((req, res) => {
-    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
-    const cs = clientes.list().clientes;
-    const porId = {}; cs.forEach((c) => { porId[c.id] = c; });
-    const nomPersona = {}; const esEmp = {};
-    personas.list().forEach((p) => { nomPersona[p.id] = p.nombre; esEmp[p.id] = !!p.es_empresa; });
-
-    // Quiénes tuvieron externos este mes: su pago mezcla dos conceptos y el reparto sólo cubre uno.
-    const conExternos = new Set();
-    try {
-      movs.list({ tipo: 'proveedor_extra' }).forEach((mv) => {
-        if (movs.mesDe(mv) === mes) conExternos.add(mv.cliente_id);
-      });
-    } catch (e) { /* si no se puede leer, se reparte igual y no se avisa */ }
-
-    const porPersona = {}; const porReceptor = {};
-    let total = '0'; let sinAsignar = '0';
-    const pagos = movs.list({ tipo: 'pago' }).filter((mv) => movs.mesDe(mv) === mes).map((mv) => {
-      const cli = porId[mv.cliente_id] || {};
-      /* SIEMPRE en USDT: es la unidad de la cuenta y la única forma de sumar a todos juntos.
-         ── EL QUE LLEVA SU CUENTA EN PESOS ───────────────────────────────────────────────────
-         Su pago se guarda sólo en pesos: su cuenta es en pesos y nadie necesitó la otra cara. Para
-         el reparto sí hace falta, así que se pasa con el TC DEL MES —el mismo que valúa todo lo
-         demás— y se marca `convertido`, para que en pantalla se vea que ese número se derivó y no
-         es un importe que alguien escribió. Antes quedaba afuera del informe: 1 de los 18 pagos de
-         septiembre, y el total decía 10.222,15 como si no faltara nada. */
-      // Lo que ENTRÓ, no lo que bajó la deuda: con «los pesos cancelan pesos» un pago en pesos salda
-      // más dólares de los que dio el trader, y esa diferencia la pone la empresa. Se reparte la plata real.
-      let usdt = mv.usdt_recibido != null ? mv.usdt_recibido : mv.monto_usdt;
-      let convertido = null;
-      if ((usdt == null || usdt === '') && mv.monto_ars != null && mv.monto_ars !== '') {
-        const t = tcUnico.tcPagosDelMes('ARS', mes);   // plata que entró: el cambio del trader
-        if (t.valor && money.isPos(t.valor)) {
-          usdt = money.round(money.div(mv.monto_ars, t.valor), 2);
-          convertido = { desde_ars: mv.monto_ars, tc: t.valor, fuente: t.fuente };
-        }
-      }
-      const sinUsdt = usdt == null || usdt === '';
-      const r = sinUsdt ? null : repartoSvc.repartirCobrado(usdt, cli, mes);
-      if (r) {
-        total = money.add(total, r.monto_usdt);
-        sinAsignar = money.add(sinAsignar, r.sin_asignar);
-        r.items.forEach((it) => {
-          const a = porPersona[it.persona_id] = porPersona[it.persona_id]
-            || { persona_id: it.persona_id, nombre: it.nombre, es_empresa: it.es_empresa, monto: '0' };
-          a.monto = money.add(a.monto, it.monto);
-        });
-        const k = mv.recibido_por || '';
-        const rc = porReceptor[k] = porReceptor[k]
-          || { persona_id: k || null, nombre: k ? (nomPersona[k] || '(persona borrada)') : '(sin anotar)', monto: '0', pagos: 0 };
-        rc.monto = money.add(rc.monto, r.monto_usdt); rc.pagos += 1;
-      }
-      return {
-        id: mv.id, fecha: String(mv.fecha || mv.createdAt || '').slice(0, 10),
-        cliente: cli.nombre || cli.codigo || '(sin cliente)', codigo: cli.codigo || '',
-        usdt: sinUsdt ? null : money.round(usdt, 2),
-        convertido,
-        via: mv.medio || null,
-        recibido_por: mv.recibido_por || '', recibido: mv.recibido_por ? (nomPersona[mv.recibido_por] || '(persona borrada)') : '',
-        estado: r ? r.estado : 'sin_usdt',
-        base: r ? r.reparto.base : null,
-        items: r ? r.items.map((it) => ({ persona_id: it.persona_id, nombre: it.nombre, pct: it.pct, monto: it.monto })) : [],
-        sin_asignar: r ? r.sin_asignar : '0',
-        mezcla_externos: conExternos.has(mv.cliente_id),
-      };
-    }).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
-
-    const orden = (o) => Object.values(o).sort((a, b) => Number(b.monto) - Number(a.monto));
-    ok(res, {
-      mes, pagos,
-      porPersona: orden(porPersona).map((x) => ({ ...x, monto: money.round(x.monto, 2) })),
-      porReceptor: orden(porReceptor).map((x) => ({ ...x, monto: money.round(x.monto, 2) })),
-      total_usdt: money.round(total, 2), sin_asignar_usdt: money.round(sinAsignar, 2),
-      personas: personas.list().map((p) => ({ id: p.id, nombre: p.nombre, es_empresa: !!p.es_empresa })),
-    });
-  }));
   /* Quién agarró la plata de un pago. Se corrige después a propósito: al acreditar no siempre se
      sabe, y obligar a elegir en ese momento lleva a elegir cualquier cosa para poder seguir. */
   app.put('/api/os/pagos/:id/recibido-por', wrap((req, res) => {
     const r = movs.setRecibidoPor(req.params.id, (req.body || {}).persona_id || null);
     r.ok ? ok(res, { movimiento: r.movimiento }) : err(res, 404, r.error);
   }));
-  app.get('/api/os/reparto/:clienteId', (req, res) => {
-    const c = clientes.get(req.params.clienteId);
-    if (!c) return err(res, 404, 'cliente no encontrado');
-    const mes = req.query.mes ? String(req.query.mes).slice(0, 7) : mesTZ();
-    ok(res, { cliente: { id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible }, mes, reparto: repartoSvc.repartoCliente(c, mes) });
-  });
-  // DEV/DEMO: sembrar VENTAS de prueba = pedidos 'cargado' directo en la DB (NO toca el casino, no hace
-  // carga real). Para ver Facturación/Reparto con datos en pruebas; en el live ya están los pedidos reales.
-  // body: { items:[{codigo, monto, userId?, cajaUsuario?, sistema?, divisa?}], reset?:bool }
-  app.post('/api/os/_dev/seed-ventas', wrap((req, res) => {
-    // seed-ventas sólo en desarrollo: con reset:true hace DELETE FROM pedidos, y los pedidos son
-    // la base de lo que se le cobra a cada cliente. En producción no existe.
-    if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production') {
-      return err(res, 403, 'seed-ventas está deshabilitado en producción: borraría pedidos reales');
-    }
-    const body = req.body || {};
-    if (body.reset) pedidosStore.seed({ pedidos: [] }); // limpia todos (solo entorno de pruebas)
-    const items = body.items || [];
-    const ids = [];
-    for (const it of items) {
-      const p = pedidosStore.create({
-        codigo: it.codigo, clienteNombre: it.clienteNombre || it.codigo, monto: it.monto,
-        userId: it.userId || '', cajaUsuario: it.cajaUsuario || '', sistema: it.sistema || '', divisa: it.divisa || 'ARS',
-      });
-      pedidosStore.setEstado(p.id, 'cargado', {}); // marca cargado SIN llamar al casino (es siembra)
-      ids.push(p.id);
-    }
-    ok(res, { creados: ids.length, ids, _nota: 'Pedidos de prueba marcados "cargado" sin tocar el casino (siembra DB).' });
-  }));
   // Diario: STUB (depende de la API del panel)
   app.get('/api/os/reportes/diario', (req, res) => ok(res, {
     fecha: req.query.fecha || fechaTZ(), pendiente: true,
     _nota: 'Reporte diario (IN/OUT/Profit/RTP + alertas) requiere la API del panel — Fase 5',
   }));
+
+  for (const s of SECTORES) s.mount(app);
 
   console.log('[OS] rutas comerciales/financieras montadas (/api/os/*)');
 }
