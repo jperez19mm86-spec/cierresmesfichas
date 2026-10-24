@@ -461,8 +461,13 @@ function borrarMes(mes) {
  * otro cliente, la anulación y la baja del abono— se rehace igual, para que siga sumando cero.
  *
  * Sin `aplicar` no escribe nada: devuelve cuánto debe cada cliente antes y después.
+ *
+ * `excluir`: ['TITAN86:UYU', …] — cliente y moneda que se dejan como están porque ya se
+ * corrigieron a mano. A Titan, en septiembre, lo de UYU se pasó al 42,18 del mes con un ajuste
+ * (−157,98): rehacer esas cargas lo descontaría dos veces.
  */
-function pasarAlPromedio(mes, { aplicar = false } = {}) {
+function pasarAlPromedio(mes, { aplicar = false, excluir = [] } = {}) {
+  const fuera = new Set((excluir || []).map((x) => String(x).trim().toUpperCase()));
   const m = String(mes || '').slice(0, 7);
   const pedidos = require('./pedidos-store');
   const todos = movs.list({});
@@ -477,6 +482,7 @@ function pasarAlPromedio(mes, { aplicar = false } = {}) {
       .filter((x) => x.tc_modo !== 'mes' && !['USD', 'USDT'].includes(String(x.divisa || '').toUpperCase()));
     for (const k of cargas) {
       const D = String(k.divisa || 'ARS').toUpperCase();
+      if (fuera.has(String(c.codigo).toUpperCase() + ':' + D)) continue;
       let local = D === 'ARS' ? k.monto_ars : null;
       if (D !== 'ARS') {
         const ped = pedidos.get(k.pedido_id);
@@ -528,7 +534,7 @@ function pasarAlPromedio(mes, { aplicar = false } = {}) {
   }
   const lista = Object.values(porCliente).map((x) => ({ ...x, antes: money.round(x.antes, 2), despues: money.round(x.despues, 2),
     diferencia: money.round(money.sub(x.despues, x.antes), 2) })).sort((a, b) => Math.abs(Number(b.diferencia)) - Math.abs(Number(a.diferencia)));
-  return { ok: true, mes: m, aplicado: !!aplicar, clientes: lista, cargas: lista.reduce((t, x) => t + x.cargas, 0), hechos: aplicar ? hechos : undefined };
+  return { ok: true, mes: m, aplicado: !!aplicar, excluidos: [...fuera], clientes: lista, cargas: lista.reduce((t, x) => t + x.cargas, 0), hechos: aplicar ? hechos : undefined };
 }
 
 module.exports = { pasarAlPromedio, porCarga, porAnulacion, generarMes, borrarMes, delMes, baseDe, tcDelDia, abonoPorCarga };

@@ -120,6 +120,17 @@ const igual = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
   check('y el abono a otro cliente pasó al promedio', igual(deuda.cuentaCorriente(fr2.id).total, -(60000 / Number(promSep))), deb0 + ' → ' + deuda.cuentaCorriente(fr2.id).total);
   check('correrlo de nuevo no hace nada', dc.pasarAlPromedio('2026-09').cargas === 0);
 
+  // 9 · lo que ya se corrigió a mano se deja afuera (Titan, UYU de septiembre)
+  const exc = clientes.createCliente({ codigo: 'EXC', nombre: 'Exc' }); setBase(exc.id);
+  clientes.updateComercial(exc.id, { tc_cargas: 'momento' });
+  const e1 = await dc.porCarga({ id: 'x1', codigo: 'EXC', monto: '3000000', divisa: 'ARS', resueltoAt: '2026-09-12T15:00:00.000Z' }, { tcFijo: '1500' });
+  clientes.updateComercial(exc.id, { tc_cargas: 'promedio' });
+  const sx = dc.pasarAlPromedio('2026-09', { excluir: ['exc:ars'] });
+  check('excluir deja afuera esa moneda de ese cliente', !sx.clientes.some((x) => x.cliente === 'EXC') && sx.excluidos.includes('EXC:ARS'), JSON.stringify(sx.clientes));
+  dc.pasarAlPromedio('2026-09', { aplicar: true, excluir: ['EXC:ARS'] });
+  check('y aplicado no la toca', movs.getCrudo(e1.movimiento.id) != null && movs.getCrudo(e1.movimiento.id).tc_modo !== 'mes');
+  check('sin excluir, la toma', dc.pasarAlPromedio('2026-09').clientes.some((x) => x.cliente === 'EXC'));
+
   console.log(`\n${ok} chequeos OK, ${fail} fallaron\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

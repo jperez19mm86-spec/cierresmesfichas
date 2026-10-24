@@ -616,7 +616,9 @@ function mount(app) {
   app.post('/api/os/deuda/pasar-al-promedio', wrap((req, res) => {
     const b = req.body || {};
     if (!/^\d{4}-\d{2}$/.test(String(b.mes || ''))) return err(res, 400, 'mes inválido (YYYY-MM)');
-    ok(res, deudaCargaSvc.pasarAlPromedio(b.mes, { aplicar: b.aplicar === true }));
+    if (b.excluir != null && !(Array.isArray(b.excluir) && b.excluir.every((x) => /^[^:]+:[A-Za-z]{3,4}$/.test(String(x)))))
+      return err(res, 400, 'excluir va como ["CODIGO:MONEDA", …]');
+    ok(res, deudaCargaSvc.pasarAlPromedio(b.mes, { aplicar: b.aplicar === true, excluir: b.excluir || [] }));
   }));
   /**
    * Borrar la deuda generada por cargas de un mes, para poder rehacerla.
