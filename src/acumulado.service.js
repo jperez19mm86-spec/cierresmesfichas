@@ -58,20 +58,22 @@ async function captureDia(conexion_id, dia, group = 'superagent') {
      PYG en agosto y su sala 96.122.809— o directamente no encontraba nada.
      Se guardan con grupo 'chat' para no mezclarse con los niveles, y el cierre del chat las busca
      por nodo sin mirar el nivel. No cuesta una llamada más: son las mismas filas ya traídas. */
-  const salas = _salasDelChat(conexion_id);
-  if (salas.size) {
-    const pmS = {};
-    for (const n of r.nodos) {
-      if (!salas.has(String(n.id))) continue;
-      const montos = n.montos || {};
-      for (const cur of Object.keys(montos)) {
-        const m = montos[cur];
-        (pmS[cur] = pmS[cur] || []).push({ id: n.id, login: n.login, in: m.in, out: m.out, profit: m.profit });
-      }
-    }
-    for (const cur of Object.keys(pmS)) store.upsertDia(conexion_id, dia, 'chat', cur, pmS[cur]);
-  }
+  _guardarSalas(conexion_id, dia, r.nodos);
   return { ok: true, dia, filas: (pm.ARS || []).length, monedas: Object.keys(pm) };
+}
+function _guardarSalas(conexion_id, dia, nodos) {
+  const salas = _salasDelChat(conexion_id);
+  if (!salas.size) return;
+  const pmS = {};
+  for (const n of nodos) {
+    if (!salas.has(String(n.id))) continue;
+    const montos = n.montos || {};
+    for (const cur of Object.keys(montos)) {
+      const m = montos[cur];
+      (pmS[cur] = pmS[cur] || []).push({ id: n.id, login: n.login, in: m.in, out: m.out, profit: m.profit });
+    }
+  }
+  for (const cur of Object.keys(pmS)) store.upsertDia(conexion_id, dia, 'chat', cur, pmS[cur]);
 }
 
 /** Backfill: captura SOLO los días FALTANTES del mes (saltea los ya guardados), SECUENCIAL (las cuentas
@@ -95,7 +97,9 @@ async function captureMes(conexion_id, mes, group = 'superagent', maxPorLlamada 
   for (const d of lote) { // SECUENCIAL — no throttlear el casino con cuentas grandes
     try {
       const r = await cli.nodos({ from: `${d} 00:00:00`, to: `${d} 23:59:59`, soloActivos: true, multiMoneda: true });
-      if (r.ok) { const pm = _filasPorMonedaDesdeNodos(r.nodos, group); for (const cur of Object.keys(pm)) store.upsertDia(conexion_id, d, group, cur, pm[cur]); okc++; }
+      /* Y las salas del chat, con las mismas filas: si no, un día que se rellena acá no tiene la
+         ganancia de las cajas del chat y su % sale de menos sin ningún aviso. */
+      if (r.ok) { const pm = _filasPorMonedaDesdeNodos(r.nodos, group); for (const cur of Object.keys(pm)) store.upsertDia(conexion_id, d, group, cur, pm[cur]); _guardarSalas(conexion_id, d, r.nodos); okc++; }
     } catch (e) { /* el día queda como faltante para el próximo lote */ }
   }
   return { ok: true, capturados: okc, faltan: faltantes.length - okc, total: todos.length, ya_tenia: yaG.size };

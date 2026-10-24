@@ -47,6 +47,7 @@ const b1 = nc.guardarCaja({ cliente: bet.id, caja: 'Bet30Caja1', sala: '8000001'
 const c1 = nc.guardarCaja({ cliente: celu.id, caja: 'CeluCaja01', sala: '8000002', conexion: 'cx_eu', entrada: '200' });   // sin fecha de inicio
 ok(nc.salasActivas('cx_eu').includes('7505635'), 'el acumulado sabe qué cajas leer de noche');
 
+nc._recaptura.estado = {}; nc._recaptura.cola.length = 0;   // (en la prueba no hay casino: se limpia lo pedido)
 console.log('\nGanancia de septiembre (de Imperia)');
 ganancia('7505635', '2026-09', { '05': 10000000, '20': 4500000 });       // 14,5 M
 ganancia('7505636', '2026-09', { '10': 7300000 });
@@ -115,9 +116,14 @@ eq(nc.armarConexiones('2026-10-22').creados, 0, 'antes del 24 no se cobra nada')
 process.env.NC_HOY = '2026-10-24';
 nc.guardarCaja({ id: z.id, cliente: bet.id, entrada: '50' });
 const y = nc.guardarCaja({ cliente: bet.id, caja: 'Bet30Caja3', sala: '8000004', conexion: 'cx_eu', entrada: '50', desde: '2026-10-10' });
-eq(nc.armarConexiones('2026-10-24').creados, 1, 'la del 24 (no es de los últimos 7 días) paga su conexión aparte, ese día');
-ok(!nc.listarCobros().some((d) => d.tipo === 'conexion' && d.ref === y.id), 'la que ya andaba desde el 10 y se cargó hoy no recibe una conexión de golpe');
-ok(nc.guardarCaja({ id: y.id, cliente: bet.id, desde: '2026-10-12' }).ok, 'sin cobros todavía, su fecha de inicio se puede corregir');
+eq(nc.armarConexiones('2026-10-24').creados, 2, 'la del 24 y la que empezó el 10 pagan su conexión aparte');
+const cy = nc.listarCobros().find((d) => d.tipo === 'conexion' && d.ref === y.id);
+eq(cy.vence, '2026-10-29', 'la que se cargó después de empezar vence a los 5 días de hoy, no ya vencida');
+eq(cy.estado, 'pendiente', 'y no queda vencida (sin cartel por esto)');
+ok(nc._recaptura.cola.some((k) => k === 'cx_eu|2026-10-10') && nc._recaptura.cola.some((k) => k === 'cx_eu|2026-10-23'), 'se le pide a Imperia la ganancia desde su inicio hasta ayer');
+ok(nc.recapturando(y.id), 'mientras tanto el % dice que la está trayendo (no calcula de menos)');
+nc._recaptura.estado = {}; nc._recaptura.cola.length = 0;
+rechaza(nc.guardarCaja({ id: y.id, cliente: bet.id, desde: '2026-10-12' }), 'con su conexión ya cobrada, la fecha de inicio no se puede mover');
 eq(nc.armarConexiones('2026-10-24').creados, 0, 'y no se cobra dos veces');
 
 console.log('\nNoviembre: lo que falta frena el cobro');

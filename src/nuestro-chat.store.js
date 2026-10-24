@@ -261,16 +261,53 @@ function guardarCaja(d) {
     const ya = db.prepare("SELECT COUNT(*) n FROM nc_cobro WHERE (tipo='conexion' AND ref=?) OR (tipo='mes' AND cliente_id=? AND ref>?)").get(prev.id, cid, prev.desde.slice(0, 7)).n;
     if (ya) return { ok: false, error: 'Ya salió un cobro con la fecha de inicio anterior: no se puede mover. Si está mal, escribime.' };
   }
+  const pedir = !prev || prev.desde !== v.desde || prev.sala_id !== v.sala_id || prev.conexion_id !== v.conexion_id;
   if (prev) {
     db.prepare('UPDATE nc_caja SET caja=@caja, sitio=@sitio, chat_id=@chat_id, conexion_id=@conexion_id, sala_id=@sala_id, desde=@desde, entrada=@entrada, mant=@mant, pct=@pct WHERE id=@id')
       .run({ ...v, id: prev.id });
+    if (pedir) pedirRecaptura({ ...v, id: prev.id });
     return { ok: true, id: prev.id };
   }
   const id = nid('ncj');
   db.prepare(`INSERT INTO nc_caja (id, cliente_id, caja, sitio, chat_id, conexion_id, sala_id, desde, entrada, mant, pct, activa, createdAt)
     VALUES (@id,@cliente_id,@caja,@sitio,@chat_id,@conexion_id,@sala_id,@desde,@entrada,@mant,@pct,1,@at)`).run({ ...v, id, cliente_id: cid, at: ahora() });
+  pedirRecaptura({ ...v, id });
   return { ok: true, id };
 }
+/* LA GANANCIA DE LOS DÍAS PASADOS. De noche se junta solo «ayer»: si la caja se carga con un inicio
+   de hace dos semanas, esos días no tienen la ganancia de su caja y el % saldría de menos sin avisar.
+   Al guardar un inicio pasado se le vuelven a pedir a Imperia esos días, de a uno y en segundo plano
+   (los mismos que el acumulado; captureDia guarda los niveles de siempre y las salas del chat). */
+const _recaptura = { cola: [], corriendo: false, estado: {} };
+function pedirRecaptura(c) {
+  const ayer = masDias(hoyAR(), -1);
+  if (!c.desde || c.desde > ayer) return;
+  const desde = c.desde < masDias(hoyAR(), -62) ? masDias(hoyAR(), -62) : c.desde;   // como mucho dos meses
+  for (let d = desde; d <= ayer; d = masDias(d, 1)) {
+    const k = c.conexion_id + '|' + d;
+    if (!_recaptura.cola.includes(k)) _recaptura.cola.push(k);
+  }
+  _recaptura.estado[c.id] = { desde, hasta: ayer, pendiente: true };
+  if (process.env.NODE_ENV === 'test') return;
+  _correrRecaptura();
+}
+async function _correrRecaptura() {
+  if (_recaptura.corriendo) return;
+  _recaptura.corriendo = true;
+  const acum = require('./acumulado.service');
+  try {
+    while (_recaptura.cola.length) {
+      const [cx, dia] = _recaptura.cola.shift().split('|');
+      try { await acum.captureDia(cx, dia, 'superagent'); } catch (e) { console.warn('[nuestro-chat] recaptura', dia, e.message); }
+      await new Promise((r) => setTimeout(r, 1500));   // de a uno, sin apurar al casino
+    }
+  } finally {
+    _recaptura.corriendo = false;
+    for (const k of Object.keys(_recaptura.estado)) _recaptura.estado[k].pendiente = false;
+  }
+}
+const recapturando = (cajaId) => !!(_recaptura.estado[cajaId] && _recaptura.estado[cajaId].pendiente);
+
 function marcarInicio(cajaId, fecha) {
   const c = db.prepare('SELECT * FROM nc_caja WHERE id=?').get(String(cajaId));
   if (!c) return { ok: false, error: 'Esa caja no existe.' };
@@ -284,7 +321,8 @@ function marcarInicio(cajaId, fecha) {
     : fecha > hoy ? `Inicio guardado: la conexión se cobra el ${+fecha.slice(8)}/${+fecha.slice(5, 7)}.`
     : 'Inicio guardado: salió el cobro de la conexión.';
   armarConexiones(hoy);
-  return { ok: true, texto };
+  pedirRecaptura(n);
+  return { ok: true, texto: texto + (fecha < hoy ? ' Estamos trayendo de Imperia la ganancia desde ese día.' : '') };
 }
 /* La baja no devuelve el mes ya pagado (es por adelantado): solo deja de cobrar desde el mes que viene. */
 function darDeBaja(cajaId) {
@@ -325,6 +363,10 @@ function lineaPct(c, mes, g, { sinDatosEsCero = false } = {}) {
       profit += v; dias += 1;
     }
     if (dias) monedas.push({ mon, profit });
+  }
+  if (recapturando(c.id)) {
+    return { l: { k, cat: 'variable', falta: 'trayendo la ganancia de Imperia' },
+      aviso: { tipo: 'sin-datos', corto: 'trayendo la ganancia', texto: `Estamos trayendo de Imperia la ganancia de ${c.caja} desde su fecha de inicio: en unos minutos se calcula.` } };
   }
   if (!monedas.length) {
     if (sinDatosEsCero) return { l: { k, v: '0', cat: 'variable', nota: 'sin movimiento en Imperia ese mes (confirmado a mano)' } };
@@ -413,11 +455,11 @@ function armarConexiones(hoy = hoyAR()) {
   let creados = 0;
   for (const c of todasLasCajas()) {
     if (!c.activa || !c.desde || c.desde > hoy || !money.isPos(c.entrada) || junta(c)) continue;
-    /* Una caja que ya venía andando y se carga ahora (empezó ANTES de cargarla) no recibe un cobro de
-       conexión de golpe: esos clientes ya arreglaron la suya. La conexión sale sola solo para las que
-       empiezan desde que están en el OS. */
-    if (c.desde < String(c.createdAt || '').slice(0, 10)) continue;
-    const x = insertarCobro({ cliente_id: c.cliente_id, tipo: 'conexion', ref: c.id, fecha: c.desde, vence: masDias(c.desde, 5),
+    /* Todo cuenta desde la fecha de inicio que ella pone, aunque sea pasada (Alexa, 24-oct: «Fran
+       comenzó hace un par de semanas»). Pero si se carga después de empezar, la conexión vence a los
+       5 días de HOY: si no, saldría ya vencida y con el cartel puesto el mismo día. Al que no se le
+       cobra conexión se le pone 0. */
+    const x = insertarCobro({ cliente_id: c.cliente_id, tipo: 'conexion', ref: c.id, fecha: c.desde, vence: masDias(c.desde > hoy ? c.desde : hoy, 5),
       cajas: [cajaDoc(c, [lineaConexion(c)], [])] });
     if (x.ok) creados++;
   }
@@ -842,7 +884,7 @@ function startCron() {
 module.exports = {
   config, setConfig, trc20Valida, bep20Valida,
   sumarCliente, setCliente, nuevoToken, clientePorToken, clientes,
-  guardarCaja, marcarInicio, darDeBaja, salasActivas, junta,
+  guardarCaja, marcarInicio, darDeBaja, salasActivas, junta, recapturando, _recaptura,
   armarMes, armarConexiones, listarCobros, cobrosDe, tablero, cartelDe, prorroga, frenar,
   registrarPago, borrarPago, avisarHash, resolverAviso, pagos, cobrosAbiertos,
   cuentaCliente, estadoParaElChat,
