@@ -477,11 +477,17 @@ function cliArbol(lista){
 }
 /** Cuántos cuelgan de este nodo, contando todos los niveles. */
 function cliCuenta(n){ return n.subs.reduce((a,x)=>a+1+cliCuenta(x),0); }
-/** La deuda del nodo más la de todo lo que cuelga. */
-function cliDeuda(n){
-  const p=Number((n.cliente.deuda&&n.cliente.deuda.total)||0);
-  return n.subs.reduce((a,x)=>a+cliDeuda(x),p);
+/** La deuda del nodo más la de todo lo que cuelga, POR MONEDA. Pesos y dólares no se suman: de
+    Alexa777 (USDT) cuelgan Rubén y Lucho, que llevan la cuenta en pesos, y la suma decía que sus
+    $ 42.500 eran dólares. */
+function cliDeuda(n, acc={}){
+  const d=n.cliente.deuda;
+  if(d){ const k=d.moneda||'USDT'; acc[k]=(acc[k]||0)+Number(d.total||0); }
+  n.subs.forEach(x=>cliDeuda(x,acc));
+  return acc;
 }
+/** En qué moneda lleva la cuenta un cliente: la deuda viene en esa moneda, no siempre en USDT. */
+const monedaCuenta=(c)=>(c.deuda&&c.deuda.moneda)||c.moneda_cuenta||'USDT';
 
 /* Pinta un nodo del árbol y todo lo que cuelga, como fichas plegables.
    ⚠️ UN CLIENTE PUEDE ABRIR DOS COSAS DISTINTAS —su gente y sus cajas— y con una sola flecha no se
@@ -510,7 +516,7 @@ function cliFicha(n, prof=0){
         <span class="nom">${_nom(c)}</span>
         ${c.es_vendedor?'<span class="señal" style="background:var(--bg3);color:var(--gold)">vendedor</span>':''}
         ${señales}
-        <span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">USDT</span></span>
+        <span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>
       </summary>
       <div class="cuerpo">
         <dl class="datos">
@@ -518,8 +524,9 @@ function cliFicha(n, prof=0){
             ? '<div><dt>% base</dt><dd class="cero" title="A un vendedor no le aplica: paga el costo real de los proveedores que use">no le aplica</dd></div>'
             : `<div><dt>% base</dt><dd${c.precio_base_pct==null?' class="mal"':''}>${
                 c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'sin cargar'}</dd></div>`}
-          <div><dt>Debe</dt><dd>${money(propia,2)}</dd></div>
-          ${n.subs.length?`<div><dt>Debe con su gente</dt><dd>${money(deudaRama,2)}</dd></div>`:''}
+          <div><dt>Debe</dt><dd>${money(propia,2)} ${esc(monedaCuenta(c))}</dd></div>
+          ${n.subs.length?`<div><dt>Debe con su gente</dt><dd>${Object.entries(deudaRama).filter(([,v])=>Math.abs(v)>=0.005)
+            .map(([m,v])=>money(v,2)+' '+esc(m)).join(' · ')||money(0,2)}</dd></div>`:''}
         </dl>
         <div class="acciones">
           <button class="small" onclick="abrirCliente('${c.id}','resumen')">Abrir su ficha</button>
@@ -1971,7 +1978,7 @@ async function cliResumen(id){
       <div class="row" style="align-items:stretch">
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Estado</label><div style="font-size:18px;font-weight:800">${esc(c.estado||'')}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Base actual</label><div style="font-size:18px;font-weight:800">${r.base_actual!=null?esc(r.base_actual)+'%':'—'}</div></div>
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (USDT)</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (${esc(d.moneda||'USDT')})</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Paneles linkeados</label><div style="font-size:18px;font-weight:800">${c.paneles||0}</div></div>
       </div>
     </div>
@@ -5704,11 +5711,11 @@ async function mcPintar(){
 
   dest.innerHTML =
     '<div class="row" style="align-items:stretch">'
-    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Consumo pendiente</label><div style="font-size:20px;font-weight:800">'+money(cc.fichas_pendientes,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
-    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Externos pendientes</label><div style="font-size:20px;font-weight:800">'+money(cc.proveedores_pendientes,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
-    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Pagado</label><div style="font-size:20px;font-weight:800;color:var(--green)">'+money(cc.pagos,2)+'</div><div class="muted" style="font-size:11px">USDT</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Consumo pendiente</label><div style="font-size:20px;font-weight:800">'+money(cc.fichas_pendientes,2)+'</div><div class="muted" style="font-size:11px">'+esc(cc.moneda||'USDT')+'</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Externos pendientes</label><div style="font-size:20px;font-weight:800">'+money(cc.proveedores_pendientes,2)+'</div><div class="muted" style="font-size:11px">'+esc(cc.moneda||'USDT')+'</div></div>'
+    + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Pagado</label><div style="font-size:20px;font-weight:800;color:var(--green)">'+money(cc.pagos,2)+'</div><div class="muted" style="font-size:11px">'+esc(cc.moneda||'USDT')+'</div></div>'
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Saldo</label><div style="font-size:20px;font-weight:800;color:'+signo(cc.total)+'">'+money(cc.total,2)+'</div>'
-      + '<div class="muted" style="font-size:11px">USDT · '+(Number(cc.total)<0?'lo que tiene a favor':(Number(cc.total)>0?'lo que debe hoy':'está al día'))+'</div></div>'
+      + '<div class="muted" style="font-size:11px">'+esc(cc.moneda||'USDT')+' · '+(Number(cc.total)<0?'lo que tiene a favor':(Number(cc.total)>0?'lo que debe hoy':'está al día'))+'</div></div>'
     + '</div>'
     + '<div class="card"><h2>Mes a mes <span class="muted">(todo en USDT)</span></h2>'
     + '<table><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Facturado</th><th class="right">Pagado</th><th class="right">Saldo</th><th>Factura</th><th>Contra el panel</th><th></th></tr></thead><tbody>'
@@ -5967,7 +5974,7 @@ async function regPago(){
     const a = r.aviso;
     const cola = !r.avisado ? ' · sin avisar (así lo pediste)'
       : (!a ? '' : (a.ok ? ' · avisado a cobranzas y al cliente' : ' · ⚠ el aviso NO salió: '+(a.error||'')));
-    toast('Pago registrado — saldo '+money(r.deuda.total,2)+' USDT'+cola);
+    toast('Pago registrado — saldo '+money(r.deuda.total,2)+' '+(r.deuda.moneda||'USDT')+cola);
     // Si el respaldo no se pudo guardar hay que enterarse: el pago está, el comprobante no.
     if(r.comprobante && r.comprobante.ok === false) toast('⚠ el pago quedó registrado pero SIN comprobante: '+(r.comprobante.error||''), true);
   }
