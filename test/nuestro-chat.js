@@ -128,12 +128,18 @@ eq(nc.armarConexiones('2026-10-24').creados, 0, 'y no se cobra dos veces');
 
 console.log('\nSin conexión: los días del primer mes');
 const sc = nc.guardarCaja({ cliente: celu.id, caja: 'CeluCaja02', sala: '8000010', conexion: 'cx_eu', entrada: '0', desde: '2026-10-10' });
-const rg = nc.guardarCaja({ cliente: celu.id, caja: 'CeluCaja03', sala: '8000011', conexion: 'cx_eu', entrada: '0', desde: '2026-10-10', regalo: true });
+const rg = nc.guardarCaja({ cliente: celu.id, caja: 'CeluCaja03', sala: '8000011', conexion: 'cx_eu', entrada: '0', desde: '2026-10-10', primerMes: 'regalo' });
 nc._recaptura.estado = {}; nc._recaptura.cola.length = 0;
 const tl = nc.tablero().clientes.find((c) => c.id === celu.id);
 const l2 = tl.cajas.find((x) => x.caja === 'CeluCaja02').lineas, l3 = tl.cajas.find((x) => x.caja === 'CeluCaja03').lineas;
 ok(l2.some((l) => /Días de octubre, del 10 al 31/.test(l.k) && Number(l.v) === 106.45), 'sin conexión, del 10 al 31 de octubre: 22 de 31 días de 150 = 106,45 con el cobro del 1');
-ok(!l3.some((l) => /Días de octubre/.test(l.k)), 'con «primer mes de regalo», esos días no se cobran');
+ok(!l3.some((l) => /Días de octubre|Mantenimiento de octubre/.test(l.k)), 'con «primer mes de regalo», esos días no se cobran');
+const mc = nc.guardarCaja({ cliente: celu.id, caja: 'CeluCaja04', sala: '8000012', conexion: 'cx_eu', entrada: '0', desde: '2026-10-05', primerMes: 'completo' });
+nc._recaptura.estado = {}; nc._recaptura.cola.length = 0;
+const l4 = nc.tablero().clientes.find((c) => c.id === celu.id).cajas.find((x) => x.caja === 'CeluCaja04').lineas;
+ok(l4.some((l) => /Mantenimiento de octubre \(mes completo/.test(l.k) && Number(l.v) === 150), '«mes completo»: empieza el 5 y paga los 150 de octubre');
+rechaza(nc.guardarCaja({ id: mc.id, cliente: celu.id, primerMes: 'medio' }), 'una opción que no existe no entra');
+nc.darDeBaja(mc.id);
 ok(!tl.cajas.find((x) => x.caja === 'CeluCaja01').lineas.some((l) => /Días de/.test(l.k)), 'con conexión, la conexión cubre el primer mes');
 nc.darDeBaja(sc.id); nc.darDeBaja(rg.id);
 

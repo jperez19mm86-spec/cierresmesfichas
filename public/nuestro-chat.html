@@ -298,7 +298,7 @@ VIEWS.clientes = async () => {
   const opc = (v, lista) => lista.map(([k,l]) => `<option value="${k}"${String(v)===String(k)?' selected':''}>${l}</option>`).join('');
   const filaCaja = (cl, c) => `<tr><td><b>${esc(c.caja)}</b><div class="muted" style="font-size:12px">${esc(c.sitio||'sin sitio')}</div></td>
       <td>${!c.activa ? señal('gris','de baja') : !c.desde ? señal('durazno','sin fecha de inicio') : c.desde > c.hoy ? señal('durazno','empieza el ' + dia(c.desde)) : 'desde ' + dia(c.desde)}</td>
-      <td class="n opc">${c.entrada ? money(c.entrada,0) + (c.entradaCobrada ? ' ✓' : '') : (c.regalo ? 'regalo' : '—')}</td><td class="n">${money(c.mant,0)}</td><td class="n">${money(c.pct,1).replace(',0','')} %</td>
+      <td class="n opc">${c.entrada ? money(c.entrada,0) + (c.entradaCobrada ? ' ✓' : '') : (c.primerMes === 'regalo' ? 'regalo' : c.primerMes === 'completo' ? 'mes completo' : '—')}</td><td class="n">${money(c.mant,0)}</td><td class="n">${money(c.pct,1).replace(',0','')} %</td>
       <td class="n"><button class="outline small" data-editar="${esc(c.id)}">${c.activa && !c.desde ? 'Poner inicio…' : 'Editar'}</button></td></tr>
     <tr data-form-de="${esc(c.id)}"${_ab.has('ed.' + c.id) ? '' : ' hidden'}><td colspan="6">${caja(cl, c)}</td></tr>`;
   const caja = (cl, c) => `<div class="subcaja" data-caja="${esc(c.id||'')}" data-cliente="${esc(cl.id)}"><div class="nc-caja-h"><b>${esc(c.caja)}</b><span class="muted">${esc(c.sitio||'sin sitio')}</span>${c.chatId?`<span class="muted">· chat ${esc(c.chatId)}</span>`:''}${c.activa?'':señal('gris','dada de baja')}${c.activa && !c.desde?señal('durazno','sin empezar'):''}</div>
@@ -313,9 +313,9 @@ VIEWS.clientes = async () => {
       <label>Conexión, una vez (USD; 0 = no se cobra)<input type="number" min="0" step="1" data-k="entrada" value="${esc(c.entrada)}"></label>
       <label>Mantenimiento (USD por mes)<input type="number" min="0" step="1" data-k="mant" value="${esc(c.mant)}"></label>
       <label>% de la ganancia<input type="number" min="1" max="4" step="0.5" data-k="pct" value="${esc(c.pct)}"></label>
-      <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-k="regalo" style="width:auto"${c.regalo ? ' checked' : ''}> Primer mes de regalo</label>
+      <label>Primer mes, si no paga conexión<select data-k="primerMes">${opc(c.primerMes || 'proporcional', [['proporcional','Desde la fecha de inicio'],['completo','Mes completo'],['regalo','De regalo']])}</select></label>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:4px">Sin conexión (0), los días del primer mes se cobran con el 1 que viene. «Primer mes de regalo» los deja gratis.</div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">Sin conexión (0), el primer mes se cobra con el 1 que viene: desde la fecha de inicio (si empieza el 20, 12 de 31 días), el mes completo (150 aunque empiece el 5) o de regalo. Con conexión, la conexión cubre ese mes.</div>
     ${c.entradaCobrada ? `<div class="muted" style="font-size:12.5px;margin-top:6px">La conexión ya se cobró el ${dia(c.entradaCobrada)}: cambiar el monto no la devuelve.</div>` : ''}
     <div class="acciones"><button class="small" data-guardar>${c.nueva ? 'Agregar la caja' : 'Guardar'}</button>${c.nueva ? '<button class="outline small" data-cancelar-nueva>Cancelar</button>' : c.activa ? '<button class="outline small" data-baja>Dar de baja</button>' : ''}</div></div>`;
   m.innerHTML = `

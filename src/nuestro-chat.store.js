@@ -128,6 +128,10 @@ const mesAR = () => hoyAR().slice(0, 7);
 /* Primer mes de regalo (Alexa, 25-oct): sin conexión, los días del primer mes se cobran con el 1 que
    viene, salvo que la caja lo tenga marcado como regalo. */
 try { db.exec('ALTER TABLE nc_caja ADD COLUMN regalo INTEGER DEFAULT 0'); } catch (e) { /* ya estaba */ }
+/* Y cómo se cobra ese primer mes, caja por caja (Alexa, 25-oct): 'proporcional' (desde el inicio),
+   'completo' (los 150 aunque empiece el 5) o 'regalo' (gratis). */
+try { db.exec("ALTER TABLE nc_caja ADD COLUMN primer_mes TEXT DEFAULT 'proporcional'"); } catch (e) { /* ya estaba */ }
+const PRIMER_MES = ['proporcional', 'completo', 'regalo'];
 const nid = (p) => p + '_' + crypto.randomBytes(5).toString('hex');
 const ahora = () => new Date().toISOString();
 const esFecha = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -248,8 +252,10 @@ function guardarCaja(d) {
     entrada: num(d.entrada != null ? d.entrada : (prev ? prev.entrada : c.entrada)),
     mant: num(d.mant != null ? d.mant : (prev ? prev.mant : c.mant)),
     pct: num(d.pct != null ? d.pct : (prev ? prev.pct : c.pct)),
-    regalo: d.regalo != null ? (d.regalo === true || d.regalo === '1' || d.regalo === 1 ? 1 : 0) : (prev ? prev.regalo || 0 : 0),
+    primer_mes: d.primerMes != null ? String(d.primerMes) : (d.regalo === true || d.regalo === '1' ? 'regalo' : (prev ? prev.primer_mes || (prev.regalo ? 'regalo' : 'proporcional') : 'proporcional')),
   };
+  if (!PRIMER_MES.includes(v.primer_mes)) return { ok: false, error: 'El primer mes: desde la fecha de inicio, completo o de regalo.' };
+  v.regalo = v.primer_mes === 'regalo' ? 1 : 0;
   if (!v.caja) return { ok: false, error: 'Falta el nombre de la caja.' };
   if (!/^\d{3,15}$/.test(v.sala_id)) return { ok: false, error: 'El número de la caja en Imperia son solo números (ej. 7505635).' };
   if (!conexiones.get(v.conexion_id)) return { ok: false, error: 'Elegí si la caja es de Europa o de Casino.' };
@@ -267,14 +273,14 @@ function guardarCaja(d) {
   }
   const pedir = !prev || prev.desde !== v.desde || prev.sala_id !== v.sala_id || prev.conexion_id !== v.conexion_id;
   if (prev) {
-    db.prepare('UPDATE nc_caja SET caja=@caja, sitio=@sitio, chat_id=@chat_id, conexion_id=@conexion_id, sala_id=@sala_id, desde=@desde, entrada=@entrada, mant=@mant, pct=@pct, regalo=@regalo WHERE id=@id')
+    db.prepare('UPDATE nc_caja SET caja=@caja, sitio=@sitio, chat_id=@chat_id, conexion_id=@conexion_id, sala_id=@sala_id, desde=@desde, entrada=@entrada, mant=@mant, pct=@pct, regalo=@regalo, primer_mes=@primer_mes WHERE id=@id')
       .run({ ...v, id: prev.id });
     if (pedir) pedirRecaptura({ ...v, id: prev.id });
     return { ok: true, id: prev.id };
   }
   const id = nid('ncj');
-  db.prepare(`INSERT INTO nc_caja (id, cliente_id, caja, sitio, chat_id, conexion_id, sala_id, desde, entrada, mant, pct, regalo, activa, createdAt)
-    VALUES (@id,@cliente_id,@caja,@sitio,@chat_id,@conexion_id,@sala_id,@desde,@entrada,@mant,@pct,@regalo,1,@at)`).run({ ...v, id, cliente_id: cid, at: ahora() });
+  db.prepare(`INSERT INTO nc_caja (id, cliente_id, caja, sitio, chat_id, conexion_id, sala_id, desde, entrada, mant, pct, regalo, primer_mes, activa, createdAt)
+    VALUES (@id,@cliente_id,@caja,@sitio,@chat_id,@conexion_id,@sala_id,@desde,@entrada,@mant,@pct,@regalo,@primer_mes,1,@at)`).run({ ...v, id, cliente_id: cid, at: ahora() });
   pedirRecaptura({ ...v, id });
   return { ok: true, id };
 }
@@ -349,7 +355,9 @@ function junta(c) {
 }
 /* Sin conexión, nada cubre el primer mes: se cobran sus días (del inicio al fin de mes), proporcional. */
 function lineaPrimerMes(c) {
-  if (money.isPos(c.entrada) || c.regalo || !c.desde) return null;
+  const modo = c.primer_mes || (c.regalo ? 'regalo' : 'proporcional');
+  if (money.isPos(c.entrada) || modo === 'regalo' || !c.desde) return null;
+  if (modo === 'completo') return { k: `Mantenimiento de ${nm(c.desde)} (mes completo, sin conexión)`, v: money.round(c.mant, 2), cat: 'mant' };
   const dm = diasDelMes(c.desde), d = Number(c.desde.slice(8)), dias = dm - d + 1;
   return { k: `Días de ${nm(c.desde)}, del ${d} al ${dm} (sin conexión)`, v: money.round(money.div(money.mul(c.mant, String(dias)), String(dm)), 2), cat: 'mant',
     nota: `${dias} de ${dm} días de ${fmt(c.mant)} USD` };
@@ -717,7 +725,7 @@ function clientes() {
   const lista = db.prepare('SELECT * FROM nc_cliente').all().map((r) => ({
     id: r.cliente_id, nombre: nombreCli(r.cliente_id), codigo: codigoCli(r.cliente_id), tg: r.tg_grupo || '', pesos: !!r.pesos, link: linkDe(r), ver: linkDe(r),
     cajas: cajasDe(r.cliente_id).map((c) => ({ id: c.id, caja: c.caja, sitio: c.sitio, chatId: c.chat_id, conexion: c.conexion_id, sala: c.sala_id,
-      desde: c.desde || '', entrada: Number(c.entrada), mant: Number(c.mant), pct: Number(c.pct), regalo: !!c.regalo, activa: !!c.activa, hoy,
+      desde: c.desde || '', entrada: Number(c.entrada), mant: Number(c.mant), pct: Number(c.pct), regalo: (c.primer_mes || '') === 'regalo' || !!c.regalo, primerMes: c.primer_mes || (c.regalo ? 'regalo' : 'proporcional'), activa: !!c.activa, hoy,
       entradaCobrada: pagadas.get(c.id) || '', conexionSalio: conCobro.has(c.id) })),
   })).sort((a, b) => a.nombre.localeCompare(b.nombre));
   const ya = new Set(lista.map((x) => x.id));
