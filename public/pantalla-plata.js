@@ -59,7 +59,10 @@ VIEWS.quienDebe = async () => {
     api('/api/os/clientes'),
   ]);
   if (!cob || !cob.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc((cob && cob.error) || '') + '</div></div>'; return; }
-  _qdDatos = { cob, clientes: (cl && cl.clientes) || [] };
+  /* Los pagos de los dos meses que se muestran, con el mismo mes de cierre que usa Cobranzas: con
+     ellos cada mes se parte en lo que GENERÓ y lo que se pagó. */
+  const [pAnt, pAct] = await Promise.all([cob.mes_anterior, cob.mes].map((m) => api('/api/os/pagos?mes=' + encodeURIComponent(m))));
+  _qdDatos = { cob, clientes: (cl && cl.clientes) || [], pagos: { [cob.mes_anterior]: pAnt, [cob.mes]: pAct } };
   if (!_qdMesDoc) _qdMesDoc = cob.mes_anterior;
   qdPintar();
 };
@@ -87,19 +90,25 @@ function qdPintar() {
   };
   const raices = conDeuda.filter((f) => !pagaPor(f));
   const hijosDe = (f) => todas.filter((h) => pagaPor(h) === f.cliente_id && h.moneda === f.moneda);
-  /* LO QUE SE PAGA, CONTRA LO MÁS VIEJO. Cobranzas reparte por mes de cierre: Fran pagó 8.456 en
-     septiembre, más que lo de septiembre, y la columna decía «a favor 5.961,87» cuando lo que hizo
-     fue pagar agosto. Acá un mes con saldo negativo descuenta primero de los meses anteriores (y
-     un saldo a favor viejo, de los nuevos). El total no cambia; sólo dónde se ve cada parte. */
-  const fifo = (v) => {
-    let a = v.antes, b = v.anterior, c = v.actual;
-    if (c < 0) { b += c; c = 0; }
-    if (b < 0) { a += b; b = 0; }
-    if (a < 0) { b += a; a = 0; if (b < 0) { c += b; b = 0; } }
-    return { antes: a, anterior: b, actual: c, total: v.total };
+  /* LO QUE GENERÓ CADA MES Y LO QUE PAGÓ, APARTE. Cobranzas da cada mes neto de lo que se pagó
+     en él: Fran pagó 8.456 en septiembre (deuda de agosto) y septiembre decía «a favor 5.961,87».
+     Acá cada mes muestra la deuda que generó (cargas + externos − abonos y anulaciones) y los pagos
+     van en su columna: antes + lo generado − lo pagado = lo que debe hoy. Los pagos se leen en la
+     moneda de la cuenta (lo que le bajó la deuda), como los cuenta Cobranzas. */
+  const pagado = {};                          // codigo → { mes: monto }
+  for (const [m, r] of Object.entries(_qdDatos.pagos || {})) {
+    for (const p of [...((r && r.pesos) || []), ...((r && r.usdt) || [])]) {
+      const f = (cob.filas || []).find((x) => x.codigo === p.codigo); if (!f) continue;
+      const v = f.moneda === 'ARS' ? Number(p.ars || 0) : Number(p.saldo_usdt != null ? p.saldo_usdt : (p.usdt || 0));
+      const o = pagado[p.codigo] = pagado[p.codigo] || {}; o[m] = (o[m] || 0) + v;
+    }
+  }
+  const partes = (f) => {
+    const pa = (pagado[f.codigo] || {})[cob.mes_anterior] || 0, pc = (pagado[f.codigo] || {})[cob.mes] || 0;
+    return { antes: f.antes, genAnt: f.anterior + pa, genAct: f.actual + pc, pago: pa + pc, total: f.total };
   };
-  const sumar = (f) => fifo(hijosDe(f).reduce((a, h) => ({ antes: a.antes + h.antes, anterior: a.anterior + h.anterior, actual: a.actual + h.actual, total: a.total + h.total }),
-    { antes: f.antes, anterior: f.anterior, actual: f.actual, total: f.total }));
+  const sumar = (f) => [f, ...hijosDe(f)].map(partes).reduce((a, x) => ({ antes: a.antes + x.antes, genAnt: a.genAnt + x.genAnt, genAct: a.genAct + x.genAct, pago: a.pago + x.pago, total: a.total + x.total }),
+    { antes: 0, genAnt: 0, genAct: 0, pago: 0, total: 0 });
   const visibles = raices.filter((f) => coincide(f) || hijosDe(f).some(coincide));
   const orden = (a, b) => _qdOrden === 'codigo' ? String(a.codigo).localeCompare(String(b.codigo))
     : _qdOrden === 'antes' ? sumar(b).antes - sumar(a).antes : sumar(b).total - sumar(a).total;
@@ -121,27 +130,30 @@ function qdPintar() {
   const fila = (f, hijo, v) => {
     const ab = _qdAbierto === f.cliente_id;
     const hs = hijo ? [] : hijosDe(f);
-    v = v || fifo(f);
+    v = v || partes(f);
     return `<tr class="qd-fila${hijo ? ' qd-hijo' : ''}${ab ? ' abierta' : ''}" onclick="qdAbrir('${f.cliente_id}')">
       <td>${hijo ? '↳ ' : ''}<b>${esc(f.codigo)}</b> <span class="muted">${esc(f.nombre || '')}</span>${marcas(f)}${hs.length ? `<span class="qd-chip" title="Paga también lo de ${hs.map((h) => esc(h.codigo)).join(', ')}: está sumado en esta fila">+${hs.length}</span>` : ''}</td>
       <td class="right"${v.antes >= 1 ? ' style="font-weight:700"' : ''}>${_saldo(v.antes)}</td>
-      <td class="right">${_saldo(v.anterior)}</td>
-      <td class="right">${_saldo(v.actual)}</td>
+      <td class="right">${_num(v.genAnt)}</td>
+      <td class="right">${_num(v.genAct)}</td>
+      <td class="right" style="color:var(--green)">${_num(v.pago)}</td>
       <td class="right"><b>${_saldo(v.total)}</b></td>
-    </tr>${ab ? `<tr class="qd-det"><td colspan="5"><div class="qd-caja" id="qd-det"><div class="muted">Cargando…</div></div></td></tr>` : ''}`;
+    </tr>${ab ? `<tr class="qd-det"><td colspan="6"><div class="qd-caja" id="qd-det"><div class="muted">Cargando…</div></div></td></tr>` : ''}`;
   };
   const tabla = (mon) => {
     const rs = visibles.filter((f) => f.moneda === mon).sort(orden);
-    const T = rs.reduce((a, f) => { const s = sumar(f); return { antes: a.antes + s.antes, anterior: a.anterior + s.anterior, actual: a.actual + s.actual, total: a.total + s.total }; },
-      { antes: 0, anterior: 0, actual: 0, total: 0 });
+    const T = rs.reduce((a, f) => { const s = sumar(f); return { antes: a.antes + s.antes, genAnt: a.genAnt + s.genAnt, genAct: a.genAct + s.genAct, pago: a.pago + s.pago, total: a.total + s.total }; },
+      { antes: 0, genAnt: 0, genAct: 0, pago: 0, total: 0 });
     return `<div class="card"><div style="overflow-x:auto"><table style="min-width:100%">
         <thead><tr><th>${esc(mon)} · ${rs.length}</th>
-          <th class="right" title="Lo que quedó sin cobrar de meses ya cerrados">Antes de ${esc(_MESES[Number(cob.mes_anterior.slice(5))])}</th>
-          <th class="right">${esc(_nomMes(cob.mes_anterior))}</th><th class="right">${esc(_nomMes(cob.mes))}</th>
+          <th class="right" title="Lo que quedó sin pagar de los meses anteriores">Venía de antes</th>
+          <th class="right" title="Cargas + externos − abonos de ${esc(_nomMes(cob.mes_anterior))}">Generó ${esc(_MESES[Number(cob.mes_anterior.slice(5))])}</th>
+          <th class="right" title="Cargas + externos − abonos de ${esc(_nomMes(cob.mes))}">Generó ${esc(_MESES[Number(cob.mes.slice(5))])}</th>
+          <th class="right" title="Pagos de ${esc(_nomMes(cob.mes_anterior))} y ${esc(_nomMes(cob.mes))}">Pagó</th>
           <th class="right">Debe hoy</th></tr></thead>
         <tbody>${rs.map((f) => { const hs = hijosDe(f); return fila(f, false, sumar(f)) + hs.map((h) => fila(h, true)).join(''); }).join('')}</tbody>
-        <tfoot><tr><th>Total</th><th class="right">${money(T.antes)}</th><th class="right">${money(T.anterior)}</th><th class="right">${money(T.actual)}</th>
-          <th class="right">${money(T.total)}</th></tr></tfoot>
+        <tfoot><tr><th>Total</th><th class="right">${money(T.antes)}</th><th class="right">${money(T.genAnt)}</th><th class="right">${money(T.genAct)}</th>
+          <th class="right">${money(T.pago)}</th><th class="right">${money(T.total)}</th></tr></tfoot>
       </table></div></div>`;
   };
 
