@@ -56,6 +56,12 @@ const GRUPOS = [
   /* Primer nivel y con su propio lugar: es lo que más se usa en el día y antes se hacía con la
      calculadora del teléfono. «Titan pide 10.000 dólares en 463.life» → cuánto poner en el panel. */
   { id: 'carga', label: () => '⚡ Calcular carga', items: [] },
+  /* FASE 3 (maqueta): la plata que entra en dos pantallas por tarea, en pantalla-plata.js. Las
+     seis de antes siguen en 💰 Cuentas hasta que se apruebe esta. */
+  { id: 'plata', label: () => '📥 Plata que entra', items: [
+    ['quienDebe', '📥 Quién debe'],
+    ['queEntro', '💵 Qué entró'],
+  ] },
   { id: 'cuentas', label: () => '💰 Cuentas', items: [
     /* Primera a propósito: cerrar un mes son ocho cosas en un orden que importa, repartidas en
        cinco pantallas. Acá se ve en cuál está el mes y qué falta para la siguiente. */
@@ -2699,7 +2705,7 @@ async function facAnular() {
 let _facVolverA = 'facturacion';
 // Qué factura se está mirando: los botones de abajo la necesitan para registrar que salió.
 let _facCtx = { clienteId: null, mes: null };
-function facVolver(){ if(_facVolverA === 'cuenta'){ _movSub='cliente'; go('movimientos'); } else go('facturacion'); }
+function facVolver(){ if(_facVolverA === 'cuenta'){ _movSub='cliente'; go('movimientos'); } else go(VIEWS[_facVolverA] ? _facVolverA : 'facturacion'); }
 
 async function verFactura(clienteId, conCruce) {
   const mes = val('fac-mes') || _facMes;
@@ -9406,6 +9412,7 @@ async function pzBorrar(id){
      ayudantes de arriba ya definidos, y escribe VIEWS.tc antes de que arranque el panel. -->
 <script src="/pantalla-tc.js"></script>
 <script src="/pantalla-carga.js"></script>
+<script src="/pantalla-plata.js"></script>
 <script>
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
