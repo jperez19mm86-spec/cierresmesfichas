@@ -27,8 +27,23 @@ const SECTORES = [
   require('./rutas/reparto.routes'),
   require('./rutas/casino.routes'),
   require('./rutas/api-tbs.routes'),
-  require('./rutas/chat.routes'),
 ];
+
+/* EL CHAT EXTERNO NO PUEDE TIRAR EL OS. Es otro producto que vive en el mismo servidor: si su
+   archivo de rutas no carga (un error al cambiarlo), antes no arrancaba NADA. Ahora se carga
+   aparte y, si falla, el OS arranca igual y sólo las pantallas del chat contestan que no está.
+   Ojo: el store del chat (chat-externo.store) sí es parte del OS —la emisión, la ficha y la
+   cuenta lo usan para cobrar el servicio—, así que ése no se puede apagar sin apagar la cobranza. */
+const RUTAS_DEL_CHAT = ['/api/os/chat/*', '/api/os/proveedor/*', '/chat-externo'];
+function _montarChat(app) {
+  try {
+    require('./rutas/chat.routes').mount(app);
+  } catch (e) {
+    console.error('[Chat] no se pudo montar; el resto del OS sigue andando:', e.message);
+    const noEsta = (_req, res) => res.status(503).json({ ok: false, error: 'El chat no está disponible en este momento. El resto del sistema anda.' });
+    for (const r of RUTAS_DEL_CHAT) app.all(r, noEsta);
+  }
+}
 
 function mount(app) {
   splitBase.seedIfEmpty();
@@ -44,7 +59,7 @@ function mount(app) {
   tbsDiarioSvc.startCron();
   /* El recordatorio del chat externo: una vez por día le dice a ELLA qué cuentas quedaron cobradas
      y sin mandar. No le manda nada a ningún cliente — eso lo sigue apretando ella. */
-  require('./chat-avisos.service').startCron();
+  try { require('./chat-avisos.service').startCron(); } catch (e) { console.error('[ChatAvisos] no arrancó el recordatorio:', e.message); }
   /* EL MANTENIMIENTO SE DEVENGA SOLO. Se paga por TENER el servicio, así que apenas arranca el
      período ya es plata que el cliente debe: esperar a que alguien apretara un botón hacía que
      entrara a su portal y viera "estás al día" debiendo un mes. Cada media hora se pone al día y
@@ -60,6 +75,7 @@ function mount(app) {
   setInterval(_devengar, 30 * 60 * 1000);
 
   for (const s of SECTORES) s.mount(app);
+  _montarChat(app);   // último, como siempre, y sin poder tirar a los demás
 
   console.log('[OS] rutas comerciales/financieras montadas (/api/os/*)');
 }

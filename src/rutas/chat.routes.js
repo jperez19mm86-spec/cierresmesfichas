@@ -354,10 +354,13 @@ function mount(app) {
       });
       const archivos = chat.archivosDeAviso(av.id)
         .map((x) => chat.archivoDeAviso(av.id, x.ord)).filter(Boolean);
+      // Corre después de contestar, fuera del wrap: un error acá no lo ataja nadie y apagaría el servidor.
       res.on('finish', () => {
-        require('../chat-avisos.service').avisarMantenimientoCobrado(av, cajas, archivos)
-          .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó el mantenimiento al proveedor:', x.error); })
-          .catch((e) => console.warn('[Chat] error avisando el mantenimiento:', e.message));
+        try {
+          require('../chat-avisos.service').avisarMantenimientoCobrado(av, cajas, archivos)
+            .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó el mantenimiento al proveedor:', x.error); })
+            .catch((e) => console.warn('[Chat] error avisando el mantenimiento:', e.message));
+        } catch (e) { console.warn('[Chat] error avisando el mantenimiento:', e.message); }
       });
     }
     ok(res, r);
@@ -409,10 +412,12 @@ function mount(app) {
     /* Y se le avisa al proveedor, DESPUÉS de contestar. El pago ya quedó registrado: que Telegram
        tarde o falle no puede hacer que la pantalla diga que no se guardó. Si no sale, se ve en el
        aviso de abajo y se puede volver a mandar. */
-    res.on('finish', () => {
-      require('../chat-avisos.service').avisarPagoAlProveedor(r.pago)
-        .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó al proveedor:', x.error); })
-        .catch((e) => console.warn('[Chat] error avisando al proveedor:', e.message));
+    res.on('finish', () => {   // fuera del wrap, igual que el de arriba
+      try {
+        require('../chat-avisos.service').avisarPagoAlProveedor(r.pago)
+          .then((x) => { if (!x.ok) console.warn('[Chat] no se le avisó al proveedor:', x.error); })
+          .catch((e) => console.warn('[Chat] error avisando al proveedor:', e.message));
+      } catch (e) { console.warn('[Chat] error avisando al proveedor:', e.message); }
     });
     ok(res, r);
   }));
