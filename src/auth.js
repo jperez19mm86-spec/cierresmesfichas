@@ -110,6 +110,13 @@ const PUBLIC = [
      uno relativo pide /chat/piel.css, que no matchea la regla del token —el punto no está en su
      clase de caracteres— y termina en el login. */
   /^\/piel\.css$/,
+  /* NUESTRO CHAT: el link de pago del cliente. Mismo criterio que la hoja del Chat Externo: lo que
+     prueba quién es, es el token largo y al azar de su link; abre la cuenta de UN cliente y no lleva
+     a ningún listado. Lo único que puede crear es un aviso de pago, que queda pendiente hasta que lo
+     apruebe el admin. /mi-chat/estado es lo que va a preguntar el panel del chat, con el mismo token. */
+  /^\/mi-chat\/[A-Za-z0-9_-]{16,64}\/?$/,
+  /^\/mi-chat\/(cuenta|hash|estado)\/?$/,
+  /^\/estilos\.css$/,
   /^\/favicon\.ico$/,
   // PWA: el navegador pide estos sin cookies → deben ser públicos.
   /^\/sw\.js$/,

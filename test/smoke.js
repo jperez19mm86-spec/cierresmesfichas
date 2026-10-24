@@ -3530,7 +3530,7 @@ async function main() {
     check('acumulado: la captura diaria también guarda las salas del chat',
       /_salasDelChat/.test(acumSrc) && /store\.upsertDia\(conexion_id, dia, 'chat', cur, pmS\[cur\]\)/.test(acumSrc));
     check('acumulado: y si el chat no está, la captura sigue igual',
-      /catch \(e\) \{ return new Set\(\); \}/.test(acumSrc),
+      /catch \(e\) \{ return new Set\(\); \}/.test(acumSrc) || /catch \(e\) \{ \/\* sin el chat externo, igual se capturan/.test(acumSrc),
       'el acumulado no puede dejar de capturar porque falle otra cosa');
     /* ── EL AVISO DE PAGO AL PROVEEDOR ───────────────────────────────────────────────────────
        Va a SU grupo, que es otro que el de la matriz. Es el único mensaje de chat-avisos que sale

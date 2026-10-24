@@ -16,12 +16,18 @@ const NIVEL_DE_GROUP = { superagent: 'SuperAgente', distributor: 'Distribuidor',
 /* Los nodos que alguna caja del chat tiene puestos como sala, para esta conexión.
    Se pide adentro y con try: el acumulado no puede dejar de capturar porque el chat no esté. */
 function _salasDelChat(conexion_id) {
+  const salas = new Set();
   try {
     const chat = require('./chat-externo.store');
-    return new Set(chat.list()
+    chat.list()
       .filter((p) => p.activo && p.sala_id && String(p.conexion_id) === String(conexion_id))
-      .map((p) => String(p.sala_id)));
-  } catch (e) { return new Set(); }
+      .forEach((p) => salas.add(String(p.sala_id)));
+  } catch (e) { /* sin el chat externo, igual se capturan las de nuestro chat */ }
+  /* Y las cajas de NUESTRO chat (nuestro-chat.store.js): se guardan en el mismo grupo 'chat' y en la
+     MISMA pasada — upsertDia reemplaza el día entero del grupo, así que capturarlas por separado
+     borraría las del otro. */
+  try { require('./nuestro-chat.store').salasActivas(conexion_id).forEach((s) => salas.add(s)); } catch (e) { /* ídem */ }
+  return salas;
 }
 
 function _filasPorMonedaDesdeNodos(nodos, group) {

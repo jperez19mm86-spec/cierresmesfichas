@@ -45,6 +45,17 @@ function _montarChat(app) {
   }
 }
 
+/* NUESTRO CHAT, igual: su cobro vive en su propio archivo y si no carga, el OS arranca igual. */
+function _montarNuestroChat(app) {
+  try {
+    require('./rutas/nuestro-chat.routes').mount(app);
+  } catch (e) {
+    console.error('[NuestroChat] no se pudo montar; el resto del OS sigue andando:', e.message);
+    const noEsta = (_req, res) => res.status(503).json({ ok: false, error: 'El cobro del chat no está disponible en este momento. El resto del sistema anda.' });
+    for (const r of ['/api/os/nuestro-chat/*', '/nuestro-chat', '/mi-chat/*']) app.all(r, noEsta);
+  }
+}
+
 function mount(app) {
   splitBase.seedIfEmpty();
   // Los paquetes de la oferta comercial, una sola vez. Si ya hay alguno no se toca nada.
@@ -76,6 +87,7 @@ function mount(app) {
 
   for (const s of SECTORES) s.mount(app);
   _montarChat(app);   // último, como siempre, y sin poder tirar a los demás
+  _montarNuestroChat(app);
 
   console.log('[OS] rutas comerciales/financieras montadas (/api/os/*)');
 }
