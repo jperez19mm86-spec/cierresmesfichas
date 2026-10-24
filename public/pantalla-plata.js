@@ -37,6 +37,12 @@ const _MESES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'juli
 const _nomMes = (m) => { const [a, b] = String(m || '').split('-'); return (_MESES[Number(b)] || m) + ' ' + (a || ''); };
 const _cero = (x) => Math.abs(Number(x || 0)) < 0.005;
 const _num = (x, d = 2) => (_cero(x) ? '<span class="muted">—</span>' : money(x, d));
+/* Lo que queda por redondeo (pidió 58.823 fichas al 17% = 9.999,91 y pagó 10.000) no es deuda ni
+   saldo a favor: menos de 1 (peso o dólar) cuenta como al día. Y lo que tiene a favor se dice así,
+   no con un signo menos que parece un error. */
+const _chico = (x) => Math.abs(Number(x || 0)) < 1;
+const _saldo = (x) => (_chico(x) ? '<span class="muted">—</span>'
+  : Number(x) < 0 ? `<span style="color:var(--green)" title="Pagó de más: lo tiene a favor">a favor ${money(-Number(x))}</span>` : money(x));
 // El nombre del panel en externos puede traer «· JJ» (de quién es la cuenta): es el mismo panel.
 const _panelBase = (p) => String(p || '').split(' · ')[0];
 
@@ -64,7 +70,7 @@ function qdPintar() {
   const porId = Object.fromEntries(clientes.map((c) => [c.id, c]));
   const q = _qdQ.toLowerCase();
   const coincide = (f) => !q || String(f.codigo || '').toLowerCase().includes(q) || String(f.nombre || '').toLowerCase().includes(q);
-  const conDeuda = (cob.filas || []).filter((f) => !_cero(f.total)).filter((f) => _qdVend || !f.es_vendedor);
+  const conDeuda = (cob.filas || []).filter((f) => !_chico(f.total)).filter((f) => _qdVend || !f.es_vendedor);
 
   /* QUIÉN PAGA. Un cliente que paga lo de otro (JJ → Marcelo) lleva al otro adentro, aunque esté
      en cero: JJ no debe nada porque lo suyo ya se le cobra a Marcelo, y eso es lo que hay que ver. */
@@ -88,7 +94,7 @@ function qdPintar() {
     : _qdOrden === 'antes' ? sumar(b).antes - sumar(a).antes : sumar(b).total - sumar(a).total;
   const monedas = [...new Set(visibles.map((f) => f.moneda))]
     .sort((a, b) => Math.abs((cob.totales[b] || {}).total || 0) - Math.abs((cob.totales[a] || {}).total || 0));
-  const alDia = (cob.filas || []).filter((f) => _cero(f.total)).length;
+  const alDia = (cob.filas || []).filter((f) => _chico(f.total)).length;
 
   // Señales con número, no frases (criterio del panel): se explican al pasar el mouse.
   const marcas = (f) => {
@@ -107,10 +113,10 @@ function qdPintar() {
     v = v || f;
     return `<tr class="qd-fila${hijo ? ' qd-hijo' : ''}${ab ? ' abierta' : ''}" onclick="qdAbrir('${f.cliente_id}')">
       <td>${hijo ? '↳ ' : ''}<b>${esc(f.codigo)}</b> <span class="muted">${esc(f.nombre || '')}</span>${marcas(f)}${hs.length ? `<span class="qd-chip" title="Paga también lo de ${hs.map((h) => esc(h.codigo)).join(', ')}: está sumado en esta fila">+${hs.length}</span>` : ''}</td>
-      <td class="right"${v.antes > 0 ? ' style="font-weight:700"' : ''}>${_num(v.antes)}</td>
-      <td class="right">${_num(v.anterior)}</td>
-      <td class="right">${_num(v.actual)}</td>
-      <td class="right"><b>${money(v.total)}</b></td>
+      <td class="right"${v.antes >= 1 ? ' style="font-weight:700"' : ''}>${_saldo(v.antes)}</td>
+      <td class="right">${_saldo(v.anterior)}</td>
+      <td class="right">${_saldo(v.actual)}</td>
+      <td class="right"><b>${_saldo(v.total)}</b></td>
     </tr>${ab ? `<tr class="qd-det"><td colspan="5"><div class="qd-caja" id="qd-det"><div class="muted">Cargando…</div></div></td></tr>` : ''}`;
   };
   const tabla = (mon) => {
@@ -166,14 +172,14 @@ async function qdDetalle() {
   const cc = (cuenta && cuenta.cuenta) || {};
   const linea = cuenta && cuenta.ok ? `<div class="qd-cuenta">
       <div><span>Cargas</span> ${money(cc.fichas_pendientes)}</div><div><span>+ Externos</span> ${money(cc.proveedores_pendientes)}</div>
-      <div><span>− Pagó</span> ${money(cc.pagos)}</div><div><span>= Debe</span> <b>${money(cc.total)}</b> <span>${esc(cc.moneda || 'USDT')}${cc.provisional ? ' ~' : ''}</span></div></div>` : '';
+      <div><span>− Pagó</span> ${money(cc.pagos)}</div><div><span>=</span> <b>${_chico(cc.total) ? 'al día' : Number(cc.total) < 0 ? 'a favor ' + money(-Number(cc.total)) : 'debe ' + money(cc.total)}</b> <span>${esc(cc.moneda || 'USDT')}${cc.provisional ? ' ~' : ''}</span></div></div>` : '';
   const tabs = [['meses', 'Mes a mes'], ['sa', 'Por SuperAgente'], ['mandar', 'Mandarle']];
   const barra = `<div class="qd-barra">${tabs.map(([k, l]) => `<button class="${k === _qdTab ? '' : 'outline'} small" onclick="qdTab('${k}')">${l}</button>`).join('')}
     <span class="esp"></span>${_qdTab !== 'meses' ? `<input type="month" value="${esc(_qdMesDoc)}" onchange="qdMesDoc(this.value)" style="width:auto" title="Mes"/>` : ''}</div>`;
   box.innerHTML = linea + barra + '<div class="muted">Cargando…</div>';
   let cuerpo = '';
   try {
-    if (_qdTab === 'meses') cuerpo = qdMeses(cuenta);
+    if (_qdTab === 'meses') cuerpo = qdMeses(cuenta, cc);
     else {
       const f = await api('/api/os/factura/' + encodeURIComponent(id) + '?mes=' + encodeURIComponent(_qdMesDoc));
       if (!f.ok) cuerpo = '<div class="nota err">' + esc(f.error || 'No se pudo armar ese mes') + '</div>';
@@ -183,8 +189,11 @@ async function qdDetalle() {
   if (_qdAbierto === id) box.innerHTML = linea + barra + cuerpo;
 }
 
-function qdMeses(r) {
+function qdMeses(r, cc) {
   if (!r || !r.ok) return '<div class="nota err">' + esc((r && r.error) || 'No se pudo leer la cuenta') + '</div>';
+  /* El mes a mes del servidor (/cuenta) está sólo en dólares: a una cuenta en pesos le da todo
+     cero. Hasta que se arregle (fase 4) se dice, en vez de mostrar una tabla de ceros. */
+  if (cc && cc.moneda && cc.moneda !== 'USDT') return `<div class="qd-control mal">Esta cuenta es en ${esc(cc.moneda)} y el mes a mes todavía sale sólo en dólares. Lo de arriba sí está en ${esc(cc.moneda)} y es correcto.</div>`;
   const meses = (r.meses || []).slice().reverse();
   const hayOtros = meses.some((m) => !_cero(m.otros));
   const salio = (f) => !f ? '' : f.salio_at
@@ -194,7 +203,7 @@ function qdMeses(r) {
       ${hayOtros ? '<th class="right" title="Ajustes, abonos y saldo inicial">Ajustes</th>' : ''}<th class="right">Pagó</th><th class="right">Debe al cierre</th><th></th></tr></thead>
     <tbody>${meses.map((m) => `<tr><td><b>${esc(_nomMes(m.mes))}</b></td>
       <td class="right">${_num(m.consumo)}</td><td class="right">${_num(m.externos)}</td>${hayOtros ? `<td class="right">${_num(m.otros)}</td>` : ''}
-      <td class="right" style="color:var(--green)">${_num(m.pagos)}</td><td class="right"><b>${money(m.saldo_acumulado)}</b></td>
+      <td class="right" style="color:var(--green)">${_num(m.pagos)}</td><td class="right"><b>${_saldo(m.saldo_acumulado)}</b></td>
       <td class="right" style="white-space:nowrap">${salio(m.factura)} <button class="outline small" title="Mandarle este mes" onclick="_qdMesDoc='${m.mes}';qdTab('mandar')">📤</button></td></tr>`).join('')
       || '<tr><td colspan="7" class="empty">Sin movimientos todavía.</td></tr>'}</tbody></table></div>`;
 }
@@ -295,11 +304,13 @@ function qdMandar(f, cuenta, c) {
   let control = '';
   if (mesC && ['todo', 'cargas', 'externos'].includes(_qdDoc)) {
     const dif = [];
-    const cmp = (lbl, enDoc, enCuenta) => { if (Math.abs(Number(enDoc || 0) - Number(enCuenta || 0)) >= 0.5) dif.push(`${lbl}: el documento dice <b>${_$(enDoc)}</b> y la cuenta <b>${_$(enCuenta)}</b>`); };
-    if (_qdDoc !== 'externos') cmp('cargas', f.consumo && f.consumo.total_usdt, mesC.consumo);
+    const cmp = (lbl, enDoc, enCuenta) => { if (Math.abs(Number(enDoc || 0) - Number(enCuenta || 0)) >= 1) dif.push(`${lbl}: el documento dice <b>${_$(enDoc)}</b> y la cuenta <b>${_$(enCuenta)}</b>`); };
+    /* Las cargas se comparan NETAS: la cuenta pone una carga anulada en «cargas» y su anulación en
+       «ajustes» (Titan, 9-sep: 10.000 y −10.000). Mirar sólo «cargas» avisaba de más. */
+    if (_qdDoc !== 'externos') cmp('cargas', f.consumo && f.consumo.total_usdt, Number(mesC.consumo || 0) + Number(mesC.otros || 0));
     if (_qdDoc !== 'cargas') cmp('externos', f.externos && f.externos.total_usdt, mesC.externos);
     control = dif.length
-      ? `<div class="qd-control mal">⚠ No coincide con su cuenta de ${esc(_nomMes(f.mes))}. ${dif.join(' · ')}${_cero(mesC.otros) ? '' : ` (la cuenta tiene además ${_$(mesC.otros)} de ajustes)`}. Revisalo antes de mandarlo.</div>`
+      ? `<div class="qd-control mal">⚠ No coincide con su cuenta de ${esc(_nomMes(f.mes))}. ${dif.join(' · ')}. Revisalo antes de mandarlo.</div>`
       : '<div class="qd-control ok">✔ Coincide con su cuenta.</div>';
   }
   const g = f.guardada;
