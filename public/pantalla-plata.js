@@ -41,7 +41,7 @@ const _num = (x, d = 2) => (_cero(x) ? '<span class="muted">—</span>' : money(
    saldo a favor: menos de 1 (peso o dólar) cuenta como al día. Y lo que tiene a favor se dice así,
    no con un signo menos que parece un error. */
 const _chico = (x) => Math.abs(Number(x || 0)) < 1;
-const _saldo = (x) => (_chico(x) ? '<span class="muted">—</span>'
+const _saldo = (x) => (_cero(x) ? '<span class="muted">—</span>'
   : Number(x) < 0 ? `<span style="color:var(--green)" title="Pagó de más: lo tiene a favor">a favor ${money(-Number(x))}</span>` : money(x));
 // El nombre del panel en externos puede traer «· JJ» (de quién es la cuenta): es el mismo panel.
 const _panelBase = (p) => String(p || '').split(' · ')[0];
@@ -87,8 +87,19 @@ function qdPintar() {
   };
   const raices = conDeuda.filter((f) => !pagaPor(f));
   const hijosDe = (f) => todas.filter((h) => pagaPor(h) === f.cliente_id && h.moneda === f.moneda);
-  const sumar = (f) => hijosDe(f).reduce((a, h) => ({ antes: a.antes + h.antes, anterior: a.anterior + h.anterior, actual: a.actual + h.actual, total: a.total + h.total }),
-    { antes: f.antes, anterior: f.anterior, actual: f.actual, total: f.total });
+  /* LO QUE SE PAGA, CONTRA LO MÁS VIEJO. Cobranzas reparte por mes de cierre: Fran pagó 8.456 en
+     septiembre, más que lo de septiembre, y la columna decía «a favor 5.961,87» cuando lo que hizo
+     fue pagar agosto. Acá un mes con saldo negativo descuenta primero de los meses anteriores (y
+     un saldo a favor viejo, de los nuevos). El total no cambia; sólo dónde se ve cada parte. */
+  const fifo = (v) => {
+    let a = v.antes, b = v.anterior, c = v.actual;
+    if (c < 0) { b += c; c = 0; }
+    if (b < 0) { a += b; b = 0; }
+    if (a < 0) { b += a; a = 0; if (b < 0) { c += b; b = 0; } }
+    return { antes: a, anterior: b, actual: c, total: v.total };
+  };
+  const sumar = (f) => fifo(hijosDe(f).reduce((a, h) => ({ antes: a.antes + h.antes, anterior: a.anterior + h.anterior, actual: a.actual + h.actual, total: a.total + h.total }),
+    { antes: f.antes, anterior: f.anterior, actual: f.actual, total: f.total }));
   const visibles = raices.filter((f) => coincide(f) || hijosDe(f).some(coincide));
   const orden = (a, b) => _qdOrden === 'codigo' ? String(a.codigo).localeCompare(String(b.codigo))
     : _qdOrden === 'antes' ? sumar(b).antes - sumar(a).antes : sumar(b).total - sumar(a).total;
@@ -110,7 +121,7 @@ function qdPintar() {
   const fila = (f, hijo, v) => {
     const ab = _qdAbierto === f.cliente_id;
     const hs = hijo ? [] : hijosDe(f);
-    v = v || f;
+    v = v || fifo(f);
     return `<tr class="qd-fila${hijo ? ' qd-hijo' : ''}${ab ? ' abierta' : ''}" onclick="qdAbrir('${f.cliente_id}')">
       <td>${hijo ? '↳ ' : ''}<b>${esc(f.codigo)}</b> <span class="muted">${esc(f.nombre || '')}</span>${marcas(f)}${hs.length ? `<span class="qd-chip" title="Paga también lo de ${hs.map((h) => esc(h.codigo)).join(', ')}: está sumado en esta fila">+${hs.length}</span>` : ''}</td>
       <td class="right"${v.antes >= 1 ? ' style="font-weight:700"' : ''}>${_saldo(v.antes)}</td>
@@ -128,7 +139,7 @@ function qdPintar() {
           <th class="right" title="Lo que quedó sin cobrar de meses ya cerrados">Antes de ${esc(_MESES[Number(cob.mes_anterior.slice(5))])}</th>
           <th class="right">${esc(_nomMes(cob.mes_anterior))}</th><th class="right">${esc(_nomMes(cob.mes))}</th>
           <th class="right">Debe hoy</th></tr></thead>
-        <tbody>${rs.map((f) => { const hs = hijosDe(f); return fila(f, false, hs.length ? sumar(f) : null) + hs.map((h) => fila(h, true)).join(''); }).join('')}</tbody>
+        <tbody>${rs.map((f) => { const hs = hijosDe(f); return fila(f, false, sumar(f)) + hs.map((h) => fila(h, true)).join(''); }).join('')}</tbody>
         <tfoot><tr><th>Total</th><th class="right">${money(T.antes)}</th><th class="right">${money(T.anterior)}</th><th class="right">${money(T.actual)}</th>
           <th class="right">${money(T.total)}</th></tr></tfoot>
       </table></div></div>`;
