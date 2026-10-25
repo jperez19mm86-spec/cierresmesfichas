@@ -4802,8 +4802,9 @@ async function main() {
       && /async function movimientosPanel\(soloPendientes\)/.test(h10));
     // El modo se DEDUCE de la pestaña: pasándolo a mano, algún refresco se lo iba a olvidar y la
     // lista volvería al historial completo justo después de aprobar una.
+    // Desde la fase 3 el buzón vive en ☀️ Hoy (que reemplazó a 🔔 Pendientes): vale en las dos pestañas.
     check('pendientes: el modo sale de la pestaña, no se pasa a mano',
-      (h10.match(/if\(soloPendientes===undefined\) soloPendientes = \(_tab==='pendientes'\);/g) || []).length === 2);
+      (h10.match(/if\(soloPendientes===undefined\) soloPendientes = \(_tab==='pendientes' \|\| _tab==='hoy'\);/g) || []).length === 2);
     check('pendientes: el buzón pide sólo lo que espera',
       /'\/api\/os\/solicitudes-caja'\+\(soloPendientes\?'\?estado=pendiente':''\)/.test(h10)
       && /ms=ms\.filter\(m=>\['pendiente','a_medias','ejecutando'\]\.includes\(m\.estado\)\)/.test(h10));
@@ -4812,7 +4813,7 @@ async function main() {
       /'pendiente','a_medias','ejecutando'/.test(h10));
     // Y en Clientes se dice que eso es el historial, para que no parezca lo mismo.
     check('clientes: los botones aclaran que son el historial',
-      (h10.match(/\(historial\)/g) || []).length >= 2 && /se atiende en 🔔 Pendientes/.test(h10));
+      (h10.match(/\(historial\)/g) || []).length >= 2 && /se atiende en ☀️ Hoy/.test(h10));
 
     /* ── LO QUE SALE PARA AFUERA NO SE PUEDE VER IGUAL QUE «CALCULAR» ────────────────────────
        «Calcular» y «Emitir a la deuda» eran el MISMO botón violeta, uno al lado del otro: uno se
@@ -5084,9 +5085,10 @@ async function main() {
   // reclamaba. Ahora hay una pestaña con el total, la primera de la barra.
   {
     const h5 = FUENTE_PANEL();
+    // ☀️ Hoy es la bandeja desde la fase 3 (reemplazó a 🔔 Pendientes): la primera de la barra.
     check('pendientes: la pestaña existe y es la primera',
-      /id: 'pendientes'/.test(h5)
-      && h5.indexOf("id: 'pendientes'") < h5.indexOf("id: 'cuentas'"),
+      /id: 'hoy'/.test(h5)
+      && h5.indexOf("id: 'hoy'") < h5.indexOf("id: 'cuentas'"),
       'primer grupo de la barra');
     check('pendientes: cuenta las TRES cosas',
       /_pendTotal/.test(h5) && /comprobantes\?estado=pendiente/.test(h5)
