@@ -64,38 +64,35 @@ const GRUPOS = [
     ['quienDebe', '📥 Quién debe'],
     ['queEntro', '💵 Qué entró'],
   ] },
-  { id: 'cuentas', label: () => '💰 Cuentas', items: [
-    /* Primera a propósito: cerrar un mes son ocho cosas en un orden que importa, repartidas en
-       cinco pantallas. Acá se ve en cuál está el mes y qué falta para la siguiente. */
-    ['cierre:pasos', '🗓 Cerrar el mes'],
-    ['facturacion', '🧾 Consumo (fichas)'],
-    ['cierre:externos', '🏷 Proveedores externos'],
-    ['foto', '📸 Foto del mes'],
-    ['cobranzas', '⏳ Cobranzas'],
-    ['movimientos:cliente', '📒 Cuenta del cliente'],
-    /* Estas dos NO son "pendiente" y "resuelto" de la misma cosa. La primera es el libro de la
-       cuenta: cargas, pagos y ajustes de todos los clientes. La segunda son los comprobantes que
-       mandó un cliente, ya aprobados o rechazados — los que todavía esperan viven en 🔔 Pendientes
-       y no se repiten acá, que es de lo que se trataba ordenar la barra. */
-    ['movimientos:cuenta', '💳 Pagos y cargas'],
-    ['pagos', '💵 Pagos recibidos'],
-    ['repartocobrado', '🧮 De quién es lo cobrado'],
-    ['movimientos:historial', '🗂 Comprobantes resueltos'],
+  /* FASE 3: el cierre del mes, todo junto. Antes los pasos te mandaban a tres grupos distintos
+     (Cuentas, Clientes y Ajustes) y cada pantalla tenía su propio mes. Ahora el mes se elige en
+     Pasos y viaja a cada una (pantalla-cierre.js). */
+  { id: 'cierre', label: () => '🗓 Cierre del mes', items: [
+    ['cierre:pasos', '🗓 Pasos'],
+    ['foto', '📸 Foto'],
+    ['tc', '💱 Tipos de cambio'],
+    ['facturacion', '🧾 Consumo'],
+    ['cierre:externos', '🏷 Externos'],
     ['cierre:vendedores', '🤝 Vendedores'],
-    ['cierre:pago', '💸 Pago a proveedores'],
+  ] },
+  /* FASE 3: los proveedores estaban en tres lugares (Clientes, Matriz y Cuentas). Ahora es uno:
+     el catálogo y su vínculo, el % de cada uno por cliente, y lo que se les paga. */
+  { id: 'proveedores', label: () => '🎮 Proveedores', items: [
+    ['proveedores', '🎮 Catálogo'],
+    ['cierre:matriz', '🔢 % por cliente'],
+    ['cierre:pago', '💸 Lo que se les paga'],
+  ] },
+  { id: 'padron', label: () => '👥 Clientes', items: [
+    ['clientes', '👥 Clientes y paneles'],
+    ['altaCliente', '✨ Nuevo cliente'],
+    ['reparto', '🥧 Reparto'],
+    ['repartocobrado', '🧮 De quién es lo cobrado'],
+    ['accesos', '🔐 Accesos'],
   ] },
   { id: 'numeros', label: () => '📊 Reportes', items: [
     ['acumulado:pulso', '📊 Movimientos mensuales'],
     ['acumulado:detalle', '📅 Diario'],
     ['reportes', '🎰 Consulta al casino'],
-  ] },
-  { id: 'padron', label: () => '👥 Clientes', items: [
-    ['clientes', '👥 Clientes y paneles'],
-    ['altaCliente', '✨ Nuevo cliente'],
-    ['proveedores', '🎮 Proveedores'],
-    ['cierre:matriz', '🔢 Matriz de %'],
-    ['reparto', '🥧 Reparto'],
-    ['accesos', '🔐 Accesos'],
   ] },
   /* Tareas en tanda contra el casino (mover jugadores de caja, …). Una sola pantalla: el catálogo
      arriba y lo que se corrió abajo. */
@@ -103,15 +100,23 @@ const GRUPOS = [
     ['operaciones', '🛠 En tanda'],
     ['pases', '🔀 Pases de sitio'],
   ] },
+  /* Lo que se configura una vez. Tipos de cambio se fue al Cierre del mes (es de todos los meses) y
+     la Revisión a ☀️ Hoy. */
   { id: 'ajustes', label: () => '⚙ Ajustes', items: [
-    ['tc', '💱 Tipos de cambio'],
     ['config:divisas', '🌎 Divisas'],
     ['config:pagos', '🏦 Medios de pago'],
     ['config:telegram', '📣 Telegram'],
     ['config:casino', '🎰 Casino'],
-    ['config:revision', '🩺 Revisión'],
     ['config:backup', '🛟 Copia de seguridad'],
     ['config:importar', '📥 Importar planilla'],
+  ] },
+  /* Las pantallas de antes de 📥 Plata que entra, al final, mientras se usa la nueva. */
+  { id: 'cuentas', label: () => '🗄 Cuentas (antes)', items: [
+    ['cobranzas', '⏳ Cobranzas'],
+    ['movimientos:cliente', '📒 Cuenta del cliente'],
+    ['movimientos:cuenta', '💳 Pagos y cargas'],
+    ['pagos', '💵 Pagos recibidos'],
+    ['movimientos:historial', '🗂 Comprobantes resueltos'],
   ] },
 ];
 // Se deja la lista plana por compatibilidad: hay pantallas que llaman go('config') directo.
@@ -422,12 +427,15 @@ function irA(dest){
     else if (vista === 'config') _cfgSub = sub;
     else if (vista === 'acumulado') _acSub = sub;
   }
-  const g = _grupoDe(vista); if (g) _grupo = g.id;
+  /* El grupo es el que tiene ESE destino exacto: «cierre:pago» está en 🎮 Proveedores aunque las
+     otras solapas de «cierre» estén en 🗓 Cierre del mes. */
+  const g = GRUPOS.find((x) => (x.items || []).some(([d]) => d === dest)) || _grupoDe(vista); if (g) _grupo = g.id;
   go(vista);
 }
 function go(t){
   _tab=t;
-  const g=_grupoDe(t); if(g) _grupo=g.id;
+  // Si el grupo de ahora muestra esta vista, se queda en él (la vista «cierre» vive en dos grupos).
+  const g=GRUPOS.find(x=>x.id===_grupo && (x.items||[]).some(([d])=>String(d).split(':')[0]===t)) || _grupoDe(t); if(g) _grupo=g.id;
   /* Hay pantallas que llaman go('config') o go('cierre') derecho, sin decir cuál solapa. Sin esto
      la fila de abajo se queda sin ningún botón marcado y no se ve dónde estás parado: se busca en
      el grupo el botón que lleva a esa vista, prefiriendo la solapa que la pantalla ya tiene puesta. */
@@ -1874,7 +1882,7 @@ async function loadCliProv(id){
   const con=provs.filter(p=>celdas[p.nombre]!=null&&celdas[p.nombre]!=='').length;
   const rows=provs.map(p=>{const v=celdas[p.nombre]; return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td>${esc(p.nombre)}</td><td class="muted right">${esc(p.base_pct==null?'—':p.base_pct)}</td><td class="right"><input class="cie-c" style="width:64px" data-prov="${esc(p.nombre)}" value="${v==null?'':esc(v)}" placeholder="—" onchange="cliProvCell(this,'${esc(nombre)}')"></td></tr>`;}).join('');
   el.innerHTML = `<div class="card"><h2>🎰 % de proveedores de este cliente</h2>
-    <p class="muted">El % que se le cobra a <b>${esc(nombre)}</b> por cada proveedor (su columna en el <b>🧮 Cierre de Mes</b> — editás acá o allá, es lo mismo). El % neto = <b>este % − descuento</b>. ${d.existe?'':'<b>⚠ Este cliente todavía no es columna de la matriz; se crea al guardar el primer %.</b>'} <b>${con}</b> con % cargado de ${provs.length}.</p>
+    <p class="muted">El % que se le cobra a <b>${esc(nombre)}</b> por cada proveedor (su columna en <b>🎮 Proveedores → % por cliente</b> — editás acá o allá, es lo mismo). El % neto = <b>este % − descuento</b>. ${d.existe?'':'<b>⚠ Este cliente todavía no es columna de la matriz; se crea al guardar el primer %.</b>'} <b>${con}</b> con % cargado de ${provs.length}.</p>
     <div class="row" style="align-items:flex-end;gap:10px">
       <div style="flex:0"><label>Descuento (1_Cliente) %</label><input id="cliprov-desc" style="width:100px" value="${esc(d.descuento==null?'':d.descuento)}" placeholder="—" onchange="cliProvDesc(this,'${esc(nombre)}')"></div>
       <div style="flex:1"><label>🔎 Buscar proveedor</label><input id="cliprov-q" oninput="filtCliProv()" placeholder="ej: PRAGMATIC"></div>
@@ -3961,7 +3969,7 @@ VIEWS.proveedores = async () => {
       <h2>Catálogo (${_proveedores.length})</h2>
       ${ayuda('prov-cat',
         'Cada fila es un proveedor <b>como lo nombra el casino</b>. La del medio dice a qué fila de <b>tu matriz</b> apunta, porque los dos lados usan nombres distintos.',
-        'El <b>% costo</b> es el % base de esa fila: editarlo acá o en 🧮 Cierre de Mes es lo mismo, es la misma data.'
+        'El <b>% costo</b> es el % base de esa fila: editarlo acá o en 🎮 Proveedores → % por cliente es lo mismo, es la misma data.'
         + '<div style="margin-top:9px">⚠️ <b>El sufijo es el producto, no un adorno.</b> <span class="pill">3OAKS SL</span>, <span class="pill">3OAKS SL2</span> y <span class="pill">3OAKS OP</span> son proveedores <b>distintos</b> y cuestan distinto (0 · 0,5 · 8,5). Por eso <b>Auto-vincular une SÓLO los idénticos</b> (Marca+Vendor exacto); lo parecido queda como sugerencia para que lo elijas vos.</div>')}
       <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
         <button class="small" onclick="provAuto()">🪄 Auto-vincular</button>
@@ -4171,7 +4179,7 @@ VIEWS.cierre = () => {
       ${subs.map(([k,l])=>`<button class="${k===_cieSub?'':'outline'} small" onclick="cieGo('${k}')">${l}</button>`).join('')}
     </div></div>`)
     + `<div id="cie-body"><div class="muted" style="padding:20px">Cargando…</div></div>`;
-  ({pasos:ciePasos, matriz:cieMatriz, externos:async()=>{ await cieExternos(); extGuardadas(); }, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
+  ({pasos:cmPasos, matriz:cieMatriz, externos:async()=>{ await cieExternos(); extGuardadas(); }, vendedores:cieVendedores, pago:ciePago}[_cieSub]||cieMatriz)();
 };
 function cieGo(s){ _cieSub=s; VIEWS.cierre(); }
 
@@ -4350,7 +4358,7 @@ function pagoPintar(){
     </tbody></table>
     ${(r.sinVincular||[]).length?`<div class="card" style="margin-top:12px;border-left:3px solid var(--gold);background:var(--bg3)">
       <b>${r.sinVincular.length} proveedor(es) del casino sin vincular a la matriz</b>
-      <div class="muted" style="margin:4px 0 6px">Generaron ganancia pero no sabemos qué fila de la matriz son, así que <b>no se les está pagando nada</b>. Se vinculan en 🏷 Proveedores.</div>
+      <div class="muted" style="margin:4px 0 6px">Generaron ganancia pero no sabemos qué fila de la matriz son, así que <b>no se les está pagando nada</b>. Se vinculan en 🎮 Proveedores → Catálogo.</div>
       <div class="muted" style="font-size:12px">${r.sinVincular.slice(0,20).map(x=>esc(x.nombre)+' ('+money(x.profit,0)+')').join(' · ')}</div></div>`:''}
     ${(r.sinCosto||[]).length?`<div class="muted" style="margin-top:8px">Sin costo cargado (no se les paga): ${r.sinCosto.slice(0,25).map(esc).join(' · ')}</div>`:''}
     ${(r.sinTC||[]).length?`<div class="badge err" style="margin-top:8px">Sin tipo de cambio: ${r.sinTC.map(esc).join(', ')}</div>`:''}
@@ -5083,7 +5091,7 @@ function extPintar() {
   const avisos = [];
   if (!d.congelado) avisos.push('Este mes <b>no está congelado</b>: se calcula con los precios de HOY. Si ya lo facturaste, congelalo para poder reproducirlo.');
   if ((d.negativos || []).length) avisos.push('<b>' + d.negativos.length + ' proveedores por debajo del ' + esc(d.base) + '%</b> de ' + esc(d.cliente) + ': ' + d.negativos.slice(0, 4).map(x => esc(x.proveedor) + ' (' + esc(x.pct) + ')').join(', ') + (d.negativos.length > 4 ? '…' : '') + ' — no se cobran, el diferencial nunca queda negativo.');
-  if ((d.sinVincular || []).length) avisos.push('<b>' + d.sinVincular.length + ' proveedores del casino sin vincular</b> a la matriz: su ganancia NO se está cobrando. Vinculalos en 🔗 Vincular proveedores.');
+  if ((d.sinVincular || []).length) avisos.push('<b>' + d.sinVincular.length + ' proveedores del casino sin vincular</b> a la matriz: su ganancia NO se está cobrando. Vinculalos en 🎮 Proveedores → Catálogo.');
   /* Los INTERNOS (SL · SL2 · XG) van SIEMPRE al % base del cliente, así que su extra es 0 y no se
      cobran. Como no se cobran no aparecen en la tabla de abajo, y sin este aviso no habría forma
      de ver que existen ni de descubrir una celda mal cargada. */
@@ -5465,7 +5473,7 @@ function cruceCard(c){
     return `<div class="card" style="margin:0 0 12px;background:var(--bg3)">
       <b>El cruce con las ganancias de ${esc(c.mes)} todavía no se puede hacer</b>
       <div class="muted" style="margin-top:4px">Falta traer el mes de ${esc((c.conexionesSinTraer||[]).join(', ')||'los paneles')}.
-        Andá a <b>🧮 Cierre de Mes → 💸 Pago</b> y apretá Calcular: queda guardado y esta tarjeta se llena sola.
+        Andá a <b>🎮 Proveedores → 💸 Lo que se les paga</b> y apretá Calcular: queda guardado y esta tarjeta se llena sola.
         Sin eso no se puede saber si algún proveedor dio ganancia y no se le está cobrando a nadie.</div></div>`;
   }
   if(!nadie.length && !sinCosto.length && !sinVinc.length){
@@ -8351,7 +8359,7 @@ async function calcularFac(vivo){
   // evita que alguien sume las dos o crea que emitir una ya cubre la otra.
   const _cabecera = '<div class="card" style="background:var(--bg3);margin:0 0 10px"><b>🧾 Factura de CONSUMO</b>'
     + '<div class="muted" style="margin-top:4px">Lo que el cliente <b>pidió y se le cargó</b> en el mes, por su % base. Ej: pidió 50.000.000 y su % es 10 → se le cobran 5.000.000, pasados a USDT con el TC del mes.</div>'
-    + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🧮 Cierre de Mes → 🧾 Factura de externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
+    + '<div class="muted" style="margin-top:4px">La <b>factura de proveedores externos</b> es <b>aparte</b> y se emite desde 🗓 Cierre del mes → 🏷 Externos. Las dos van a columnas distintas de la cuenta corriente.</div></div>';
   const emF = (em.porOrigen || {}).facturacion || null;
   /* Acá iba un cartel de "qué le queda al mes" que nunca se llegó a armar: la variable se usaba y
      no existía, así que esta pantalla reventaba justo después de poner "⏳ calculando…" y se quedaba
@@ -9448,6 +9456,7 @@ async function pzBorrar(id){
 <script src="/pantalla-carga.js"></script>
 <script src="/pantalla-plata.js?v=20261025"></script>
 <script src="/pantalla-hoy.js?v=20261025"></script>
+<script src="/pantalla-cierre.js?v=20261025"></script>
 <script>
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
