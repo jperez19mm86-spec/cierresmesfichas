@@ -62,11 +62,30 @@ VIEWS.quienDebe = async () => {
   /* Los pagos de los dos meses que se muestran, con el mismo mes de cierre que usa Cobranzas: con
      ellos cada mes se parte en lo que GENERÓ y lo que se pagó. */
   const [pAnt, pAct] = await Promise.all([cob.mes_anterior, cob.mes].map((m) => api('/api/os/pagos?mes=' + encodeURIComponent(m))));
-  _qdDatos = { cob, clientes: (cl && cl.clientes) || [], pagos: { [cob.mes_anterior]: pAnt, [cob.mes]: pAct } };
+  /* DESDE CUÁNDO DEBE. Sale del mes a mes de cada cuenta: lo pagado se aplica a lo más viejo, y el
+     primer mes que queda sin cubrir es desde cuándo arrastra. En la maqueta se pide la cuenta de
+     cada uno; en el servidor va a ser un solo pedido. */
+  const conDeuda = (cob.filas || []).filter((f) => !_chico(f.total));
+  const cuentas = await Promise.all(conDeuda.map((f) => api('/api/os/cuenta/' + encodeURIComponent(f.cliente_id))));
+  const desde = {};
+  conDeuda.forEach((f, i) => { desde[f.cliente_id] = _desdeCuando(cuentas[i], f); });
+  _qdDatos = { cob, clientes: (cl && cl.clientes) || [], pagos: { [cob.mes_anterior]: pAnt, [cob.mes]: pAct }, desde };
   if (!_qdMesDoc) _qdMesDoc = cob.mes_anterior;
   qdPintar();
 };
 
+/* El primer mes que lo pagado no alcanza a cubrir, pagando siempre lo más viejo primero. Las cuentas
+   en pesos todavía no tienen mes a mes (da ceros): para ellas se usa lo que da Cobranzas. */
+function _desdeCuando(r, f) {
+  const ms = ((r && r.meses) || []).slice().sort((a, b) => a.mes.localeCompare(b.mes));
+  const gen = (m) => Number(m.consumo || 0) + Number(m.externos || 0) + Number(m.otros || 0);
+  if (ms.some((m) => !_cero(gen(m)))) {
+    let pagado = ms.reduce((a, m) => a + Number(m.pagos || 0), 0);
+    for (const m of ms) { const g = gen(m); if (pagado >= g - 0.5) { pagado -= g; continue; } return m.mes; }
+    return null;
+  }
+  return null;
+}
 function qdPintar() {
   const { cob, clientes } = _qdDatos;
   const main = document.getElementById('main');
@@ -107,11 +126,25 @@ function qdPintar() {
     const pa = (pagado[f.codigo] || {})[cob.mes_anterior] || 0, pc = (pagado[f.codigo] || {})[cob.mes] || 0;
     return { antes: f.antes, genAnt: f.anterior + pa, genAct: f.actual + pc, pago: pa + pc, total: f.total };
   };
+  // Si no hay mes a mes (cuentas en pesos), lo mismo con las tres columnas de la tabla.
+  const desdeDe = (f) => {
+    const d = (_qdDatos.desde || {})[f.cliente_id]; if (d) return d;
+    const v = partes(f); let pago = v.pago;
+    for (const [m, g] of [['antes', v.antes], [cob.mes_anterior, v.genAnt], [cob.mes, v.genAct]]) { if (pago >= g - 0.5) { pago -= g; continue; } return m; }
+    return null;
+  };
+  // Cuántos meses lleva sin pagar: hasta 1, normal; 2, aviso; 3 o más, en rojo.
+  const edad = (d) => (!d || d === 'antes' ? 99 : (Number(cob.mes.slice(0, 4)) - Number(d.slice(0, 4))) * 12 + Number(cob.mes.slice(5)) - Number(d.slice(5)));
+  const desdeTxt = (d) => {
+    if (!d) return '<span class="muted">—</span>';
+    const e = edad(d), t = d === 'antes' ? 'antes de ' + _MESES[Number(cob.mes_anterior.slice(5))] : _MESES[Number(d.slice(5))] + (d.slice(0, 4) !== cob.mes.slice(0, 4) ? ' ' + d.slice(0, 4) : '');
+    return `<span class="qd-chip${e >= 3 ? ' alerta' : e === 2 ? ' espera' : ''}" title="${e >= 99 ? '' : e === 0 ? 'Lo que debe es de este mes' : 'Arrastra deuda desde hace ' + e + ' mes' + (e === 1 ? '' : 'es')}">${esc(t)}</span>`;
+  };
   const sumar = (f) => [f, ...hijosDe(f)].map(partes).reduce((a, x) => ({ antes: a.antes + x.antes, genAnt: a.genAnt + x.genAnt, genAct: a.genAct + x.genAct, pago: a.pago + x.pago, total: a.total + x.total }),
     { antes: 0, genAnt: 0, genAct: 0, pago: 0, total: 0 });
   const visibles = raices.filter((f) => coincide(f) || hijosDe(f).some(coincide));
   const orden = (a, b) => _qdOrden === 'codigo' ? String(a.codigo).localeCompare(String(b.codigo))
-    : _qdOrden === 'antes' ? sumar(b).antes - sumar(a).antes : sumar(b).total - sumar(a).total;
+    : _qdOrden === 'antes' ? (edad(desdeDe(b)) - edad(desdeDe(a))) || sumar(b).total - sumar(a).total : sumar(b).total - sumar(a).total;
   const monedas = [...new Set(visibles.map((f) => f.moneda))]
     .sort((a, b) => Math.abs((cob.totales[b] || {}).total || 0) - Math.abs((cob.totales[a] || {}).total || 0));
   const alDia = (cob.filas || []).filter((f) => _chico(f.total)).length;
@@ -138,7 +171,8 @@ function qdPintar() {
       <td class="right">${_num(v.genAct)}</td>
       <td class="right" style="color:var(--green)">${_num(v.pago)}</td>
       <td class="right"><b>${_saldo(v.total)}</b></td>
-    </tr>${ab ? `<tr class="qd-det"><td colspan="6"><div class="qd-caja" id="qd-det"><div class="muted">Cargando…</div></div></td></tr>` : ''}`;
+      <td class="right">${hijo ? '' : desdeTxt(desdeDe(f))}</td>
+    </tr>${ab ? `<tr class="qd-det"><td colspan="7"><div class="qd-caja" id="qd-det"><div class="muted">Cargando…</div></div></td></tr>` : ''}`;
   };
   const tabla = (mon) => {
     const rs = visibles.filter((f) => f.moneda === mon).sort(orden);
@@ -150,10 +184,10 @@ function qdPintar() {
           <th class="right" title="Cargas + externos − abonos de ${esc(_nomMes(cob.mes_anterior))}">Generó ${esc(_MESES[Number(cob.mes_anterior.slice(5))])}</th>
           <th class="right" title="Cargas + externos − abonos de ${esc(_nomMes(cob.mes))}">Generó ${esc(_MESES[Number(cob.mes.slice(5))])}</th>
           <th class="right" title="Pagos de ${esc(_nomMes(cob.mes_anterior))} y ${esc(_nomMes(cob.mes))}">Pagó</th>
-          <th class="right">Debe hoy</th></tr></thead>
+          <th class="right">Debe hoy</th><th class="right" title="El mes más viejo que todavía no terminó de pagar (lo pagado cubre primero lo más viejo)">Desde</th></tr></thead>
         <tbody>${rs.map((f) => { const hs = hijosDe(f); return fila(f, false, sumar(f)) + hs.map((h) => fila(h, true)).join(''); }).join('')}</tbody>
         <tfoot><tr><th>Total</th><th class="right">${money(T.antes)}</th><th class="right">${money(T.genAnt)}</th><th class="right">${money(T.genAct)}</th>
-          <th class="right">${money(T.pago)}</th><th class="right">${money(T.total)}</th></tr></tfoot>
+          <th class="right">${money(T.pago)}</th><th class="right">${money(T.total)}</th><th></th></tr></tfoot>
       </table></div></div>`;
   };
 
@@ -163,7 +197,7 @@ function qdPintar() {
       <div style="flex:0"><label>Mes</label><input type="month" value="${esc(cob.mes)}" onchange="qdSet('mes', this.value)"/></div>
       <div style="flex:0"><label>Ordenar</label><select onchange="qdSet('orden', this.value)">
         <option value="total"${_qdOrden === 'total' ? ' selected' : ''}>lo que debe</option>
-        <option value="antes"${_qdOrden === 'antes' ? ' selected' : ''}>lo más viejo</option>
+        <option value="antes"${_qdOrden === 'antes' ? ' selected' : ''}>desde cuándo debe</option>
         <option value="codigo"${_qdOrden === 'codigo' ? ' selected' : ''}>código</option></select></div>
       <div style="flex:0;display:flex;flex-direction:column;gap:4px">
         <label style="display:flex;gap:6px;align-items:center;white-space:nowrap;margin:0"><input type="checkbox" ${_qdJuntos ? 'checked' : ''} onchange="qdSet('juntos', this.checked)"> juntar por quién paga</label>
@@ -355,7 +389,7 @@ function qdMandar(f, cuenta, c) {
 function qdAbrirFactura(id, mes) { _facVolverA = 'quienDebe'; _facMes = mes; verFactura(id); }
 
 /* ═══════════════════════════════ QUÉ ENTRÓ ═══════════════════════════════ */
-let _qeMes = '', _qeVia = 'todo', _qeQ = '', _qeOrden = 'fecha', _qeTope = 40;
+let _qeMes = '', _qeVia = 'todo', _qeQ = '', _qeOrden = 'fecha', _qeTope = 40, _qeVista = 'pagos';
 let _qeDatos = null;
 
 VIEWS.queEntro = async () => {
@@ -369,10 +403,17 @@ VIEWS.queEntro = async () => {
   if (!r || !r.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc((r && r.error) || '') + '</div></div>'; return; }
   window._pagDatos = r;                     // el envío al grupo de la pantalla vieja lee esto
   _qeDatos = { r, rechazados: ((rech && rech.comprobantes) || []).filter((x) => String(x.resuelto_at || x.creado_at || '').slice(0, 7) === r.mes) };
+  /* POR CLIENTE: lo que pagó cada uno, mes por mes. Seis meses hacia atrás desde el elegido. */
+  if (_qeVista === 'clientes') {
+    const meses = (r.meses || []).map((m) => m.mes).filter((m) => m <= r.mes).slice(0, 6);
+    const [cl, ...pm] = await Promise.all([api('/api/os/clientes'), ...meses.map((m) => (m === r.mes ? Promise.resolve(r) : api('/api/os/pagos?mes=' + encodeURIComponent(m))))]);
+    _qeDatos.porMes = { meses, pagos: pm, clientes: (cl && cl.clientes) || [] };
+  }
   qePintar();
 };
 
 function qePintar() {
+  if (_qeVista === 'clientes' && _qeDatos.porMes) return qePorCliente();
   const { r, rechazados } = _qeDatos;
   const main = document.getElementById('main');
   const todos = [...(r.pesos || []).map((p) => ({ ...p, _via: 'pesos' })), ...(r.usdt || []).map((p) => ({ ...p, _via: 'usdt' }))];
@@ -387,6 +428,7 @@ function qePintar() {
   const dia = (f) => String(f).slice(5).split('-').reverse().join('/');
   main.innerHTML = QD_STYLE + `
     <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      ${_qeVistas()}
       <div class="qd-barra">${(r.meses || []).slice(0, 8).map((m) => `<button class="${m.mes === r.mes ? '' : 'outline'} small" onclick="qeSet('mes','${m.mes}')">${esc(_nomMes(m.mes))}</button>`).join('')}</div>
       <div class="qd-cuenta">
         <div><span>Pesos</span> $ ${money(T.pesos_ars)} <span>≈ ${money(T.pesos_usdt)} USDT</span></div>
@@ -422,8 +464,49 @@ function qePintar() {
       <table><tbody>${rechazados.slice(0, 20).map((x) => `<tr><td><b>${esc(x.codigo || '')}</b> <span class="muted">${esc(x.cliente_nombre || '')}</span></td>
         <td class="right">${money(x.monto)} <span class="muted">${esc(x.divisa || '')}</span></td><td class="muted">${esc(x.motivo || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
 }
+const _qeVistas = () => `<div class="qd-barra">${[['pagos', 'Pago por pago'], ['clientes', 'Por cliente, mes a mes']].map(([k, l]) =>
+  `<button class="${_qeVista === k ? '' : 'outline'} small" onclick="qeSet('vista','${k}')">${l}</button>`).join('')}</div>`;
+
+/* Una fila por cliente y una columna por mes: cuánto pagó cada uno. En la moneda de su cuenta (lo que
+   le bajó la deuda), y una tabla por moneda: pesos y dólares no se suman. */
+function qePorCliente() {
+  const { meses, pagos, clientes } = _qeDatos.porMes;
+  const main = document.getElementById('main');
+  const porCod = Object.fromEntries(clientes.map((c) => [c.codigo, c]));
+  const filas = {};                            // moneda → codigo → { mes: monto }
+  meses.forEach((m, i) => {
+    const r = pagos[i] || {};
+    for (const p of [...(r.pesos || []), ...(r.usdt || [])]) {
+      const c = porCod[p.codigo] || {}; const mon = (c.deuda && c.deuda.moneda) || c.moneda_cuenta || 'USDT';
+      const v = mon === 'ARS' ? Number(p.ars || 0) : Number(p.saldo_usdt != null ? p.saldo_usdt : (p.usdt || 0));
+      const t = filas[mon] = filas[mon] || {}; const o = t[p.codigo] = t[p.codigo] || { nombre: p.cliente, n: 0 };
+      o[m] = (o[m] || 0) + v; o.n += 1;
+    }
+  });
+  const q = _qeQ.toLowerCase();
+  const orden = meses.slice().reverse();      // de lo más viejo a lo más nuevo, de izquierda a derecha
+  const tabla = (mon) => {
+    const l = Object.entries(filas[mon]).filter(([cod, o]) => !q || cod.toLowerCase().includes(q) || String(o.nombre || '').toLowerCase().includes(q))
+      .map(([cod, o]) => ({ cod, o, tot: orden.reduce((a, m) => a + (o[m] || 0), 0) })).sort((a, b) => b.tot - a.tot);
+    const T = Object.fromEntries(orden.map((m) => [m, l.reduce((a, x) => a + (x.o[m] || 0), 0)]));
+    return `<div class="card"><div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>${esc(mon)} · ${l.length}</th>
+      ${orden.map((m) => `<th class="right">${esc(_MESES[Number(m.slice(5))])}</th>`).join('')}<th class="right">Total</th></tr></thead>
+      <tbody>${l.map((x) => `<tr><td><b>${esc(x.cod)}</b> <span class="muted">${esc(x.o.nombre || '')}</span></td>
+        ${orden.map((m) => `<td class="right">${_num(x.o[m])}</td>`).join('')}<td class="right"><b>${money(x.tot)}</b></td></tr>`).join('')
+        || `<tr><td colspan="${orden.length + 2}" class="empty">Nadie con ese nombre pagó en estos meses.</td></tr>`}</tbody>
+      <tfoot><tr><th>Total</th>${orden.map((m) => `<th class="right">${money(T[m])}</th>`).join('')}<th class="right">${money(orden.reduce((a, m) => a + T[m], 0))}</th></tr></tfoot>
+      </table></div></div>`;
+  };
+  const monedas = Object.keys(filas).sort((a, b) => (a === 'USDT' ? -1 : b === 'USDT' ? 1 : a.localeCompare(b)));
+  main.innerHTML = QD_STYLE + `
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      ${_qeVistas()}
+      <div class="row" style="align-items:flex-end"><div style="flex:1 1 200px"><input id="qe-q" value="${esc(_qeQ)}" placeholder="Buscar cliente" oninput="qeBuscar(this.value)"/></div></div>
+    </div>
+    ${monedas.map(tabla).join('') || '<div class="card"><div class="muted">No hubo pagos en estos meses.</div></div>'}`;
+}
 function qeBuscar(v) { _qeQ = v; _qeTope = 40; qePintar(); setTimeout(() => { const i = document.getElementById('qe-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
-function qeSet(k, v) { _qeTope = 40; if (k === 'mes') { _qeMes = v; return VIEWS.queEntro(); } if (k === 'via') _qeVia = v; if (k === 'orden') _qeOrden = v; qePintar(); }
+function qeSet(k, v) { _qeTope = 40; if (k === 'mes') { _qeMes = v; return VIEWS.queEntro(); } if (k === 'vista') { _qeVista = v; return VIEWS.queEntro(); } if (k === 'via') _qeVia = v; if (k === 'orden') _qeOrden = v; qePintar(); }
 /* Punto y coma y coma decimal, como el Excel en castellano (igual que pagCSV). */
 function qeCSV() {
   const { r } = _qeDatos; const num = (x) => (x == null ? '' : String(Number(x).toFixed(2)).replace('.', ','));
