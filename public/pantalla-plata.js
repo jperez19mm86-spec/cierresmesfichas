@@ -45,6 +45,18 @@ const QD_STYLE = `<style>
   .qd-m.demas { background:rgba(138,47,116,.12); color:var(--uva) }
   .qd-m.vacio { background:transparent; color:#c9bfc6 }
   .qd-pago { font-size:12px; color:var(--green); white-space:nowrap }
+  .qe-barra { display:flex; flex-wrap:wrap; gap:8px; align-items:center }
+  .qe-barra button, .qe-barra select { white-space:nowrap; width:auto }
+  .qe-barra input { flex:1 1 220px; min-width:180px; width:auto }
+  .qe-seg { display:flex; gap:4px }
+  .qe-acc { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto }
+  .qe-tabla td { vertical-align:middle }
+  .qe-fecha { white-space:nowrap; color:var(--muted) }
+  .qe-esde { width:auto; min-width:0; padding:3px 6px; font-size:13px; border-radius:6px }
+  .qe-ref { max-width:240px }
+  .qe-wallet { display:inline-block; font-size:12px; font-weight:600; border-radius:10px; padding:1px 8px; margin-right:6px; background:rgba(59,111,180,.12); color:#2d5a99; white-space:nowrap }
+  .qe-txt { display:inline-block; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; font-size:12px; color:var(--muted) }
+  .qe-clip { background:none; border:1px solid var(--border); border-radius:6px; padding:2px 7px; cursor:pointer }
   .qd-pago.de-mas { color:var(--durazno); font-weight:700 }
 </style>`;
 
@@ -457,28 +469,32 @@ function qePintar() {
       </div>
     </div>
     <div class="card">
-      <div class="row" style="align-items:flex-end">
-        <div style="flex:0;display:flex;gap:6px">${via('todo', 'Todo', todos.length)}${via('pesos', 'Pesos', pesos.length)}${via('usdt', 'USDT', usd.length)}</div>
-        <div style="flex:1 1 200px"><input id="qe-q" value="${esc(_qeQ)}" placeholder="Buscar cliente, referencia o billetera" oninput="qeBuscar(this.value)"/></div>
-        <div style="flex:0"><select onchange="qeSet('orden', this.value)" title="Ordenar">
-          <option value="fecha"${_qeOrden === 'fecha' ? ' selected' : ''}>por fecha</option>
-          <option value="monto"${_qeOrden === 'monto' ? ' selected' : ''}>por monto</option>
-          <option value="cliente"${_qeOrden === 'cliente' ? ' selected' : ''}>por cliente</option></select></div>
-        <div style="flex:0;display:flex;gap:6px">
+      <div class="qe-barra">
+        <div class="qe-seg">${via('todo', 'Todo', todos.length)}${via('pesos', 'Pesos', pesos.length)}${via('usdt', 'USDT', usd.length)}</div>
+        <input id="qe-q" value="${esc(_qeQ)}" placeholder="Buscar cliente, billetera o referencia" oninput="qeBuscar(this.value)"/>
+        <select onchange="qeSet('orden', this.value)" title="Ordenar">
+          <option value="fecha"${_qeOrden === 'fecha' ? ' selected' : ''}>Por fecha</option>
+          <option value="monto"${_qeOrden === 'monto' ? ' selected' : ''}>Por monto</option>
+          <option value="cliente"${_qeOrden === 'cliente' ? ' selected' : ''}>Por cliente</option></select>
+        <div class="qe-acc">
           <button class="small" onclick="_movSub='cuenta';go('movimientos')">＋ Pago a mano</button>
           <button class="outline small" onclick="pagEnviar()" title="Fecha y monto de los pagos en pesos, al grupo que concilia con el banco">📣 Pesos al grupo</button>
-          <button class="outline small" onclick="qeCSV()" title="Bajar en Excel">⬇</button></div>
+          <button class="outline small" onclick="qeCSV()" title="Bajar en Excel">⬇ Excel</button></div>
       </div>
-      <div style="overflow-x:auto;margin-top:10px"><table style="min-width:100%"><thead><tr><th>Fecha</th><th>Cliente</th>
-        <th class="right">Recibido</th><th class="right">En USDT</th><th title="De qué mes es la deuda que paga. Se puede cambiar">Es de</th><th>Referencia</th><th></th></tr></thead>
-      <tbody>${vis.map((p) => `<tr><td>${esc(dia(p.fecha))}</td>
+      <!-- Dos columnas de plata, una por moneda: cada pago llena la suya. Al de pesos se le ve al lado
+           cuánto valió en dólares (lo que le bajó la deuda); al de USDT, la billetera a la que entró. -->
+      <div style="overflow-x:auto;margin-top:12px"><table class="qe-tabla" style="min-width:100%"><thead><tr><th>Fecha</th><th>Cliente</th>
+        <th class="right">Pesos</th><th class="right">USDT</th><th title="De qué mes es la deuda que paga. Se puede cambiar">Es de</th><th>Entró a / referencia</th><th></th></tr></thead>
+      <tbody>${vis.map((p) => `<tr><td class="qe-fecha">${esc(dia(p.fecha))}</td>
         <td><b>${esc(p.codigo || '')}</b> <span class="muted">${esc(p.cliente || '')}</span></td>
-        <td class="right">${p._via === 'pesos' ? '$ ' + money(p.ars) : money(p.usdt) + ' <span class="muted">USDT' + (p.billetera ? ' · ' + esc(p.billetera) : '') + '</span>'}</td>
-        <td class="right">${p._via === 'usdt' ? '' : p.usdt != null ? money(p.usdt) + (p.provisional ? ' <span class="qd-chip" title="Con un cambio que todavía se puede mover">~</span>' : '') : '<span class="qd-chip espera" title="Todavía sin tipo de cambio">sin TC</span>'}</td>
+        <td class="right">${p._via === 'pesos' ? '<b>$ ' + money(p.ars) + '</b>' : '<span class="muted">—</span>'}</td>
+        <td class="right">${p._via === 'usdt' ? '<b>' + money(p.usdt) + '</b>'
+          : p.usdt != null ? `<span class="muted" title="Lo que le bajó de la deuda, en dólares">≈ ${money(p.usdt)}</span>${p.provisional ? ' <span class="qd-chip" title="Con un cambio que todavía se puede mover">~</span>' : ''}`
+          : '<span class="qd-chip espera" title="Todavía no está cargado el cambio de ese mes: no se sabe cuánto bajó en dólares">falta cambio</span>'}</td>
         <td><select class="qe-esde" title="De qué mes es la deuda que paga" onchange="qeMoverPago('${p.id}', this.value, '${esc(p.mes)}', this)">${
-          [...new Set([...mesesDeuda, p.mes])].sort().reverse().map((m) => `<option value="${m}"${m === p.mes ? ' selected' : ''}>${esc(_nomMes(m))}</option>`).join('')}</select></td>
-        <td class="muted">${esc(p.referencia || '')}</td>
-        <td class="right">${p.comprobante && p.archivo ? `<button class="outline small" title="Ver el comprobante" onclick="window.open('/api/os/comprobantes/${p.comprobante}/archivo','_blank')">📎</button>` : ''}</td></tr>`).join('')
+          [...new Set([...mesesDeuda, p.mes])].sort().reverse().map((m) => `<option value="${m}"${m === p.mes ? ' selected' : ''}>${esc(_MESES[Number(m.slice(5))])}${m.slice(0, 4) !== r.mes.slice(0, 4) ? ' ' + m.slice(0, 4) : ''}</option>`).join('')}</select></td>
+        <td class="qe-ref">${p.billetera ? `<span class="qe-wallet" title="Billetera a la que entró">${esc(p.billetera)}</span>` : ''}${p.referencia ? `<span class="qe-txt" title="${esc(p.referencia)}">${esc(p.referencia)}</span>` : ''}</td>
+        <td class="right">${p.comprobante && p.archivo ? `<button class="qe-clip" title="Ver el comprobante" onclick="window.open('/api/os/comprobantes/${p.comprobante}/archivo','_blank')">📎</button>` : ''}</td></tr>`).join('')
         || '<tr><td colspan="7" class="empty">No entró nada con ese filtro.</td></tr>'}</tbody></table></div>
       ${l.length > vis.length ? `<div style="text-align:center;margin-top:10px"><button class="outline small" onclick="_qeTope+=60;qePintar()">Ver ${Math.min(60, l.length - vis.length)} más de ${l.length - vis.length}</button></div>` : ''}
     </div>
