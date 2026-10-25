@@ -352,7 +352,7 @@ function qdMandar(f, cuenta, c) {
   }
   const g = f.guardada;
   const yaSalio = _qdDoc === 'todo' && g && g.salio_at ? `Salió el ${esc(String(g.salio_at).slice(0, 10))} (${esc(g.salio_como || '')})` : '';
-  const bloq = (t) => `<button class="outline small" disabled title="Se programa cuando apruebes la maqueta">${t}</button>`;
+  const bloq = (t) => `<button class="outline small" disabled title="Todavía no está programado">${t}</button>`;
   const acciones = existe
     ? `<button class="small" onclick="qdAbrirFactura('${c.id}','${f.mes}')">Revisar y mandar</button>`
     : `<span class="qd-nuevo">Nuevo · todavía no se manda</span> ${bloq('✈️ Telegram')} ${bloq('🔗 Link')}`;
@@ -547,6 +547,8 @@ function qePorCliente() {
    el pago no se toca). Ojo: el mes decide con qué puntos se reparte lo cobrado y, en un pago en
    pesos que espera el cambio del mes, con qué cambio se pasa a dólares. */
 async function qeMoverPago(id, mes, antes, sel) {
+  // Se pregunta: un cambio de mes mueve en qué mes descuenta y, en pesos, con qué cambio se valúa.
+  if (!confirm('¿Pasar este pago a la deuda de ' + _nomMes(mes) + '?\n\nDescuenta de lo que debía ese mes. Si es en pesos, se valúa con el cambio de ese mes.')) { if (sel) sel.value = antes; return; }
   const r = await api('/api/os/movimientos/' + encodeURIComponent(id) + '/mes-cierre', { method: 'PUT', body: JSON.stringify({ mes_cierre: mes }) });
   if (!r || !r.ok) { toast('No se cambió: ' + ((r && r.error) || '')); if (sel) sel.value = antes; return; }
   toast('Ahora es de ' + _nomMes(mes));

@@ -56,8 +56,8 @@ const GRUPOS = [
   /* Primer nivel y con su propio lugar: es lo que más se usa en el día y antes se hacía con la
      calculadora del teléfono. «Titan pide 10.000 dólares en 463.life» → cuánto poner en el panel. */
   { id: 'carga', label: () => '⚡ Calcular carga', items: [] },
-  /* FASE 3 (maqueta): la plata que entra en dos pantallas por tarea, en pantalla-plata.js. Las
-     seis de antes siguen en 💰 Cuentas hasta que se apruebe esta. */
+  /* FASE 3: la plata que entra en dos pantallas por tarea, en pantalla-plata.js (aprobada el
+     25-oct-2026). Las seis de antes siguen en 💰 Cuentas un tiempo, mientras se usa la nueva. */
   { id: 'plata', label: () => '📥 Plata que entra', items: [
     ['quienDebe', '📥 Quién debe'],
     ['queEntro', '💵 Qué entró'],
@@ -9412,7 +9412,7 @@ async function pzBorrar(id){
      ayudantes de arriba ya definidos, y escribe VIEWS.tc antes de que arranque el panel. -->
 <script src="/pantalla-tc.js"></script>
 <script src="/pantalla-carga.js"></script>
-<script src="/pantalla-plata.js"></script>
+<script src="/pantalla-plata.js?v=20261025"></script>
 <script>
 // init
 // Al arrancar se pregunta si hay comprobantes esperando: el número aparece en la pestaña aunque
