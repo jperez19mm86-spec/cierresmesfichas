@@ -31,6 +31,7 @@ const telegram = require('../telegram');
 const chat = require('../chat-externo.store');
 const money = require('../lib/money');
 const { mesTZ } = require('../lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
+const cierreAuto = require('../cierre-auto.service');
 const { ok, err, wrap, _facturacionDe, _urlPublica } = require('./comun');
 
 function mount(app) {
@@ -329,8 +330,14 @@ function mount(app) {
       rehacer: !!b.rehacer,
     });
     if (!r.ok) return err(res, 502, r.error);
+    /* Con la última tanda, si el mes quedó completo, el contraste y el cálculo del pago a
+       proveedores corren solos en segundo plano (cierre-auto.service). La respuesta no los espera. */
+    let automatico = false;
+    try {
+      if (desde + tanda.length >= divisas.length) automatico = cierreAuto.siLaFotoEstaCompleta(mes, !!(estadMes.estado(mes) || {}).completa);
+    } catch (e) { /* lo automático no puede frenar la foto */ }
     ok(res, { ...r, totalDivisas: divisas.length, desde, devueltos: tanda.length,
-      hay_mas: desde + tanda.length < divisas.length });
+      hay_mas: desde + tanda.length < divisas.length, automatico });
   }));
   /**
    * En qué nivel está agrupando cada casino AHORA. Es lo que decide qué vuelta sale al apretar
@@ -772,8 +779,20 @@ function mount(app) {
     if (faltaProv) porQueTC.push('falta el TC del PROVEEDOR de ARS (la fila ARS_OF): sin él la cuenta de los '
       + 'VENDEDORES y el pago a proveedores se valúan con el promedio del mes. Al cliente no lo afecta: '
       + 'a él se le cobra siempre con el promedio');
-    paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc',
-      estado: porQueTC.length ? 'falta' : 'listo',
+    /* El TC del proveedor sale de su factura y se carga a mano. Para ayudar: el del mes pasado y el
+       promedio de este mes, como referencia (no se carga ninguno de los dos solo). */
+    let sugerenciaTC = null;
+    if (faltaProv) {
+      try {
+        const [a, mm] = mes.split('-').map(Number); const prev = new Date(Date.UTC(a, mm - 2, 1)).toISOString().slice(0, 7);
+        const p = tcUnico.tcProveedorDelMes(prev); const prom = tcUnico.tcDelMes('ARS', mes);
+        sugerenciaTC = { mesAnterior: p ? String(p.valor != null ? p.valor : p) : null, promedio: prom && prom.valor != null ? String(prom.valor) : null };
+        const ref = [sugerenciaTC.mesAnterior ? 'el del mes pasado fue ' + sugerenciaTC.mesAnterior : '', sugerenciaTC.promedio ? 'el promedio de este mes es ' + sugerenciaTC.promedio : ''].filter(Boolean);
+        if (ref.length) porQueTC.push('como referencia: ' + ref.join(' y '));
+      } catch (e) { /* la ayuda no frena el paso */ }
+    }
+    paso({ id: 'tc', titulo: 'Cargar el tipo de cambio del proveedor', ir: 'tc', sugerenciaTC,
+      estado: (sinTC.length || faltaProv) ? 'falta' : 'listo',
       detalle: porQueTC.length ? porQueTC.join(' · ')
         : 'todas las monedas que movió el mes lo tienen' + (hayARS ? ', y el del proveedor está cargado' : '') });
 
@@ -788,19 +807,26 @@ function mount(app) {
         : 'confirmados: el número que se usó es el que recibiste de verdad' });
 
     // 3 · los % del mes. No confirmarlos NO frena: se usa el vigente. No tener ninguno SÍ frena.
-    const sinValor = []; const sinConfirmar = [];
+    /* Sólo hay que mirar los que CAMBIARON contra el mes pasado: un % igual al del mes anterior no
+       tiene nada que repasar (26-oct-2026). Los que no cambiaron cuentan como vistos. */
+    const sinValor = []; const sinConfirmar = []; const cambiaron = [];
+    const [ap, mp] = mes.split('-').map(Number); const mesAnt = new Date(Date.UTC(ap, mp - 2, 1)).toISOString().slice(0, 7);
     for (const c of clientes.list().clientes) {
       if (c.es_vendedor) continue;
       if (!paneles.list().some((p) => p.cliente_id === c.id)) continue;
-      if (externosSvc.baseDelMes(c, mes).valor == null) sinValor.push(c.nombre || c.codigo);
-      else if (!externosSvc.baseGuardada(c.nombre, mes)) sinConfirmar.push(c.nombre || c.codigo);
+      const v = externosSvc.baseDelMes(c, mes).valor;
+      if (v == null) { sinValor.push(c.nombre || c.codigo); continue; }
+      if (externosSvc.baseGuardada(c.nombre, mes)) continue;
+      sinConfirmar.push(c.nombre || c.codigo);
+      let antes = null; try { antes = externosSvc.baseDelMes(c, mesAnt).valor; } catch (e) {}
+      if (antes == null || String(Number(antes)) !== String(Number(v))) cambiaron.push(`${c.nombre || c.codigo} (${antes == null ? '—' : antes}% → ${v}%)`);
     }
-    paso({ id: 'pct', titulo: 'Repasar los % del mes', ir: 'cierre:externos',
-      estado: sinValor.length ? 'falta' : (sinConfirmar.length ? 'aviso' : 'listo'),
+    paso({ id: 'pct', titulo: 'Repasar los % que cambiaron', ir: 'cierre:externos', cambiaron,
+      estado: sinValor.length ? 'falta' : (cambiaron.length ? 'aviso' : 'listo'),
       detalle: sinValor.length
         ? sinValor.length + ' sin % cargado: ' + sinValor.slice(0, 6).join(', ') + ' — sin eso no se puede calcular'
-        : sinConfirmar.length ? sinConfirmar.length + ' sin confirmar: toman el % vigente igual'
-        : 'todos confirmados para este mes' });
+        : cambiaron.length ? cambiaron.length + ' cambiaron contra el mes pasado: ' + cambiaron.slice(0, 6).join(', ')
+        : sinConfirmar.length ? 'ninguno cambió contra el mes pasado' : 'todos confirmados para este mes' });
 
     // 4 · congelar. Sin congelar, tocar un precio hoy cambia lo que ya cobraste de este mes.
     let congelado = false;
@@ -858,8 +884,9 @@ function mount(app) {
     let guardadas = [];
     try { guardadas = facturasGuardadas.delMes(mes) || []; } catch (e) {}
     const salieron = guardadas.filter((g) => g.salio_at).length;
-    paso({ id: 'facturas', titulo: 'Mandar las facturas a los clientes', ir: 'facturacion',
-      estado: salieron ? 'listo' : (guardadas.length ? 'aviso' : 'falta'),
+    /* Listo cuando salieron TODAS. Con una sola daba ✅ (septiembre: 2 de 31). */
+    paso({ id: 'facturas', titulo: 'Mandar las facturas a los clientes', ir: 'facturacion', salieron, deTotal: guardadas.length,
+      estado: guardadas.length && salieron === guardadas.length ? 'listo' : (salieron ? 'aviso' : 'falta'),
       detalle: !guardadas.length ? 'ninguna generada todavía'
         : salieron + ' de ' + guardadas.length + ' salieron (impresa, copiada, link o Telegram)' });
 
@@ -903,7 +930,9 @@ function mount(app) {
 
     const falta = pasos.filter((p) => p.estado === 'falta');
     ok(res, { mes, pasos, falta: falta.length, avisos: pasos.filter((p) => p.estado === 'aviso').length,
-      siguiente: (falta[0] || null), puedeCerrar: !falta.length });
+      siguiente: (falta[0] || null), puedeCerrar: !falta.length,
+      // lo que corre solo después de la foto: contraste y cálculo del pago (cierre-auto.service)
+      automatico: cierreAuto.estado(mes) });
   }));
   // La validación guardada de un mes. Sale de la base, no consulta el casino: es lo que se validó
   // cuando se emitió, no lo que daría hoy. Con ?correr=1 se rehace.
