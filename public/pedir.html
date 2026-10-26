@@ -412,8 +412,15 @@
         medio = '<span class="ancho">' + que + '</span>';
       }
       // El monto en la moneda de la carga va abajo y chico: lo que se suma es el de USDT.
+      /* La cara en la otra moneda. Si el movimiento no la guardó —un pago hecho en USDT nunca
+         guarda los pesos— se muestra la DERIVADA, marcada: el cliente lee en pesos y quedarse sin
+         ese renglón era justamente lo que le hacía creer que debía de más. */
       const ot = (m.propio_divisa && m.propio_divisa !== mon && m.propio_monto != null)
-        ? '<span class="ot"><span>' + money(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0) + '</span><span>' + esc(m.propio_divisa) + '</span></span>' : '';
+        ? '<span class="ot"><span>' + money(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0) + '</span><span>' + esc(m.propio_divisa) + '</span></span>'
+        : (mon !== 'ARS' && m.ars_referencia
+          ? '<span class="ot ref" title="Equivalente en pesos al cambio de ' + esc(m.ars_referencia_tc || '') + '. Es referencia: lo que se descuenta son los USDT.">'
+            + '<span>≈ ' + money(Math.abs(m.ars_referencia), 0) + '</span><span>ARS</span></span>'
+          : '');
       const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
       const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? '<span style="display:block">' + esc(String(m.fecha).slice(0, 4)) + '</span>' : '');
       const valor = mon === 'ARS' ? m.monto_ars : m.monto_usdt;

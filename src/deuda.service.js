@@ -75,7 +75,12 @@ function cuentaCorriente(cliente_id) {
        puede grabar (movimientos-store lo rechaza), pero los que hayan quedado de antes tienen que
        aparecer en vez de seguir sumando cero en silencio. */
     if ((m[col] == null || m[col] === '') && (m[otra] == null || m[otra] === '')) sinImporte += 1;
-    const u2 = m[otra];
+    /* La cara en pesos DERIVADA cuenta como cara: un pago en USDT nunca guardó `monto_ars`
+       (ver valuacion.conCaraDeReferencia), y sin esto el saldo en pesos quedaba marcado como
+       incompleto para siempre — o peor, se mostraba corto. */
+    const u2 = m[otra] != null && m[otra] !== ''
+      ? m[otra]
+      : (otra === 'monto_ars' ? m.ars_referencia : null);
     if (u2 == null || u2 === '') sinOtra += 1;
     switch (m.tipo) {
       case 'carga': fichas = money.add(fichas, u); break;
@@ -134,7 +139,11 @@ function totalesEnMoneda(cliente_id, monedaPedida) {
   const movs = mov.list({ cliente_id });
   let fichas = '0', proveedores = '0', pagos = '0', bonif = '0';
   for (const m of movs) {
-    const u = m[col] || '0';
+    /* Sólo del lado de los PESOS, y sólo si la columna real está vacía: la referencia derivada
+       completa la lectura en pesos de un pago hecho en dólares. No existe para las demás. */
+    const u = m[col] != null && m[col] !== ''
+      ? m[col]
+      : ((col === 'monto_ars' && m.ars_referencia) || '0');
     switch (m.tipo) {
       case 'carga': case 'ajuste': case 'correccion': fichas = money.add(fichas, u); break;
       case 'bonificacion': bonif = money.add(bonif, u); break;

@@ -6350,7 +6350,7 @@ async function main() {
     const v = fs.readFileSync(path.join(ROOT, 'src', 'valuacion.js'), 'utf8');
     const { mesDe: mesDeRegla } = require('../src/lib/mes-de');
     check('valuación: usa el mes de CIERRE cuando el movimiento lo tiene',
-      /require\('\.\/lib\/mes-de'\)/.test(v) && (v.match(/const mes = mesDe\(m\);/g) || []).length === 2
+      /require\('\.\/lib\/mes-de'\)/.test(v) && (v.match(/const mes = mesDe\(m\);/g) || []).length === 3
       && mesDeRegla({ mes_cierre: '2026-08', fecha: '2026-09-03' }) === '2026-08',
       'con el de la fecha, un pago de septiembre puesto en agosto se valúa con septiembre');
     check('valuación: sin mes de cierre sigue usando la fecha',
@@ -7672,9 +7672,23 @@ async function main() {
       /const otraCara = totalesEnMoneda\(cliente_id, otraMoneda\);/.test(srcD)
       && !/fichas2/.test(srcD),
       'dos cuentas para lo mismo terminan diciendo distinto');
+    /* La cara en pesos de un pago hecho en DÓLARES nunca se guarda (ver valuacion.js): se deriva,
+       con el TC DEL MES del movimiento. Sigue siendo cara por cara, no el total convertido a hoy. */
+    const srcV = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'valuacion.js'), 'utf8');
     check('cuenta: la otra cara se SUMA de cada movimiento, no se convierte',
-      /const u2 = m\[otra\];/.test(srcD) && !/tcAhora|tcDelDia/.test(srcD),
+      /m\[otra\] != null && m\[otra\] !== ''/.test(srcD)
+      && /otra === 'monto_ars' \? m\.ars_referencia : null/.test(srcD)
+      && !/tcAhora|tcDelDia/.test(srcD),
       'convertir el total a hoy daría un número que no es el que se cobró');
+    check('cuenta: la cara derivada usa el TC del MES del movimiento, no el de hoy',
+      /tcUnico\.tcPagosDelMes\('ARS', mes\)/.test(srcV) && !/tcAhora|tcDelDia/.test(srcV));
+    check('cuenta: la cara derivada NO se escribe en monto_ars (la lee la contabilidad)',
+      /ars_referencia: money\.round/.test(srcV) && !/monto_ars: money\.round\(money\.mul\(String\(m\.monto_usdt\)/.test(srcV.split('function conCaraDeReferencia')[1] || ''),
+      'pesos-cancelan-pesos decide con monto_ars si un pago salda la fila: escribirla movería meses cerrados');
+    const srcE = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'enlace.routes.js'), 'utf8');
+    check('cuenta: Mi Caja recibe el aviso de cara incompleta, como el portal',
+      /otra_completa: !!cc\.otra_completa/.test(srcE),
+      'sin esto Mi Caja mostraba un saldo en pesos al que le faltaban movimientos');
     check('cuenta: un movimiento sin esa cara la marca incompleta',
       /if \(u2 == null \|\| u2 === ''\) sinOtra \+= 1;/.test(srcD) && /otra_completa: sinOtra === 0/.test(srcD));
     const pedirSrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'pedir.html'), 'utf8');

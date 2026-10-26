@@ -43,7 +43,8 @@ const ES_DEFINITIVO = 'cargado a mano en el cierre';
  *   · `sinValuar`    true si el mes no tiene NINGÚN tipo de cambio y el pago no se pudo pasar
  */
 function valuar(m) {
-  if (!m || m.tc_modo !== 'mes') return m;
+  if (!m) return m;
+  if (m.tc_modo !== 'mes') return conCaraDeReferencia(m);
   if (m.tipo !== 'pago') return valuarCarga(m);
   const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
@@ -77,6 +78,48 @@ function valuar(m) {
     monto_ars: tieneArs ? m.monto_ars : money.round(money.mul(String(m.monto_usdt), tc), 2),
     monto_usdt: tieneUsdt ? m.monto_usdt : money.round(money.div(String(m.monto_ars), tc), 2),
     tc_usado: tc, tcFuente: t.fuente, derivada, provisional, sinValuar: false,
+  };
+}
+
+/**
+ * ── LA CARA EN PESOS DE UN PAGO EN DÓLARES (26-oct-2026) ───────────────────────────────────────
+ * Un pago en USDT guarda su cara en pesos SÓLO si quien aprueba escribió el tipo de cambio a mano
+ * (ver `comprobantes/:id/resolver`: `if (tc) enArs = ...`). Si lo dejó vacío —que es lo que el
+ * código prefiere antes que inventar un número— `monto_ars` queda null para siempre, porque la
+ * derivación de arriba sólo corre con `tc_modo='mes'`, y un pago en la moneda de la cuenta no lo
+ * lleva.
+ *
+ * El resultado se veía en Mi Caja: a NahuelGanamosD le decía que debía ARS 2.110.000 cuando debía
+ * 1.722.000, porque su pago de USDT 237,84 no restaba del lado de los pesos. Y el cliente lee en
+ * pesos: es su referencia.
+ *
+ * ⚠️ POR QUÉ NO SE ESCRIBE EN `monto_ars`. Esa columna la leen veinte lugares, y varios son
+ * contabilidad: `pesos-cancelan-pesos` decide con ella si un pago SALDA LA FILA DE PESOS —y eso sí
+ * movería la deuda en dólares y meses ya cerrados—, el aviso de Telegram elige con ella en qué
+ * moneda rotular, y el cambio de moneda de cuenta la usa para reconvertir. Escribirla cambiaría
+ * todos esos caminos de una vez.
+ *
+ * Por eso va en un campo APARTE, `ars_referencia`, que sólo mira lo que se le muestra al cliente en
+ * pesos. `monto_ars` queda exactamente como estaba: ningún lector existente ve nada distinto, así
+ * que ningún número del pasado se puede mover. Es una referencia, no un segundo saldo.
+ */
+function conCaraDeReferencia(m) {
+  if (m.tipo !== 'pago') return m;
+  const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
+  const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
+  // Sólo al que le FALTA la cara en pesos y tiene de dónde sacarla.
+  if (tieneArs || !tieneUsdt) return m;
+  const mes = mesDe(m);
+  // El mismo TC con el que se valúa un pago EN pesos, para que las dos caras sean simétricas.
+  const t = mes ? tcUnico.tcPagosDelMes('ARS', mes) : null;
+  if (!t || !t.valor || !money.isPos(String(t.valor))) return m;
+  const tc = String(t.valor);
+  return {
+    ...m,
+    ars_referencia: money.round(money.mul(String(m.monto_usdt), tc), 2),
+    ars_referencia_tc: tc,
+    // Mientras el mes no tenga el TC del trader cargado a mano, el número todavía se mueve.
+    ars_referencia_provisional: !String(t.fuente || '').startsWith(ES_DEFINITIVO),
   };
 }
 
@@ -120,4 +163,4 @@ function resumen(movs) {
   };
 }
 
-module.exports = { valuar, valuarLista, resumen, ES_DEFINITIVO };
+module.exports = { valuar, valuarLista, resumen, conCaraDeReferencia, ES_DEFINITIVO };

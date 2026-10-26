@@ -48,6 +48,12 @@ function movimientosDe(cli) {
       id: m.id, fecha: String(m.fecha || '').slice(0, 10), tipo: m.tipo, mes,
       propio_monto: propio, propio_divisa: divPropia,
       monto_ars: m.monto_ars != null ? m.monto_ars : null, monto_usdt: m.monto_usdt != null ? m.monto_usdt : null,
+      /* La cara en pesos de un pago hecho en dólares, derivada al leer porque nunca se guardó
+         (valuacion.conCaraDeReferencia). Va aparte de `monto_ars` a propósito: el cliente la lee,
+         la contabilidad no. `_ref` avisa a la pantalla que es referencia y no un importe cobrado. */
+      ars_referencia: m.ars_referencia || null,
+      ars_referencia_tc: m.ars_referencia_tc || null,
+      ars_referencia_provisional: !!m.ars_referencia_provisional,
       tc: m.tc_momento || null, divisa: m.divisa || null, notas: m.notas || null, medio: m.medio || null,
       base_pct: m.base_pct_aplicado || null, cargado, usuario, etiqueta, anula,
     };

@@ -443,6 +443,11 @@ function mount(app) {
       fichas: cc.fichas_pendientes,    // lo consumido en fichas
       pagos: cc.pagos,                 // lo pagado
       provisional: !!cc.provisional,   // saldo con TC del mes todavía abierto
+      /* ⚠️ EL GUARD QUE FALTABA. El portal esconde el saldo en la otra moneda cuando a algún
+         movimiento le falta esa cara —si no, el total queda corto y se lee como un descuento—,
+         pero acá no viajaba y Mi Caja lo mostraba igual: a NahuelGanamosD le decía ARS 2.110.000
+         sobre una deuda de 1.722.000. Ahora Mi Caja puede callarse el número cuando no cierra. */
+      otra_completa: !!cc.otra_completa,
       // La MISMA cuenta leída en la divisa de la caja (o null si coincide con la de la cuenta, o si
       // esa divisa no tiene cara guardada). Referencia para el cliente, no un segundo saldo.
       monedaCaja,
