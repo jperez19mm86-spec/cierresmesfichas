@@ -3229,7 +3229,12 @@ function fichasPintarCuenta(){
   /* Dos caras: la divisa de la caja (en lo que el cliente opera) y la moneda de la cuenta (USDT,
      con la que se salda la deuda). El OS manda las dos ya calculadas, así que acá no se convierte nada. */
   const monCuenta = c.moneda || yo().currency;
-  const caraCaja = c.caja || null;                       // { moneda, deuda, fichas, pagos } | null
+  /* ⚠️ EL GUARD QUE FALTABA (26-oct-2026). El portal esconde el saldo en la otra moneda cuando a
+     algún movimiento le falta esa cara —un total corto se lee como un descuento— y acá no: a
+     NahuelGanamosD le decía ARS 2.110.000 sobre una deuda de 1.722.000, porque su pago en USDT no
+     restaba del lado de los pesos. El OS ya manda el aviso; sin él (puente viejo) se muestra igual
+     que antes, así que un despliegue a destiempo no rompe nada. */
+  const caraCaja = (c.otra_completa === false) ? null : (c.caja || null);
   const fmtMon = (mo, v) => `${esc(mo)} ${fmt(v || 0)}`;
   const dosCaras = (campo) => caraCaja
     ? `${fmtMon(caraCaja.moneda, caraCaja[campo])} <span style="opacity:.4;font-weight:400"> · </span>${fmtMon(monCuenta, c[campo])}`
@@ -3263,8 +3268,14 @@ function fichasPintarCuenta(){
         : esc(m.notas || ({ proveedor_extra: 'Proveedores', correccion: 'Carga anulada', ajuste: 'Ajuste', bonificacion: 'A tu favor' }[m.tipo] || m.tipo));
       medio = `<span class="ancho">${que}</span>`;
     }
+    /* Si el movimiento no guardó la otra cara —un pago hecho en USDT nunca guarda los pesos— se
+       muestra la DERIVADA, marcada con ≈. El cliente lee en pesos: sin ese renglón creía que debía
+       de más. */
     const ot = (m.propio_divisa && m.propio_divisa !== monCuenta && m.propio_monto != null)
-      ? `<span class="ot"><span>${n2(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0)}</span><span>${esc(m.propio_divisa)}</span></span>` : '';
+      ? `<span class="ot"><span>${n2(Math.abs(m.propio_monto), m.propio_divisa === 'USDT' ? 2 : 0)}</span><span>${esc(m.propio_divisa)}</span></span>`
+      : (monCuenta !== 'ARS' && m.ars_referencia
+        ? `<span class="ot ref" title="Equivalente en pesos al cambio de ${esc(m.ars_referencia_tc || '')}. Es referencia: lo que se descuenta son los USDT."><span>≈ ${n2(Math.abs(m.ars_referencia), 0)}</span><span>ARS</span></span>`
+        : '');
     const esAj = (m.tipo === 'ajuste' || m.tipo === 'bonificacion') && m.notas;
     const fecha = esAj ? '' : dia(m.fecha) + (conAnio ? `<span style="display:block">${esc(String(m.fecha).slice(0, 4))}</span>` : '');
     const v = m[col] != null ? m[col] : m.monto;

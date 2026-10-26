@@ -1103,8 +1103,16 @@ check('sin grilla no se marca nada, en vez de romper',
      sumadas (`c.caja`); el panel no convierte nada. Si coinciden, `c.caja` es null y va una sola. */
   const pintarCuentaFn = (htmlCaja.match(/function fichasPintarCuenta\(\)[\s\S]*?\n\}/) || [''])[0];
   check('«Mi cuenta» muestra la divisa de la caja y también USDT, sin convertir',
-    /caraCaja = c\.caja/.test(pintarCuentaFn) && /monCuenta = c\.moneda/.test(pintarCuentaFn)
-    && /dosCaras/.test(pintarCuentaFn));
+    /caraCaja = /.test(pintarCuentaFn) && /c\.caja/.test(pintarCuentaFn)
+    && /monCuenta = c\.moneda/.test(pintarCuentaFn) && /dosCaras/.test(pintarCuentaFn));
+  /* 26-oct-2026: y si a algún movimiento le falta esa cara, NO se muestra. El portal ya lo hacía;
+     acá no, y a NahuelGanamosD le decía ARS 2.110.000 sobre una deuda de 1.722.000. */
+  check('«Mi cuenta» se calla el saldo en la otra moneda si le faltan movimientos',
+    /c\.otra_completa === false/.test(pintarCuentaFn),
+    'un total al que le faltan movimientos se lee como un descuento');
+  check('«Mi cuenta» muestra la cara en pesos derivada de un pago en dólares',
+    /m\.ars_referencia/.test(pintarCuentaFn) && /≈ /.test(pintarCuentaFn),
+    'un pago en USDT nunca guarda los pesos: sin esto el renglón salía vacío del lado de los pesos');
   /* 13-oct-2026: el cliente tiene que poder AUDITAR su cuenta. Cada carga dice a qué login fue; la
      carga anulada queda tachada en un renglón (no un cargo y una devolución); hay filtros por tipo
      y van TODOS los movimientos, no los últimos 12. */
