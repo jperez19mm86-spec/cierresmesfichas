@@ -107,6 +107,33 @@
   details.cta-mes.compacto .cta-mesn { font-size:14px; }
   @media (max-width:480px) { .cta-mes-cab, details.cta-mes.compacto > summary { grid-template-columns:minmax(0,1.1fr) 1fr 1fr 1fr; font-size:12.5px; } .cta-mes-cab { font-size:10px; } }
   .cta-solo .cta-fila { grid-template-columns:48px 92px 34px minmax(0,1fr) auto; }
+  /* ── LAS COLUMNAS DE FICHAS Y PAGOS ────────────────────────────────────────────────────────
+     Un encabezado UNA vez arriba y los números debajo, alineados. Antes cada renglón repetía la
+     moneda en prosa y no se podían comparar dos cargas de un vistazo. */
+  .cta-cab, .cta-r { display:grid; grid-template-columns:46px minmax(0,1fr) 84px 76px; column-gap:10px; align-items:baseline; font-variant-numeric:tabular-nums; }
+  .cta-cab { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:8px 0 6px; border-bottom:1px solid var(--border); }
+  .cta-cab span:not(:first-child), .cta-r span:not(.d):not(.izq):not(.cta-pie) { text-align:right; }
+  .cta-cab .izq, .cta-r .izq { text-align:left; }
+  .cta-r { padding:9px 0; border-bottom:1px solid var(--border); font-size:13.5px; }
+  .cta-r .d { font-size:12px; color:var(--muted); }
+  .cta-r.anulada { opacity:.55; text-decoration:line-through; }
+  .cta-r .cta-pie { grid-column:2 / -1; text-align:left; font-size:11.5px; color:var(--muted); padding-top:3px; }
+  /* El grupo por login: el total a la derecha y el día por día adentro. */
+  details.cta-g { border-bottom:1px solid var(--border); }
+  details.cta-g > summary { list-style:none; cursor:pointer; display:grid; grid-template-columns:minmax(0,1fr) 84px 76px; column-gap:10px; row-gap:2px; align-items:baseline; padding:11px 0; font-variant-numeric:tabular-nums; }
+  details.cta-g > summary::-webkit-details-marker { display:none; }
+  details.cta-g > summary > span:not(.cta-gn):not(.cta-gc) { text-align:right; }
+  .cta-gn { font-weight:700; font-size:14.5px; }
+  .cta-gn::before { content:'▸'; display:inline-block; width:15px; color:var(--muted); transition:transform .15s; }
+  details.cta-g[open] .cta-gn::before { transform:rotate(90deg); }
+  .cta-gc { grid-column:1; font-size:12px; color:var(--muted); padding-left:15px; }
+  details.cta-g .cta-cab, details.cta-g .cta-r { padding-left:15px; }
+  details.cta-g > summary + .cta-cab { border-top:1px solid var(--border); }
+  @media (max-width:480px) {
+    .cta-cab, .cta-r { grid-template-columns:40px minmax(0,1fr) 68px 64px; column-gap:7px; font-size:12.5px; }
+    details.cta-g > summary { grid-template-columns:minmax(0,1fr) 68px 64px; column-gap:7px; }
+    .cta-cab { font-size:9.5px; letter-spacing:.03em; }
+  }
   .cta-tile .v { white-space:nowrap; }
   /* En el celular el login no entra al lado del monto y se cortaba («F01Z…»): va en su propia línea,
      debajo, entero. Es el dato con el que el cliente coteja, no se puede perder. */
@@ -438,11 +465,94 @@
       + '<button type="button" class="cta-chip vista" aria-pressed="' + _ctaCompacto + '" onclick="ctaCompactar()">' + (_ctaCompacto ? '☰ Ver detalle' : '▤ Compactar por mes') + '</button></div>';
 
     const orden = (a, b) => String(b.fecha).localeCompare(String(a.fecha));
+    // Sólo el nombre del mes: «salda septiembre 112,75» se lee; con el año de atrás, no.
+    const soloMes = (k) => { const n = MESES[Number(String(k).split('-')[1]) - 1]; return n || k; };
+    const ars = (m) => (m.propio_divisa === 'ARS' && m.propio_monto != null) ? Math.abs(m.propio_monto)
+      : (m.ars_referencia != null ? Math.abs(m.ars_referencia) : null);
+
+    /* ── A QUÉ MES LE PEGA CADA PAGO ────────────────────────────────────────────────────────────
+       El saldo YA era FIFO —se acumula desde el más viejo— pero no se veía: un mes pagado quedaba
+       en rojo para siempre y el cliente creía que lo arrastraba. Acá se hace explícito: cada pago,
+       en orden, va saldando los meses que tienen saldo, del más viejo al más nuevo. No cambia
+       ningún número; dice cuál ya está cubierto. */
+    const imputacion = (() => {
+      const cron = movs.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || (Number(a.ord) || 0) - (Number(b.ord) || 0));
+      const pend = new Map(); const out = {};
+      cron.forEach(m => {
+        const k = m.mes || String(m.fecha || '').slice(0, 7);
+        if (!esPago(m)) { pend.set(k, (pend.get(k) || 0) + usd(m)); return; }
+        let resto = usd(m); const trozos = [];
+        Array.from(pend.keys()).sort().forEach(mes => {
+          if (resto <= 0.004) return;
+          const q = pend.get(mes); if (q <= 0.004) return;
+          const t = Math.min(q, resto); pend.set(mes, q - t); resto -= t;
+          trozos.push({ mes: mes, monto: t });
+        });
+        out[m.id] = { trozos: trozos, sobra: resto > 0.004 ? resto : 0 };
+      });
+      return out;
+    })();
+
+    /* ── LAS FICHAS, AGRUPADAS POR DÓNDE FUERON ────────────────────────────────────────────────
+       Eran 29 renglones iguales, uno abajo del otro. Agrupadas por login se ve en dos líneas a
+       dónde fue la plata, y el día por día sigue estando para cotejar contra el panel. */
+    const vistaFichas = (l) => {
+      const g = new Map();
+      l.forEach(m => {
+        const k = (m.usuario || '—') + '|' + (m.etiqueta || '');
+        if (!g.has(k)) g.set(k, { usuario: m.usuario || '—', etiqueta: m.etiqueta || '', items: [], usd: 0, ars: 0 });
+        const x = g.get(k); x.items.push(m); x.usd += usd(m); const a = ars(m); if (a != null) x.ars += a;
+      });
+      const grupos = Array.from(g.values()).sort((a, b) => b.usd - a.usd);
+      const cab = '<div class="cta-cab"><span></span><span>FICHAS</span><span>ARS</span><span>' + esc(mon) + '</span></div>';
+      return grupos.map((x, i) => '<details class="cta-g"' + (i === 0 ? ' open' : '') + '><summary>'
+        + '<span class="cta-gn">' + (x.etiqueta ? esc(x.etiqueta) + ' <span class="usr">' + esc(x.usuario) + '</span>' : esc(x.usuario)) + '</span>'
+        /* Los dos números primero: así caen en la fila 1 con el nombre, y el contador baja solo a
+           la segunda (tiene grid-column:1). Al revés, el auto-placement lo desarmaba. */
+        + '<span>' + (x.ars ? money(x.ars, 0) : '—') + '</span><span><b>' + money(x.usd, 2) + '</b></span>'
+        + '<span class="cta-gc">' + x.items.length + (x.items.length === 1 ? ' carga' : ' cargas') + '</span></summary>'
+        + cab + x.items.sort(orden).map(m => {
+          const a = ars(m);
+          return '<div class="cta-r' + (m._anulada ? ' anulada' : '') + '"><span class="d">' + dia(m.fecha) + '</span>'
+            + '<span>' + (m.cargado != null ? money(m.cargado, 0) : '—') + (m._anulada ? '<span class="cta-tag">Anulada</span>' : '') + '</span>'
+            + '<span>' + (a != null ? money(a, 0) : '—') + '</span>'
+            + '<span><b>' + money(usd(m), 2) + '</b></span></div>';
+        }).join('') + '</details>').join('');
+    };
+
+    /* ── LOS PAGOS: lo que hizo el cliente primero, y en su plata ──────────────────────────────── */
+    const vistaPagos = (l) => {
+      const cab = '<div class="cta-cab pagos"><span></span><span class="izq">MEDIO</span><span>ARS</span><span>' + esc(mon) + '</span></div>';
+      return cab + l.map(m => {
+        const a = ars(m);
+        const como = m.tipo === 'bonificacion' ? 'a tu favor'
+          : (m.medio === 'cvu' ? 'transferencia' : (m.medio ? String(m.medio).toUpperCase() : 'pago'));
+        const im = imputacion[m.id] || { trozos: [], sobra: 0 };
+        const salda = im.trozos.length
+          ? 'salda ' + im.trozos.map(t => '<b>' + esc(soloMes(t.mes)) + ' ' + money(t.monto, 2) + '</b>').join(' + ')
+            + (im.sobra ? ' · ' + money(im.sobra, 2) + ' a favor' : '')
+          : (im.sobra ? money(im.sobra, 2) + ' a favor' : '');
+        const cambio = m.ars_referencia_tc ? 'cambio ' + money(m.ars_referencia_tc, 0)
+          : (m.tc ? 'cambio ' + money(m.tc, 0) : '');
+        const pie = [cambio, salda].filter(Boolean).join(' · ');
+        return '<div class="cta-r pagos"><span class="d">' + dia(m.fecha) + '</span>'
+          + '<span class="izq">' + esc(como) + '</span>'
+          + '<span>' + (a != null ? money(a, 0) : '—') + '</span>'
+          + '<span class="cta-baja"><b>−' + money(Math.abs(usd(m)), 2) + '</b></span>'
+          + (pie ? '<span class="cta-pie">' + pie + '</span>' : '') + '</div>';
+      }).join('');
+    };
+
     if (_ctaFiltro !== 'todo') {
       const l = movs.filter(m => grupo(m) === _ctaFiltro).sort(orden);
       const tot = suma(l);
-      h += '<div class="cta-solo" style="margin-top:8px">' + l.map(m => fila(m, true)).join('')
-        + '<div class="cta-total"><span>' + l.length + (_ctaFiltro === 'pagos' ? ' pagos' : ' movimientos') + '</span><span class="' + (_ctaFiltro === 'pagos' ? 'cta-baja' : '') + '">'
+      const totArs = l.reduce((s, m) => { const a = ars(m); return a == null ? s : s + a; }, 0);
+      const cuerpo = _ctaFiltro === 'fichas' ? vistaFichas(l)
+        : (_ctaFiltro === 'pagos' ? vistaPagos(l) : l.map(m => fila(m, true)).join(''));
+      h += '<div class="cta-solo" style="margin-top:8px">' + cuerpo
+        + '<div class="cta-total"><span>' + l.length + (_ctaFiltro === 'pagos' ? (l.length === 1 ? ' pago' : ' pagos') : ' movimientos') + '</span>'
+        + '<span class="muted">' + (totArs ? money(totArs, 0) + ' ARS' : '') + '</span>'
+        + '<span class="' + (_ctaFiltro === 'pagos' ? 'cta-baja' : '') + '">'
         + (_ctaFiltro === 'pagos' ? '− ' : '') + money(Math.abs(tot), 2) + ' ' + esc(mon) + '</span></div></div>';
     } else {
       /* MES POR MES, por el mes al que pertenece cada movimiento (no el de su fecha), con lo que
