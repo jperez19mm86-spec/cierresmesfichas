@@ -1212,6 +1212,34 @@ details[open] .mc-mesn::before{transform:rotate(90deg)}
 .mc-fila .r{text-align:right; font-variant-numeric:tabular-nums}
 .mc-fila .r .us, .mc-fila .r .ot{display:grid; grid-template-columns:auto 34px; justify-content:end; column-gap:4px}
 .mc-fila .r .ot{color:var(--mut); font-size:calc(11.5px * var(--esc))}
+/* ── LAS COLUMNAS DE FICHAS Y PAGOS (26-oct-2026) ────────────────────────────────────────────
+   Un encabezado UNA vez arriba y los números debajo, alineados. La hoja mide ≤660px, así que las
+   columnas van más justas que en el portal. */
+.mc-cab, .mc-r{display:grid; grid-template-columns:42px minmax(0,1fr) 76px 68px; column-gap:8px; align-items:baseline; font-variant-numeric:tabular-nums}
+.mc-cab{font-size:calc(10.5px * var(--esc)); font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); padding:8px 0 6px; border-bottom:1px solid var(--bor)}
+.mc-cab span:not(:first-child), .mc-r span:not(.d):not(.izq):not(.mc-pie){text-align:right}
+.mc-cab .izq, .mc-r .izq{text-align:left}
+.mc-r{padding:9px 0; border-bottom:1px solid var(--bor); font-size:calc(13.5px * var(--esc))}
+.mc-r .d{color:var(--mut); font-size:calc(12px * var(--esc))}
+.mc-r.anulada{opacity:.55; text-decoration:line-through}
+.mc-r .mc-pie{grid-column:2 / -1; text-align:left; font-size:calc(11.5px * var(--esc)); color:var(--mut); padding-top:3px}
+details.mc-g{border-bottom:1px solid var(--bor)}
+details.mc-g > summary{list-style:none; cursor:pointer; display:grid; grid-template-columns:minmax(0,1fr) 76px 68px; column-gap:8px; row-gap:2px; align-items:baseline; padding:11px 0; font-variant-numeric:tabular-nums}
+details.mc-g > summary::-webkit-details-marker{display:none}
+details.mc-g > summary > span:not(.mc-gn):not(.mc-gc){text-align:right}
+.mc-gn{font-weight:700; font-size:calc(14.5px * var(--esc)); min-width:0; overflow-wrap:anywhere}
+.mc-gn .usr{color:var(--mut); font-weight:500}
+.mc-gn::before{content:'▸'; display:inline-block; width:15px; color:var(--mut); transition:transform .15s}
+details.mc-g[open] .mc-gn::before{transform:rotate(90deg)}
+.mc-gc{grid-column:1; font-size:calc(12px * var(--esc)); color:var(--mut); padding-left:15px}
+details.mc-g .mc-cab, details.mc-g .mc-r{padding-left:15px}
+details.mc-g > summary + .mc-cab{border-top:1px solid var(--bor)}
+.mc-total .mut{color:var(--mut); font-weight:400}
+@media (max-width:420px){
+  .mc-cab, .mc-r{grid-template-columns:38px minmax(0,1fr) 64px 60px; column-gap:6px; font-size:calc(12.5px * var(--esc))}
+  details.mc-g > summary{grid-template-columns:minmax(0,1fr) 64px 60px; column-gap:6px}
+  .mc-cab{font-size:calc(9.5px * var(--esc)); letter-spacing:.03em}
+}
 .mc-fila .r .ot span:last-child, .mc-fila .r .us span:last-child{text-align:left}
 .mc-fila.anulada .m, .mc-fila.anulada .dv, .mc-fila.anulada .r{text-decoration:line-through; opacity:.55}
 .mc-tag{display:inline-block; font-size:calc(11px * var(--esc)); font-weight:600; color:var(--mut); border:1px solid currentColor; border-radius:6px; padding:0 5px; margin-left:6px}
@@ -3289,10 +3317,85 @@ function fichasPintarCuenta(){
   let lista = `<div class="mc-chips" role="tablist">` + [['todo', 'Todo'], ['fichas', 'Fichas'], ['pagos', 'Pagos'], ['otros', 'Ajustes']]
     .filter(([k]) => k === 'todo' || n[k]).map(([k, l]) => `<button type="button" class="mc-chip${MC_FILTRO === k ? ' sel' : ''}" role="tab" aria-selected="${MC_FILTRO === k}" onclick="fichasFiltrarCuenta('${k}')">${l}<b>${n[k]}</b></button>`).join('')
     + `<button type="button" class="mc-chip vista" aria-pressed="${MC_COMPACTO}" onclick="fichasCompactarCuenta()">${MC_COMPACTO ? '☰ Ver detalle' : '▤ Compactar por mes'}</button></div>`;
+  // Sólo el nombre del mes: «salda septiembre 112,75» se lee; con el año de atrás, no.
+  const soloMes = (k) => MESES[Number(String(k).split('-')[1]) - 1] || k;
+  const ars = (m) => (m.propio_divisa === 'ARS' && m.propio_monto != null) ? Math.abs(m.propio_monto)
+    : (m.ars_referencia != null ? Math.abs(m.ars_referencia) : null);
+
+  /* ── A QUÉ MES LE PEGA CADA PAGO ──────────────────────────────────────────────────────────────
+     El saldo YA era FIFO —se acumula desde el más viejo— pero no se veía: un mes pagado quedaba en
+     rojo para siempre y el cliente creía que lo arrastraba. Acá se hace explícito recorriendo los
+     pagos en orden contra los meses con saldo. No cambia ningún número. */
+  const imputacion = (() => {
+    const cron = movs.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || (Number(a.ord) || 0) - (Number(b.ord) || 0));
+    const pend = new Map(); const out = {};
+    cron.forEach(m => {
+      const k = m.mes || String(m.fecha || '').slice(0, 7);
+      if (!esPago(m)) { pend.set(k, (pend.get(k) || 0) + val(m)); return; }
+      let resto = val(m); const trozos = [];
+      Array.from(pend.keys()).sort().forEach(mes => {
+        if (resto <= 0.004) return;
+        const q = pend.get(mes); if (q <= 0.004) return;
+        const tm = Math.min(q, resto); pend.set(mes, q - tm); resto -= tm;
+        trozos.push({ mes: mes, monto: tm });
+      });
+      out[m.id] = { trozos: trozos, sobra: resto > 0.004 ? resto : 0 };
+    });
+    return out;
+  })();
+
+  /* ── LAS FICHAS, AGRUPADAS POR DÓNDE FUERON ───────────────────────────────────────────────────
+     Eran 29 renglones iguales. Agrupadas por login se ve en dos líneas a dónde fue la plata, y el
+     día por día sigue estando para cotejar contra el panel. */
+  const vistaFichas = (l) => {
+    const g = new Map();
+    l.forEach(m => {
+      const k = (m.usuario || '—') + '|' + (m.etiqueta || '');
+      if (!g.has(k)) g.set(k, { usuario: m.usuario || '—', etiqueta: m.etiqueta || '', items: [], usd: 0, ars: 0 });
+      const x = g.get(k); x.items.push(m); x.usd += val(m); const a = ars(m); if (a != null) x.ars += a;
+    });
+    const cab = `<div class="mc-cab"><span></span><span>FICHAS</span><span>ARS</span><span>${esc(monCuenta)}</span></div>`;
+    return Array.from(g.values()).sort((a, b) => b.usd - a.usd).map((x, i) => `<details class="mc-g"${i === 0 ? ' open' : ''}><summary>`
+      + `<span class="mc-gn">${x.etiqueta ? `${esc(x.etiqueta)} <span class="usr">${esc(x.usuario)}</span>` : esc(x.usuario)}</span>`
+      /* Los dos números primero: así caen en la fila 1 con el nombre y el contador baja solo a la
+         segunda (tiene grid-column:1). Al revés, el auto-placement lo desarmaba. */
+      + `<span>${x.ars ? n2(x.ars, 0) : '—'}</span><span><b>${n2(x.usd, 2)}</b></span>`
+      + `<span class="mc-gc">${x.items.length} ${x.items.length === 1 ? 'carga' : 'cargas'}</span></summary>`
+      + cab + x.items.sort(orden).map(m => {
+        const a = ars(m);
+        return `<div class="mc-r${m._anulada ? ' anulada' : ''}"><span class="d">${dia(m.fecha)}</span>`
+          + `<span>${m.cargado != null ? n2(m.cargado, 0) : '—'}${m._anulada ? '<span class="mc-tag">Anulada</span>' : ''}</span>`
+          + `<span>${a != null ? n2(a, 0) : '—'}</span><span><b>${n2(val(m), 2)}</b></span></div>`;
+      }).join('') + `</details>`).join('');
+  };
+
+  /* ── LOS PAGOS: lo que hizo el cliente primero, y en su plata ───────────────────────────────── */
+  const vistaPagos = (l) => `<div class="mc-cab pagos"><span></span><span class="izq">MEDIO</span><span>ARS</span><span>${esc(monCuenta)}</span></div>`
+    + l.map(m => {
+      const a = ars(m);
+      const como = m.tipo === 'bonificacion' ? 'a tu favor'
+        : (m.medio === 'cvu' ? 'transferencia' : (m.medio ? String(m.medio).toUpperCase() : 'pago'));
+      const im = imputacion[m.id] || { trozos: [], sobra: 0 };
+      const salda = im.trozos.length
+        ? 'salda ' + im.trozos.map(x => `<b>${esc(soloMes(x.mes))} ${n2(x.monto, 2)}</b>`).join(' + ')
+          + (im.sobra ? ` · ${n2(im.sobra, 2)} a favor` : '')
+        : (im.sobra ? `${n2(im.sobra, 2)} a favor` : '');
+      const cambio = m.ars_referencia_tc ? `cambio ${n2(m.ars_referencia_tc, 0)}` : (m.tc ? `cambio ${n2(m.tc, 0)}` : '');
+      const pie = [cambio, salda].filter(Boolean).join(' · ');
+      return `<div class="mc-r pagos"><span class="d">${dia(m.fecha)}</span><span class="izq">${esc(como)}</span>`
+        + `<span>${a != null ? n2(a, 0) : '—'}</span><span class="mc-baja"><b>−${n2(Math.abs(val(m)), 2)}</b></span>`
+        + (pie ? `<span class="mc-pie">${pie}</span>` : '') + `</div>`;
+    }).join('');
+
   if (MC_FILTRO !== 'todo') {
     const l = movs.filter(m => grupo(m) === MC_FILTRO).sort(orden);
-    lista += `<div class="mc-solo">${l.map(m => fila(m, true)).join('')}`
-      + `<div class="mc-total"><span>${l.length} ${MC_FILTRO === 'pagos' ? 'pagos' : 'movimientos'}</span><span class="${MC_FILTRO === 'pagos' ? 'mc-baja' : ''}">${MC_FILTRO === 'pagos' ? '− ' : ''}${n2(Math.abs(suma(l)), 2)} ${esc(monCuenta)}</span></div></div>`;
+    const totArs = l.reduce((s, m) => { const a = ars(m); return a == null ? s : s + a; }, 0);
+    const cuerpo = MC_FILTRO === 'fichas' ? vistaFichas(l)
+      : (MC_FILTRO === 'pagos' ? vistaPagos(l) : l.map(m => fila(m, true)).join(''));
+    lista += `<div class="mc-solo">${cuerpo}`
+      + `<div class="mc-total"><span>${l.length} ${MC_FILTRO === 'pagos' ? (l.length === 1 ? 'pago' : 'pagos') : 'movimientos'}</span>`
+      + `<span class="mut">${totArs ? n2(totArs, 0) + ' ARS' : ''}</span>`
+      + `<span class="${MC_FILTRO === 'pagos' ? 'mc-baja' : ''}">${MC_FILTRO === 'pagos' ? '− ' : ''}${n2(Math.abs(suma(l)), 2)} ${esc(monCuenta)}</span></div></div>`;
   } else {
     const porMes = {}; movs.forEach(m => { const k = m.mes || String(m.fecha || '').slice(0, 7); (porMes[k] = porMes[k] || []).push(m); });
     const meses = Object.keys(porMes).sort();

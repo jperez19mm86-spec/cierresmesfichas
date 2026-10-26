@@ -1110,6 +1110,20 @@ check('sin grilla no se marca nada, en vez de romper',
   check('«Mi cuenta» se calla el saldo en la otra moneda si le faltan movimientos',
     /c\.otra_completa === false/.test(pintarCuentaFn),
     'un total al que le faltan movimientos se lee como un descuento');
+  /* 26-oct-2026: los filtros Fichas y Pagos en columnas, como el portal. Un encabezado UNA vez
+     arriba y los números debajo; antes cada renglón repetía la moneda en prosa. */
+  check('«Mi cuenta» agrupa las fichas por el login al que entraron',
+    /vistaFichas/.test(pintarCuentaFn) && /mc-g/.test(pintarCuentaFn) && /cargas/.test(pintarCuentaFn),
+    '29 renglones iguales no se leen');
+  check('«Mi cuenta» pone encabezado de columnas FICHAS · ARS · USDT',
+    /mc-cab/.test(pintarCuentaFn) && /FICHAS/.test(pintarCuentaFn));
+  check('«Mi cuenta» dice de cada pago QUÉ MES salda, de lo más viejo a lo más nuevo',
+    /imputacion/.test(pintarCuentaFn) && /salda /.test(pintarCuentaFn),
+    'el saldo ya era FIFO: lo que faltaba era decirlo');
+  check('«Mi cuenta» muestra el cambio con el que se tomó cada pago',
+    /cambio \$\{n2\(m\.ars_referencia_tc/.test(pintarCuentaFn) || /cambio \$\{n2\(m\.tc/.test(pintarCuentaFn));
+  check('«Mi cuenta» no inventa la imputación: sólo reparte lo que ya suma el saldo',
+    /pend\.set\(mes, q - tm\)/.test(pintarCuentaFn) && !/monto_usdt =/.test(pintarCuentaFn));
   check('«Mi cuenta» muestra la cara en pesos derivada de un pago en dólares',
     /m\.ars_referencia/.test(pintarCuentaFn) && /≈ /.test(pintarCuentaFn),
     'un pago en USDT nunca guarda los pesos: sin esto el renglón salía vacío del lado de los pesos');
