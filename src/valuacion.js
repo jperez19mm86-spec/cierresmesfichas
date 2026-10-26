@@ -42,9 +42,9 @@ const ES_DEFINITIVO = 'cargado a mano en el cierre';
  *   · `provisional`  true si ese TC todavía puede cambiar
  *   · `sinValuar`    true si el mes no tiene NINGÚN tipo de cambio y el pago no se pudo pasar
  */
-function valuar(m) {
+function valuar(m, memo) {
   if (!m) return m;
-  if (m.tc_modo !== 'mes') return conCaraDeReferencia(m);
+  if (m.tc_modo !== 'mes') return conCaraDeReferencia(m, memo);
   if (m.tipo !== 'pago') return valuarCarga(m);
   const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
@@ -103,7 +103,7 @@ function valuar(m) {
  * pesos. `monto_ars` queda exactamente como estaba: ningún lector existente ve nada distinto, así
  * que ningún número del pasado se puede mover. Es una referencia, no un segundo saldo.
  */
-function conCaraDeReferencia(m) {
+function conCaraDeReferencia(m, memo) {
   if (m.tipo !== 'pago') return m;
   const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
@@ -115,7 +115,13 @@ function conCaraDeReferencia(m) {
      no viaja al cliente. Además la regla del sistema es «trader sólo para pagos, promedio para
      cuentas», y esto es una lectura de la cuenta, no la valuación de un pago. `tcDelMes` da el
      promedio de Binance/criptoya del mes, que es mercado público. */
-  const t = mes ? tcUnico.tcDelMes('ARS', mes) : null;
+  /* Un TC por MES, no uno por movimiento. Leer la cuenta entera de un cliente con 400 pagos en
+     dólares hacía 400 consultas a la base: 1,6 ms pasaban a 53. El memo lo arma `valuarLista` y
+     vive sólo lo que dura esa lectura, así que cargar el TC del cierre se ve en la siguiente. */
+  const k = mes ? 'ARS|' + mes : null;
+  let t;
+  if (memo && k && memo.has(k)) t = memo.get(k);
+  else { t = mes ? tcUnico.tcDelMes('ARS', mes) : null; if (memo && k) memo.set(k, t); }
   if (!t || !t.valor || !money.isPos(String(t.valor))) return m;
   const tc = String(t.valor);
   return {
@@ -156,7 +162,11 @@ function valuarCarga(m) {
   };
 }
 
-const valuarLista = (movs) => (movs || []).map(valuar);
+const valuarLista = (movs) => {
+  // El memo dura lo que dura esta lista: ver `conCaraDeReferencia`.
+  const memo = new Map();
+  return (movs || []).map((m) => valuar(m, memo));
+};
 
 /** ¿Cuántos esperan el TC del mes y cuántos no se pudieron pasar? Para avisarlo en pantalla. */
 function resumen(movs) {
