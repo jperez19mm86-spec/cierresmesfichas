@@ -7690,6 +7690,23 @@ async function main() {
     check('cuenta: la cara derivada NO se escribe en monto_ars (la lee la contabilidad)',
       /ars_referencia: money\.round/.test(srcV) && !/monto_ars: money\.round\(money\.mul\(String\(m\.monto_usdt\)/.test(srcV.split('function conCaraDeReferencia')[1] || ''),
       'pesos-cancelan-pesos decide con monto_ars si un pago salda la fila: escribirla movería meses cerrados');
+    /* ── APROBAR UN COMPROBANTE ES ACEPTAR SU TIPO DE CAMBIO (26-oct-2026) ─────────────────
+       Se compara con el de HOY, no con el del cierre, y el panel lo muestra antes de apretar. */
+    const srcC = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'rutas', 'cuenta.routes.js'), 'utf8');
+    check('comprobante: el cambio se compara contra el de HOY, no contra el del mes',
+      /tcSvc\.tcAhora\(\)/.test(srcC) && /tc_fuera_de_rango/.test(srcC),
+      'el del cierre puede ser de hace semanas: no dice nada de si hoy es razonable');
+    check('comprobante: el tope es configurable y frena de verdad',
+      /TC_DIF_MAX_PCT = Number\(process\.env\.TC_DIF_MAX_PCT \|\| 4\)/.test(srcC)
+      && /Math\.abs\(tcDifPct\) > TC_DIF_MAX_PCT && b\.forzar !== true/.test(srcC));
+    check('comprobante: sin cambio escrito se sella el del día, y queda dicho en el movimiento',
+      /tc = tcHoy; tcSellado = true;/.test(srcC) && /del día \(nadie escribió uno\)/.test(srcC),
+      'si no, el pago en USDT queda sin cara en pesos para siempre');
+    const srcOS = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'os.html'), 'utf8');
+    check('panel: la diferencia contra el cambio de hoy se ve ANTES de aprobar',
+      /function cmpDifTC/.test(srcOS) && /cmp-dif-/.test(srcOS) && /vs hoy/.test(srcOS));
+    check('panel: pasarse del tope pregunta con los números, no falla en silencio',
+      /r\.tc_fuera_de_rango/.test(srcOS) && /forzar: true/.test(srcOS));
     const srcE = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'enlace.routes.js'), 'utf8');
     check('cuenta: Mi Caja recibe el aviso de cara incompleta, como el portal',
       /otra_completa: !!cc\.otra_completa/.test(srcE),

@@ -3580,8 +3580,11 @@ async function pintarComprobantes(estado, conFiltros) {
           +     '<div style="flex:0 0 auto"><label>Tipo de cambio</label>'
           +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"'
           +       ((_tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo)) ? ' value="' + String(_tcAhoraCmp).replace('.', ',') + '"' : '') + '></div>'
-          +     '<div style="flex:0 0 auto;min-width:140px"><label>Equivale a</label>'
-          +       '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0;font-weight:700">—</div></div>'
+          +     '<div style="flex:0 0 auto;min-width:170px"><label>Equivale a</label>'
+          +       '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0 0;font-weight:700">—</div>'
+          /* Aprobar es aceptar ese tipo de cambio. Acá se ve, antes de apretar, cuánto se separa
+             del mercado de ahora — que es el único con el que tiene sentido compararlo. */
+          +       '<div id="cmp-dif-' + c.id + '" style="font-size:12px;padding-bottom:6px"></div></div>'
           +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
           +   '</div>'
           + '</div>'
@@ -3717,6 +3720,23 @@ function cmpEquiv(id, codigo){
   const otra = mon==='ARS' ? (monto/tc) : (monto*tc);
   el.textContent = money(otra, mon==='ARS'?2:0) + ' ' + (mon==='ARS'?'USDT':'ARS');
   el.style.color='var(--text)';
+  cmpDifTC(id, tc);
+}
+
+/* ── CUÁNTO SE SEPARA DEL CAMBIO DE HOY ───────────────────────────────────────────────────────
+   El tope real lo aplica el servidor (TC_DIF_MAX_PCT): esto es el aviso ANTES de apretar, para
+   no enterarse por un error. Si no se pudo traer el cambio de hoy no se dice nada, en vez de
+   mostrar un verde que no verificó nada. */
+const TC_DIF_MAX = 4;
+function cmpDifTC(id, tc){
+  const el = document.getElementById('cmp-dif-'+id); if(!el) return;
+  if(!_tcAhoraCmp || !(tc>0)){ el.textContent=''; return; }
+  const dif = Math.round(((tc - _tcAhoraCmp) / _tcAhoraCmp) * 1000) / 10;
+  const fuera = Math.abs(dif) > TC_DIF_MAX;
+  el.innerHTML = (fuera ? '⚠️ ' : '✓ ') + (dif>0?'+':'') + String(dif).replace('.', ',') + '% '
+    + '<span class="muted">vs hoy (' + money(_tcAhoraCmp, 2) + ')</span>';
+  el.style.color = fuera ? '#b45309' : '';
+  el.style.fontWeight = fuera ? '700' : '400';
 }
 
 async function cmpResolver(id, estado, codigo, opts) {
@@ -3772,8 +3792,20 @@ async function _cmpResolver(id, estado, codigo, opts) {
     // equivocado deja un mes figurando sin cobrar y otro con plata que no corresponde.
     + (mes0 ? ', en el cierre de ' + mes0 + '.' : '.'))) return;
   const tc = (document.getElementById('cmp-tc-' + id) || {}).value;
-  const r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST',
-    body: JSON.stringify({ estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota, mes: mes0, recibido_por: rec0 }) });
+  const cuerpo = { estado, monto: nu == null ? u : String(nu), tc: tc ? String(montoNum(tc) || tc) : tc, motivo: nota, mes: mes0, recibido_por: rec0 };
+  let r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify(cuerpo) });
+  /* El servidor frena los que se pasan del tope. No es un error: es una decisión que alguien
+     tiene que tomar a propósito, y queda escrita en el movimiento. */
+  if (!r.ok && r.tc_fuera_de_rango) {
+    const plata = money(Math.abs((r.dif_pct / 100) * (nu || 0)), 2) + ' ' + mon;
+    if (!confirm('⚠️ El cambio que pusiste está ' + String(Math.abs(r.dif_pct)).replace('.', ',') + '% '
+      + (r.dif_pct > 0 ? 'ARRIBA' : 'ABAJO') + ' del de hoy.\n\n'
+      + 'Vos: ' + money(r.tc, 2) + '  ·  Hoy: ' + money(r.tc_hoy, 2)
+      + (r.tc_hoy_vivo === false ? ' (guardado, no en vivo)' : '') + '\n'
+      + 'Son unos ' + plata + ' de diferencia.\n\n'
+      + 'El tope es ' + r.limite_pct + '%. ¿Lo aprobás igual?')) return;
+    r = await api('/api/os/comprobantes/' + id + '/resolver', { method: 'POST', body: JSON.stringify({ ...cuerpo, forzar: true }) });
+  }
   if (!r.ok) return toast('Error: ' + (r.error || ''));
   toast(estado === 'aprobado' ? ('Acreditado · saldo ' + money((r.deuda || {}).total, 2) + ' ' + ((r.deuda || {}).moneda || mon)) : 'Rechazado');
   VIEWS.movimientos();

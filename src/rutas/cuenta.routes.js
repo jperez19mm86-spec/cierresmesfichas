@@ -22,6 +22,11 @@ const configStore = require('../config-store');
 const telegram = require('../telegram');
 const billeteras = require('../billeteras-store');
 const tipoArchivo = require('../lib/tipo-archivo');
+/* ── CUÁNTO PUEDE SEPARARSE EL CAMBIO DE UN COMPROBANTE DEL DE HOY ───────────────────────────
+   Aprobar un comprobante es aceptar su tipo de cambio: si se acepta uno lejos del mercado, la
+   diferencia la pone la empresa. Regla del dueño (26-oct-2026): hasta 4% está bien. Configurable
+   porque el número lo decide el negocio, no el código. */
+const TC_DIF_MAX_PCT = Number(process.env.TC_DIF_MAX_PCT || 4);
 const chat = require('../chat-externo.store');
 const money = require('../lib/money');
 const { mesTZ } = require('../lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
@@ -242,8 +247,38 @@ function mount(app) {
     // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
     // dato faltante y visible a un número inventado con la cotización del día.
     const tcNum = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? parseMonto(b.tc) : null;
-    const tc = tcNum == null ? null : String(tcNum);
+    let tc = tcNum == null ? null : String(tcNum);
     if (tc != null && !money.isPos(tc)) return err(res, 400, 'el tipo de cambio tiene que ser mayor a cero');
+
+    /* ── EL CAMBIO SE COMPARA CON EL DE HOY, NO CON EL DEL CIERRE (26-oct-2026) ──────────────
+       Aprobar es una decisión de AHORA: el cambio del cierre puede ser de hace semanas y no dice
+       nada sobre si este comprobante es razonable hoy. Se compara contra el mercado del momento
+       —`tcAhora`: criptoya, que agrega Binance P2P, con caída al último snapshot—.
+
+       Hasta TC_DIF_MAX_PCT pasa solo. Más arriba hay que aprobarlo a propósito (`forzar: true`) y
+       queda escrito en el movimiento: quién lo aceptó y con cuánta diferencia.
+
+       Y SI NO SE ESCRIBIÓ NINGUNO, SE SELLA EL DE HOY. Antes quedaba null para siempre: un pago
+       en USDT sin TC no tenía cara en pesos, y al cliente —que lee en pesos— la deuda le salía
+       inflada (a NahuelGanamosD, ARS 2.110.000 sobre 1.722.000). Sellarlo es seguro porque en
+       este camino el monto SIEMPRE viene en la moneda de la CUENTA: el TC sólo llena la OTRA
+       cara, la que se muestra, nunca la que suma. No puede mover ninguna deuda. */
+    let tcHoy = null; let tcDifPct = null; let tcSellado = false;
+    if (!porElMes) {
+      const h = await tcSvc.tcAhora().catch(() => null);
+      tcHoy = h && money.isPos(String(h.tc || '')) ? String(h.tc) : null;
+      // `vivo:false` = no contestó la fuente y se usó el último snapshot (hasta 12 h viejo).
+      const tcHoyVivo = !!(h && h.vivo);
+      if (tc == null) { if (tcHoy) { tc = tcHoy; tcSellado = true; } }
+      else if (tcHoy) {
+        tcDifPct = Math.round(((Number(tc) - Number(tcHoy)) / Number(tcHoy)) * 1000) / 10;
+        if (Math.abs(tcDifPct) > TC_DIF_MAX_PCT && b.forzar !== true) {
+          return err(res, 409, `El cambio que pusiste (${tc}) está ${Math.abs(tcDifPct)}% `
+            + `${tcDifPct > 0 ? 'arriba' : 'abajo'} del de hoy (${tcHoy}). El tope es ${TC_DIF_MAX_PCT}%.`,
+          { tc_fuera_de_rango: true, tc, tc_hoy: tcHoy, dif_pct: tcDifPct, limite_pct: TC_DIF_MAX_PCT, tc_hoy_vivo: tcHoyVivo });
+        }
+      }
+    }
     let enArs = null; let enUsdt = null;
     if (monedaCargada === 'ARS') { enArs = monto; if (tc) enUsdt = money.round(money.div(monto, tc), 2); }
     else { enUsdt = monto; if (tc) enArs = money.round(money.mul(monto, tc), 2); }
@@ -262,7 +297,10 @@ function mount(app) {
       // Y quién la agarró, si se eligió. Vacío es un estado válido: se completa después.
       recibido_por: b.recibido_por || null,
       divisa: moneda, fecha: b.fecha, medio: c.via === 'usdt' ? 'usdt' : 'cvu',
-      notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}` });
+      notas: `comprobante ${c.id}${b.motivo ? ' · ' + b.motivo : ''}`
+        + (tcSellado ? ` · TC ${tc} del día (nadie escribió uno)` : '')
+        + (tcDifPct != null && Math.abs(tcDifPct) > TC_DIF_MAX_PCT
+          ? ` · TC ${tcDifPct > 0 ? '+' : ''}${tcDifPct}% vs el de hoy (${tcHoy}), aprobado igual` : '') });
     const montoUsdt = enUsdt;
     const r = comprobantes.resolver(req.params.id, { estado: 'aprobado', por: 'panel', motivo: b.motivo, movimiento_id: mov.id });
     if (!r.ok) return err(res, 400, r.error);
