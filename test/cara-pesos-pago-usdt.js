@@ -35,13 +35,14 @@ const pUsdt = movs.create({ cliente_id: n.id, tipo: 'pago', monto_usdt: '237.84'
 
 // ── 1 · lo que se arregla ────────────────────────────────────────────────────────────────────
 const v = uno(n, pUsdt.id);
-check('el pago en dólares recibe su cara en pesos derivada', v.ars_referencia === '388000.28', v.ars_referencia);
-check('y dice con qué cambio se derivó', v.ars_referencia_tc === '1631.35', v.ars_referencia_tc);
-check('con el TC del trader cargado, no se marca provisorio', v.ars_referencia_provisional === false);
+check('el pago en dólares recibe su cara en pesos derivada', v.ars_referencia === '383635.92', v.ars_referencia);
+check('y con el PROMEDIO del mes, no con el del trader (ese es nuestro)', v.ars_referencia_tc === '1613', v.ars_referencia_tc);
+check('el cambio del trader no viaja al cliente', JSON.stringify(v).indexOf('1631.35') === -1);
+check('un mes ya cerrado no se marca provisorio', v.ars_referencia_provisional === false);
 
 const cc = deuda.cuentaCorriente(n.id);
 check('la cuenta en pesos ya no cuenta corto', cc.otra_completa === true);
-check('el saldo en pesos deja de estar inflado', cc.total_otra === '2116999.72', cc.total_otra);
+check('el saldo en pesos deja de estar inflado', cc.total_otra === '2121364.08', cc.total_otra);
 
 // ── 2 · lo que NO se puede mover (la condición del dueño: no tocar meses pasados) ─────────────
 check('la deuda en dólares queda igual', cc.total === '1314.72', cc.total);

@@ -7681,7 +7681,12 @@ async function main() {
       && !/tcAhora|tcDelDia/.test(srcD),
       'convertir el total a hoy daría un número que no es el que se cobró');
     check('cuenta: la cara derivada usa el TC del MES del movimiento, no el de hoy',
-      /tcUnico\.tcPagosDelMes\('ARS', mes\)/.test(srcV) && !/tcAhora|tcDelDia/.test(srcV));
+      /tcUnico\.tcDelMes\('ARS', mes\)/.test(srcV) && !/tcAhora|tcDelDia/.test(srcV));
+    /* Y el PROMEDIO, no el del trader: el del trader es nuestro y no viaja al cliente
+       (lo dice cuenta-cliente.js), y la regla es «trader sólo para pagos, promedio para cuentas». */
+    check('cuenta: la cara que ve el cliente no usa el cambio del trader',
+      !/tcUnico\.tcPagosDelMes/.test(srcV.split('function conCaraDeReferencia')[1].split('function valuarCarga')[0]),
+      'el cambio del trader revela nuestro margen');
     check('cuenta: la cara derivada NO se escribe en monto_ars (la lee la contabilidad)',
       /ars_referencia: money\.round/.test(srcV) && !/monto_ars: money\.round\(money\.mul\(String\(m\.monto_usdt\)/.test(srcV.split('function conCaraDeReferencia')[1] || ''),
       'pesos-cancelan-pesos decide con monto_ars si un pago salda la fila: escribirla movería meses cerrados');

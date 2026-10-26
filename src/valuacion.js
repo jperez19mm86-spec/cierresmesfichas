@@ -110,16 +110,20 @@ function conCaraDeReferencia(m) {
   // Sólo al que le FALTA la cara en pesos y tiene de dónde sacarla.
   if (tieneArs || !tieneUsdt) return m;
   const mes = mesDe(m);
-  // El mismo TC con el que se valúa un pago EN pesos, para que las dos caras sean simétricas.
-  const t = mes ? tcUnico.tcPagosDelMes('ARS', mes) : null;
+  /* ⚠️ EL PROMEDIO, NO EL DEL TRADER. `tcPagosDelMes` devuelve el cargado a mano en el cierre, que
+     es el del trader — y ese número es NUESTRO: este archivo dice arriba que lo que dio el trader
+     no viaja al cliente. Además la regla del sistema es «trader sólo para pagos, promedio para
+     cuentas», y esto es una lectura de la cuenta, no la valuación de un pago. `tcDelMes` da el
+     promedio de Binance/criptoya del mes, que es mercado público. */
+  const t = mes ? tcUnico.tcDelMes('ARS', mes) : null;
   if (!t || !t.valor || !money.isPos(String(t.valor))) return m;
   const tc = String(t.valor);
   return {
     ...m,
     ars_referencia: money.round(money.mul(String(m.monto_usdt), tc), 2),
     ars_referencia_tc: tc,
-    // Mientras el mes no tenga el TC del trader cargado a mano, el número todavía se mueve.
-    ars_referencia_provisional: !String(t.fuente || '').startsWith(ES_DEFINITIVO),
+    // El promedio de un mes que todavía no terminó se mueve todos los días (igual que valuarCarga).
+    ars_referencia_provisional: mes >= mesTZ(),
   };
 }
 
