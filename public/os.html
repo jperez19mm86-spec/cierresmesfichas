@@ -110,14 +110,9 @@ const GRUPOS = [
     ['config:backup', '🛟 Copia de seguridad'],
     ['config:importar', '📥 Importar planilla'],
   ] },
-  /* Las pantallas de antes de 📥 Plata que entra, al final, mientras se usa la nueva. */
-  { id: 'cuentas', label: () => '🗄 Cuentas (antes)', items: [
-    ['cobranzas', '⏳ Cobranzas'],
-    ['movimientos:cliente', '📒 Cuenta del cliente'],
-    ['movimientos:cuenta', '💳 Pagos y cargas'],
-    ['pagos', '💵 Pagos recibidos'],
-    ['movimientos:historial', '🗂 Comprobantes resueltos'],
-  ] },
+  /* 🗄 Cuentas (antes) se cerró el 27-oct-2026: Cobranzas, Cuenta del cliente, Pagos y cargas,
+     Pagos recibidos y Comprobantes resueltos quedaron en 📥 Plata que entra. Las pantallas siguen
+     existiendo para los atajos que las abren (el formulario de «＋ Pago a mano», los rechazados). */
 ];
 // Se deja la lista plana por compatibilidad: hay pantallas que llaman go('config') directo.
 const TABS_COMERCIAL = GRUPOS;

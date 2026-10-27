@@ -5088,7 +5088,7 @@ async function main() {
     // ☀️ Hoy es la bandeja desde la fase 3 (reemplazó a 🔔 Pendientes): la primera de la barra.
     check('pendientes: la pestaña existe y es la primera',
       /id: 'hoy'/.test(h5)
-      && h5.indexOf("id: 'hoy'") < h5.indexOf("id: 'cuentas'"),
+      && h5.indexOf("id: 'hoy'") < h5.indexOf("id: 'plata'"),
       'primer grupo de la barra');
     check('pendientes: cuenta las TRES cosas',
       /_pendTotal/.test(h5) && /comprobantes\?estado=pendiente/.test(h5)
@@ -10577,8 +10577,10 @@ async function main() {
 
     // La pantalla: que exista, que esté en la barra y que el total sea el de lo que se ve.
     const hCob = FUENTE_PANEL();
-    check('cobranzas: la pantalla está en la barra, en Cuentas',
-      /\['cobranzas', '⏳ Cobranzas'\]/.test(hCob) && /VIEWS\.cobranzas = async/.test(hCob));
+    // Desde el 27-oct la tabla de quién debe vive en 📥 Plata que entra → Quién debe; Cobranzas
+    // sigue existiendo como pantalla, pero ya no está en la barra.
+    check('cobranzas: quién debe está en la barra, en Plata que entra',
+      /\['quienDebe', '📥 Quién debe'\]/.test(hCob) && /VIEWS\.cobranzas = async/.test(hCob));
     /* El total de abajo suma las filas VISIBLES. Si filtrás por un cliente y el pie siguiera
        sumando a todos, el renglón del total diría otra cosa que la tabla de arriba. */
     check('cobranzas: el total de abajo es el de lo que se está viendo',
