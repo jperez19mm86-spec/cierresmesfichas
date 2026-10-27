@@ -574,22 +574,33 @@ function mount(app) {
     const cli = clientes.get(req.params.clienteId);
     if (!cli) return err(res, 404, 'cliente no encontrado');
     const movimientos = movs.list({ cliente_id: cli.id });
-
+    const cuenta = deudaSvc.cuentaCorriente(cli.id);
+    /* MES A MES CON LA MISMA REGLA QUE LO QUE DEBE (fase 4, 27-oct-2026). Antes:
+       · agrupaba por la FECHA del movimiento: un pago del 2-oct que es de septiembre caía en octubre;
+         ahora va al mes de la deuda que paga (`movs.mesDe`, el mismo de Cobranzas y Qué entró);
+       · sumaba siempre la columna en dólares: una cuenta en pesos daba todo cero; ahora suma la
+         columna de la moneda en que se lleva la cuenta (`deudaSvc.columnaDe`), como Cobranzas;
+       · la anulación de una carga iba a «otros»: Titan sep decía 43.477 de cargas y −10.000 de
+         ajustes; ahora se resta dentro de «consumo», que es lo que de verdad se le cobró.
+       La suma de los meses da lo mismo que antes y que lo que debe: sólo cambia dónde cae cada cosa. */
+    const col = deudaSvc.columnaDe(cuenta.moneda);
     const meses = {};
     const fila = (m) => (meses[m] = meses[m] || {
       mes: m, consumo: '0', externos: '0', otros: '0', pagos: '0',
       facturado: '0', movimientos: 0,
     });
     for (const mv of movimientos) {
-      const m = String(mv.fecha || mv.createdAt || '').slice(0, 7);
+      const m = movs.mesDe(mv);
       if (!/^\d{4}-\d{2}$/.test(m)) continue;
+      const signo = deudaSvc.signoDe(mv.tipo);
+      const val = Number(mv[col]);
       const f = fila(m); f.movimientos += 1;
-      const u = mv.monto_usdt || '0';
-      if (mv.tipo === 'carga') f.consumo = money.add(f.consumo, u);
-      else if (mv.tipo === 'proveedor_extra') f.externos = money.add(f.externos, u);
-      else if (mv.tipo === 'pago') f.pagos = money.add(f.pagos, u);
-      else if (mv.tipo === 'bonificacion') f.otros = money.sub(f.otros, u);
-      else f.otros = money.add(f.otros, u);
+      if (!signo || !Number.isFinite(val) || !val) continue;
+      const v = String(signo * val);
+      if (mv.tipo === 'carga' || (mv.tipo === 'correccion' && mv.pedido_id)) f.consumo = money.add(f.consumo, v);
+      else if (mv.tipo === 'proveedor_extra') f.externos = money.add(f.externos, v);
+      else if (mv.tipo === 'pago') f.pagos = money.sub(f.pagos, v);
+      else f.otros = money.add(f.otros, v);
     }
 
     // Un mes puede tener factura generada y todavía ningún movimiento (si no se emitió): igual tiene
@@ -622,7 +633,7 @@ function mount(app) {
     }
     filas.reverse();
     ok(res, { cliente: { id: cli.id, codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
-      cuenta: deudaSvc.cuentaCorriente(cli.id), meses: filas });
+      cuenta, moneda: cuenta.moneda, meses: filas });
   });
   /**
    * Generar hacia atrás la deuda de las cargas de un mes.

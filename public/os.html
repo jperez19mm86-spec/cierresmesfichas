@@ -5760,7 +5760,7 @@ async function mcPintar(){
     + '<div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Saldo</label><div style="font-size:20px;font-weight:800;color:'+signo(cc.total)+'">'+money(cc.total,2)+'</div>'
       + '<div class="muted" style="font-size:11px">'+esc(cc.moneda||'USDT')+' · '+(Number(cc.total)<0?'lo que tiene a favor':(Number(cc.total)>0?'lo que debe hoy':'está al día'))+'</div></div>'
     + '</div>'
-    + '<div class="card"><h2>Mes a mes <span class="muted">(todo en USDT)</span></h2>'
+    + '<div class="card"><h2>Mes a mes <span class="muted">(todo en '+esc(r.moneda||'USDT')+')</span></h2>'
     + '<table><thead><tr><th>Mes</th><th class="right">Consumo</th><th class="right">Externos</th><th class="right">Otros</th><th class="right">Facturado</th><th class="right">Pagado</th><th class="right">Saldo</th><th>Factura</th><th>Contra el panel</th><th></th></tr></thead><tbody>'
     + (filas || '<tr><td colspan="10" class="empty">Este cliente no tiene ningún movimiento todavía.</td></tr>')
     + '</tbody></table>'

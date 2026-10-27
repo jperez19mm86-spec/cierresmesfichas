@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/enlace.js && node test/smoke.js && node test/factura-cruce.js && node test/facturas-guardadas.js && node test/cuelga-de-otro.js && node test/pase-superagentes.js && node test/abono-por-carga.js && node test/pesos-cancelan-pesos.js && node test/cara-pesos-pago-usdt.js && node test/tc-comprobante-4pct.js && node test/tc-trader-solo-pagos.js && node test/tc-binance.js && node test/conciliacion.js && node test/operaciones.js && node test/pases.js && node test/externos-guardados.js && node test/chat-aislado.js && node test/nuestro-chat.js && node test/cierre-auto.js",
+    "test": "node test/enlace.js && node test/smoke.js && node test/factura-cruce.js && node test/facturas-guardadas.js && node test/cuelga-de-otro.js && node test/pase-superagentes.js && node test/abono-por-carga.js && node test/pesos-cancelan-pesos.js && node test/cara-pesos-pago-usdt.js && node test/tc-comprobante-4pct.js && node test/tc-trader-solo-pagos.js && node test/tc-binance.js && node test/conciliacion.js && node test/operaciones.js && node test/pases.js && node test/externos-guardados.js && node test/chat-aislado.js && node test/nuestro-chat.js && node test/cierre-auto.js && node test/cuenta-mes-a-mes.js",
     "test:factura": "node test/factura-cruce.js"
   },
   "engines": {
