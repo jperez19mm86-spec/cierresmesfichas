@@ -377,6 +377,21 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS ix_factura_guardada_mes ON factura_guardada (mes);
 
+  /* LAS VERSIONES DE UNA FACTURA QUE YA SALIÓ (fase 4, 27-oct-2026). Regenerar una factura pisaba
+     la que se le había mandado al cliente y la dejaba marcada como «ya salió»: lo que recibió se
+     perdía (Marcelo, septiembre: regenerada 3 veces, quedaba sólo la última). Ahora, si una que ya
+     salió se regenera con otros números, la que salió se guarda acá tal cual, con cuándo y por dónde
+     salió. */
+  CREATE TABLE IF NOT EXISTS factura_guardada_version (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id TEXT, mes TEXT, version INTEGER,
+    datos TEXT, consumo_usdt TEXT, externos_usdt TEXT, total_usdt TEXT,
+    generada_at TEXT, generada_por TEXT,
+    salio_at TEXT, salio_como TEXT,
+    guardada_at TEXT                 -- cuándo pasó a ser una versión vieja (la regeneraron)
+  );
+  CREATE INDEX IF NOT EXISTS ix_factura_version ON factura_guardada_version (cliente_id, mes);
+
   CREATE TABLE IF NOT EXISTS validacion_mes (
     mes TEXT PRIMARY KEY,
     datos TEXT,                    -- el resultado completo (JSON)

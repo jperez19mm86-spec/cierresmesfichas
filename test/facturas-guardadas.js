@@ -38,7 +38,12 @@ f = g.get('c1', '2026-08');
 ok(f.veces === 2, `cuenta las veces que se generó (${f.veces})`);
 ok(f.total_usdt === '18000.00', 'actualiza el contenido');
 ok(f.generada_at === primera, 'la fecha de la PRIMERA vez no se pisa');
-ok(f.salio_como === 'impresa', 'ni la primera salida: importa cuándo se le mandó, no la última vez que se miró');
+/* Desde la fase 4 (27-oct-2026): si una que ya salió se regenera con OTROS números, la que salió
+   queda como versión y la nueva sale por donde salió ahora. Antes decía «impresa» para siempre,
+   aunque lo que tenía el cliente fuera otra cosa. */
+ok(f.salio_como === 'telegram', 'la nueva dice por dónde salió ella');
+ok(g.versiones('c1', '2026-08').length === 1 && g.versiones('c1', '2026-08')[0].salio_como === 'impresa'
+  && g.versiones('c1', '2026-08')[0].total_usdt === '17959.47', 'y la que salió impresa quedó guardada como versión');
 
 // ── el historial ──
 g.guardar(fac('2026-07', '19570.30'), { como: 'link' });

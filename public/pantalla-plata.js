@@ -31,6 +31,7 @@ const QD_STYLE = `<style>
   .qd-control.ok { background:rgba(46,158,99,.10); color:var(--green) }
   .qd-control.mal { background:rgba(217,83,79,.10); color:var(--red) }
   .qd-nuevo { font-size:12px; font-weight:700; color:var(--uva) }
+  .qd-versiones { font-size:12.5px; color:var(--muted); display:flex; gap:6px; flex-wrap:wrap; align-items:center }
   .qd-arriba { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
   .qd-arriba input { flex:1 1 220px; width:auto }
   .qd-arriba select { width:auto }
@@ -196,10 +197,10 @@ function qdSet(k, v) {
   if (k === 'orden') _qdOrden = v; if (k === 'vend') _qdVend = v;
   qdPintar();
 }
-function qdAbrir(id) { _qdAbierto = _qdAbierto === id ? '' : id; _qdDoc = 'todo'; qdPintar(); }
+function qdAbrir(id) { _qdAbierto = _qdAbierto === id ? '' : id; _qdDoc = 'todo'; _qdVer = null; qdPintar(); }
 function qdTab(t) { _qdTab = t; qdDetalle(); }
-function qdMesDoc(m) { _qdMesDoc = m; qdDetalle(); }
-function qdElegirDoc(d) { _qdDoc = d; qdDetalle(); }
+function qdMesDoc(m) { _qdMesDoc = m; _qdVer = null; qdDetalle(); }
+function qdElegirDoc(d) { _qdDoc = d; _qdVer = null; qdDetalle(); }
 
 /* EL DETALLE DE UN CLIENTE. Cuatro solapas; la primera es la cuenta: mes por mes, lo que generó, lo
    que pagó de ese mes y lo que queda. Las otras, para actuar: registrar un pago, mandarle algo, y lo
@@ -220,10 +221,11 @@ async function qdDetalle() {
     if (_qdTab === 'cuenta') cuerpo = qdCuenta(c, mon);
     else if (_qdTab === 'pago') cuerpo = await qdFormPago(c, { moneda: mon });
     else {
-      const [fa, cuenta] = await Promise.all([api('/api/os/factura/' + encodeURIComponent(id) + '?mes=' + encodeURIComponent(_qdMesDoc)),
-        _qdTab === 'mandar' ? api('/api/os/cuenta/' + encodeURIComponent(id)) : Promise.resolve(null)]);
+      const [fa, cuenta, vers] = await Promise.all([api('/api/os/factura/' + encodeURIComponent(id) + '?mes=' + encodeURIComponent(_qdMesDoc)),
+        _qdTab === 'mandar' ? api('/api/os/cuenta/' + encodeURIComponent(id)) : Promise.resolve(null),
+        _qdTab === 'mandar' ? api('/api/os/facturas-guardadas/' + encodeURIComponent(id) + '/' + encodeURIComponent(_qdMesDoc) + '/versiones') : Promise.resolve(null)]);
       if (!fa.ok) cuerpo = '<div class="nota err">' + esc(fa.error || 'No se pudo armar ese mes') + '</div>';
-      else cuerpo = _qdTab === 'sa' ? qdSuperAgentes(fa) : qdMandar(fa, cuenta, c);
+      else cuerpo = _qdTab === 'sa' ? qdSuperAgentes(fa) : qdMandar(fa, cuenta, c, (vers && vers.versiones) || []);
     }
   } catch (e) { cuerpo = '<div class="nota err">No se pudo leer: ' + esc(e.message) + '</div>'; }
   if (_qdAbierto === id) box.innerHTML = barra + cuerpo;
@@ -321,7 +323,9 @@ const _qdTg = (t) => String(t || '').replace(/<a [^>]*>([^<]*)<\/a>/g, '$1').rep
 /* QUÉ MANDARLE. A la izquierda se elige; a la derecha se ve el mensaje tal como le llega, con un
    control arriba: si lo que dice el documento no es lo que está anotado en su cuenta para ese
    mes, se avisa ANTES de mandarlo. */
-function qdMandar(f, cuenta, c) {
+let _qdVer = null;                         // la versión vieja que se está mirando en «Todo junto»
+function qdVerVersion(n) { _qdVer = _qdVer === n ? null : n; qdDetalle(); }
+function qdMandar(f, cuenta, c, versiones = []) {
   const mesC = ((cuenta && cuenta.meses) || []).find((m) => m.mes === f.mes) || null;
   const sas = _qdPorPanel(f);
   const opciones = [
@@ -332,7 +336,9 @@ function qdMandar(f, cuenta, c) {
   ].filter(([, , , hay]) => hay);
   if (!opciones.some(([k]) => k === _qdDoc)) _qdDoc = 'todo';
   let doc, existe = false;
-  if (_qdDoc === 'todo') { doc = { texto: f.texto, total: f.totalMes_usdt }; existe = true; }
+  const vieja = _qdDoc === 'todo' && _qdVer ? versiones.find((v) => v.version === _qdVer) : null;
+  if (vieja) doc = { texto: vieja.texto, total: vieja.total_usdt };
+  else if (_qdDoc === 'todo') { doc = { texto: f.texto, total: f.totalMes_usdt }; existe = true; }
   else if (_qdDoc === 'cargas') doc = docCargas(f);
   else if (_qdDoc === 'externos') doc = docExternos(f);
   else doc = docSuperAgente(f, _qdDoc.slice(3));
@@ -351,7 +357,12 @@ function qdMandar(f, cuenta, c) {
       : '<div class="qd-control ok">✔ Coincide con su cuenta.</div>';
   }
   const g = f.guardada;
-  const yaSalio = _qdDoc === 'todo' && g && g.salio_at ? `Salió el ${esc(String(g.salio_at).slice(0, 10))} (${esc(g.salio_como || '')})` : '';
+  const yaSalio = _qdDoc === 'todo' && !vieja ? (g && g.salio_at ? `Salió el ${esc(String(g.salio_at).slice(0, 10))} (${esc(g.salio_como || '')})`
+    : versiones.length ? '<span style="color:var(--durazno)">Ésta todavía no se le mandó</span>' : '') : '';
+  /* LO QUE SE LE MANDÓ ANTES. Si la factura se regeneró con otros números después de mandarla, lo
+     que recibió el cliente quedó guardado como versión: se ve acá, tal como salió. */
+  const antes = _qdDoc === 'todo' && versiones.length ? `<div class="qd-versiones">Antes se le mandó: ${versiones.map((v) =>
+    `<button class="${_qdVer === v.version ? '' : 'outline '}small" onclick="qdVerVersion(${v.version})" title="Salió el ${esc(String(v.salio_at || '').slice(0, 10))} (${esc(v.salio_como || '')})">v${v.version} · ${_$(v.total_usdt)} · ${esc(String(v.salio_at || '').slice(5, 10).split('-').reverse().join('/'))}</button>`).join(' ')}</div>` : '';
   const bloq = (t) => `<button class="outline small" disabled title="Todavía no está programado">${t}</button>`;
   const acciones = existe
     ? `<button class="small" onclick="qdAbrirFactura('${c.id}','${f.mes}')">Revisar y mandar</button>`
@@ -361,8 +372,10 @@ function qdMandar(f, cuenta, c) {
         `<button class="${k === _qdDoc ? '' : 'outline'}" data-k="${esc(k)}" onclick="qdElegirDoc(this.dataset.k)"><b>${esc(l)}</b><span>${_$(t)}</span></button>`).join('')}</div>
       <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
         ${control}
+        ${vieja ? `<div class="qd-control">Ésta es la v${vieja.version}: la que salió el ${esc(String(vieja.salio_at || '').slice(0, 10))}. <a href="#" onclick="qdVerVersion(${vieja.version});return false">Volver a la de ahora</a></div>` : ''}
         <div class="qd-msg">${doc ? _qdTg(doc.texto) : '<span class="muted">No hay nada de esto en ese mes.</span>'}</div>
-        <div class="qd-barra">${acciones}<span class="esp"></span><span class="muted">${yaSalio}</span></div>
+        <div class="qd-barra">${vieja ? '' : acciones}<span class="esp"></span><span class="muted">${yaSalio}</span></div>
+        ${antes}
       </div></div>`;
 }
 /* REGISTRAR UN PAGO, DICIENDO DE QUÉ MES ES. «Gabriel pagó el 26 de octubre 4.077 y es de la deuda

@@ -1397,6 +1397,11 @@ function mount(app) {
     res.send(h);
   });
   // El historial de facturas de un cliente: qué se le generó, cuándo, y si salió.
+  /* Lo que se le había mandado antes de regenerar, versión por versión, con el texto tal como salió. */
+  app.get('/api/os/facturas-guardadas/:clienteId/:mes/versiones', (req, res) => ok(res, {
+    versiones: facturasGuardadas.versiones(req.params.clienteId, req.params.mes).map((v) => ({
+      ...v, datos: undefined, texto: v.datos ? facturaSvc.aTexto(v.datos) : '' })),
+  }));
   app.get('/api/os/facturas-guardadas/:clienteId', (req, res) =>
     ok(res, { facturas: facturasGuardadas.delCliente(req.params.clienteId) }));
   // La factura guardada de un mes, tal cual se generó.

@@ -14,6 +14,11 @@
  * ⚠️ La primera vez manda: `generada_at` no se pisa nunca. Si la factura se vuelve a generar se
  * actualiza el contenido y sube `veces`, pero la fecha en que se emitió por primera vez es la que
  * importa para saber qué se le mandó y cuándo.
+ *
+ * ⚠️ LO QUE YA SALIÓ NO SE PISA (fase 4, 27-oct-2026). Si una factura que ya se le mandó al cliente
+ * se regenera con OTROS números, la que salió pasa a `factura_guardada_version` tal cual, y la nueva
+ * queda como «sin mandar»: el cliente tiene la vieja, no ésta. Con los mismos números no cambia nada
+ * (sólo sube `veces`). Los números que se comparan son consumo, externos y total.
  */
 const { db } = require('./db');
 
@@ -70,9 +75,23 @@ function guardar(factura, { como = null, quien = 'admin' } = {}) {
   const cid = String(factura.cliente.id);
   const mes = M(factura.mes);
   const at = nowISO();
-  const ya = db.prepare('SELECT generada_at, veces FROM factura_guardada WHERE cliente_id=? AND mes=?').get(cid, mes);
+  const ya = db.prepare('SELECT * FROM factura_guardada WHERE cliente_id=? AND mes=?').get(cid, mes);
   const cons = (factura.consumo && factura.consumo.total_usdt) || '0';
   const ext = (factura.externos && factura.externos.total_usdt) || '0';
+  const tot = String(factura.totalMes_usdt || '0');
+  const otrosNumeros = !!ya && [[ya.consumo_usdt, cons], [ya.externos_usdt, ext], [ya.total_usdt, tot]]
+    .some(([a, b]) => Math.abs(Number(a || 0) - Number(b || 0)) >= 0.005);
+  // La que ya salió y cambia: se guarda como versión y la nueva arranca sin mandar.
+  const archivar = !!(ya && ya.salio_at && otrosNumeros);
+  if (archivar) {
+    const n = db.prepare('SELECT COUNT(*) c FROM factura_guardada_version WHERE cliente_id=? AND mes=?').get(cid, mes).c;
+    db.prepare(`INSERT INTO factura_guardada_version
+        (cliente_id, mes, version, datos, consumo_usdt, externos_usdt, total_usdt, generada_at, generada_por, salio_at, salio_como, guardada_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(cid, mes, n + 1, ya.datos, ya.consumo_usdt, ya.externos_usdt, ya.total_usdt,
+        ya.actualizada_at || ya.generada_at, ya.generada_por, ya.salio_at, ya.salio_como, at);
+    db.prepare('UPDATE factura_guardada SET salio_at=NULL, salio_como=NULL WHERE cliente_id=? AND mes=?').run(cid, mes);
+  }
 
   db.prepare(`INSERT INTO factura_guardada
       (cliente_id, mes, datos, consumo_usdt, externos_usdt, total_usdt,
@@ -84,9 +103,17 @@ function guardar(factura, { como = null, quien = 'admin' } = {}) {
         -- la primera vez que salió no se pisa: importa cuándo se le mandó, no la última vez que se miró
         salio_at=COALESCE(factura_guardada.salio_at, excluded.salio_at),
         salio_como=COALESCE(factura_guardada.salio_como, excluded.salio_como)`)
-    .run(cid, mes, JSON.stringify(factura), String(cons), String(ext), String(factura.totalMes_usdt || '0'),
+    .run(cid, mes, JSON.stringify(factura), String(cons), String(ext), tot,
       (ya && ya.generada_at) || at, quien, 1, at, como ? at : null, como);
-  return { ok: true, factura: get(cid, mes) };
+  return { ok: true, factura: get(cid, mes), archivada: archivar };
+}
+
+/** Las versiones viejas de una factura que ya había salido, de la primera a la última. */
+function versiones(clienteId, mes) {
+  return db.prepare(`SELECT * FROM factura_guardada_version WHERE cliente_id=? AND mes=? ORDER BY version`)
+    .all(String(clienteId), M(mes)).map((r) => ({ version: r.version, datos: J(r.datos),
+      consumo_usdt: r.consumo_usdt, externos_usdt: r.externos_usdt, total_usdt: r.total_usdt,
+      generada_at: r.generada_at, salio_at: r.salio_at, salio_como: r.salio_como, guardada_at: r.guardada_at }));
 }
 
 /** Deja registrado que la factura salió, y por dónde. Se usa cuando ya estaba guardada. */
@@ -97,4 +124,4 @@ function marcarSalida(clienteId, mes, como) {
   return get(clienteId, mes);
 }
 
-module.exports = { get, delCliente, delMes, guardar, marcarSalida };
+module.exports = { get, delCliente, delMes, guardar, marcarSalida, versiones };
