@@ -246,6 +246,11 @@ function mount(app) {
     const login = String(b.login || '').trim();
     const id = String(b.id || '').trim();
     if (!login || !/^\d+$/.test(id)) return res.status(400).json({ ok: false, error: 'faltan el login y el id del agente' });
+    /* 🔒 El login termina en la lista de paneles del OS. Aunque Mi Caja ya lo filtra, acá no se
+       confía en el otro lado: una comilla o un `<` no tienen nada que hacer en un login. */
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(login)) {
+      return res.status(400).json({ ok: false, error: 'el login tiene caracteres que no se aceptan' });
+    }
     const { cliente, caja } = encontrarCliente(b);
     if (!cliente || !caja) {
       const av = await avisarSoporte({ ...b, detalle: `Agente nuevo: ${login} (id ${id})` },

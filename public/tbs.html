@@ -32,6 +32,8 @@ const ES_TBS = true, ES_CHAT = false;
 
 /* ── LOS AYUDANTES ───────────────────────────────────────────────────────────────────────── */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// El texto adentro de un onclick: ver jsq() en os.html.
+function jsq(s){ return esc(JSON.stringify(String(s==null?'':s))); }
 function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }

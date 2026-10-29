@@ -199,6 +199,8 @@ check('un usuario sin cliente: no existe',
   clientes.updateCaja(cli.id, kDist.id, { agentesPiden: true });
   tg.sendMessage = tgOrig; cfgStore.getTelegramToken = tokOrig;
   check('datos inválidos: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: '{"usuario":"DistPrueba","login":"x","id":"abc"}' }).then((r) => r.status)) === 400);
+  // 🔒 Un login con comilla no entra: terminaría adentro de un botón de la lista de paneles.
+  check('login con comilla: 400', (await fetch(`${U}/agente-nuevo`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify({ usuario: 'DistPrueba', login: "a');alert(1);//", id: '991' }) }).then((r) => r.status)) === 400);
 
   /* ── 5 · el DISTRIBUIDOR pide fichas: para sí o para sus agentes ─────────────────────────── */
   const pedirAg = (b) => fetch(`${U}/pedido-agentes`, { method: 'POST', headers: { 'content-type': 'application/json', ...tok }, body: JSON.stringify(b) }).then((r) => r.json());

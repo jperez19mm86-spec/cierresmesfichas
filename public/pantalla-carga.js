@@ -10,6 +10,8 @@
    multiplica nada. */
 window.PantallaCarga = (function () {
   let api, esc, money, toast, ayuda;
+  // Un texto adentro de un onclick (ver jsq() en os.html): esc() sola no lo protege ahí.
+  const jsq = (s) => esc(JSON.stringify(String(s == null ? '' : s)));
   let _cgCajas = [], _cgRes = null, _cgTimer = null, _cgUsar = null, _cgPaneles = {}, _raiz = null;
   const val = (id) => { const el = _raiz && _raiz.querySelector('#' + id); return el ? String(el.value || '').trim() : ''; };
   const mesNombre = (m) => {
@@ -198,7 +200,7 @@ async function cgCalcular(){
       <b>¿${esc(r.cliente.nombre)} trabaja al ${esc(r.base.pct)}% en ${esc(mesNombre(r.mes))}?</b>
       <div class="muted" style="margin-top:2px">Sale de ${esc(r.base.fuente)}. Se pregunta una sola vez por mes.</div>
       <div class="row" style="margin-top:8px;align-items:flex-end">
-        <div style="flex:0"><button onclick="cgBase('${esc(r.base.pct)}')">Sí, ${esc(r.base.pct)}%</button></div>
+        <div style="flex:0"><button onclick="cgBase(${jsq(r.base.pct)})">Sí, ${esc(r.base.pct)}%</button></div>
         <div style="flex:0 0 120px"><label>No, es otro</label><input id="cg-otro" inputmode="decimal" placeholder="7"></div>
         <div style="flex:0"><button class="outline" onclick="cgBase()">Guardar</button></div>
         <div class="muted" style="flex:1 1 220px;align-self:center;font-size:11.5px">

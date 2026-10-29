@@ -446,6 +446,7 @@ async function main() {
     // Lo que la tarjeta usa del ámbito de la página para el prepago en pesos (acá, sin prepago).
     const _tcAhoraCmp = null; const _esPrepagoArs = () => false;
     const montoNum = (x) => Number(String(x).replace(/[^\d.]/g, '')) || null; const money = (x) => String(x);
+    const jsq = (x) => esc(JSON.stringify(String(x)));
     const c = { id: 'cmp_t', codigo: 'L210', monto: '200000', divisa: 'ARS' };
     const mesSugerido = (f) => String(f || '').slice(0, 7); const _clientes = [];
     const pend = true;
@@ -1046,7 +1047,7 @@ async function main() {
       !sinArreglar.length, sinArreglar.join(', ') || 'las 6');
     // Y las de mirar el día a día NO se tocaron: ahí el mes corriente es el correcto.
     check('cierre: las pantallas de seguimiento siguen abriendo en el mes corriente',
-      /let _tdMes = new Date\(\)\.toISOString\(\)\.slice\(0,7\)/.test(hUi)
+      /let _tdMes = \(d => d\.getFullYear\(\)/.test(hUi)   // el mes corriente en hora local, no UTC
       && /const mes=_acMes\|\|new Date\(\)\.toISOString\(\)\.slice\(0,7\)/.test(hUi),
       'el reporte diario de TBS y el acumulado');
 
@@ -1801,7 +1802,7 @@ async function main() {
        el bueno tiene que ser un clic. */
     check('nombre TBS: cada resto se puede elegir con un clic',
       /async function apiUsarNombre\(id, v\)\{/.test(srcUi4)
-      && /onclick="apiUsarNombre\('\$\{c\.id\}','\$\{esc\(v\)/.test(srcUi4));
+      && /onclick="apiUsarNombre\('\$\{c\.id\}',\$\{jsq\(v\)/.test(srcUi4));
   }
   /* ── LAS OFERTAS COMERCIALES ─────────────────────────────────────────────────────────────────
      La oferta ES el precio: se arma con paquetes, se manda como documento y al aplicarla escribe
@@ -7012,7 +7013,7 @@ async function main() {
       rotos.length === 0, rotos.join(' | ') || 'ninguno');
     // Y el del repaso, que es el que se rompió, con comillas simples.
     check('repaso: el botón de confirmar usa comillas simples',
-      /onclick="repConfirmar\(\\'/.test(h) || /repConfirmar\(\\'' \+ esc/.test(h),
+      /onclick="repConfirmar\(\\'/.test(h) || /repConfirmar\(\\'' \+ esc/.test(h) || /repConfirmar\(' \+ jsq\(/.test(h),
       'onclick="repConfirmar(\'14\')" — no con dobles');
   }
 

@@ -53,7 +53,7 @@ VIEWS.tc = async () => {
   // (Enero_26 después de Julio_2026) no hay forma de leer la grilla.
   const mesesCie = (d.meses||[]).slice().sort((a,b)=>String(tcISO(a)||a).localeCompare(String(tcISO(b)||b)));
   const head = ['<th class="cie-h0">Moneda</th>'].concat(mesesCie.map(me=>
-    `<th>${esc(me)}<br><span class="cie-x" title="borrar la columna ${esc(me)}" onclick="tcBorrarMes('${esc(me).replace(/'/g,"\\'")}')">✕</span></th>`)).join('');
+    `<th>${esc(me)}<br><span class="cie-x" title="borrar la columna ${esc(me)}" onclick="tcBorrarMes(${jsq(me)})">✕</span></th>`)).join('');
   const filas = monedas.slice().sort((a,b)=> (a===PROV?1:0)-(b===PROV?1:0) || a.localeCompare(b));
   const body = filas.map(mon=>{
     const esProv = mon===PROV;
@@ -67,11 +67,11 @@ VIEWS.tc = async () => {
       const sinMirar = t!=null && t!=='' && !((confs[mon]||{})[me]);
       return `<td${sinMirar?' class="cie-nomirado"':''}><input class="cie-b" style="width:70px" data-mon="${esc(mon)}" data-mes="${esc(me)}" value="${t==null?'':esc(t)}" onchange="cieSetTC(this)">`
         + (sinMirar?`<div class="cie-nm" title="Lo puso el sistema solo: es el promedio del mes, no el que recibiste. Escribí el tuyo encima, o tocá acá si ese número es el real."
-             onclick="tcEsElReal('${esc(mon).replace(/'/g,"\\'")}','${esc(me).replace(/'/g,"\\'")}')">lo puso el sistema · <b>es el real</b></div>`:'')
+             onclick="tcEsElReal(${jsq(mon)},${jsq(me)})">lo puso el sistema · <b>es el real</b></div>`:'')
         + `</td>`;
     }).join('');
     return `<tr${esProv?' class="cie-hv"':''}><td class="cie-p">${esc(mon)}${esProv?' <span class="cie-tag">del proveedor</span>':''}
-      <span class="cie-x" title="borrar la fila ${esc(mon)}" onclick="tcBorrarMoneda('${esc(mon).replace(/'/g,"\\'")}')">✕</span></td>${tds}</tr>`;
+      <span class="cie-x" title="borrar la fila ${esc(mon)}" onclick="tcBorrarMoneda(${jsq(mon)})">✕</span></td>${tds}</tr>`;
   }).join('');
   const disc = uso.discrepancias||[];
   const rows = (uso.monedas||[]);

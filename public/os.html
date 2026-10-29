@@ -173,6 +173,12 @@ const NOFILL = 'autocomplete="off" autocorrect="off" autocapitalize="off" spellc
 const NOFILL_SECRETO = 'autocomplete="new-password" ' + NOFILL.replace('autocomplete="off" ', '');
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/* 🔒 UN TEXTO ADENTRO DE UN onclick, como argumento de una función. `esc()` sola NO sirve ahí: el navegador des-escapa el
+   atributo ANTES de correr el JavaScript, así que una comilla escapada vuelve a ser comilla y corta
+   el string —con un nombre que viene de afuera, eso es código ajeno corriendo con tu sesión
+   (relevamiento del 29-oct-2026). JSON.stringify arma el string de JS con sus propias comillas y
+   escapes, y esc() lo deja pasar entero por el atributo. Se usa SIN comillas alrededor del ${jsq(x)}. */
+function jsq(s){ return esc(JSON.stringify(String(s==null?'':s))); }
 function money(n,d=2){ const x=Number(n||0); return x.toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
 /* ── EL MES QUE TOCA CERRAR ───────────────────────────────────────────────────────────────────
@@ -1134,7 +1140,7 @@ function nivelPanel(p){
   // pasó al title del badge: es el detalle, no el titular.
   return `<span class="badge warn" title="Acá dice «${esc(p.nivel_usuario||'—')}», pero ese nivel es el que se eligió al crear la caja, no el que dice el casino. Hasta resolverlo, la carga de fichas puede fallar.">sin resolver</span>
     <button class="outline small" style="margin-left:6px;padding:3px 8px"
-      onclick="resolverPanel('${p.id}','${esc(p.nombre).replace(/'/g,'')}')">⟳ resolver</button>`;
+      onclick="resolverPanel('${p.id}',${jsq(p.nombre)})">⟳ resolver</button>`;
 }
 
 /* Resuelve UN panel contra el casino. Baja el árbol de su sistema (el casino no devuelve el padre,
@@ -1217,7 +1223,7 @@ async function divisasCasino(conexion_id, panel_id){
      <td><code>${esc(x[campo].join(','))}</code></td>
      <td class="muted" style="font-size:11px">habilitadas: ${esc(x.habilitadas.join(','))}<br>
        guardadas: ${esc(x.guardadas.join(',')||'—')} · movió: ${esc(x.usadas.join(',')||'sin datos')}</td>
-     <td><button class="small" onclick="setDivisas('${x.panel_id}','${esc(x.habilitadas.join(','))}')">poner las del casino</button></td></tr>`;
+     <td><button class="small" onclick="setDivisas('${x.panel_id}',${jsq(x.habilitadas.join(','))})">poner las del casino</button></td></tr>`;
   caja.innerHTML=`<h3 style="margin:0 0 4px">Cruce con el casino <span class="muted" style="font-weight:400">${filas.length} paneles</span></h3>
     ${mueven.length?`<div class="nota err" style="margin:8px 0"><b>⚠️ ${mueven.length} paneles mueven una divisa que el OS no tiene en la lista.</b>
       Es lo único de acá que puede estar costando plata: el panel factura en esa moneda y el OS no la sabe.</div>
@@ -1253,10 +1259,10 @@ function bloquePaneles(c){
             (p.divisas||[]).map(d=>'<span class="pill" style="margin:0 3px 3px 0">'+esc(d)+'</span>').join('')||'<span class="muted">ninguna</span>'}</span>`
           + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
                title="El casino no tiene habilitadas ${esc(sobran.join(', '))} en este nodo, así que preguntar por ellas siempre trae cero. Tocá para dejar exactamente las del casino."
-               onclick="setDivisas('${p.id}','${esc((g.habilitadas||[]).join(','))}')">sobran ${sobran.length} → poner las del casino</span></div>`:'')
+               onclick="setDivisas('${p.id}',${jsq((g.habilitadas||[]).join(','))})">sobran ${sobran.length} → poner las del casino</span></div>`:'')
           + ` <button class="small outline" style="padding:1px 5px;font-size:10.5px;white-space:nowrap"
                title="Le pregunta al casino qué divisas tiene habilitadas ESTE panel ahora. Es un solo pedido: se puede tocar cuando un cliente avisa que arranca en otra moneda, sin correr el cruce completo."
-               onclick="buscarDivisas('${p.id}','${esc(p.nombre)}')">pedir al casino</button>`
+               onclick="buscarDivisas('${p.id}',${jsq(p.nombre)})">pedir al casino</button>`
           + (ign.length?`<div style="margin-top:2px"><span class="badge muted"
                title="Están habilitadas en el casino pero la Foto del mes no las pregunta: figuran en «divisas que no se consultan». Se saca de ahí y vuelven solas.">no se consulta: ${esc(ign.join(', '))}</span></div>`:'');
         })()}</td>
@@ -1897,7 +1903,7 @@ function editCli(id){
                 <div style="flex:1;min-width:220px"><label for="baja-mot-${id}">Por qué</label><input id="baja-mot-${id}" placeholder="ej: dejó de trabajar con nosotros"></div>
                 <button class="small" onclick="cliDarDeBaja('${id}')">⏸ Dar de baja</button></div>`}
           <div class="muted" style="font-size:12px;margin:14px 0 6px">Borrar se lleva <b>todo</b> y no se puede deshacer: sólo para uno cargado por error, sin movimientos ni facturas.</div>
-          <button class="outline small danger" onclick="borrarCliente('${id}','${esc(c.codigo)}')">🗑 Borrar este cliente</button>
+          <button class="outline small danger" onclick="borrarCliente('${id}',${jsq(c.codigo)})">🗑 Borrar este cliente</button>
         </details>
         </div>
         <div class="cli-sec" data-sec="cajas">
@@ -1965,7 +1971,7 @@ function editCli(id){
               <div class="muted" style="font-size:11px;margin-top:2px">Reciben lo mismo: cargas, anulaciones, movimientos y abonos. No se heredan a sus clientes.</div></div>
             <div style="flex:0;padding-bottom:9px"><label style="text-transform:none;display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
               <input type="checkbox" id="e-tgon" ${(c.telegram||{}).enabled?'checked':''} style="width:auto"> avisar cada carga</label></div>
-            <div style="flex:0"><button class="outline small" onclick="tgProbar('${id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button></div>
+            <div style="flex:0"><button class="outline small" onclick="tgProbar('${id}',${jsq(String(c.nombre||c.codigo))})">🔔 Probar</button></div>
             <div class="muted" style="flex:1;padding-bottom:9px">Se guarda con 💾 Guardar. <b>Probar manda un mensaje de verdad al grupo.</b></div>
           </div>
         </div>
@@ -2036,7 +2042,7 @@ async function loadAgentes(id){
             <input type="checkbox" style="width:auto" ${a.agentesPiden!==false?'checked':''} oninput="event.stopPropagation()"
               onchange="event.stopPropagation();setAgentesPiden('${id}','${a.id}',this.checked)"> Sus agentes piden fichas ellos mismos</label></div>
           <div class="muted" style="font-size:12px">Entra a Mi Caja como distribuidor: los agentes que cree se suman solos a este cliente ${a.agentesPiden!==false?'con «sólo pedir fichas»':'<b>sin poder pedir</b> (las fichas se las pide él)'}. Cambiarlo no toca a los agentes que ya están: esos se ajustan en su fila.</div></div>
-        <button class="small danger" onclick="quitarDistribuidor('${id}','${a.id}','${esc(a.usuario)}')">Quitar</button>
+        <button class="small danger" onclick="quitarDistribuidor('${id}','${a.id}',${jsq(a.usuario)})">Quitar</button>
       </div>`).join('')}
     ${agts.length ? agts.map(a=>`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--border)">
         <div style="min-width:180px"><b>${esc(a.etiqueta||a.usuario)}</b>${a.etiqueta?` <span class="muted" style="font-size:11px">${esc(a.usuario)}</span>`:''}
@@ -2091,11 +2097,11 @@ async function loadCliProv(id){
   const d=await api('/api/os/cierre/cliente/'+encodeURIComponent(nombre));
   const provs=d.proveedores||[], celdas=d.celdas||{};
   const con=provs.filter(p=>celdas[p.nombre]!=null&&celdas[p.nombre]!=='').length;
-  const rows=provs.map(p=>{const v=celdas[p.nombre]; return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td>${esc(p.nombre)}</td><td class="muted right">${esc(p.base_pct==null?'—':p.base_pct)}</td><td class="right"><input class="cie-c" style="width:64px" data-prov="${esc(p.nombre)}" value="${v==null?'':esc(v)}" placeholder="—" onchange="cliProvCell(this,'${esc(nombre)}')"></td></tr>`;}).join('');
+  const rows=provs.map(p=>{const v=celdas[p.nombre]; return `<tr data-prov="${esc(p.nombre.toLowerCase())}"><td>${esc(p.nombre)}</td><td class="muted right">${esc(p.base_pct==null?'—':p.base_pct)}</td><td class="right"><input class="cie-c" style="width:64px" data-prov="${esc(p.nombre)}" value="${v==null?'':esc(v)}" placeholder="—" onchange="cliProvCell(this,${jsq(nombre)})"></td></tr>`;}).join('');
   el.innerHTML = `<div class="card"><h2>🎰 % de proveedores de este cliente</h2>
     <p class="muted">El % que se le cobra a <b>${esc(nombre)}</b> por cada proveedor (su columna en <b>🎮 Proveedores → % por cliente</b> — editás acá o allá, es lo mismo). El % neto = <b>este % − descuento</b>. ${d.existe?'':'<b>⚠ Este cliente todavía no es columna de la matriz; se crea al guardar el primer %.</b>'} <b>${con}</b> con % cargado de ${provs.length}.</p>
     <div class="row" style="align-items:flex-end;gap:10px">
-      <div style="flex:0"><label>Descuento (1_Cliente) %</label><input id="cliprov-desc" style="width:100px" value="${esc(d.descuento==null?'':d.descuento)}" placeholder="—" onchange="cliProvDesc(this,'${esc(nombre)}')"></div>
+      <div style="flex:0"><label>Descuento (1_Cliente) %</label><input id="cliprov-desc" style="width:100px" value="${esc(d.descuento==null?'':d.descuento)}" placeholder="—" onchange="cliProvDesc(this,${jsq(nombre)})"></div>
       <div style="flex:1"><label>🔎 Buscar proveedor</label><input id="cliprov-q" oninput="filtCliProv()" placeholder="ej: PRAGMATIC"></div>
     </div>
     <style>.clipt input:focus{outline:1px solid var(--gold)}.clipt .cie-ok{background:rgba(0,180,80,.25)}</style>
@@ -2138,7 +2144,7 @@ async function cliPintarCodigos(id){
   const mios=mp.filter(x=>x.cliente_id===id);
   box.innerHTML = mios.length
     ? mios.map(x=>`<span class="pill" style="margin-right:6px">${esc(x.codigo)}
-        <span class="cie-x" title="quitar" onclick="cliDelCodigo('${esc(x.codigo).replace(/'/g,"\\'")}')">✕</span></span>`).join('')
+        <span class="cie-x" title="quitar" onclick="cliDelCodigo(${jsq(x.codigo)})">✕</span></span>`).join('')
     : '<span class="badge err">todavía no tiene código propio</span> <span class="muted">— sus pedidos solo pueden entrar con el código de su vendedor, y ahí se facturan al 0%</span>';
 }
 async function cliAddCodigo(id){
@@ -3756,7 +3762,7 @@ async function pintarComprobantes(estado, conFiltros) {
               + '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
               +   '<div style="flex:0 0 auto"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
               +     '<input id="cmp-u-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
-              +   '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+              +   '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',' + jsq(c.codigo) + ')">✅ Aprobar y acreditar</button></div>'
               +   '<div class="muted" style="flex:1 1 200px;padding-bottom:9px;font-size:12px">Viene en ' + esc(c.divisa || 'ARS')
               +     ' y su cuenta se lleva en ' + esc(_cmpMoneda(c.codigo)) + ': no hay tipo de cambio que poner.</div>'
               + '</div>'
@@ -3771,21 +3777,21 @@ async function pintarComprobantes(estado, conFiltros) {
                 + money(_tcAhoraCmp, 2) + '). ' + esc(c.monto) + ' USDT = <b>ARS ' + money(Math.round(montoNum(c.monto) * _tcAhoraCmp), 0)
                 + '</b>, que quedan fijos como saldo para pedir. Si lo cambiaste a otro valor, corregilo.</div>' : ''; })()
           +     '<div style="flex:0 0 auto"><label>Acreditar (' + esc(_cmpMoneda(c.codigo)) + ')</label>'
-          +       '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"'
+          +       '<input id="cmp-u-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',' + jsq(c.codigo) + ')" placeholder="' + (_cmpMoneda(c.codigo)==='ARS'?'ej 100000':'ej 250') + '" style="width:130px"'
           +       ((_tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo) && montoNum(c.monto)) ? ' value="' + Math.round(montoNum(c.monto) * _tcAhoraCmp) + '"' : '') + '></div>'
           // ── EL TIPO DE CAMBIO, A MANO ──────────────────────────────────────────────────────
           // No es la cotización del día: es a cuánto se cambió ESA plata, que se acuerda con quien
           // la cambió. Si no se anota en el momento, después no se reconstruye. Es la columna
           // "Ex Rate" de la planilla, entre los pesos y los dólares.
           +     '<div style="flex:0 0 auto"><label>Tipo de cambio</label>'
-          +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',\'' + esc(c.codigo) + '\')" placeholder="ej 1646,59" style="width:120px"'
+          +       '<input id="cmp-tc-' + c.id + '" oninput="cmpEquiv(\'' + c.id + '\',' + jsq(c.codigo) + ')" placeholder="ej 1646,59" style="width:120px"'
           +       ((_tcAhoraCmp && String(c.divisa || '').toUpperCase() === 'USDT' && _esPrepagoArs(c.codigo)) ? ' value="' + String(_tcAhoraCmp).replace('.', ',') + '"' : '') + '></div>'
           +     '<div style="flex:0 0 auto;min-width:170px"><label>Equivale a</label>'
           +       '<div id="cmp-eq-' + c.id + '" class="muted" style="padding:8px 0 0;font-weight:700">—</div>'
           /* Aprobar es aceptar ese tipo de cambio. Acá se ve, antes de apretar, cuánto se separa
              del mercado de ahora — que es el único con el que tiene sentido compararlo. */
           +       '<div id="cmp-dif-' + c.id + '" style="font-size:12px;padding-bottom:6px"></div></div>'
-          +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\')">✅ Aprobar y acreditar</button></div>'
+          +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',' + jsq(c.codigo) + ')">✅ Aprobar y acreditar</button></div>'
           +   '</div>'
           + '</div>'
 
@@ -3814,7 +3820,7 @@ async function pintarComprobantes(estado, conFiltros) {
           + '<div class="row" style="margin-top:10px;align-items:flex-end;gap:10px">'
           +   '<div style="flex:1 1 300px"><label>Nota <span class="muted" style="text-transform:none;letter-spacing:0">— sólo la ves vos</span></label>'
           +     '<input id="cmp-n-' + c.id + '" placeholder="opcional"></div>'
-          +   '<div style="flex:0 0 auto"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',\'' + esc(c.codigo) + '\')">✖ Rechazar</button></div>'
+          +   '<div style="flex:0 0 auto"><button class="small danger" onclick="cmpResolver(\'' + c.id + '\',\'rechazado\',' + jsq(c.codigo) + ')">✖ Rechazar</button></div>'
           + '</div>'
         : '<div style="margin-top:8px">'
           // ── LO QUE SE ACREDITÓ DE VERDAD ────────────────────────────────────────────────────
@@ -4422,7 +4428,7 @@ async function ciePasos(){
              mandándote a otra pantalla. El primero es contrastar el mes: antes había que entrar
              a la factura de cada cliente y apretar el botón adentro, 53 veces. */
           + (p.accion ? '<button class="small" onclick="' + esc(p.accion) + '()">correr</button>' : '')
-          + '<button class="' + (toca&&!p.accion?'':'outline ') + 'small" onclick="irA(\'' + esc(p.ir) + '\')">'
+          + '<button class="' + (toca&&!p.accion?'':'outline ') + 'small" onclick="irA(' + jsq(p.ir) + ')">'
           +   (p.estado==='listo' ? 'ver' : 'ir') + ' →</button>'
           + '</div>';
       }).join('') + '</div>';
@@ -4526,7 +4532,7 @@ function pagoPintar(){
       <table><thead><tr><th>Servidor</th><th>Divisa</th><th class="right">Ganancia</th><th class="right">A pagar</th><th class="right">TC</th><th class="right">USDT</th></tr></thead><tbody>
       ${p.lineas.map(l=>`<tr><td>${esc(l.conexion)}</td><td class="muted">${esc(l.divisa)}</td><td class="right">${money(l.profit)}</td><td class="right">${money(l.monto)}</td><td class="right muted">${esc(l.tc)}</td><td class="right"><b>${money(l.usdt)}</b></td></tr>`).join('')}
       </tbody></table></div></td></tr>` : '';
-    return `<tr style="cursor:pointer" onclick="pagoToggle('${esc(p.proveedor).replace(/'/g,"\\'")}')">
+    return `<tr style="cursor:pointer" onclick="pagoToggle(${jsq(p.proveedor)})">
       <td><span style="color:var(--gold);font-size:10px">${ab?'▾':'▸'}</span> <b>${esc(p.proveedor)}</b></td>
       <td class="right">${esc(p.costo)}%</td>
       <td class="muted">${p.lineas.length} línea${p.lineas.length===1?'':'s'}</td>
@@ -4674,7 +4680,7 @@ async function pagoDocs(){
               <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}','_blank')">Ver</button>
               <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}/planilla.csv','_blank')">CSV</button>
               <button class="outline small" onclick="window.open('/api/os/documentos/${esc(d.id)}/archivo.html','_blank')" title="Bajar el .html para guardarlo fuera del sistema">⤓</button>
-              <button class="outline small" onclick="docVerificar('${esc(d.id)}')">Verificar</button>
+              <button class="outline small" onclick="docVerificar(${jsq(d.id)})">Verificar</button>
             </td></tr>`).join('')
         + '</tbody></table>');
 }
@@ -4791,9 +4797,9 @@ function venPintar(){
         : (propia ? '<span class="muted">' + money(f.rama) + '</span>' : '<b>' + money(f.rama) + '</b>')}</td>
       <td class="right">${f.saldo==null?'<span class="muted">—</span>':('<b>'+money(f.saldo)+'</b>')}</td>
       <td class="right"><button class="outline small" title="Lo que movió toda su línea, proveedor por proveedor"
-        onclick="pdfRamaProveedores('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">🖨 PDF</button>
+        onclick="pdfRamaProveedores(${jsq(v.nombre)},'${esc(_venMes)}')">🖨 PDF</button>
         <button class="small" style="margin-left:4px" title="Mandarla a Cuentas Imperium por Telegram"
-        onclick="venEnviarLinea('${esc(String(v.nombre).replace(/'/g,"\\'"))}','${esc(_venMes)}')">📤</button></td>
+        onclick="venEnviarLinea(${jsq(v.nombre)},'${esc(_venMes)}')">📤</button></td>
     </tr>`;
   }).join('');
   out.innerHTML = `
@@ -4915,7 +4921,7 @@ function todasPintar(origen){
        esperar el minuto que tarda y recién ahí bajar hasta el botón: para los 18 era imposible. */
     +   (true
         ? '<td class="reptd right"><button class="outline small" title="El papel de ' + esc(f.cliente) + ' para mandarle"'
-          + ' onclick="pdfExternosDe(\'' + esc(String(f.cliente).replace(/'/g, "\\'")) + '\',\'' + esc(t.mes) + '\')">🖨 PDF</button></td>'
+          + ' onclick="pdfExternosDe(' + jsq(f.cliente) + ',' + jsq(t.mes) + ')">🖨 PDF</button></td>'
         : '') + '</tr>').join('')
     + '</tbody></table></div>';
 }
@@ -5148,7 +5154,7 @@ function repPintar(){
     /* Comillas SIMPLES adentro del atributo. Con JSON.stringify salían dobles —onclick="repConfirmar("14")"—
        y el navegador cortaba el atributo en la primera: el botón no hacía nada. Y esc() sobre el
        valor, que además de escapar deja el número intacto. */
-    +   (sug==null?'':'<button class="repbig" onclick="repConfirmar(\'' + esc(String(sug)) + '\')">✓ Sigue en ' + esc(sug) + ' %</button>')
+    +   (sug==null?'':'<button class="repbig" onclick="repConfirmar(' + jsq(String(sug)) + ')">✓ Sigue en ' + esc(sug) + ' %</button>')
     +   '<span class="muted">o poné otro:</span>'
     +   '<input class="repotro" id="rep-otro" type="number" step="0.01" min="0" max="100" placeholder="' + (sug==null?'%':esc(sug)) + '"'
     +     ' onkeydown="if(event.key===&quot;Enter&quot;)repConfirmar(this.value)">'
@@ -5730,7 +5736,7 @@ async function cieMatriz(){
   const th = (c)=>{
     const b = pctDe[c.nombre];
     const viejo = (c.descuento!=null && c.descuento!=='' && String(c.descuento)!==String(b)) ? c.descuento : null;
-    return `<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli('${esc(c.nombre)}')">×</span>`
+    return `<th>${esc(c.nombre)} <span class="cie-x" title="Quitar cliente" onclick="delCieCli(${jsq(c.nombre)})">×</span>`
       + `<span class="cie-pct${viejo?' raro':''}" title="${b==null?'sin % cargado para el mes'
           : 'el % que se le cobra en ' + esc(mesNombre(mesMx)) + (viejo?' — la planilla vieja decía ' + esc(viejo) + '%':'')}">`
       + (b==null?'—':esc(b)+'%') + '</span></th>'; };
@@ -5772,14 +5778,14 @@ async function cieMatriz(){
       : !conVal.length ? '<span class="cie-est cie-est-sc" title="Lo reporta el casino pero ningún cliente tiene valor: FALTA CONFIGURARLO">sin configurar</span>'
       : !cobran ? '<span class="cie-est cie-est-nc" title="Todos en 0: decidido que no se cobra">no se cobra</span>'
       : `<span class="cie-est cie-est-ok" title="${cobran} clientes lo pagan">${cobran}</span>`;
-    return `<tr data-prov="${esc(p.nombre.toLowerCase())}" data-fam="${esc(cieFam(p.nombre))}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv('${esc(p.nombre)}')">×</span> ${esc(p.nombre)} ${est}</td>`+
+    return `<tr data-prov="${esc(p.nombre.toLowerCase())}" data-fam="${esc(cieFam(p.nombre))}"><td class="cie-p"><span class="cie-x" title="Quitar proveedor" onclick="delCieProv(${jsq(p.nombre)})">×</span> ${esc(p.nombre)} ${est}</td>`+
       `<td><input class="cie-b" data-prov="${esc(p.nombre)}" value="${esc(p.base_pct==null?'':p.base_pct)}" onchange="cieBase(this)"></td>`+tds+`</tr>`;
   };
   const body = orden.map(f=>{
     const filas = fams[f].map(fila).join('');
     const cerrada = _cieCerradas.has(f);
     const costos = [...new Set(fams[f].map(p=>p.base_pct).filter(x=>x!=null&&x!==''))];
-    const cab = `<tr class="cie-fam" onclick="cieFold('${esc(f)}')"><td colspan="${nCols}">`
+    const cab = `<tr class="cie-fam" onclick="cieFold(${jsq(f)})"><td colspan="${nCols}">`
       +`${cerrada?'▸':'▾'} <b>${esc(f)}</b> <span class="muted">· ${fams[f].length} proveedores`
       +`${costos.length===1?` · costo ${esc(costos[0])}`:costos.length?` · costos ${costos.slice(0,4).join(', ')}${costos.length>4?'…':''}`:''}</span></td></tr>`;
     return cab + (cerrada ? '' : filas);
@@ -6753,8 +6759,8 @@ CFG.divisas = async () => {
       ${d.map(x=>`<tr>
         <td><b>${esc(x.codigo)}</b></td>
         <td class="muted">${esc(x.nombre||'—')}</td>
-        <td><label style="cursor:pointer;white-space:nowrap"><input type="checkbox" ${x.activa?'checked':''} onchange="toggleDivisa('${esc(x.codigo)}',this.checked)"> ${x.activa?'activa':'inactiva'}</label></td>
-        <td class="right"><button class="danger small" onclick="delDivisa('${esc(x.codigo)}')">🗑</button></td>
+        <td><label style="cursor:pointer;white-space:nowrap"><input type="checkbox" ${x.activa?'checked':''} onchange="toggleDivisa(${jsq(x.codigo)},this.checked)"> ${x.activa?'activa':'inactiva'}</label></td>
+        <td class="right"><button class="danger small" onclick="delDivisa(${jsq(x.codigo)})">🗑</button></td>
       </tr>`).join('')||'<tr><td colspan="4" class="empty">Sin divisas.</td></tr>'}
       </tbody></table>
     </div>`;
@@ -7034,7 +7040,7 @@ function tgGrupos(cs, pans){
         <input type="checkbox" id="tge-${c.id}" ${t.enabled?'checked':''} onchange="tgFila('${c.id}')" style="width:auto">
         avisar cada carga</label></td>
       <td class="right" style="white-space:nowrap">
-        ${(propio||hered)?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
+        ${(propio||hered)?`<button class="outline small" onclick="tgProbar('${c.id}',${jsq(String(c.nombre||c.codigo))})">🔔 Probar</button>`:''}
         <button class="outline small" onclick="abrirCliente('${c.id}','cajas')">Ficha</button></td></tr>`;
   };
   // Baja por el árbol. `vistos` corta cualquier ciclo en los datos (A vendedor de B y B de A):
@@ -7258,7 +7264,7 @@ function renderNodos(){
   let a=_cxNodos; if(q) a=a.filter(n=>String(n.login).toLowerCase().includes(q)||String(n.id).includes(q));
   box.innerHTML = `<div class="muted" style="margin-bottom:6px">${a.length} nodos${q?' (filtrados)':''}</div>
     <table><thead><tr><th>ID</th><th>Login</th><th class="right">IN (carga)</th><th class="right">OUT</th><th class="right">Profit</th><th>RTP</th><th></th></tr></thead><tbody>
-    ${a.slice(0,200).map(n=>`<tr><td><span class="pill">${esc(n.id)}</span></td><td><b>${esc(n.login)}</b> ${n.online?'<span style="color:var(--green)">●</span>':''}</td><td class="right">${money(n.in,0)}</td><td class="right">${money(n.out,0)}</td><td class="right"><b>${money(n.profit,0)}</b></td><td>${esc(n.rtp||'')}</td><td class="right"><button class="outline small" onclick="drillNodo('${esc(n.id)}')">▸ hijos</button></td></tr>`).join('')}
+    ${a.slice(0,200).map(n=>`<tr><td><span class="pill">${esc(n.id)}</span></td><td><b>${esc(n.login)}</b> ${n.online?'<span style="color:var(--green)">●</span>':''}</td><td class="right">${money(n.in,0)}</td><td class="right">${money(n.out,0)}</td><td class="right"><b>${money(n.profit,0)}</b></td><td>${esc(n.rtp||'')}</td><td class="right"><button class="outline small" onclick="drillNodo(${jsq(n.id)})">▸ hijos</button></td></tr>`).join('')}
     </tbody></table>${a.length>200?('<div class="muted">(mostrando 200 de '+a.length+')</div>'):''}`;
 }
 
@@ -9382,7 +9388,7 @@ function opFormulario(){
       <textarea id="op-solo" rows="4" style="width:100%;margin-top:6px" placeholder="Un login o ID por renglón"></textarea>
     </details>
     <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="op-enlinea"> Saltear a los que estén en línea</label>
-    <div style="margin-top:12px"><button onclick="opRevisar('${esc(def.tipo)}')" id="op-revisar">🔍 Revisar</button></div>
+    <div style="margin-top:12px"><button onclick="opRevisar(${jsq(def.tipo)})" id="op-revisar">🔍 Revisar</button></div>
   </div>`;
 }
 
@@ -9501,7 +9507,7 @@ function opHistorial(){
   return `<div class="card"><h3 style="margin:0 0 8px">Lo que se corrió</h3>
     <div style="overflow-x:auto"><table style="min-width:100%"><thead><tr><th>Cuándo</th><th>Qué</th><th>Estado</th><th class="right">✅</th><th class="right">❌</th><th class="right">⏳</th><th>Quién</th></tr></thead><tbody>
     ${h.map(o => { const [lbl, cls] = OP_ESTADO[o.estado] || [o.estado, '']; const c = o.contexto || {};
-      return `<tr style="cursor:pointer" onclick="opAbrir('${esc(o.id)}')"><td>${opFecha(o.creado)}</td>
+      return `<tr style="cursor:pointer" onclick="opAbrir(${jsq(o.id)})"><td>${opFecha(o.creado)}</td>
         <td>${esc(o.titulo)}: <b>${esc(c.origen && c.origen.login)}</b> → <b>${esc(c.destino && c.destino.login)}</b></td>
         <td><span class="badge ${cls}">${esc(lbl)}</span></td><td class="right">${opN(o.cuenta.hecho)}</td>
         <td class="right" ${o.cuenta.fallido ? 'style="color:var(--red);font-weight:700"' : ''}>${opN(o.cuenta.fallido)}</td>
@@ -9549,7 +9555,7 @@ function pzPintar(){
     return `<tr${p.activo ? '' : ' style="opacity:.55"'}>
       <td><b>${esc(p.sitio_viejo)}</b> → <b>${esc(p.sitio_nuevo)}</b>
         <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="pill" style="font-size:12px">${esc(msg)}</span>
-        <button class="outline small" onclick="pzCopiar('${esc(msg)}',this)">Copiar link</button></div>
+        <button class="outline small" onclick="pzCopiar(${jsq(msg)},this)">Copiar link</button></div>
         ${p.boton || p.todos ? '<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">' + (p.boton ? '<span class="badge ok" title="Les aparece «Nos actualizamos · Probá ahora» adentro del casino">🔘 Botón en el casino</span>' : '') + (p.todos ? '<span class="badge warn" title="Se pasan todos los logueados del sitio; sólo los de la caja de origen cambian de caja">👥 Todos los del sitio</span>' : '') + '</div>' : ''}
         ${p.fichas_regalo ? (() => { const g = p.regalos || {}; const dados = (g.dado || {}).n || 0; const mal = ((g.fallo || {}).n || 0) + ((g.dudoso || {}).n || 0) + ((g.dando || {}).n || 0);
           return '<div style="margin-top:5px;font-size:12.5px">🎁 ' + n(p.fichas_regalo) + ' de regalo · <b>' + n(dados) + '</b> dados' + (dados ? ' (' + n((g.dado || {}).monto) + ' en total)' : '') + (mal ? ' · <span style="color:var(--red);font-weight:700">' + n(mal) + ' a revisar</span>' : '') + '</div>'

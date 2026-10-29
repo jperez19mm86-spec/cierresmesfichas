@@ -597,6 +597,12 @@ function mount(app) {
     const saldo = b.saldo == null || b.saldo === '' ? 0 : Number(b.saldo);
 
     if (!login) return mal(res, 'Falta el login');
+    /* 🔒 Sólo letras, números, punto, guion y guion bajo. El login de un agente nuevo viaja al OS y
+       se muestra en la lista de paneles: una comilla ahí podía volverse código en la sesión de la
+       dueña (relevamiento del 29-oct-2026). El puente vuelve a chequearlo del otro lado. */
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(login)) {
+      return mal(res, 'El login sólo puede tener letras, números, punto, guion y guion bajo, sin espacios.');
+    }
     if (!clave) return mal(res, 'Falta la contraseña');
     if (!Number.isFinite(saldo) || saldo < 0) return mal(res, 'El saldo inicial no es un número válido');
 

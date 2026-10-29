@@ -492,7 +492,7 @@ function qePintar() {
         <td class="right">${p._via === 'usdt' ? '<b>' + money(p.usdt) + '</b>'
           : p.usdt != null ? `<span class="muted" title="Lo que le bajó de la deuda, en dólares">≈ ${money(p.usdt)}</span>${p.provisional ? ' <span class="qd-chip" title="Con un cambio que todavía se puede mover">~</span>' : ''}`
           : '<span class="qd-chip espera" title="Todavía no está cargado el cambio de ese mes: no se sabe cuánto bajó en dólares">falta cambio</span>'}</td>
-        <td><select class="qe-esde" title="De qué mes es la deuda que paga" onchange="qeMoverPago('${p.id}', this.value, '${esc(p.mes)}', this)">${
+        <td><select class="qe-esde" title="De qué mes es la deuda que paga" onchange="qeMoverPago('${p.id}', this.value, ${jsq(p.mes)}, this)">${
           [...new Set([...mesesDeuda, p.mes])].sort().reverse().map((m) => `<option value="${m}"${m === p.mes ? ' selected' : ''}>${esc(_MESES[Number(m.slice(5))])}${m.slice(0, 4) !== r.mes.slice(0, 4) ? ' ' + m.slice(0, 4) : ''}</option>`).join('')}</select></td>
         <td class="qe-ref">${p.billetera ? `<span class="qe-wallet" title="Billetera a la que entró">${esc(p.billetera)}</span>` : ''}${p.referencia ? `<span class="qe-txt" title="${esc(p.referencia)}">${esc(p.referencia)}</span>` : ''}</td>
         <td class="right">${p.comprobante && p.archivo ? `<button class="qe-clip" title="Ver el comprobante" onclick="window.open('/api/os/comprobantes/${p.comprobante}/archivo','_blank')">📎</button>` : ''}</td></tr>`).join('')

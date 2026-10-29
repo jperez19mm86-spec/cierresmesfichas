@@ -707,7 +707,7 @@ API.ofertas = async () => {
           <td class="right">${(o.lineas||[]).filter(l=>l.paquete_id).length}</td>
           <td class="muted" style="font-size:11px">${esc(String(o.createdAt||'').slice(0,10))}</td>
           <td class="right"><button class="outline small" onclick="ofAbrir('${o.id}')">abrir</button>
-            <button class="outline small" onclick="ofBorrar('${o.id}','${esc(o.titulo).replace(/'/g,'')}')">✕</button></td>
+            <button class="outline small" onclick="ofBorrar('${o.id}',${jsq(o.titulo)})">✕</button></td>
         </tr>`;}).join('')}</tbody></table></div>`
       :'<div class="empty" style="margin-top:12px">Todavía no hay ninguna oferta. Escribí a quién va y armala.</div>'}
     </div>
@@ -1260,7 +1260,7 @@ function apiNombre(c){
              quedó acá abajo y arriba quedó el login reescrito — "Raul-API" arriba y "Raul" acá.
              Elegirlo tiene que ser un clic, no volver a tipearlo. */''}
         ${viejos.map(v=>`<button class="outline small" style="font-size:10.5px;padding:2px 7px"
-          title="Usar «${esc(v)}» como de quién es la cuenta" onclick="apiUsarNombre('${c.id}','${esc(v).replace(/'/g,'')}')">${esc(v)}</button>`).join('')}
+          title="Usar «${esc(v)}» como de quién es la cuenta" onclick="apiUsarNombre('${c.id}',${jsq(v)})">${esc(v)}</button>`).join('')}
         <button class="outline small" style="font-size:10.5px;padding:2px 7px"
           onclick="apiNombresViejos('${c.id}')">✕ sacar ${n===1?'el resto':'los restos'}</button>
       </div></div>`:''}`;
@@ -1569,8 +1569,8 @@ function apiPintarCuentas(){
       <div class="row" style="margin:0 0 8px">
         <button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','${c.cajas&&c.cajas.length?'total':'propio'}')">📄 Cuenta del cliente</button>
         ${(c.cajas||[]).map(k=>`<button class="small outline" onclick="event.stopPropagation();apiDoc('${id}','cliente','caja','${k.cliente_id}')">📄 Sólo ${esc(k.login)}</button>`).join('')}
-        <button class="small" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}',false)">📤 Enviar a la matriz</button>
-        <button class="small outline" onclick="event.stopPropagation();apiEnviar('${id}','${esc(String(c.login)).replace(/'/g,"\\'")}','${c.cajas&&c.cajas.length?'total':'propio'}',true)">📤 …y al cliente</button>
+        <button class="small" onclick="event.stopPropagation();apiEnviar('${id}',${jsq(String(c.login))},'${c.cajas&&c.cajas.length?'total':'propio'}',false)">📤 Enviar a la matriz</button>
+        <button class="small outline" onclick="event.stopPropagation();apiEnviar('${id}',${jsq(String(c.login))},'${c.cajas&&c.cajas.length?'total':'propio'}',true)">📤 …y al cliente</button>
         <span style="flex:1"></span>
         <span class="muted" id="apienv-${id}" style="align-self:center"></span>
       </div>
@@ -1606,7 +1606,7 @@ function apiPintarCuentas(){
              : (x.precios ? esc(x.precios)+' <span class="muted">(el movimiento cae en sellos sin precio)</span>'
              : '<b style="color:var(--red)">ninguno</b>')}</td>
         <td class="right">${x.enLaFoto===false ? '<span class="muted">reclamarle el acceso al proveedor</span>'
-          : (x.id?`<button class="small" onclick="apiCompletar('${esc(x.id)}')">✏️ Cargarle los precios</button>`:'')}</td></tr>`).join('')}
+          : (x.id?`<button class="small" onclick="apiCompletar(${jsq(x.id)})">✏️ Cargarle los precios</button>`:'')}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}
     ${(r.avisos||[]).length?`<div class="nota warn"><span class="tit">Para mirar</span>${r.avisos.map(esc).join('<br>')}</div>`:''}
     ${(r.aceptados||[]).length?`<div class="nota"><span class="tit">Decisiones tomadas</span>${r.aceptados.map(esc).join('<br>')}</div>`:''}
@@ -1620,7 +1620,7 @@ function apiPintarCuentas(){
       <table><thead><tr><th>Cuenta</th><th>Sello</th><th>GGR</th><th></th></tr></thead><tbody>
       ${r.sinPrecio.map(x=>`<tr><td>${esc(x.cuenta)}</td><td><b>${esc(x.sello)}</b></td>
         <td class="muted">${Object.entries(x.porDivisa).map(([d,v])=>esc(d)+' '+money(v,0)).join(' · ')}</td>
-        <td class="right">${x.cliente_id?`<button class="small outline" onclick="apiCompletar('${esc(x.cliente_id)}','${esc(String(x.sello_nombre||x.sello)).replace(/'/g,"\\'")}')">✏️ Ponerle precio</button>`:''}</td></tr>`).join('')}
+        <td class="right">${x.cliente_id?`<button class="small outline" onclick="apiCompletar(${jsq(x.cliente_id)},${jsq(String(x.sello_nombre||x.sello))})">✏️ Ponerle precio</button>`:''}</td></tr>`).join('')}
       </tbody></table></div></div>`:''}`;
 }
 /* Guarda lo que UN cliente paga por UN sello.
@@ -1869,13 +1869,13 @@ function apiCobPintar(){
       <div class="cob-m">${money(x.total,2)}</div><div class="cob-tag">no se cobra</div></td>`;
     return `<td class="cob-c ${x.pagado?'cob-si':'cob-no'}">
       <div class="cob-m">${money(x.total,2)}</div>
-      <button class="cob-est" onclick="apiCobMarcar('${esc(k)}')" title="${x.pagado?'Marcado el '+esc(String(x.pagado_at||'').slice(0,10))+' · tocá para desmarcar':'Tocá para marcar que pagó'}">
+      <button class="cob-est" onclick="apiCobMarcar(${jsq(k)})" title="${x.pagado?'Marcado el '+esc(String(x.pagado_at||'').slice(0,10))+' · tocá para desmarcar':'Tocá para marcar que pagó'}">
         ${x.pagado?'✓ Pagó':'Pendiente'}</button>
       ${x.cambio?`<div class="cob-aviso" title="Cuando se marcó, la cuenta decía ${esc(money(x.pagado_monto,2))}. Después se recalculó.">⚠ se marcó con ${money(x.pagado_monto,2)}</div>`:''}
       <div class="cob-acc">
-        <button class="cob-ic" title="Ver la cuenta de ${esc(cobMes(m))} (la misma que recibe el cliente)" onclick="apiDoc('${esc(id)}','cliente','${alc}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${m}')">Ver</button>
-        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz" onclick="apiEnviar('${esc(id)}','${nom}','${alc}',false,'${m}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${sid}')">→ Matriz</button>
-        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz y al grupo del cliente" onclick="apiEnviar('${esc(id)}','${nom}','${alc}',true,'${m}',${f.es_caja?`'${esc(f.clave)}'`:'null'},'${sid}')">→ Cliente</button>
+        <button class="cob-ic" title="Ver la cuenta de ${esc(cobMes(m))} (la misma que recibe el cliente)" onclick="apiDoc(${jsq(id)},'cliente','${alc}',${f.es_caja?`${jsq(f.clave)}`:'null'},'${m}')">Ver</button>
+        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz" onclick="apiEnviar(${jsq(id)},'${nom}','${alc}',false,'${m}',${f.es_caja?`${jsq(f.clave)}`:'null'},'${sid}')">→ Matriz</button>
+        <button class="cob-ic" title="Mandar la cuenta de ${esc(cobMes(m))} a la matriz y al grupo del cliente" onclick="apiEnviar(${jsq(id)},'${nom}','${alc}',true,'${m}',${f.es_caja?`${jsq(f.clave)}`:'null'},'${sid}')">→ Cliente</button>
       </div>
       <div class="cob-env" id="${sid}"></div>
     </td>`;
