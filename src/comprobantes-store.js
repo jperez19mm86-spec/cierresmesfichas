@@ -26,6 +26,18 @@ const MAX_BYTES = 6 * 1024 * 1024;
 const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
 
 /**
+ * ── LA DIVISA LA ESCRIBE EL CLIENTE, Y NO SE GUARDA LO QUE ESCRIBIÓ ───────────────────────────
+ * Antes se guardaba tal cual (en mayúsculas). El panel la pinta adentro de un botón, y un texto
+ * armado a propósito ahí corría como programa con la sesión de quien aprueba (29-oct-2026). Un pago
+ * sólo puede ser en pesos o en USDT: cualquier otra cosa vuelve a la de la vía.
+ * Por USDT siempre USDT. Por la otra vía puede venir USDT (efectivo en dólares, cargado a mano).
+ */
+function divisaSegura(via, divisa) {
+  if (via === 'usdt') return 'USDT';
+  return K(divisa).toUpperCase() === 'USDT' ? 'USDT' : 'ARS';
+}
+
+/**
  * Alta desde la pantalla pública.
  * @param archivo { nombre, tipo, base64 }  opcional
  */
@@ -71,7 +83,7 @@ function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, a
     (id, codigo, cliente_nombre, via, monto, divisa, referencia, notas, estado,
      archivo_nombre, archivo_tipo, archivo_bytes, archivo_datos, creado_at, billetera_id)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(id, K(codigo), K(clienteNombre), v, m, v === 'usdt' ? 'USDT' : K(divisa || 'ARS').toUpperCase(),
+    .run(id, K(codigo), K(clienteNombre), v, m, divisaSegura(v, divisa),
       K(referencia).slice(0, 120), K(notas).slice(0, 500), 'pendiente',
       nombre, tipo, bytes, datos, nowISO(),
       // A qué billetera entró. Se congela acá: el cliente puede cambiar de billetera mañana y este
