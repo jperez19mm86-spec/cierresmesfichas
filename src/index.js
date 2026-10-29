@@ -439,8 +439,9 @@ app.put('/api/clientes/:id', (req, res) => {
 app.delete('/api/clientes/:id', (req, res) => {
   // baja COMPLETA (paneles, movimientos, participaciones, config y su columna de la matriz):
   // antes esta ruta borraba solo la fila y dejaba la columna huérfana con todos sus % colgando
-  const ok = clientesCascada.borrar(req.params.id);
-  if (!ok) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
+  const r = clientesCascada.borrar(req.params.id);
+  if (!r) return res.status(404).json({ ok: false, error: 'cliente no encontrado' });
+  if (r.frenado) return res.status(409).json({ ok: false, error: 'No se puede borrar: tiene ' + r.frenado.join(', ') + '. Un cliente con historia se da de baja, no se borra.', frenado: r.frenado });
   res.json({ ok: true });
 });
 

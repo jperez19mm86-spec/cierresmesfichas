@@ -33,10 +33,30 @@ function arrastrarRenombre(antes, despues) {
   return false;
 }
 
-/** Baja completa: paneles, % de proveedores, participaciones, config, movimientos y su columna. */
+/* ── QUÉ FRENA EL BORRADO ────────────────────────────────────────────────────────────────────
+   Borrar se lleva los movimientos sin respaldo. Con plata o gente colgando no es «uno cargado por
+   error»: es un cliente que dejó de trabajar, y eso se da de baja (fase 4.3), no se borra. Antes un
+   vendedor borrado dejaba a sus clientes con un vendedor que no existe. */
+function queLoFrena(id) {
+  const n = (sql) => { try { return db.prepare(sql).get(id).n; } catch (e) { return 0; } };
+  const por = [];
+  const movs = n('SELECT COUNT(*) n FROM movimientos WHERE cliente_id=?');
+  if (movs) por.push(`${movs} movimiento(s) en su cuenta`);
+  const facts = n('SELECT COUNT(*) n FROM factura_guardada WHERE cliente_id=?');
+  if (facts) por.push(`${facts} factura(s) guardada(s)`);
+  const otros = clientes.list().clientes.filter((c) => c.id !== id
+    && [c.vendedor_id, c.factura_a, c.abona_a, c.externos_precios_de].includes(id));
+  if (otros.length) por.push(`${otros.length} cliente(s) que dependen de él (${otros.slice(0, 4).map(nombreDe).join(', ')})`);
+  return por;
+}
+
+/** Baja completa: paneles, % de proveedores, participaciones, config, movimientos y su columna.
+    Devuelve false si no existe, o { frenado: [motivos] } si tiene historia. */
 function borrar(id) {
   const antes = clientes.get(id);
   if (!antes) return false;
+  const frenos = queLoFrena(id);
+  if (frenos.length) return { frenado: frenos };
   paneles.list({ cliente_id: id }).forEach((p) => paneles.remove(p.id));
   db.prepare('DELETE FROM cliente_proveedores WHERE cliente_id=?').run(id);
   db.prepare('DELETE FROM participaciones WHERE cliente_id=?').run(id);
@@ -53,4 +73,4 @@ function borrar(id) {
   return clientes.removeCliente(id);
 }
 
-module.exports = { crear, arrastrarRenombre, borrar, nombreDe };
+module.exports = { crear, arrastrarRenombre, borrar, queLoFrena, nombreDe };

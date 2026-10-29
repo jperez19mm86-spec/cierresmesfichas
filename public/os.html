@@ -476,8 +476,15 @@ function cliFoldAll(lista){
 }
 
 function cliArbol(lista){
+  /* Un cliente cuyo vendedor ya no existe, o que entra en un ciclo (A de B y B de A), va a la raíz:
+     antes desaparecía de la lista y de los totales, o la pantalla entera quedaba en blanco. */
+  const porId=new Map(lista.map(c=>[c.id,c]));
+  const padreDe=(c)=>{ const v=c.vendedor_id; if(!v || v===c.id || !porId.has(v)) return '_raiz';
+    const vistos=new Set([c.id]); let x=porId.get(v);
+    while(x){ if(vistos.has(x.id)) return '_raiz'; vistos.add(x.id); x=x.vendedor_id&&porId.get(x.vendedor_id); }
+    return v; };
   const hijos={};    // vendedor_id → los que cuelgan de él
-  lista.forEach(c=>{ const k=c.vendedor_id||'_raiz'; (hijos[k]=hijos[k]||[]).push(c); });
+  lista.forEach(c=>{ const k=padreDe(c); (hijos[k]=hijos[k]||[]).push(c); });
   const nodo=(c,nivel)=>({ cliente:c, nivel, subs:(hijos[c.id]||[]).map(x=>nodo(x,nivel+1)) });
   /* Primero los vendedores, y después el que más debe arriba: con 41 clientes en una rama, el
      orden alfabético escondía a los que importan. Pesos y dólares no se suman: se ordena por los
@@ -507,13 +514,13 @@ let _cliVend='', _cliBusca='', _cliFiltro='';
 function cliVendTarjetas(){
   const arbol=cliArbol(_clientes);
   const tarj=_clientes.filter(c=>c.es_vendedor).map(v=>{
-    const n=cliBuscarNodo(arbol, v.id); const rama=cliDeLaRama(n);
+    const n=cliBuscarNodo(arbol, v.id)||{cliente:v, subs:[]}; const rama=cliDeLaRama(n);
     const jefe=v.vendedor_id && _clientes.find(x=>x.id===v.vendedor_id);
     return { id:v.id, nom:v.nombre||v.codigo, de:jefe?(jefe.nombre||jefe.codigo):'', cuantos:cliCuenta(n), deuda:cliDeuda(n),
       propias:_paneles.filter(p=>p.cliente_id===v.id).length, falta:rama.reduce((a,c)=>a+cliSinLink(c),0) };
   });
   // Los que no tienen vendedor ni son vendedores: su propia tarjeta, para que no se pierdan.
-  const sueltos=_clientes.filter(c=>!c.vendedor_id && !c.es_vendedor);
+  const sueltos=arbol.map(n=>n.cliente).filter(c=>!c.es_vendedor);
   if(sueltos.length){ const acc={}; sueltos.forEach(c=>{ const d=c.deuda; if(d){ const m=d.moneda||'USDT'; acc[m]=(acc[m]||0)+Number(d.total||0);} });
     tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, deuda:acc, propias:0, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) }); }
   // Vacío de verdad: sin clientes, sin deuda y SIN CAJAS. Carlos y Sarah no tienen clientes cargados
@@ -528,11 +535,13 @@ function cliVendTarjetas(){
       return `<button type="button" onclick="cliElegirVend('${t.id}')" aria-pressed="${sel}"
         style="text-align:left;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;cursor:pointer;
           border:1.5px solid ${sel?'var(--gold)':'var(--border)'};background:${sel?'var(--bg3)':'transparent'};color:inherit;font:inherit">
-        <span style="font-weight:750;font-size:14.5px">${esc(t.nom)}${t.de?` <span class="muted" style="font-weight:400;font-size:11.5px">de ${esc(t.de)}</span>`:''}</span>
+        <span style="font-weight:750;font-size:14.5px">${esc(t.nom)}${t.de?` <span class="muted" style="font-weight:400;font-size:11.5px">· ya sumado en ${esc(t.de)}</span>`:''}</span>
         <span class="muted" style="font-size:12px">${t.cuantos} ${t.cuantos===1?'cliente':'clientes'}${t.propias?` · ${t.propias} ${t.propias===1?'caja propia':'cajas propias'}`:''}${t.falta?` · <b style="color:var(--durazno)">${t.falta} sin vincular</b>`:''}</span>
         <span class="cifra" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums">${cliMontos(t.deuda)}</span>
       </button>`; }).join('')}
   </div>
+  <div class="muted" style="font-size:12px;margin-top:8px">Total de todos los clientes: <span class="cifra" style="display:inline-flex;gap:4px;align-items:baseline">${
+    cliMontos(arbol.reduce((acc,n)=>cliDeuda(n,acc),{}))}</span>. Cada tarjeta incluye lo que debe el propio vendedor; las que dicen «ya sumado en» están adentro de otra.</div>
   ${vacias.length?`<div class="muted" style="font-size:12px;margin-top:6px">Vendedores sin clientes, cajas ni deuda: ${vacias.map(t=>esc(t.nom)).join(', ')}.</div>`:''}`;
 }
 function cliElegirVend(id){ _cliVend = _cliVend===id ? '' : id; cliVendTarjetas(); cliPintarLista(); }
@@ -555,7 +564,7 @@ function cliPintarLista(){
        tarjetas (antes aparecían dos veces, tarjeta y fila). Buscando o filtrando también es plana:
        lo que se busca es un cliente, no una rama. */
     let cs=[]; raices.forEach(n=>cliDeLaRama(n,cs));
-    if(!_cliVend && !q) cs=cs.filter(c=>!c.es_vendedor);
+    if(!_cliVend && !q && !_cliFiltro) cs=cs.filter(c=>!c.es_vendedor);
     if(q) cs=cs.filter(c=>[c.nombre,c.codigo].some(x=>String(x||'').toLowerCase().includes(q)));
     if(_cliFiltro==='deuda') cs=cs.filter(c=>Math.abs(Number((c.deuda&&c.deuda.total)||0))>=0.005);
     if(_cliFiltro==='vincular') cs=cs.filter(c=>cliSinLink(c)>0);
@@ -1231,7 +1240,7 @@ function bloquePaneles(c){
      <label>➕ Agregar una caja</label>
      <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
        <div style="flex:0 0 150px"><label for="pn-cx-${c.id}">Casino</label><select id="pn-cx-${c.id}">${
-         cxs.filter(x=>!x.carga_de).map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
+         cxs.filter(cxDeCajas).map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
        <div style="flex:1;min-width:180px"><label for="pn-login-${c.id}">Login de la cuenta</label>
          <input id="pn-login-${c.id}" placeholder="ej: GanamosM05" autocomplete="off"
            onkeydown="if(event.key==='Enter')cajaBuscar('${c.id}')"></div>
@@ -1242,6 +1251,9 @@ function bloquePaneles(c){
    </div>
    </div>`;
 }
+/* Las conexiones donde viven las cajas (hoy Casino y Europa). Las otras —TBS, las de carga, las de
+   token— leen el MISMO casino con otro nombre: ofrecerlas creaba la misma cuenta dos veces. */
+const cxDeCajas=(x)=>(x.motor||'463')==='463' && !x.carga_de && Number(x.paneles||0)>0;
 /** Busca una cuenta por login en una conexión. Devuelve la lista o null (y deja el porqué en `box`). */
 async function cajaBuscarEnCasino(cxId, login, box){
   login=String(login||'').trim();
@@ -1264,7 +1276,8 @@ async function cajaBuscar(cid){
     return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <b>${esc(u.login)}</b> <span class="muted">número ${esc(u.id)}</span>
       ${ya?`<span class="badge warn">ya es caja de ${esc(de?(de.nombre||de.codigo):'otro cliente')}</span>`
-        :`<button class="small" onclick="cajaAgregar('${cid}','${esc(sis)}','${esc(u.id)}','${esc(u.login).replace(/'/g,'')}')">Agregar esta</button>`}</div>`;
+        :`<button class="small" data-sis="${esc(sis)}" data-nodo="${esc(u.id)}" data-login="${esc(u.login)}"
+            onclick="cajaAgregar('${cid}',this.dataset.sis,this.dataset.nodo,this.dataset.login)">Agregar esta</button>`}</div>`;
   }).join('')+'</div>';
 }
 async function cajaAgregar(cid, sistema, nodo, login, igual){
@@ -1273,7 +1286,8 @@ async function cajaAgregar(cid, sistema, nodo, login, igual){
   const r=await api('/api/os/clientes/'+cid+'/cajas-del-casino',{method:'POST',body:JSON.stringify({sistema, nodo, login, igual:!!igual})});
   if(r&&r.requiereForzar){
     if(box) box.innerHTML='<div class="nota warn" style="margin-top:6px">'+esc(r.error)
-      +` <button class="outline small" onclick="cajaAgregar('${cid}','${esc(sistema)}','${esc(nodo)}','${esc(login)}',true)">Crearla igual</button></div>`;
+      +` <button class="outline small" data-sis="${esc(sistema)}" data-nodo="${esc(nodo)}" data-login="${esc(login)}"
+          onclick="cajaAgregar('${cid}',this.dataset.sis,this.dataset.nodo,this.dataset.login,true)">Crearla igual</button></div>`;
     return;
   }
   if(!r||!r.ok){ if(box) box.innerHTML='<div class="nota err" style="margin-top:6px">'+esc((r&&r.error)||'no se pudo')+'</div>'; return; }
@@ -1326,7 +1340,7 @@ function wzSync(){
 }
 function wzEstado(){
   const w=_wz;
-  const nLink=w.cuentas.filter(c=>c.cx).length;
+  const nLink=w.cuentas.filter(c=>c.cx&&c.idu).length;
   const base=wzNum(w.base);
   const suma=w.partis.reduce((a,p)=>a+wzNum(p.pts),0);
   const puedePedir=!!w.cod && !!w.nom && w.cuentas.length>=1;
@@ -1365,7 +1379,7 @@ async function wzBuscar(cid){
   const r=await cajaBuscarEnCasino(c.cx, c.usuario, box);
   if(!r) return;
   box.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+r.map(u=>
-    `<button class="outline small" onclick="wzElegir(${cid},'${esc(u.id)}','${esc(u.login).replace(/'/g,'')}')">${esc(u.login)} <span class="muted">· ${esc(u.id)}</span></button>`).join('')+'</div>';
+    `<button class="outline small" data-nodo="${esc(u.id)}" data-login="${esc(u.login)}" onclick="wzElegir(${cid},this.dataset.nodo,this.dataset.login)">${esc(u.login)} <span class="muted">· ${esc(u.id)}</span></button>`).join('')+'</div>';
 }
 function wzElegir(cid, id, login){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c) return; c.idu=id; c.usuario=login; wzRender(); }
 function wzDelCuenta(cid){ wzSync(); _wz.cuentas=_wz.cuentas.filter(x=>x.id!==cid); wzRender(); }
@@ -1378,7 +1392,7 @@ function wzRender(){
   const w=_wz; if(!w) return;
   const main=document.getElementById('main');
   const cxOpts=(sel)=>['<option value="">— sin conexión —</option>'].concat(
-    w.cxs.map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.nombre||c.id)}</option>`)).join('');
+    w.cxs.filter(cxDeCajas).map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.nombre||c.id)}</option>`)).join('');
   const cuentasHtml = w.cuentas.map(c=>{
     const linked=!!(c.cx&&c.idu);
     return `<div style="border:1px solid var(--border);border-radius:9px;padding:11px;margin-bottom:9px;background:var(--bg3)">
@@ -1552,7 +1566,7 @@ async function wzCrear(){
 
   paso(true,'Listo ✅');
   toast('Cliente '+w.cod+' creado');
-  setTimeout(()=>abrirCliente(id,'resumen'), 900);
+  setTimeout(()=>cliRecargar(id), 900);
 }
 /* ── RENOMBRAR, DESDE DONDE SE MIRA AL CLIENTE ────────────────────────────────────────────────
    Vivía sólo en el lápiz de 🎰 Fichas, en el otro espacio. Con la ficha del cliente abierta en el
@@ -1578,6 +1592,7 @@ async function borrarCliente(id, codigo){
   if(!confirm('¿Borrar el cliente "'+codigo+'"?\n\nEsto borra TAMBIÉN sus plataformas/paneles, % de proveedores, participaciones y movimientos. No se puede deshacer.')) return;
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
   if(r.ok){ toast('Cliente borrado'); VIEWS.clientes(); }
+  else alert((r&&r.error)||'No se pudo borrar');
 }
 let _cliDirty=false, _cliModalId=null, _cliTab='resumen';
 
@@ -1593,7 +1608,7 @@ let _cliDirty=false, _cliModalId=null, _cliTab='resumen';
    ficha, y una que no estuviera en la pantalla viajaría vacía y la pisaría. */
 const CLI_TABS=[['resumen','📊 Resumen'],['cobro','💼 Precio y cobro'],['cajas','🗂 Cajas y accesos'],['prov','🎰 Proveedores']];
 async function abrirCliente(id, tab){
-  if(tab==='comercial') tab='cobro';           // el nombre viejo de la solapa (Telegram → «Ficha»)
+  if(tab==='comercial') tab='cobro';           // el nombre viejo de la solapa
   _cliTab = tab || _cliTab || 'resumen';
   if(!CLI_TABS.some(([k])=>k===_cliTab)) _cliTab='resumen';
   // Se puede entrar sin haber pasado por la lista (Telegram, el alta): las cajas necesitan esto.
@@ -1641,6 +1656,7 @@ async function repintarCajas(){
   const c=box && (_clientes||[]).find(x=>x.id===_cliModalId);
   if(!c) return VIEWS.clientes();
   box.innerHTML=bloquePaneles(c);
+  const n=document.getElementById('cli-cajas-n'); if(n) n.textContent='('+_paneles.filter(p=>p.cliente_id===c.id).length+')';
 }
 /* Guardar algo de la ficha la vuelve a dibujar en la misma solapa: antes te devolvía a la lista. */
 async function cliRecargar(id){
@@ -1694,9 +1710,11 @@ function editCli(id){
               _clientes.filter(v=>v.id!==id).map(v=>`<option value="${v.id}" ${c.abona_a===v.id?'selected':''}>${esc(v.nombre)}</option>`).join('')
             }</select></div>
             <div style="flex:0 0 110px"><label>Puntos</label><input id="e-abona-pts" inputmode="decimal" placeholder="2" value="${esc(c.abona_pts||'')}"></div>
-            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">La deuda de sus cargas va a
-              la cuenta de quien paga, y con <b>el % de esa persona</b>; este cliente conserva el suyo, que es lo
-              que le paga a quien lo banca — la diferencia es la ganancia del intermediario. Los precios de externos
+            <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Su consumo se le
+              <b>factura</b> a quien paga, con <b>el % de esa persona</b>; este cliente conserva el suyo, que es lo
+              que le paga a quien lo banca — la diferencia es la ganancia del intermediario.
+              <b style="color:var(--gold)">Ojo:</b> hoy se aplica en la factura del mes; la deuda carga por carga todavía
+              va al código con que se pidió (eso llega con la fase 4.4). Los precios de externos
               se <b>leen</b> del otro, no se copian: una copia queda vieja el primer mes que se toque un precio.</div>
           </div>
           <hr/>
@@ -1797,8 +1815,8 @@ function editCli(id){
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px"><b style="color:var(--gold)">⚠ Hoy no se aplica.</b> La idea era: puntos sobre el <b>costo</b> del proveedor para los que no tengan precio propio en la matriz (ej: <b>3</b> = a uno que cuesta 5 se le cobra 8). Está guardado pero <b>ningún cálculo lo usa</b>: si querés cobrarle de más a un proveedor, ponelo en la matriz del Cierre, que sí se usa.</div>
           </div>
         </details>
-        <!-- Borrar estaba en CADA tarjeta de la lista, al lado de «Abrir su ficha», y se lleva sus
-             movimientos sin vuelta atrás. Acá adentro, plegado, y pidiendo el código. -->
+        <!-- Borrar estaba en CADA tarjeta de la lista, al lado de «Abrir su ficha». Acá adentro y
+             plegado; y el servidor no deja borrar a quien tiene historia (ver clientes-cascada). -->
         <details class="card">
           <summary style="cursor:pointer"><b>🗑 Borrar este cliente</b> <span class="muted">— sólo para uno cargado por error</span></summary>
           <div class="muted" style="font-size:12px;margin:8px 0">Borra el cliente <b>con sus cajas, sus % y todos sus movimientos</b>. No se puede deshacer.
@@ -1807,8 +1825,8 @@ function editCli(id){
         </details>
         </div>
         <div class="cli-sec" data-sec="cajas">
-        <div class="card">
-          <h2>🗂 Sus cajas <span class="muted">(${_paneles.filter(p=>p.cliente_id===id).length})</span></h2>
+        <div class="card" oninput="event.stopPropagation()" onchange="event.stopPropagation()">
+          <h2>🗂 Sus cajas <span id="cli-cajas-n" class="muted">(${_paneles.filter(p=>p.cliente_id===id).length})</span></h2>
           <div class="muted" style="margin:-4px 0 8px;font-size:12px">Cada caja es una cuenta del casino de este cliente. Lo que se cambia en una fila se guarda al toque.</div>
           <div id="cli-cajas">${bloquePaneles(c)}</div>
         </div>
@@ -2072,7 +2090,7 @@ async function aplicarSaldoIni(id){
   if(!div) return toast('Elegí la divisa del saldo anterior');
   if(!confirm(`¿Aplicar ${div} ${monto} como SALDO ANTERIOR?\n\nSe suma al total que el cliente debe. Si ya habías aplicado uno, este lo reemplaza.`)) return;
   const r=await api('/api/os/clientes/'+id+'/saldo-inicial',{method:'POST',body:JSON.stringify({monto,divisa:div})});
-  if(r&&r.ok){ toast('Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); cliRecargar(id); }
+  if(r&&r.ok){ toast(r.yaEstaba?'Ya estaba aplicado con ese monto: no se tocó':'Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); cliRecargar(id); }
   else toast('✗ '+((r&&r.error)||'no se pudo aplicar'));
 }
 function pbTipo(){
@@ -6933,7 +6951,7 @@ function tgGrupos(cs, pans){
         avisar cada carga</label></td>
       <td class="right" style="white-space:nowrap">
         ${(propio||hered)?`<button class="outline small" onclick="tgProbar('${c.id}','${esc(String(c.nombre||c.codigo)).replace(/'/g,"\\'")}')">🔔 Probar</button>`:''}
-        <button class="outline small" onclick="abrirCliente('${c.id}','comercial')">Ficha</button></td></tr>`;
+        <button class="outline small" onclick="abrirCliente('${c.id}','cajas')">Ficha</button></td></tr>`;
   };
   // Baja por el árbol. `vistos` corta cualquier ciclo en los datos (A vendedor de B y B de A):
   // sin eso una rama circular colgaría el navegador en vez de mostrar la pantalla.

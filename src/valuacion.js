@@ -45,7 +45,7 @@ const ES_DEFINITIVO = 'cargado a mano en el cierre';
 function valuar(m, memo) {
   if (!m) return m;
   if (m.tc_modo !== 'mes') return conCaraDeReferencia(m, memo);
-  if (m.tipo !== 'pago') return valuarCarga(m);
+  if (m.tipo !== 'pago') return valuarCarga(m, memo);
   const tieneArs = m.monto_ars != null && String(m.monto_ars) !== '';
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
   // Ya tiene las dos caras: no hay nada que derivar. Pasa cuando se le fijó el TC después.
@@ -142,13 +142,18 @@ function conCaraDeReferencia(m, memo) {
  * promedio se mueve: queda `provisional`. Lo mismo vale para lo que acompaña a esa carga y copia su
  * modo: el abono a otro cliente, la anulación y la baja del abono.
  */
-function valuarCarga(m) {
+function valuarCarga(m, memo) {
   const D = String(m.divisa || 'ARS').toUpperCase();
   const local = D === 'ARS' ? m.monto_ars : m.monto_local;
   const tieneUsdt = m.monto_usdt != null && String(m.monto_usdt) !== '';
   if (tieneUsdt || local == null || String(local) === '') return m;
   const mes = mesDe(m);
-  const t = mes ? tcUnico.tcDelMes(D, mes) : null;
+  /* Un TC por moneda y mes, igual que conCaraDeReferencia: abrir la lista de clientes buscaba el
+     promedio una vez por CARGA (542 de 1.038 movimientos el 29-oct) y se llevaba ~0,3 s. */
+  const k = mes ? D + '|' + mes : null;
+  let t;
+  if (memo && k && memo.has(k)) t = memo.get(k);
+  else { t = mes ? tcUnico.tcDelMes(D, mes) : null; if (memo && k) memo.set(k, t); }
   if (!t || !t.valor || !money.isPos(String(t.valor))) {
     return { ...m, tc_usado: null, derivada: 'monto_usdt', provisional: true, sinValuar: true };
   }

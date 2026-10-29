@@ -65,8 +65,12 @@ function mount(app) {
     ok(res, { cliente: c });
   }));
   // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
-  app.delete('/api/os/clientes/:id', (req, res) =>
-    clientesCascada.borrar(req.params.id) ? ok(res) : err(res, 404, 'cliente no encontrado'));
+  app.delete('/api/os/clientes/:id', (req, res) => {
+    const r = clientesCascada.borrar(req.params.id);
+    if (!r) return err(res, 404, 'cliente no encontrado');
+    if (r.frenado) return err(res, 409, 'No se puede borrar: tiene ' + r.frenado.join(', ') + '. Un cliente con historia se da de baja, no se borra.', { frenado: r.frenado });
+    ok(res);
+  });
   // Prender o apagar "avisar pagos" a varios de una. Es lo primero que se necesita: apagarlo para
   // todos y prenderlo solo a los pocos que corresponde.
   app.post('/api/os/clientes/avisa-pagos', wrap((req, res) => {
@@ -870,6 +874,10 @@ function mount(app) {
     const nodo = String(b.nodo || '').trim(), sistema = String(b.sistema || '').trim();
     if (!/^\d+$/.test(nodo)) return err(res, 400, 'falta el número de la cuenta en el casino');
     if (!sistema) return err(res, 400, 'falta en qué casino está');
+    /* Sólo los casinos donde viven las cajas (Casino, Europa). TBS o las conexiones de carga/token
+       leen el mismo casino con otro nombre: aceptarlas creaba la misma cuenta dos veces. */
+    const validos = casinoConex.listDeReportes().map((c) => String(c.nombre).toLowerCase());
+    if (!validos.includes(sistema.toLowerCase())) return err(res, 400, `"${sistema}" no es un casino de cajas: elegí ${casinoConex.listDeReportes().map((c) => c.nombre).join(' o ')}`);
     const r = await _cajaDesdeCasino({ cli, sistema, nodo, login: String(b.login || '').trim() || nodo, igual: !!b.igual });
     if (r.error) return err(res, 400, r.error, r.requiereForzar ? { requiereForzar: true } : undefined);
     ok(res, r);
@@ -984,8 +992,18 @@ function mount(app) {
       montoUsdt = money.round(money.div(monto, tcUsado), 6);
     }
 
-    // Idempotente: si ya había un saldo anterior aplicado, se borra ese movimiento y se crea el nuevo.
-    if (cli.saldo_inicial_mov_id) movs.remove(cli.saldo_inicial_mov_id);
+    /* Idempotente: si ya había un saldo anterior aplicado, se borra ese movimiento y se crea el nuevo.
+       ⚠️ Si el movimiento anotado YA NO EXISTE, el saldo se cargó por otro lado (Karen-Fede: un ajuste
+       a mano de 570.000 ARS, 15-sep): crear otro lo cobraba dos veces. Se frena. Y con el mismo monto
+       no se toca: rehacerlo lo volvía a pasar a dólares al cambio de hoy y lo mudaba de mes. */
+    if (cli.saldo_inicial_mov_id) {
+      const viejo = movs.list({ cliente_id: cli.id }).find((m) => m.id === cli.saldo_inicial_mov_id);
+      if (!viejo) return err(res, 409, 'El saldo anterior de este cliente ya no está como «saldo anterior»: '
+        + 'se cargó o se corrigió por otro lado. Revisá su cuenta antes de aplicarlo: así se cobraría dos veces.');
+      if (String(cli.saldo_inicial) === String(monto) && String(cli.saldo_inicial_divisa || '').toUpperCase() === div)
+        return ok(res, { yaEstaba: true, movimiento_id: viejo.id, monto_usdt: viejo.monto_usdt, deuda: deudaSvc.cuentaCorriente(cli.id) });
+      movs.remove(cli.saldo_inicial_mov_id);
+    }
     // ── LA ETIQUETA DICE HASTA CUÁNDO ──────────────────────────────────────────────────────
     // "saldo anterior (deuda previa al sistema)" le habla al que armó el sistema, no al cliente:
     // él no sabe ni le importa cuándo empezamos a usar esto. Lo que necesita saber es de qué
