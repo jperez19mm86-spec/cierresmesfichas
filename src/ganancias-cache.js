@@ -7,17 +7,33 @@
  * corrida, aunque sea un mes ya cerrado que no puede cambiar.
  *
  * REGLA DE FRESCURA:
- *   · mes YA TERMINADO  → la ganancia es definitiva: el caché vale para siempre.
+ *   · mes YA TERMINADO, guardado DESPUÉS de que terminó → la ganancia es definitiva: vale para siempre.
+ *   · mes YA TERMINADO, guardado MIENTRAS corría (fase 4.5, 29-oct-2026) → NO es definitiva: era
+ *     la ganancia hasta ese día. Antes valía para siempre apenas cambiaba el mes, y un pago a
+ *     proveedores o unos externos calculados el 15 quedaban con la mitad del mes. Ahora se trata
+ *     como la del mes en curso: se vuelve a pedir, y lo nuevo la pisa con la definitiva.
  *   · mes EN CURSO      → sigue moviéndose: el caché vale por un rato corto (VIGENCIA_MIN).
  *   · `refrescar` fuerza ir al casino igual.
  */
 const { db } = require('./db');
 
 const VIGENCIA_MIN = 30;          // minutos, sólo para el mes en curso
+/* El casino cuenta los meses en UTC y tarda un rato en asentar las últimas jugadas del mes: lo que
+   se guardó en la primera hora del mes siguiente todavía puede quedar corto. */
+const MARGEN_CIERRE_MIN = 60;
 
 /** ¿El mes ya terminó? (comparado con el mes actual) */
 function mesCerrado(mes) {
   return String(mes) < new Date().toISOString().slice(0, 7);
+}
+
+/** ¿Lo guardado es la ganancia del mes entero? Sólo si se tomó después de que el mes terminó. */
+function esDefinitiva(mes, capturedAt) {
+  const [a, m] = String(mes).split('-').map(Number);
+  if (!a || !m) return false;
+  const fin = Date.UTC(a, m, 1) + MARGEN_CIERRE_MIN * 60000;   // 1º del mes siguiente, UTC
+  const t = new Date(capturedAt).getTime();
+  return Number.isFinite(t) && t >= fin;
 }
 
 function get(conexion_id, nodo, mes, divisa, { refrescar = false } = {}) {
@@ -25,7 +41,7 @@ function get(conexion_id, nodo, mes, divisa, { refrescar = false } = {}) {
   const r = db.prepare(`SELECT datos, capturedAt FROM ganancias_cache
     WHERE conexion_id=? AND nodo=? AND mes=? AND divisa=?`).get(String(conexion_id), String(nodo), String(mes), String(divisa));
   if (!r) return null;
-  if (!mesCerrado(mes)) {
+  if (!mesCerrado(mes) || !esDefinitiva(mes, r.capturedAt)) {
     const edadMin = (Date.now() - new Date(r.capturedAt).getTime()) / 60000;
     if (!(edadMin < VIGENCIA_MIN)) return null;   // del mes en curso y ya viejo
   }
@@ -49,4 +65,4 @@ function limpiar(mes) {
   return { borradas: n };
 }
 
-module.exports = { get, set, resumen, limpiar, mesCerrado, VIGENCIA_MIN };
+module.exports = { get, set, resumen, limpiar, mesCerrado, esDefinitiva, VIGENCIA_MIN };
