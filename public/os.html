@@ -510,13 +510,15 @@ function cliVendTarjetas(){
     const n=cliBuscarNodo(arbol, v.id); const rama=cliDeLaRama(n);
     const jefe=v.vendedor_id && _clientes.find(x=>x.id===v.vendedor_id);
     return { id:v.id, nom:v.nombre||v.codigo, de:jefe?(jefe.nombre||jefe.codigo):'', cuantos:cliCuenta(n), deuda:cliDeuda(n),
-      falta:rama.reduce((a,c)=>a+cliSinLink(c),0) };
+      propias:_paneles.filter(p=>p.cliente_id===v.id).length, falta:rama.reduce((a,c)=>a+cliSinLink(c),0) };
   });
   // Los que no tienen vendedor ni son vendedores: su propia tarjeta, para que no se pierdan.
   const sueltos=_clientes.filter(c=>!c.vendedor_id && !c.es_vendedor);
   if(sueltos.length){ const acc={}; sueltos.forEach(c=>{ const d=c.deuda; if(d){ const m=d.moneda||'USDT'; acc[m]=(acc[m]||0)+Number(d.total||0);} });
-    tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, deuda:acc, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) }); }
-  const vacio=(t)=>!t.cuantos && !Object.values(t.deuda).some(v=>Math.abs(v)>=0.005);
+    tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, deuda:acc, propias:0, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) }); }
+  // Vacío de verdad: sin clientes, sin deuda y SIN CAJAS. Carlos y Sarah no tienen clientes cargados
+  // pero tienen 11 y 8 cajas propias: no van a la línea de abajo.
+  const vacio=(t)=>!t.cuantos && !t.propias && !Object.values(t.deuda).some(v=>Math.abs(v)>=0.005);
   const usd=(t)=>Number(t.deuda.USDT||0);
   const llenas=tarj.filter(t=>!vacio(t)).sort((a,b)=>usd(b)-usd(a) || b.cuantos-a.cuantos);
   const vacias=tarj.filter(vacio);
@@ -527,11 +529,11 @@ function cliVendTarjetas(){
         style="text-align:left;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;cursor:pointer;
           border:1.5px solid ${sel?'var(--gold)':'var(--border)'};background:${sel?'var(--bg3)':'transparent'};color:inherit;font:inherit">
         <span style="font-weight:750;font-size:14.5px">${esc(t.nom)}${t.de?` <span class="muted" style="font-weight:400;font-size:11.5px">de ${esc(t.de)}</span>`:''}</span>
-        <span class="muted" style="font-size:12px">${t.cuantos} ${t.cuantos===1?'cliente':'clientes'}${t.falta?` · <b style="color:var(--durazno)">${t.falta} sin vincular</b>`:''}</span>
+        <span class="muted" style="font-size:12px">${t.cuantos} ${t.cuantos===1?'cliente':'clientes'}${t.propias?` · ${t.propias} ${t.propias===1?'caja propia':'cajas propias'}`:''}${t.falta?` · <b style="color:var(--durazno)">${t.falta} sin vincular</b>`:''}</span>
         <span class="cifra" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums">${cliMontos(t.deuda)}</span>
       </button>`; }).join('')}
   </div>
-  ${vacias.length?`<div class="muted" style="font-size:12px;margin-top:6px">Vendedores sin clientes ni deuda: ${vacias.map(t=>esc(t.nom)).join(', ')}.</div>`:''}`;
+  ${vacias.length?`<div class="muted" style="font-size:12px;margin-top:6px">Vendedores sin clientes, cajas ni deuda: ${vacias.map(t=>esc(t.nom)).join(', ')}.</div>`:''}`;
 }
 function cliElegirVend(id){ _cliVend = _cliVend===id ? '' : id; cliVendTarjetas(); cliPintarLista(); }
 function cliElegirFiltro(f){ _cliFiltro = _cliFiltro===f ? '' : f; cliPintarLista(); }
@@ -541,7 +543,9 @@ function cliPintarLista(){
   // El alcance: la rama del vendedor elegido, los sueltos, o todo.
   let raices = !_cliVend ? arbol
     : _cliVend==='_sin' ? arbol.filter(n=>!n.cliente.es_vendedor)
-    : (cliBuscarNodo(arbol,_cliVend)||{subs:[]}).subs;
+    : (()=>{ const n=cliBuscarNodo(arbol,_cliVend); if(!n) return [];
+        const propias=_paneles.some(p=>p.cliente_id===n.cliente.id);
+        return (propias?[{cliente:n.cliente, subs:[], propio:true}]:[]).concat(n.subs); })();
   const q=_cliBusca.trim().toLowerCase();
   const fb=document.getElementById('cli-filtros');
   if(fb) fb.querySelectorAll('[data-f]').forEach(b=>b.className=(b.dataset.f===_cliFiltro?'':'outline')+' small');
@@ -558,10 +562,24 @@ function cliPintarLista(){
       + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')).join('')
       : '<div class="empty">Ningún cliente con eso.</div>';
   } else {
-    html = raices.map(n=>cliFicha(n)).join('') || '<div class="empty">Este vendedor no tiene clientes.</div>';
+    html = raices.map(n=>n.propio
+        ? cliFicha(n, 0, '<span class="muted" style="font-size:12px">sus cajas propias</span>')
+        : cliFicha(n)).join('') || '<div class="empty">Este vendedor no tiene clientes.</div>';
+  }
+  const v=_cliVend && _cliVend!=='_sin' && _clientes.find(x=>x.id===_cliVend);
+  if(v && !q && !_cliFiltro){
+    const nc=_paneles.filter(p=>p.cliente_id===v.id).length;
+    html=`<div class="nota" style="margin:0 0 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <b style="margin-right:auto">${esc(v.nombre||v.codigo)}</b>
+      <button class="outline small" onclick="abrirCliente('${v.id}','cajas')">🗂 ${nc?(nc===1?'Su caja':'Sus '+nc+' cajas'):'Sus cajas'}</button>
+      <button class="outline small" onclick="abrirCliente('${v.id}','resumen')">📊 Su cuenta y movimientos</button>
+      <button class="small" onclick="abrirCliente('${v.id}','cajas')">➕ Caja para ${esc(v.nombre||v.codigo)}</button>
+      <button class="small" onclick="_wzVendIni='${v.id}'; go('altaCliente')">➕ Cliente de ${esc(v.nombre||v.codigo)}</button>
+    </div>`+html;
   }
   box.innerHTML=html;
 }
+let _wzVendIni='';   // «➕ Cliente de Carlos» abre el alta con Carlos ya elegido
 /** Cuántos cuelgan de este nodo, contando todos los niveles. */
 function cliCuenta(n){ return n.subs.reduce((a,x)=>a+1+cliCuenta(x),0); }
 /** La deuda del nodo más la de todo lo que cuelga, POR MONEDA. Pesos y dólares no se suman: de
@@ -698,6 +716,9 @@ VIEWS.clientes = async () => {
       <div class="row" style="align-items:flex-end">
         <div style="flex:0"><label>Código</label><input id="nc-cod" placeholder="Titan" style="width:160px"/></div>
         <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
+        <div style="flex:0 0 200px"><label for="nc-vend">Lo maneja</label><select id="nc-vend">
+          <option value="">— nadie: cliente directo —</option>${_clientes.filter(v=>v.es_vendedor).sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)))
+            .map(v=>`<option value="${esc(v.id)}">${esc(v.nombre||v.codigo)}</option>`).join('')}</select></div>
         <button onclick="nuevoCliente()">Crear cliente</button>
         <button class="outline" onclick="go('altaCliente')">✨ Asistente completo</button>
       </div>
@@ -706,9 +727,9 @@ VIEWS.clientes = async () => {
     <div class="card">
       <div class="tapa">
         <div>
-          <h2>Clientes</h2>
+          <h2>Clientes por vendedor</h2>
           <div class="sub">${_clientes.length} ${_clientes.length===1?'cliente':'clientes'} · ${_paneles.length} ${_paneles.length===1?'caja':'cajas'}${
-            sinLinkear?' · <b style="color:var(--durazno)">'+sinLinkear+' sin linkear</b>':''}</div>
+            sinLinkear?' · <b style="color:var(--durazno)">'+sinLinkear+' sin vincular</b>':''}</div>
         </div>
         <div class="acciones">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
@@ -1172,16 +1193,16 @@ function bloquePaneles(c){
           // buenas de clientes que pasaron un mes sin pedir. Lo movido no dice nada de lo habilitado.
           const sobran=g.sobran||[];
           const ign=(window._divIgnoradas||[]).filter(d=>(p.divisas||[]).map(x=>String(x).toUpperCase()).includes(d));
-          return `<input value="${esc((p.divisas||[]).join(','))}" placeholder="ARS"
-            style="width:190px"
-            title="Las monedas que este panel puede mover. Vinieron del casino cuando se linkeó: son las que la cuenta tiene HABILITADAS, no las que usa. Separá con comas. Cada una de más es una consulta de más en la Foto del mes y una alerta de 'moneda sin tipo de cambio'."
-            onchange="setDivisas('${p.id}', this.value)">`
+          /* Ya no se tipean: las trae el casino (las que la cuenta tiene HABILITADAS). Si el
+             cliente arranca en otra moneda, «buscar nuevas» le pregunta al casino por esta caja. */
+          return `<span title="Las trae el casino: son las que la cuenta tiene habilitadas, no las que usa.">${
+            (p.divisas||[]).map(d=>'<span class="pill" style="margin:0 3px 3px 0">'+esc(d)+'</span>').join('')||'<span class="muted">ninguna</span>'}</span>`
           + (sobran.length?`<div style="margin-top:2px"><span class="badge warn" style="cursor:pointer"
                title="El casino no tiene habilitadas ${esc(sobran.join(', '))} en este nodo, así que preguntar por ellas siempre trae cero. Tocá para dejar exactamente las del casino."
                onclick="setDivisas('${p.id}','${esc((g.habilitadas||[]).join(','))}')">sobran ${sobran.length} → poner las del casino</span></div>`:'')
-          + ` <button class="small outline" style="padding:1px 5px;font-size:10.5px"
+          + ` <button class="small outline" style="padding:1px 5px;font-size:10.5px;white-space:nowrap"
                title="Le pregunta al casino qué divisas tiene habilitadas ESTE panel ahora. Es un solo pedido: se puede tocar cuando un cliente avisa que arranca en otra moneda, sin correr el cruce completo."
-               onclick="buscarDivisas('${p.id}','${esc(p.nombre)}')">buscar nuevas</button>`
+               onclick="buscarDivisas('${p.id}','${esc(p.nombre)}')">pedir al casino</button>`
           + (ign.length?`<div style="margin-top:2px"><span class="badge muted"
                title="Están habilitadas en el casino pero la Foto del mes no las pregunta: figuran en «divisas que no se consultan». Se saca de ahí y vuelven solas.">no se consulta: ${esc(ign.join(', '))}</span></div>`:'');
         })()}</td>
@@ -1208,20 +1229,61 @@ function bloquePaneles(c){
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
      </tr>`).join('') || '<tr><td colspan="10" class="empty" style="padding:12px">Todavía no tiene cajas.</td></tr>'}</tbody>
    </table>
-   <details class="cajas" style="margin-top:12px">
-   <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregarle una caja</summary>
-   <div class="row" style="margin-top:10px;gap:6px">
-     <div style="min-width:120px"><label>Nombre</label><input id="pn-nombre-${c.id}" placeholder="Ganamos"/></div>
-     <div style="flex:0"><label>Sistema</label><select id="pn-sis-${c.id}"><option>Casino</option><option>Europa</option></select></div>
-     <div style="flex:0"><label>Nivel</label><select id="pn-niv-${c.id}"><option>SuperAgente</option><option>Distribuidor</option><option selected>Agente</option></select></div>
-     <div style="flex:0"><label>Divisas</label><input id="pn-div-${c.id}" placeholder="ARS" style="width:80px"/></div>
-     <div style="flex:0"><label>Conexión</label><select id="pn-cx-${c.id}"><option value="">— sin linkear —</option>${cxs.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
-     <div style="flex:0"><label>ID nodo</label><input id="pn-idu-${c.id}" placeholder="186350" style="width:95px"/></div>
-     <div style="flex:0"><button class="outline small" onclick="buscarNodo('${c.id}')">🔎 buscar</button></div>
-     <div style="flex:0"><button class="small" onclick="addPanel('${c.id}')">Agregar</button></div>
+   <!-- ── AGREGAR UNA CAJA ──────────────────────────────────────────────────────────────────
+        Antes: nombre, sistema, nivel, divisas, conexión e id, tipeados a mano. Ahora: el casino y
+        el login; se elige la cuenta que encontró, y el servidor trae sus divisas y resuelve su nivel. -->
+   <div class="card" style="margin:12px 0 0;background:var(--bg3);padding:10px 12px">
+     <label>➕ Agregar una caja</label>
+     <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
+       <div style="flex:0 0 150px"><label for="pn-cx-${c.id}">Casino</label><select id="pn-cx-${c.id}">${
+         cxs.filter(x=>!x.carga_de).map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>
+       <div style="flex:1;min-width:180px"><label for="pn-login-${c.id}">Login de la cuenta</label>
+         <input id="pn-login-${c.id}" placeholder="ej: GanamosM05" autocomplete="off"
+           onkeydown="if(event.key==='Enter')cajaBuscar('${c.id}')"></div>
+       <button class="small" onclick="cajaBuscar('${c.id}')">🔎 Buscar en el casino</button>
+     </div>
+     <div id="pn-res-${c.id}"></div>
+     <div class="muted" style="font-size:12px;margin-top:6px">Las divisas las trae el casino y el nivel se resuelve solo en un minuto.</div>
    </div>
-   </details>
    </div>`;
+}
+/** Busca una cuenta por login en una conexión. Devuelve la lista o null (y deja el porqué en `box`). */
+async function cajaBuscarEnCasino(cxId, login, box){
+  login=String(login||'').trim();
+  if(!cxId){ if(box) box.innerHTML='<div class="muted" style="margin-top:6px">Elegí el casino.</div>'; return null; }
+  if(!login){ if(box) box.innerHTML='<div class="muted" style="margin-top:6px">Escribí el login.</div>'; return null; }
+  if(box) box.innerHTML='<div class="muted" style="margin-top:6px">Buscando en el casino…</div>';
+  const r=await api('/api/os/casino/conexiones/'+cxId+'/buscar?login='+encodeURIComponent(login));
+  if(!r||!r.ok){ if(box) box.innerHTML='<div class="nota err" style="margin-top:6px">No se pudo buscar: '+esc((r&&r.error)||'el casino no respondió')+'</div>'; return null; }
+  if(!(r.users||[]).length){ if(box) box.innerHTML='<div class="nota warn" style="margin-top:6px">El casino no tiene ninguna cuenta con «'+esc(login)+'».</div>'; return null; }
+  return r.users.slice(0,12);
+}
+async function cajaBuscar(cid){
+  const cx=val('pn-cx-'+cid), box=document.getElementById('pn-res-'+cid);
+  const us=await cajaBuscarEnCasino(cx, val('pn-login-'+cid), box); if(!us) return;
+  // Las que ya son caja de alguien se muestran, pero no se pueden volver a agregar: se facturarían dos veces.
+  const sis=((window._cxs||[]).find(x=>x.id===cx)||{}).nombre||'';
+  box.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">'+us.map(u=>{
+    const ya=(_paneles||[]).find(p=>String(p.id_usuario)===String(u.id)&&String(p.sistema||'').toLowerCase()===sis.toLowerCase());
+    const de=ya&&(_clientes||[]).find(x=>x.id===ya.cliente_id);
+    return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <b>${esc(u.login)}</b> <span class="muted">número ${esc(u.id)}</span>
+      ${ya?`<span class="badge warn">ya es caja de ${esc(de?(de.nombre||de.codigo):'otro cliente')}</span>`
+        :`<button class="small" onclick="cajaAgregar('${cid}','${esc(sis)}','${esc(u.id)}','${esc(u.login).replace(/'/g,'')}')">Agregar esta</button>`}</div>`;
+  }).join('')+'</div>';
+}
+async function cajaAgregar(cid, sistema, nodo, login, igual){
+  const box=document.getElementById('pn-res-'+cid);
+  if(box) box.innerHTML='<div class="muted" style="margin-top:6px">Creando la caja y pidiéndole sus divisas al casino…</div>';
+  const r=await api('/api/os/clientes/'+cid+'/cajas-del-casino',{method:'POST',body:JSON.stringify({sistema, nodo, login, igual:!!igual})});
+  if(r&&r.requiereForzar){
+    if(box) box.innerHTML='<div class="nota warn" style="margin-top:6px">'+esc(r.error)
+      +` <button class="outline small" onclick="cajaAgregar('${cid}','${esc(sistema)}','${esc(nodo)}','${esc(login)}',true)">Crearla igual</button></div>`;
+    return;
+  }
+  if(!r||!r.ok){ if(box) box.innerHTML='<div class="nota err" style="margin-top:6px">'+esc((r&&r.error)||'no se pudo')+'</div>'; return; }
+  toast('Caja '+login+' agregada · divisas: '+((r.divisas||[]).join(', ')||'ARS')+(r.aviso?' · '+r.aviso:''));
+  repintarCajas();
 }
 
 async function moverPanel(id, cliente_id){
@@ -1232,7 +1294,10 @@ async function moverPanel(id, cliente_id){
 async function nuevoCliente(){
   const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
   const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
-  if(r.ok){ toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes(); }
+  if(!r.ok) return toast((r&&r.error)||'no se pudo');
+  const vend=val('nc-vend');
+  if(vend && r.cliente) await api('/api/os/clientes/'+r.cliente.id+'/comercial',{method:'PUT',body:JSON.stringify({vendedor_id:vend})});
+  toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -1241,23 +1306,24 @@ async function nuevoCliente(){
    falta al cliente para operar y en qué secciones queda conectado. NO agrega backend. El alta rápida
    de arriba sigue existiendo para quien sólo quiere el alta pelada.
    ══════════════════════════════════════════════════════════════════════════════════════════════ */
-const WZ_DIVISAS = ['ARS','USDT','PYG','BRL','CLP','COP'];
 let _wz = null;
 VIEWS.altaCliente = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
-  const [db, dpe, dc] = await Promise.all([
-    api('/api/os/billeteras'), api('/api/os/personas'), api('/api/os/casino/conexiones')]);
+  const [db, dpe, dc, dcl] = await Promise.all([
+    api('/api/os/billeteras'), api('/api/os/personas'), api('/api/os/casino/conexiones'), api('/api/os/clientes')]);
+  _clientes = dcl.clientes || _clientes;
+  setTimeout(()=>{ _wzVendIni=''; }, 0);
   _wz = { bws:(db.billeteras||[]).filter(b=>b.activa!==false), personas:dpe.personas||[],
     cxs:(dc.conexiones||[]), cuentas:[], partis:[], seq:1, cod:'', nom:'', base:'', desde:'mes',
-    cobro:'usdt', bw:'', tg:'', tgon:true, esVend:false, vendid:'', pp:false, deuda:false, mcta:'USDT' };
+    cobro:'usdt', bw:'', tg:'', tgon:true, esVend:false, vendid:_wzVendIni||'', pp:false, deuda:false, mcta:'USDT' };
   wzAddCuenta();
   wzRender();
 };
 function wzMes(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function wzNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?0:n; }
 // Una cuenta nueva arranca en «sólo pedir fichas» (decisión del dueño, 29-sep-2026).
-function wzAddCuenta(){ _wz.cuentas.push({id:_wz.seq++, cx:'', usuario:'', idu:'', divisas:['ARS'], perm:{pedir:true,pagos:false,cuenta:false}}); }
+function wzAddCuenta(){ _wz.cuentas.push({id:_wz.seq++, cx:'', usuario:'', idu:'', perm:{pedir:true,pagos:false,cuenta:false}}); }
 function wzTogPerm(cid,campo){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c)return; c.perm=c.perm||{pedir:true,pagos:false,cuenta:false}; c.perm[campo]=!c.perm[campo]; wzRender(); }
 function wzAddParti(){ _wz.partis.push({id:_wz.seq++, per:'', pts:''}); }
 
@@ -1305,7 +1371,16 @@ function wzRecalc(){
     sb.textContent = b>0?(Math.abs(e.suma-b)<0.001?('Cierra ✓ '+e.suma+'/'+b):(e.suma<b?('Faltan '+(Math.round((b-e.suma)*100)/100)+' pts'):('Se pasa '+(Math.round((e.suma-b)*100)/100)+' pts'))):('Cargá el % base primero');
     sb.style.color = b>0&&Math.abs(e.suma-b)<0.001?'var(--green)':(e.suma>b&&b>0?'var(--red)':'var(--durazno)'); }
 }
-function wzTogDiv(cid,d){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c)return; const i=c.divisas.indexOf(d); if(i>=0)c.divisas.splice(i,1); else c.divisas.push(d); wzRender(); }
+/* Busca la cuenta en el casino por su login y llena el número: nadie tipea ids. */
+async function wzBuscar(cid){
+  wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c) return;
+  const box=document.getElementById('wzc-res-'+cid);
+  const r=await cajaBuscarEnCasino(c.cx, c.usuario, box);
+  if(!r) return;
+  box.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+r.map(u=>
+    `<button class="outline small" onclick="wzElegir(${cid},'${esc(u.id)}','${esc(u.login).replace(/'/g,'')}')">${esc(u.login)} <span class="muted">· ${esc(u.id)}</span></button>`).join('')+'</div>';
+}
+function wzElegir(cid, id, login){ wzSync(); const c=_wz.cuentas.find(x=>x.id===cid); if(!c) return; c.idu=id; c.usuario=login; wzRender(); }
 function wzDelCuenta(cid){ wzSync(); _wz.cuentas=_wz.cuentas.filter(x=>x.id!==cid); wzRender(); }
 function wzDelParti(pid){ wzSync(); _wz.partis=_wz.partis.filter(x=>x.id!==pid); wzRender(); }
 function wzMasCuenta(){ wzSync(); wzAddCuenta(); wzRender(); }
@@ -1318,18 +1393,19 @@ function wzRender(){
   const cxOpts=(sel)=>['<option value="">— sin conexión —</option>'].concat(
     w.cxs.map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.nombre||c.id)}</option>`)).join('');
   const cuentasHtml = w.cuentas.map(c=>{
-    const chips=WZ_DIVISAS.map(d=>`<span onclick="wzTogDiv(${c.id},'${d}')" style="cursor:pointer;user-select:none;border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;${c.divisas.indexOf(d)>=0?'background:var(--gold);color:#fff;border-color:var(--gold)':'background:var(--bg2);color:var(--muted)'}">${d}</span>`).join(' ');
-    const linked=!!c.cx;
+    const linked=!!(c.cx&&c.idu);
     return `<div style="border:1px solid var(--border);border-radius:9px;padding:11px;margin-bottom:9px;background:var(--bg3)">
       <div class="row">
         <div style="flex:2"><label>Conexión al casino</label><select id="wzc-cx-${c.id}" onchange="wzSync();wzRender()">${cxOpts(c.cx)}</select></div>
-        <div><label>Usuario del panel</label><input id="wzc-usu-${c.id}" value="${esc(c.usuario)}" oninput="wzRecalc()" placeholder="NahuelBet30"></div>
-        <div><label>ID de usuario</label><input id="wzc-idu-${c.id}" value="${esc(c.idu)}" oninput="wzRecalc()" placeholder="7469243"></div>
+        <div><label>Login en el casino</label><input id="wzc-usu-${c.id}" value="${esc(c.usuario)}" oninput="wzRecalc()" placeholder="NahuelBet30"></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="outline small" onclick="wzBuscar(${c.id})">🔎 Buscar</button></div>
+        <div style="flex:0 0 120px"><label>Número</label><input id="wzc-idu-${c.id}" value="${esc(c.idu)}" oninput="wzRecalc()" placeholder="7469243"></div>
         <button class="danger small" onclick="wzDelCuenta(${c.id})" title="Quitar">✕</button>
       </div>
+      <div id="wzc-res-${c.id}"></div>
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px">
-        <span class="muted" style="font-size:11px">Divisas:</span> ${chips}
-        <span class="badge ${linked?'ok':''}" style="margin-left:auto;${linked?'':'background:var(--durazno-bg);color:var(--durazno)'}">${linked?'● linkeada':'○ sin linkear'}</span>
+        <span class="muted" style="font-size:11.5px">Las divisas y el nivel los trae el casino al crearla.</span>
+        <span class="badge ${linked?'ok':''}" style="margin-left:auto;${linked?'':'background:var(--durazno-bg);color:var(--durazno)'}">${linked?'● vinculada':'○ falta buscarla'}</span>
       </div>
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px">
         <span class="muted" style="font-size:11px">En Mi Caja puede:</span>
@@ -1359,6 +1435,12 @@ function wzRender(){
         <div class="row">
           <div style="flex:0 0 180px"><label>Código (link del billete)</label><input id="wz-cod" value="${esc(w.cod)}" oninput="wzRecalc()" placeholder="Nahuel32"></div>
           <div><label>Nombre</label><input id="wz-nom" value="${esc(w.nom)}" oninput="wzRecalc()" placeholder="Nahuel"></div>
+          <!-- Era un campo de texto para tipear el id del vendedor, escondido en «Opciones
+               comerciales». Es lo que ordena la lista de clientes: va arriba y se elige. -->
+          <div style="flex:0 0 220px"><label for="wz-vendid">Lo maneja</label><select id="wz-vendid" onchange="wzSync();wzRecalc()">
+            <option value="">— nadie: cliente directo —</option>${
+            (_clientes||[]).filter(v=>v.es_vendedor).sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)))
+              .map(v=>`<option value="${esc(v.id)}"${v.id===w.vendid?' selected':''}>${esc(v.nombre||v.codigo)}</option>`).join('')}</select></div>
         </div>
       </div>
 
@@ -1411,11 +1493,6 @@ function wzRender(){
       <details class="card"><summary style="cursor:pointer;font-weight:700">Opciones comerciales</summary>
         <div class="row" style="margin-top:12px">
           <div><label>Moneda de la cuenta</label><select id="wz-mcta"><option${w.mcta==='USDT'?' selected':''}>USDT</option><option${w.mcta==='ARS'?' selected':''}>ARS</option></select></div>
-          <div><label>Cuelga del vendedor (id)</label><input id="wz-vendid" value="${esc(w.vendid)}" oninput="wzRecalc()" placeholder="opcional"></div>
-        </div>
-        <div style="display:flex;gap:18px;margin-top:12px">
-          <label style="text-transform:none;font-size:13px;color:var(--text);font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wz-pp" ${w.pp?'checked':''} style="width:auto"> Paga proveedores</label>
-          <label style="text-transform:none;font-size:13px;color:var(--text);font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wz-deuda" ${w.deuda?'checked':''} style="width:auto"> Permite deuda</label>
         </div>
       </details>
 
@@ -1450,7 +1527,7 @@ async function wzCrear(){
   // 3) comercial (+ billetera + cobro)
   r=await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
     moneda_cobro:w.cobro, moneda_cuenta:w.mcta, avisa_pagos:true, billetera_id:w.bw||'',
-    es_vendedor:w.esVend, vendedor_id:w.vendid||'', paga_proveedores:w.pp, permite_deuda:w.deuda })});
+    es_vendedor:w.esVend, vendedor_id:w.vendid||'' })});
   paso(!!(r&&r.ok),'Datos comerciales'+(w.bw?' + billetera':''));
   // 4) % base
   if(!w.esVend && wzNum(w.base)>0){
@@ -1470,10 +1547,11 @@ async function wzCrear(){
   for(const c of w.cuentas){
     if(!c.idu && !c.usuario) continue;
     const cx=w.cxs.find(x=>x.id===c.cx);
-    r=await api('/api/os/paneles',{method:'POST',body:JSON.stringify({
-      cliente_id:id, nombre:c.usuario||c.idu, sistema:(cx&&cx.nombre)||'', tipo:'exclusivo',
-      id_usuario:c.idu, conexion_id:c.cx||'', divisas:(c.divisas&&c.divisas.length?c.divisas:['ARS']) })});
-    paso(!!(r&&r.ok),'Cuenta '+(c.usuario||c.idu));
+    if(!cx || !c.idu){ paso(false,'Cuenta '+(c.usuario||'')+': falta buscarla en el casino — agregala después desde su ficha'); continue; }
+    // El mismo camino que «➕ Agregar una caja» de la ficha: el casino confirma la cuenta y trae sus divisas.
+    r=await api('/api/os/clientes/'+id+'/cajas-del-casino',{method:'POST',body:JSON.stringify({
+      sistema:cx.nombre, nodo:c.idu, login:c.usuario||c.idu })});
+    paso(!!(r&&r.ok),'Cuenta '+(c.usuario||c.idu)+(r&&r.ok?(' · divisas: '+((r.divisas||[]).join(', ')||'ARS')):(' ('+((r&&r.error)||'error')+')')));
     // Qué puede hacer ese agente en Mi Caja. El panel ya armó su caja: se la busca por la cuenta.
     if(r&&r.ok&&c.idu){
       const p=c.perm||{pedir:true,pagos:false,cuenta:false};
@@ -2200,25 +2278,6 @@ async function avisaPagosTodos(valor){
 
 VIEWS.paneles = () => VIEWS.clientes();
 
-async function addPanel(cid){
-  if(!val('pn-nombre-'+cid)) return toast('Poné un nombre');
-  const r = await api('/api/os/paneles',{method:'POST',body:JSON.stringify({
-    cliente_id: cid,
-    nombre: val('pn-nombre-'+cid), sistema: val('pn-sis-'+cid), nivel_usuario: val('pn-niv-'+cid),
-    // 'tipo' salió del formulario: los 201 paneles estaban en 'exclusivo' y ningún cálculo lo lee.
-    // Se sigue guardando ese valor para no ensuciar la columna con nulls.
-    tipo: 'exclusivo', id_usuario: val('pn-idu-'+cid), divisas: val('pn-div-'+cid),
-    conexion_id: val('pn-cx-'+cid),
-  })});
-  if(r.ok){ _cliAbiertos.add(cid); toast('Panel creado'); repintarCajas(); }
-}
-async function buscarNodo(cid){
-  const cx=val('pn-cx-'+cid); if(!cx) return toast('Elegí una conexión casino primero');
-  const login=prompt('Buscar nodo por login del casino:'); if(!login)return;
-  const r=await api('/api/os/casino/conexiones/'+cx+'/buscar?login='+encodeURIComponent(login));
-  if(!r.ok||!r.users||!r.users.length)return toast('No se encontró "'+login+'"');
-  document.getElementById('pn-idu-'+cid).value=r.users[0].id; toast('Encontrado: '+r.users[0].login+' → id '+r.users[0].id);
-}
 async function linkPanel(id){
   const cxs=window._cxs||[]; if(!cxs.length)return toast('Agregá una conexión en Config → Casino');
   let cid=cxs[0].id;

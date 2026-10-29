@@ -465,6 +465,39 @@ function mount(app) {
      necesita exactamente esto. Tenerlo acá adentro era la razón por la que aquel camino se quedó
      sin resolver: no se podía llamar desde afuera. */
   const _resolverJerarquia = (panel) => arbolSvc.resolverEnSegundoPlano(panel);
+  /** Crea panel y caja para una cuenta del casino, verificando el nodo y trayendo sus divisas.
+      Devuelve { panel, divisas, aviso } o { error, requiereForzar }. */
+  async function _cajaDesdeCasino({ cli, sistema, nodo, login, igual }) {
+    // ¿ese nodo ya está en el OS? Dos paneles al mismo nodo se facturarían dos veces.
+    const repe = paneles.list().find((p) => String(p.id_usuario) === String(nodo)
+      && String(p.sistema || '').toLowerCase() === String(sistema).toLowerCase());
+    if (repe) {
+      const de = clientes.get(repe.cliente_id);
+      return { error: `Esa cuenta ya es la caja "${repe.nombre}"${de ? ' de ' + (de.nombre || de.codigo) : ''}.` };
+    }
+    // la conexión de LECTURA de ese sistema: es la que sabe qué divisas tiene el nodo
+    const cx = casinoConex.list463().find((c) => String(c.nombre).toLowerCase() === String(sistema).toLowerCase());
+    let divisas = [];
+    let aviso = null;
+    if (cx) {
+      const cli463 = casinoConex.client(cx.id);
+      const r = cli463 && cli463.divisasDeNodo ? await cli463.divisasDeNodo(nodo) : { ok: false, error: 'la conexión no responde' };
+      if (r.ok) divisas = r.divisas;
+      // No se crea a ciegas: si el casino no confirma el nodo, puede no existir. Se puede forzar
+      // con `igual`, pero que sea una decisión y no un descuido.
+      else if (!igual) return { error: `El casino no confirmó la cuenta ${nodo}: ${r.error}. Revisá el número, o creala igual si sabés que está bien.`, requiereForzar: true };
+      else aviso = `no se pudieron leer las divisas (${r.error}); se creó con ARS`;
+    } else aviso = `no hay una conexión llamada "${sistema}" para verificar; se creó con ARS`;
+    /* 'SuperAgente' es sólo el valor con el que NACE: el de verdad lo resuelve el casino un
+       segundo después (_resolverJerarquia). Antes se quedaba con éste para siempre, y la carga en
+       cascada le creía. */
+    const panel = paneles.create({ cliente_id: cli.id, nombre: login, sistema,
+      nivel_usuario: 'SuperAgente', id_usuario: String(nodo),
+      divisas: divisas.length ? divisas : ['ARS'], conexion_id: cx ? cx.id : null });
+    _espejarCaja(panel);
+    _resolverJerarquia(panel);
+    return { panel, divisas, aviso };
+  }
   /* ── SÓLO LOS SUPERAGENTES MANEJAN VARIAS MONEDAS ────────────────────────────────────────────
      Regla de la dueña (5-sep-2026): un distribuidor —y todo lo que cuelga de él— maneja UNA sola,
      la suya. Y si un distribuidor está en USD, sus agentes y cajas también.
@@ -820,33 +853,26 @@ function mount(app) {
       return err(res, 400, `Ese nodo ya está cargado como el panel "${repe.nombre}".`);
     }
 
-    // la conexión de LECTURA de ese sistema: es la que sabe qué divisas tiene el nodo
-    const cx = casinoConex.list463().find((c) => String(c.nombre).toLowerCase() === String(s.sistema).toLowerCase());
-    let divisas = [];
-    let aviso = null;
-    if (cx) {
-      const cli463 = casinoConex.client(cx.id);
-      const r = cli463 && cli463.divisasDeNodo ? await cli463.divisasDeNodo(s.nodo) : { ok: false, error: 'la conexión no responde' };
-      if (r.ok) divisas = r.divisas;
-      else if (!req.body || !req.body.igual) {
-        // No se crea a ciegas: si el casino no confirma el nodo, puede no existir. Se puede forzar
-        // con `igual: true`, pero que sea una decisión y no un descuido.
-        return err(res, 400, `El casino no confirmó el nodo ${s.nodo}: ${r.error}. `
-          + 'Revisá el id, o aprobá igual si sabés que está bien.', { requiereForzar: true });
-      } else aviso = `no se pudieron leer las divisas (${r.error}); se creó con ARS`;
-    } else aviso = `no hay una conexión llamada "${s.sistema}" para verificar; se creó con ARS`;
-
-    /* 'SuperAgente' es sólo el valor con el que NACE: el de verdad lo resuelve el casino un
-       segundo después (_resolverJerarquia). Antes se quedaba con éste para siempre, y la carga en
-       cascada le creía. */
-    const panel = paneles.create({ cliente_id: cli.id, nombre: s.login, sistema: s.sistema,
-      nivel_usuario: 'SuperAgente', id_usuario: String(s.nodo),
-      divisas: divisas.length ? divisas : ['ARS'], conexion_id: cx ? cx.id : null });
-    _espejarCaja(panel);
-    _resolverJerarquia(panel);
-    solicitudes.resolver(s.id, { estado: 'aprobada', panel_id: panel.id,
+    const r = await _cajaDesdeCasino({ cli, sistema: s.sistema, nodo: s.nodo, login: s.login, igual: !!(req.body && req.body.igual) });
+    if (r.error) return err(res, 400, r.error, r.requiereForzar ? { requiereForzar: true } : undefined);
+    solicitudes.resolver(s.id, { estado: 'aprobada', panel_id: r.panel.id,
       motivo: `panel y caja creados para ${cli.nombre}` });
-    ok(res, { panel, divisas, aviso });
+    ok(res, r);
+  }));
+  /* ── AGREGAR UNA CAJA DESDE LA FICHA ────────────────────────────────────────────────────────
+     El mismo camino que aprobar una solicitud: se busca la cuenta en el casino por su login, y las
+     DIVISAS las trae el casino (las que el nodo tiene habilitadas), no se eligen a mano. El nivel
+     se resuelve solo en segundo plano. Antes había que tipear nombre, nivel, divisas e id. */
+  app.post('/api/os/clientes/:id/cajas-del-casino', wrap(async (req, res) => {
+    const cli = clientes.get(req.params.id);
+    if (!cli) return err(res, 404, 'cliente no encontrado');
+    const b = req.body || {};
+    const nodo = String(b.nodo || '').trim(), sistema = String(b.sistema || '').trim();
+    if (!/^\d+$/.test(nodo)) return err(res, 400, 'falta el número de la cuenta en el casino');
+    if (!sistema) return err(res, 400, 'falta en qué casino está');
+    const r = await _cajaDesdeCasino({ cli, sistema, nodo, login: String(b.login || '').trim() || nodo, igual: !!b.igual });
+    if (r.error) return err(res, 400, r.error, r.requiereForzar ? { requiereForzar: true } : undefined);
+    ok(res, r);
   }));
   app.post('/api/os/solicitudes-caja/:id/rechazar', wrap((req, res) => {
     const s = solicitudes.get(req.params.id);
