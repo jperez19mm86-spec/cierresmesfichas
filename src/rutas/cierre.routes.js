@@ -426,7 +426,7 @@ function mount(app) {
     const b = req.body || {};
     const p = paneles.get(b.panel_id);
     if (!p) return err(res, 404, 'panel no encontrado');
-    const mes = b.mes || new Date().toISOString().slice(0, 7);
+    const mes = b.mes || require('../lib/fechas').mesTZ();
     const cx = casinoConex.list().find((c) => c.id === p.conexion_id)
       || casinoConex.list().find((c) => String(c.nombre).toLowerCase() === String(p.sistema).toLowerCase());
     if (!cx) return err(res, 400, 'el panel no tiene conexion de casino');
@@ -449,7 +449,7 @@ function mount(app) {
   // ───────── §9 PROVEEDORES EXTERNOS ─────────
   // Cuánto hay que cobrarle a un cliente por los proveedores que cuestan más que su % base.
   app.get('/api/os/externos/:cliente', wrap(async (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const mes = req.query.mes || require('../lib/fechas').mesTZ();
     const r = await externosSvc.reporte({ clienteNombre: req.params.cliente, mes, basePct: req.query.base, refrescar: req.query.refrescar === '1' });
     // 409 + faltaBase → el front pregunta "este cliente trabaja al X%, ¿es correcto?" antes de calcular
     if (!r.ok) return res.status(r.faltaBase ? 409 : 404).json({ ok: false, error: r.error, faltaBase: !!r.faltaBase });
@@ -457,7 +457,7 @@ function mount(app) {
   }));
   // El % base con el que trabajó ESE mes (se confirma antes de calcular; no toca el histórico).
   app.get('/api/os/externos/:cliente/base', (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const mes = req.query.mes || require('../lib/fechas').mesTZ();
     const g = externosSvc.baseGuardada(req.params.cliente, mes);
     const cli = clientes.list().clientes.find((c) => String(c.nombre).toLowerCase() === String(req.params.cliente).toLowerCase());
     // el sugerido sale de la misma función que usan Facturación, Reparto y Perfil
@@ -497,7 +497,7 @@ function mount(app) {
    * cierre, en ese orden).
    */
   app.get('/api/os/externos', wrap(async (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const mes = req.query.mes || require('../lib/fechas').mesTZ();
     const soloVendedor = req.query.vendedor || null;
     // El mes anterior, para poder decir "sigue igual que en julio" en vez de sólo mostrar un número.
     const [ay, am] = String(mes).split('-').map(Number);

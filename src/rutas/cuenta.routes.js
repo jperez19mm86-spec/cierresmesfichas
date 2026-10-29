@@ -793,8 +793,10 @@ function mount(app) {
     if (!cli) return err(res, 404, 'no encuentro ese cliente');
     const caja = (cli.cajas || []).find((k) => String(k.id) === String(q.caja_id));
     if (!caja) return err(res, 400, `${cli.nombre || cli.codigo} no tiene esa caja`);
-    const monto = String(q.monto || '').trim().replace(',', '.');
-    if (!money.isPos(monto)) return err(res, 400, 'el monto tiene que ser mayor que cero');
+    // Con la regla de src/lib/monto.js: "10.000" son diez mil, no diez.
+    const leido = parseMonto(q.monto);
+    if (leido == null) return err(res, 400, 'el monto tiene que ser mayor que cero');
+    const monto = String(leido);
 
     /* ── EN QUÉ DIVISA SE PUEDE CARGAR ─────────────────────────────────────────────────────────
        La CAJA suele tener una sola («463.life: ARS») pero el PANEL, que es lo que dice el casino,
@@ -839,7 +841,7 @@ function mount(app) {
       if (!esUsd(dPide) && !esUsd(dCaja)) {
         return err(res, 400, `no sé convertir ${dPide} a ${dCaja}: la conversión pasa por dólares`);
       }
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = require('../lib/fechas').fechaTZ();
       if (otra === 'ARS') {
         const a = await tcSvc.tcAhora().catch(() => null);
         if (a && a.vivo && money.isPos(String(a.tc))) { tc = String(a.tc); tcFuente = a.fuente; tcVivo = true; tcFecha = hoy; }

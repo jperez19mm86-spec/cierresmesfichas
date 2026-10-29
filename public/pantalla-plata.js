@@ -376,7 +376,7 @@ async function qdFormPago(c, cc) {
   const mon = cc.moneda || 'USDT';
   return `<form class="qd-form" onsubmit="event.preventDefault();qdRegistrarPago('${c.id}')">
     <div class="row" style="align-items:flex-end">
-      <div style="flex:0"><label>Fecha</label><input type="date" id="qp-fecha" value="${new Date().toISOString().slice(0, 10)}"/></div>
+      <div style="flex:0"><label>Fecha</label><input type="date" id="qp-fecha" value="${hoyISO()}"/></div>
       <div style="flex:1 1 140px"><label>Monto</label><input id="qp-monto" inputmode="decimal" placeholder="0,00" required/></div>
       <div style="flex:0"><label>Moneda</label><select id="qp-moneda">${['USDT', 'ARS'].map((x) => `<option${x === mon ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
       <div style="flex:0"><label>Cómo pagó</label><select id="qp-medio"><option value="usdt">USDT</option><option value="cvu"${mon === 'ARS' ? ' selected' : ''}>Transferencia</option><option value="efectivo">Efectivo</option></select></div>
@@ -392,8 +392,11 @@ async function qdFormPago(c, cc) {
 }
 async function qdRegistrarPago(id) {
   const v = (k) => (document.getElementById(k) || {}).value || '';
-  const monto = String(v('qp-monto')).replace(/\./g, '').replace(',', '.');
-  if (!(Number(monto) > 0)) return toast('Poné el monto');
+  /* Se borraban TODOS los puntos: "94.22" quedaba en 9422. Misma regla que el resto del panel
+     (montoNum): el último separador manda, 1-2 dígitos detrás es decimal y 3 es de miles. */
+  const n = montoNum(v('qp-monto'));
+  if (n == null) return toast('Poné el monto');
+  const monto = String(n);
   const enPesos = v('qp-moneda') === 'ARS';
   const r = await api('/api/os/movimientos/pago', { method: 'POST', body: JSON.stringify({
     cliente_id: id, fecha: v('qp-fecha'), mes_cierre: v('qp-mes'), medio: v('qp-medio'), recibido_por: v('qp-recibio') || null,

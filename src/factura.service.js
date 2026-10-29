@@ -313,7 +313,7 @@ async function armar({ clienteId, mes, consumo = null, conExternos = true, conDe
     ok: true,
     cliente: { id: cli.id, codigo: cli.codigo, nombre: cli.nombre || cli.nombreVisible },
     mes: m, mesNombre: nombreMes(m),
-    emitidaEl: new Date().toISOString().slice(0, 10),
+    emitidaEl: require('./lib/fechas').fechaTZ(),
     tc: tcUnico.tcDelMes('ARS', m).valor,
     consumo: cons,
     detalle, porPanel, detalleDe, cruce,

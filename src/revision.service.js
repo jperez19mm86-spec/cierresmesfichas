@@ -27,7 +27,7 @@ const GRAVE = 'grave';   // sale un número equivocado y no se nota
 const AVISO = 'aviso';   // no rompe la cuenta pero confunde
 
 function revisar(mes) {
-  const m = String(mes || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const m = String(mes || require('./lib/fechas').mesTZ()).slice(0, 7);
   const items = [];
   const push = (nivel, titulo, detalle, donde, afectados = []) =>
     items.push({ nivel, titulo, detalle, donde, afectados, cuantos: afectados.length });
@@ -354,7 +354,7 @@ function revisarBajoCosto(mes) {
  * se trajo todavía, se dice, en vez de dar por bueno que no hay ganancia.
  */
 function cruceProveedores(mes) {
-  const m = String(mes || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const m = String(mes || require('./lib/fechas').mesTZ()).slice(0, 7);
   const K = (s) => String(s || '').trim().toLowerCase();
   const mx = cierre.getMatriz();
   const precios = cierreMes.preciosDe(m);

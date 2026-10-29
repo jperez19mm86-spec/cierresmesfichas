@@ -64,7 +64,7 @@ async function montar(opts) {
         <div style="flex:0 0 120px"><label>Que paga en</label>
           <select id="cg-div" onchange="cgCalcular()"><option value="USD">USD</option></select></div>
         <div style="flex:0 0 150px"><label>Mes</label>
-          <input type="month" id="cg-mes" value="${esc(new Date().toISOString().slice(0,7))}" onchange="cgCalcular()"></div>
+          <input type="month" id="cg-mes" value="${esc((d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))(new Date()))}" onchange="cgCalcular()"></div>
         <div style="flex:0"><button onclick="cgCalcular()">Calcular</button></div>
       </div>
     </div>
@@ -142,11 +142,22 @@ function cgPaga(){
 }
 
 // Al escribir se espera un momento: una consulta por tecla le pega al TC vivo en cada dígito.
+/* "10.000" se leía como 10: el punto de miles pasaba por decimal y se calculaba la carga de 10 fichas.
+   Misma regla que src/lib/monto.js: el último separador manda, 1-2 dígitos detrás es decimal y 3 es
+   de miles. Va copiada acá porque esta pantalla también la carga Fichas, que no tiene `montoNum`. */
+function cgMonto(txt){
+  const t = String(txt==null?'':txt).trim().replace(/[\s\u00a0\u202f]/g,'');
+  if(!t || !/^[\d.,]+$/.test(t)) return '';
+  const u = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+  if(u<0) return t;
+  const d = t.length-u-1;
+  return (d===1||d===2) ? t.slice(0,u).replace(/[.,]/g,'')+'.'+t.slice(u+1) : t.replace(/[.,]/g,'');
+}
 function cgLuego(){ clearTimeout(_cgTimer); _cgTimer = setTimeout(cgCalcular, 450); }
 
 async function cgCalcular(){
   const out = _raiz.querySelector('#cg-out'); if(!out) return;
-  const cli = val('cg-cli'), caja = val('cg-caja'), monto = val('cg-monto').replace(',', '.');
+  const cli = val('cg-cli'), caja = val('cg-caja'), monto = cgMonto(val('cg-monto'));
   if(!cli || !caja || !(Number(monto) > 0)) { out.innerHTML = ''; _cgRes = null; return; }
   out.innerHTML = '<div class="card"><div class="muted">Calculando…</div></div>';
   const r = await api('/api/os/carga/calcular?cliente_id=' + encodeURIComponent(cli)

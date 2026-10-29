@@ -38,7 +38,7 @@ function mount(app) {
     r.ok ? ok(res, { fecha: r.fecha, divisas: r.divisas }) : err(res, 502, r.error);
   }));
   app.get('/api/os/tc/divisas/promedios', (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const mes = req.query.mes || require('../lib/fechas').mesTZ();
     const lista = tcDivisas.promediosMes(mes);
     // ARS no sale de esta fuente: se toma el promedio de los snapshots de Binance
     const ars = tcStore.promedioMes(mes);
@@ -49,7 +49,7 @@ function mount(app) {
   app.get('/api/os/tc/divisas/seguidas', (_req, res) => ok(res, { monedas: [...tcDivisas.seguidas()].sort(), piso: tcDivisas.BASE_SEGUIDAS }));
   app.post('/api/os/tc/divisas/purgar', wrap((_req, res) => ok(res, { borradas: tcDivisas.purgarNoSeguidas(), monedas: [...tcDivisas.seguidas()].sort() })));
   app.get('/api/os/tc/divisas/dias', (req, res) => {
-    const mes = req.query.mes || new Date().toISOString().slice(0, 7);
+    const mes = req.query.mes || require('../lib/fechas').mesTZ();
     ok(res, { mes, dias: tcDivisas.listDias(mes, req.query.divisa) });
   });
   // La columna del mes en la grilla, armada con los promedios que se juntaron.

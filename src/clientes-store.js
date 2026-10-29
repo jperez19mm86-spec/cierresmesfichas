@@ -173,7 +173,7 @@ function createCliente({ codigo, nombreVisible, nombre }) {
     id: newId('c'), codigo: cod, nombreVisible: String(nombreVisible || nom).trim(),
     createdAt: new Date().toISOString(), telegram: { chatId: '', enabled: false }, cajas: [],
     nombre: nom, estado: 'activo', paga_proveedores: false, permite_deuda: false,
-    mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: new Date().toISOString().slice(0, 10),
+    mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: require('./lib/fechas').fechaTZ(),
     mover_balance: false, margen_externos_pct: null, es_vendedor: false, vendedor_id: null,
     factura_a: null, externos_precios_de: null, avisa_pagos: true, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
   };

@@ -1136,7 +1136,7 @@ app.get('/api/cuenta/mio', (req, res) => {
   } catch (e) { /* si no se puede, sigue con el que tiene */ }
   const cli = clientes.get(cid);
   if (!cli) return res.status(404).json({ ok: false, error: 'cuenta no encontrada' });
-  const mes = new Date().toISOString().slice(0, 7);
+  const mes = require('./lib/fechas').mesTZ();
   const cuenta = deudaSvc.cuentaCorriente(cli.id);
   /* El nombre de cada carga sale del PEDIDO, que lo congeló al pedirse. Los pedidos de antes no lo
      tienen: para esos se usa el nombre que la caja tenga hoy, así el historial viejo también se lee. */

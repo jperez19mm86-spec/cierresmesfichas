@@ -925,7 +925,7 @@
     const elMes = document.getElementById('histMes');
     // Arranca en el mes en curso: 829 movimientos de todos los meses no se leen, y lo que se
     // mira todos los días es lo de este mes. Vaciando el campo se ve el historial completo.
-    if (elMes && !elMes.dataset.tocado) { elMes.value = new Date().toISOString().slice(0, 7); elMes.dataset.tocado = '1'; }
+    if (elMes && !elMes.dataset.tocado) { elMes.value = (d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))(new Date()); elMes.dataset.tocado = '1'; }
     const mes = elMes ? elMes.value : '';
     box.innerHTML = '<div class="empty">Cargando…</div>';
     const { body } = await api('/api/historial' + (f ? ('?codigo=' + encodeURIComponent(f)) : ''));

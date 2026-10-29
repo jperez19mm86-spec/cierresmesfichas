@@ -354,7 +354,7 @@ async function aplicar({ sheetId = SHEET_ID_DEFAULT, confirmHash, incluirBasePct
         id: 'c_' + crypto.randomBytes(5).toString('hex'), codigo: cod, nombreVisible: nuevo.nombre,
         createdAt: new Date().toISOString(), telegram: { chatId: '', enabled: false }, cajas: [],
         nombre: nuevo.nombre, estado: 'activo', paga_proveedores: false, permite_deuda: false,
-        mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: new Date().toISOString().slice(0, 10),
+        mezcla_pago_usdt: null, ajuste_usdt_pct: null, fecha_alta: require('./lib/fechas').fechaTZ(),
         mover_balance: false, saldo_inicial: null, saldo_inicial_divisa: null, saldo_inicial_mov_id: null,
       };
       aplicarCampos(c, nuevo.campos, basePctPendientes);
@@ -388,7 +388,7 @@ async function aplicar({ sheetId = SHEET_ID_DEFAULT, confirmHash, incluirBasePct
 
   // 4) precio base: fuera de la transacción porque va por el historial versionado
   if (incluirBasePct && historial) {
-    const hoy = new Date().toISOString().slice(0, 10);
+    const hoy = require('./lib/fechas').fechaTZ();
     for (const b of basePctPendientes) {
       try { historial.setValor('cliente', b.cliente_id, 'precio_base_pct', { valor: b.valor, tipo_cambio: 'vigencia', vigente_desde: hoy }); }
       catch (e) { plan.avisos.push(`precio base de ${b.cliente_id}: ${e.message}`); }

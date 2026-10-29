@@ -68,7 +68,7 @@ function corregirCosto(mes, nombre, basePct, motivo = '') {
 
   const proveedores = snap.proveedores.map((x) => (x.nombre === n ? { ...x, base_pct: ahora } : x));
   const payload = JSON.stringify({ proveedores, celdas: snap.celdas || {}, clientes: snap.clientes || [], links: snap.links || [] });
-  const nota = `${(snap.notas || '').trim()}\n[corrección ${new Date().toISOString().slice(0, 10)}] ${n}: ${antes ?? '(vacío)'} → ${ahora ?? '(vacío)'}${motivo ? ' · ' + motivo : ''}`.trim();
+  const nota = `${(snap.notas || '').trim()}\n[corrección ${require('./lib/fechas').fechaTZ()}] ${n}: ${antes ?? '(vacío)'} → ${ahora ?? '(vacío)'}${motivo ? ' · ' + motivo : ''}`.trim();
   db.prepare('UPDATE cierre_mes_snapshot SET datos=?, notas=? WHERE mes=?').run(payload, nota, m);
   return { ok: true, mes: m, proveedor: n, antes, ahora };
 }

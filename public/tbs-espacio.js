@@ -15,7 +15,7 @@
      sin verificar → salió de la tabla de precios, que está desactualizada.
    Facturar con uno o con el otro es la diferencia entre cobrar lo pactado y cobrar lo que
    alguien anotó alguna vez. */
-let _apiSub='matriz', _apiMes=new Date().toISOString().slice(0,7);
+let _apiSub='matriz', _apiMes=(d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))(new Date());   // hora local, no UTC
 VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (API[_apiSub]||API.matriz)(); };
 // En el espacio TBS cada subpantalla es una pestaña propia: la barra de arriba ya cumple el rol
 // que cumplían los botones de adentro, y tenerlos dos veces era ruido.
@@ -30,7 +30,7 @@ VIEWS.api = () => { document.getElementById('main').innerHTML = apiHeader(); (AP
 
    La captura va de a un día y muestra el avance: aunque hoy sea rápido, un mes son 31 pedidos y
    una pantalla que se queda muda mientras tanto parece colgada. */
-let _tdMes = new Date().toISOString().slice(0,7);
+let _tdMes = (d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))(new Date());   // hora local, no UTC
 let _tdMoneda = 'ARS';
 let _tdCapturando = false;
 
@@ -1124,8 +1124,10 @@ function ofPintarPrevia(r, base){
 /* El volumen del mes cerrado, una sola vez por pantalla. Es lo que convierte la discusión de
    precios en una discusión con plata al lado: 19 de los 37 externos no movieron nada en julio. */
 async function ofCargarVolumen(id){
-  const hoy = new Date(); hoy.setMonth(hoy.getMonth() - 1);
-  const mes = hoy.toISOString().slice(0, 7);
+  /* El mes anterior de verdad: con setMonth(-1) el 31 daba el mes actual, y con toISOString()
+     a la noche del último día se corría al siguiente. */
+  const hoy = new Date(); const mes = hoy.getMonth() === 0 ? (hoy.getFullYear() - 1) + '-12'
+    : hoy.getFullYear() + '-' + String(hoy.getMonth()).padStart(2, '0');
   const r = await api('/api/os/api/volumen?mes=' + mes, { silencioso: true });
   _ofVolumen = (r && r.ok && r.total > 0) ? r.ggr : null;
   if (_ofPrevia) ofPintarPrevia(_ofPrevia, +(document.getElementById('ofBase') || {}).value || 10);

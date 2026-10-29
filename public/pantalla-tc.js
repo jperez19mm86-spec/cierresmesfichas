@@ -29,7 +29,8 @@ async function cieAddMes(){ const me=val('cie-nmes').trim(); if(!me)return toast
 async function cieAddMon(){ const mon=val('cie-nmon').trim(); if(!mon)return toast('Poné la moneda'); const me=(await api('/api/os/cierre/tc')).meses||[]; await api('/api/os/cierre/tc',{method:'POST',body:JSON.stringify({moneda:mon,mes:me[0]||'Mayo_2026',tasa:'1'})}); toast('Moneda agregada'); VIEWS.tc(); }
 
 // ───────── TIPOS DE CAMBIO ─────────
-let _tcMes = new Date().toISOString().slice(0,7);
+// El mes en la hora LOCAL: `toISOString()` es UTC y a la noche del último día ya da el siguiente.
+let _tcMes = (d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'))(new Date());
 /* ─────────────────────────────────────────────────────────────────────────────────────────
    TIPOS DE CAMBIO. Un solo número por moneda y por mes divide TODO lo que se cobra, así que
    la pantalla está ordenada por de dónde sale ese número:

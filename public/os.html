@@ -4992,7 +4992,7 @@ let _extCli = '', _extMes = mesDeCierre(), _extData = null;
 let _extgMes = '';
 async function extGuardadas() {
   const cont = document.getElementById('cie-body'); if (!cont) return;
-  if (!_extgMes) { const d = new Date(); d.setMonth(d.getMonth() - 1); _extgMes = d.toISOString().slice(0, 7); }
+  if (!_extgMes) _extgMes = _cieMesCruce();   // el mes anterior de verdad (ver _cieMesCruce)
   let box = document.getElementById('extg-card');
   if (!box) { box = document.createElement('div'); box.id = 'extg-card'; box.className = 'card'; cont.prepend(box); }
   const r = await api('/api/os/externos-guardados?mes=' + encodeURIComponent(_extgMes));
@@ -6052,7 +6052,7 @@ MOV.cuenta = async () => {
         <!-- En pesos o en dólares: muchos pagos llegan en ARS y el cambio se acuerda al cerrar
              el mes. Antes había que poner USDT sí o sí — o se inventaba un número, o el pago no
              se cargaba y el cliente quedaba debiendo plata que ya había pagado. -->
-        <div><label>Monto</label><input id="mp-monto" type="number" placeholder="1000"/></div>
+        <div><label>Monto</label><input id="mp-monto" inputmode="decimal" placeholder="1.000,00"/></div>
         <div style="flex:0"><label>Moneda</label><select id="mp-moneda" onchange="mpMoneda()">
           <option value="USDT">USDT</option><option value="ARS">ARS (pesos)</option></select></div>
         <div style="flex:0"><label>¿Por dónde?</label><select id="mp-medio">
@@ -6199,8 +6199,12 @@ async function regPago(){
   // El desplegable arranca vacío a propósito; sin esta guarda el POST salía con cliente_id='' y el
   // servidor contestaba un error críptico en vez de decir qué falta.
   const cli=val('mp-cli'); if(!cli) return toast('Elegí a qué cliente es el pago');
-  const monto=val('mp-monto'); const moneda=val('mp-moneda')||'USDT';
-  if(!monto || Number(monto)<=0) return toast('Poné el monto en '+moneda);
+  const moneda=val('mp-moneda')||'USDT';
+  /* Con `Number`, "1.500" pesos se guardaba como 1,5 y "94,22" llegaba como texto que el servidor
+     rechazaba. Se lee con la misma regla que el resto del panel. */
+  const n=montoNum(val('mp-monto'));
+  if(n==null) return toast('Poné el monto en '+moneda);
+  const monto=String(n);
   const avisar = !!(document.getElementById('mp-avisar')||{}).checked;
   // SALE PARA AFUERA: se pregunta, siempre, y se dice a dónde.
   if(avisar && !confirm('¿Mandar este comprobante a los grupos de Telegram?\n\nVa al grupo de cobranzas (con la foto) y al grupo del cliente.')) return;
@@ -6391,7 +6395,7 @@ function repSub(s){ _repSub=s; VIEWS.reparto(); }
 /* ── Resultado del mes ─────────────────────────────────────────────────────────────── */
 REP.mes = async () => {
   if(!_clientes.length){ const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }
-  const mes = _repMes || new Date().toISOString().slice(0,7);
+  const mes = _repMes || mesHoy();
   const d = await api('/api/os/reportes/distribucion?mes='+mes);
   const pend = Number(d.sin_asignar||0)>0;
   document.getElementById('rep-body').innerHTML = `
@@ -6443,7 +6447,7 @@ function reloadDist(){ _repMes = val('rep-mes'); REP.mes(); }
 REP.clientes = async () => {
   { const d=await api('/api/os/clientes'); _clientes=d.clientes||[]; }   // siempre fresco: si se
   { const d=await api('/api/os/personas'); _personas=d.personas||[]; }   // borró o fusionó un cliente, que no siga apareciendo
-  const mes = _repMes || new Date().toISOString().slice(0,7);
+  const mes = _repMes || mesHoy();
   // Quién tiene el reparto cerrado: se pregunta de una y se marca en la lista, para no tener que
   // abrir cliente por cliente para saber cuáles faltan.
   const est = {};
@@ -7465,7 +7469,7 @@ VIEWS.chat = async () => {
         <div style="flex:0 0 90px"><label>Le cobrás</label>
           <input id="chat-nuevo-pct" placeholder="${esc(cfgC.costo_pct||'2')}" style="width:100%;text-align:center"></div>
         <div style="flex:0 0 150px"><label>Empezó el</label>
-          <input type="date" id="chat-nuevo-desde" value="${new Date().toISOString().slice(0,10)}"
+          <input type="date" id="chat-nuevo-desde" value="${hoyISO()}"
             title="De acá sale el día del mantenimiento" style="width:100%"></div>
         <div style="flex:0"><button onclick="chatAgregar()">Agregar</button></div>
       </div>
@@ -7983,7 +7987,7 @@ VIEWS.chat = async () => {
         <div style="flex:0 0 130px"><label>Cuánto le pagaste</label>
           <input id="chat-pago-monto" placeholder="${money(dp.ganancia.falta,2)}" style="width:100%;text-align:right"></div>
         <div style="flex:0 0 150px"><label>Fecha</label>
-          <input type="date" id="chat-pago-fecha" value="${new Date().toISOString().slice(0,10)}" style="width:100%"></div>
+          <input type="date" id="chat-pago-fecha" value="${hoyISO()}" style="width:100%"></div>
         <div style="flex:1;min-width:180px"><label>Nota</label>
           <input id="chat-pago-nota" placeholder="transferencia, wallet…" style="width:100%"></div>
         <div style="flex:0"><button onclick="chatPagar()">Registrar</button></div>
