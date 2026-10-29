@@ -550,13 +550,18 @@ function cliPintarLista(){
   const fb=document.getElementById('cli-filtros');
   if(fb) fb.querySelectorAll('[data-f]').forEach(b=>b.className=(b.dataset.f===_cliFiltro?'':'outline')+' small');
   let html;
-  if(q || _cliFiltro){
-    // Buscando o filtrando, la lista es plana: lo que se busca es un cliente, no una rama.
+  if(q || _cliFiltro || !_cliVend){
+    /* Sin vendedor elegido, la lista es plana y SIN los vendedores: ellos ya están arriba, en las
+       tarjetas (antes aparecían dos veces, tarjeta y fila). Buscando o filtrando también es plana:
+       lo que se busca es un cliente, no una rama. */
     let cs=[]; raices.forEach(n=>cliDeLaRama(n,cs));
+    if(!_cliVend && !q) cs=cs.filter(c=>!c.es_vendedor);
     if(q) cs=cs.filter(c=>[c.nombre,c.codigo].some(x=>String(x||'').toLowerCase().includes(q)));
     if(_cliFiltro==='deuda') cs=cs.filter(c=>Math.abs(Number((c.deuda&&c.deuda.total)||0))>=0.005);
     if(_cliFiltro==='vincular') cs=cs.filter(c=>cliSinLink(c)>0);
-    cs.sort((a,b)=>Number((b.deuda&&b.deuda.total)||0)-Number((a.deuda&&a.deuda.total)||0));
+    // Pesos y dólares no se comparan: primero las cuentas en USDT, después las demás, cada grupo de mayor a menor.
+    const mon=(c)=>monedaCuenta(c)==='USDT'?0:1, deb=(c)=>Number((c.deuda&&c.deuda.total)||0);
+    cs.sort((a,b)=>mon(a)-mon(b) || deb(b)-deb(a));
     const nom=(id)=>{ const v=_clientes.find(x=>x.id===id); return v?(v.nombre||v.codigo):''; };
     html = cs.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${cs.length} ${cs.length===1?'cliente':'clientes'}</div>`
       + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')).join('')
@@ -725,8 +730,8 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
         </div>
       </div>
-      <div class="muted" style="margin:10px 0 10px">Tocá un vendedor para ver sólo sus clientes; otra vez, para ver todos.
-        El número es lo que debe <b>su gente</b>; en cada cliente, lo que debe él.</div>
+      <div class="muted" style="margin:10px 0 10px">Arriba, cada vendedor con lo que debe <b>su gente</b>: tocá uno para ver sus
+        clientes y sus cajas propias; otra vez, para volver a todos. Abajo, los clientes, del que más debe al que menos.</div>
       <div id="cli-vend" style="margin-bottom:12px"></div>
       <div id="cli-filtros" class="row" style="align-items:flex-end;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px"><label for="cli-q">Buscar cliente</label>
