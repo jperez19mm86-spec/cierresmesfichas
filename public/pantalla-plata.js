@@ -407,30 +407,30 @@ async function qdRegistrarPago(id) {
 function qdAbrirFactura(id, mes) { _facVolverA = 'quienDebe'; _facMes = mes; verFactura(id); }
 
 /* ═══════════════════════════════ QUÉ ENTRÓ ═══════════════════════════════ */
-let _qeMes = '', _qeVia = 'todo', _qeQ = '', _qeOrden = 'fecha', _qeTope = 40, _qeVista = 'pagos';
+let _qeMes = '', _qeVia = 'todo', _qeQ = '', _qeOrden = 'fecha', _qeTope = 50, _qeVista = 'pagos';   // de a 50 (Alexa, 29-oct)
 let _qeDatos = null;
 
 VIEWS.queEntro = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
   const mes = _qeMes || mesDeCierre();
-  const [r, rech] = await Promise.all([
+  /* POR FECHA, NO POR MES DE LA DEUDA: la pregunta es cuándo entró la plata. Lo que Gabriel pagó el
+     26-oct de la deuda de septiembre entra en octubre. /entro ya lo da filtrado por fecha (antes se
+     pedía /pagos de doce meses y se filtraba acá). /pagos del mes sigue: es lo que manda «Pesos al
+     grupo», que va por mes de la deuda. «Por cliente» pide seis meses de una vez. */
+  const [r, e, rech, cl] = await Promise.all([
     api('/api/os/pagos?mes=' + encodeURIComponent(mes)),
+    api('/api/os/entro?mes=' + encodeURIComponent(mes) + (_qeVista === 'clientes' ? '&meses=6' : '')),
     api('/api/os/comprobantes?estado=rechazado'),
+    _qeVista === 'clientes' ? api('/api/os/clientes') : Promise.resolve(null),
   ]);
-  if (!r || !r.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc((r && r.error) || '') + '</div></div>'; return; }
+  if (!r || !r.ok || !e || !e.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc(((r && r.error) || (e && e.error)) || '') + '</div></div>'; return; }
   window._pagDatos = r;                     // el envío al grupo de la pantalla vieja lee esto
-  /* POR FECHA, NO POR MES DE LA DEUDA. /pagos agrupa por «a qué mes entra» (el mes de la deuda que
-     paga); acá la pregunta es cuándo entró la plata. Se juntan los pagos de todos los meses y se
-     filtra por la fecha: lo que Gabriel pagó el 26-oct de la deuda de septiembre entra en octubre. */
   const mesesDeuda = (r.meses || []).map((m) => m.mes).slice(0, 12);
-  const todos = await Promise.all(mesesDeuda.map((m) => (m === r.mes ? Promise.resolve(r) : api('/api/os/pagos?mes=' + encodeURIComponent(m)))));
-  const lista = (k) => todos.flatMap((x) => (x && x[k]) || []);
-  _qeDatos = { r, todosPesos: lista('pesos'), todosUsdt: lista('usdt'), mesesDeuda,
+  _qeDatos = { r, todosPesos: e.pesos || [], todosUsdt: e.usdt || [], mesesDeuda,
     rechazados: ((rech && rech.comprobantes) || []).filter((x) => String(x.resuelto_at || x.creado_at || '').slice(0, 7) === r.mes) };
-  /* POR CLIENTE: lo que pagó cada uno, mes por mes. Seis meses hacia atrás desde el elegido. */
+  /* POR CLIENTE: lo que pagó cada uno, mes por mes, de los meses (de los últimos seis) en que entró algo. */
   if (_qeVista === 'clientes') {
-    const cl = await api('/api/os/clientes');
     const meses = [...new Set([..._qeDatos.todosPesos, ..._qeDatos.todosUsdt].map((p) => String(p.fecha).slice(0, 7)))].filter((m) => m <= r.mes).sort().reverse().slice(0, 6);
     const pagos = meses.map((m) => ({ pesos: _qeDatos.todosPesos.filter((p) => String(p.fecha).slice(0, 7) === m), usdt: _qeDatos.todosUsdt.filter((p) => String(p.fecha).slice(0, 7) === m) }));
     _qeDatos.porMes = { meses, pagos, clientes: (cl && cl.clientes) || [] };
@@ -494,7 +494,7 @@ function qePintar() {
         <td class="qe-ref">${p.billetera ? `<span class="qe-wallet" title="Billetera a la que entró">${esc(p.billetera)}</span>` : ''}${p.referencia ? `<span class="qe-txt" title="${esc(p.referencia)}">${esc(p.referencia)}</span>` : ''}</td>
         <td class="right">${p.comprobante && p.archivo ? `<button class="qe-clip" title="Ver el comprobante" onclick="window.open('/api/os/comprobantes/${p.comprobante}/archivo','_blank')">📎</button>` : ''}</td></tr>`).join('')
         || '<tr><td colspan="7" class="empty">No entró nada con ese filtro.</td></tr>'}</tbody></table></div>
-      ${l.length > vis.length ? `<div style="text-align:center;margin-top:10px"><button class="outline small" onclick="_qeTope+=60;qePintar()">Ver ${Math.min(60, l.length - vis.length)} más de ${l.length - vis.length}</button></div>` : ''}
+      ${l.length > vis.length ? `<div style="text-align:center;margin-top:10px"><span class="muted" style="margin-right:10px">${vis.length} de ${l.length}</span><button class="outline small" onclick="_qeTope+=50;qePintar()">Ver ${Math.min(50, l.length - vis.length)} más</button></div>` : ''}
     </div>
     ${rechazados.length ? `<div class="card"><h2>✖ Rechazados · ${rechazados.length}</h2>
       <table><tbody>${rechazados.slice(0, 20).map((x) => `<tr><td><b>${esc(x.codigo || '')}</b> <span class="muted">${esc(x.cliente_nombre || '')}</span></td>
@@ -552,8 +552,8 @@ async function qeMoverPago(id, mes, antes, sel) {
   toast('Ahora es de ' + _nomMes(mes));
   VIEWS.queEntro();
 }
-function qeBuscar(v) { _qeQ = v; _qeTope = 40; qePintar(); setTimeout(() => { const i = document.getElementById('qe-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
-function qeSet(k, v) { _qeTope = 40; if (k === 'mes') { _qeMes = v; return VIEWS.queEntro(); } if (k === 'vista') { _qeVista = v; return VIEWS.queEntro(); } if (k === 'via') _qeVia = v; if (k === 'orden') _qeOrden = v; qePintar(); }
+function qeBuscar(v) { _qeQ = v; _qeTope = 50; qePintar(); setTimeout(() => { const i = document.getElementById('qe-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
+function qeSet(k, v) { _qeTope = 50; if (k === 'mes') { _qeMes = v; return VIEWS.queEntro(); } if (k === 'vista') { _qeVista = v; return VIEWS.queEntro(); } if (k === 'via') _qeVia = v; if (k === 'orden') _qeOrden = v; qePintar(); }
 /* Punto y coma y coma decimal, como el Excel en castellano (igual que pagCSV). */
 function qeCSV() {
   const { r } = _qeDatos; const num = (x) => (x == null ? '' : String(Number(x).toFixed(2)).replace('.', ','));

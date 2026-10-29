@@ -421,8 +421,9 @@ function mount(app) {
    * El monto es el que se ACREDITÓ, no el que declaró el cliente: son dos números distintos y el
    * que vale es el que entró.
    */
-  app.get('/api/os/pagos', wrap((req, res) => {
-    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+  /* Lo que comparten /pagos (por mes de la deuda) y /entro (por fecha): todos los pagos, la fila
+     que se muestra de cada uno y el resumen por mes de la deuda. */
+  function _pagosBase() {
     const cs = clientes.list().clientes;
     const nom = {}; cs.forEach((c) => { nom[c.id] = c; });
     // Los comprobantes, para poder mostrar la referencia y si hay archivo.
@@ -472,6 +473,11 @@ function mount(app) {
         referencia: cmp.referencia || '', comprobante: cmp.id || null, archivo: !!(cmp.archivo_bytes),
       };
     };
+    return { todos, fila, meses };
+  }
+  app.get('/api/os/pagos', wrap((req, res) => {
+    const mes = String(req.query.mes || mesTZ()).slice(0, 7);
+    const { todos, fila, meses } = _pagosBase();
     const delMes = todos.filter((mv) => movs.mesDe(mv) === mes).map(fila)
       .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
     const pesos = delMes.filter((x) => x.via === 'cvu');
@@ -487,6 +493,26 @@ function mount(app) {
         pesos_usdt: money.round(suma(pesos, 'usdt'), 2),
         usdt_usdt: money.round(suma(usdt, 'usdt'), 2),
       },
+    });
+  }));
+  /* ───────── QUÉ ENTRÓ: POR FECHA, EN UN SOLO PEDIDO (29-oct-2026) ─────────
+     /pagos agrupa por el mes de la deuda; Qué entró pregunta cuándo entró la plata, y para eso la
+     pantalla pedía /pagos de doce meses y filtraba. Acá se filtra por la FECHA del pago: los de los
+     últimos `meses` (1 a 12) meses terminando en `mes`. `meses` (la lista) sigue siendo la de los
+     meses de la deuda, que es la que usa «Es de». */
+  app.get('/api/os/entro', wrap((req, res) => {
+    const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : mesTZ();
+    const n = Math.min(12, Math.max(1, Number(req.query.meses) || 1));
+    const [aa, mm] = mes.split('-').map(Number);
+    const mesesFecha = Array.from({ length: n }, (_, i) => new Date(Date.UTC(aa, mm - 1 - i, 1)).toISOString().slice(0, 7));
+    const { todos, fila, meses } = _pagosBase();
+    const elegidos = todos.map(fila).filter((x) => mesesFecha.includes(String(x.fecha).slice(0, 7)))
+      .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+    ok(res, {
+      mes, mesesFecha,
+      meses: Object.keys(meses).sort().reverse().map((m) => ({ mes: m, pagos: meses[m].pagos,
+        ars: money.round(meses[m].ars, 2), usdt: money.round(meses[m].usdt, 2) })),
+      pesos: elegidos.filter((x) => x.via === 'cvu'), usdt: elegidos.filter((x) => x.via === 'usdt'),
     });
   }));
   /**
