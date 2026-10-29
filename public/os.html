@@ -509,7 +509,6 @@ function cliFicha(n, prof=0){
   const c=n.cliente;
   const cajas=_paneles.filter(p=>p.cliente_id===c.id);
   const sinLink=cajas.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
-  const abiertoPan=_cliAbiertos.has(c.id);
   const abiertoRama=!_cerradasIni(_clientes).has(c.id);
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
@@ -539,16 +538,13 @@ function cliFicha(n, prof=0){
           ${n.subs.length?`<div><dt>Debe con su gente</dt><dd>${Object.entries(deudaRama).filter(([,v])=>Math.abs(v)>=0.005)
             .map(([m,v])=>money(v,2)+' '+esc(m)).join(' · ')||money(0,2)}</dd></div>`:''}
         </dl>
+        <!-- Las cajas se tocan en UN lugar, la ficha. «Borrar» se fue de acá: estaba al lado de
+             «Abrir su ficha» y se lleva todos los movimientos (ahora está adentro, plegado). -->
         <div class="acciones">
           <button class="small" onclick="abrirCliente('${c.id}','resumen')">Abrir su ficha</button>
-          <button class="outline small danger" onclick="borrarCliente('${c.id}','${esc(c.codigo)}')">Borrar</button>
+          <button class="outline small" onclick="abrirCliente('${c.id}','cajas')">${
+            cajas.length? (cajas.length===1?'Ver su caja':'Ver sus '+cajas.length+' cajas') : 'Todavía no tiene cajas — agregarle una'}</button>
         </div>
-        <details class="cajas" style="margin-top:14px"${abiertoPan?' open':''}
-          ontoggle="cliPanEstado('${c.id}',this.open)">
-          <summary class="abrir"><span class="chev" aria-hidden="true"></span>${
-            cajas.length? (cajas.length===1?'Ver su caja':'Ver sus '+cajas.length+' cajas') : 'Todavía no tiene cajas — agregarle una'}</summary>
-          <div style="margin-top:11px">${bloquePaneles(c)}</div>
-        </details>
         ${n.subs.length?`<details class="cajas" style="margin-top:10px"${abiertoRama?' open':''}
           ontoggle="cliRamaEstado('${c.id}',this.open)">
           <summary class="abrir"><span class="chev" aria-hidden="true"></span>Su gente (${cuantos})</summary>
@@ -560,7 +556,6 @@ function cliFicha(n, prof=0){
 }
 /* El estado de cada apertura sobrevive al repintado: sin esto, guardar cualquier cosa cerraba todo
    lo que tenías abierto y había que volver a buscar dónde estabas. */
-function cliPanEstado(id, abierto){ if(abierto) _cliAbiertos.add(id); else _cliAbiertos.delete(id); }
 function cliFichaEstado(id, abierto){ if(abierto) _cliFicha.add(id); else _cliFicha.delete(id); }
 
 /* Una sección plegable con su titular a la derecha: el título dice qué es y el número dice si vale
@@ -639,7 +634,6 @@ VIEWS.clientes = async () => {
         </div>
         <div class="acciones">
           <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
-          <button class="outline small" onclick="togglePanTodos()">${_cliAbiertos.size>=_clientes.length?'Cerrar las cajas':'Abrir todas las cajas'}</button>
         </div>
       </div>
       <div class="muted" style="margin:10px 0 14px">Tocá un cliente para abrir su cuenta.
@@ -962,7 +956,7 @@ async function solRechazar(id){
 async function setEnFoto(id, v){
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({en_foto:!!v})});
   if(r&&r.ok) _paneles=(await api('/api/os/paneles')).paneles||_paneles;
-  VIEWS.clientes();
+  repintarCajas();
 }
 /* ── EL NIVEL: EL DE VERDAD, O EL QUE ALGUIEN ESCRIBIÓ AL CREARLO ───────────────────────────────
    Para bajarle fichas a un Agente hay que pasar por su Distribuidor y por su SuperAgente. Esa
@@ -997,15 +991,15 @@ async function resolverPanel(id, nombre){
   const c = (r.nivelCorregido||[])[0];
   toast(c ? ('Resuelto: es ' + c.a + (c.escala&&c.escala.length ? ' · pasa por ' + c.escala.join(' → ') : ''))
           : 'Resuelto: el nivel ya era el correcto');
-  VIEWS.clientes();
+  repintarCajas();
 }
 
 async function setDivisas(id, v){
   const limpio=[...new Set(String(v||'').toUpperCase().split(/[,;\s]+/).map(x=>x.trim()).filter(Boolean))];
-  if(!limpio.length && !confirm('¿Dejar el panel SIN ninguna divisa?\n\nNo se le va a poder pedir nada ni va a entrar en la Foto del mes.')) return VIEWS.clientes();
+  if(!limpio.length && !confirm('¿Dejar el panel SIN ninguna divisa?\n\nNo se le va a poder pedir nada ni va a entrar en la Foto del mes.')) return repintarCajas();
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({divisas:limpio.join(',')})});
   if(r.ok){ _paneles=(await api('/api/os/paneles')).paneles||_paneles; renderClientes&&0; }
-  VIEWS.clientes();
+  repintarCajas();
 }
 /* ── BUSCAR DIVISAS NUEVAS EN UN SOLO PANEL ──────────────────────────────────────────────────
  * El cruce completo son 207 pedidos al casino y ~6 minutos: sirve para una limpieza, no para el
@@ -1084,7 +1078,7 @@ function bloquePaneles(c){
   return `
    <div class="subwrap">
    <table>
-     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Lo que ve el cliente al pedir fichas, grande, con el login abajo. Es el mismo dato que en Fichas: se cambia en cualquiera de los dos lados.">Nombre para el cliente</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th></th></tr></thead>
+     <thead><tr><th>Panel</th><th>Sistema</th><th>Nivel</th><th>Divisas</th><th title="Si entra en la Foto del mes. Sacarlo no rompe nada: su reporte igual sale, preguntándole al casino en vivo — más lento.">Foto</th><th>Casino (nodo)</th><th title="Lo que ve el cliente al pedir fichas, grande, con el login abajo. Es el mismo dato que en Fichas: se cambia en cualquiera de los dos lados.">Nombre para el cliente</th><th title="Cómo lo escribe el sistema de pedidos, si lo escribe distinto">Otros nombres</th><th title="A quién se le cobra lo que entra a esta caja">Se le cobra a</th><th></th></tr></thead>
      <tbody>${ps.map(p=>`<tr>
        <td><b>${esc(p.nombre)}</b></td>
        <td>${sisPill(p.sistema)}</td><td>${nivelPanel(p)}</td>
@@ -1128,7 +1122,7 @@ function bloquePaneles(c){
          <option value="ninguno" ${p.consumo_a==='ninguno'?'selected':''}>no genera deuda</option>
        </select></td>
        <td class="right" style="white-space:nowrap"><button class="outline small" onclick="linkPanel('${p.id}')">🔗 linkear</button> <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td>
-     </tr>`).join('') || '<tr><td colspan="9" class="empty" style="padding:12px">Todavía no tiene paneles.</td></tr>'}</tbody>
+     </tr>`).join('') || '<tr><td colspan="10" class="empty" style="padding:12px">Todavía no tiene cajas.</td></tr>'}</tbody>
    </table>
    <details class="cajas" style="margin-top:12px">
    <summary class="abrir"><span class="chev" aria-hidden="true"></span>Agregarle una caja</summary>
@@ -1146,15 +1140,6 @@ function bloquePaneles(c){
    </div>`;
 }
 
-/* Abrir o cerrar las cajas de TODOS. Abre también la ficha del cliente: si no, se marcaban como
-   abiertas unas cajas que estaban adentro de una tarjeta cerrada y el botón parecía no hacer nada. */
-function togglePanTodos(){
-  const abrir = _cliAbiertos.size < _clientes.length;
-  _clientes.forEach(c=>{
-    if(abrir){ _cliAbiertos.add(c.id); _cliFicha.add(c.id); } else _cliAbiertos.delete(c.id);
-  });
-  VIEWS.clientes();
-}
 async function moverPanel(id, cliente_id){
   if(!cliente_id) return;
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({cliente_id})});
@@ -1451,12 +1436,25 @@ let _cliDirty=false, _cliModalId=null, _cliTab='resumen';
    Antes había dos vistas compitiendo: 👤 Perfil (mirar, pantalla entera) y ✎ (editar, modal).
    El mismo cliente en dos lugares, y datos suyos —el grupo de Telegram, sus códigos— en un
    tercero. Ahora es una pantalla con solapas: se entra una vez y está todo. */
+/* ── CUATRO SOLAPAS, UN SOLO FORMULARIO ─────────────────────────────────────────────────────
+   «Comercial y cuentas» era una sola pared de 3.000 px: lo que no usa ningún cálculo arriba, lo
+   que decide cómo paga abajo, y las cajas del cliente en OTRA pantalla (la lista). Ahora la ficha
+   tiene cuatro solapas por tarea.
+   ⚠️ Las solapas se esconden, no se dejan de dibujar: «💾 Guardar» manda TODAS las claves de la
+   ficha, y una que no estuviera en la pantalla viajaría vacía y la pisaría. */
+const CLI_TABS=[['resumen','📊 Resumen'],['cobro','💼 Precio y cobro'],['cajas','🗂 Cajas y accesos'],['prov','🎰 Proveedores']];
 async function abrirCliente(id, tab){
+  if(tab==='comercial') tab='cobro';           // el nombre viejo de la solapa (Telegram → «Ficha»)
   _cliTab = tab || _cliTab || 'resumen';
+  if(!CLI_TABS.some(([k])=>k===_cliTab)) _cliTab='resumen';
+  // Se puede entrar sin haber pasado por la lista (Telegram, el alta): las cajas necesitan esto.
+  if(!(_clientes||[]).length || !(_paneles||[]).length || !window._cxs){
+    const [d, dp, dc] = await Promise.all([api('/api/os/clientes'), api('/api/os/paneles'), api('/api/os/casino/conexiones')]);
+    _clientes=d.clientes||[]; _paneles=dp.paneles||[]; window._cxs=dc.conexiones||[];
+  }
   const c = (_clientes||[]).find(x=>x.id===id) || {};
   _cliModalId = id;
   const nom={}; (_clientes||[]).forEach(x=>{nom[x.id]=x.nombre||x.codigo;});
-  const TABS=[['resumen','📊 Resumen'],['comercial','💼 Comercial y cuentas']];
   document.getElementById('main').innerHTML = `
     <div class="card">
       <div class="row" style="align-items:center">
@@ -1469,12 +1467,37 @@ async function abrirCliente(id, tab){
         <button class="outline small" onclick="renombrarCliente('${c.id}')"
           title="Cambia el nombre y el código en todas las pantallas">✎ Nombre y código</button>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-        ${TABS.map(([k,l])=>`<button class="${k===_cliTab?'':'outline'} small" onclick="abrirCliente('${id}','${k}')">${l}</button>`).join('')}
+      <div id="cli-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+        ${CLI_TABS.map(([k,l])=>`<button data-tab="${k}" class="${k===_cliTab?'':'outline'} small" onclick="cliSolapa('${k}')">${l}</button>`).join('')}
       </div>
     </div>
-    <div id="cli-tab-body"><div class="card"><div class="empty">Cargando…</div></div></div>`;
-  if(_cliTab==='comercial') editCli(id); else await cliResumen(id);
+    <div id="cli-res" class="cli-sec" data-sec="resumen"><div class="card"><div class="empty">Cargando…</div></div></div>
+    <div id="cli-tab-body"></div>`;
+  editCli(id);
+  cliSolapa(_cliTab);
+  await cliResumen(id);
+}
+/* Cambiar de solapa no repinta: lo tipeado en una sigue ahí al volver, y se guarda junto. */
+function cliSolapa(k){
+  _cliTab=k;
+  document.querySelectorAll('#cli-tabs [data-tab]').forEach(b=>b.className=(b.dataset.tab===k?'':'outline')+' small');
+  document.querySelectorAll('.cli-sec').forEach(s=>{ s.style.display = s.dataset.sec===k ? '' : 'none'; });
+  const g=document.getElementById('cli-guardar'); if(g) g.style.display = (k==='cobro'||k==='cajas') ? '' : 'none';
+}
+/* Las cajas se tocan adentro de la ficha: después de cada cambio se repinta ESA tabla, no se vuelve
+   a la lista (antes cualquier cambio en una caja te sacaba de donde estabas). */
+async function repintarCajas(){
+  _paneles=(await api('/api/os/paneles')).paneles||_paneles;
+  const box=document.getElementById('cli-cajas');
+  const c=box && (_clientes||[]).find(x=>x.id===_cliModalId);
+  if(!c) return VIEWS.clientes();
+  box.innerHTML=bloquePaneles(c);
+}
+/* Guardar algo de la ficha la vuelve a dibujar en la misma solapa: antes te devolvía a la lista. */
+async function cliRecargar(id){
+  _cliDirty=false;
+  _clientes=(await api('/api/os/clientes')).clientes||_clientes;
+  abrirCliente(id, _cliTab);
 }
 function salirCliente(){
   if(_cliDirty && !confirm('Tenés cambios sin guardar en Comercial.\n\nAceptar = salir igual\nCancelar = quedarme')) return;
@@ -1487,46 +1510,15 @@ function editCli(id){
   _cliDirty=false; _cliModalId=id;
   document.getElementById('cli-tab-body').innerHTML = `
       <div oninput="_cliDirty=true" onchange="_cliDirty=true">
-        <div class="row" style="justify-content:flex-end;margin-bottom:8px"><button onclick="saveCli('${id}')">💾 Guardar cambios</button></div>
+        <div id="cli-guardar" class="row" style="justify-content:flex-end;align-items:center;gap:10px;margin-bottom:8px">
+          <span class="muted" style="font-size:12px">«Precio y cobro» y «Cajas y accesos» se guardan juntos</span>
+          <button onclick="saveCli('${id}')">💾 Guardar cambios</button></div>
+        <div class="cli-sec" data-sec="cobro">
         <div class="card">
+          <h2>💼 Precio y quién paga</h2>
           <div class="row">
             <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
-            <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
-            <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
-            <div style="flex:0"><label title="Si está en no, la opción no le aparece y el servidor igual se lo rechaza">Puede avisar pagos</label><select id="e-avisa"><option value="0" ${c.avisa_pagos===false?'selected':''}>no</option><option value="1" ${c.avisa_pagos!==false?'selected':''}>sí</option></select></div>
-            <!-- Estaba abajo de todo, adentro de "Ficha de cobro (datos de referencia)". Un PERMISO
-                 no es un dato de referencia, y ahí nadie lo encuentra: se buscó al lado de "Puede
-                 avisar pagos", que es el otro permiso, y no estaba. Los permisos van juntos. -->
-            <div style="flex:0"><label title="Le permite pasar fichas de un panel suyo a otro. Pide, no ejecuta: lo aprobás vos.">Puede mover fichas</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
           </div>
-          <div class="muted" style="font-size:12px;margin-top:2px">
-            <b>Avisar pagos</b>: sube su comprobante. <b>Mover fichas</b>: pasa fichas entre paneles suyos, en la misma divisa —
-            sólo lo <i>pide</i>, se ejecuta cuando vos lo aprobás. Los dos se comprueban en el servidor, no alcanza con esconder el botón.</div>
-          <!-- ── VER SU CUENTA ────────────────────────────────────────────────────────────────
-               Avisar un pago se habilita con un sí/no porque no expone nada: el cliente ya sabe
-               lo que pagó. VER LA CUENTA es otra cosa —ahí está lo que consumió, lo que debe y lo
-               que pagó— y por eso lleva usuario y contraseña, igual que la factura lleva un token
-               largo en vez del código. Bajarlo a un sí/no sería deshacer esa decisión.
-               La clave se muestra UNA vez y no se puede volver a ver: se guarda el hash, no la clave. -->
-          <div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">
-            <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
-              <div style="flex:0 0 auto"><label>Puede ver su cuenta</label>
-                <div id="acc-est-${id}" class="muted" style="padding:8px 0;font-weight:700">…</div></div>
-              <div style="flex:0 0 auto"><label>Usuario</label>
-                <input id="acc-u-${id}" placeholder="${esc((c.codigo||'').toLowerCase())}" style="width:170px"></div>
-              <div style="flex:0 0 auto"><button class="small" onclick="accHabilitar('${id}')">Dar acceso</button></div>
-              <div style="flex:0 0 auto"><button class="small danger" onclick="accQuitar('${id}')">Quitar acceso</button></div>
-              <div class="muted" style="flex:1;min-width:200px;font-size:12px;padding-bottom:8px">
-                Le aparece <b>💳 Ver mi cuenta</b> en la misma pantalla donde pide fichas: con su código y esta
-                contraseña ve su saldo, sus fichas del mes y sus movimientos. Nada más.</div>
-            </div>
-            <div id="acc-clave-${id}"></div>
-          </div>
-          <!-- ── QUÉ PUEDE HACER CADA AGENTE EN MI CAJA ─────────────────────────────────────────
-               Los permisos de arriba son del CLIENTE. Estos son de cada AGENTE (cada cuenta del
-               casino con la que entra a adminganamos): uno puede hacer todo y otro sólo pedir.
-               Se guardan al tocarlos y el servidor los hace cumplir. -->
-          <div id="agentes-${id}" style="margin-top:8px"></div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
             <div><label>Su vendedor</label><select id="e-vend"><option value="">— cliente directo —</option>${
@@ -1534,7 +1526,6 @@ function editCli(id){
             }</select></div>
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px">Un <b>vendedor</b> revende a sus propios clientes: va al 0% y sólo paga proveedores externos. A los clientes chicos asignales su vendedor acá.</div>
           </div>
-
           <!-- ── CUELGA DE OTRO CLIENTE ────────────────────────────────────────────────────────
                Ariel trabaja al 14 pero su consumo lo paga Fran, a quien se le cobra el 12: los 2
                puntos son la ganancia de Fran. Eso funcionaba sólo porque los pedidos se cargaban
@@ -1611,6 +1602,7 @@ function editCli(id){
               <option value="" ${!c.tc_cargas?'selected':''}>Automático — ${(c.prepago||String(c.momento_pago||'').toLowerCase()==='anticipado')?'del momento':'promedio del mes'}</option>
               <option value="promedio" ${c.tc_cargas==='promedio'?'selected':''}>Promedio del mes — le mandamos la cuenta a fin de mes</option>
               <option value="momento" ${c.tc_cargas==='momento'?'selected':''}>Del momento — va pagando durante el mes</option></select></div>
+            <div style="flex:0 0 190px"><label title="De la planilla. Cuenta para el «Automático» de al lado: Anticipado = del momento.">Cuándo paga</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
             <div style="flex:0 0 200px"><label>Tope de deuda <span class="muted">(${c.moneda_cuenta==='ARS'?'ARS':'USDT'})</span></label>
               <input id="e-tope" value="${esc(c.tope_deuda||'')}" placeholder="sin tope" inputmode="decimal"></div>
           </div>
@@ -1622,6 +1614,17 @@ function editCli(id){
             <br><b>Cambio de sus cargas</b>: con el <b>promedio del mes</b> cada carga se pasa a dólares con el promedio de su moneda (el de la factura) y queda provisoria hasta que termina el mes; <b>del momento</b> la deja fija con el cambio del día que se cargó. Una cuenta en ARS no pasa sus pesos a nada; las fichas en otra moneda le quedan como deuda en USDT aparte.
             <br><b>Tope de deuda</b>: si su deuda llega a ese monto, no puede pedir fichas (portal, Mi Caja y chat) hasta acreditar. Un cliente <b>suspendido</b> no puede pedir nunca.</div>
         </div>
+        <div class="card">
+          <h2>💰 Saldo anterior <span class="muted">(deuda previa al sistema)</span></h2>
+          <div class="row" style="align-items:flex-end">
+            <div><label>Monto</label><input id="e-saldoini" value="${esc(c.saldo_inicial||'')}" placeholder="ej 1500"/></div>
+            <div style="flex:0"><label>Divisa</label><select id="e-saldoini-div"><option value="">—</option>${['USDT','ARS'].map(d=>opt(c.saldo_inicial_divisa,d,d)).join('')}</select></div>
+            <button class="outline" onclick="aplicarSaldoIni('${id}')">↳ Aplicar a la cuenta</button>
+          </div>
+          <div id="e-saldoini-msg" class="muted" style="margin-top:6px">${c.saldo_inicial_mov_id
+            ? '✔ Ya está aplicado a la cuenta corriente. Si cambiás el monto, volvé a tocar "Aplicar" (reemplaza el anterior, no lo suma dos veces).'
+            : 'Se suma como <b>“saldo anterior”</b> al total de la factura del mes. Guardá el monto y después tocá “Aplicar a la cuenta”.'}</div>
+        </div>
         <!-- Lo que venía de la planilla y NUNCA entró en ningún cálculo. Queda guardado (y se puede
              seguir editando) pero cerrado y aparte: la ficha de arriba es la que manda. -->
         <details class="card">
@@ -1629,8 +1632,11 @@ function editCli(id){
           <div class="muted" style="font-size:12px;margin:8px 0">Son anotaciones de cómo trabajaba cada cliente. Lo que sí se usa está en <b>💳 Cómo paga</b>; el tipo de cambio real sale de <b>💱 Tipos de cambio</b> y el % de la ficha y la matriz del Cierre.</div>
           <div><label>Divisas de fichas <span class="muted">(elegí una o varias)</span></label><div id="e-divisas" class="divchk" style="display:flex;flex-wrap:wrap;gap:6px 14px;padding:6px 2px"><span class="muted">Cargando…</span></div></div>
           <div class="row" style="margin-top:6px">
+            <div><label>Ajuste USDT %</label><input id="e-aj" value="${esc(c.ajuste_usdt_pct||'')}" placeholder="-2.8"/></div>
+            <div style="flex:0"><label>Paga proveedores</label><select id="e-pp"><option value="0" ${!c.paga_proveedores?'selected':''}>no</option><option value="1" ${c.paga_proveedores?'selected':''}>sí</option></select></div>
+          </div>
+          <div class="row" style="margin-top:6px">
             <div><label>Moneda de cobro</label><select id="e-mcobro"><option value="">—</option>${opt(c.moneda_cobro,'usdt','USDT')}${opt(c.moneda_cobro,'cvu','ARS (CVU)')}${opt(c.moneda_cobro,'variable','Variable (elige por pago)')}${opt(c.moneda_cobro,'no_aplica','No aplica (no se le cobra)')}</select></div>
-            <div><label>Momento de pago</label><select id="e-mpago"><option value="">—</option>${opt(c.momento_pago,'anticipado','Anticipado')}${opt(c.momento_pago,'acumulado','Acumulado')}${opt(c.momento_pago,'invoice','Invoice mensual')}</select></div>
           </div>
           <div class="row" style="margin-top:6px;align-items:flex-end">
             <div><label>Disparador</label><select id="e-disp"><option value="">—</option>${opt(c.disparador,'carga_deuda','Carga → deuda')}${opt(c.disparador,'pago_carga','Pago → carga')}${opt(c.disparador,'variable','Variable (el cliente elige)')}</select></div>
@@ -1642,6 +1648,69 @@ function editCli(id){
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px"><b style="color:var(--gold)">⚠ Hoy no se aplica.</b> La idea era: puntos sobre el <b>costo</b> del proveedor para los que no tengan precio propio en la matriz (ej: <b>3</b> = a uno que cuesta 5 se le cobra 8). Está guardado pero <b>ningún cálculo lo usa</b>: si querés cobrarle de más a un proveedor, ponelo en la matriz del Cierre, que sí se usa.</div>
           </div>
         </details>
+        <!-- Borrar estaba en CADA tarjeta de la lista, al lado de «Abrir su ficha», y se lleva sus
+             movimientos sin vuelta atrás. Acá adentro, plegado, y pidiendo el código. -->
+        <details class="card">
+          <summary style="cursor:pointer"><b>🗑 Borrar este cliente</b> <span class="muted">— sólo para uno cargado por error</span></summary>
+          <div class="muted" style="font-size:12px;margin:8px 0">Borra el cliente <b>con sus cajas, sus % y todos sus movimientos</b>. No se puede deshacer.
+            Para un cliente que dejó de trabajar va a estar <b>«Dar de baja»</b> (fase 4.3): queda guardado con su historia y deja de pedir.</div>
+          <button class="outline small danger" onclick="borrarCliente('${id}','${esc(c.codigo)}')">Borrar este cliente</button>
+        </details>
+        </div>
+        <div class="cli-sec" data-sec="cajas">
+        <div class="card">
+          <h2>🗂 Sus cajas <span class="muted">(${_paneles.filter(p=>p.cliente_id===id).length})</span></h2>
+          <div class="muted" style="margin:-4px 0 8px;font-size:12px">Cada caja es una cuenta del casino de este cliente. Lo que se cambia en una fila se guarda al toque.</div>
+          <div id="cli-cajas">${bloquePaneles(c)}</div>
+        </div>
+        <div class="card">
+          <h2>🔐 Qué puede hacer</h2>
+          <div class="row">
+            <div style="flex:0"><label title="Si está en no, la opción no le aparece y el servidor igual se lo rechaza">Puede avisar pagos</label><select id="e-avisa"><option value="0" ${c.avisa_pagos===false?'selected':''}>no</option><option value="1" ${c.avisa_pagos!==false?'selected':''}>sí</option></select></div>
+            <!-- Estaba abajo de todo, adentro de "Ficha de cobro (datos de referencia)". Un PERMISO
+                 no es un dato de referencia, y ahí nadie lo encuentra: se buscó al lado de "Puede
+                 avisar pagos", que es el otro permiso, y no estaba. Los permisos van juntos. -->
+            <div style="flex:0"><label title="Le permite pasar fichas de un panel suyo a otro. Pide, no ejecuta: lo aprobás vos.">Puede mover fichas</label><select id="e-mover"><option value="0" ${!c.mover_balance?'selected':''}>no</option><option value="1" ${c.mover_balance?'selected':''}>sí</option></select></div>
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:2px">
+            <b>Avisar pagos</b>: sube su comprobante. <b>Mover fichas</b>: pasa fichas entre paneles suyos, en la misma divisa —
+            sólo lo <i>pide</i>, se ejecuta cuando vos lo aprobás. Los dos se comprueban en el servidor, no alcanza con esconder el botón.</div>
+          <!-- ── VER SU CUENTA ────────────────────────────────────────────────────────────────
+               Avisar un pago se habilita con un sí/no porque no expone nada: el cliente ya sabe
+               lo que pagó. VER LA CUENTA es otra cosa —ahí está lo que consumió, lo que debe y lo
+               que pagó— y por eso lleva usuario y contraseña, igual que la factura lleva un token
+               largo en vez del código. Bajarlo a un sí/no sería deshacer esa decisión.
+               La clave se muestra UNA vez y no se puede volver a ver: se guarda el hash, no la clave. -->
+          <div class="card" style="margin:8px 0 0;background:var(--bg3);padding:10px 12px">
+            <div class="row" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
+              <div style="flex:0 0 auto"><label>Puede ver su cuenta</label>
+                <div id="acc-est-${id}" class="muted" style="padding:8px 0;font-weight:700">…</div></div>
+              <div style="flex:0 0 auto"><label>Usuario</label>
+                <input id="acc-u-${id}" placeholder="${esc((c.codigo||'').toLowerCase())}" style="width:170px"></div>
+              <div style="flex:0 0 auto"><button class="small" onclick="accHabilitar('${id}')">Dar acceso</button></div>
+              <div style="flex:0 0 auto"><button class="small danger" onclick="accQuitar('${id}')">Quitar acceso</button></div>
+              <div class="muted" style="flex:1;min-width:200px;font-size:12px;padding-bottom:8px">
+                Le aparece <b>💳 Ver mi cuenta</b> en la misma pantalla donde pide fichas: con su código y esta
+                contraseña ve su saldo, sus fichas del mes y sus movimientos. Nada más.</div>
+            </div>
+            <div id="acc-clave-${id}"></div>
+          </div>
+          <!-- ── QUÉ PUEDE HACER CADA AGENTE EN MI CAJA ─────────────────────────────────────────
+               Los permisos de arriba son del CLIENTE. Estos son de cada AGENTE (cada cuenta del
+               casino con la que entra a adminganamos): uno puede hacer todo y otro sólo pedir.
+               Se guardan al tocarlos y el servidor los hace cumplir. -->
+          <div id="agentes-${id}" style="margin-top:8px"></div>
+        </div>
+        <div class="card">
+          <h2>🧾 Códigos de pedido <span class="muted">(del sistema en línea)</span></h2>
+          <div class="muted" style="margin-bottom:6px">Con qué código llegan los pedidos de este cliente. <b>El código dice QUIÉN CONSUME</b>, no quién hizo el pedido:
+            si el vendedor pide por su cliente, tiene que usar el código <b>del cliente</b>. Si no, la carga se le factura al vendedor y va al 0%.</div>
+          <div id="e-cods" class="muted">Cargando…</div>
+          <div class="row" style="margin-top:8px;align-items:flex-end">
+            <div style="flex:0"><label>➕ Agregar código</label><input id="e-nuevocod" placeholder="ej: TITAN01" style="width:170px"></div>
+            <div style="flex:0"><button class="small" onclick="cliAddCodigo('${id}')">Agregar</button></div>
+          </div>
+        </div>
         <div class="card">
           <h2>📣 Avisos por Telegram</h2>
           <div class="muted" style="margin-bottom:6px">El grupo de este cliente. Sin esto no le llega ni la factura ni el aviso de cada carga.
@@ -1657,29 +1726,10 @@ function editCli(id){
             <div class="muted" style="flex:1;padding-bottom:9px">Se guarda con 💾 Guardar. <b>Probar manda un mensaje de verdad al grupo.</b></div>
           </div>
         </div>
-        <div class="card">
-          <h2>🧾 Códigos de pedido <span class="muted">(del sistema en línea)</span></h2>
-          <div class="muted" style="margin-bottom:6px">Con qué código llegan los pedidos de este cliente. <b>El código dice QUIÉN CONSUME</b>, no quién hizo el pedido:
-            si el vendedor pide por su cliente, tiene que usar el código <b>del cliente</b>. Si no, la carga se le factura al vendedor y va al 0%.</div>
-          <div id="e-cods" class="muted">Cargando…</div>
-          <div class="row" style="margin-top:8px;align-items:flex-end">
-            <div style="flex:0"><label>➕ Agregar código</label><input id="e-nuevocod" placeholder="ej: TITAN01" style="width:170px"></div>
-            <div style="flex:0"><button class="small" onclick="cliAddCodigo('${id}')">Agregar</button></div>
-          </div>
         </div>
-        <div class="card">
-          <h2>💰 Saldo anterior <span class="muted">(deuda previa al sistema)</span></h2>
-          <div class="row" style="align-items:flex-end">
-            <div><label>Monto</label><input id="e-saldoini" value="${esc(c.saldo_inicial||'')}" placeholder="ej 1500"/></div>
-            <div style="flex:0"><label>Divisa</label><select id="e-saldoini-div"><option value="">—</option>${['USDT','ARS'].map(d=>opt(c.saldo_inicial_divisa,d,d)).join('')}</select></div>
-            <button class="outline" onclick="aplicarSaldoIni('${id}')">↳ Aplicar a la cuenta</button>
-          </div>
-          <div id="e-saldoini-msg" class="muted" style="margin-top:6px">${c.saldo_inicial_mov_id
-            ? '✔ Ya está aplicado a la cuenta corriente. Si cambiás el monto, volvé a tocar "Aplicar" (reemplaza el anterior, no lo suma dos veces).'
-            : 'Se suma como <b>“saldo anterior”</b> al total de la factura del mes. Guardá el monto y después tocá “Aplicar a la cuenta”.'}</div>
-        </div>
-        <div id="cliPlat"><div class="card"><div class="empty">Cargando plataformas…</div></div></div>
+        <div class="cli-sec" data-sec="prov">
         <div id="cliProv"><div class="card"><div class="empty">Cargando proveedores…</div></div></div>
+        </div>
       </div>
   `;
   fillDivisas(c.divisa_fichas);
@@ -1687,7 +1737,6 @@ function editCli(id){
   accEstado(id);          // si puede ver su cuenta, y con qué usuario
   loadAgentes(id);        // qué puede hacer cada agente en Mi Caja
   loadPrepago(id);        // saldo para pedir, si es prepago
-  loadCliPlat(id);
   loadCliProv(id);
 }
 function toggleTcProv(){ const w=document.getElementById('e-tcprov-wrap'); if(w) w.style.display = (val('e-tcap')==='proveedor')?'':'none'; }
@@ -1789,85 +1838,9 @@ async function fillDivisas(curCsv){
   box.innerHTML = arr.length ? arr.map(x=>`<label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap" title="${esc(x.nombre||'')}"><input type="checkbox" class="e-div" value="${esc(x.codigo)}" ${sel.has(x.codigo)?'checked':''}> ${esc(x.codigo)}</label>`).join('')
     : '<span class="muted">Sin divisas activas — agregá en ⚙ Config → 🌎 Divisas.</span>';
 }
-// ── Plataformas / cuentas del cliente — asignador LEVEL-FLEXIBLE con checkboxes ──
-async function loadCliPlat(id){
-  const cxs = (await api('/api/os/casino/conexiones')).conexiones||[];
-  window._platCxs = cxs;
-  const opts = cxs.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
-  document.getElementById('cliPlat').innerHTML = `
-    <div class="card">
-      <h2>🛰️ Plataformas / cuentas <span class="muted">(asigná las cuentas de este cliente, al nivel que sea)</span></h2>
-      ${cxs.length ? `
-      <div class="row" style="align-items:flex-end">
-        <div><label>Conexión / sistema</label><select id="plat-cx">${opts}</select></div>
-        <div style="flex:0"><button class="outline" onclick="loadAccts('${id}')">⤓ Cargar cuentas</button></div>
-      </div>
-      <div id="plat-list" class="muted" style="margin-top:8px">Elegí una conexión y tocá "Cargar cuentas". Filtrás por nivel (lo que esa cuenta vea: superagente, distribuidor, master…) + buscador, y tildás las de este cliente.</div>
-      ` : '<div class="empty">No hay conexiones. Cargá una en Config → 🎰 Casino primero.</div>'}
-    </div>`;
-}
-let _platInact=false; // asignador: incluir inactivos (server-side ?activos=0). Default false = solo activos.
-function toggleInact(c){ _platInact=c; const st=window._accState; if(st) loadAccts(st.id); }
-async function loadAccts(id){
-  const cx = val('plat-cx'); if(!cx) return toast('Elegí una conexión');
-  const box = document.getElementById('plat-list'); box.innerHTML='⏳ trayendo cuentas… la 1ra vez puede tardar ~20-30s si la cuenta ve muchas (después es instantáneo)';
-  const pr = await api('/api/os/paneles?cliente_id='+id);
-  const panels = (pr.paneles||[]).filter(p=>p.conexion_id===cx && p.id_usuario);
-  const r = await api('/api/os/casino/conexiones/'+cx+'/nodos-nivel?activos='+(_platInact?'0':'1')); // solo activos (server-side) salvo que se pidan inactivos
-  if(!r.ok){ box.innerHTML='<span class="badge err">No se pudieron traer las cuentas (¿conexión OK?)</span>'; return; }
-  window._accState = { cx, id, panels, sel: new Set(panels.map(p=>String(p.id_usuario))), nodeById:{}, niveles:r.niveles||{}, nivel:r.nivel, current:[], truncado:false };
-  _mergeNivel(r);
-  const niveles = Object.keys(r.niveles||{}).sort((a,b)=>r.niveles[a]-r.niveles[b]); // el nivel más alto (menos nodos) primero
-  box.innerHTML = `
-    <div class="row" style="align-items:flex-end; margin-bottom:6px">
-      <div style="flex:0"><label>Nivel</label><select id="acc-niv" onchange="changeNivel()">${niveles.map(k=>`<option value="${esc(k)}" ${k===r.nivel?'selected':''}>${esc(k)} (${r.niveles[k]})</option>`).join('')}</select></div>
-      <div><label>Buscar (login)</label><input id="acc-q" oninput="renderAccts()" placeholder="filtrar por login…"/></div>
-      <div style="flex:0"><label style="display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="acc-inact" ${_platInact?'checked':''} onchange="toggleInact(this.checked)"/> incluir inactivos</label></div>
-      <div style="flex:0"><button onclick="saveAccts()">💾 Guardar selección</button></div>
-    </div>
-    <div id="acc-rows"></div>`;
-  renderAccts();
-}
-function _mergeNivel(r){ const st=window._accState; if(!st)return; (r.nodos||[]).forEach(n=>{ st.nodeById[String(n.id)]=n; }); st.current=r.nodos||[]; st.nivel=r.nivel; st.truncado=!!r.truncado; }
-async function changeNivel(){
-  const st=window._accState; if(!st)return; const niv=val('acc-niv');
-  const rows=document.getElementById('acc-rows'); rows.innerHTML='⏳ cargando nivel…';
-  const r=await api('/api/os/casino/conexiones/'+st.cx+'/nodos-nivel?activos='+(_platInact?'0':'1')+'&nivel='+encodeURIComponent(niv));
-  if(r.ok){ _mergeNivel(r); renderAccts(); } else rows.innerHTML='<span class="badge err">error trayendo el nivel</span>';
-}
-function renderAccts(){
-  const st = window._accState; if(!st) return;
-  const q = (val('acc-q')||'').toLowerCase();
-  let list = st.current||[];
-  if(q) list = list.filter(n=>String(n.login).toLowerCase().includes(q));
-  list.sort((a,b)=>String(a.login).localeCompare(String(b.login)));
-  const CAP=400, shown=list.slice(0,CAP);
-  document.getElementById('acc-rows').innerHTML = `
-    <div class="muted" style="margin-bottom:4px">${list.length} cuentas en "${esc(st.nivel)}"${(st.truncado||list.length>CAP)?(' · muestro hasta '+CAP+', refiná con el buscador'):''} · seleccionadas (todos los niveles): ${st.sel.size}</div>
-    <table><thead><tr><th></th><th>Cuenta</th><th>ID</th><th class="right">IN (ARS)</th><th class="right">Profit</th></tr></thead><tbody>
-    ${shown.map(n=>`<tr>
-      <td><input type="checkbox" class="acc-chk" onchange="toggleAcct('${esc(String(n.id))}',this.checked)" ${st.sel.has(String(n.id))?'checked':''}/></td>
-      <td><b>${esc(n.login)}</b></td><td><span class="pill">${esc(n.id)}</span></td>
-      <td class="right">${money(n.in,0)}</td><td class="right">${money(n.profit,0)}</td>
-    </tr>`).join('')||'<tr><td colspan="5" class="empty">No hay cuentas en este nivel/búsqueda.</td></tr>'}
-    </tbody></table>`;
-}
-function toggleAcct(nodeId, checked){ const st=window._accState; if(!st)return; if(checked) st.sel.add(String(nodeId)); else st.sel.delete(String(nodeId)); }
-async function saveAccts(){
-  const st = window._accState; if(!st) return;
-  const cxName = (window._platCxs||[]).find(c=>c.id===st.cx); const sistema = cxName?cxName.nombre:'';
-  const origIds = new Set(st.panels.map(p=>String(p.id_usuario)));
-  const toCreate = [...st.sel].filter(idd=>!origIds.has(idd));
-  const toDelete = st.panels.filter(p=>!st.sel.has(String(p.id_usuario)));
-  let creados=0, borrados=0;
-  for(const idd of toCreate){ const n=st.nodeById[idd]; if(!n)continue;
-    await api('/api/os/paneles',{method:'POST',body:JSON.stringify({cliente_id:st.id, nombre:n.login, sistema, nivel_usuario:(n.nivel||''), tipo:'exclusivo', id_usuario:n.id, conexion_id:st.cx, divisas:'ARS'})}); creados++;
-  }
-  if(toDelete.length){ if(confirm('Vas a DESVINCULAR '+toDelete.length+' cuenta(s) de este cliente (se borran esos paneles). ¿Seguir?')){
-    for(const p of toDelete){ await api('/api/os/paneles/'+p.id,{method:'DELETE'}); borrados++; }
-  }}
-  toast('Cuentas: +'+creados+(borrados?(' / -'+borrados):'')); loadAccts(st.id);
-}
+/* El asignador «🛰️ Plataformas» (tildar cuentas del casino por nivel) salió el 29-oct-2026: era una
+   segunda forma de manejar las cajas, y destildar una BORRABA el panel. Las cajas se agregan y se
+   tocan en una sola tabla, la de «🗂 Cajas y accesos». */
 // % de proveedores DE ESTE CLIENTE = su columna en la matriz del Cierre de Mes (misma data, se editan mutuamente).
 async function loadCliProv(id){
   const el=document.getElementById('cliProv'); if(!el)return;
@@ -1912,7 +1885,7 @@ async function saveCli(id){
     chatId:val('e-tgchat'), enabled:document.getElementById('e-tgon').checked,
     copias:val('e-tgcopias') })});
   if(tg&&!tg.ok) toast('⚠ lo demás se guardó, pero el grupo de Telegram no: '+(tg.error||''));
-  _cliDirty=false; toast('Guardado'); VIEWS.clientes();
+  _cliDirty=false; toast('Guardado'); cliRecargar(id);
 }
 /* Los códigos de pedido del cliente. Se guardan al toque (son una lista, no un campo), así que
    no esperan al 💾 de arriba. */
@@ -1950,7 +1923,7 @@ async function aplicarSaldoIni(id){
   if(!div) return toast('Elegí la divisa del saldo anterior');
   if(!confirm(`¿Aplicar ${div} ${monto} como SALDO ANTERIOR?\n\nSe suma al total que el cliente debe. Si ya habías aplicado uno, este lo reemplaza.`)) return;
   const r=await api('/api/os/clientes/'+id+'/saldo-inicial',{method:'POST',body:JSON.stringify({monto,divisa:div})});
-  if(r&&r.ok){ toast('Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); VIEWS.clientes(); }
+  if(r&&r.ok){ toast('Saldo anterior aplicado: '+(r.monto_usdt||'')+' USDT'); cliRecargar(id); }
   else toast('✗ '+((r&&r.error)||'no se pudo aplicar'));
 }
 function pbTipo(){
@@ -1970,7 +1943,7 @@ async function savePB(id, confirmar){
     if(confirm(r.error + '\n\n¿Corregirlo igual?')) return savePB(id, true);
     return;
   }
-  if(r.ok){ toast('Precio base: '+r.precio_base_pct+'%'); VIEWS.clientes(); }
+  if(r.ok){ toast('Precio base: '+r.precio_base_pct+'%'); cliRecargar(id); }
   else toast('✗ '+((r&&r.error)||'no se pudo guardar'));
 }
 async function verPBHist(id){
@@ -1978,7 +1951,7 @@ async function verPBHist(id){
   document.getElementById('pb-hist').innerHTML = '<hr/>'+(r.historial||[]).map(h=>`• ${esc(h.valor)}% — desde ${esc(h.vigente_desde)} ${h.vigente_hasta?('hasta '+esc(h.vigente_hasta)):'(vigente)'}`).join('<br/>') || 'sin historial';
 }
 async function cliResumen(id){
-  const main=document.getElementById('cli-tab-body');
+  const main=document.getElementById('cli-res'); if(!main) return;
   const r=await api('/api/os/clientes/'+id+'/perfil?meses=6');
   if(!r.ok){ main.innerHTML='<div class="card"><div class="empty">Error cargando el perfil</div></div>'; return; }
   const c=r.cliente, d=r.deuda||{}, hp=(r.historial_pct||[]);
@@ -1990,7 +1963,7 @@ async function cliResumen(id){
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Estado</label><div style="font-size:18px;font-weight:800">${esc(c.estado||'')}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Base actual</label><div style="font-size:18px;font-weight:800">${r.base_actual!=null?esc(r.base_actual)+'%':'—'}</div></div>
         <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Deuda total (${esc(d.moneda||'USDT')})</label><div style="font-size:18px;font-weight:800;color:var(--gold)">${money(d.total||0)}</div></div>
-        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Paneles linkeados</label><div style="font-size:18px;font-weight:800">${c.paneles||0}</div></div>
+        <div class="card" style="flex:1;background:var(--bg3);margin:0"><label>Cajas vinculadas</label><div style="font-size:18px;font-weight:800">${c.paneles||0}</div></div>
       </div>
     </div>
     <!-- ── LA CUENTA, RENGLÓN POR RENGLÓN ────────────────────────────────────────────────────
@@ -2031,10 +2004,10 @@ async function cliResumen(id){
 
     <div class="card">
       <h2>🛰️ Plataformas conectadas (${plats.length})</h2>
-      <div class="muted" style="margin-bottom:6px">Todos los superagentes/cuentas linkeados a este cliente. ${sisResumen||''} — así controlás que estén todas; si falta alguna, agregala en <b>✎ (Clientes) → 🛰️ Plataformas</b>.</div>
+      <div class="muted" style="margin-bottom:6px">Todos los superagentes/cuentas linkeados a este cliente. ${sisResumen||''} — así controlás que estén todas; si falta alguna, agregala en <b>🗂 Cajas y accesos</b>.</div>
       ${plats.length?`<table><thead><tr><th>Usuario</th><th>Sistema</th><th>Nivel</th><th>Estado</th></tr></thead><tbody>
       ${plats.map(p=>`<tr><td><b>${esc(p.usuario||p.nombre)}</b></td><td>${esc(p.sistema||'—')}</td><td class="muted">${esc(p.nivel||'')}</td><td>${p.conectada?'<span class="badge ok">conectada</span>':'<span class="badge warn">incompleta</span>'}</td></tr>`).join('')}
-      </tbody></table>`:'<div class="empty">Sin plataformas linkeadas. Asignalas en ✎ (Clientes) → 🛰️ Plataformas.</div>'}
+      </tbody></table>`:'<div class="empty">Sin cajas vinculadas. Agregalas en 🗂 Cajas y accesos.</div>'}
     </div>
     <div class="card">
       <h2>📊 Resumen mensual</h2>
@@ -2046,7 +2019,7 @@ async function cliResumen(id){
     <div class="card">
       <h2>📜 Historial de % (precio base)</h2>
       <div class="muted" style="margin-bottom:6px">Cada cambio de % queda registrado (vigencia o corrección). De acá en adelante se acumula solo.</div>
-      ${hp.length?('<table><thead><tr><th>%</th><th>Desde</th><th>Hasta</th></tr></thead><tbody>'+hp.map(h=>`<tr><td><b>${esc(h.valor)}%</b></td><td>${esc(h.vigente_desde)}</td><td>${h.vigente_hasta?esc(h.vigente_hasta):'<span class="badge ok">vigente</span>'}</td></tr>`).join('')+'</tbody></table>'):'<div class="empty">Sin cambios de % todavía. Cambiá el precio base (✎ en Clientes) y queda el registro acá.</div>'}
+      ${hp.length?('<table><thead><tr><th>%</th><th>Desde</th><th>Hasta</th></tr></thead><tbody>'+hp.map(h=>`<tr><td><b>${esc(h.valor)}%</b></td><td>${esc(h.vigente_desde)}</td><td>${h.vigente_hasta?esc(h.vigente_hasta):'<span class="badge ok">vigente</span>'}</td></tr>`).join('')+'</tbody></table>'):'<div class="empty">Sin cambios de % todavía. Cambiá el precio base en 💼 Precio y cobro y queda el registro acá.</div>'}
     </div>`;
 }
 
@@ -2153,7 +2126,7 @@ async function addPanel(cid){
     tipo: 'exclusivo', id_usuario: val('pn-idu-'+cid), divisas: val('pn-div-'+cid),
     conexion_id: val('pn-cx-'+cid),
   })});
-  if(r.ok){ _cliAbiertos.add(cid); toast('Panel creado'); VIEWS.clientes(); }
+  if(r.ok){ _cliAbiertos.add(cid); toast('Panel creado'); repintarCajas(); }
 }
 async function buscarNodo(cid){
   const cx=val('pn-cx-'+cid); if(!cx) return toast('Elegí una conexión casino primero');
@@ -2169,7 +2142,7 @@ async function linkPanel(id){
   let nodeId=prompt('ID del nodo del casino (vacío = buscar por login):',''); if(nodeId===null)return;
   if(!nodeId){ const login=prompt('Login del casino a buscar:'); if(!login)return; const r=await api('/api/os/casino/conexiones/'+cid+'/buscar?login='+encodeURIComponent(login)); if(!r.ok||!r.users||!r.users.length)return toast('No se encontró'); nodeId=r.users[0].id; }
   const u=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({conexion_id:cid,id_usuario:nodeId})});
-  if(u.ok)toast('Panel linkeado al nodo '+nodeId); VIEWS.clientes();
+  if(u.ok)toast('Panel linkeado al nodo '+nodeId); repintarCajas();
 }
 /* El nombre del panel lo elige el casino, no nosotros, y el sistema de pedidos a veces lo escribe
    distinto. En vez de renombrar allá, se registran acá las otras formas. */
@@ -2190,10 +2163,10 @@ async function setConsumoA(id, v){
   const que = v==='dueno' ? 'Lo que entre a este panel se le va a cobrar a SU DUEÑO, sin importar con qué código se pidió.'
     : v==='ninguno' ? 'Lo que entre a este panel NO va a generar deuda a nadie.'
     : 'Lo que entre a este panel se le va a cobrar al cliente del CÓDIGO del pedido (lo normal).';
-  if(!confirm(que+'\n\nAfecta la facturación de los meses que todavía no se emitieron. ¿Confirmás?')) return VIEWS.clientes();
+  if(!confirm(que+'\n\nAfecta la facturación de los meses que todavía no se emitieron. ¿Confirmás?')) return repintarCajas();
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({consumo_a: v||null})});
   toast(r.ok?'Listo':'No se pudo');
-  VIEWS.clientes();
+  repintarCajas();
 }
 
 async function delPanel(id){
@@ -2201,7 +2174,7 @@ async function delPanel(id){
   if(!confirm('¿Eliminar el panel "'+((p&&p.nombre)||id)+'"?'))return;
   await api('/api/os/paneles/'+id,{method:'DELETE'});
   if(p&&p.cliente_id)_cliAbiertos.add(p.cliente_id);
-  VIEWS.clientes();
+  repintarCajas();
 }
 
 // Participaciones se fue a 🥧 Reparto → REP.clientes: el % de cada participante ahora se

@@ -4997,7 +4997,10 @@ async function main() {
     // Desde el 6-oct-2026 la vieja «Ficha de cobro» es «🗒 Notas de la planilla» (cerrada, aparte).
     const iFicha = h6.indexOf('<b>🗒 Notas de la planilla</b>');
     check('permisos: mover fichas está junto a avisar pagos, no en "datos de referencia"',
-      iMover > 0 && iAvisa > 0 && Math.abs(iMover - iAvisa) < 1200 && iMover < iFicha,
+      // Desde el 29-oct-2026 los permisos viven en la solapa «🗂 Cajas y accesos», que en el código va
+      // DESPUÉS de las Notas: lo que se controla es que no estén ADENTRO de ese plegable.
+      iMover > 0 && iAvisa > 0 && Math.abs(iMover - iAvisa) < 1200
+        && !(iMover > iFicha && iMover < h6.indexOf('</details>', iFicha)),
       'avisa=' + iAvisa + ' mover=' + iMover + ' seccion-ficha=' + iFicha);
   }
 
