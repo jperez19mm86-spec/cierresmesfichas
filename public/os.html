@@ -83,7 +83,7 @@ const GRUPOS = [
     ['cierre:pago', '💸 Lo que se les paga'],
   ] },
   { id: 'padron', label: () => '👥 Clientes', items: [
-    ['clientes', '👥 Clientes y paneles'],
+    ['clientes', '👥 Clientes por vendedor'],
     ['altaCliente', '✨ Nuevo cliente'],
     ['reparto', '🥧 Reparto'],
     ['repartocobrado', '🧮 De quién es lo cobrado'],
@@ -712,19 +712,6 @@ VIEWS.clientes = async () => {
 
   main.innerHTML = `
     <div class="card">
-      <h2>➕ Nuevo cliente</h2>
-      <div class="row" style="align-items:flex-end">
-        <div style="flex:0"><label>Código</label><input id="nc-cod" placeholder="Titan" style="width:160px"/></div>
-        <div><label>Nombre</label><input id="nc-nom" placeholder="Titan"/></div>
-        <div style="flex:0 0 200px"><label for="nc-vend">Lo maneja</label><select id="nc-vend">
-          <option value="">— nadie: cliente directo —</option>${_clientes.filter(v=>v.es_vendedor).sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)))
-            .map(v=>`<option value="${esc(v.id)}">${esc(v.nombre||v.codigo)}</option>`).join('')}</select></div>
-        <button onclick="nuevoCliente()">Crear cliente</button>
-        <button class="outline" onclick="go('altaCliente')">✨ Asistente completo</button>
-      </div>
-      <div class="muted" style="margin-top:6px">El alta rápida crea el cliente pelado (después le ponés todo en su ficha). El <b>✨ Asistente</b> hace todo en una pantalla: cuentas, % y reparto, billetera y Telegram, con un semáforo de qué le falta.</div>
-    </div>
-    <div class="card">
       <div class="tapa">
         <div>
           <h2>Clientes por vendedor</h2>
@@ -732,6 +719,9 @@ VIEWS.clientes = async () => {
             sinLinkear?' · <b style="color:var(--durazno)">'+sinLinkear+' sin vincular</b>':''}</div>
         </div>
         <div class="acciones">
+          <!-- Una sola forma de dar de alta: el asistente. La tarjeta de «alta rápida» que estaba
+               arriba creaba el cliente pelado y competía con «✨ Nuevo cliente» del menú. -->
+          <button class="small" onclick="go('altaCliente')">✨ Nuevo cliente</button>
           <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
         </div>
       </div>
@@ -1290,14 +1280,6 @@ async function moverPanel(id, cliente_id){
   if(!cliente_id) return;
   const r=await api('/api/os/paneles/'+id,{method:'PUT',body:JSON.stringify({cliente_id})});
   if(r.ok){ toast('Panel asignado'); VIEWS.clientes(); }
-}
-async function nuevoCliente(){
-  const codigo=val('nc-cod'); if(!codigo) return toast('Poné un código');
-  const r=await api('/api/os/clientes',{method:'POST',body:JSON.stringify({codigo, nombre:val('nc-nom')})});
-  if(!r.ok) return toast((r&&r.error)||'no se pudo');
-  const vend=val('nc-vend');
-  if(vend && r.cliente) await api('/api/os/clientes/'+r.cliente.id+'/comercial',{method:'PUT',body:JSON.stringify({vendedor_id:vend})});
-  toast('Cliente creado: '+(r.cliente&&r.cliente.codigo||codigo)); VIEWS.clientes();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
