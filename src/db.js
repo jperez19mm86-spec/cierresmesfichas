@@ -767,6 +767,11 @@ ensureColumns('clientes', {
 /* DAR DE BAJA EN VEZ DE BORRAR (fase 4.3, 29-oct-2026): el cliente queda con toda su historia y su
    deuda; deja de pedir y sale de la lista común. Cuándo y por qué, para poder leerlo después. */
 ensureColumns('clientes', { baja_at: 'TEXT', baja_motivo: 'TEXT' });
+/* ¿LE LLEVAMOS LA CUENTA? (29-oct-2026). El OS es para los clientes de Alexa; de otros (Henry y su
+   gente, David, Sarah, Carlos, IGLatam) sólo se registran las cargas y se sacan los externos. 1 = sí,
+   0 = no, NULL = lo hereda de su vendedor (y sin nadie arriba que diga sí, es no). Sólo cambia qué
+   se muestra como «a cobrar»: ningún número. */
+ensureColumns('clientes', { cuenta_propia: 'INTEGER' });
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_cliente_acceso ON clientes(lower(acceso_usuario)) WHERE acceso_usuario IS NOT NULL');
 
 module.exports = { db, DB_PATH, ensureColumns };

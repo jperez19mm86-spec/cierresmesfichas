@@ -510,38 +510,63 @@ const cliSinLink=(c)=>_paneles.filter(p=>p.cliente_id===c.id && !(p.conexion_id&
    Arriba, una tarjeta por vendedor con lo que debe SU GENTE (antes la fila del vendedor mostraba
    sólo lo suyo: Alexa y Henry aparecían en 0,00 con cientos de miles colgando). Tocar una deja
    abajo sólo sus clientes. El buscador y los filtros recorren la rama elegida, o todo. */
-let _cliVend='', _cliBusca='', _cliFiltro='';
+let _cliVend='', _cliBusca='', _cliFiltro='', _cliGrupo='mio';
+/* ── ¿LE LLEVO LA CUENTA? ───────────────────────────────────────────────────────────────────────
+   El OS es para los clientes de Alexa. De otros (Henry y su gente, David, Sarah, Carlos, IGLatam)
+   sólo se registran las cargas y se sacan los proveedores externos: lo que «deben» acá no es plata
+   que ella cobre. Cada ficha puede decir sí o no; si no dice nada, lo hereda de su vendedor (el
+   primero hacia arriba que diga algo). Marcando a Alexa, toda su rama es suya; Marcelo, de Henry,
+   se marca aparte. Sin nadie que diga sí, es no. */
+function cliEsMio(c){
+  const vistos=new Set(); let x=c;
+  while(x && !vistos.has(x.id)){ vistos.add(x.id);
+    if(x.cuenta_propia===true) return true; if(x.cuenta_propia===false) return false;
+    x=x.vendedor_id && _clientes.find(y=>y.id===x.vendedor_id); }
+  return false;
+}
+const cliDelGrupo=(c)=>cliEsMio(c)===(_cliGrupo==='mio');
+function cliSumaDeuda(cs){ const acc={}; cs.forEach(c=>{ const d=c.deuda; if(d){ const m=d.moneda||'USDT'; acc[m]=(acc[m]||0)+Number(d.total||0);} }); return acc; }
+function cliElegirGrupo(g){ _cliGrupo=g; _cliVend=''; if(g!=='mio' && _cliFiltro==='cobrar') _cliFiltro=''; cliVendTarjetas(); cliPintarLista(); }
 function cliVendTarjetas(){
   const arbol=cliArbol(_clientes);
+  const mio=_cliGrupo==='mio';
+  /* Una tarjeta por vendedor, con SÓLO los clientes de este grupo: Henry aparece en «Mis clientes»
+     con Marcelo y en «Cargas y externos» con Titan, Oscar y los demás. */
   const tarj=_clientes.filter(c=>c.es_vendedor).map(v=>{
-    const n=cliBuscarNodo(arbol, v.id)||{cliente:v, subs:[]}; const rama=cliDeLaRama(n);
+    const n=cliBuscarNodo(arbol, v.id)||{cliente:v, subs:[]};
+    const rama=cliDeLaRama(n).filter(c=>c.id!==v.id && c.estado!=='baja' && cliDelGrupo(c));
+    const suyo=cliDelGrupo(v);
     const jefe=v.vendedor_id && _clientes.find(x=>x.id===v.vendedor_id);
-    return { id:v.id, nom:v.nombre||v.codigo, de:jefe?(jefe.nombre||jefe.codigo):'', cuantos:cliCuenta(n), deuda:cliDeuda(n),
-      propias:_paneles.filter(p=>p.cliente_id===v.id).length, falta:rama.reduce((a,c)=>a+cliSinLink(c),0) };
+    return { id:v.id, nom:v.nombre||v.codigo, de:jefe&&cliDelGrupo(jefe)?(jefe.nombre||jefe.codigo):'', cuantos:rama.length, suyo,
+      deuda:cliSumaDeuda(suyo?rama.concat([v]):rama),
+      propias:suyo?_paneles.filter(p=>p.cliente_id===v.id).length:0, falta:rama.concat(suyo?[v]:[]).reduce((a,c)=>a+cliSinLink(c),0) };
   });
-  // Los que no tienen vendedor ni son vendedores: su propia tarjeta, para que no se pierdan.
-  const sueltos=arbol.map(n=>n.cliente).filter(c=>!c.es_vendedor);
-  if(sueltos.length){ const acc={}; sueltos.forEach(c=>{ const d=c.deuda; if(d){ const m=d.moneda||'USDT'; acc[m]=(acc[m]||0)+Number(d.total||0);} });
-    tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, deuda:acc, propias:0, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) }); }
-  // Vacío de verdad: sin clientes, sin deuda y SIN CAJAS. Carlos y Sarah no tienen clientes cargados
-  // pero tienen 11 y 8 cajas propias: no van a la línea de abajo.
-  const vacio=(t)=>!t.cuantos && !t.propias && !Object.values(t.deuda).some(v=>Math.abs(v)>=0.005);
+  const sueltos=arbol.map(n=>n.cliente).filter(c=>!c.es_vendedor && c.estado!=='baja' && cliDelGrupo(c));
+  if(sueltos.length) tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, suyo:false, deuda:cliSumaDeuda(sueltos), propias:0, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) });
+  const hayDeuda=(t)=>Object.values(t.deuda).some(v=>Math.abs(v)>=0.005);
+  const llena=(t)=>t.cuantos || t.propias || (t.suyo && hayDeuda(t));
   const usd=(t)=>Number(t.deuda.USDT||0);
-  const llenas=tarj.filter(t=>!vacio(t)).sort((a,b)=>usd(b)-usd(a) || b.cuantos-a.cuantos);
-  const vacias=tarj.filter(vacio);
+  const llenas=tarj.filter(llena).sort((a,b)=>usd(b)-usd(a) || b.cuantos-a.cuantos);
+  const vacias=tarj.filter(t=>!llena(t) && t.suyo);
+  const delGrupo=_clientes.filter(c=>c.estado!=='baja' && cliDelGrupo(c));
   const box=document.getElementById('cli-vend'); if(!box) return;
-  box.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px">
+  const seg=(g,l,n)=>`<button type="button" class="${_cliGrupo===g?'':'outline'} small" onclick="cliElegirGrupo('${g}')">${l} <span class="muted" style="font-weight:400">(${n})</span></button>`;
+  const nMio=_clientes.filter(c=>c.estado!=='baja'&&cliEsMio(c)).length, nOtros=_clientes.filter(c=>c.estado!=='baja'&&!cliEsMio(c)).length;
+  box.innerHTML=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      ${seg('mio','💼 Mis clientes',nMio)}${seg('otros','📋 Cargas y proveedores externos',nOtros)}</div>
+    ${mio?'':`<div class="nota" style="margin:0 0 10px">No les llevás la cuenta: acá se registran sus cargas y se sacan sus proveedores externos. Lo que figura es <b>lo registrado</b>, no plata que te deban a vos.</div>`}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px">
     ${llenas.map(t=>{ const sel=_cliVend===t.id;
       return `<button type="button" onclick="cliElegirVend('${t.id}')" aria-pressed="${sel}"
         style="text-align:left;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;cursor:pointer;
           border:1.5px solid ${sel?'var(--gold)':'var(--border)'};background:${sel?'var(--bg3)':'transparent'};color:inherit;font:inherit">
         <span style="font-weight:750;font-size:14.5px">${esc(t.nom)}${t.de?` <span class="muted" style="font-weight:400;font-size:11.5px">· ya sumado en ${esc(t.de)}</span>`:''}</span>
         <span class="muted" style="font-size:12px">${t.cuantos} ${t.cuantos===1?'cliente':'clientes'}${t.propias?` · ${t.propias} ${t.propias===1?'caja propia':'cajas propias'}`:''}${t.falta?` · <b style="color:var(--durazno)">${t.falta} sin vincular</b>`:''}</span>
-        <span class="cifra" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums">${cliMontos(t.deuda)}</span>
+        <span class="cifra" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums;${mio?'':'opacity:.75'}">${cliMontos(t.deuda)}</span>
       </button>`; }).join('')}
   </div>
-  <div class="muted" style="font-size:12px;margin-top:8px">Total de todos los clientes: <span class="cifra" style="display:inline-flex;gap:4px;align-items:baseline">${
-    cliMontos(arbol.reduce((acc,n)=>cliDeuda(n,acc),{}))}</span>. Cada tarjeta incluye lo que debe el propio vendedor; las que dicen «ya sumado en» están adentro de otra.</div>
+  <div class="muted" style="font-size:12px;margin-top:8px">${mio?'Te deben tus clientes':'Registrado de estos clientes'}: <span class="cifra" style="display:inline-flex;gap:4px;align-items:baseline">${
+    cliMontos(cliSumaDeuda(delGrupo))}</span>.${mio?' Cada tarjeta incluye lo que debe el propio vendedor; las que dicen «ya sumado en» están adentro de otra.':''}</div>
   ${vacias.length?`<div class="muted" style="font-size:12px;margin-top:6px">Vendedores sin clientes, cajas ni deuda: ${vacias.map(t=>esc(t.nom)).join(', ')}.</div>`:''}`;
 }
 function cliElegirVend(id){ _cliVend = _cliVend===id ? '' : id; cliVendTarjetas(); cliPintarLista(); }
@@ -557,7 +582,7 @@ function cliPintarLista(){
         return (propias?[{cliente:n.cliente, subs:[], propio:true}]:[]).concat(n.subs); })();
   const q=_cliBusca.trim().toLowerCase();
   const fb=document.getElementById('cli-filtros');
-  if(fb) fb.querySelectorAll('[data-f]').forEach(b=>b.className=(b.dataset.f===_cliFiltro?'':'outline')+' small');
+  if(fb) fb.querySelectorAll('[data-f]').forEach(b=>{ b.className=(b.dataset.f===_cliFiltro?'':'outline')+' small'; b.hidden=!!b.dataset.soloMio && _cliGrupo!=='mio'; });
   let html;
   if(q || _cliFiltro || !_cliVend){
     /* Sin vendedor elegido, la lista es plana y SIN los vendedores: ellos ya están arriba, en las
@@ -565,6 +590,8 @@ function cliPintarLista(){
        lo que se busca es un cliente, no una rama. */
     let cs=[]; raices.forEach(n=>cliDeLaRama(n,cs));
     if(!_cliVend && !q && !_cliFiltro) cs=cs.filter(c=>!c.es_vendedor);
+    // Buscando se busca en todo (y la fila dice de qué grupo es); si no, sólo el grupo elegido.
+    if(!q) cs=cs.filter(cliDelGrupo);
     if(q) cs=cs.filter(c=>[c.nombre,c.codigo].some(x=>String(x||'').toLowerCase().includes(q)));
     if(_cliFiltro==='deuda') cs=cs.filter(c=>Math.abs(Number((c.deuda&&c.deuda.total)||0))>=0.005);
     if(_cliFiltro==='vincular') cs=cs.filter(c=>cliSinLink(c)>0);
@@ -577,10 +604,12 @@ function cliPintarLista(){
     else cs.sort((a,b)=>mon(a)-mon(b) || deb(b)-deb(a));
     const nom=(id)=>{ const v=_clientes.find(x=>x.id===id); return v?(v.nombre||v.codigo):''; };
     html = cs.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${cs.length} ${cs.length===1?'cliente':'clientes'}</div>`
-      + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')).join('')
+      + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, (c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')
+          + (q && !cliEsMio(c) ? ' <span class="señal" style="background:var(--bg3);color:var(--muted)">sólo cargas</span>' : ''))).join('')
       : '<div class="empty">Ningún cliente con eso.</div>';
   } else {
-    html = raices.filter(n=>n.cliente.estado!=='baja').map(n=>n.propio
+    const poda=(ns)=>ns.map(n=>({...n, subs:poda(n.subs)})).filter(n=>n.cliente.estado!=='baja' && (cliDelGrupo(n.cliente) || n.subs.length));
+    html = poda(raices).map(n=>n.propio
         ? cliFicha(n, 0, '<span class="muted" style="font-size:12px">sus cajas propias</span>')
         : cliFicha(n)).join('') || '<div class="empty">Este vendedor no tiene clientes.</div>';
   }
@@ -628,7 +657,8 @@ function cliFicha(n, prof=0, extra=''){
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
   const propia=Number((c.deuda&&c.deuda.total)||0);
-  const cb=(window._cobr||{})[c.id];
+  const esMio=cliEsMio(c);
+  const cb=esMio ? (window._cobr||{})[c.id] : null;     // la cobranza es sólo de los que le llevás la cuenta
   const viejo=cb && Number(cb.mas_viejo||0)>=0.005;
   const señales=[
     c.estado==='baja' ? `<span class="señal durazno" title="${esc(c.baja_motivo||'')}">dado de baja</span>`
@@ -649,7 +679,7 @@ function cliFicha(n, prof=0, extra=''){
           cb.ultimo_pago?'últ. pago '+esc(cliFechaCorta(cb.ultimo_pago.fecha)):'<span style="color:var(--durazno)">sin pagos</span>'}</span>`:''}
         ${n.subs.length
           ? `<span class="cifra" title="Lo que debe con su gente. Lo suyo solo: ${esc(money(propia,2)+' '+monedaCuenta(c))}"><span class="u">con su gente</span>${cliMontos(deudaRama,2)}</span>`
-          : `<span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>`}
+          : `<span class="cifra"${esMio?'':' title="Registrado: no le llevás la cuenta"'}>${esMio?'':'<span class="u">registrado</span>'}<b style="${propia>0&&esMio?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>`}
       </summary>
       <div class="cuerpo">
         <dl class="datos">
@@ -657,7 +687,7 @@ function cliFicha(n, prof=0, extra=''){
             ? '<div><dt>% base</dt><dd class="cero" title="A un vendedor no le aplica: paga el costo real de los proveedores que use">no le aplica</dd></div>'
             : `<div><dt>% base</dt><dd${c.precio_base_pct==null?' class="mal"':''}>${
                 c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'sin cargar'}</dd></div>`}
-          <div><dt>Debe</dt><dd>${money(propia,2)} ${esc(monedaCuenta(c))}</dd></div>
+          <div><dt>${esMio?'Debe':'Registrado'}</dt><dd>${money(propia,2)} ${esc(monedaCuenta(c))}</dd></div>
           ${cb&&cb.desde?`<div><dt>De qué mes</dt><dd>${[['este_mes','este mes'],['mes_pasado','el pasado'],['mas_viejo','más viejo']]
             .filter(([k])=>Number(cb[k]||0)>=0.005).map(([k,l])=>money(cb[k],2)+' <span class="muted">'+l+'</span>').join(' · ')}</dd></div>
           <div><dt>Último pago</dt><dd>${cb.ultimo_pago?esc(cliFechaCorta(cb.ultimo_pago.fecha))+(cb.ultimo_pago.monto?' · '+money(cb.ultimo_pago.monto,2):''):'<span class="mal">nunca</span>'}</dd></div>`:''}
@@ -764,7 +794,7 @@ VIEWS.clientes = async () => {
           <input id="cli-q" value="${esc(_cliBusca)}" placeholder="nombre o código" autocomplete="off"
             oninput="_cliBusca=this.value; cliPintarLista()"></div>
         <button data-f="deuda" class="outline small" onclick="cliElegirFiltro('deuda')">Con deuda</button>
-        <button data-f="cobrar" class="outline small" onclick="cliElegirFiltro('cobrar')" title="Los que deben algo de antes del mes pasado, del más atrasado al menos">A cobrar</button>
+        <button data-f="cobrar" class="outline small" data-solo-mio="1" onclick="cliElegirFiltro('cobrar')" title="Los que deben algo de antes del mes pasado, del más atrasado al menos">A cobrar</button>
         <button data-f="vincular" class="outline small" onclick="cliElegirFiltro('vincular')">Falta vincular</button>
         <button data-f="baja" class="outline small" onclick="cliElegirFiltro('baja')">Dados de baja${
           (()=>{ const n=_clientes.filter(c=>c.estado==='baja').length; return n?' ('+n+')':''; })()}</button>
@@ -1715,6 +1745,10 @@ function editCli(id){
         <div class="card">
           <h2>💼 Precio y quién paga</h2>
           <div class="row">
+            <div style="flex:0 0 260px"><label for="e-cprop" title="Si le llevás la cuenta, entra en «Mis clientes» y en «A cobrar». Si no, sólo se registran sus cargas y sus proveedores externos.">¿Le llevás la cuenta?</label><select id="e-cprop">
+              <option value="" ${c.cuenta_propia==null?'selected':''}>Como su vendedor (hoy: ${(()=>{ const v=c.vendedor_id&&_clientes.find(x=>x.id===c.vendedor_id); return v&&cliEsMio(v)?'sí':'no'; })()})</option>
+              <option value="1" ${c.cuenta_propia===true?'selected':''}>Sí: es mi cliente, le cobro</option>
+              <option value="0" ${c.cuenta_propia===false?'selected':''}>No: sólo cargas y proveedores externos</option></select></div>
             <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].concat(c.estado==='baja'?['baja']:[]).map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
           </div>
           <div class="row" style="margin-top:6px">
@@ -2075,7 +2109,7 @@ function filtCliProv(){ const q=(val('cliprov-q')||'').toLowerCase(); document.q
 async function saveCli(id){
   const divisas=[...document.querySelectorAll('#e-divisas input.e-div:checked')].map(x=>x.value).join(',');
   const r=await api('/api/os/clientes/'+id+'/comercial',{method:'PUT',body:JSON.stringify({
-    estado:val('e-estado'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
+    estado:val('e-estado'), cuenta_propia:val('e-cprop'), ajuste_usdt_pct:val('e-aj'), paga_proveedores:val('e-pp')==='1',
     divisa_fichas:divisas, moneda_cobro:val('e-mcobro'), momento_pago:val('e-mpago'),
     disparador:val('e-disp'), tc_aplicar:val('e-tcap'), tc_proveedor:val('e-tcprov'),
     mover_balance:val('e-mover')==='1', moneda_cuenta:val('e-moneda'), margen_externos_pct:val('e-mext'),

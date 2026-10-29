@@ -68,6 +68,7 @@ const COLUMNAS = [
   ['acceso_habilitado', (r) => (r.acceso_habilitado ? 1 : 0), (c) => sino(c.acceso_habilitado)],
   ['baja_at', (r) => r.baja_at || null, (c) => nn(c.baja_at)],
   ['baja_motivo', (r) => r.baja_motivo || null, (c) => nn(c.baja_motivo)],
+  ['cuenta_propia', (r) => (r.cuenta_propia == null ? null : !!r.cuenta_propia), (c) => (c.cuenta_propia == null ? null : sino(c.cuenta_propia))],
   ['acceso_usuario', (r) => r.acceso_usuario || null, (c) => nn(c.acceso_usuario)],
   ['acceso_clave', (r) => r.acceso_clave || null, (c) => nn(c.acceso_clave)],
   ['acceso_at', (r) => r.acceso_at || null, (c) => nn(c.acceso_at)],
@@ -202,6 +203,9 @@ function updateComercial(id, patch) {
   if (!c) return null;
   if (patch.nombre !== undefined) c.nombre = String(patch.nombre).trim();
   if (patch.estado !== undefined) c.estado = String(patch.estado).trim() || 'activo';
+  // '' = lo hereda del vendedor; sí/no explícitos. Con String() un `false` quedaría «"false"».
+  if (patch.cuenta_propia !== undefined) c.cuenta_propia = (patch.cuenta_propia === '' || patch.cuenta_propia === null) ? null
+    : [true, 1, '1', 'true', 'si', 'sí'].includes(typeof patch.cuenta_propia === 'string' ? patch.cuenta_propia.trim().toLowerCase() : patch.cuenta_propia);
   if (patch.paga_proveedores !== undefined) c.paga_proveedores = !!patch.paga_proveedores;
   if (patch.permite_deuda !== undefined) c.permite_deuda = !!patch.permite_deuda;
   if (patch.mezcla_pago_usdt !== undefined) c.mezcla_pago_usdt = patch.mezcla_pago_usdt === '' ? null : String(patch.mezcla_pago_usdt);

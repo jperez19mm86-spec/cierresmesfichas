@@ -32,7 +32,7 @@ function mount(app) {
   app.get('/api/os/clientes', (_req, res) => {
     const list = clientes.list().clientes.map((c) => ({
       id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado,
-      baja_at: c.baja_at || null, baja_motivo: c.baja_motivo || null,
+      baja_at: c.baja_at || null, baja_motivo: c.baja_motivo || null, cuenta_propia: c.cuenta_propia == null ? null : !!c.cuenta_propia,
       telegram: c.telegram, paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda, avisa_pagos: c.avisa_pagos !== false,
       mezcla_pago_usdt: c.mezcla_pago_usdt, ajuste_usdt_pct: c.ajuste_usdt_pct,
       // v3.0 ficha
