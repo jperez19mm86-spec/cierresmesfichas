@@ -3604,7 +3604,11 @@ async function pintarComprobantes(estado, conFiltros) {
           +   '<div class="row" style="margin-top:6px;align-items:flex-end;gap:8px;flex-wrap:wrap">'
           +     '<div style="flex:0 0 auto"><label>Entraron (' + esc(c.divisa || 'ARS') + ')</label>'
           +       '<input id="cmp-m-' + c.id + '" value="' + esc(c.monto) + '" style="width:150px"></div>'
-          +     '<div style="flex:0 0 auto"><button class="small" onclick="cmpResolver(\'' + c.id + '\',\'aprobado\',\'' + esc(c.codigo) + '\',{tcDelMes:true,divisa:\'' + esc(c.divisa || 'ARS') + '\'})">⏳ Aprobar con el TC del mes</button></div>'
+          /* ⚠️ La divisa viene del cliente: NUNCA adentro del onclick. esc() no alcanza ahí — el
+             navegador vuelve &#39; a ' antes de correr el código y el texto se escapa de las
+             comillas (29-oct-2026). Viaja en data-*, que es HTML y ahí esc() sí protege. */
+          +     '<div style="flex:0 0 auto"><button class="small" data-id="' + esc(c.id) + '" data-cod="' + esc(c.codigo) + '" data-div="' + esc(c.divisa || 'ARS') + '"'
+          +       ' onclick="cmpResolver(this.dataset.id,\'aprobado\',this.dataset.cod,{tcDelMes:true,divisa:this.dataset.div===\'USDT\'?\'USDT\':\'ARS\'})">⏳ Aprobar con el TC del mes</button></div>'
           +   '</div>'
           +   '<div class="muted" style="margin-top:6px;font-size:12px">Se acredita en ' + esc(c.divisa || 'ARS')
           +     ' y se pasa a ' + esc(_cmpMoneda(c.codigo)) + ' con el tipo de cambio del mes. Cuando cargues el definitivo en 💱 Tipos de cambio, se ajusta solo.</div>'
