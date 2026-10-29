@@ -82,52 +82,37 @@ let _qdDatos = null;                       // { cob, clientes } de la última le
 VIEWS.quienDebe = async () => {
   const main = document.getElementById('main');
   main.innerHTML = '<div class="card"><div class="muted">Cargando…</div></div>';
+  /* UN SOLO PEDIDO: lo que debe cada uno y, de los últimos cuatro meses, lo que generó y lo que pagó
+     de la deuda de ese mes (por «a qué mes entra», que es lo que se elige al cargar el pago). */
   const [cob, cl] = await Promise.all([
-    api('/api/os/cobranzas' + (_qdMes ? '?mes=' + encodeURIComponent(_qdMes) : '')),
+    api('/api/os/quien-debe' + (_qdMes ? '?mes=' + encodeURIComponent(_qdMes) : '')),
     api('/api/os/clientes'),
   ]);
   if (!cob || !cob.ok) { main.innerHTML = '<div class="card"><div class="nota err">No se pudo leer: ' + esc((cob && cob.error) || '') + '</div></div>'; return; }
-  /* Los últimos cuatro meses. De cada uno: lo que GENERÓ cada cliente (de su cuenta) y lo que PAGÓ
-     de la deuda de ese mes (los pagos, por «a qué mes entra», que es lo que se elige al cargarlo).
-     En la maqueta se pide la cuenta de cada uno; en el servidor va a ser un solo pedido. */
-  const meses = [3, 2, 1, 0].map((k) => { const [a, m] = cob.mes.split('-').map(Number); const d = new Date(Date.UTC(a, m - 1 - k, 1)); return d.toISOString().slice(0, 7); });
-  const conDeuda = (cob.filas || []).filter((f) => !_chico(f.total));
-  const [pagos, cuentas] = await Promise.all([
-    Promise.all(meses.map((m) => api('/api/os/pagos?mes=' + encodeURIComponent(m)))),
-    Promise.all(conDeuda.map((f) => api('/api/os/cuenta/' + encodeURIComponent(f.cliente_id)))),
-  ]);
+  const meses = cob.meses;
   const clientes = (cl && cl.clientes) || [];
-  _qdDatos = { cob, clientes, meses, porCliente: _qdPorMes(cob, meses, pagos, conDeuda, cuentas) };
+  _qdDatos = { cob, clientes, meses, porCliente: _qdPorMes(cob, meses) };
   if (!_qdMesDoc) _qdMesDoc = cob.mes_anterior;
   qdPintar();
 };
 
 /* CADA CLIENTE, MES POR MES: generó, pagó y lo que queda; arriba «antes» con lo de meses anteriores.
-   «Antes» sale por diferencia contra lo que debe hoy, así la fila siempre cierra. Las cuentas en pesos
-   todavía no tienen mes a mes en el servidor (da ceros): para ellas, los dos últimos meses salen de
-   Cobranzas y lo demás va a «antes». */
-function _qdPorMes(cob, meses, pagos, conDeuda, cuentas) {
+   «Antes» sale por diferencia contra lo que debe hoy, así la fila siempre cierra. Una cuenta sin nada
+   generado mes a mes (vieja, cargada a mano): los dos últimos meses salen de Cobranzas y lo demás va
+   a «antes». */
+function _qdPorMes(cob, meses) {
   const out = {};
-  const pagoEn = {};                          // codigo → { mes: monto, en la moneda de la cuenta }
-  meses.forEach((m, i) => {
-    for (const p of [...((pagos[i] && pagos[i].pesos) || []), ...((pagos[i] && pagos[i].usdt) || [])]) {
-      const f = (cob.filas || []).find((x) => x.codigo === p.codigo); if (!f) continue;
-      const v = f.moneda === 'ARS' ? Number(p.ars || 0) : Number(p.saldo_usdt != null ? p.saldo_usdt : (p.usdt || 0));
-      const o = pagoEn[p.codigo] = pagoEn[p.codigo] || {}; o[m] = (o[m] || 0) + v;
-    }
-  });
-  conDeuda.forEach((f, i) => {
-    const ms = ((cuentas[i] && cuentas[i].meses) || []);
-    const hayMesAMes = ms.some((m) => !_cero(Number(m.consumo || 0) + Number(m.externos || 0) + Number(m.otros || 0)));
+  for (const f of (cob.filas || []).filter((x) => !_chico(x.total))) {
+    const pm = f.porMes || { hayMesAMes: false, gen: {}, pag: {} };
     const gen = {}, pag = {};
     for (const m of meses) {
-      pag[m] = (pagoEn[f.codigo] || {})[m] || 0;
-      if (hayMesAMes) { const x = ms.find((y) => y.mes === m); gen[m] = x ? Number(x.consumo || 0) + Number(x.externos || 0) + Number(x.otros || 0) : 0; }
-      else gen[m] = m === cob.mes ? f.actual + pag[m] : m === cob.mes_anterior ? f.anterior + pag[m] : 0;
+      pag[m] = Number(pm.pag[m] || 0);
+      gen[m] = pm.hayMesAMes ? Number(pm.gen[m] || 0)
+        : m === cob.mes ? f.actual + pag[m] : m === cob.mes_anterior ? f.anterior + pag[m] : 0;
     }
     const antes = f.total - meses.reduce((a, m) => a + gen[m] - pag[m], 0);
     out[f.cliente_id] = { antes, gen, pag, total: f.total };
-  });
+  }
   return out;
 }
 

@@ -118,10 +118,13 @@ function mount(app) {
 
      Y NO se suman monedas distintas. Un cliente que lleva su cuenta en pesos no entra en el total
      en USDT; cada moneda tiene su propia línea. */
-  app.get('/api/os/cobranzas', (req, res) => {
-    const mes = /^\d{4}-\d{2}$/.test(String(req.query.mes || '')) ? String(req.query.mes) : mesTZ();
+  /* Quién debe pide además, por cliente, lo que GENERÓ y lo que PAGÓ en cada uno de los últimos
+     `ultimos` meses: así la pantalla sale de un solo pedido en vez de uno por cliente. */
+  function cobranzasDe(mesPedido, { ultimos = 0 } = {}) {
+    const mes = /^\d{4}-\d{2}$/.test(String(mesPedido || '')) ? String(mesPedido) : mesTZ();
     const [aa, mm] = mes.split('-').map(Number);
     const prev = mm === 1 ? `${aa - 1}-12` : `${aa}-${String(mm - 1).padStart(2, '0')}`;
+    const mesesUlt = Array.from({ length: ultimos }, (_, i) => new Date(Date.UTC(aa, mm - ultimos + i, 1)).toISOString().slice(0, 7));
 
     // Los comprobantes que el cliente mandó y todavía nadie aprobó. No bajan la deuda —por eso no
     // entran en ninguna columna— pero cambian a quién llamar: reclamarle a alguien que ya avisó
@@ -145,10 +148,17 @@ function mount(app) {
       const col = deudaSvc.columnaDe(moneda);
       const mios = porCliente[c.id] || [];
       let antes = 0, anterior = 0, actual = 0;
+      const pag = {}, genTodos = {};
       for (const m of mios) {
         const v = deudaSvc.signoDe(m.tipo) * (Number(m[col]) || 0);
         if (!v) continue;
         const k = movs.mesDe(m);
+        /* Por mes, con la misma regla que la cuenta del cliente (/api/os/cuenta): lo que generó es
+           todo menos los pagos; lo pagado va al mes de la deuda que paga. */
+        if (ultimos && /^\d{4}-\d{2}$/.test(k)) {
+          if (m.tipo === 'pago') pag[k] = (pag[k] || 0) - v;
+          else genTodos[k] = (genTodos[k] || 0) + v;
+        }
         if (k >= mes) actual += v;            // ⚠️ `>=`: lo que quedó cargado con un mes futuro
         else if (k === prev) anterior += v;   //    tiene que aparecer en algún lado, no perderse.
         else antes += v;
@@ -166,13 +176,24 @@ function mount(app) {
         esperando: esperando[String(c.codigo || '').toUpperCase()] || 0,
         provisional: !!cuenta.provisional,
         es_vendedor: !!c.es_vendedor,
+        ...(ultimos ? { porMes: {
+          // Sin nada generado en ningún mes (cuentas viejas cargadas a mano), la pantalla reparte por Cobranzas.
+          hayMesAMes: Object.values(genTodos).some((x) => Math.abs(x) >= 0.005),
+          gen: Object.fromEntries(mesesUlt.map((k) => [k, genTodos[k] || 0])),
+          pag: Object.fromEntries(mesesUlt.map((k) => [k, pag[k] || 0])),
+        } } : {}),
       });
       const t = (totales[moneda] = totales[moneda] || { antes: 0, anterior: 0, actual: 0, total: 0, clientes: 0 });
       t.antes += antes; t.anterior += anterior; t.actual += actual; t.total += total; t.clientes += 1;
     }
     filas.sort((a, b) => b.total - a.total);
-    ok(res, { mes, mes_anterior: prev, filas, totales });
-  });
+    return { mes, mes_anterior: prev, filas, totales, ...(ultimos ? { meses: mesesUlt } : {}) };
+  }
+  app.get('/api/os/cobranzas', (req, res) => ok(res, cobranzasDe(req.query.mes)));
+  /* ───────── QUIÉN DEBE, EN UN SOLO PEDIDO (29-oct-2026) ─────────
+     Lo de Cobranzas más, por cliente, generó y pagó de los últimos cuatro meses. Antes la pantalla
+     pedía la cuenta de cada cliente por separado (uno por cliente con deuda) y los pagos de cada mes. */
+  app.get('/api/os/quien-debe', (req, res) => ok(res, cobranzasDe(req.query.mes, { ultimos: 4 })));
   // ───────── PARTICIPACIONES ─────────
   /* ── LAS BILLETERAS ───────────────────────────────────────────────────────────────────────
      Cada una con sus direcciones (una por red) y SU grupo de Telegram. Un cliente apunta a una;
