@@ -66,6 +66,8 @@ const COLUMNAS = [
   /* El acceso viaja acá aunque nadie lo lea de este objeto: lo escribe src/cliente-acceso.js con
      su propio UPDATE. `acceso_clave` es el hash, nunca la clave, y no se muestra en ningún lado. */
   ['acceso_habilitado', (r) => (r.acceso_habilitado ? 1 : 0), (c) => sino(c.acceso_habilitado)],
+  ['baja_at', (r) => r.baja_at || null, (c) => nn(c.baja_at)],
+  ['baja_motivo', (r) => r.baja_motivo || null, (c) => nn(c.baja_motivo)],
   ['acceso_usuario', (r) => r.acceso_usuario || null, (c) => nn(c.acceso_usuario)],
   ['acceso_clave', (r) => r.acceso_clave || null, (c) => nn(c.acceso_clave)],
   ['acceso_at', (r) => r.acceso_at || null, (c) => nn(c.acceso_at)],
@@ -207,7 +209,7 @@ function updateComercial(id, patch) {
   // ── v3.0 ficha de cliente ──
   ['divisa_fichas', 'moneda_cobro', 'momento_pago', 'disparador', 'tc_aplicar', 'tc_proveedor',
     'saldo_inicial', 'saldo_inicial_divisa', 'saldo_inicial_mov_id', 'margen_externos_pct', 'vendedor_id', 'externos_modo',
-    'factura_a', 'externos_precios_de'].forEach((k) => {
+    'factura_a', 'externos_precios_de', 'baja_at', 'baja_motivo'].forEach((k) => {
     if (patch[k] !== undefined) c[k] = patch[k] === '' ? null : String(patch[k]).trim();
   });
   // Sí/no: con String(), un `false` quedaba «"false"» y se guardaba como 1 (se cobraban SL/SL2/XG).

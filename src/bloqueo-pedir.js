@@ -18,6 +18,7 @@ const fmt = (v, moneda) => Number(v).toLocaleString('es-AR', { minimumFractionDi
 function bloqueo(cli) {
   if (!cli) return null;
   const est = String(cli.estado || 'activo').toLowerCase();
+  if (est === 'baja') return { motivo: 'baja', mensaje: 'Tu cuenta está dada de baja. Escribinos si querés volver a trabajar.' };
   if (est === 'suspendido' || est === 'inactivo') {
     return { motivo: 'suspendido', mensaje: 'Tu cuenta está pausada. Escribinos para volver a pedir fichas.' };
   }

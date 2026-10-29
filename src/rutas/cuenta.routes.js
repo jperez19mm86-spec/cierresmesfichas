@@ -32,6 +32,76 @@ const money = require('../lib/money');
 const { mesTZ } = require('../lib/fechas'); // fechaTZ/mesTZ=ART (billing) · fechaUTC/mesUTC=UTC (casino)
 const { ok, err, wrap, _espejarCaja } = require('./comun');
 
+/* El mes a mes de una cuenta, con la regla de lo que debe (ver la ruta /api/os/cuenta). Lo usan la
+   cuenta del cliente y la cobranza de la lista: los dos tienen que decir lo mismo. */
+function mesesDeLaCuenta(cli, movimientos, cuenta) {
+    const col = deudaSvc.columnaDe(cuenta.moneda);
+    const meses = {};
+    const fila = (m) => (meses[m] = meses[m] || {
+      mes: m, consumo: '0', externos: '0', otros: '0', pagos: '0',
+      facturado: '0', movimientos: 0,
+    });
+    for (const mv of movimientos) {
+      const m = movs.mesDe(mv);
+      if (!/^\d{4}-\d{2}$/.test(m)) continue;
+      const signo = deudaSvc.signoDe(mv.tipo);
+      const val = Number(mv[col]);
+      const f = fila(m); f.movimientos += 1;
+      if (!signo || !Number.isFinite(val) || !val) continue;
+      const v = String(signo * val);
+      if (mv.tipo === 'carga' || (mv.tipo === 'correccion' && mv.pedido_id)) f.consumo = money.add(f.consumo, v);
+      else if (mv.tipo === 'proveedor_extra') f.externos = money.add(f.externos, v);
+      else if (mv.tipo === 'pago') f.pagos = money.sub(f.pagos, v);
+      else f.otros = money.add(f.otros, v);
+    }
+
+    // Un mes puede tener factura generada y todavía ningún movimiento (si no se emitió): igual tiene
+    // que aparecer, o el historial de facturas queda con agujeros.
+    facturasGuardadas.delCliente(cli.id).forEach((g) => fila(g.mes));
+    const filas = Object.values(meses).sort((a, b) => a.mes.localeCompare(b.mes));
+    let acum = '0';
+    for (const f of filas) {
+      f.facturado = money.round(money.add(money.add(f.consumo, f.externos), f.otros), 2);
+      acum = money.sub(money.add(acum, f.facturado), f.pagos);
+      f.saldo_acumulado = money.round(acum, 2);
+      ['consumo', 'externos', 'otros', 'pagos'].forEach((k) => { f[k] = money.round(f[k], 2); });
+    }
+    return filas;
+}
+
+/* ── LA COBRANZA DE LA LISTA (29-oct-2026) ─────────────────────────────────────────────────────
+   Cuánto debe no alcanza para cobrar: deber 2.000 de este mes no es lo mismo que 2.000 de julio.
+   Los pagos se aplican a lo más viejo (FIFO): lo que debe se reparte desde el mes más nuevo hacia
+   atrás, y el último mes que todavía tiene algo es «debe desde». No cambia ningún número: lee. */
+function cobranzaDe(cli, mesHoy) {
+  const movimientos = movs.list({ cliente_id: cli.id });
+  const cuenta = deudaSvc.cuentaCorriente(cli.id);
+  const col = deudaSvc.columnaDe(cuenta.moneda);
+  const ult = (tipo) => movimientos.filter((m) => m.tipo === tipo && m.fecha)
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0];
+  const up = ult('pago'), uc = ult('carga');
+  const r = { cliente_id: cli.id, moneda: cuenta.moneda, debe: cuenta.total, provisional: !!cuenta.provisional,
+    ultimo_pago: up ? { fecha: String(up.fecha).slice(0, 10), monto: up[col] != null && up[col] !== '' ? money.round(up[col], 2) : null } : null,
+    ultima_carga: uc ? String(uc.fecha).slice(0, 10) : null,
+    desde: null, este_mes: '0', mes_pasado: '0', mas_viejo: '0' };
+  if (money.cmp(String(cuenta.total), '0.005') < 0) return r;
+  const filas = mesesDeLaCuenta(cli, movimientos, cuenta).reverse();   // del más nuevo al más viejo
+  const [a, m] = mesHoy.split('-').map(Number);
+  const pasado = `${m === 1 ? a - 1 : a}-${String(m === 1 ? 12 : m - 1).padStart(2, '0')}`;
+  let resta = String(cuenta.total);
+  for (const f of filas) {
+    if (money.cmp(resta, '0') <= 0) break;
+    if (money.cmp(f.facturado, '0') <= 0) continue;
+    const toma = money.cmp(f.facturado, resta) < 0 ? f.facturado : resta;
+    const k = f.mes >= mesHoy ? 'este_mes' : f.mes === pasado ? 'mes_pasado' : 'mas_viejo';
+    r[k] = money.round(money.add(r[k], toma), 2);
+    r.desde = f.mes; resta = money.sub(resta, toma);
+  }
+  // Lo que queda sin un mes facturado que lo explique (saldo anterior, ajustes viejos) es lo más viejo.
+  if (money.cmp(resta, '0.005') > 0) { r.mas_viejo = money.round(money.add(r.mas_viejo, resta), 2); r.desde = r.desde || 'antes'; }
+  return r;
+}
+
 function mount(app) {
   /* ───────── 💰 COBRANZAS: QUIÉN DEBE, Y DE CUÁNDO ──────────────────────────────────────────
      Lo que no había en ninguna pantalla: todos los clientes juntos, con el saldo ABIERTO POR MES.
@@ -570,6 +640,10 @@ function mount(app) {
   // Sale de los MOVIMIENTOS, que son la deuda de verdad, así que también muestra los meses viejos.
   // El saldo va acumulado hacia adelante a propósito: deber 20.000 no es lo mismo si son de este
   // mes o si vienen arrastrando desde marzo.
+  app.get('/api/os/clientes-cobranza', (_req, res) => {
+    const mesHoy = mesTZ();
+    ok(res, { mes: mesHoy, clientes: clientes.list().clientes.map((c) => cobranzaDe(c, mesHoy)) });
+  });
   app.get('/api/os/cuenta/:clienteId', (req, res) => {
     const cli = clientes.get(req.params.clienteId);
     if (!cli) return err(res, 404, 'cliente no encontrado');
@@ -583,36 +657,8 @@ function mount(app) {
        · la anulación de una carga iba a «otros»: Titan sep decía 43.477 de cargas y −10.000 de
          ajustes; ahora se resta dentro de «consumo», que es lo que de verdad se le cobró.
        La suma de los meses da lo mismo que antes y que lo que debe: sólo cambia dónde cae cada cosa. */
-    const col = deudaSvc.columnaDe(cuenta.moneda);
-    const meses = {};
-    const fila = (m) => (meses[m] = meses[m] || {
-      mes: m, consumo: '0', externos: '0', otros: '0', pagos: '0',
-      facturado: '0', movimientos: 0,
-    });
-    for (const mv of movimientos) {
-      const m = movs.mesDe(mv);
-      if (!/^\d{4}-\d{2}$/.test(m)) continue;
-      const signo = deudaSvc.signoDe(mv.tipo);
-      const val = Number(mv[col]);
-      const f = fila(m); f.movimientos += 1;
-      if (!signo || !Number.isFinite(val) || !val) continue;
-      const v = String(signo * val);
-      if (mv.tipo === 'carga' || (mv.tipo === 'correccion' && mv.pedido_id)) f.consumo = money.add(f.consumo, v);
-      else if (mv.tipo === 'proveedor_extra') f.externos = money.add(f.externos, v);
-      else if (mv.tipo === 'pago') f.pagos = money.sub(f.pagos, v);
-      else f.otros = money.add(f.otros, v);
-    }
-
-    // Un mes puede tener factura generada y todavía ningún movimiento (si no se emitió): igual tiene
-    // que aparecer, o el historial de facturas queda con agujeros.
-    facturasGuardadas.delCliente(cli.id).forEach((g) => fila(g.mes));
-    const filas = Object.values(meses).sort((a, b) => a.mes.localeCompare(b.mes));
-    let acum = '0';
+    const filas = mesesDeLaCuenta(cli, movimientos, cuenta);
     for (const f of filas) {
-      f.facturado = money.round(money.add(money.add(f.consumo, f.externos), f.otros), 2);
-      acum = money.sub(money.add(acum, f.facturado), f.pagos);
-      f.saldo_acumulado = money.round(acum, 2);
-      ['consumo', 'externos', 'otros', 'pagos'].forEach((k) => { f[k] = money.round(f[k], 2); });
       // Qué decía el contraste contra los paneles ese mes, para ESTE cliente. Es lo que permite
       // mirar hacia atrás y saber si lo que se le cobró estaba validado o se emitió igual.
       const g = facturasGuardadas.get(cli.id, f.mes);

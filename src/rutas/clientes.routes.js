@@ -32,6 +32,7 @@ function mount(app) {
   app.get('/api/os/clientes', (_req, res) => {
     const list = clientes.list().clientes.map((c) => ({
       id: c.id, codigo: c.codigo, nombre: c.nombre || c.nombreVisible, estado: c.estado,
+      baja_at: c.baja_at || null, baja_motivo: c.baja_motivo || null,
       telegram: c.telegram, paga_proveedores: c.paga_proveedores, permite_deuda: c.permite_deuda, avisa_pagos: c.avisa_pagos !== false,
       mezcla_pago_usdt: c.mezcla_pago_usdt, ajuste_usdt_pct: c.ajuste_usdt_pct,
       // v3.0 ficha
@@ -65,6 +66,27 @@ function mount(app) {
     ok(res, { cliente: c });
   }));
   // BAJA de cliente (cascada: borra sus paneles, % de proveedores, participaciones, config y movimientos).
+  /* ── DAR DE BAJA Y REACTIVAR (fase 4.3) ──────────────────────────────────────────────────────
+     No toca NINGÚN número: la deuda sigue, sus movimientos y facturas siguen, y si sus cajas
+     tienen movimiento se le factura como siempre. Lo único que cambia: no puede pedir fichas
+     (portal, Mi Caja, chat: bloqueo-pedir) y sale de la lista común del OS. */
+  app.post('/api/os/clientes/:id/baja', wrap((req, res) => {
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    if (c.estado === 'baja') return err(res, 400, 'ya está dado de baja');
+    const motivo = String((req.body && req.body.motivo) || '').trim().slice(0, 300);
+    if (!motivo) return err(res, 400, 'decí por qué se da de baja: queda anotado');
+    clientes.updateComercial(c.id, { estado: 'baja', baja_at: new Date().toISOString(), baja_motivo: motivo });
+    ok(res, { cliente: clientes.get(c.id), deuda: deudaSvc.cuentaCorriente(c.id) });
+  }));
+  app.post('/api/os/clientes/:id/reactivar', wrap((req, res) => {
+    const c = clientes.get(req.params.id);
+    if (!c) return err(res, 404, 'cliente no encontrado');
+    if (c.estado !== 'baja') return err(res, 400, 'no está dado de baja');
+    // La fecha y el motivo de la última baja quedan: es historia, no estado.
+    clientes.updateComercial(c.id, { estado: 'activo' });
+    ok(res, { cliente: clientes.get(c.id) });
+  }));
   app.delete('/api/os/clientes/:id', (req, res) => {
     const r = clientesCascada.borrar(req.params.id);
     if (!r) return err(res, 404, 'cliente no encontrado');
@@ -284,6 +306,9 @@ function mount(app) {
       const mal = puedeCambiarMoneda(req.params.id, req.body.moneda_cuenta);
       if (mal) return err(res, 400, mal);
     }
+    // La baja tiene su botón (pide el motivo y deja la fecha): no se entra por el selector de estado.
+    if (String((req.body || {}).estado || '') === 'baja' && (antes || {}).estado !== 'baja')
+      return err(res, 400, 'para dar de baja usá «Dar de baja»: deja anotado cuándo y por qué');
     const c = clientes.updateComercial(req.params.id, req.body || {});
     if (!c) return err(res, 404, 'cliente no encontrado');
     // Renombrar ARRASTRA su columna de la matriz y su % base por mes: la matriz se referencia por

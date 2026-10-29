@@ -70,6 +70,21 @@ const check = (t, c, x) => { if (c) { ok++; console.log('✅ ' + t); } else { fa
   r = await del(`/api/os/clientes/${Z.id}`);
   check('uno cargado por error, sin nada, sí se borra', r.ok && !clientes.get(Z.id), JSON.stringify(r));
 
+  // ── Dar de baja (fase 4.3) ────────────────────────────────────────────────────────────────────
+  const bloqueo = require('../src/bloqueo-pedir');
+  const deudaAntes = JSON.stringify(require('../src/deuda.service').cuentaCorriente(A.id));
+  r = await post(`/api/os/clientes/${A.id}/baja`, {});
+  check('la baja pide el motivo', !r.ok && /por qué/.test(r.error));
+  r = await post(`/api/os/clientes/${A.id}/baja`, { motivo: 'dejó de trabajar' });
+  const a2 = clientes.get(A.id);
+  check('queda dado de baja con fecha y motivo', r.ok && a2.estado === 'baja' && !!a2.baja_at && a2.baja_motivo === 'dejó de trabajar');
+  check('su cuenta no cambia ni un centavo', JSON.stringify(require('../src/deuda.service').cuentaCorriente(A.id)) === deudaAntes);
+  check('y no puede pedir fichas', (bloqueo.bloqueo(a2) || {}).motivo === 'baja');
+  r = await fetch(B + `/api/os/clientes/${V.id}/comercial`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ estado: 'baja' }) }).then((x) => x.json());
+  check('no se da de baja por el selector de estado (sin fecha ni motivo)', !r.ok && clientes.get(V.id).estado !== 'baja');
+  r = await post(`/api/os/clientes/${A.id}/reactivar`);
+  check('reactivar lo deja pedir otra vez', r.ok && clientes.get(A.id).estado === 'activo' && !bloqueo.bloqueo(clientes.get(A.id)));
+
   srv.close();
   console.log(`\n${ok} chequeos OK, ${fail} fallaron\n`); process.exit(fail ? 1 : 0);
 })().catch((e) => { console.log('ERROR', e.stack); process.exit(1); });

@@ -568,15 +568,19 @@ function cliPintarLista(){
     if(q) cs=cs.filter(c=>[c.nombre,c.codigo].some(x=>String(x||'').toLowerCase().includes(q)));
     if(_cliFiltro==='deuda') cs=cs.filter(c=>Math.abs(Number((c.deuda&&c.deuda.total)||0))>=0.005);
     if(_cliFiltro==='vincular') cs=cs.filter(c=>cliSinLink(c)>0);
+    // Los dados de baja no se mezclan con los que trabajan: tienen su filtro. Su deuda sí sigue en los totales.
+    cs = _cliFiltro==='baja' ? cs.filter(c=>c.estado==='baja') : cs.filter(c=>c.estado!=='baja');
     // Pesos y dólares no se comparan: primero las cuentas en USDT, después las demás, cada grupo de mayor a menor.
     const mon=(c)=>monedaCuenta(c)==='USDT'?0:1, deb=(c)=>Number((c.deuda&&c.deuda.total)||0);
-    cs.sort((a,b)=>mon(a)-mon(b) || deb(b)-deb(a));
+    const atr=(c)=>Number(((window._cobr||{})[c.id]||{}).mas_viejo||0);
+    if(_cliFiltro==='cobrar'){ cs=cs.filter(c=>atr(c)>=0.005); cs.sort((a,b)=>mon(a)-mon(b) || atr(b)-atr(a)); }
+    else cs.sort((a,b)=>mon(a)-mon(b) || deb(b)-deb(a));
     const nom=(id)=>{ const v=_clientes.find(x=>x.id===id); return v?(v.nombre||v.codigo):''; };
     html = cs.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${cs.length} ${cs.length===1?'cliente':'clientes'}</div>`
       + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')).join('')
       : '<div class="empty">Ningún cliente con eso.</div>';
   } else {
-    html = raices.map(n=>n.propio
+    html = raices.filter(n=>n.cliente.estado!=='baja').map(n=>n.propio
         ? cliFicha(n, 0, '<span class="muted" style="font-size:12px">sus cajas propias</span>')
         : cliFicha(n)).join('') || '<div class="empty">Este vendedor no tiene clientes.</div>';
   }
@@ -594,6 +598,9 @@ function cliPintarLista(){
   box.innerHTML=html;
 }
 let _wzVendIni='';   // «➕ Cliente de Carlos» abre el alta con Carlos ya elegido
+const _MESES_C=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function cliMesCorto(m){ if(!/^\d{4}-\d{2}$/.test(String(m||''))) return m==='antes'?'antes del sistema':String(m||''); return _MESES_C[Number(m.slice(5,7))-1]; }
+function cliFechaCorta(f){ const x=String(f||'').slice(0,10).split('-'); return x.length===3?Number(x[2])+'-'+_MESES_C[Number(x[1])-1]:''; }
 /** Cuántos cuelgan de este nodo, contando todos los niveles. */
 function cliCuenta(n){ return n.subs.reduce((a,x)=>a+1+cliCuenta(x),0); }
 /** La deuda del nodo más la de todo lo que cuelga, POR MONEDA. Pesos y dólares no se suman: de
@@ -621,8 +628,12 @@ function cliFicha(n, prof=0, extra=''){
   const cuantos=cliCuenta(n);
   const deudaRama=cliDeuda(n);
   const propia=Number((c.deuda&&c.deuda.total)||0);
+  const cb=(window._cobr||{})[c.id];
+  const viejo=cb && Number(cb.mas_viejo||0)>=0.005;
   const señales=[
-    c.estado!=='activo' ? `<span class="señal durazno">${esc(c.estado||'')}</span>` : '',
+    c.estado==='baja' ? `<span class="señal durazno" title="${esc(c.baja_motivo||'')}">dado de baja</span>`
+      : c.estado!=='activo' ? `<span class="señal durazno">${esc(c.estado||'')}</span>` : '',
+    viejo ? `<span class="señal rosa" title="${esc(money(cb.mas_viejo,2)+' '+cb.moneda)} son de antes del mes pasado">debe desde ${esc(cliMesCorto(cb.desde))}</span>` : '',
     (!c.es_vendedor && c.precio_base_pct==null) ? '<span class="señal rosa" title="Sin % base no se le puede facturar">sin % base</span>' : '',
     sinLink ? `<span class="señal durazno" title="Esas cajas no están linkeadas al casino">${sinLink} sin linkear</span>` : '',
   ].filter(Boolean).join('');
@@ -634,6 +645,8 @@ function cliFicha(n, prof=0, extra=''){
         <span class="nom">${_nom(c)}</span>${extra}
         ${c.es_vendedor?'<span class="señal" style="background:var(--bg3);color:var(--gold)">vendedor</span>':''}
         ${señales}
+        ${cb&&cb.desde&&!n.subs.length?`<span class="muted" style="font-size:11.5px;white-space:nowrap">${
+          cb.ultimo_pago?'últ. pago '+esc(cliFechaCorta(cb.ultimo_pago.fecha)):'<span style="color:var(--durazno)">sin pagos</span>'}</span>`:''}
         ${n.subs.length
           ? `<span class="cifra" title="Lo que debe con su gente. Lo suyo solo: ${esc(money(propia,2)+' '+monedaCuenta(c))}"><span class="u">con su gente</span>${cliMontos(deudaRama,2)}</span>`
           : `<span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>`}
@@ -645,6 +658,9 @@ function cliFicha(n, prof=0, extra=''){
             : `<div><dt>% base</dt><dd${c.precio_base_pct==null?' class="mal"':''}>${
                 c.precio_base_pct!=null?esc(c.precio_base_pct)+'%':'sin cargar'}</dd></div>`}
           <div><dt>Debe</dt><dd>${money(propia,2)} ${esc(monedaCuenta(c))}</dd></div>
+          ${cb&&cb.desde?`<div><dt>De qué mes</dt><dd>${[['este_mes','este mes'],['mes_pasado','el pasado'],['mas_viejo','más viejo']]
+            .filter(([k])=>Number(cb[k]||0)>=0.005).map(([k,l])=>money(cb[k],2)+' <span class="muted">'+l+'</span>').join(' · ')}</dd></div>
+          <div><dt>Último pago</dt><dd>${cb.ultimo_pago?esc(cliFechaCorta(cb.ultimo_pago.fecha))+(cb.ultimo_pago.monto?' · '+money(cb.ultimo_pago.monto,2):''):'<span class="mal">nunca</span>'}</dd></div>`:''}
           ${n.subs.length?`<div><dt>Debe con su gente</dt><dd>${Object.entries(deudaRama).filter(([,v])=>Math.abs(v)>=0.005)
             .map(([m,v])=>money(v,2)+' '+esc(m)).join(' · ')||money(0,2)}</dd></div>`:''}
         </dl>
@@ -658,7 +674,7 @@ function cliFicha(n, prof=0, extra=''){
         ${n.subs.length?`<details class="cajas" style="margin-top:10px"${abiertoRama?' open':''}
           ontoggle="cliRamaEstado('${c.id}',this.open)">
           <summary class="abrir"><span class="chev" aria-hidden="true"></span>Su gente (${cuantos})</summary>
-          <div style="margin-top:11px">${n.subs.map(x=>cliFicha(x, 1)).join('')}</div>
+          <div style="margin-top:11px">${n.subs.filter(x=>x.cliente.estado!=='baja').map(x=>cliFicha(x, 1)).join('')}</div>
         </details>`:''}
       </div>
     </details>
@@ -711,10 +727,11 @@ VIEWS.clientes = async () => {
   main.innerHTML = '<div class="card"><div class="empty">Cargando…</div></div>';
   // El cuarto pedido es el diagnóstico de divisas: compara lo guardado contra lo que cada panel
   // movió de verdad. Sale del acumulado que ya está en la base, así que no consulta al casino.
-  const [d, dp, dc, dv] = await Promise.all([
+  const [d, dp, dc, dv, dcb] = await Promise.all([
     api('/api/os/clientes'), api('/api/os/paneles'), api('/api/os/casino/conexiones'),
-    api('/api/os/paneles/divisas?meses=6'),
+    api('/api/os/paneles/divisas?meses=6'), api('/api/os/clientes-cobranza'),
   ]);
+  window._cobr = {}; ((dcb&&dcb.clientes)||[]).forEach(x=>{ window._cobr[x.cliente_id]=x; }); window._cobrMes=(dcb&&dcb.mes)||'';
   // el cartel de cada panel avisa cuáles de sus divisas no se consultan
   api('/api/os/config/divisas-ignoradas').then(x=>{ window._divIgnoradas = (x&&x.divisas)||[]; });
   _clientes = d.clientes||[]; _paneles = dp.paneles||[]; window._cxs = dc.conexiones||[];
@@ -747,7 +764,10 @@ VIEWS.clientes = async () => {
           <input id="cli-q" value="${esc(_cliBusca)}" placeholder="nombre o código" autocomplete="off"
             oninput="_cliBusca=this.value; cliPintarLista()"></div>
         <button data-f="deuda" class="outline small" onclick="cliElegirFiltro('deuda')">Con deuda</button>
+        <button data-f="cobrar" class="outline small" onclick="cliElegirFiltro('cobrar')" title="Los que deben algo de antes del mes pasado, del más atrasado al menos">A cobrar</button>
         <button data-f="vincular" class="outline small" onclick="cliElegirFiltro('vincular')">Falta vincular</button>
+        <button data-f="baja" class="outline small" onclick="cliElegirFiltro('baja')">Dados de baja${
+          (()=>{ const n=_clientes.filter(c=>c.estado==='baja').length; return n?' ('+n+')':''; })()}</button>
       </div>
       <!-- Los tres historiales viven acá adentro: son cosas que se miran de vez en cuando, y arriba
            competían de igual a igual con los botones de todos los días. -->
@@ -1588,6 +1608,18 @@ async function renombrarCliente(id){
   const d=await api('/api/os/clientes'); _clientes=d.clientes||[];
   abrirCliente(id, _cliTab);
 }
+async function cliDarDeBaja(id){
+  const motivo=val('baja-mot-'+id).trim();
+  if(!motivo) return toast('Escribí por qué: queda anotado');
+  const r=await api('/api/os/clientes/'+id+'/baja',{method:'POST',body:JSON.stringify({motivo})});
+  if(!r||!r.ok) return toast((r&&r.error)||'no se pudo');
+  toast('Dado de baja: ya no puede pedir fichas'); cliRecargar(id);
+}
+async function cliReactivar(id){
+  const r=await api('/api/os/clientes/'+id+'/reactivar',{method:'POST',body:'{}'});
+  if(!r||!r.ok) return toast((r&&r.error)||'no se pudo');
+  toast('Reactivado: puede volver a pedir'); cliRecargar(id);
+}
 async function borrarCliente(id, codigo){
   if(!confirm('¿Borrar el cliente "'+codigo+'"?\n\nEsto borra TAMBIÉN sus plataformas/paneles, % de proveedores, participaciones y movimientos. No se puede deshacer.')) return;
   const r=await api('/api/os/clientes/'+id,{method:'DELETE'});
@@ -1623,7 +1655,8 @@ async function abrirCliente(id, tab){
     <div class="card">
       <div class="row" style="align-items:center">
         <button class="outline small" onclick="salirCliente()">← Clientes</button>
-        <h2 style="margin:0 0 0 10px">${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}</h2>
+        <h2 style="margin:0 0 0 10px">${_nom(c)}${c.es_vendedor?' <span class="cie-tag">vendedor</span>':''}${
+          c.estado==='baja'?' <span class="señal durazno" style="font-size:12px">dado de baja</span>':''}</h2>
         <div class="muted" style="margin-left:10px">${c.vendedor_id?('lo maneja <b>'+esc(nom[c.vendedor_id]||'')+'</b>'):(c.es_vendedor?'':'sin vendedor asignado')}</div>
         <div style="flex:1"></div>
         <!-- Renombrar vivía SÓLO en el lápiz de Fichas, que es el otro espacio. Estando la ficha
@@ -1682,7 +1715,7 @@ function editCli(id){
         <div class="card">
           <h2>💼 Precio y quién paga</h2>
           <div class="row">
-            <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
+            <div><label>Estado</label><select id="e-estado">${['activo','inactivo','suspendido'].concat(c.estado==='baja'?['baja']:[]).map(s=>`<option ${c.estado===s?'selected':''}>${s}</option>`).join('')}</select></div>
           </div>
           <div class="row" style="margin-top:6px">
             <div style="flex:0"><label>Es vendedor</label><select id="e-esvend"><option value="0" ${!c.es_vendedor?'selected':''}>no</option><option value="1" ${c.es_vendedor?'selected':''}>sí</option></select></div>
@@ -1815,13 +1848,22 @@ function editCli(id){
             <div class="muted" style="flex:1;align-self:flex-end;padding-bottom:9px"><b style="color:var(--gold)">⚠ Hoy no se aplica.</b> La idea era: puntos sobre el <b>costo</b> del proveedor para los que no tengan precio propio en la matriz (ej: <b>3</b> = a uno que cuesta 5 se le cobra 8). Está guardado pero <b>ningún cálculo lo usa</b>: si querés cobrarle de más a un proveedor, ponelo en la matriz del Cierre, que sí se usa.</div>
           </div>
         </details>
-        <!-- Borrar estaba en CADA tarjeta de la lista, al lado de «Abrir su ficha». Acá adentro y
-             plegado; y el servidor no deja borrar a quien tiene historia (ver clientes-cascada). -->
-        <details class="card">
-          <summary style="cursor:pointer"><b>🗑 Borrar este cliente</b> <span class="muted">— sólo para uno cargado por error</span></summary>
-          <div class="muted" style="font-size:12px;margin:8px 0">Borra el cliente <b>con sus cajas, sus % y todos sus movimientos</b>. No se puede deshacer.
-            Para un cliente que dejó de trabajar va a estar <b>«Dar de baja»</b> (fase 4.3): queda guardado con su historia y deja de pedir.</div>
-          <button class="outline small danger" onclick="borrarCliente('${id}','${esc(c.codigo)}')">Borrar este cliente</button>
+        <!-- ── DAR DE BAJA EN VEZ DE BORRAR (fase 4.3) ─────────────────────────────────────────────
+             La baja guarda todo y sólo frena los pedidos. Borrar queda para uno cargado por error, y
+             el servidor no deja borrar a quien tiene historia (clientes-cascada). -->
+        <details class="card"${c.estado==='baja'?' open':''}>
+          <summary style="cursor:pointer"><b>⏸ Dar de baja o borrar</b> <span class="muted">— cuando deja de trabajar</span></summary>
+          ${c.estado==='baja'
+            ? `<div class="nota warn" style="margin:10px 0 0"><span class="tit">Dado de baja el ${esc(cliFechaCorta(c.baja_at))}</span>${esc(c.baja_motivo||'')}
+                <div style="margin-top:8px"><button class="small" onclick="cliReactivar('${id}')">▶ Reactivar</button></div></div>`
+            : `<div class="muted" style="font-size:12px;margin:8px 0">Deja de poder pedir fichas (portal, Mi Caja y chat) y sale de la lista común.
+                <b>No cambia ningún número:</b> la deuda sigue, sus movimientos y facturas quedan, y si sus cajas se mueven se le factura igual.
+                ${Number((c.deuda&&c.deuda.total)||0)>=0.005?`<br><b style="color:var(--durazno)">Debe ${money(c.deuda.total,2)} ${esc(monedaCuenta(c))}: se le sigue pudiendo cobrar.</b>`:''}</div>
+              <div class="row" style="align-items:flex-end;gap:8px" oninput="event.stopPropagation()" onchange="event.stopPropagation()">
+                <div style="flex:1;min-width:220px"><label for="baja-mot-${id}">Por qué</label><input id="baja-mot-${id}" placeholder="ej: dejó de trabajar con nosotros"></div>
+                <button class="small" onclick="cliDarDeBaja('${id}')">⏸ Dar de baja</button></div>`}
+          <div class="muted" style="font-size:12px;margin:14px 0 6px">Borrar se lleva <b>todo</b> y no se puede deshacer: sólo para uno cargado por error, sin movimientos ni facturas.</div>
+          <button class="outline small danger" onclick="borrarCliente('${id}','${esc(c.codigo)}')">🗑 Borrar este cliente</button>
         </details>
         </div>
         <div class="cli-sec" data-sec="cajas">
