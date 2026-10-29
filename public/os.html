@@ -478,13 +478,89 @@ function cliFoldAll(lista){
 function cliArbol(lista){
   const hijos={};    // vendedor_id → los que cuelgan de él
   lista.forEach(c=>{ const k=c.vendedor_id||'_raiz'; (hijos[k]=hijos[k]||[]).push(c); });
-  const orden=(a,b)=> (b.es_vendedor?1:0)-(a.es_vendedor?1:0) || String(a.nombre||'').localeCompare(String(b.nombre||''));
-  const nodo=(c,nivel)=>({
-    cliente:c, nivel,
-    subs:(hijos[c.id]||[]).sort(orden).map(x=>nodo(x,nivel+1)),
+  const nodo=(c,nivel)=>({ cliente:c, nivel, subs:(hijos[c.id]||[]).map(x=>nodo(x,nivel+1)) });
+  /* Primero los vendedores, y después el que más debe arriba: con 41 clientes en una rama, el
+     orden alfabético escondía a los que importan. Pesos y dólares no se suman: se ordena por los
+     dólares y, a igualdad, por lo demás. */
+  const orden=(a,b)=>{ const da=cliDeuda(a), db=cliDeuda(b), otros=(d)=>Object.entries(d).filter(([m])=>m!=='USDT').reduce((x,[,v])=>x+v,0);
+    return (b.cliente.es_vendedor?1:0)-(a.cliente.es_vendedor?1:0) || (Number(db.USDT||0)-Number(da.USDT||0))
+      || (otros(db)-otros(da)) || String(a.cliente.nombre||'').localeCompare(String(b.cliente.nombre||'')); };
+  const ordenar=(ns)=>{ ns.forEach(n=>ordenar(n.subs)); return ns.sort(orden); };
+  return ordenar((hijos._raiz||[]).map(c=>nodo(c,0)));
+}
+/** Un monto por moneda, sin sumar pesos con dólares: «71.460 USDT + 342.500 ARS». */
+function cliMontos(acc, dec=0){
+  const xs=Object.entries(acc).filter(([,v])=>Math.abs(v)>=0.005).sort(([a],[b])=>(a==='USDT'?-1:b==='USDT'?1:a.localeCompare(b)));
+  return xs.length ? xs.map(([m,v])=>`<b>${money(v,dec)}</b><span class="u">${esc(m)}</span>`).join('<span class="u">+</span>')
+    : `<b style="color:var(--muted)">${money(0,dec)}</b>`;
+}
+/** Todos los clientes de una rama (el nodo y lo que cuelga). */
+function cliDeLaRama(n, acc=[]){ acc.push(n.cliente); n.subs.forEach(x=>cliDeLaRama(x,acc)); return acc; }
+function cliBuscarNodo(ns, id){ for(const n of ns){ if(n.cliente.id===id) return n; const x=cliBuscarNodo(n.subs,id); if(x) return x; } return null; }
+const cliSinLink=(c)=>_paneles.filter(p=>p.cliente_id===c.id && !(p.conexion_id&&p.id_usuario)).length;
+
+/* ── LA CARTERA POR VENDEDOR ─────────────────────────────────────────────────────────────────
+   Arriba, una tarjeta por vendedor con lo que debe SU GENTE (antes la fila del vendedor mostraba
+   sólo lo suyo: Alexa y Henry aparecían en 0,00 con cientos de miles colgando). Tocar una deja
+   abajo sólo sus clientes. El buscador y los filtros recorren la rama elegida, o todo. */
+let _cliVend='', _cliBusca='', _cliFiltro='';
+function cliVendTarjetas(){
+  const arbol=cliArbol(_clientes);
+  const tarj=_clientes.filter(c=>c.es_vendedor).map(v=>{
+    const n=cliBuscarNodo(arbol, v.id); const rama=cliDeLaRama(n);
+    const jefe=v.vendedor_id && _clientes.find(x=>x.id===v.vendedor_id);
+    return { id:v.id, nom:v.nombre||v.codigo, de:jefe?(jefe.nombre||jefe.codigo):'', cuantos:cliCuenta(n), deuda:cliDeuda(n),
+      falta:rama.reduce((a,c)=>a+cliSinLink(c),0) };
   });
-  const raiz=(hijos._raiz||[]).sort(orden).map(c=>nodo(c,0));
-  return raiz;
+  // Los que no tienen vendedor ni son vendedores: su propia tarjeta, para que no se pierdan.
+  const sueltos=_clientes.filter(c=>!c.vendedor_id && !c.es_vendedor);
+  if(sueltos.length){ const acc={}; sueltos.forEach(c=>{ const d=c.deuda; if(d){ const m=d.moneda||'USDT'; acc[m]=(acc[m]||0)+Number(d.total||0);} });
+    tarj.push({ id:'_sin', nom:'Sin vendedor', de:'', cuantos:sueltos.length, deuda:acc, falta:sueltos.reduce((a,c)=>a+cliSinLink(c),0) }); }
+  const vacio=(t)=>!t.cuantos && !Object.values(t.deuda).some(v=>Math.abs(v)>=0.005);
+  const usd=(t)=>Number(t.deuda.USDT||0);
+  const llenas=tarj.filter(t=>!vacio(t)).sort((a,b)=>usd(b)-usd(a) || b.cuantos-a.cuantos);
+  const vacias=tarj.filter(vacio);
+  const box=document.getElementById('cli-vend'); if(!box) return;
+  box.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px">
+    ${llenas.map(t=>{ const sel=_cliVend===t.id;
+      return `<button type="button" onclick="cliElegirVend('${t.id}')" aria-pressed="${sel}"
+        style="text-align:left;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;cursor:pointer;
+          border:1.5px solid ${sel?'var(--gold)':'var(--border)'};background:${sel?'var(--bg3)':'transparent'};color:inherit;font:inherit">
+        <span style="font-weight:750;font-size:14.5px">${esc(t.nom)}${t.de?` <span class="muted" style="font-weight:400;font-size:11.5px">de ${esc(t.de)}</span>`:''}</span>
+        <span class="muted" style="font-size:12px">${t.cuantos} ${t.cuantos===1?'cliente':'clientes'}${t.falta?` · <b style="color:var(--durazno)">${t.falta} sin vincular</b>`:''}</span>
+        <span class="cifra" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums">${cliMontos(t.deuda)}</span>
+      </button>`; }).join('')}
+  </div>
+  ${vacias.length?`<div class="muted" style="font-size:12px;margin-top:6px">Vendedores sin clientes ni deuda: ${vacias.map(t=>esc(t.nom)).join(', ')}.</div>`:''}`;
+}
+function cliElegirVend(id){ _cliVend = _cliVend===id ? '' : id; cliVendTarjetas(); cliPintarLista(); }
+function cliElegirFiltro(f){ _cliFiltro = _cliFiltro===f ? '' : f; cliPintarLista(); }
+function cliPintarLista(){
+  const box=document.getElementById('cli-lista'); if(!box) return;
+  const arbol=cliArbol(_clientes);
+  // El alcance: la rama del vendedor elegido, los sueltos, o todo.
+  let raices = !_cliVend ? arbol
+    : _cliVend==='_sin' ? arbol.filter(n=>!n.cliente.es_vendedor)
+    : (cliBuscarNodo(arbol,_cliVend)||{subs:[]}).subs;
+  const q=_cliBusca.trim().toLowerCase();
+  const fb=document.getElementById('cli-filtros');
+  if(fb) fb.querySelectorAll('[data-f]').forEach(b=>b.className=(b.dataset.f===_cliFiltro?'':'outline')+' small');
+  let html;
+  if(q || _cliFiltro){
+    // Buscando o filtrando, la lista es plana: lo que se busca es un cliente, no una rama.
+    let cs=[]; raices.forEach(n=>cliDeLaRama(n,cs));
+    if(q) cs=cs.filter(c=>[c.nombre,c.codigo].some(x=>String(x||'').toLowerCase().includes(q)));
+    if(_cliFiltro==='deuda') cs=cs.filter(c=>Math.abs(Number((c.deuda&&c.deuda.total)||0))>=0.005);
+    if(_cliFiltro==='vincular') cs=cs.filter(c=>cliSinLink(c)>0);
+    cs.sort((a,b)=>Number((b.deuda&&b.deuda.total)||0)-Number((a.deuda&&a.deuda.total)||0));
+    const nom=(id)=>{ const v=_clientes.find(x=>x.id===id); return v?(v.nombre||v.codigo):''; };
+    html = cs.length ? `<div class="muted" style="font-size:12px;margin-bottom:6px">${cs.length} ${cs.length===1?'cliente':'clientes'}</div>`
+      + cs.map(c=>cliFicha({cliente:c, subs:[]}, 0, c.vendedor_id?`<span class="muted" style="font-size:12px">de ${esc(nom(c.vendedor_id))}</span>`:'')).join('')
+      : '<div class="empty">Ningún cliente con eso.</div>';
+  } else {
+    html = raices.map(n=>cliFicha(n)).join('') || '<div class="empty">Este vendedor no tiene clientes.</div>';
+  }
+  box.innerHTML=html;
 }
 /** Cuántos cuelgan de este nodo, contando todos los niveles. */
 function cliCuenta(n){ return n.subs.reduce((a,x)=>a+1+cliCuenta(x),0); }
@@ -505,7 +581,7 @@ const monedaCuenta=(c)=>(c.deuda&&c.deuda.moneda)||c.moneda_cuenta||'USDT';
    sabía cuál se estaba abriendo: con la lista plegada, tocar a Alexa cerraba su rama y sus 13 cajas
    parecían haber desaparecido. Ahora abrir el cliente muestra ADENTRO dos cosas separadas, cada una
    con su propio "ver": «Sus N cajas» y «Su gente (N)». Cada apertura dice qué abre. */
-function cliFicha(n, prof=0){
+function cliFicha(n, prof=0, extra=''){
   const c=n.cliente;
   const cajas=_paneles.filter(p=>p.cliente_id===c.id);
   const sinLink=cajas.filter(p=>!(p.conexion_id&&p.id_usuario)).length;
@@ -523,10 +599,12 @@ function cliFicha(n, prof=0){
     <details class="plegable"${_cliFicha.has(c.id)?' open':''} ontoggle="cliFichaEstado('${c.id}',this.open)">
       <summary class="fila">
         <span class="chev" aria-hidden="true"></span>
-        <span class="nom">${_nom(c)}</span>
+        <span class="nom">${_nom(c)}</span>${extra}
         ${c.es_vendedor?'<span class="señal" style="background:var(--bg3);color:var(--gold)">vendedor</span>':''}
         ${señales}
-        <span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>
+        ${n.subs.length
+          ? `<span class="cifra" title="Lo que debe con su gente. Lo suyo solo: ${esc(money(propia,2)+' '+monedaCuenta(c))}"><span class="u">con su gente</span>${cliMontos(deudaRama,2)}</span>`
+          : `<span class="cifra"><b style="${propia>0?'':'color:var(--muted)'}">${money(propia,2)}</b><span class="u">${esc(monedaCuenta(c))}</span></span>`}
       </summary>
       <div class="cuerpo">
         <dl class="datos">
@@ -636,9 +714,16 @@ VIEWS.clientes = async () => {
           <button class="outline small" onclick="cliFoldAll(_clientes)">${_cliFicha.size>=_clientes.length?'Cerrar todo':'Abrir todo'}</button>
         </div>
       </div>
-      <div class="muted" style="margin:10px 0 14px">Tocá un cliente para abrir su cuenta.
-        Adentro están <b>sus cajas</b> y, si tiene gente colgando, <b>su gente</b>, cada una con su
-        propio botón. El número de la derecha es lo que debe.</div>
+      <div class="muted" style="margin:10px 0 10px">Tocá un vendedor para ver sólo sus clientes; otra vez, para ver todos.
+        El número es lo que debe <b>su gente</b>; en cada cliente, lo que debe él.</div>
+      <div id="cli-vend" style="margin-bottom:12px"></div>
+      <div id="cli-filtros" class="row" style="align-items:flex-end;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px"><label for="cli-q">Buscar cliente</label>
+          <input id="cli-q" value="${esc(_cliBusca)}" placeholder="nombre o código" autocomplete="off"
+            oninput="_cliBusca=this.value; cliPintarLista()"></div>
+        <button data-f="deuda" class="outline small" onclick="cliElegirFiltro('deuda')">Con deuda</button>
+        <button data-f="vincular" class="outline small" onclick="cliElegirFiltro('vincular')">Falta vincular</button>
+      </div>
       <!-- Los tres historiales viven acá adentro: son cosas que se miran de vez en cuando, y arriba
            competían de igual a igual con los botones de todos los días. -->
       <details class="cajas" style="margin-bottom:14px">
@@ -657,8 +742,7 @@ VIEWS.clientes = async () => {
       <div id="sol-caja" style="margin:10px 0"></div>
       <div id="mov-aviso"></div>
       <div id="mov-caja" style="margin:10px 0"></div>
-      ${(_cerradasIni(_clientes), cliArbol(_clientes).map(n=>cliFicha(n)).join(''))
-        || '<div class="empty">Sin clientes todavía. Creá uno arriba ☝️</div>'}
+      <div id="cli-lista">${_clientes.length?'':'<div class="empty">Sin clientes todavía. Creá uno arriba ☝️</div>'}</div>
     </div>
     <div class="card"><h2>🪙 Divisas de los paneles <span class="muted">(¿son las que se usan?)</span></h2>
       <div class="muted">Lo que trae el casino es lo que la cuenta tiene <b>habilitado</b>, no lo que <b>mueve</b>.
@@ -678,7 +762,7 @@ VIEWS.clientes = async () => {
         <td class="right"><select style="width:auto;display:inline-block" onchange="moverPanel('${p.id}',this.value)"><option value="">— asignar a —</option>${_clientes.map(c=>`<option value="${c.id}">${esc(c.codigo)}</option>`).join('')}</select>
         <button class="danger small" onclick="delPanel('${p.id}')">🗑</button></td></tr>`).join('')}
       </tbody></table></div>` : ''}
-    `;
+    `;  _cerradasIni(_clientes); cliVendTarjetas(); cliPintarLista();
 };
 
 /** La tabla de paneles de UN cliente + el formulario para agregarle otro. */
