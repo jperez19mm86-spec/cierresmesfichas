@@ -80,6 +80,30 @@ function parseImportText(text) {
 }
 
 const app = express();
+/* 🔒 LA IP DE VERDAD (30-oct-2026). Entre el navegador y esta app está el proxy de Railway: sin esta
+   línea `req.ip` es la del proxy, la MISMA para todos, y los topes de intentos por dirección
+   contaban a todos los clientes como uno solo —unos cuantos pedidos de afuera cerraban /pedir y el
+   login para todo el mundo—. `1` = confiar sólo en el último salto, el de Railway: lo que el
+   navegador escriba en X-Forwarded-For queda a la izquierda y no se toma. */
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+/* 🔒 CABECERAS DE PROTECCIÓN. La más importante: el panel no se puede meter dentro de otra página.
+   Sin eso, un sitio cualquiera podía mostrar el OS invisible debajo de un botón suyo y hacerte
+   apretar «aprobar» sin saberlo. Las páginas de clientes (/chat, /mi-chat, /pedir, …) quedan sin
+   esa traba por si alguien las muestra adentro de su sitio; nada de lo de adentro se abre así.
+   No hay Content-Security-Policy todavía: el panel tiene el JavaScript en la misma página y una
+   política que lo permita no protege nada. Llega con el corte en sectores (paso 4). */
+const PAGINA_CLIENTE = /^\/(chat|mi-chat|pedir|cuenta|factura|linea|pase\.js|ganamos\.html)(\/|$)/;
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  if (!PAGINA_CLIENTE.test(req.path)) {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  }
+  next();
+});
 app.use(cors({ origin: true }));
 
 // ── EL COMPROBANTE VIENE EN EL CUERPO, Y UNA FOTO NO ENTRA EN 1 MB ───────────────────────────
@@ -119,9 +143,11 @@ app.use((e, req, res, next) => {
    Se reusa el mismo contador que ya existe más abajo: 10 por usuario y 40 por IP en 15 minutos, con
    los dos topes distintos por el mismo motivo que allá. Un login que sale bien limpia la cuenta. */
 app.post('/api/login', (req, res) => {
-  const ip = String(req.ip || req.headers['x-forwarded-for'] || 'x').split(',')[0].trim();
+  const ip = String(req.ip || 'x');
   const usr = String((req.body || {}).user || '').slice(0, 60).toLowerCase();
-  const kIp = 'ip:panel:' + ip; const kUs = 'panel:' + usr;
+  /* El tope por usuario va POR DIRECCIÓN: con sólo el nombre, diez intentos desde cualquier lado
+     dejaban a la dueña afuera 15 minutos sin que nadie supiera su clave. */
+  const kIp = 'ip:panel:' + ip; const kUs = 'panel:' + usr + ':' + ip;
   if (demasiadosIntentos(kIp) || demasiadosIntentos(kUs)) {
     return res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá 15 minutos.' });
   }
@@ -347,7 +373,20 @@ app.get('/api/despacho/sistemas', (_req, res) => {
 /* Quién trae esta sesión. Devuelve también el NOMBRE con el que entró: es lo que la pantalla
    muestra arriba, y es lo que se guarda al lado de cada carga. Sin eso, "quién soy" era una
    pregunta que sólo se podía contestar mirando las variables del servidor. */
-app.get('/api/quien', (req, res) => res.json({ ok: true, ...auth.quienEs(req) }));
+// `ip`: la dirección con la que te ve el servidor. Es la tuya; sirve para comprobar que los topes
+// cuentan a cada uno por separado (ver `trust proxy` arriba).
+app.get('/api/quien', (req, res) => res.json({ ok: true, ...auth.quienEs(req), ip: req.ip }));
+/* 🔐 Cerrar TODAS las sesiones del panel (la dueña y la operadora), en todos los navegadores. Para
+   cuando se perdió un teléfono o se sospecha que alguien entró. Quien lo aprieta sigue adentro:
+   se le da una sesión nueva en el mismo momento. Sólo admin: el operador no llega a /api/os. */
+app.post('/api/os/sesiones/cerrar-todas', (req, res) => {
+  const rol = auth.rolDe(req);
+  if (rol !== 'admin') return res.status(403).json({ ok: false, error: 'sólo la dueña' });
+  auth.cortarSesiones(['admin', 'operador']);
+  auth.sesionNueva(req, res, 'admin');
+  console.log('[Auth] se cerraron todas las sesiones del panel');
+  res.json({ ok: true });
+});
 
 app.get('/api/clientes', (_req, res) => {
   res.json({ ok: true, clientes: clientes.list().clientes });
@@ -1083,7 +1122,9 @@ function demasiadosIntentos(clave) {
   const VENTANA = 15 * 60 * 1000;
   const TOPE = clave.startsWith('ip:') ? 40 : 10;
   const prev = (_intentos.get(clave) || []).filter((t) => ahora - t < VENTANA);
-  if (_intentos.size > 5000) _intentos.clear();          // no crece para siempre
+  // No crece para siempre, pero se tiran sólo los vencidos: vaciarlo entero le borraba la cuenta
+  // a quien estaba probando claves con sólo llenarlo de direcciones nuevas.
+  if (_intentos.size > 5000) for (const [k, v] of _intentos) if (!v.some((t) => ahora - t < VENTANA)) _intentos.delete(k);
   _intentos.set(clave, prev);
   return prev.length >= TOPE;
 }
@@ -1847,6 +1888,11 @@ function migrateLegacyJson() {
   }
 }
 migrateLegacyJson();
+// 🔐 Si cambió la contraseña de la dueña o de la operadora, las sesiones viejas de ese rol dejan de valer.
+try {
+  const cortados = auth.revisarCambioDeClave();
+  if (cortados.length) console.log(`[Auth] cambió la contraseña de ${cortados.join(' y ')}: se cerraron sus sesiones abiertas`);
+} catch (e) { console.error('[Auth] no se pudo revisar el cambio de contraseña:', e.message); }
 
 // Cifrar en la base las contraseñas de sistemas que estén en texto plano (legacy).
 try {

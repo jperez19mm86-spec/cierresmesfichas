@@ -8462,8 +8462,24 @@ VIEWS.accesos = async () => {
         </tr>`).join('')}
       </tbody></table></div>
       ${cl.length?'':'<div class="empty">Ningún cliente con ese nombre.</div>'}
+    </div>
+    <div class="card">
+      <h2>🚪 Sesiones del panel</h2>
+      <div class="muted">Echa a todos los que tengan el panel abierto —vos en otros teléfonos o computadoras, y la operadora—. Vos seguís adentro acá. Usalo si perdiste un teléfono o creés que alguien entró. Cambiar la contraseña en Railway también las cierra solo.</div>
+      <div class="row" style="margin-top:10px"><button class="outline danger" id="acc-cerrar-ses" onclick="accCerrarSesiones(this)">Cerrar todas las sesiones</button></div>
     </div>`;
 };
+/* Dos toques: el primero pregunta en el mismo botón (el visor no muestra confirm() en todos lados
+   y un clic suelto no puede echar a la operadora en medio de un despacho). */
+async function accCerrarSesiones(b){
+  if(b.dataset.seguro!=='1'){ b.dataset.seguro='1'; b.textContent='¿Seguro? Tocá de nuevo para cerrar todas';
+    setTimeout(()=>{ b.dataset.seguro=''; b.textContent='Cerrar todas las sesiones'; },4000); return; }
+  b.disabled=true;
+  const r=await api('/api/os/sesiones/cerrar-todas',{method:'POST'});
+  b.disabled=false; b.dataset.seguro=''; b.textContent='Cerrar todas las sesiones';
+  if(!r||!r.ok) return toast('No se pudo: '+((r&&r.error)||''), true);
+  toast('Listo: se cerraron todas las demás sesiones. Vos seguís adentro.');
+}
 
 function accMarcar(id,v){ if(v)_accSel.add(id); else _accSel.delete(id); VIEWS.accesos(); }
 async function accTodos(v){

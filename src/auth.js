@@ -259,6 +259,40 @@ function clienteDeToken(req) {
   return m[1];
 }
 
+/* ── CORTAR LAS SESIONES ABIERTAS (30-oct-2026) ─────────────────────────────────────────────
+   La sesión es una cookie firmada que dura 7 días y no vive en ningún lado: «salir» sólo la borra
+   de ESE navegador, y cambiar la contraseña no echaba a quien ya estaba adentro. Ahora cada rol
+   tiene una fecha de corte en la configuración: una sesión emitida antes no vale.
+   Se corta sola cuando cambia la contraseña de ese rol (se compara una huella al arrancar), y a
+   mano con «Cerrar todas las sesiones» en 🔐 Accesos.
+   Se lee de la base en cada pedido —es una consulta por clave primaria— para que el corte valga
+   en el momento y no al próximo reinicio. */
+function _cfg() { try { return require('./config-store'); } catch (e) { return null; } }
+function corteDeRol(rol) {
+  const c = _cfg(); if (!c) return 0;
+  try { return Number(c.getCfg('sesion_corte_' + rol)) || 0; } catch (e) { return 0; }
+}
+function cortarSesiones(roles = ['admin', 'operador']) {
+  const c = _cfg(); if (!c) return 0;
+  const ahora = Date.now();
+  roles.forEach((r) => c.setCfg('sesion_corte_' + r, String(ahora)));
+  return ahora;
+}
+/** Al arrancar: si la contraseña de un rol cambió desde el último arranque, se cortan sus sesiones. */
+function revisarCambioDeClave() {
+  const c = _cfg(); if (!c) return [];
+  const cortados = [];
+  const claves = { admin: PANEL_PASSWORD, operador: HAY_OPERADOR ? OPERADOR_PASSWORD : '' };
+  for (const [rol, clave] of Object.entries(claves)) {
+    if (!clave) continue;
+    const huella = crypto.createHmac('sha256', SESSION_SECRET).update('huella:' + rol + ':' + clave).digest('hex');
+    const antes = c.getCfg('sesion_huella_' + rol);
+    if (antes && antes !== huella) { cortarSesiones([rol]); cortados.push(rol); }
+    if (antes !== huella) c.setCfg('sesion_huella_' + rol, huella);
+  }
+  return cortados;
+}
+
 function verifyToken(token) {
   if (!token || typeof token !== 'string') return false;
   const i = token.lastIndexOf('.');
@@ -279,6 +313,7 @@ function verifyToken(token) {
   const issued = Number(m[2]);
   if (!issued || (Date.now() - issued) > MAX_AGE_MS) return false;
   const rol = m[1] || 'admin';
+  if ((rol === 'admin' || rol === 'operador') && issued < corteDeRol(rol)) return false;
   /* ⚠️ CAMBIARLE LA CLAVE AL PROVEEDOR CORTA SUS SESIONES ABIERTAS. Sin esto, «se la cambié» no es
      verdad hasta que el token venza —hasta siete días— y el que estaba adentro sigue adentro. */
   if (rol === 'proveedor') {
@@ -416,6 +451,15 @@ function loginHandler(req, res) {
   res.json({ ok: true, rol });
 }
 
+/** Le pone una sesión nueva a quien la pide (después de cortar todas, para que él siga adentro). */
+function sesionNueva(req, res, rol) {
+  const token = sign(`ok:${rol}:${Date.now()}`);
+  const attrs = [`${COOKIE}=${encodeURIComponent(token)}`, 'HttpOnly', 'Path=/', 'SameSite=Lax',
+    `Max-Age=${Math.floor(MAX_AGE_MS / 1000)}`];
+  if (isSecure(req)) attrs.push('Secure');
+  res.setHeader('Set-Cookie', attrs.join('; '));
+}
+
 /** POST /api/logout */
 function logoutHandler(req, res) {
   const attrs = [`${COOKIE}=`, 'HttpOnly', 'Path=/', 'SameSite=Lax', 'Max-Age=0'];
@@ -449,4 +493,5 @@ function quienEs(req) {
 
 module.exports = { required, loginHandler, logoutHandler, isAuthed, rolDe, puedeOperador, puedeProveedor,
   firmarCliente, clienteDeToken, CLIENTE_RENOVAR_MS, usuarioDe, quienEs,
+  cortarSesiones, revisarCambioDeClave, sesionNueva,
   USING_DEFAULT_PASSWORD, PANEL_USER, HAY_OPERADOR };
