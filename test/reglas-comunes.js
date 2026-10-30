@@ -67,4 +67,15 @@ check('«a qué mes entra» no está copiado fuera de lib/mes-de', !meses.length
 const plataN = buscar(/const n = \(x, d = 2\) => Number\(x \|\| 0\)\.toLocaleString\('es-AR'/);
 check('el formato de plata de los documentos sale de lib/formato', !plataN.length, plataN.join(', '));
 
+// El tipo de cambio tiene su propia regla: «1607,028» es mil seiscientos siete (PABLO38, ago/sep-2026).
+{
+  const { parseTc, parseMonto } = require('../src/lib/monto');
+  for (const [t, e] of [['1607,028', 1607.028], ['1.607,028', 1607.028], ['1607.028', 1607.028], ['1.607', 1607], ['1679,88', 1679.88], ['1645.5', 1645.5]]) {
+    check(`TC ${t} → ${e}`, parseTc(t) === e, parseTc(t));
+  }
+  check('y los montos siguen con la suya: «10.000» son diez mil', parseMonto('10.000') === 10000);
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'os.html'), 'utf8');
+  check('el panel manda el TC del comprobante con tcNum, no con montoNum', /tc: tc \? String\(tcNum\(tc\)/.test(html));
+}
+
 console.log(`\n${ok} chequeos OK, ${fail} fallaron\n`); process.exit(fail ? 1 : 0);

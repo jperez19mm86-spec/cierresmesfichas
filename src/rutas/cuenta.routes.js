@@ -10,7 +10,7 @@ const historial = require('../historial');
 const deudaSvc = require('../deuda.service');
 const tcSvc = require('../tc.service');
 const tcDivisas = require('../tc-divisas.service');
-const { parseMonto } = require('../lib/monto');
+const { parseMonto, parseTc } = require('../lib/monto');
 const { mesCierre: mesCierreLbl } = require('../lib/fechas');
 const pedidosStore = require('../pedidos-store');
 const deudaCargaSvc = require('../deuda-carga.service');
@@ -337,7 +337,7 @@ function mount(app) {
     if (!money.isPos(monto)) return err(res, 400, `poné cuántos ${monedaCargada} se acreditan`);
     // El TC lo pone quien aprueba. Sin él sólo se guarda la cara que se declaró: es preferible un
     // dato faltante y visible a un número inventado con la cotización del día.
-    const tcNum = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? parseMonto(b.tc) : null;
+    const tcNum = !porElMes && b.tc != null && String(b.tc).trim() !== '' ? parseTc(b.tc) : null;   // regla propia: «1607,028» no son miles
     let tc = tcNum == null ? null : String(tcNum);
     if (tc != null && !money.isPos(tc)) return err(res, 400, 'el tipo de cambio tiene que ser mayor a cero');
 
@@ -563,6 +563,14 @@ function mount(app) {
      borrar el pago y perder su comprobante. */
   app.put('/api/os/movimientos/:id/mes-cierre', wrap((req, res) => {
     const r = movs.setMesCierre(req.params.id, (req.body || {}).mes_cierre || null);
+    r.ok ? ok(res, r) : err(res, 400, r.error);
+  }));
+  // El cambio de un pago en dólares mal leído (ver movs.corregirTc). Con la regla del TC, no la de montos.
+  app.post('/api/os/movimientos/:id/corregir-tc', wrap((req, res) => {
+    const b = req.body || {};
+    const tc = parseTc(b.tc);
+    if (tc == null) return err(res, 400, 'poné el tipo de cambio');
+    const r = movs.corregirTc(req.params.id, tc, b.motivo);
     r.ok ? ok(res, r) : err(res, 400, r.error);
   }));
   /* Borrar un pago se lleva su comprobante. Si queda suelto es un cobro fantasma: figura en

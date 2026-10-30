@@ -79,4 +79,33 @@ function esAmbiguo(txt) {
   return s[ultimo] === '.' && (detras === 1 || detras === 2);
 }
 
-module.exports = { parseMonto, fmtMonto, esAmbiguo };
+/**
+ * ── EL TIPO DE CAMBIO NO ES UN MONTO ───────────────────────────────────────────────────────
+ * Con la regla de arriba, «1607,028» (un cambio con tres decimales) se leía como 1.607.028:
+ * tres dígitos detrás del separador = miles. Pasó dos veces con PABLO38 (29-ago y 9-sep-2026) y
+ * cada pago quedó con ARS 150 millones en vez de 150 mil.
+ *
+ * Para un cambio la COMA siempre es decimal (es como lo escribe una persona acá), y un punto
+ * solo es de miles únicamente en la forma «1.607» (1 a 3 dígitos, punto, 3 dígitos). Todo lo
+ * demás con un punto es decimal: «1607.028» = 1607,028.
+ *
+ * @returns {number|null}
+ */
+function parseTc(txt) {
+  if (typeof txt === 'number') return Number.isFinite(txt) && txt > 0 ? txt : null;
+  const s = String(txt == null ? '' : txt).trim().replace(/[\s\u00a0\u202f]/g, '');
+  if (!s || !/^[\d.,]+$/.test(s)) return null;
+  let t;
+  if (s.includes(',')) {
+    const u = s.lastIndexOf(',');
+    t = s.slice(0, u).replace(/[.,]/g, '') + '.' + s.slice(u + 1);
+  } else if ((s.match(/\./g) || []).length > 1) {
+    t = s.replace(/\./g, '');
+  } else {
+    t = /^\d{1,3}\.\d{3}$/.test(s) ? s.replace('.', '') : s;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+module.exports = { parseMonto, parseTc, fmtMonto, esAmbiguo };

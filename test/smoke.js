@@ -10181,7 +10181,7 @@ async function main() {
     // Y el servidor lo acepta sin TC: acredita la moneda del pago y no inventa la otra cara.
     const rutPago = require('./lib/texto-rutas')();
     check('comprobante: sin TC se acredita igual, sin inventar la otra cara',
-      /const tcNum = !porElMes && b\.tc != null && String\(b\.tc\)\.trim\(\) !== '' \? parseMonto\(b\.tc\) : null;/.test(rutPago)
+      /const tcNum = !porElMes && b\.tc != null && String\(b\.tc\)\.trim\(\) !== '' \? parse(Monto|Tc)\(b\.tc\) : null;/.test(rutPago)
       && /else \{ enUsdt = monto; if \(tc\) enArs = money\.mul\(monto, tc\)|else \{ enUsdt = monto; if \(tc\) enArs = money\.round\(money\.mul\(monto, tc\), 2\); \}/.test(rutPago));
 
     /* ── A QUÉ CIERRE ENTRA EL PAGO ───────────────────────────────────────────────────────────

@@ -134,9 +134,31 @@ function setMesCierre(id, mes) {
   return n ? { ok: true, movimiento: get(id) } : { ok: false, error: 'no existe ese movimiento' };
 }
 
+/* ── CORREGIR EL CAMBIO DE UN PAGO EN DÓLARES (30-oct-2026) ─────────────────────────────────
+   Sólo para un pago de una cuenta en USDT: ahí lo que suma es `monto_usdt`, y el TC sólo llena la
+   cara en pesos que se muestra. Corregirlo no mueve ninguna deuda en dólares. En una cuenta en
+   pesos el TC sí cambia lo que suma, y eso no se toca por acá.
+   Nació por PABLO38: dos TC «1607,028» leídos como 1.607.028 dejaron ARS 150 millones por pago.
+   Queda escrito en la nota qué había antes, cuándo y por qué. */
+function corregirTc(id, tc, motivo) {
+  const m = getCrudo(id);
+  if (!m) return { ok: false, error: 'no existe ese movimiento' };
+  if (m.tipo !== 'pago') return { ok: false, error: 'sólo se corrige el cambio de un pago' };
+  if (String(m.divisa || 'USDT').toUpperCase() !== 'USDT' || _vacio(m.monto_usdt) || m.tc_modo) {
+    return { ok: false, error: 'sólo pagos de cuentas en USDT con el monto en dólares: acá el cambio movería la deuda' };
+  }
+  const n = Number(tc);
+  if (!(n > 0)) return { ok: false, error: 'el tipo de cambio tiene que ser mayor a cero' };
+  const ars = (Math.round(Number(m.monto_usdt) * n * 100) / 100).toFixed(2);
+  const nota = `${m.notas || ''} · [corrección TC ${require('./lib/fechas').fechaTZ()}] ${m.tc_momento} → ${n}, ARS ${m.monto_ars} → ${ars}`
+    + (motivo ? ` (${String(motivo).slice(0, 120)})` : '');
+  db.prepare('UPDATE movimientos SET tc_momento=?, monto_ars=?, notas=? WHERE id=?').run(String(n), ars, nota.trim(), id);
+  return { ok: true, antes: { tc: m.tc_momento, ars: m.monto_ars }, movimiento: get(id) };
+}
+
 function remove(id) { return db.prepare('DELETE FROM movimientos WHERE id=?').run(id).changes > 0; }
 
 /* A QUÉ MES pertenece un movimiento. Vive acá y no en cada pantalla: si la cuenta corriente lo
    decidiera distinto que la factura, el mismo pago aparecería en dos meses según dónde se mire. */
 
-module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre, setRecibidoPor };
+module.exports = { TIPOS, create, get, getCrudo, list, remove, mesDe, setMesCierre, setRecibidoPor, corregirTc };
