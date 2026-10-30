@@ -28,6 +28,9 @@ const nowISO = () => new Date().toISOString();
 const K = (s) => String(s || '').trim();
 
 /** Lo que hace falta para que una solicitud sea atendible. Devuelve el motivo si algo falta. */
+// Avisa al panel que cambiaron sus pendientes (ver lib/avisos-panel.js). Nunca frena la escritura.
+const avisarPanel = () => { try { require('./lib/avisos-panel').cambio(); } catch (e) { /* sin panel */ } };
+
 function queFalta(d) {
   if (!K(d.cliente_id)) return 'falta decir para qué cliente es';
   if (!/^(Casino|Europa)$/i.test(K(d.sistema))) return 'el panel tiene que ser Casino o Europa';
@@ -50,6 +53,7 @@ function crear(d, pedidaPor) {
   db.prepare(`INSERT INTO solicitud_caja (id, cliente_id, sistema, nodo, login, nota, estado, pedida_por, creada_at)
     VALUES (?,?,?,?,?,?, 'pendiente', ?, ?)`)
     .run(id, K(d.cliente_id), sis, K(d.nodo), K(d.login), K(d.nota), pedidaPor || 'admin', nowISO());
+  avisarPanel();
   return { ok: true, solicitud: get(id) };
 }
 
@@ -70,6 +74,7 @@ function resolver(id, { estado, motivo, panel_id }) {
   if (!s) return null;
   db.prepare('UPDATE solicitud_caja SET estado=?, motivo=?, panel_id=?, resuelta_at=? WHERE id=?')
     .run(estado, motivo || null, panel_id || null, nowISO(), id);
+  avisarPanel();
   return get(id);
 }
 

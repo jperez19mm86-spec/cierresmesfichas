@@ -32,6 +32,9 @@ const ESTADOS = ['pendiente', 'aprobado', 'rechazado'];
  * sólo puede ser en pesos o en USDT: cualquier otra cosa vuelve a la de la vía.
  * Por USDT siempre USDT. Por la otra vía puede venir USDT (efectivo en dólares, cargado a mano).
  */
+// Avisa al panel que cambiaron sus pendientes (ver lib/avisos-panel.js). Nunca frena la escritura.
+const avisarPanel = () => { try { require('./lib/avisos-panel').cambio(); } catch (e) { /* sin panel */ } };
+
 function divisaSegura(via, divisa) {
   if (via === 'usdt') return 'USDT';
   return K(divisa).toUpperCase() === 'USDT' ? 'USDT' : 'ARS';
@@ -89,6 +92,7 @@ function crear({ codigo, clienteNombre, via, monto, divisa, referencia, notas, a
       // A qué billetera entró. Se congela acá: el cliente puede cambiar de billetera mañana y este
       // comprobante tiene que seguir diciendo dónde entró la plata.
       K(billetera_id) || null);
+  avisarPanel();
   return { ok: true, comprobante: get(id) };
 }
 
@@ -146,6 +150,7 @@ function resolver(id, { estado, por = '', motivo = '', movimiento_id = null }) {
   if (c.estado !== 'pendiente') return { ok: false, error: `ya estaba ${c.estado} desde ${c.resuelto_at || '?'}` };
   db.prepare('UPDATE comprobantes SET estado=?, resuelto_at=?, resuelto_por=?, motivo=?, movimiento_id=? WHERE id=? AND estado=\'pendiente\'')
     .run(estado, nowISO(), K(por), K(motivo).slice(0, 300), movimiento_id, String(id));
+  avisarPanel();
   return { ok: true, comprobante: get(id) };
 }
 
@@ -179,7 +184,9 @@ function marcarAvisoCliente(id, { ok, error }) {
  * No hay pantalla para esto a propósito: los que sube el cliente no se borran nunca, se rechazan.
  */
 function borrar(id) {
-  return db.prepare('DELETE FROM comprobantes WHERE id=?').run(String(id)).changes > 0;
+  const ok = db.prepare('DELETE FROM comprobantes WHERE id=?').run(String(id)).changes > 0;
+  if (ok) avisarPanel();
+  return ok;
 }
 
 module.exports = { borrar, marcarAviso, marcarAvisoCliente, crear, get, list, cuentas, porCliente, resolver, MAX_BYTES, ESTADOS };

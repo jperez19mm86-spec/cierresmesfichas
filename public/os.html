@@ -4032,38 +4032,54 @@ async function _cmpResolver(id, estado, codigo, opts) {
   VIEWS.movimientos();
 }
 /** El contador de la pestaña, para que un comprobante nuevo se vea sin entrar a buscarlo. */
-async function refrescarPendientes() {
-  const r = await api('/api/os/comprobantes?estado=pendiente');
-  _cmpPend = (r.cuentas && r.cuentas.pendiente) || 0;
-  renderNav();
-}
+async function refrescarPendientes() { return refrescarTodoPendiente(); }   // el pedido chico de los tres
 
 /* ── 🔔 TODO LO QUE ESPERA UNA DECISIÓN ───────────────────────────────────────────────────────
    Tres cosas distintas necesitan que alguien diga que sí: un comprobante de pago, una caja nueva
    y un movimiento de fichas entre paneles. Las tres vivían en pantallas distintas y detrás de
    botones que había que ir a buscar, así que se atendían cuando el cliente reclamaba.
 
-   Se piden las tres juntas y en paralelo: en serie, la más lenta retrasa a las otras dos y el
-   número de la barra aparece tarde. Si una falla, las otras dos se cuentan igual — un contador
-   incompleto es mejor que ninguno, y el error se ve al entrar. */
+   Los tres números salen del servidor en un solo pedido chico (/api/os/pendientes/cuentas). Los
+   movimientos cuentan `requierenAtencion` y no sólo los pendientes: incluye los que quedaron A
+   MEDIAS, que son los que más urgen —las fichas ya salieron de un panel del cliente—. */
 let _pend = { cajas: 0, movs: 0 };
 function _pendTotal(){ return (_cmpPend || 0) + (_pend.cajas || 0) + (_pend.movs || 0); }
 
-async function refrescarTodoPendiente() {
-  const [c, s, m] = await Promise.all([
-    api('/api/os/comprobantes?estado=pendiente').catch(() => null),
-    api('/api/os/solicitudes-caja?estado=pendiente').catch(() => null),
-    api('/api/os/movimientos-panel').catch(() => null),
-  ]);
-  if (c && c.ok) _cmpPend = (c.cuentas && c.cuentas.pendiente) || 0;
-  if (s && s.ok) _pend.cajas = (s.solicitudes || []).length;
-  // `requierenAtencion` y no "pendientes": incluye los que quedaron A MEDIAS, que son los que más
-  // urgen — ahí las fichas ya salieron de un panel del cliente y están a mitad de camino.
-  if (m && m.ok) _pend.movs = (m.counts || {}).requierenAtencion || 0;
+function aplicarPendientes(c) {
+  if (!c) return;
+  _cmpPend = Number(c.comprobantes) || 0; _pend.cajas = Number(c.cajas) || 0; _pend.movs = Number(c.movs) || 0;
   renderNav();
   // El título de la pestaña del navegador también, para verlo con el OS en segundo plano.
   const n = _pendTotal();
   document.title = (n ? '(' + n + ') ' : '') + 'Latam Games';
+}
+async function refrescarTodoPendiente() {
+  const r = await api('/api/os/pendientes/cuentas').catch(() => null);
+  if (r && r.ok) aplicarPendientes(r);
+}
+
+/* ── LOS PENDIENTES LLEGAN SOLOS (30-oct-2026) ────────────────────────────────────────────────
+   Antes se preguntaba cada 45 s, también con la pestaña escondida: ~5.800 pedidos por día por
+   pestaña, la mayoría para contestar «no cambió nada». Ahora queda una conexión abierta y el
+   servidor manda los números sólo cuando cambian (lib/avisos-panel.js), en el momento.
+   Por si esa conexión se corta sin avisar: se vuelve a contar al volver a la pestaña, y cada 10
+   minutos con la pestaña a la vista. Un navegador sin EventSource sigue con el reloj de antes. */
+let _novedades = null;
+function escucharPendientes() {
+  if (!window.EventSource) { setInterval(refrescarTodoPendiente, 45000); return; }
+  if (_novedades) _novedades.close();
+  const es = new EventSource('/api/os/novedades');
+  _novedades = es;
+  es.addEventListener('pendientes', (e) => { try { aplicarPendientes(JSON.parse(e.data)); } catch (x) { /* llega el próximo */ } });
+  // Un 401 (sesión vencida) o un error del servidor cierran la conexión y EventSource no reintenta:
+  // se reintenta acá, sin apuro. Un corte de red común lo reintenta el navegador solo.
+  es.onerror = () => { if (es.readyState === 2 && _novedades === es) setTimeout(escucharPendientes, 60000); };
+}
+let _pendRespaldo = false;
+function respaldoPendientes() {
+  if (_pendRespaldo) return; _pendRespaldo = true;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refrescarTodoPendiente(); });
+  setInterval(() => { if (!document.hidden) refrescarTodoPendiente(); }, 10 * 60000);
 }
 
 /* La pantalla ⚡ Calcular carga vive en public/pantalla-carga.js: la usan el panel Y Fichas, que es
@@ -9697,7 +9713,7 @@ async function pzBorrar(id){
 renderNav(); go(ES_CHAT ? 'chatcuentas' : 'acumulado');
 // Se cuenta al abrir y cada 45 segundos: un pendiente que llega mientras la pantalla está
 // abierta tiene que aparecer solo. Cada 45s son tres pedidos chicos, no molesta a nadie.
-if(!ES_CHAT){ refrescarTodoPendiente(); setInterval(refrescarTodoPendiente, 45000); }
+if(!ES_CHAT){ refrescarTodoPendiente(); escucharPendientes(); respaldoPendientes(); }
 </script>
 </body>
 </html>

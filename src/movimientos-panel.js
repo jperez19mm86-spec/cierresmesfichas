@@ -40,6 +40,9 @@ const nowISO = () => new Date().toISOString();
 const K = (s) => String(s || '').trim();
 
 /** Lo que hace falta para que un pedido de movimiento sea atendible. Devuelve el motivo si falta. */
+// Avisa al panel que cambiaron sus pendientes (ver lib/avisos-panel.js). Nunca frena la escritura.
+const avisarPanel = () => { try { require('./lib/avisos-panel').cambio(); } catch (e) { /* sin panel */ } };
+
 function queFalta(d) {
   if (!K(d.cliente_id)) return 'falta decir de qué cliente es';
   if (!K(d.origen_panel_id)) return 'falta el panel de origen';
@@ -68,6 +71,7 @@ function crear(d, pedidoPor) {
     VALUES (?,?,?,?,?,?,?, 'pendiente', ?, ?)`)
     .run(id, K(d.cliente_id), K(d.origen_panel_id), K(d.destino_panel_id),
       K(d.divisa).toUpperCase(), String(d.monto), K(d.nota) || null, pedidoPor || 'cliente', nowISO());
+  avisarPanel();
   return { ok: true, movimiento: get(id) };
 }
 
@@ -95,6 +99,7 @@ function list(filtros = {}) {
 function tomar(id, desde) {
   const r = db.prepare(`UPDATE movimiento_panel SET estado='ejecutando', tomado_at=?, desde_estado=?
     WHERE id=? AND estado=?`).run(nowISO(), desde, String(id || ''), desde);
+  if (r.changes === 1) avisarPanel();
   return r.changes === 1 ? get(id) : null;
 }
 
@@ -104,6 +109,7 @@ function soltar(id, error) {
   if (!m || m.estado !== 'ejecutando') return null;
   db.prepare('UPDATE movimiento_panel SET estado=?, tomado_at=NULL, error=? WHERE id=?')
     .run(m.desde_estado || 'pendiente', error ? String(error).slice(0, 500) : null, String(id));
+  avisarPanel();
   return get(id);
 }
 
@@ -172,6 +178,7 @@ function destrabar(id, minimoMinutos = 5) {
   const vuelve = algoHecho ? 'a_medias' : 'pendiente';
   db.prepare('UPDATE movimiento_panel SET estado=?, tomado_at=NULL, error=? WHERE id=?')
     .run(vuelve, 'se destrabó a mano: el proceso se cortó en el medio', String(id));
+  avisarPanel();
   return { ok: true, movimiento: get(id), vuelveA: vuelve };
 }
 
@@ -179,6 +186,7 @@ function marcarHecho(id, detalle, porQuien) {
   db.prepare(`UPDATE movimiento_panel SET estado='hecho', tomado_at=NULL, hecho_at=?,
     detalle_carga=?, aprobado_por=?, error=NULL WHERE id=?`)
     .run(nowISO(), JSON.stringify(detalle || {}), porQuien || 'admin', String(id));
+  avisarPanel();
   return get(id);
 }
 
@@ -190,6 +198,7 @@ function rechazar(id, motivo, porQuien) {
   if (m.estado !== 'pendiente') return { ok: false, error: `no se puede rechazar: está "${m.estado}"` };
   db.prepare(`UPDATE movimiento_panel SET estado='rechazado', motivo=?, resuelto_at=?, aprobado_por=? WHERE id=?`)
     .run(String(motivo || '').slice(0, 300) || null, nowISO(), porQuien || 'admin', String(id));
+  avisarPanel();
   return { ok: true, movimiento: get(id) };
 }
 

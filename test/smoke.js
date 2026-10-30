@@ -5094,12 +5094,14 @@ async function main() {
       /id: 'hoy'/.test(h5)
       && h5.indexOf("id: 'hoy'") < h5.indexOf("id: 'plata'"),
       'primer grupo de la barra');
+    // Desde el 30-oct los tres números los cuenta el servidor (lib/avisos-panel.js) y llegan en un
+    // pedido chico, en vez de bajar tres listas enteras.
+    const srcAvisos = fs.readFileSync(path.join(ROOT, 'src', 'lib', 'avisos-panel.js'), 'utf8');
     check('pendientes: cuenta las TRES cosas',
-      /_pendTotal/.test(h5) && /comprobantes\?estado=pendiente/.test(h5)
-      && /solicitudes-caja\?estado=pendiente/.test(h5) && /movimientos-panel/.test(h5));
-    // En serie, la más lenta retrasa el número de la barra. Y si una falla, las otras se cuentan.
-    check('pendientes: las tres se piden en paralelo y una falla no tumba a las otras',
-      /Promise\.all/.test(h5) && (h5.match(/\.catch\(\(\) => null\)/g) || []).length >= 3);
+      /_pendTotal/.test(h5) && /\/api\/os\/pendientes\/cuentas/.test(h5)
+      && /comprobantes:/.test(srcAvisos) && /cajas:/.test(srcAvisos) && /movs:/.test(srcAvisos));
+    check('pendientes: un solo pedido chico, no las tres listas enteras',
+      !/api\('\/api\/os\/movimientos-panel'\)\.catch/.test(h5));
     // Los movimientos A MEDIAS son los que más urgen: las fichas ya salieron del panel del cliente.
     check('pendientes: los movimientos a medias cuentan como pendientes',
       /requierenAtencion/.test(h5));
@@ -5107,8 +5109,11 @@ async function main() {
     check('pendientes: reusa las pantallas que ya aprueban, no las duplica',
       /VIEWS\.pendientes/.test(h5) && /solicitudesCaja\(\)/.test(h5)
       && /movimientosPanel\(\)/.test(h5) && /pintarComprobantes\('pendiente'/.test(h5));
+    // Ya no pregunta cada 45 s: el servidor avisa por /api/os/novedades, y se vuelve a contar al
+    // volver a la pestaña por si la conexión se cortó sin avisar.
     check('pendientes: se refresca solo con la pantalla abierta',
-      /setInterval\(refrescarTodoPendiente/.test(h5));
+      /new EventSource\('\/api\/os\/novedades'\)/.test(h5) && /visibilitychange/.test(h5));
+    check('pendientes: ya no pregunta cada 45 segundos', !/setInterval\(refrescarTodoPendiente, 45000\); \}/.test(h5.replace(/if \(!window\.EventSource\)[^\n]*/, '')));
     // Con el OS en otra pestaña del navegador, el número tiene que verse igual.
     check('pendientes: el título del navegador lleva el número',
       /document\.title = \(n \? '\(' \+ n \+ '\) ' : ''\)/.test(h5));
