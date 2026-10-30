@@ -375,7 +375,10 @@ app.get('/api/despacho/sistemas', (_req, res) => {
    pregunta que sólo se podía contestar mirando las variables del servidor. */
 // `ip`: la dirección con la que te ve el servidor. Es la tuya; sirve para comprobar que los topes
 // cuentan a cada uno por separado (ver `trust proxy` arriba).
-app.get('/api/quien', (req, res) => res.json({ ok: true, ...auth.quienEs(req), ip: req.ip }));
+app.get('/api/quien', (req, res) => res.json({ ok: true, ...auth.quienEs(req), ip: req.ip,
+  // Los saltos por los que pasó el pedido, para ajustar `trust proxy` mirando producción y no adivinando.
+  saltos: { xff: req.headers['x-forwarded-for'] || null, real: req.headers['x-real-ip'] || null,
+    edge: req.headers['x-railway-edge'] || null, socket: (req.socket && req.socket.remoteAddress) || null } }));
 /* 🔐 Cerrar TODAS las sesiones del panel (la dueña y la operadora), en todos los navegadores. Para
    cuando se perdió un teléfono o se sospecha que alguien entró. Quien lo aprieta sigue adentro:
    se le da una sesión nueva en el mismo momento. Sólo admin: el operador no llega a /api/os. */
